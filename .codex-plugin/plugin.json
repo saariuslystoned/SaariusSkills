@@ -1,0 +1,33 @@
+{
+  "name": "saarius-skills",
+  "version": "0.1.0",
+  "description": "Experimental progressive product-decision workflows.",
+  "author": {
+    "name": "Bobby Bones",
+    "url": "https://github.com/saariuslystoned"
+  },
+  "homepage": "https://github.com/saariuslystoned/SaariusSkills",
+  "repository": "https://github.com/saariuslystoned/SaariusSkills",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills",
+    "grilltrack",
+    "product-development"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Saarius Skills",
+    "shortDescription": "Progressive product decisions, built and verified.",
+    "longDescription": "Experimental Agent Skills for cumulative product decisions, bounded implementation, verification, and honest closeout.",
+    "developerName": "Saariusly Stoned",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
+    "defaultPrompt": [
+      "Use $grilltrack to decide and build the next product slice."
+    ]
+  }
+}

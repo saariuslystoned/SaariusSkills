@@ -1,0 +1,50 @@
+{
+  "schema_version": "grilltrack-picker/v0.1",
+  "round_id": "fixture-layout-001",
+  "canvas_ref": "fixture:accepted-layout",
+  "active_slot": "hero-layout",
+  "slots": [
+    {
+      "id": "navigation",
+      "status": "locked",
+      "selection_ref": "decision:navigation-001"
+    },
+    {
+      "id": "hero-layout",
+      "status": "unresolved"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "a",
+      "label": "Candidate A",
+      "delta_ref": "delta:hero-a"
+    },
+    {
+      "id": "b",
+      "label": "Candidate B",
+      "delta_ref": "delta:hero-b"
+    },
+    {
+      "id": "c",
+      "label": "Candidate C",
+      "delta_ref": "delta:hero-c"
+    },
+    {
+      "id": "d",
+      "label": "Candidate D",
+      "delta_ref": "delta:hero-d"
+    },
+    {
+      "id": "e",
+      "label": "Candidate E",
+      "delta_ref": "delta:hero-e"
+    }
+  ],
+  "controls": {
+    "keyboard": true,
+    "pointer": true,
+    "mobile": true
+  },
+  "production": false
+}

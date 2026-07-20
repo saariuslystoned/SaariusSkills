@@ -1,2 +1,104 @@
 # SaariusSkills
-Public Codex skills maintained by Saariusly Stoned.
+
+Public, experimental Agent Skills maintained by
+[Saariusly Stoned](https://github.com/saariuslystoned).
+
+## GrillTrack
+
+GrillTrack helps a user and an agent build a complicated thing without
+pretending every important decision is visible at the beginning. It runs one
+focused decision cycle at a time:
+
+```text
+grill -> confirm shared understanding -> implement -> verify -> inspect -> repeat or close
+```
+
+Accepted choices stay present while later choices are judged, so the product
+converges as a whole rather than becoming a pile of disconnected preferences.
+The first domain pack supports frontend work with exactly five live variants
+inside the accepted layout.
+
+> **Experimental:** the portable skill, durable ledger tools, frontend
+> reference pack, packaging checks, and unit tests are available. Real-project
+> rehearsals and public case-study proof remain planned. The repository does
+> not claim stable cross-host support or a completed production proof ladder.
+
+## Origins
+
+GrillTrack began when an ordinary grilling session worked exactly as intended:
+it clarified a website well enough to build. The implemented site then exposed
+decisions the initial interview could not usefully settle—imagery, icons,
+mobile usability, copy, and motion. Each became a focused new grill using five
+live variants inside the previously accepted layout. Locked choices stayed
+visible, implementation made them real, and that new reality revealed the next
+grill.
+
+Matt Pocock’s grilling skill supplied the interview foundation. Will Ness’s
+frontend-prototyping variant introduced five live visual alternatives.
+GrillTrack adds the durable, cumulative loop across focused grills: grill,
+implement, verify, inspect, and repeat.
+
+The pinned upstream influences are:
+
+- [Matt Pocock’s grilling skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/productivity/grilling/SKILL.md)
+- [Matt Pocock’s batch-grill-me skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/in-progress/batch-grill-me/SKILL.md)
+- [Matt Pocock’s grill-with-docs skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/engineering/grill-with-docs/SKILL.md)
+- [Matt Pocock’s domain-modeling skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/engineering/domain-modeling/SKILL.md)
+- [Will Ness’s grilling-frontend-prototyping skill](https://github.com/will-ness-ai/skills/blob/131c397a7731b6b0ce398a5b3bb8db8768136bc5/skills/engineering/grilling-frontend-prototyping/SKILL.md)
+- [Agent Skills specification](https://agentskills.io/specification)
+
+These projects and their authors do not endorse GrillTrack. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for provenance and license
+details.
+
+## Install
+
+Add this repository as a Codex plugin marketplace, then install its plugin:
+
+```bash
+codex plugin marketplace add saariuslystoned/SaariusSkills
+codex plugin add saarius-skills@saarius-skills
+```
+
+Restart Codex if the newly installed skill does not appear. The commands follow
+the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
+
+Then start a track by explicitly invoking:
+
+```text
+$grilltrack Help me decide and implement the next high-leverage product slice.
+```
+
+Merely mentioning “GrillTrack” must not create or change project state. The
+explicit `$grilltrack` invocation is required when starting, resuming, or
+reopening a track.
+
+## What ships
+
+- [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,
+  explicit-only core workflow.
+- `skills/grilltrack/scripts/grilltrack_ledger.py`: a standard-library CLI for
+  validated, resumable, non-destructive project ledgers.
+- `skills/grilltrack/scripts/validate_picker.py`: a validator for the
+  exactly-five frontend picker contract.
+- `skills/grilltrack/references/`: progressively loaded protocol, ledger,
+  proof, closeout, and frontend guidance.
+- `fixtures/`: small public evaluation inputs.
+- `tests/`: protocol, state, packaging, and safety regression tests.
+
+GrillTrack never treats a decision lock as permission to commit, push, open or
+merge a pull request, deploy, spend, or change an account. Those actions require
+their own explicit authorization and remain subject to the active repository’s
+rules.
+
+## Development
+
+Run the complete local verification:
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
+python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
