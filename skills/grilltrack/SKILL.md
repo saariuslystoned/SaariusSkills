@@ -1,6 +1,6 @@
 ---
 name: grilltrack
-description: Explicit-only progressive product development through focused decision, implementation, verification, and inspection cycles with durable state. Use only when the user invokes $grilltrack to start, resume, or reopen a track. A natural-language mention without $grilltrack receives invocation guidance and must not create or mutate state.
+description: Progressive product development through focused decision, implementation, verification, and inspection cycles with durable state. Use when a user naturally asks to grill, decide and build a product slice, continue to the next grill, resume or reopen a prior decision, or explicitly invokes $grilltrack. Do not require a canned invocation when the user's intent is already clear.
 license: MIT
 ---
 
@@ -9,20 +9,18 @@ license: MIT
 Build the next knowable slice of a complicated product. Do not pretend every
 important decision is visible at the beginning.
 
-## Enforce explicit activation
+## Activate naturally
 
-Require `$grilltrack` in the current user request before starting, resuming, or
-reopening a track.
+Activate when the user naturally asks to start, continue, resume, reopen, or
+close a GrillTrack product cycle. Also accept an explicit `$grilltrack`
+invocation. Do not make the user repeat a canned prompt when intent is already
+clear.
 
-If the user only names GrillTrack in natural language:
+Do not activate for a casual mention, a request to explain GrillTrack, or
+feedback about the skill that does not also request product-cycle work.
 
-1. Explain briefly that GrillTrack is explicit-only.
-2. Suggest an invocation such as
-   `$grilltrack Help me decide and build the next product slice.`
-3. Do not inspect, create, or mutate `.grilltrack/`.
-
-Explicit activation does not override repository instructions, approval gates,
-or limits on external actions.
+Activation does not override repository instructions, approval gates, or limits
+on external actions.
 
 ## Load only the needed guidance
 
@@ -83,10 +81,16 @@ Run the standard-library ledger CLI from this skill directory:
 
 ```bash
 python3 scripts/grilltrack_ledger.py --project <project-root> init \
-  --activation '$grilltrack' --title "<track title>"
+  --title "<track title>"
+python3 scripts/grilltrack_ledger.py --project <project-root> new \
+  --title "<next track title>"
 python3 scripts/grilltrack_ledger.py --project <project-root> show
 python3 scripts/grilltrack_ledger.py --project <project-root> validate
 ```
+
+Use `new` after a closed track. It preserves the prior ledger and event log
+under `.grilltrack/archive/<track-id>/`, links the successor, and starts clean
+active state. Never overwrite or delete a closed track to continue.
 
 Use the narrow subcommand that matches the real transition. Let the tool reject
 invalid lifecycle changes; do not hand-edit around validation. The ledger is the

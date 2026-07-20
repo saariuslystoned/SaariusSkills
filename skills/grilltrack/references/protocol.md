@@ -2,9 +2,14 @@
 
 ## Activation
 
-Start, resume, or reopen a track only after `$grilltrack` appears in the
-current user request. A plain-language mention receives invocation guidance and
-causes no ledger read or write.
+Start, continue, resume, reopen, or close a track when the user's natural
+request clearly asks for that product-cycle work. Also accept `$grilltrack` as
+an explicit invocation. Do not require the user to translate clear intent into
+a canned command.
+
+A casual mention or explanation request does not activate product work. When
+intent is ambiguous and mutation would be material, clarify once instead of
+asking the user to paste a special phrase.
 
 Activation authorizes the bounded local cycle after shared-understanding
 confirmation. It does not widen repository permissions or authorize delivery.

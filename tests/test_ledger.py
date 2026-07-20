@@ -41,8 +41,6 @@ class LedgerCliTests(unittest.TestCase):
     def init(self) -> None:
         self.run_cli(
             "init",
-            "--activation",
-            "$grilltrack",
             "--title",
             "Fixture track",
             "--track-id",
@@ -84,7 +82,27 @@ class LedgerCliTests(unittest.TestCase):
         )
         self.run_cli("verify", "--id", decision_id, "--ref", f"test:{decision_id}")
 
-    def test_init_requires_exact_activation(self) -> None:
+    def test_init_accepts_natural_activation(self) -> None:
+        self.init()
+        self.assertEqual(
+            self.read_ledger()["last_activation"]["mechanism"], "implicit"
+        )
+
+    def test_explicit_activation_remains_supported(self) -> None:
+        self.run_cli(
+            "init",
+            "--activation",
+            "$grilltrack",
+            "--title",
+            "Explicit track",
+            "--track-id",
+            "explicit-track",
+        )
+        self.assertEqual(
+            self.read_ledger()["last_activation"]["mechanism"], "$grilltrack"
+        )
+
+    def test_invalid_activation_is_rejected(self) -> None:
         result = self.run_cli(
             "init",
             "--activation",
@@ -94,7 +112,7 @@ class LedgerCliTests(unittest.TestCase):
             ok=False,
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("explicit activation required", result.stderr)
+        self.assertIn("activation must be implicit or $grilltrack", result.stderr)
         self.assertFalse((self.project / ".grilltrack").exists())
 
     def test_full_cycle_is_durable_and_valid(self) -> None:
@@ -150,8 +168,6 @@ class LedgerCliTests(unittest.TestCase):
         self.add_verified("child-001", depends_on="base-001")
         self.run_cli(
             "reopen",
-            "--activation",
-            "$grilltrack",
             "--id",
             "base-001",
             "--reason",
@@ -183,8 +199,6 @@ class LedgerCliTests(unittest.TestCase):
         )
         self.run_cli(
             "reopen",
-            "--activation",
-            "$grilltrack",
             "--id",
             "base-001",
             "--reason",
@@ -193,21 +207,18 @@ class LedgerCliTests(unittest.TestCase):
         decisions = {item["id"]: item for item in self.read_ledger()["decisions"]}
         self.assertEqual(decisions["draft-001"]["status"], "proposed")
 
-    def test_resume_requires_exact_activation(self) -> None:
+    def test_resume_accepts_natural_activation(self) -> None:
         self.init()
         self.run_cli(
             "pause",
             "--reason",
             "Session boundary",
-            "--next-safe-action",
-            "Resume explicitly",
+            "--next-safe-action", "Resume naturally",
         )
-        denied = self.run_cli(
-            "resume", "--activation", "grilltrack", ok=False
-        )
-        self.assertEqual(denied.returncode, 2)
-        self.run_cli("resume", "--activation", "$grilltrack")
-        self.assertEqual(self.read_ledger()["status"], "active")
+        self.run_cli("resume")
+        ledger = self.read_ledger()
+        self.assertEqual(ledger["status"], "active")
+        self.assertEqual(ledger["last_activation"]["mechanism"], "implicit")
 
     def test_close_rejects_unresolved_then_accepts_deferred(self) -> None:
         self.init()
@@ -250,6 +261,66 @@ class LedgerCliTests(unittest.TestCase):
             "Deferred output choice is recorded.",
         )
         self.assertEqual(self.read_ledger()["status"], "closed")
+
+    def test_new_preserves_closed_track_and_starts_successor(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        self.add_verified("output-001")
+        proof = self.project / ".grilltrack" / "proof" / "fixture.txt"
+        proof.write_text("retained proof\n", encoding="utf-8")
+        self.run_cli(
+            "close",
+            "--confirmed-by", "user",
+            "--reason", "Cycle complete",
+            "--summary", "Verified fixture output.",
+            "--proof-ref", ".grilltrack/proof/fixture.txt",
+        )
+        closed_ledger = self.read_ledger()
+        closed_events = (
+            self.project / ".grilltrack" / "events.jsonl"
+        ).read_text(encoding="utf-8")
+
+        self.run_cli(
+            "new",
+            "--title", "Next fixture track",
+            "--track-id", "fixture-track-2",
+        )
+
+        ledger = self.read_ledger()
+        archive = (
+            self.project / ".grilltrack" / "archive" / "fixture-track"
+        )
+        self.assertEqual(ledger["status"], "active")
+        self.assertEqual(ledger["predecessor_track_id"], "fixture-track")
+        self.assertEqual(ledger["last_activation"]["mechanism"], "implicit")
+        self.assertEqual(
+            json.loads((archive / "ledger.json").read_text(encoding="utf-8")),
+            closed_ledger,
+        )
+        self.assertEqual(
+            (archive / "events.jsonl").read_text(encoding="utf-8"),
+            closed_events,
+        )
+        self.assertEqual(proof.read_text(encoding="utf-8"), "retained proof\n")
+        events = [
+            json.loads(line)
+            for line in (
+                self.project / ".grilltrack" / "events.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual([event["action"] for event in events], ["track_initialized"])
+        self.assertEqual(
+            events[0]["data"]["archive_ref"],
+            ".grilltrack/archive/fixture-track",
+        )
+
+    def test_new_rejects_an_active_track(self) -> None:
+        self.init()
+        result = self.run_cli(
+            "new", "--title", "Too soon", ok=False
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("only after the current track is closed", result.stderr)
 
     def test_dependency_cycle_is_rejected(self) -> None:
         self.init()

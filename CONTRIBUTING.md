@@ -5,7 +5,7 @@ and proven.
 
 Contributions should:
 
-- preserve explicit-only activation;
+- preserve intent-aware activation without canned user prompt gates;
 - keep the core domain-neutral and move specialized depth into references;
 - preserve non-destructive ledger history;
 - keep product decisions separate from delivery authorization;

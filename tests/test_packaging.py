@@ -26,12 +26,13 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(market["plugins"][0]["name"], plugin["name"])
         self.assertEqual(market["plugins"][0]["source"]["path"], "./")
 
-    def test_explicit_only_metadata(self) -> None:
+    def test_intent_aware_activation_metadata(self) -> None:
         metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
-        self.assertIn("allow_implicit_invocation: false", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("$grilltrack", metadata)
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("A natural-language mention", skill)
+        self.assertIn("Do not make the user repeat a canned prompt", skill)
+        self.assertIn("casual mention", skill)
         self.assertLessEqual(len(skill.splitlines()), 500)
 
     def test_greenfield_design_contract_is_packaged(self) -> None:
