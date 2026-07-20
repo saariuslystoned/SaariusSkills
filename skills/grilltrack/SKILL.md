@@ -102,6 +102,13 @@ For a visual decision, present exactly five materially distinct candidates in
 one active unresolved slot. Present them neutrally and preserve prior locks on
 the same faithful canvas.
 
+For a greenfield website, app, or other whole-product frontend build, establish
+and maintain the canonical design contract described by the frontend support
+pack. Default to root `design.md`; preserve a repository's declared canonical
+path when one already exists. Record only confirmed constraints and verified
+design decisions as locks. Keep unresolved directions explicit instead of
+turning an exploratory scaffold into the design system.
+
 Never propose a hybrid. When the user explicitly requests a precise hybrid,
 preview it for confirmation as a replacement for the active five—not as a
 sixth option. A vague hybrid may start a new round of exactly five.

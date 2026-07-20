@@ -16,7 +16,10 @@ grill -> confirm shared understanding -> implement -> verify -> inspect -> repea
 Accepted choices stay present while later choices are judged, so the product
 converges as a whole rather than becoming a pile of disconnected preferences.
 The first domain pack supports frontend work with exactly five live variants
-inside the accepted layout.
+inside the accepted layout. For greenfield whole-product frontend builds,
+verified design choices also accumulate in a canonical `design.md` contract so
+future cycles inherit the real design language rather than reconstructing it
+from screenshots or chat history.
 
 > **Experimental:** the portable skill, durable ledger tools, frontend
 > reference pack, packaging checks, and unit tests are available. Real-project

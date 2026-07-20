@@ -34,6 +34,21 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("A natural-language mention", skill)
         self.assertLessEqual(len(skill.splitlines()), 500)
 
+    def test_greenfield_design_contract_is_packaged(self) -> None:
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        frontend = (
+            SKILL / "references" / "grill-frontend" / "README.md"
+        ).read_text(encoding="utf-8")
+        contract = (
+            SKILL / "references" / "grill-frontend" / "design-contract.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Default to root `design.md`", skill)
+        self.assertIn("[design-contract.md](design-contract.md)", frontend)
+        self.assertIn("# Greenfield design contract", contract)
+        self.assertIn("Do not cleanly close", contract)
+        self.assertIn("Do not impose this requirement", contract)
+
     def test_legal_copies_match(self) -> None:
         self.assertEqual(
             (ROOT / "LICENSE").read_text(encoding="utf-8"),
