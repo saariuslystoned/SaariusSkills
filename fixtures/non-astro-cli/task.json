@@ -1,0 +1,13 @@
+{
+  "fixture": "non-astro-cli",
+  "purpose": "Exercise GrillTrack without a frontend framework or GitHub.",
+  "focused_grill": "Choose the human-readable status output shape.",
+  "renderer": "CLI transcript",
+  "constraints": [
+    "Use only Python standard library.",
+    "Do not require source-control delivery.",
+    "Resume from the project-local ledger in a fresh session.",
+    "Reopen one verified output decision and preserve its history."
+  ],
+  "proof_status": "fixture-only; a full independent GrillTrack run is not yet claimed"
+}

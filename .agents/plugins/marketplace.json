@@ -1,0 +1,20 @@
+{
+  "name": "saarius-skills",
+  "interface": {
+    "displayName": "Saarius Skills"
+  },
+  "plugins": [
+    {
+      "name": "saarius-skills",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
