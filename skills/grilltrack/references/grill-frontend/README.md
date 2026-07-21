@@ -28,6 +28,7 @@ focused module:
 | Focused grill | Module |
 | --- | --- |
 | Overall layout or visual language | [layout.md](layout.md) |
+| Typography or fonts | [typography.md](typography.md) |
 | Imagery | [imagery.md](imagery.md) |
 | Motion | [motion.md](motion.md) |
 | Icons | [icons.md](icons.md) |

@@ -31,6 +31,12 @@ ledger. Include:
 Link to deeper assets, token sources, or component documentation rather than
 copying large generated inventories into `design.md`.
 
+For a verified font system, record the role mapping, exact families and real
+weights/styles, fallback stacks, subset or language coverage, asset source and
+license constraints, delivery method, and interaction with motion. Do not leave
+the contract at a mood label such as “editorial serif” when implementation
+depends on concrete faces.
+
 ## Cumulative update rule
 
 After each verified visual cycle, update the design contract in the same

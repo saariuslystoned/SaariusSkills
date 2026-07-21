@@ -21,6 +21,11 @@ verified design choices also accumulate in a canonical `design.md` contract so
 future cycles inherit the real design language rather than reconstructing it
 from screenshots or chat history.
 
+The frontend pack includes a complete font-system grill: compare five role-based
+systems on the accepted product canvas, then verify the winner's real weights,
+delivery path, responsive fit, and motion behavior before promoting it into
+`design.md`.
+
 > **Experimental:** the portable skill, durable ledger tools, frontend
 > reference pack, packaging checks, and unit tests are available. Real-project
 > rehearsals and public case-study proof remain planned. The repository does

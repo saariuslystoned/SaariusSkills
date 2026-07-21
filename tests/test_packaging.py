@@ -50,6 +50,24 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Do not cleanly close", contract)
         self.assertIn("Do not impose this requirement", contract)
 
+    def test_font_system_grill_is_packaged(self) -> None:
+        frontend = (
+            SKILL / "references" / "grill-frontend" / "README.md"
+        ).read_text(encoding="utf-8")
+        typography = (
+            SKILL / "references" / "grill-frontend" / "typography.md"
+        ).read_text(encoding="utf-8")
+        contract = (
+            SKILL / "references" / "grill-frontend" / "design-contract.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("[typography.md](typography.md)", frontend)
+        self.assertIn("# Typography and fonts", typography)
+        self.assertIn("five complete typographic systems", typography)
+        self.assertIn("real weights", typography)
+        self.assertIn("runtime font requests", typography)
+        self.assertIn("exact families and real", contract)
+
     def test_legal_copies_match(self) -> None:
         self.assertEqual(
             (ROOT / "LICENSE").read_text(encoding="utf-8"),
