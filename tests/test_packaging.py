@@ -14,6 +14,9 @@ class PackagingTests(unittest.TestCase):
         plugin = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
+        root_plugin = json.loads(
+            (ROOT / "plugin.json").read_text(encoding="utf-8")
+        )
         market = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
                 encoding="utf-8"
@@ -22,6 +25,9 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(plugin["name"], "saarius-skills")
         self.assertEqual(plugin["version"], "0.1.0")
         self.assertEqual(plugin["skills"], "./skills/")
+        self.assertEqual(root_plugin["name"], "saarius-skills")
+        self.assertEqual(root_plugin["version"], "0.1.0")
+        self.assertEqual(root_plugin["skills"], "./skills/")
         self.assertEqual(market["name"], "saarius-skills")
         self.assertEqual(market["plugins"][0]["name"], plugin["name"])
         self.assertEqual(market["plugins"][0]["source"]["path"], "./")

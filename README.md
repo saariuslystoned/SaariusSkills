@@ -53,6 +53,8 @@ details.
 
 ## Install
 
+### Codex
+
 Add this repository as a Codex plugin marketplace, then install its plugin:
 
 ```bash
@@ -62,6 +64,16 @@ codex plugin add saarius-skills@saarius-skills
 
 Restart Codex if the newly installed skill does not appear. The commands follow
 the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
+
+### Google Antigravity (AGY)
+
+Symlink or clone this repository into your Antigravity plugins directory:
+
+```bash
+ln -sfn ~/Developer/SaariusSkills ~/.gemini/config/plugins/saarius-skills
+```
+
+Antigravity auto-discovers skills via the root `plugin.json` manifest.
 
 Then start a track by explicitly invoking:
 
