@@ -67,13 +67,14 @@ the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/d
 
 ### Google Antigravity (AGY)
 
-Symlink or clone this repository into your Antigravity plugins directory:
+Install this skillpack with the AGY CLI:
 
 ```bash
-ln -sfn ~/Developer/SaariusSkills ~/.gemini/config/plugins/saarius-skills
+agy plugin install /path/to/SaariusSkills
 ```
 
-Antigravity auto-discovers skills via the root `plugin.json` manifest.
+AGY loads the pack from the provided path and reads the root `plugin.json`
+manifest.
 
 Then start a track by explicitly invoking:
 

@@ -1,13 +1,4 @@
 {
   "name": "saarius-skills",
-  "version": "0.1.0",
-  "description": "Experimental progressive product-decision workflows.",
-  "author": {
-    "name": "Bobby Bones",
-    "url": "https://github.com/saariuslystoned"
-  },
-  "homepage": "https://github.com/saariuslystoned/SaariusSkills",
-  "repository": "https://github.com/saariuslystoned/SaariusSkills",
-  "license": "MIT",
-  "skills": "./skills/"
+  "description": "Experimental progressive product-decision workflows."
 }
