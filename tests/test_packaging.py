@@ -91,7 +91,11 @@ class PackagingTests(unittest.TestCase):
     def test_no_placeholders(self) -> None:
         placeholder = "[" + "TODO:"
         for path in ROOT.rglob("*"):
-            if not path.is_file() or ".git" in path.parts:
+            if not path.is_file() or {
+                ".git",
+                ".ruff_cache",
+                "__pycache__",
+            }.intersection(path.parts):
                 continue
             if path.suffix not in {".md", ".json", ".yaml", ".py", ""}:
                 continue

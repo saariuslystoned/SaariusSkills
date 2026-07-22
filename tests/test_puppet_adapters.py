@@ -17,6 +17,7 @@ from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     DECLARED_MAPPINGS,
+    _launch_flags,
     adapter_implementation_fingerprint,
     _sandbox_disable_declared,
 )
@@ -71,6 +72,12 @@ def manifest_raw():
 
 
 class AdapterTests(unittest.TestCase):
+    def test_combined_permission_and_sandbox_switch_is_emitted_once(self):
+        self.assertEqual(
+            _launch_flags(DECLARED_MAPPINGS["codex"]),
+            ["--dangerously-bypass-approvals-and-sandbox"],
+        )
+
     def test_adapter_fingerprint_binds_the_runtime_module_closure(self):
         fingerprint = adapter_implementation_fingerprint()
         adapters_only = hashlib.sha256(

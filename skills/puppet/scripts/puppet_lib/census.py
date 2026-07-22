@@ -128,6 +128,15 @@ def _sandbox_disable_declared(
     return False
 
 
+def _launch_flags(mapping: Dict[str, Any]) -> List[str]:
+    """Combine declared flag groups without repeating an identical switch."""
+    combined: List[str] = []
+    for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
+        if flag not in combined:
+            combined.append(flag)
+    return combined
+
+
 def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     if target not in COMMANDS:
         raise ValidationError("target is not on the census allowlist")
@@ -154,7 +163,7 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "permission_declared": permission_declared,
             "sandbox_disable_declared": sandbox_declared,
             "prompt_transport_declared": prompt_declared,
-            "launch_argv": [str(resolved_path)] + mapping["permission_flags"] + mapping["sandbox_flags"],
+            "launch_argv": [str(resolved_path)] + _launch_flags(mapping),
         }
     )
     stat_result = resolved_path.stat()

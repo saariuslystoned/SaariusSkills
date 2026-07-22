@@ -655,7 +655,7 @@ def send_message(
     validate_identifier(request_id, "request id")
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
-    contract = _bound_contract(record)
+    _bound_contract(record)
     tmux, _ = _runtime(registry, record, "send", require_process=True)
     adapter = adapter_for(record["target"])
     protocol = dict(record["protocol"])

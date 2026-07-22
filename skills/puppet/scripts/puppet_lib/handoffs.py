@@ -172,7 +172,7 @@ def validate_handoff(
     executable = validate_sha256(data.get("executable_fingerprint"), "executable fingerprint")
     adapter = validate_sha256(data.get("adapter_fingerprint"), "adapter fingerprint")
     protocol = validate_sha256(data.get("protocol_fingerprint"), "protocol fingerprint")
-    timestamp = _timestamp(data.get("timestamp"))
+    _timestamp(data.get("timestamp"))
     _bounded_list(data.get("claims"), "claims", dict_items=True)
     evidence_refs = _bounded_list(data.get("evidence_refs"), "evidence_refs")
     for ref in evidence_refs:
