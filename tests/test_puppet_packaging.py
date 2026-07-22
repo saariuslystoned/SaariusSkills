@@ -57,7 +57,12 @@ class PuppetPackagingTests(unittest.TestCase):
             path.read_text(encoding="utf-8")
             for path in (SKILL / "scripts").rglob("*.py")
         )
-        forbidden = ["capture-" + "pane", "pipe-" + "pane", "git " + "push", "gh " + "pr"]
+        forbidden = [
+            "capture-" + "pane",
+            "pipe-" + "pane",
+            "git " + "push",
+            "gh " + "pr",
+        ]
         for marker in forbidden:
             self.assertNotIn(marker, sources)
 

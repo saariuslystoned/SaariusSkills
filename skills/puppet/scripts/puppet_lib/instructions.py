@@ -5,21 +5,21 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 from .contracts import TARGETS
 from .errors import ValidationError
 from .safety import (
-    FORBIDDEN_FIELD_PARTS,
-    validate_sha256,
     SECRET_TEXT_PATTERNS,
     canonical_json_bytes,
     sha256_bytes,
     validate_bounded_json,
+    validate_sha256,
 )
 
-DEFAULT_TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates" / "instructions"
+DEFAULT_TEMPLATE_ROOT = (
+    Path(__file__).resolve().parents[2] / "templates" / "instructions"
+)
 _CATALOG_FILENAME = "catalog.json"
 _COMPILER_ID = "puppet-instruction-compiler-core"
 _MAX_TEMPLATE_BYTES = 65536
@@ -61,25 +61,14 @@ def _expected_layer_specs(target: str, include_addendum: bool) -> List[Tuple[str
     return base
 
 
-def _ordered_layer_hashes(layers: List[Mapping[str, Any]]) -> List[Dict[str, str]]:
-    return [
-        {"name": str(layer["name"]), "sha256": str(layer["sha256"])} for layer in layers
-    ]
-
-
 def _compute_effective_contract_fingerprint(
     manifest: Mapping[str, Any],
 ) -> str:
     payload = canonical_json_bytes(
         {
-            "instruction_policy_fingerprint": manifest["instruction_policy_fingerprint"],
-            "contract_identity": manifest["contract_identity"],
-            "workspace_identity": manifest["workspace_identity"],
-            "run_identity": manifest["run_identity"],
-            "ordered_layer_hashes": _ordered_layer_hashes(
-                list(manifest["ordered_layers"])
-            ),
-            "rendered_sha256": manifest["rendered_sha256"],
+            key: value
+            for key, value in manifest.items()
+            if key != "effective_contract_fingerprint"
         }
     )
     return sha256_bytes(payload)
@@ -97,7 +86,11 @@ class CompiledInstruction:
 
 
 def _coerce_template_root(template_root: Optional[Union[str, Path]]) -> Path:
-    root = Path.cwd() / template_root if template_root is not None else DEFAULT_TEMPLATE_ROOT
+    root = (
+        Path.cwd() / template_root
+        if template_root is not None
+        else DEFAULT_TEMPLATE_ROOT
+    )
     root = root if root.is_absolute() else root.resolve()
     root = root.absolute()
     if not root.is_dir():
@@ -127,7 +120,7 @@ def _validate_text(
     return normalized
 
 
-def _normalize_template_path(template_root: Path, value: str, *, label: str) -> str:
+def _normalize_template_path(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValidationError("%s path must be text" % label)
     if "/" in value and value.startswith("/"):
@@ -146,7 +139,7 @@ def _validate_template_file(
     *,
     label: str,
 ) -> Path:
-    normalized = _normalize_template_path(template_root, relative_path, label=label)
+    normalized = _normalize_template_path(relative_path, label=label)
     path = template_root / normalized
     current = template_root
     for part in normalized.split("/"):
@@ -199,7 +192,7 @@ def _read_catalog(path: Path) -> Dict[str, Any]:
     return raw_data
 
 
-def _validate_catalog(raw: Dict[str, Any], *, catalog_root: Path) -> Tuple[Dict[str, str], str]:
+def _validate_catalog(raw: Dict[str, Any], *, catalog_root: Path) -> Dict[str, str]:
     if not isinstance(raw, dict):
         raise ValidationError("catalog must be an object")
     if raw.get("schema_version") != 1:
@@ -230,7 +223,9 @@ def _validate_catalog(raw: Dict[str, Any], *, catalog_root: Path) -> Tuple[Dict[
         "universal": _validate_template_file(
             catalog_root, str(universal["path"]), label="universal"
         ).as_posix(),
-        "model": _validate_template_file(catalog_root, str(model["path"]), label="model").as_posix(),
+        "model": _validate_template_file(
+            catalog_root, str(model["path"]), label="model"
+        ).as_posix(),
         "lifecycle_regular": _validate_template_file(
             catalog_root, str(lifecycle["regular"]), label="lifecycle regular"
         ).as_posix(),
@@ -239,9 +234,7 @@ def _validate_catalog(raw: Dict[str, Any], *, catalog_root: Path) -> Tuple[Dict[
         paths["harness_%s" % target] = _validate_template_file(
             catalog_root, str(relative), label="harness %s" % target
         ).as_posix()
-    catalog_sha = sha256_bytes(catalog_root.joinpath(_CATALOG_FILENAME).read_bytes())
-
-    return paths, catalog_sha
+    return paths
 
 
 def _validate_identity(value: Mapping[str, Any], *, label: str) -> Dict[str, Any]:
@@ -265,7 +258,7 @@ def _policy_layers(
     target: str,
 ) -> Tuple[List[Dict[str, str]], List[Tuple[str, str, str]]]:
     catalog_raw = _read_catalog(template_root / _CATALOG_FILENAME)
-    catalog_paths, _ = _validate_catalog(catalog_raw, catalog_root=template_root)
+    catalog_paths = _validate_catalog(catalog_raw, catalog_root=template_root)
 
     shipped = [
         ("universal", "universal", catalog_paths["universal"]),
@@ -277,8 +270,11 @@ def _policy_layers(
     layer_texts: List[Tuple[str, str, str]] = []
 
     for name, source, path in shipped:
-        payload = _read_template_text(Path(path), label=source if source != "universal" else source)
-        digest = sha256_bytes(payload.encode("utf-8"))
+        payload = _read_template_text(
+            Path(path), label=source if source != "universal" else source
+        )
+        body = payload.rstrip("\n")
+        digest = sha256_bytes(body.encode("utf-8"))
         layer_hashes.append({"name": name, "sha256": digest})
         layer_texts.append((name, source, payload))
     return layer_hashes, layer_texts
@@ -296,6 +292,7 @@ def _manifest_required_keys() -> List[str]:
         "contract_identity",
         "workspace_identity",
         "run_identity",
+        "orchestration_contract",
         "instruction_policy_fingerprint",
         "effective_contract_fingerprint",
         "rendered_sha256",
@@ -348,19 +345,23 @@ def _validate_ordered_layers(
 ) -> List[Dict[str, Any]]:
     if not isinstance(layers, list):
         raise ValidationError("ordered_layers must be a list")
+    if any(not isinstance(layer, Mapping) for layer in layers):
+        raise ValidationError("ordered_layers entries must be objects")
     normalized: List[Dict[str, Any]] = [dict(layer) for layer in layers]
     if not normalized:
         raise ValidationError("ordered_layers must be non-empty")
     if len(normalized) not in (6, 7):
         raise ValidationError("ordered_layers length is invalid")
     for layer in normalized:
-        if not isinstance(layer, Mapping):
-            raise ValidationError("ordered_layers entries must be objects")
         if set(layer.keys()) != {"name", "source", "sha256", "bytes"}:
             raise ValidationError("ordered layer shape is unsupported")
         if not layer["name"] or not layer["source"]:
             raise ValidationError("ordered layer name and source are required")
-        if not isinstance(layer["bytes"], int) or layer["bytes"] < 0:
+        if (
+            isinstance(layer["bytes"], bool)
+            or not isinstance(layer["bytes"], int)
+            or layer["bytes"] < 0
+        ):
             raise ValidationError("ordered layer byte count is invalid")
         if not isinstance(layer["sha256"], str):
             raise ValidationError("ordered layer fingerprint is required")
@@ -386,6 +387,31 @@ def _validate_ordered_layers(
     return normalized
 
 
+def _runtime_layer_payload(manifest: Mapping[str, Any]) -> bytes:
+    return canonical_json_bytes(
+        {
+            "target": manifest["target"],
+            "session_profile": manifest["session_profile"],
+            "instruction_plane": manifest["instruction_plane"],
+            "qualification_state": manifest["qualification_state"],
+            "runtime_binding": manifest["runtime_binding"],
+            "model_observation": manifest["model_observation"],
+            "contract_identity": manifest["contract_identity"],
+            "workspace_identity": manifest["workspace_identity"],
+            "run_identity": manifest["run_identity"],
+            "runtime_contract_layer": manifest["orchestration_contract"],
+        }
+    )
+
+
+def _expected_rendered_byte_count(layers: List[Mapping[str, Any]]) -> int:
+    section_bytes = sum(
+        len(("## %s\n" % layer["name"]).encode("utf-8")) + int(layer["bytes"])
+        for layer in layers
+    )
+    return section_bytes + (2 * (len(layers) - 1)) + 1
+
+
 def validate_instruction_manifest(
     manifest: Mapping[str, Any],
     *,
@@ -398,6 +424,14 @@ def validate_instruction_manifest(
     if not isinstance(manifest, Mapping):
         raise ValidationError("manifest must be an object")
     normalized = dict(manifest)
+
+    validate_bounded_json(
+        normalized,
+        max_depth=6,
+        max_items=64,
+        max_string=1024,
+        reject_sensitive_fields=True,
+    )
 
     required = _manifest_required_keys()
     if set(normalized.keys()) != set(required):
@@ -420,16 +454,36 @@ def validate_instruction_manifest(
         raise ValidationError("unexpected qualification state")
 
     try:
-        validate_bounded_json(normalized["contract_identity"], max_depth=4, max_items=16, max_string=512, reject_sensitive_fields=True)
-        validate_bounded_json(normalized["workspace_identity"], max_depth=4, max_items=16, max_string=512, reject_sensitive_fields=True)
-        validate_bounded_json(normalized["run_identity"], max_depth=4, max_items=16, max_string=512, reject_sensitive_fields=True)
+        normalized["contract_identity"] = _validate_identity(
+            normalized["contract_identity"], label="contract identity"
+        )
+        normalized["workspace_identity"] = _validate_identity(
+            normalized["workspace_identity"], label="workspace identity"
+        )
+        normalized["run_identity"] = _validate_identity(
+            normalized["run_identity"], label="run identity"
+        )
+        orchestration_contract = normalized["orchestration_contract"]
+        normalized["orchestration_contract"] = (
+            _validate_identity(orchestration_contract, label="orchestration contract")
+            if orchestration_contract is not None
+            else None
+        )
     except ValidationError as exc:
         raise ValidationError("manifest identity is invalid") from exc
 
-    validate_sha256(normalized["instruction_policy_fingerprint"], "instruction policy fingerprint")
-    validate_sha256(normalized["effective_contract_fingerprint"], "effective contract fingerprint")
+    validate_sha256(
+        normalized["instruction_policy_fingerprint"], "instruction policy fingerprint"
+    )
+    validate_sha256(
+        normalized["effective_contract_fingerprint"], "effective contract fingerprint"
+    )
     validate_sha256(normalized["rendered_sha256"], "rendered sha256")
-    if not isinstance(normalized["byte_count"], int) or normalized["byte_count"] < 0:
+    if (
+        isinstance(normalized["byte_count"], bool)
+        or not isinstance(normalized["byte_count"], int)
+        or normalized["byte_count"] <= 0
+    ):
         raise ValidationError("manifest byte_count is invalid")
     if normalized["delivery_transport"] != _BASE_DELIVERY_TRANSPORT:
         raise ValidationError("delivery transport is invalid")
@@ -445,7 +499,10 @@ def validate_instruction_manifest(
         or set(normalized["cleanup"].keys()) != set(_BASE_CLEANUP)
     ):
         raise ValidationError("cleanup is invalid")
-    if normalized["delivery_transport"]["materialization"] != _BASE_DELIVERY_TRANSPORT["materialization"]:
+    if (
+        normalized["delivery_transport"]["materialization"]
+        != _BASE_DELIVERY_TRANSPORT["materialization"]
+    ):
         raise ValidationError("delivery transport is unexpected")
     binding = normalized.get("runtime_binding")
     if (
@@ -466,19 +523,41 @@ def validate_instruction_manifest(
     normalized["ordered_layers"] = _validate_ordered_layers(
         normalized["ordered_layers"], target=target
     )
-    expected = instruction_policy_fingerprint(target=target, template_root=template_root)
+    root = _coerce_template_root(template_root)
+    expected, _ = _policy_payload(target=target, template_root=root)
     if normalized["instruction_policy_fingerprint"] != expected:
         raise ValidationError("instruction policy fingerprint mismatch")
+    _, shipped_texts = _policy_layers(root, target)
+    expected_shipped = []
+    for name, source, payload in shipped_texts:
+        body = payload.rstrip("\n").encode("utf-8")
+        expected_shipped.append(
+            {
+                "name": name,
+                "source": source,
+                "sha256": sha256_bytes(body),
+                "bytes": len(body),
+            }
+        )
+    if normalized["ordered_layers"][:4] != expected_shipped:
+        raise ValidationError("shipped ordered layer metadata mismatch")
+
+    runtime_payload = _runtime_layer_payload(normalized)
+    runtime_layer = normalized["ordered_layers"][4]
+    if runtime_layer["sha256"] != sha256_bytes(runtime_payload) or runtime_layer[
+        "bytes"
+    ] != len(runtime_payload):
+        raise ValidationError("runtime contract layer metadata mismatch")
+
+    expected_byte_count = _expected_rendered_byte_count(normalized["ordered_layers"])
+    if normalized["byte_count"] != expected_byte_count:
+        raise ValidationError("manifest byte_count does not match ordered layers")
     expected_effective = _compute_effective_contract_fingerprint(normalized)
     if normalized["effective_contract_fingerprint"] != expected_effective:
         raise ValidationError("effective contract fingerprint mismatch")
     if normalized["byte_count"] > _MAX_RENDERED_BYTES:
         raise ValidationError("manifest byte_count is invalid")
 
-    for key in manifest:
-        normalized_key = str(key).lower().replace("-", "_")
-        if any(part in normalized_key for part in FORBIDDEN_FIELD_PARTS):
-            raise ValidationError("manifest field names contain a forbidden secret shape")
     return normalized
 
 
@@ -492,7 +571,7 @@ def _render_layers(
     for name, source, payload in layers:
         body = payload.rstrip("\n")
         rendered_sections.append(f"## {name}\n{body}")
-        data = payload.encode("utf-8")
+        data = body.encode("utf-8")
         layer = {
             "name": name,
             "source": source,
@@ -535,34 +614,41 @@ def compile_instruction_wrapper(
     if effort_binding not in {_POLICY_NONE_VALUE, "default"}:
         raise ValidationError("effort binding must be default or unavailable")
 
-    normalized_task = _validate_text(task, label="task packet", max_bytes=_MAX_TEXT_BYTES)
+    normalized_task = _validate_text(
+        task, label="task packet", max_bytes=_MAX_TEXT_BYTES
+    )
     normalized_addendum = (
         _validate_text(task_addendum, label="task addendum", max_bytes=_MAX_TEXT_BYTES)
         if task_addendum is not None
         else None
     )
-    normalized_contract = _validate_identity(contract_identity, label="contract identity")
-    normalized_workspace = _validate_identity(workspace_identity, label="workspace identity")
+    normalized_contract = _validate_identity(
+        contract_identity, label="contract identity"
+    )
+    normalized_workspace = _validate_identity(
+        workspace_identity, label="workspace identity"
+    )
     normalized_run = _validate_identity(run_identity, label="run identity")
-    normalized_runtime_contract = _validate_identity(
-        runtime_contract_layer, label="runtime contract layer"
-    ) if runtime_contract_layer else None
+    normalized_runtime_contract = (
+        _validate_identity(runtime_contract_layer, label="runtime contract layer")
+        if runtime_contract_layer is not None
+        else None
+    )
 
-    task_layer = canonical_json_bytes({
+    runtime_binding = {"model": model_binding, "effort": effort_binding}
+    runtime_manifest_fields = {
         "target": target,
         "session_profile": session_profile,
         "instruction_plane": _INSTRUCTION_PLANE,
         "qualification_state": _QUALIFICATION_STATE,
-        "runtime_binding": {
-            "model": model_binding,
-            "effort": effort_binding,
-        },
+        "runtime_binding": runtime_binding,
         "model_observation": _BASE_MODEL_OBSERVATION,
         "contract_identity": normalized_contract,
         "workspace_identity": normalized_workspace,
         "run_identity": normalized_run,
-        "runtime_contract_layer": normalized_runtime_contract,
-    }).decode("utf-8")
+        "orchestration_contract": normalized_runtime_contract,
+    }
+    task_layer = _runtime_layer_payload(runtime_manifest_fields).decode("utf-8")
 
     if len(task_layer.encode("utf-8")) > _MAX_RUNTIME_LAYER_SIZE:
         raise ValidationError("runtime contract layer is oversized")
@@ -586,8 +672,6 @@ def compile_instruction_wrapper(
         template_root=root,
     )
 
-    model_binding_payload = {"model": model_binding, "effort": effort_binding}
-
     manifest = {
         "schema_version": _POLICY_SCHEMA_VERSION,
         "kind": _MANIFEST_KIND,
@@ -599,26 +683,26 @@ def compile_instruction_wrapper(
         "contract_identity": normalized_contract,
         "workspace_identity": normalized_workspace,
         "run_identity": normalized_run,
+        "orchestration_contract": normalized_runtime_contract,
         "instruction_policy_fingerprint": instruction_policy_fingerprint,
         "effective_contract_fingerprint": "0" * 64,
         "rendered_sha256": rendered_sha,
         "byte_count": len(rendered),
         "ordered_layers": ordered_layers,
-        "runtime_binding": model_binding_payload,
+        "runtime_binding": runtime_binding,
         "model_observation": dict(_BASE_MODEL_OBSERVATION),
         "delivery_transport": dict(_BASE_DELIVERY_TRANSPORT),
         "session_activation": {"scope": _ACTIVATION_SCOPE},
         "cleanup": dict(_BASE_CLEANUP),
     }
-    manifest["effective_contract_fingerprint"] = _compute_effective_contract_fingerprint(manifest)
-
-    for key in manifest:
-        normalized = str(key).lower().replace("-", "_")
-        if any(part in normalized for part in FORBIDDEN_FIELD_PARTS):
-            raise ValidationError("manifest field names contain a forbidden secret shape")
+    manifest["effective_contract_fingerprint"] = (
+        _compute_effective_contract_fingerprint(manifest)
+    )
 
     if any(key in manifest for key in ("task", "rendered", "addendum")):
         raise ValidationError("manifest contains forbidden raw fields")
+
+    validate_instruction_manifest(manifest, target=target, template_root=root)
 
     return CompiledInstruction(rendered=rendered, manifest=manifest)
 
