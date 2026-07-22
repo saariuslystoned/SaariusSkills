@@ -1,11 +1,16 @@
 # Puppet GrillTrack public closeout proof
 
+> Historical scope: this is the immutable design-closeout claim from before
+> implementation. It is not the current runtime verdict. See
+> `proof/puppet-v01/` for commit-bound implementation proof as that campaign is
+> promoted into the repository.
+
 ## Scope and verdict
 
-This packet proves that the public pre-implementation Puppet design bundle is
+This packet proves that the public pre-implementation Puppet design bundle was
 complete, internally reconciled, path-sanitized, and suitable for review as a
-SaariusSkills plan. It does not claim that `skills/puppet/`, the CLI, adapters,
-or any live harness behavior exists.
+SaariusSkills plan. Its non-claims describe this snapshot's date; they do not
+override later commit-bound implementation evidence.
 
 No target agent was launched during GrillTrack implementation. No shared
 real-harness prompt ran, no Puppet source was built, and no candidate was

@@ -3,20 +3,30 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
-## Puppet design bundle
+## Puppet
 
-The repository now carries the closed pre-implementation design packet for
-[Puppet](plans/puppet/README.md), a proposed skill and CLI for supervising real
-agent harnesses through durable, transcript-blind checkpoints.
+The repository carries the historical [Puppet design packet](plans/puppet/README.md)
+and the bootstrap [`puppet` skill](skills/puppet/SKILL.md), a standard-library
+Python lifecycle controller for supervising real agent harnesses through
+durable, transcript-blind checkpoints.
 
 > Puppet uses agents like puppets to build Puppet—the skill that uses agents
 > like puppets.
 
-Puppet is not implemented or runtime-proved yet. The bundle includes the future
-Codex orchestration goal, complete implementation seed, curated prior-proof
-provenance, full public decision record, and closeout proof. Its proposed live
-runtime is deliberately YOLO-only and prominently preserves separate human
-gates for delivery, external effects, accounts, security, and secrets.
+> **Mandatory warning:** Puppet live execution is YOLO-only. It requires the
+> target harness's unrestricted/always-approve mode and disables its sandbox
+> wherever that control exists. Prompted or sandboxed live launches are
+> unsupported. Delivery, external effects, accounts, security, secrets,
+> spending, and destructive actions remain separately gated.
+
+The bootstrap source implements the bounded CLI, strict contracts, atomic and
+append-only state, doctor-only adapter census, source and conformance handoffs,
+controller-only verdicts, immutable-supervisor checks, sanitized status, and
+exact-target transport boundaries. Enabled manifests additionally require a
+hash-bound accepted real-harness qualification receipt. It is not yet fully
+runtime-qualified: every live
+adapter remains hard-disabled until its exact current CLI passes the shared
+real-harness conformance probe, and no self-hosting promotion is claimed.
 
 ## GrillTrack
 
@@ -111,6 +121,13 @@ invocation, but it is never required when the user's intent is already clear.
 
 ## What ships
 
+- [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
+  transcript-blind cross-harness operating workflow.
+- `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
+- `skills/puppet/scripts/adapter_lab.py`: zero-agent census and doctor-only
+  manifest tooling.
+- `skills/puppet/references/`: operating, adapter, prompt, provenance, and trust
+  contracts.
 - [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,
   intent-aware core workflow.
 - `skills/grilltrack/scripts/grilltrack_ledger.py`: a standard-library CLI for
@@ -135,6 +152,8 @@ Run the complete local verification:
 python3 -m unittest discover -s tests -v
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
+python3 skills/puppet/scripts/puppet.py --help
+python3 skills/puppet/scripts/adapter_lab.py --help
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.

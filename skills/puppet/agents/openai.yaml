@@ -1,0 +1,6 @@
+interface:
+  display_name: "Puppet"
+  short_description: "Bootstrap/preflight Puppet controller"
+  default_prompt: "Use $puppet to supervise a bounded agent session with durable checkpoints."
+policy:
+  allow_implicit_invocation: true

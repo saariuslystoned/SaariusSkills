@@ -1,9 +1,12 @@
 # Puppet pre-implementation bundle
 
-Status: GrillTrack design complete; implementation and live harness proof have
-not started.
+Status: historical GrillTrack design-closeout snapshot. Bootstrap source now
+lives under `skills/puppet/`; current implementation proof is tracked
+separately under `proof/puppet-v01/`. The live five-harness campaign remains
+in progress until that newer proof says otherwise.
 
-Puppet is a proposed skill and CLI for supervising real coding-agent harnesses
+At the time of this snapshot, Puppet was a proposed skill and CLI for
+supervising real coding-agent harnesses
 through durable, transcript-blind checkpoints. This directory preserves the
 curated public design packet produced during its first GrillTrack campaign so the
 implementation can begin from explicit decisions instead of reconstructing the
@@ -17,8 +20,8 @@ conversation.
 
 ## Start here
 
-- [`codex-goal.md`](codex-goal.md) is the self-contained goal packet for the
-  future primary Codex orchestration session.
+- [`codex-goal.md`](codex-goal.md) is the self-contained goal packet used by
+  the implementation campaign.
 - [`implementation-seed.md`](implementation-seed.md) is the complete product,
   CLI, adapter, lifecycle, trust, test, and acceptance contract.
 - [`prior-proof-provenance.md`](prior-proof-provenance.md) maps the existing
