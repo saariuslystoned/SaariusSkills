@@ -41,7 +41,7 @@ def default_session_profile(target: str) -> str:
     profiles = SESSION_PROFILE_COMMANDS.get(target)
     if profiles is None:
         raise ValidationError("unsupported target")
-    return "teamwork-preview" if target == "agy" else "regular"
+    return "regular"
 
 
 def validate_session_profile(target: str, session_profile: str) -> str:

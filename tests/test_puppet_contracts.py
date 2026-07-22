@@ -62,22 +62,26 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(first.fingerprint, second.fingerprint)
             self.assertEqual(first.target, "agy")
 
-    def test_agy_default_session_profile_is_back_compatible(self):
+    def test_agy_default_session_profile_is_regular_and_canonical(self):
         with tempfile.TemporaryDirectory() as temporary:
             raw = valid_contract(Path(temporary))
             contract = Contract.from_dict(raw)
             self.assertEqual(contract.target, "agy")
-            self.assertEqual(contract.session_profile, "teamwork-preview")
-            self.assertNotIn("session_profile", contract.raw)
+            self.assertEqual(contract.session_profile, "regular")
+            self.assertEqual(contract.raw["session_profile"], "regular")
 
-    def test_explicit_session_profile_is_part_of_contract_identity(self):
+    def test_effective_session_profile_is_part_of_canonical_contract_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             raw = valid_contract(Path(temporary))
             defaulted = Contract.from_dict(raw)
-            raw["session_profile"] = "teamwork-preview"
+            raw["session_profile"] = "regular"
             explicit = Contract.from_dict(raw)
             self.assertEqual(defaulted.session_profile, explicit.session_profile)
-            self.assertNotEqual(defaulted.fingerprint, explicit.fingerprint)
+            self.assertEqual(defaulted.fingerprint, explicit.fingerprint)
+
+            raw["session_profile"] = "teamwork-preview"
+            teamwork = Contract.from_dict(raw)
+            self.assertNotEqual(defaulted.fingerprint, teamwork.fingerprint)
 
     def test_non_agy_default_session_profile_is_regular(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -87,6 +91,7 @@ class ContractTests(unittest.TestCase):
             contract = Contract.from_dict(raw)
             self.assertEqual(contract.target, "codex")
             self.assertEqual(contract.session_profile, "regular")
+            self.assertEqual(contract.raw["session_profile"], "regular")
 
     def test_invalid_session_profile_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

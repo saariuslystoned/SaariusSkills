@@ -123,9 +123,8 @@ class Contract:
             target,
             value.get("session_profile", default_session_profile(target)),
         )
-        # Keep the exact schema-v1 payload for legacy fingerprint compatibility.
-        # The resolved profile is separately bound by the adapter fingerprint and
-        # profile-specific qualification, so a policy/default change fails closed.
+        normalized_raw = dict(value)
+        normalized_raw["session_profile"] = session_profile
         requested_model = value.get("requested_model")
         if requested_model is not None and (
             not isinstance(requested_model, str)
@@ -245,7 +244,7 @@ class Contract:
             hard_gates=gates,
             supervisor_root=supervisor_root,
             candidate_root=candidate_root,
-            raw=dict(value),
+            raw=normalized_raw,
         )
 
     @classmethod
