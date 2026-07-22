@@ -485,6 +485,54 @@ def output(ledger: dict[str, Any]) -> None:
     print(json.dumps(ledger, indent=2, sort_keys=True))
 
 
+def validate_rollover_successor_ledger(
+    ledger: dict[str, Any],
+    *,
+    predecessor_track_id: str,
+    successor_track_id: str,
+    title: str,
+    mechanism: str,
+) -> None:
+    if ledger["status"] != "active":
+        raise LedgerError(
+            "in-progress track rollover expects an active successor ledger"
+        )
+    if ledger["track_id"] != successor_track_id:
+        raise LedgerError(
+            "in-progress track rollover has mismatched successor track id"
+        )
+    if ledger.get("predecessor_track_id") != predecessor_track_id:
+        raise LedgerError(
+            "in-progress track rollover predecessor mismatch"
+        )
+    if ledger["title"] != title:
+        raise LedgerError("in-progress track rollover successor title mismatch")
+    activation = ledger.get("last_activation")
+    if (
+        not isinstance(activation, dict)
+        or activation.get("mechanism") != mechanism
+    ):
+        raise LedgerError(
+            "in-progress track rollover expects an active successor ledger"
+        )
+    if ledger.get("decisions") != []:
+        raise LedgerError(
+            "in-progress track rollover successor has unexpected decisions"
+        )
+    if ledger.get("current_focus") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have current focus"
+        )
+    if ledger.get("recommendation") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have recommendation"
+        )
+    if ledger.get("closeout") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have closeout"
+        )
+
+
 def new_ledger(
     args: argparse.Namespace,
     mechanism: str,
@@ -540,46 +588,13 @@ def command_new(store: Store, args: argparse.Namespace) -> None:
                     f'{rollover["predecessor_track_id"]}'
                 )
             if rollover["stage"] == "archived":
-                if previous.get("status") != "active":
-                    raise LedgerError(
-                        "in-progress track rollover expects an active successor ledger"
-                    )
-                if previous.get("track_id") != successor_track_id:
-                    raise LedgerError(
-                        "in-progress track rollover has mismatched successor track id"
-                    )
-                if previous.get("predecessor_track_id") != predecessor_track_id:
-                    raise LedgerError(
-                        "in-progress track rollover predecessor mismatch"
-                    )
-                if previous.get("title") != rollover["title"]:
-                    raise LedgerError(
-                        "in-progress track rollover successor title mismatch"
-                    )
-                activation = previous.get("last_activation")
-                if (
-                    not isinstance(activation, dict)
-                    or activation.get("mechanism") != mechanism
-                ):
-                    raise LedgerError(
-                        "in-progress track rollover expects an active successor ledger"
-                    )
-                if previous.get("decisions") != []:
-                    raise LedgerError(
-                        "in-progress track rollover successor has unexpected decisions"
-                    )
-                if previous.get("current_focus") is not None:
-                    raise LedgerError(
-                        "in-progress track rollover successor must not have current focus"
-                    )
-                if previous.get("recommendation") is not None:
-                    raise LedgerError(
-                        "in-progress track rollover successor must not have recommendation"
-                    )
-                if previous.get("closeout") is not None:
-                    raise LedgerError(
-                        "in-progress track rollover successor must not have closeout"
-                    )
+                validate_rollover_successor_ledger(
+                    previous,
+                    predecessor_track_id=predecessor_track_id,
+                    successor_track_id=successor_track_id,
+                    title=rollover["title"],
+                    mechanism=mechanism,
+                )
             elif rollover["stage"] != "ledger_written":
                 raise LedgerError(
                     "cannot recover a new track rollover from this stage"
@@ -633,6 +648,13 @@ def command_new(store: Store, args: argparse.Namespace) -> None:
     if rollover["stage"] in {"started", "archived"}:
         if rollover["stage"] == "archived" and previous["status"] == "active":
             ledger = previous
+            validate_rollover_successor_ledger(
+                ledger,
+                predecessor_track_id=predecessor_track_id,
+                successor_track_id=successor_track_id,
+                title=rollover["title"],
+                mechanism=mechanism,
+            )
         else:
             if previous["status"] != "closed":
                 raise LedgerError("cannot recover a new track rollover from this state")
@@ -651,14 +673,13 @@ def command_new(store: Store, args: argparse.Namespace) -> None:
             fail_if_requested("after_rollover_stage")
     elif rollover["stage"] == "ledger_written":
         ledger = store.load()
-        if ledger["track_id"] != successor_track_id:
-            raise LedgerError(
-                "in-progress track rollover has mismatched successor track id"
-            )
-        if ledger["status"] != "active":
-            raise LedgerError(
-                "in-progress track rollover expects an active successor ledger"
-            )
+        validate_rollover_successor_ledger(
+            ledger,
+            predecessor_track_id=predecessor_track_id,
+            successor_track_id=successor_track_id,
+            title=rollover["title"],
+            mechanism=mechanism,
+        )
 
     store.replace_events(
         "track_initialized",
@@ -1091,6 +1112,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         store = Store(args.project)
+        if args.command != "new":
+            rollover = store.read_rollover_state()
+            if rollover is not None:
+                raise LedgerError(
+                    "track rollover recovery in progress for "
+                    f'{rollover["predecessor_track_id"]}; '
+                    "rerun `new` to finish recovery"
+                )
         result = args.handler(store, args)
         if isinstance(result, tuple):
             _ = result

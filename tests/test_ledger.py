@@ -506,6 +506,54 @@ class LedgerCliTests(unittest.TestCase):
         ]
         self.assertEqual([event["action"] for event in events], ["track_initialized"])
 
+    def test_new_recovery_blocks_focus_and_validate_until_complete(self) -> None:
+        self.init()
+        self.close_track()
+        fail = self.run_cli(
+            "new",
+            "--title",
+            "Second fixture track",
+            "--track-id",
+            "fixture-track-2",
+            failpoint="after_rollover_stage",
+            ok=False,
+        )
+        self.assertEqual(fail.returncode, 2)
+        self.assertIn("simulated failure at after_rollover_stage", fail.stderr)
+        ledger = self.read_ledger()
+        events_path = self.project / ".grilltrack" / "events.jsonl"
+        before_events = events_path.read_text(encoding="utf-8")
+        blocked_focus = self.run_cli(
+            "focus",
+            "--domain",
+            "Should be blocked",
+            "--cadence",
+            "sequential",
+            ok=False,
+        )
+        self.assertEqual(blocked_focus.returncode, 2)
+        self.assertIn("rerun `new` to finish recovery", blocked_focus.stderr)
+        self.assertEqual(ledger, self.read_ledger())
+        self.assertEqual(before_events, events_path.read_text(encoding="utf-8"))
+        blocked_validate = self.run_cli("validate", ok=False)
+        self.assertEqual(blocked_validate.returncode, 2)
+        self.assertIn("rerun `new` to finish recovery", blocked_validate.stderr)
+        self.assertEqual(ledger, self.read_ledger())
+        self.assertEqual(before_events, events_path.read_text(encoding="utf-8"))
+
+        self.run_cli(
+            "new",
+            "--title",
+            "Second fixture track",
+            "--track-id",
+            "fixture-track-2",
+        )
+        completed_events = [
+            json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").strip().splitlines()
+        ]
+        self.assertEqual([event["action"] for event in completed_events], ["track_initialized"])
+
     def test_new_rejects_an_active_track(self) -> None:
         self.init()
         result = self.run_cli(
