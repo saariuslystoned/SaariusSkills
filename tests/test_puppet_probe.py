@@ -27,6 +27,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
     current_session_lease,
+    transition_session_lease,
 )
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
@@ -1513,6 +1514,106 @@ class ProbeTests(unittest.TestCase):
                 (run_root / "recovery.json").read_text(encoding="utf-8")
             )
             self.assertTrue(recovery["launch_attempted"])
+
+    def test_complete_probe_recovery_finishes_deferred_terminal_lease(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            original_transition = transition_session_lease
+
+            def defer_terminal_lease(**kwargs):
+                if kwargs["state"] == "halted":
+                    return current_session_lease(files["authority"])
+                return original_transition(**kwargs)
+
+            with patch(
+                "puppet_lib.probe.transition_session_lease",
+                side_effect=defer_terminal_lease,
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    run_id="probe-complete-deferred-terminal-lease",
+                )
+
+            self.assertEqual(result["result"], "accepted")
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halting"
+            )
+            controls_before = list(fake.interrupts)
+            survivor_present = {"value": True}
+            survivor = static_process_identity(4999)
+
+            def recover():
+                return recover_probe(
+                    target="codex",
+                    proof_root=files["proof"],
+                    manifest_path=files["manifest"],
+                    mapping_path=files["mapping"],
+                    authorization_path=files["authorization"],
+                    controller="tester",
+                    goal_repo=files["goal_repo"],
+                    expected_campaign_id=files["campaign_id"],
+                    expected_goal=files["expected_goal"],
+                    run_id="probe-complete-deferred-terminal-lease",
+                    halt_timeout=0.1,
+                    _tmux_factory=lambda selected: fake,
+                    _process_birth_fn=lambda pid: process_identity(fake),
+                    _process_alive_fn=lambda identity: fake.alive,
+                    _exact_sigint_fn=fake.exact_sigint,
+                    _server_process_birth_fn=lambda pid: fake.server_process,
+                    _active_processes_fn=lambda selected: (
+                        [survivor] if survivor_present["value"] else []
+                    ),
+                    _adapter_fingerprint_fn=lambda: files["raw"][
+                        "adapter_fingerprint"
+                    ],
+                    _census_target_fn=lambda selected, fingerprint: (
+                        AdapterManifest.from_dict(files["raw"])
+                    ),
+                    _sleep_fn=lambda interval: None,
+                    _authority_root=files["authority"],
+                )
+
+            with self.assertRaisesRegex(
+                IdentityError, "protected target population changed"
+            ):
+                recover()
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halting"
+            )
+            self.assertEqual(fake.interrupts, controls_before)
+
+            survivor_present["value"] = False
+            recovered = recover()
+            self.assertTrue(recovered["recovered"])
+            self.assertEqual(recovered["result"], "accepted")
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halted"
+            )
+            self.assertEqual(fake.interrupts, controls_before)
+
+            admit_session_lease(
+                session="unrelated-after-complete-recovery",
+                target="codex",
+                controller="other-controller",
+                owner={
+                    "activity": "session",
+                    "run_id": "unrelated-after-complete-recovery",
+                    "campaign_id": files["campaign_id"],
+                    "goal_fingerprint": sha256_bytes(
+                        canonical_json_bytes(files["expected_goal"])
+                    ),
+                    "proof_root": str(files["proof"]),
+                    "state_root": str(files["proof"]),
+                },
+                authority_root=files["authority"],
+            )
+            unrelated = current_session_lease(files["authority"])
+            with self.assertRaisesRegex(IdentityError, "controller session lease"):
+                recover()
+            self.assertEqual(current_session_lease(files["authority"]), unrelated)
 
     def test_recovery_never_reconstructs_an_unpersisted_socket_occupant(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1657,9 +1657,22 @@ def recover_probe(
         complete = state.get("phase") == "complete" and state.get("result") == "accepted"
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
-            reject_active_lease=complete,
+            reject_active_lease=False,
         )
         if complete:
+            lease = require_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                states={"halting", "halted"},
+                authority_root=_authority_root,
+            )
+            process = evidence.get("process")
+            if not isinstance(process, dict) or lease.get("process") != process:
+                raise IdentityError(
+                    "accepted probe process differs from the controller lease"
+                )
             receipt_path = run_root / "receipt.json"
             verify_qualification_receipt(
                 receipt_path,
@@ -1668,12 +1681,38 @@ def recover_probe(
                 _server_process_fn=_server_process_birth_fn,
                 _tmux_factory=_tmux_factory,
             )
+            recovered = lease["state"] == "halting"
+            if recovered:
+                if _process_alive_fn(process):
+                    raise IdentityError(
+                        "accepted probe still has a live registered target"
+                    )
+                baseline = evidence.get("active_target_processes_before_launch")
+                observed = _active_processes_fn(target)
+                if not isinstance(baseline, list) or sorted(
+                    baseline, key=lambda item: item["pid"]
+                ) != sorted(observed, key=lambda item: item["pid"]):
+                    raise IdentityError(
+                        "accepted probe protected target population changed"
+                    )
+                _assert_executable_identity(manifest)
+                _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
+                transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    state="halted",
+                    process=process,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
             return {
                 "ok": True,
                 "run_id": run_id,
                 "target": target,
                 "result": "accepted",
-                "recovered": False,
+                "recovered": recovered,
                 "receipt": str(receipt_path),
             }
 
