@@ -37,6 +37,8 @@ from puppet_lib.authority import (  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.launch import public_launch_identity  # noqa: E402
+from puppet_lib.plane_activation import CLAUDE_NATIVE_TRIGGER  # noqa: E402
+from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
     PROBE_PROFILE,
     _acquire_campaign_probe_lock,
@@ -257,6 +259,93 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
     }
 
 
+def claude_activation_inputs(root: Path):
+    files = controller_inputs(root, target="claude")
+    raw = files["raw"]
+    raw["adapter_fingerprint"] = adapter_implementation_fingerprint()
+    raw["executable"]["version_sha256"] = (
+        "3c95eff850dac10d40c5692a73957f526b54a74767163913dc858c4f8d4c8c63"
+    )
+    mapping = {
+        "complete": False,
+        "launch_argv": [
+            raw["executable"]["resolved_path"],
+            "--dangerously-skip-permissions",
+        ],
+        "permission_declared": True,
+        "permission_flags": ["--dangerously-skip-permissions"],
+        "prompt_transport": PROMPT_TRANSPORT,
+        "prompt_transport_declared": True,
+        "sandbox_disable_declared": True,
+        "sandbox_flags": [],
+        "project_isolation_declared": False,
+        "project_isolation_flags": [],
+        "session_profiles": session_profiles_for("claude"),
+        "session_profiles_declared": True,
+        "startup_settle_seconds": startup_settle_seconds_for("claude"),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+        "model_flag": "--model",
+        "effort_flag": "--effort",
+    }
+    raw["yolo_mapping"] = mapping
+    write_json(files["manifest"], raw)
+    write_json(files["mapping"], mapping)
+    descriptor = {
+        "schema": "puppet.instruction-plane/v1",
+        "descriptor_id": "claude-native-qualification",
+        "target": {
+            "harness": "claude",
+            "version": "2.1.215",
+            "adapter_manifest_sha256": AdapterManifest.from_dict(raw).fingerprint,
+            "requested_model": "default",
+            "observed_model": "unavailable",
+            "config_fingerprint": "unavailable",
+        },
+        "plane": "per_run_additive",
+        "status": {
+            "surface": "factual",
+            "activation": "qualification_only",
+        },
+        "materialize": [
+            {
+                "artifact_id": "effective_contract_file",
+                "root_ref": "ephemeral_root",
+                "relative_path": "puppet-instructions.md",
+                "content_ref": "effective_contract",
+                "write_mode": "create_only",
+            }
+        ],
+        "launch_delta": {
+            "cwd_ref": "workspace_root",
+            "env": [
+                {
+                    "name": "CLAUDE_CONFIG_DIR",
+                    "value_ref": "config_root_path",
+                },
+                {
+                    "name": "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                    "value_ref": "true_literal",
+                },
+            ],
+            "argv": [
+                {"literal": "--append-system-prompt-file"},
+                {"path_ref": "effective_contract_file"},
+            ],
+        },
+        "rollback": {
+            "owned_artifacts": ["effective_contract_file"],
+            "preimage_sha256": [],
+            "retain_hash_only_proof": True,
+        },
+        "assertions": ["claude_native_instruction_seen"],
+        "blockers": ["matched_no_bleed_not_yet_proven"],
+    }
+    descriptor_path = root / "claude-plane.json"
+    write_json(descriptor_path, descriptor)
+    files.update(raw=raw, descriptor=descriptor_path)
+    return files
+
+
 class FakeTmux:
     def __init__(
         self,
@@ -270,6 +359,7 @@ class FakeTmux:
         interrupt_on_paste=False,
         interrupt_after_control=False,
         terminal_pid_drift=False,
+        regular_socket=False,
     ):
         self.root = root
         self.socket_root = Path(tempfile.mkdtemp(prefix="pft-", dir="/tmp"))
@@ -281,6 +371,7 @@ class FakeTmux:
         self.interrupt_on_paste = interrupt_on_paste
         self.interrupt_after_control = interrupt_after_control
         self.terminal_pid_drift = terminal_pid_drift
+        self.regular_socket = regular_socket
         self.alive = True
         self.preserved = True
         self.launch_argv = None
@@ -330,7 +421,18 @@ class FakeTmux:
             "mode": stat.S_IMODE(details.st_mode),
         }
 
-    def launch(self, *, session, target, repo, argv, environment, before_start=None):
+    def launch(
+        self,
+        *,
+        session,
+        target,
+        repo,
+        argv,
+        environment,
+        admitted_lane_root=None,
+        before_start=None,
+        before_target_start=None,
+    ):
         if before_start is not None:
             before_start()
         self.session = session
@@ -339,11 +441,18 @@ class FakeTmux:
         self.launch_environment = dict(environment)
         socket_path = self.socket_path(session)
         socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.server = socket_module.socket(
-            socket_module.AF_UNIX, socket_module.SOCK_STREAM
-        )
-        self.server.bind(str(socket_path))
+        if self.regular_socket:
+            socket_path.touch(mode=0o600)
+        else:
+            self.server = socket_module.socket(
+                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+            )
+            self.server.bind(str(socket_path))
         os.chmod(socket_path, 0o600)
+        if before_target_start is not None:
+            refreshed = before_target_start()
+            self.launch_argv = list(refreshed.argv)
+            self.launch_environment = dict(refreshed.environment)
         return {
             "socket": str(socket_path),
             "socket_identity": self.socket_identity(socket_path),
@@ -358,6 +467,7 @@ class FakeTmux:
                 repo=self.repo,
                 argv=self.launch_argv,
                 environment=self.launch_environment,
+                admitted_lane_root=admitted_lane_root,
             ),
         }
 
@@ -414,7 +524,13 @@ class FakeTmux:
         if not self.synthesize:
             return
         if len(self.payloads) == 1:
-            value = self._exact_json(payload, "WRITE_READY_JSON=")
+            instruction_payload = payload
+            if payload == (CLAUDE_NATIVE_TRIGGER + "\n").encode("utf-8"):
+                artifact_flag = self.launch_argv.index("--append-system-prompt-file")
+                instruction_payload = Path(
+                    self.launch_argv[artifact_flag + 1]
+                ).read_bytes()
+            value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
             destination = self.repo / "handoffs" / "ready.json"
         else:
             value = self._exact_json(payload, "WRITE_FOLLOWUP_JSON=")
@@ -484,6 +600,7 @@ def execute(
     active_processes_fn=None,
     expected_goal=None,
     sleep_fn=None,
+    plane_descriptor=None,
 ):
     return run_probe(
         target=target,
@@ -501,6 +618,7 @@ def execute(
         goal_repo=files["goal_repo"],
         expected_campaign_id=files["campaign_id"],
         expected_goal=expected_goal or files["expected_goal"],
+        plane_descriptor=plane_descriptor,
         timeout=timeout,
         halt_timeout=0.1,
         run_id=run_id,
@@ -530,7 +648,447 @@ def execute(
     )
 
 
+def recover_execute(files, *, run_id, tmux_factory=None, plane_descriptor=None):
+    return recover_probe(
+        target="claude",
+        proof_root=files["proof"],
+        manifest_path=files["manifest"],
+        mapping_path=files["mapping"],
+        authorization_path=files["authorization"],
+        controller="tester",
+        goal_repo=files["goal_repo"],
+        expected_campaign_id=files["campaign_id"],
+        expected_goal=files["expected_goal"],
+        run_id=run_id,
+        plane_descriptor=plane_descriptor,
+        halt_timeout=0.1,
+        _tmux_factory=tmux_factory or (lambda root: FakeTmux(root)),
+        _process_alive_fn=lambda identity: False,
+        _active_processes_fn=lambda selected: [],
+        _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+        _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+            files["raw"]
+        ),
+        _sleep_fn=lambda interval: None,
+        _authority_root=files["authority"],
+    )
+
+
 class ProbeTests(unittest.TestCase):
+    def test_incomplete_claude_mapping_requires_plane_descriptor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            with self.assertRaisesRegex(ValidationError, "mapping is incomplete"):
+                execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id="probe-claude-no-descriptor",
+                )
+            self.assertIsNone(fake.launch_argv)
+
+    def test_claude_activation_uses_native_trigger_and_rolls_back_before_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-native"
+            revalidate = puppet_probe.revalidate_activation_launch_context
+            with (
+                patch.object(
+                    puppet_probe,
+                    "revalidate_activation_launch_context",
+                    wraps=revalidate,
+                ) as revalidate_call,
+                patch.object(
+                    puppet_probe,
+                    "verify_qualification_receipt",
+                    return_value={},
+                ),
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                )
+            self.assertEqual(result["result"], "accepted")
+            self.assertEqual(revalidate_call.call_count, 1)
+            self.assertEqual(
+                fake.payloads[0],
+                (CLAUDE_NATIVE_TRIGGER + "\n").encode("utf-8"),
+            )
+            run_root = files["proof"] / "probes" / run_id
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            receipt = json.loads(
+                (run_root / "receipt.json").read_text(encoding="utf-8")
+            )
+            activation = evidence["plane_activation"]
+            self.assertIsNone(evidence["failure"])
+            self.assertEqual(
+                activation["qualification_scope"], "activation_lifecycle_only"
+            )
+            self.assertEqual(activation, receipt["plane_activation"])
+            self.assertNotEqual(
+                activation["initial_trigger_sha256"],
+                activation["artifact_sha256"],
+            )
+            self.assertEqual(
+                {reference["kind"] for reference in receipt["proof_refs"]}
+                - {
+                    "authorization",
+                    "evidence",
+                    "launch_plan",
+                    "instructions",
+                    "halt",
+                    "ready",
+                    "followup",
+                    "review",
+                    "acceptance",
+                },
+                {
+                    "plane_descriptor",
+                    "activation_intent",
+                    "activation_receipt",
+                    "activation_context",
+                    "activation_rollback_intent",
+                    "activation_rollback",
+                },
+            )
+            intent = json.loads(
+                (
+                    run_root
+                    / "activation-lane"
+                    / "transaction"
+                    / "activation-intent.json"
+                ).read_text(encoding="utf-8")
+            )
+            artifact = (
+                run_root
+                / "activation-lane"
+                / "ephemeral"
+                / intent["plan"]["artifact_relative_path"]
+            )
+            self.assertFalse(artifact.exists())
+            self.assertEqual(
+                Path(intent["plan"]["workspace_root"]["path"]).parent.parent,
+                run_root,
+            )
+            self.assertEqual(
+                Path(intent["plan"]["workspace_root"]["path"]).parent,
+                run_root / "activation-lane",
+            )
+            self.assertEqual(
+                Path(intent["plan"]["ephemeral_root"]["path"]).parent,
+                run_root / "activation-lane",
+            )
+            with patch.object(
+                puppet_probe,
+                "verify_qualification_receipt",
+                return_value=receipt,
+            ) as verify_recovered_receipt:
+                recovered = recover_execute(files, run_id=run_id)
+            self.assertEqual(recovered["result"], "accepted")
+            self.assertFalse(recovered["recovered"])
+            self.assertEqual(
+                verify_recovered_receipt.call_args.args,
+                (run_root / "receipt.json",),
+            )
+
+    def test_activation_failure_distinguishes_server_and_target_attempts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-revalidation-failure"
+            with patch.object(
+                puppet_probe,
+                "revalidate_activation_launch_context",
+                side_effect=IdentityError("activation context drift"),
+            ):
+                with self.assertRaisesRegex(IdentityError, "activation context drift"):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+            evidence = json.loads(
+                (files["proof"] / "probes" / run_id / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertTrue(evidence["failure"]["server_attempted"])
+            self.assertFalse(evidence["failure"]["target_launch_attempted"])
+            self.assertFalse(evidence["failure"]["launch_attempted"])
+            self.assertEqual(
+                puppet_probe.recover_activation(
+                    files["proof"]
+                    / "probes"
+                    / run_id
+                    / "activation-lane"
+                    / "transaction"
+                ).state,
+                "rolled_back",
+            )
+
+    def test_recovery_rejects_transaction_without_canonical_descriptor_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-missing-descriptor"
+            with patch.object(
+                puppet_probe,
+                "revalidate_activation_launch_context",
+                side_effect=IdentityError("activation context drift"),
+            ):
+                with self.assertRaises(IdentityError):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+            snapshot = files["proof"] / "probes" / run_id / "plane-descriptor.json"
+            snapshot.unlink()
+            with self.assertRaisesRegex(IdentityError, "canonical descriptor snapshot"):
+                recover_execute(
+                    files,
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                )
+
+    def test_recovery_rolls_back_active_prelease_activation_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-active-recovery"
+            with (
+                patch.object(
+                    puppet_probe,
+                    "build_activation_launch_context",
+                    side_effect=IdentityError("context join interrupted"),
+                ),
+                patch.object(
+                    puppet_probe,
+                    "rollback_activation",
+                    side_effect=IdentityError("rollback deferred to recovery"),
+                ),
+            ):
+                with self.assertRaisesRegex(IdentityError, "context join interrupted"):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+            transaction = (
+                files["proof"] / "probes" / run_id / "activation-lane" / "transaction"
+            )
+            self.assertEqual(
+                puppet_probe.recover_activation(transaction).state,
+                "active",
+            )
+
+            def reject_relaunch(root):
+                raise AssertionError("recovery must not construct a tmux launcher")
+
+            recovered = recover_execute(
+                files,
+                run_id=run_id,
+                tmux_factory=reject_relaunch,
+            )
+            recovery = json.loads(
+                Path(recovered["recovery"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(recovery["plane_activation_state"], "rolled_back")
+            self.assertFalse(recovery["server_attempted"])
+            self.assertFalse(recovery["target_launch_attempted"])
+            self.assertEqual(
+                puppet_probe.recover_activation(transaction).state,
+                "rolled_back",
+            )
+
+    def test_recovery_preserves_prepared_activation_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-prepared-recovery"
+
+            def leave_prepared(plan, *, effective_contract):
+                puppet_probe.atomic_write_json(
+                    plan.intent_path,
+                    {
+                        "schema": "puppet.plane-activation-intent/v2",
+                        "plan": plan.to_dict(),
+                    },
+                )
+                raise ValidationError("materialization interrupted after intent")
+
+            with patch.object(
+                puppet_probe,
+                "materialize_activation",
+                side_effect=leave_prepared,
+            ):
+                with self.assertRaisesRegex(
+                    ValidationError, "materialization interrupted after intent"
+                ):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+            transaction = (
+                files["proof"] / "probes" / run_id / "activation-lane" / "transaction"
+            )
+            before = sorted(path.name for path in transaction.iterdir())
+            recovered = recover_execute(
+                files,
+                run_id=run_id,
+                tmux_factory=lambda root: (_ for _ in ()).throw(
+                    AssertionError("recovery must not relaunch")
+                ),
+            )
+            recovery = json.loads(
+                Path(recovered["recovery"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(recovery["plane_activation_state"], "prepared")
+            self.assertEqual(
+                sorted(path.name for path in transaction.iterdir()),
+                before,
+            )
+
+    def test_launched_activation_rolls_back_only_after_exact_failure_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-launched-failure"
+            events = []
+            halt_exact = puppet_probe._halt_exact
+            rollback = puppet_probe.rollback_activation
+
+            def traced_halt(*args, **kwargs):
+                result = halt_exact(*args, **kwargs)
+                events.append("halt_complete")
+                return result
+
+            def traced_population(selected):
+                if not fake.alive:
+                    events.append("baseline_restored")
+                return []
+
+            def traced_rollback(plan):
+                events.append("rollback")
+                return rollback(plan)
+
+            with (
+                patch.object(
+                    puppet_probe,
+                    "record_acceptance",
+                    side_effect=ValidationError("late acceptance failure"),
+                ),
+                patch.object(
+                    puppet_probe,
+                    "_halt_exact",
+                    side_effect=traced_halt,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "rollback_activation",
+                    side_effect=traced_rollback,
+                ),
+            ):
+                with self.assertRaisesRegex(ValidationError, "late acceptance failure"):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                        active_processes_fn=traced_population,
+                    )
+            self.assertLess(
+                events.index("halt_complete"), events.index("baseline_restored")
+            )
+            self.assertLess(events.index("baseline_restored"), events.index("rollback"))
+            run_root = files["proof"] / "probes" / run_id
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(evidence["failure"]["server_attempted"])
+            self.assertTrue(evidence["failure"]["target_launch_attempted"])
+            self.assertFalse((run_root / "receipt.json").exists())
+            self.assertEqual(
+                puppet_probe.recover_activation(
+                    run_root / "activation-lane" / "transaction"
+                ).state,
+                "rolled_back",
+            )
+
+    def test_ambiguous_launched_cleanup_preserves_active_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-ambiguous-cleanup"
+            rollback = puppet_probe.rollback_activation
+            with (
+                patch.object(
+                    puppet_probe,
+                    "record_acceptance",
+                    side_effect=ValidationError("late acceptance failure"),
+                ),
+                patch.object(
+                    puppet_probe,
+                    "_halt_exact",
+                    side_effect=IdentityError("exact halt identity ambiguous"),
+                ),
+                patch.object(
+                    puppet_probe,
+                    "rollback_activation",
+                    wraps=rollback,
+                ) as rollback_call,
+            ):
+                with self.assertRaisesRegex(ValidationError, "late acceptance failure"):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+            run_root = files["proof"] / "probes" / run_id
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                "exact halt identity ambiguous", evidence["failure"]["cleanup_error"]
+            )
+            self.assertTrue(evidence["failure"]["target_launch_attempted"])
+            self.assertEqual(rollback_call.call_count, 0)
+            self.assertTrue(fake.alive)
+            self.assertFalse((run_root / "receipt.json").exists())
+            self.assertEqual(
+                puppet_probe.recover_activation(
+                    run_root / "activation-lane" / "transaction"
+                ).state,
+                "active",
+            )
+
     def test_authorization_snapshot_failure_is_durably_terminal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -892,6 +1450,9 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(
                 evidence["execution_fingerprint"], receipt["execution_fingerprint"]
             )
+            self.assertIsNone(evidence["plane_activation"])
+            self.assertIsNone(receipt["plane_activation"])
+            self.assertIsNone(evidence["failure"])
             wrapper = evidence["instruction_wrapper"]
             self.assertEqual(
                 receipt["instruction_policy_fingerprint"],

@@ -93,6 +93,7 @@ def _probe(args):
         goal_repo=args.goal_repo,
         expected_campaign_id=args.campaign_id,
         expected_goal=expected_goal,
+        plane_descriptor=args.plane_descriptor,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
@@ -117,6 +118,7 @@ def _recover(args):
         expected_campaign_id=args.campaign_id,
         expected_goal=expected_goal,
         run_id=args.run_id,
+        plane_descriptor=args.plane_descriptor,
         halt_timeout=args.halt_timeout,
     )
 
@@ -147,6 +149,10 @@ def _qualify(args):
     mapping = read_json(args.mapping, max_bytes=65536)
     receipt_path = args.receipt.resolve(strict=True)
     receipt = _verified_receipt(receipt_path)
+    if receipt.get("plane_activation") is not None:
+        raise UnsupportedError(
+            "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
+        )
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {
@@ -204,6 +210,7 @@ def build_parser():
     probe_parser.add_argument("--timeout", type=float, default=300.0)
     probe_parser.add_argument("--halt-timeout", type=float, default=10.0)
     probe_parser.add_argument("--run-id")
+    probe_parser.add_argument("--plane-descriptor", type=Path)
     probe_parser.set_defaults(handler=_probe)
     recover_parser = commands.add_parser(
         "recover",
@@ -223,6 +230,7 @@ def build_parser():
     recover_parser.add_argument("--goal-sha256", required=True)
     recover_parser.add_argument("--run-id", required=True)
     recover_parser.add_argument("--halt-timeout", type=float, default=10.0)
+    recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.set_defaults(handler=_recover)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)

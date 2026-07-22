@@ -31,6 +31,7 @@ from .authority import (
     acquire_real_harness_lock,
     admit_session_lease,
     attest_qualification,
+    current_session_lease,
     lease_owner as build_lease_owner,
     require_session_lease,
     release_real_harness_lock,
@@ -61,12 +62,33 @@ from .errors import (
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
+from .instruction_planes import (
+    descriptor_fingerprint,
+    parse_instruction_plane_descriptor,
+)
 from .journal import Journal
 from .launch import build_admitted_launch_plan, build_launch_identity
+from .plane_activation import (
+    ACTIVATION_LIFECYCLE_SCOPE,
+    CLAUDE_NATIVE_TRIGGER,
+    CLAUDE_NATIVE_TRIGGER_SHA256,
+    PROBE_PLANE_ACTIVATION_SCHEMA,
+    ActivationLaunchContext,
+    ActivationPlan,
+    build_activation_launch_context,
+    materialize_activation,
+    plan_activation,
+    recover_activation,
+    revalidate_activation_launch_context,
+    rollback_activation,
+    validate_terminal_activation_evidence,
+)
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
+    PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
+    session_profiles_for,
     startup_settle_seconds_for,
     validate_session_profile,
 )
@@ -87,7 +109,7 @@ from .safety import (
     sha256_file,
     validate_identifier,
 )
-from .tmux import TmuxController
+from .tmux import TargetLaunch, TmuxController
 from .verdicts import record_acceptance, record_review
 
 
@@ -258,6 +280,7 @@ def _validated_mapping(
     mapping_path: Path,
     *,
     target: str,
+    allow_claude_activation: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
@@ -288,13 +311,57 @@ def _validated_mapping(
     if observed.raw["yolo_mapping"] != mapping:
         raise IdentityError("fresh zero-agent census YOLO mapping changed")
     if not mapping.get("complete"):
-        raise ValidationError("candidate YOLO and sandbox-off mapping is incomplete")
+        expected_activation_mapping = {
+            "complete": False,
+            "launch_argv": [
+                candidate.raw["executable"]["resolved_path"],
+                "--dangerously-skip-permissions",
+            ],
+            "permission_declared": True,
+            "permission_flags": ["--dangerously-skip-permissions"],
+            "prompt_transport": PROMPT_TRANSPORT,
+            "prompt_transport_declared": True,
+            "sandbox_disable_declared": True,
+            "sandbox_flags": [],
+            "project_isolation_declared": False,
+            "project_isolation_flags": [],
+            "session_profiles": session_profiles_for("claude"),
+            "session_profiles_declared": True,
+            "startup_settle_seconds": startup_settle_seconds_for("claude"),
+            "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+            "model_flag": "--model",
+            "effort_flag": "--effort",
+        }
+        if (
+            not allow_claude_activation
+            or target != "claude"
+            or mapping != expected_activation_mapping
+        ):
+            raise ValidationError(
+                "candidate YOLO and sandbox-off mapping is incomplete"
+            )
     argv = list(mapping["launch_argv"])
     _assert_executable_identity(candidate)
     executable = Path(candidate.raw["executable"]["resolved_path"])
     if argv[0] != str(executable):
         raise IdentityError("candidate mapping does not launch the exact executable")
     return candidate, mapping, argv
+
+
+def _read_plane_descriptor(path: Path) -> Dict[str, Any]:
+    candidate = Path(path)
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValidationError(
+            "instruction-plane descriptor must be a regular non-symlink file"
+        )
+    raw = candidate.read_bytes()
+    if len(raw) > 131072:
+        raise ValidationError("instruction-plane descriptor exceeds the size limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationError("instruction-plane descriptor must be UTF-8") from exc
+    return parse_instruction_plane_descriptor(text)
 
 
 def _active_population(
@@ -750,6 +817,7 @@ def run_probe(
     goal_repo: Path,
     expected_campaign_id: str,
     expected_goal: Dict[str, str],
+    plane_descriptor: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
@@ -796,10 +864,22 @@ def run_probe(
     if halt_timeout < 0 or halt_timeout > MAX_HALT_SECONDS:
         raise ValidationError("halt timeout must be between zero and 60 seconds")
     proof_root = absolute_root(str(proof_root), "proof root")
+    plane_descriptor_value = (
+        _read_plane_descriptor(plane_descriptor)
+        if plane_descriptor is not None
+        else None
+    )
+    if plane_descriptor_value is not None and (
+        target != "claude" or plane_descriptor_value["target"]["harness"] != target
+    ):
+        raise ValidationError(
+            "native instruction-plane activation is limited to the Claude probe"
+        )
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
+        allow_claude_activation=plane_descriptor_value is not None,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -832,6 +912,12 @@ def run_probe(
     evidence_path = run_root / "evidence.json"
     instruction_path = run_root / "effective-instructions.json"
     launch_plan_path = run_root / "launch-plan.json"
+    plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
+    activation_context_path = run_root / "activation-context.json"
+    activation_lane_root = run_root / "activation-lane"
+    activation_ephemeral_root = activation_lane_root / "ephemeral"
+    activation_transaction_root = activation_lane_root / "transaction"
+    activation_config_root = activation_lane_root / "config"
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -857,7 +943,13 @@ def run_probe(
     server_identity: Optional[Dict[str, Any]] = None
     tmux_binary_identity: Optional[Dict[str, Any]] = None
     provisional_bound = False
-    launch_attempted = False
+    server_attempted = False
+    target_launch_attempted = False
+    activation_plan: Optional[ActivationPlan] = None
+    activation_context: Optional[ActivationLaunchContext] = None
+    activation_public_context: Optional[Dict[str, Any]] = None
+    activation_receipt: Optional[Dict[str, Any]] = None
+    activation_terminal: Optional[Dict[str, Any]] = None
     active: Optional[list[Dict[str, Any]]] = None
     lock_descriptor: Optional[int] = None
     lease_owned = False
@@ -884,12 +976,14 @@ def run_probe(
         "yolo_mapping_sha256": sha256_bytes(canonical_json_bytes(mapping)),
         "launch_argv_sha256": sha256_bytes(canonical_json_bytes(argv)),
         "launch_plan_sha256": None,
+        "launch_identity": None,
         "input_transport": OBSERVED_INPUT_TRANSPORT,
         "input_readiness_strategy": INPUT_READINESS_STRATEGY,
         "startup_settle_seconds": startup_settle_seconds_for(target),
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "payload_argv_absent": True,
         "instruction_wrapper": None,
+        "plane_activation": None,
         "active_target_processes_before_launch": [],
         "active_target_processes_after_halt": None,
         "target_population_policy": TARGET_POPULATION_POLICY,
@@ -914,11 +1008,22 @@ def run_probe(
     try:
         atomic_write_json(state_path, state)
         atomic_write_json(authorization_snapshot_path, authorization)
+        if plane_descriptor_value is not None:
+            atomic_write_json(
+                plane_descriptor_snapshot_path,
+                plane_descriptor_value,
+            )
         evidence["authorization_sha256"] = sha256_file(
             authorization_snapshot_path, max_bytes=65536
         )
         atomic_write_json(evidence_path, evidence)
-        fixture = run_root / "fixture"
+        if plane_descriptor_value is not None:
+            activation_lane_root.mkdir(mode=0o700)
+        fixture = (
+            run_root / "fixture"
+            if plane_descriptor_value is None
+            else activation_lane_root / "workspace"
+        )
         fixture_contract = create_fixture(
             fixture, run_id=run_id, session=session, target=target
         )
@@ -988,23 +1093,65 @@ def run_probe(
             "session_profile": compiled.manifest["session_profile"],
             "delivery_transport": compiled.manifest["delivery_transport"],
         }
-        launch_environment, launch_identity = build_launch_identity(
-            target=target,
-            repo=fixture,
-            argv=argv,
-        )
-        manifest.verify_launch_execution_environment(launch_environment)
-        launch_plan = build_admitted_launch_plan(
-            target=target,
-            session=session,
-            run_id=run_id,
-            repo=fixture,
-            argv=argv,
-            environment=launch_environment,
-        )
+        admitted_lane_root: Optional[Path] = None
+        if plane_descriptor_value is None:
+            launch_environment, launch_identity = build_launch_identity(
+                target=target,
+                repo=fixture,
+                argv=argv,
+            )
+            manifest.verify_launch_execution_environment(launch_environment)
+            launch_plan = build_admitted_launch_plan(
+                target=target,
+                session=session,
+                run_id=run_id,
+                repo=fixture,
+                argv=argv,
+                environment=launch_environment,
+            )
+        else:
+            for activation_root in (
+                activation_ephemeral_root,
+                activation_transaction_root,
+                activation_config_root,
+            ):
+                activation_root.mkdir(mode=0o700)
+            activation_plan = plan_activation(
+                plane_descriptor_value,
+                instruction_manifest=compiled.manifest,
+                adapter_manifest=manifest,
+                effective_contract=compiled.rendered,
+                workspace_root=fixture,
+                ephemeral_root=activation_ephemeral_root,
+                transaction_root=activation_transaction_root,
+                config_root=activation_config_root,
+                _current_manifest=manifest,
+            )
+            activation_receipt = materialize_activation(
+                activation_plan,
+                effective_contract=compiled.rendered,
+            )
+            activation_context = build_activation_launch_context(
+                activation_plan,
+                adapter_manifest=manifest,
+                session=session,
+                run_id=run_id,
+                session_profile=session_profile,
+                workspace_root=fixture,
+                config_root=activation_config_root,
+                admitted_lane_root=activation_lane_root,
+            )
+            activation_public_context = activation_context.to_public_dict()
+            atomic_write_json(activation_context_path, activation_public_context)
+            argv = activation_context.argv
+            launch_environment = activation_context.environment
+            launch_identity = activation_context.launch_identity
+            launch_plan = activation_context.admitted_launch_plan
+            admitted_lane_root = activation_lane_root
         atomic_write_json(launch_plan_path, launch_plan)
         evidence["launch_plan_sha256"] = sha256_file(launch_plan_path, max_bytes=131072)
         evidence["launch_identity"] = launch_identity
+        evidence["launch_argv_sha256"] = sha256_bytes(canonical_json_bytes(argv))
         atomic_write_json(evidence_path, evidence)
         probe_lease_owner = build_lease_owner(
             activity="probe",
@@ -1053,7 +1200,7 @@ def run_probe(
         socket = tmux.socket_path(session)
 
         def admit_before_start() -> None:
-            nonlocal lease_owned, launch_attempted
+            nonlocal lease_owned, server_attempted
             admit_session_lease(
                 session=session,
                 target=target,
@@ -1081,7 +1228,40 @@ def run_probe(
                     "same-target process population changed before probe launch"
                 )
             _write_state(state_path, state, "launching")
-            launch_attempted = True
+            server_attempted = True
+
+        def admit_before_target_start() -> TargetLaunch:
+            nonlocal activation_context, target_launch_attempted
+            if activation_plan is not None:
+                if activation_context is None or activation_public_context is None:
+                    raise IdentityError(
+                        "activation launch context is unavailable before target start"
+                    )
+                activation_context = revalidate_activation_launch_context(
+                    activation_context,
+                    activation_plan,
+                    adapter_manifest=manifest,
+                    workspace_root=fixture,
+                    config_root=activation_config_root,
+                    admitted_lane_root=activation_lane_root,
+                    argv=argv,
+                    environment=launch_environment,
+                    admitted_launch_plan=launch_plan,
+                    public_context=activation_public_context,
+                )
+                refreshed = TargetLaunch(
+                    argv=activation_context.argv,
+                    environment=activation_context.environment,
+                    launch_identity=activation_context.launch_identity,
+                )
+            else:
+                refreshed = TargetLaunch(
+                    argv=list(argv),
+                    environment=dict(launch_environment),
+                    launch_identity=dict(launch_identity),
+                )
+            target_launch_attempted = True
+            return refreshed
 
         metadata = tmux.launch(
             session=session,
@@ -1089,7 +1269,9 @@ def run_probe(
             repo=fixture,
             argv=argv,
             environment=launch_environment,
+            admitted_lane_root=admitted_lane_root,
             before_start=admit_before_start,
+            before_target_start=admit_before_target_start,
         )
         if metadata.get("launch_identity") != launch_identity:
             raise IdentityError("probe launch context identity is invalid")
@@ -1287,20 +1469,30 @@ def run_probe(
         _write_state(state_path, state, "awaiting_ready")
 
         adapter = adapter_for(target)
-        initial = adapter.envelope(
-            compiled.rendered.decode("utf-8"),
-            session_profile,
-            initial=True,
-        )
-        initial_payload = _payload(initial)
-        if sha256_bytes(initial_payload) != compiled.manifest["rendered_sha256"]:
-            raise IdentityError(
-                "regular profile altered the compiled instruction payload"
+        if activation_plan is None:
+            initial = adapter.envelope(
+                compiled.rendered.decode("utf-8"),
+                session_profile,
+                initial=True,
             )
+            initial_payload = _payload(initial)
+            if sha256_bytes(initial_payload) != compiled.manifest["rendered_sha256"]:
+                raise IdentityError(
+                    "regular profile altered the compiled instruction payload"
+                )
+        else:
+            initial = CLAUDE_NATIVE_TRIGGER
+            initial_payload = _payload(CLAUDE_NATIVE_TRIGGER + "\n")
+            if (
+                sha256_bytes(initial_payload) != CLAUDE_NATIVE_TRIGGER_SHA256
+                or sha256_bytes(initial_payload) == compiled.manifest["rendered_sha256"]
+            ):
+                raise IdentityError("native activation trigger identity is invalid")
         if any(
             initial in argument
+            or compiled.rendered.decode("utf-8") in argument
             or "PUPPET_REAL_HARNESS" in argument
-            or run_id in argument
+            or (activation_plan is None and run_id in argument)
             or fixture_contract["nonce"] in argument
             for argument in argv
         ):
@@ -1511,10 +1703,68 @@ def run_probe(
             active, key=lambda item: item["pid"]
         ):
             raise IdentityError("protected same-target process population changed")
+        if activation_plan is not None:
+            if (
+                plane_descriptor_value is None
+                or activation_public_context is None
+                or activation_receipt is None
+            ):
+                raise IdentityError("activation proof family is incomplete")
+            rollback_activation(activation_plan)
+            activation_intent = read_json(
+                activation_plan.intent_path,
+                max_bytes=131072,
+            )
+            activation_receipt = read_json(
+                activation_plan.receipt_path,
+                max_bytes=131072,
+            )
+            activation_rollback_intent = read_json(
+                activation_plan.rollback_intent_path,
+                max_bytes=131072,
+            )
+            activation_rollback = read_json(
+                activation_plan.rollback_receipt_path,
+                max_bytes=131072,
+            )
+            activation_terminal = validate_terminal_activation_evidence(
+                {
+                    "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+                    "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+                    "terminal_state": "rolled_back",
+                    "descriptor_sha256": descriptor_fingerprint(plane_descriptor_value),
+                    "plan_sha256": activation_plan.plan_sha256,
+                    "intent_sha256": sha256_bytes(
+                        canonical_json_bytes(activation_intent)
+                    ),
+                    "materialization_receipt_sha256": sha256_bytes(
+                        canonical_json_bytes(activation_receipt)
+                    ),
+                    "launch_context_sha256": sha256_bytes(
+                        canonical_json_bytes(activation_public_context)
+                    ),
+                    "artifact_sha256": activation_plan.raw["effective_contract_sha256"],
+                    "initial_trigger_sha256": CLAUDE_NATIVE_TRIGGER_SHA256,
+                    "rollback_intent_sha256": sha256_bytes(
+                        canonical_json_bytes(activation_rollback_intent)
+                    ),
+                    "rollback_receipt_sha256": sha256_bytes(
+                        canonical_json_bytes(activation_rollback)
+                    ),
+                },
+                descriptor=plane_descriptor_value,
+                intent=activation_intent,
+                materialization_receipt=activation_receipt,
+                public_context=activation_public_context,
+                admitted_launch_plan=launch_plan,
+                rollback_intent=activation_rollback_intent,
+                rollback_receipt=activation_rollback,
+            )
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
         evidence["active_target_processes_after_halt"] = active_after_halt
+        evidence["plane_activation"] = activation_terminal
         evidence["result"] = "accepted"
         atomic_write_json(evidence_path, evidence)
         _assert_instruction_artifact(
@@ -1523,6 +1773,48 @@ def run_probe(
             expected_manifest=compiled.manifest,
             target=target,
         )
+        proof_refs = [
+            _proof_reference("authorization", authorization_snapshot_path, run_root),
+            _proof_reference("evidence", evidence_path, run_root),
+            _proof_reference("launch_plan", launch_plan_path, run_root),
+            _proof_reference("instructions", instruction_path, run_root),
+            _proof_reference("halt", halt_path, run_root),
+            _proof_reference("ready", fixture / "handoffs" / "ready.json", run_root),
+            _proof_reference(
+                "followup", fixture / "handoffs" / "followup.json", run_root
+            ),
+            _proof_reference("review", review_path, run_root),
+            _proof_reference("acceptance", acceptance_path, run_root),
+        ]
+        if activation_plan is not None:
+            proof_refs.extend(
+                [
+                    _proof_reference(
+                        "plane_descriptor",
+                        plane_descriptor_snapshot_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_intent", activation_plan.intent_path, run_root
+                    ),
+                    _proof_reference(
+                        "activation_receipt", activation_plan.receipt_path, run_root
+                    ),
+                    _proof_reference(
+                        "activation_context", activation_context_path, run_root
+                    ),
+                    _proof_reference(
+                        "activation_rollback_intent",
+                        activation_plan.rollback_intent_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_rollback",
+                        activation_plan.rollback_receipt_path,
+                        run_root,
+                    ),
+                ]
+            )
         receipt_core = {
             "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
             "kind": "real_harness_conformance",
@@ -1548,23 +1840,8 @@ def run_probe(
             "accepted_checkpoint_id": followup.checkpoint_id,
             "acceptance_sha256": evidence["acceptance_sha256"],
             "halt_receipt_sha256": halt_sha,
-            "proof_refs": [
-                _proof_reference(
-                    "authorization", authorization_snapshot_path, run_root
-                ),
-                _proof_reference("evidence", evidence_path, run_root),
-                _proof_reference("launch_plan", launch_plan_path, run_root),
-                _proof_reference("instructions", instruction_path, run_root),
-                _proof_reference("halt", halt_path, run_root),
-                _proof_reference(
-                    "ready", fixture / "handoffs" / "ready.json", run_root
-                ),
-                _proof_reference(
-                    "followup", fixture / "handoffs" / "followup.json", run_root
-                ),
-                _proof_reference("review", review_path, run_root),
-                _proof_reference("acceptance", acceptance_path, run_root),
-            ],
+            "plane_activation": activation_terminal,
+            "proof_refs": proof_refs,
         }
         controller_attestation = attest_qualification(
             receipt_core,
@@ -1694,7 +1971,7 @@ def run_probe(
                     halt_exc.__class__.__name__,
                     str(halt_exc)[:500],
                 )
-        safe_terminal = not launch_attempted
+        safe_terminal = not target_launch_attempted
         if isinstance(cleanup, dict) and cleanup.get("stopped") is True:
             safe_terminal = False
             if active is not None:
@@ -1719,12 +1996,34 @@ def run_probe(
                         population_exc.__class__.__name__,
                         str(population_exc)[:500],
                     )
+        if activation_plan is not None and safe_terminal:
+            try:
+                activation_recovery = recover_activation(
+                    activation_plan.raw["transaction_root"]["path"]
+                )
+                if activation_recovery.state == "active":
+                    rollback_activation(activation_recovery.plan)
+                elif (
+                    activation_recovery.state == "rolled_back"
+                    and not activation_recovery.plan.rollback_receipt_path.exists()
+                ):
+                    rollback_activation(activation_recovery.plan)
+                elif activation_recovery.state not in {"prepared", "rolled_back"}:
+                    raise IdentityError("activation recovery state is unsupported")
+            except Exception as activation_exc:
+                safe_terminal = False
+                cleanup_error = cleanup_error or "%s: %s" % (
+                    activation_exc.__class__.__name__,
+                    str(activation_exc)[:500],
+                )
         evidence["result"] = "failed"
         evidence["failure"] = {
             "type": exc.__class__.__name__,
             "detail": str(exc)[:1000],
             "cleanup_error": cleanup_error,
-            "launch_attempted": launch_attempted,
+            "launch_attempted": target_launch_attempted,
+            "server_attempted": server_attempted,
+            "target_launch_attempted": target_launch_attempted,
         }
         atomic_write_json(evidence_path, evidence)
         _write_state(
@@ -1772,6 +2071,7 @@ def recover_probe(
     expected_campaign_id: str,
     expected_goal: Dict[str, str],
     run_id: str,
+    plane_descriptor: Optional[Path] = None,
     halt_timeout: float = 10.0,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -1794,10 +2094,58 @@ def recover_probe(
     if halt_timeout < 0 or halt_timeout > MAX_HALT_SECONDS:
         raise ValidationError("halt timeout must be between zero and 60 seconds")
     proof_root = absolute_root(str(proof_root), "proof root")
+    run_root = ensure_within(
+        proof_root / "probes" / run_id,
+        proof_root,
+        must_exist=True,
+    )
+    supplied_plane_descriptor = (
+        _read_plane_descriptor(plane_descriptor)
+        if plane_descriptor is not None
+        else None
+    )
+    plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
+    persisted_plane_descriptor = (
+        _read_plane_descriptor(plane_descriptor_snapshot_path)
+        if (
+            plane_descriptor_snapshot_path.exists()
+            or plane_descriptor_snapshot_path.is_symlink()
+        )
+        else None
+    )
+    persisted_activation_transaction = run_root / "activation-lane" / "transaction"
+    if (
+        persisted_activation_transaction.exists()
+        or persisted_activation_transaction.is_symlink()
+    ) and persisted_plane_descriptor is None:
+        raise IdentityError(
+            "activation transaction lacks its canonical descriptor snapshot"
+        )
+    if (
+        supplied_plane_descriptor is not None
+        and persisted_plane_descriptor is not None
+        and canonical_json_bytes(supplied_plane_descriptor)
+        != canonical_json_bytes(persisted_plane_descriptor)
+    ):
+        raise IdentityError(
+            "supplied instruction-plane descriptor differs from the probe snapshot"
+        )
+    if supplied_plane_descriptor is not None and persisted_plane_descriptor is None:
+        raise IdentityError(
+            "supplied instruction-plane descriptor lacks a canonical probe snapshot"
+        )
+    plane_descriptor_value = persisted_plane_descriptor
+    if plane_descriptor_value is not None and (
+        target != "claude" or plane_descriptor_value["target"]["harness"] != target
+    ):
+        raise ValidationError(
+            "native instruction-plane activation is limited to Claude recovery"
+        )
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
+        allow_claude_activation=plane_descriptor_value is not None,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -1812,11 +2160,6 @@ def recover_probe(
         repo_root=goal_repo,
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
-    )
-    run_root = ensure_within(
-        proof_root / "probes" / run_id,
-        proof_root,
-        must_exist=True,
     )
     state_path = run_root / "state.json"
     evidence_path = run_root / "evidence.json"
@@ -1902,6 +2245,49 @@ def recover_probe(
     ):
         raise IdentityError("persisted probe recovery identity mismatch")
 
+    activation_transaction_root = run_root / "activation-lane" / "transaction"
+    if (
+        activation_transaction_root.exists() or activation_transaction_root.is_symlink()
+    ) and plane_descriptor_value is None:
+        raise IdentityError(
+            "activation transaction exists without descriptor authority"
+        )
+
+    def reconcile_plane_activation(*, rollback_active: bool) -> Optional[str]:
+        if (
+            not activation_transaction_root.exists()
+            and not activation_transaction_root.is_symlink()
+        ):
+            return None
+        if plane_descriptor_value is None:
+            raise IdentityError(
+                "activation transaction exists without descriptor authority"
+            )
+        recovered_activation = recover_activation(activation_transaction_root)
+        if recovered_activation.plan.raw[
+            "adapter_manifest_sha256"
+        ] != manifest.fingerprint or recovered_activation.plan.raw[
+            "descriptor_sha256"
+        ] != descriptor_fingerprint(plane_descriptor_value):
+            raise IdentityError("persisted activation recovery identity mismatch")
+        if recovered_activation.state == "active" and rollback_active:
+            rollback_activation(recovered_activation.plan)
+            recovered_activation = recover_activation(activation_transaction_root)
+            if recovered_activation.state != "rolled_back":
+                raise IdentityError("activation rollback did not reach terminal state")
+        elif (
+            recovered_activation.state == "rolled_back"
+            and rollback_active
+            and not recovered_activation.plan.rollback_receipt_path.exists()
+        ):
+            rollback_activation(recovered_activation.plan)
+            recovered_activation = recover_activation(activation_transaction_root)
+            if recovered_activation.state != "rolled_back":
+                raise IdentityError("activation rollback proof was not reconciled")
+        if recovered_activation.state not in {"prepared", "active", "rolled_back"}:
+            raise IdentityError("activation recovery state is unsupported")
+        return recovered_activation.state
+
     lock_descriptor: Optional[int] = None
     try:
         complete = (
@@ -1913,6 +2299,11 @@ def recover_probe(
             reject_active_lease=False,
         )
         if complete:
+            if plane_descriptor_value is not None:
+                if reconcile_plane_activation(rollback_active=False) != "rolled_back":
+                    raise IdentityError(
+                        "accepted activation probe is not durably rolled back"
+                    )
             lease = require_session_lease(
                 session=session,
                 target=target,
@@ -1972,14 +2363,24 @@ def recover_probe(
                 "receipt": str(receipt_path),
             }
 
-        lease = require_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            instruction_manifest_sha256=instruction_manifest_sha,
-            states={"launching", "active", "halting", "halted", "failed"},
-            authority_root=_authority_root,
+        current_lease = current_session_lease(_authority_root, target=target)
+        unrelated_terminal_lease = (
+            current_lease is not None
+            and current_lease["session"] != session
+            and current_lease["state"] in {"halted", "failed"}
+        )
+        lease = (
+            None
+            if current_lease is None or unrelated_terminal_lease
+            else require_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
+                states={"launching", "active", "halting", "halted", "failed"},
+                authority_root=_authority_root,
+            )
         )
 
         tmux_authority_path = run_root / "tmux-authority"
@@ -1999,17 +2400,19 @@ def recover_probe(
                 raise IdentityError(
                     "missing private launch root has an ambiguous target population"
                 )
-            transition_session_lease(
-                session=session,
-                target=target,
-                controller=controller,
-                owner=probe_lease_owner,
-                instruction_manifest_sha256=instruction_manifest_sha,
-                state="failed",
-                process=None,
-                authority_root=_authority_root,
-                _lock_descriptor=lock_descriptor,
-            )
+            activation_state = reconcile_plane_activation(rollback_active=True)
+            if lease is not None:
+                transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
+                    state="failed",
+                    process=None,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
             recovery = {
                 "schema_version": 1,
                 "run_id": run_id,
@@ -2020,6 +2423,9 @@ def recover_probe(
                 "authority_lock": lock_identity,
                 "identity_source": "private_launch_root_absent",
                 "launch_attempted": False,
+                "server_attempted": False,
+                "target_launch_attempted": False,
+                "plane_activation_state": activation_state,
                 "cleanup": None,
                 "result": "interrupted_probe_reconciled",
             }
@@ -2053,6 +2459,8 @@ def recover_probe(
         process = evidence.get("process")
         identity_source = "persisted_launch_identity"
         launch_attempted: Optional[bool]
+        server_attempted: Optional[bool]
+        target_launch_attempted: Optional[bool]
         failure = evidence.get("failure")
         persisted_launch_attempted = (
             failure.get("launch_attempted")
@@ -2060,8 +2468,22 @@ def recover_probe(
             and isinstance(failure.get("launch_attempted"), bool)
             else None
         )
+        persisted_server_attempted = (
+            failure.get("server_attempted")
+            if isinstance(failure, dict)
+            and isinstance(failure.get("server_attempted"), bool)
+            else persisted_launch_attempted
+        )
+        persisted_target_launch_attempted = (
+            failure.get("target_launch_attempted")
+            if isinstance(failure, dict)
+            and isinstance(failure.get("target_launch_attempted"), bool)
+            else persisted_launch_attempted
+        )
         if not socket.exists():
             launch_attempted = persisted_launch_attempted
+            server_attempted = persisted_server_attempted
+            target_launch_attempted = persisted_target_launch_attempted
             if isinstance(process, dict) and _process_alive_fn(process):
                 raise IdentityError(
                     "absent private probe socket still has a live persisted target"
@@ -2074,17 +2496,18 @@ def recover_probe(
                 raise IdentityError(
                     "absent private probe socket has an ambiguous target population"
                 )
-            transition_session_lease(
-                session=session,
-                target=target,
-                controller=controller,
-                owner=probe_lease_owner,
-                instruction_manifest_sha256=instruction_manifest_sha,
-                state="failed",
-                process=None,
-                authority_root=_authority_root,
-                _lock_descriptor=lock_descriptor,
-            )
+            if lease is not None:
+                transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
+                    state="failed",
+                    process=None,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
             cleanup = {
                 "schema_version": 1,
                 "session": session,
@@ -2097,6 +2520,8 @@ def recover_probe(
             process = None
         elif isinstance(tmux_record, dict) and isinstance(process, dict):
             launch_attempted = True
+            server_attempted = True
+            target_launch_attempted = True
             if tmux_record.get("socket") != str(socket):
                 raise IdentityError("persisted recovery socket identity mismatch")
             socket_identity = tmux_record.get("socket_identity")
@@ -2118,6 +2543,8 @@ def recover_probe(
             manifest.verify_process_executable(process)
         else:
             launch_attempted = True
+            server_attempted = True
+            target_launch_attempted = persisted_target_launch_attempted
             identity_source = "unpersisted_private_launch_identity"
             recovery = {
                 "schema_version": 1,
@@ -2129,6 +2556,11 @@ def recover_probe(
                 "authority_lock": lock_identity,
                 "identity_source": identity_source,
                 "launch_attempted": True,
+                "server_attempted": True,
+                "target_launch_attempted": target_launch_attempted,
+                "plane_activation_state": reconcile_plane_activation(
+                    rollback_active=False
+                ),
                 "cleanup": None,
                 "result": "interrupted_probe_fenced",
             }
@@ -2153,6 +2585,10 @@ def recover_probe(
                 "private launch identity was not durably persisted; target remains fenced"
             )
         if process is not None:
+            if lease is None:
+                raise IdentityError(
+                    "persisted target exists without its controller lease"
+                )
             if lease.get("process") is not None and lease["process"] != process:
                 raise IdentityError(
                     "persisted recovery process differs from the controller lease"
@@ -2209,7 +2645,8 @@ def recover_probe(
             raise IdentityError(
                 "protected same-target process population changed during recovery"
             )
-        if lease["state"] in {"launching", "active", "halting"}:
+        activation_state = reconcile_plane_activation(rollback_active=True)
+        if lease is not None and lease["state"] in {"launching", "active", "halting"}:
             transition_session_lease(
                 session=session,
                 target=target,
@@ -2231,6 +2668,9 @@ def recover_probe(
             "authority_lock": lock_identity,
             "identity_source": identity_source,
             "launch_attempted": launch_attempted,
+            "server_attempted": server_attempted,
+            "target_launch_attempted": target_launch_attempted,
+            "plane_activation_state": activation_state,
             "cleanup": cleanup,
             "result": "interrupted_probe_reconciled",
         }

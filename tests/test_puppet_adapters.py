@@ -998,6 +998,84 @@ class AdapterTests(unittest.TestCase):
             self.assertFalse(out.exists())
             self.assertIn("authority", result.stderr)
 
+    def test_adapter_lab_refuses_activation_lifecycle_only_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = manifest_raw()
+            manifest_path = root / "doctor.json"
+            mapping_path = root / "mapping.json"
+            receipt_path = root / "receipt.json"
+            out = root / "qualified.json"
+            manifest_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            mapping_path.write_text(
+                json.dumps(raw["yolo_mapping"]) + "\n",
+                encoding="utf-8",
+            )
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            arguments = SimpleNamespace(
+                manifest=manifest_path,
+                mapping=mapping_path,
+                receipt=receipt_path,
+                out=out,
+            )
+            with patch.object(
+                puppet_adapter_lab,
+                "_verified_receipt",
+                return_value={"plane_activation": {"terminal_state": "rolled_back"}},
+            ):
+                with self.assertRaisesRegex(
+                    UnsupportedError,
+                    "cannot qualify a live adapter without matched no-bleed",
+                ):
+                    puppet_adapter_lab._qualify(arguments)
+            self.assertFalse(out.exists())
+
+    def test_adapter_lab_probe_and_recover_accept_optional_plane_descriptor(self):
+        descriptor = Path("claude-plane.json")
+        shared = [
+            "--target",
+            "claude",
+            "--proof-root",
+            "proof",
+            "--manifest",
+            "doctor.json",
+            "--mapping",
+            "mapping.json",
+            "--authorization",
+            "campaign.json",
+            "--controller",
+            "tester",
+            "--campaign-id",
+            "campaign-1",
+            "--goal-repo",
+            "goal-repo",
+            "--goal-repository",
+            "test/repo",
+            "--goal-commit",
+            "a" * 40,
+            "--goal-path",
+            "goal.md",
+            "--goal-sha256",
+            "b" * 64,
+            "--plane-descriptor",
+            str(descriptor),
+        ]
+        probe = puppet_adapter_lab.build_parser().parse_args(
+            [
+                "probe",
+                "--profile",
+                QUALIFICATION_PROFILE,
+                "--session-profile",
+                "regular",
+                *shared,
+            ]
+        )
+        recovery = puppet_adapter_lab.build_parser().parse_args(
+            ["recover", "--run-id", "probe-1", *shared]
+        )
+        self.assertEqual(probe.plane_descriptor, descriptor)
+        self.assertEqual(recovery.plane_descriptor, descriptor)
+
     def test_agy_project_isolation_flag_set_is_required(self):
         raw = manifest_raw()
         with self.subTest("mismatched_flags"):
