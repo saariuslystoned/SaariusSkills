@@ -156,12 +156,13 @@ class TmuxTransportTests(unittest.TestCase):
                 ),
                 str(output),
             ]
+            source["HOME"] = str(home)
             environment, expected_identity = build_launch_identity(
                 target="codex",
                 repo=repo,
                 argv=argv,
                 source_environment=source,
-                bindings={"HOME": str(home), "CODEX_HOME": str(codex_home)},
+                bindings={"CODEX_HOME": str(codex_home)},
             )
             controller = TmuxController(root)
             metadata = controller.launch(
@@ -221,6 +222,20 @@ class TmuxTransportTests(unittest.TestCase):
                 },
             )
             self.assertNotIn("must-not-cross", json.dumps(identity, sort_keys=True))
+            ambient_extension = dict(source, CODEX_HOME="/ambient/must-not-cross")
+            self.assertNotIn(
+                "CODEX_HOME",
+                select_launch_environment(
+                    target="codex",
+                    source_environment=ambient_extension,
+                ),
+            )
+            with self.assertRaisesRegex(ValidationError, "allowlisted"):
+                select_launch_environment(
+                    target="codex",
+                    source_environment=source,
+                    bindings={"HOME": "/caller/cannot/override/baseline"},
+                )
             for name in (
                 "FOO",
                 "PWD",
@@ -246,6 +261,8 @@ class TmuxTransportTests(unittest.TestCase):
                 "bad\rvalue",
                 "bad\tvalue",
                 "bad\x1bvalue",
+                "bad\ud800value",
+                "bad\u200bvalue",
             ):
                 with self.subTest(value=repr(value)):
                     with self.assertRaisesRegex(ValidationError, "value is invalid"):

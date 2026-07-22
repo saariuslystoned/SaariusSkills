@@ -76,7 +76,7 @@ def _validate_environment_value(value: Any) -> str:
     if (
         not isinstance(value, str)
         or len(value) > _MAX_ENVIRONMENT_VALUE
-        or any(unicodedata.category(character) == "Cc" for character in value)
+        or any(unicodedata.category(character).startswith("C") for character in value)
     ):
         raise ValidationError("launch environment value is invalid")
     return value
@@ -98,6 +98,7 @@ def _allowed_environment_names(target: str | None) -> frozenset[str]:
 def _closed_environment(
     *,
     allowed: frozenset[str],
+    ambient_allowed: frozenset[str],
     source_environment: Mapping[str, str],
     bindings: Mapping[str, str],
 ) -> Dict[str, str]:
@@ -110,7 +111,7 @@ def _closed_environment(
     for name in sorted(allowed):
         if name in bindings:
             selected[name] = _validate_environment_value(bindings[name])
-        elif name in source_environment:
+        elif name in ambient_allowed and name in source_environment:
             selected[name] = _validate_environment_value(source_environment[name])
     return selected
 
@@ -123,6 +124,7 @@ def control_environment(
     source = os.environ if source_environment is None else source_environment
     return _closed_environment(
         allowed=_allowed_environment_names(None),
+        ambient_allowed=_BASE_ENVIRONMENT_NAMES,
         source_environment=source,
         bindings={},
     )
@@ -137,10 +139,16 @@ def select_launch_environment(
     """Select one complete target environment from ambient safe names and bindings."""
 
     source = os.environ if source_environment is None else source_environment
+    allowed = _allowed_environment_names(target)
+    extensions = TARGET_ENVIRONMENT_EXTENSIONS[target]
+    normalized_bindings = {} if bindings is None else bindings
+    for name in normalized_bindings:
+        _validate_environment_name(name, allowed=extensions)
     return _closed_environment(
-        allowed=_allowed_environment_names(target),
+        allowed=allowed,
+        ambient_allowed=_BASE_ENVIRONMENT_NAMES,
         source_environment=source,
-        bindings={} if bindings is None else bindings,
+        bindings=normalized_bindings,
     )
 
 
@@ -189,7 +197,9 @@ def _validate_argv(argv: Sequence[str]) -> list[str]:
             not isinstance(item, str)
             or not item
             or len(item) > 8192
-            or any(unicodedata.category(character) == "Cc" for character in item)
+            or any(
+                unicodedata.category(character).startswith("C") for character in item
+            )
         ):
             raise ValidationError("launch argv must be a non-empty string list")
         normalized.append(item)
@@ -233,7 +243,7 @@ def validate_public_launch_identity(value: Any, *, target: str) -> Dict[str, Any
         or not cwd
         or len(cwd) > 4096
         or not Path(cwd).is_absolute()
-        or any(unicodedata.category(character) == "Cc" for character in cwd)
+        or any(unicodedata.category(character).startswith("C") for character in cwd)
     ):
         raise ValidationError("launch identity cwd is invalid")
     names = value.get("env_names")
