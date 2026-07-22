@@ -60,7 +60,7 @@ def _fixture() -> dict:
             "argv": [
                 {"path_ref": "instruction_contract"},
                 {"name_ref": "fixture_profile"},
-                {"literal": "--format=json"},
+                {"literal": "--format"},
             ],
         },
         "rollback": {
@@ -83,7 +83,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
         first = validate_instruction_plane_descriptor(_fixture())
         ordered = dict(sorted(first.items()))
         self.assertEqual(first, ordered)
-        self.assertEqual(descriptor_fingerprint(first), descriptor_fingerprint(_fixture()))
+        self.assertEqual(
+            descriptor_fingerprint(first), descriptor_fingerprint(_fixture())
+        )
 
         reordered = {
             "blockers": ["blocker_coverage_001"],
@@ -97,7 +99,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             "launch_delta": _fixture()["launch_delta"],
             "rollback": _fixture()["rollback"],
         }
-        self.assertEqual(descriptor_fingerprint(first), descriptor_fingerprint(reordered))
+        self.assertEqual(
+            descriptor_fingerprint(first), descriptor_fingerprint(reordered)
+        )
 
     def test_parse_from_json_text(self):
         payload = json.dumps(_fixture())
@@ -132,7 +136,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             "2026.07.17-3e2a980",
         )
 
-    def test_unsupported_or_hypothesis_disabled_can_be_empty_and_is_blocker_required(self):
+    def test_unsupported_or_hypothesis_disabled_can_be_empty_and_is_blocker_required(
+        self,
+    ):
         candidate = _fixture()
         candidate["status"] = {"surface": "hypothesis", "activation": "disabled"}
         candidate["materialize"] = []
@@ -144,7 +150,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
         }
         candidate["assertions"] = []
         candidate["blockers"] = ["blocker_coverage_001"]
-        self.assertEqual(validate_instruction_plane_descriptor(candidate)["materialize"], [])
+        self.assertEqual(
+            validate_instruction_plane_descriptor(candidate)["materialize"], []
+        )
 
     def test_adversarial_cases(self):
         base = _fixture()
@@ -223,8 +231,10 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             ),
             (
                 "qualified_requires_assertions",
-                lambda value: value["status"].update({"activation": "qualified"})
-                or value.update({"assertions": []}),
+                lambda value: (
+                    value["status"].update({"activation": "qualified"})
+                    or value.update({"assertions": []})
+                ),
                 "qualified descriptors must include assertions",
             ),
             (
@@ -235,7 +245,13 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             (
                 "factual_activation_requires_materialize",
                 lambda value: value.update(
-                    {"status": {"surface": "factual", "activation": "qualification_only"}, "materialize": []}
+                    {
+                        "status": {
+                            "surface": "factual",
+                            "activation": "qualification_only",
+                        },
+                        "materialize": [],
+                    }
                 ),
                 "factual activatable descriptors must materialize artifacts",
             ),
@@ -283,7 +299,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             (
                 "trailing_slash_artifact_path",
                 lambda value: value["materialize"][0].update(
-                    {"relative_path": "workspace/.puppet/contracts/instruction_contract.md/"}
+                    {
+                        "relative_path": "workspace/.puppet/contracts/instruction_contract.md/"
+                    }
                 ),
                 "must not contain absolute or traversal components",
             ),
@@ -301,7 +319,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             ),
             (
                 "invalid_env_name",
-                lambda value: value["launch_delta"]["env"][0].update({"name": "bad-name"}),
+                lambda value: value["launch_delta"]["env"][0].update(
+                    {"name": "bad-name"}
+                ),
                 "launch env name",
             ),
             (
@@ -310,6 +330,25 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                     {"literal": "this is body text"}
                 ),
                 "argv literal must be a literal flag",
+            ),
+            (
+                "argv_literal_eq_short_flag",
+                lambda value: value["launch_delta"]["argv"].append(
+                    {"literal": "--rules=body"}
+                ),
+                "is not a literal flag",
+            ),
+            (
+                "argv_literal_eq_long_flag",
+                lambda value: value["launch_delta"]["argv"].append(
+                    {"literal": "--system-prompt=x"}
+                ),
+                "is not a literal flag",
+            ),
+            (
+                "argv_literal_double_dash",
+                lambda value: value["launch_delta"]["argv"].append({"literal": "--"}),
+                "is not a literal flag",
             ),
             (
                 "argv_unknown_artifact",
@@ -325,7 +364,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             ),
             (
                 "rollback_unknown_artifact",
-                lambda value: value["rollback"]["owned_artifacts"].append("missing_artifact"),
+                lambda value: value["rollback"]["owned_artifacts"].append(
+                    "missing_artifact"
+                ),
                 "references unknown artifact",
             ),
             (

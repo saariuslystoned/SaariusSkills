@@ -123,7 +123,9 @@ def _validate_reference_path(value: Any, *, label: str) -> str:
     if path.startswith("/") or "\\" in path:
         raise ValidationError("%s must be relative and slash-style" % label)
     if any(part in {"", ".", ".."} for part in path.split("/")):
-        raise ValidationError("%s must not contain absolute or traversal components" % label)
+        raise ValidationError(
+            "%s must not contain absolute or traversal components" % label
+        )
     return path
 
 
@@ -133,7 +135,7 @@ def _parse_json_no_duplicates(raw: str) -> dict[str, Any]:
         seen = set()
         for key, value in pairs:
             if key in seen:
-                raise ValidationError("duplicate JSON key %s" % key)
+                raise ValidationError("duplicate JSON key")
             seen.add(key)
             obj[key] = value
         return obj
@@ -158,9 +160,10 @@ def _validate_flag(value: Any, *, label: str) -> str:
         raise ValidationError("%s must be a literal flag" % label)
     if any(ch in flag for ch in ("\t", "\n", "\r", " ")):
         raise ValidationError("%s must be flag-like" % label)
-    if "--" in flag and flag.startswith("--"):
-        if flag == "--":
-            raise ValidationError("%s is not a literal flag" % label)
+    if "=" in flag:
+        raise ValidationError("%s is not a literal flag" % label)
+    if flag == "-" or flag == "--":
+        raise ValidationError("%s is not a literal flag" % label)
     return flag
 
 
@@ -195,7 +198,9 @@ def _validate_target(value: Any) -> Dict[str, Any]:
     )
     if observed_model != "unavailable":
         if not observed_model.strip():
-            raise ValidationError("target observed_model must be unavailable or non-empty")
+            raise ValidationError(
+                "target observed_model must be unavailable or non-empty"
+            )
 
     config_fingerprint = _validate_text(
         value.get("config_fingerprint"),
@@ -221,7 +226,9 @@ def _validate_status(value: Any) -> Dict[str, str]:
     if set(value) != _STATUS_KEYS:
         raise ValidationError("status fields are invalid")
 
-    surface = _validate_text(value.get("surface"), label="status surface", max_length=32)
+    surface = _validate_text(
+        value.get("surface"), label="status surface", max_length=32
+    )
     activation = _validate_text(
         value.get("activation"),
         label="status activation",
@@ -234,7 +241,9 @@ def _validate_status(value: Any) -> Dict[str, str]:
     if activation == "qualified" and surface != "factual":
         raise ValidationError("only factual descriptors can be qualified")
     if surface in {"unsupported", "hypothesis"} and activation != "disabled":
-        raise ValidationError("unsupported or hypothesis descriptors cannot be activatable")
+        raise ValidationError(
+            "unsupported or hypothesis descriptors cannot be activatable"
+        )
 
     return {"surface": surface, "activation": activation}
 
@@ -265,7 +274,9 @@ def _validate_materialize(
             raise ValidationError("materialize artifact ids must be unique")
         artifact_ids.add(artifact_id)
 
-        root_ref = _validate_text(entry["root_ref"], label="materialize root_ref", max_length=32)
+        root_ref = _validate_text(
+            entry["root_ref"], label="materialize root_ref", max_length=32
+        )
         if root_ref not in _SUPPORTED_ROOT_REFS:
             raise ValidationError("unsupported root_ref")
 
@@ -359,15 +370,25 @@ def _validate_launch_delta(
         if len(keys) != 1:
             raise ValidationError("launch argv entry fields are invalid")
         if keys == {"literal"}:
-            normalized_argv.append({"literal": _validate_flag(entry["literal"], label="argv literal")})
+            normalized_argv.append(
+                {"literal": _validate_flag(entry["literal"], label="argv literal")}
+            )
         elif keys == {"path_ref"}:
-            path_ref = _validate_text(entry["path_ref"], label="argv path_ref", max_length=128)
+            path_ref = _validate_text(
+                entry["path_ref"], label="argv path_ref", max_length=128
+            )
             if path_ref not in materialize_keys:
-                raise ValidationError("argv path_ref references unknown materialize artifact")
+                raise ValidationError(
+                    "argv path_ref references unknown materialize artifact"
+                )
             normalized_argv.append({"path_ref": path_ref})
         elif keys == {"name_ref"}:
             normalized_argv.append(
-                {"name_ref": _validate_symbolic(entry["name_ref"], label="argv name_ref")}
+                {
+                    "name_ref": _validate_symbolic(
+                        entry["name_ref"], label="argv name_ref"
+                    )
+                }
             )
         else:
             raise ValidationError("launch argv entry fields are invalid")
@@ -391,15 +412,21 @@ def _validate_rollback(
     if set(value) != _ROLLBACK_KEYS:
         raise ValidationError("rollback fields are invalid")
 
-    owned_artifacts = _validate_ids(value.get("owned_artifacts"), label="rollback owned_artifacts")
+    owned_artifacts = _validate_ids(
+        value.get("owned_artifacts"), label="rollback owned_artifacts"
+    )
     if allow_empty and not materialize_keys and not owned_artifacts:
         pass
     elif not materialize_keys and owned_artifacts:
-        raise ValidationError("rollback owned_artifacts must be empty for empty materialize")
+        raise ValidationError(
+            "rollback owned_artifacts must be empty for empty materialize"
+        )
     elif not owned_artifacts:
         raise ValidationError("rollback must own at least one artifact")
     if materialize_keys and set(owned_artifacts) != set(materialize_keys):
-        raise ValidationError("rollback owned_artifacts must exactly match materialize artifacts")
+        raise ValidationError(
+            "rollback owned_artifacts must exactly match materialize artifacts"
+        )
     for artifact_id in owned_artifacts:
         if artifact_id not in materialize_keys:
             raise ValidationError("rollback references unknown artifact")
@@ -412,7 +439,9 @@ def _validate_rollback(
     for entry in preimage:
         if not isinstance(entry, Mapping) or set(entry) != _PREIMAGE_KEYS:
             raise ValidationError("rollback preimage entry fields are invalid")
-        artifact_id = validate_identifier(entry["artifact_id"], "rollback preimage artifact_id")
+        artifact_id = validate_identifier(
+            entry["artifact_id"], "rollback preimage artifact_id"
+        )
         if artifact_id not in materialize_keys:
             raise ValidationError("rollback preimage references unknown artifact")
         if artifact_id in preimage_artifacts:
@@ -422,7 +451,9 @@ def _validate_rollback(
         normalized_preimage.append({"artifact_id": artifact_id, "sha256": sha})
 
     if not materialize_keys and preimage_artifacts:
-        raise ValidationError("rollback preimage_sha256 must be empty for empty materialize")
+        raise ValidationError(
+            "rollback preimage_sha256 must be empty for empty materialize"
+        )
 
     for entry in materialize:
         if entry["write_mode"] == "patch_if_base_sha256":
@@ -430,7 +461,10 @@ def _validate_rollback(
                 raise ValidationError(
                     "materialize entries with patch_if_base_sha256 need rollback preimage"
                 )
-        if entry["artifact_id"] in preimage_artifacts and entry["write_mode"] == "create_only":
+        if (
+            entry["artifact_id"] in preimage_artifacts
+            and entry["write_mode"] == "create_only"
+        ):
             raise ValidationError("create_only entries cannot include preimage hashes")
 
     retain_hash_only_proof = value.get("retain_hash_only_proof")
@@ -504,15 +538,26 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
 
     if status["surface"] == "factual" and status["activation"] != "disabled":
         if not materialize_keys:
-            raise ValidationError("factual activatable descriptors must materialize artifacts")
-    if status["surface"] in {"unsupported", "hypothesis"} and status["activation"] == "disabled":
+            raise ValidationError(
+                "factual activatable descriptors must materialize artifacts"
+            )
+    if (
+        status["surface"] in {"unsupported", "hypothesis"}
+        and status["activation"] == "disabled"
+    ):
         if not blockers:
-            raise ValidationError("unsupported or hypothesis disabled descriptors require blockers")
+            raise ValidationError(
+                "unsupported or hypothesis disabled descriptors require blockers"
+            )
         if materialize_keys:
             raise ValidationError(
                 "unsupported or hypothesis disabled descriptors cannot include materialize artifacts"
             )
-        if launch_delta["cwd_ref"] is not None or launch_delta["env"] or launch_delta["argv"]:
+        if (
+            launch_delta["cwd_ref"] is not None
+            or launch_delta["env"]
+            or launch_delta["argv"]
+        ):
             raise ValidationError(
                 "unsupported or hypothesis disabled descriptors cannot include activation deltas"
             )
