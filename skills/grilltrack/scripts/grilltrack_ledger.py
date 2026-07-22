@@ -9,6 +9,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import uuid
@@ -17,7 +18,9 @@ from typing import Any
 
 
 SCHEMA_VERSION = "grilltrack/v0.1"
-ACTIVATION = "$grilltrack"
+NEW_TRACK_ROLLOVER_FILE = "new_track_rollover.json"
+NEW_TRACK_ROLLOVER_SCHEMA = "grilltrack/new-track-rollover/v1"
+ACTIVATIONS = {"implicit", "$grilltrack"}
 DECISION_STATES = {
     "proposed",
     "locked",
@@ -38,6 +41,7 @@ BLOCKING_CLOSE_STATES = {
     "needs_reverification",
 }
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+NEW_TRACK_FAILPOINTS = {"after_archive", "after_ledger", "after_rollover_stage"}
 
 
 class LedgerError(RuntimeError):
@@ -54,11 +58,13 @@ def require_text(value: Any, label: str) -> str:
     return value.strip()
 
 
-def require_activation(value: str) -> None:
-    if value != ACTIVATION:
+def normalize_activation(value: str | None) -> str:
+    mechanism = (value or "implicit").strip() or "implicit"
+    if mechanism not in ACTIVATIONS:
         raise LedgerError(
-            "explicit activation required; pass --activation '$grilltrack'"
+            "activation must be implicit or $grilltrack"
         )
+    return mechanism
 
 
 def validate_id(value: str, label: str) -> str:
@@ -78,6 +84,8 @@ class Store:
         self.state_dir = self.project / ".grilltrack"
         self.ledger_path = self.state_dir / "ledger.json"
         self.events_path = self.state_dir / "events.jsonl"
+        self.archive_root = self.state_dir / "archive"
+        self.rollover_state_path = self.state_dir / "work" / NEW_TRACK_ROLLOVER_FILE
 
     def guard_state_dir(self) -> None:
         if self.state_dir.is_symlink():
@@ -94,7 +102,7 @@ class Store:
         self.guard_state_dir()
         if not self.ledger_path.is_file():
             raise LedgerError(
-                f"no ledger found at {self.ledger_path}; initialize after explicit activation"
+                f"no ledger found at {self.ledger_path}; initialize a track first"
             )
         try:
             data = json.loads(self.ledger_path.read_text(encoding="utf-8"))
@@ -121,17 +129,126 @@ class Store:
                 os.unlink(temporary)
 
     def append_event(self, action: str, data: dict[str, Any]) -> None:
+        line = self.event_line(action, data)
+        with self.events_path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def event_line(self, action: str, data: dict[str, Any]) -> str:
         event = {
             "event_id": str(uuid.uuid4()),
             "at": utc_now(),
             "action": action,
             "data": data,
         }
-        line = json.dumps(event, sort_keys=True) + "\n"
-        with self.events_path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
-            handle.flush()
-            os.fsync(handle.fileno())
+        return json.dumps(event, sort_keys=True) + "\n"
+
+    def replace_events(self, action: str, data: dict[str, Any]) -> None:
+        line = self.event_line(action, data)
+        fd, temporary = tempfile.mkstemp(
+            prefix=".events-", suffix=".jsonl", dir=self.state_dir
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.events_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def write_rollover_state(self, data: dict[str, Any]) -> None:
+        self.rollover_state_path.parent.mkdir(mode=0o755, exist_ok=True)
+        payload = json.dumps(data, sort_keys=True, indent=2) + "\n"
+        fd, temporary = tempfile.mkstemp(
+            prefix=".rollover-", suffix=".json", dir=self.rollover_state_path.parent
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.rollover_state_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def read_rollover_state(self) -> dict[str, Any] | None:
+        if not self.rollover_state_path.is_file():
+            return None
+        try:
+            data = json.loads(self.rollover_state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LedgerError(f"cannot read rollover state: {exc}") from exc
+        if not isinstance(data, dict):
+            raise LedgerError("rollover state must be an object")
+        expected = {
+            "schema_version",
+            "predecessor_track_id",
+            "successor_track_id",
+            "title",
+            "mechanism",
+            "stage",
+        }
+        if not expected.issubset(data):
+            raise LedgerError("rollover state missing required fields")
+        if data["schema_version"] != NEW_TRACK_ROLLOVER_SCHEMA:
+            raise LedgerError("unsupported rollover state schema")
+        if data["stage"] not in {"started", "archived", "ledger_written"}:
+            raise LedgerError(f"unknown rollover state stage: {data['stage']}")
+        validate_id(data["predecessor_track_id"], "predecessor_track_id")
+        validate_id(data["successor_track_id"], "successor_track_id")
+        data["title"] = require_text(data["title"], "rollover title")
+        if data["mechanism"] not in ACTIVATIONS:
+            raise LedgerError("rollover mechanism must be implicit or $grilltrack")
+        return data
+
+    def clear_rollover_state(self) -> None:
+        if self.rollover_state_path.exists():
+            self.rollover_state_path.unlink()
+
+    def archive_closed(self, ledger: dict[str, Any]) -> str:
+        if ledger["status"] != "closed":
+            raise LedgerError("only a closed track can be archived")
+        validate_ledger(ledger)
+        if self.archive_root.is_symlink():
+            raise LedgerError(".grilltrack/archive must not be a symlink")
+        self.archive_root.mkdir(mode=0o755, exist_ok=True)
+        archive_dir = self.archive_root / ledger["track_id"]
+        archive_ref = f".grilltrack/archive/{ledger['track_id']}"
+
+        if archive_dir.exists():
+            if archive_dir.is_symlink():
+                raise LedgerError(f"track archive must not be a symlink: {archive_ref}")
+            archived_ledger = archive_dir / "ledger.json"
+            archived_events = archive_dir / "events.jsonl"
+            if (
+                archived_ledger.is_file()
+                and archived_events.is_file()
+                and archived_ledger.read_bytes() == self.ledger_path.read_bytes()
+                and archived_events.read_bytes() == self.events_path.read_bytes()
+            ):
+                return archive_ref
+            raise LedgerError(f"track archive already exists: {archive_ref}")
+
+        temporary = Path(
+            tempfile.mkdtemp(prefix=".archive-", dir=self.archive_root)
+        )
+        try:
+            shutil.copy2(self.ledger_path, temporary / "ledger.json")
+            shutil.copy2(self.events_path, temporary / "events.jsonl")
+            os.replace(temporary, archive_dir)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        return archive_ref
+
+    def archived_track_ids(self) -> set[str]:
+        if not self.archive_root.is_dir():
+            return set()
+        return {item.name for item in self.archive_root.iterdir()}
 
     def persist(
         self, ledger: dict[str, Any], action: str, data: dict[str, Any]
@@ -211,6 +328,11 @@ def validate_ledger(ledger: Any) -> None:
     if ledger.get("schema_version") != SCHEMA_VERSION:
         raise LedgerError(f"schema_version must be {SCHEMA_VERSION}")
     validate_id(ledger.get("track_id"), "track_id")
+    predecessor = ledger.get("predecessor_track_id")
+    if predecessor is not None:
+        predecessor = validate_id(predecessor, "predecessor_track_id")
+        if predecessor == ledger["track_id"]:
+            raise LedgerError("a track cannot be its own predecessor")
     require_text(ledger.get("title"), "title")
     if ledger.get("status") not in TRACK_STATES:
         raise LedgerError(f"track status must be one of {sorted(TRACK_STATES)}")
@@ -330,6 +452,16 @@ def validate_ledger(ledger: Any) -> None:
             )
 
 
+def fail_if_requested(point: str) -> None:
+    requested = os.environ.get("GRILLTRACK_TEST_FAILPOINT")
+    if requested is None:
+        return
+    if requested == point:
+        raise LedgerError(f"simulated failure at {point}")
+    if requested not in NEW_TRACK_FAILPOINTS:
+        raise LedgerError(f"unknown failure point: {requested}")
+
+
 def require_mutable(ledger: dict[str, Any]) -> None:
     if ledger["status"] == "closed":
         raise LedgerError("closed tracks are immutable")
@@ -353,10 +485,59 @@ def output(ledger: dict[str, Any]) -> None:
     print(json.dumps(ledger, indent=2, sort_keys=True))
 
 
-def command_init(store: Store, args: argparse.Namespace) -> None:
-    require_activation(args.activation)
-    if store.state_dir.exists():
-        raise LedgerError(f"state already exists: {store.state_dir}")
+def validate_rollover_successor_ledger(
+    ledger: dict[str, Any],
+    *,
+    predecessor_track_id: str,
+    successor_track_id: str,
+    title: str,
+    mechanism: str,
+) -> None:
+    if ledger["status"] != "active":
+        raise LedgerError(
+            "in-progress track rollover expects an active successor ledger"
+        )
+    if ledger["track_id"] != successor_track_id:
+        raise LedgerError(
+            "in-progress track rollover has mismatched successor track id"
+        )
+    if ledger.get("predecessor_track_id") != predecessor_track_id:
+        raise LedgerError(
+            "in-progress track rollover predecessor mismatch"
+        )
+    if ledger["title"] != title:
+        raise LedgerError("in-progress track rollover successor title mismatch")
+    activation = ledger.get("last_activation")
+    if (
+        not isinstance(activation, dict)
+        or activation.get("mechanism") != mechanism
+    ):
+        raise LedgerError(
+            "in-progress track rollover expects an active successor ledger"
+        )
+    if ledger.get("decisions") != []:
+        raise LedgerError(
+            "in-progress track rollover successor has unexpected decisions"
+        )
+    if ledger.get("current_focus") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have current focus"
+        )
+    if ledger.get("recommendation") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have recommendation"
+        )
+    if ledger.get("closeout") is not None:
+        raise LedgerError(
+            "in-progress track rollover successor must not have closeout"
+        )
+
+
+def new_ledger(
+    args: argparse.Namespace,
+    mechanism: str,
+    predecessor_track_id: str | None = None,
+) -> dict[str, Any]:
     track_id = (
         validate_id(args.track_id, "track_id")
         if args.track_id
@@ -374,11 +555,141 @@ def command_init(store: Store, args: argparse.Namespace) -> None:
         "decisions": [],
         "recommendation": None,
         "closeout": None,
-        "last_activation": {"mechanism": ACTIVATION, "at": now},
+        "last_activation": {"mechanism": mechanism, "at": now},
     }
+    if predecessor_track_id:
+        ledger["predecessor_track_id"] = predecessor_track_id
+    return ledger
+
+
+def command_init(store: Store, args: argparse.Namespace) -> None:
+    mechanism = normalize_activation(args.activation)
+    if store.state_dir.exists():
+        raise LedgerError(f"state already exists: {store.state_dir}")
+    ledger = new_ledger(args, mechanism)
     store.initialize_dirs()
     store.write_projection(ledger)
-    store.append_event("track_initialized", {"track_id": track_id})
+    store.replace_events("track_initialized", {"track_id": ledger["track_id"]})
+    output(ledger)
+
+
+def command_new(store: Store, args: argparse.Namespace) -> None:
+    mechanism = normalize_activation(args.activation)
+    previous = store.load()
+    rollover = store.read_rollover_state()
+    if rollover is not None:
+        predecessor_track_id = rollover["predecessor_track_id"]
+        successor_track_id = rollover["successor_track_id"]
+        mechanism = rollover["mechanism"]
+        if previous["status"] == "active":
+            if previous["track_id"] != successor_track_id:
+                raise LedgerError(
+                    "track rollover recovery is in progress for "
+                    f'{rollover["predecessor_track_id"]}'
+                )
+            if rollover["stage"] == "archived":
+                validate_rollover_successor_ledger(
+                    previous,
+                    predecessor_track_id=predecessor_track_id,
+                    successor_track_id=successor_track_id,
+                    title=rollover["title"],
+                    mechanism=mechanism,
+                )
+            elif rollover["stage"] != "ledger_written":
+                raise LedgerError(
+                    "cannot recover a new track rollover from this stage"
+                )
+        elif previous["status"] != "closed":
+            raise LedgerError("start a next track only after the current track is closed")
+        elif previous["track_id"] != rollover["predecessor_track_id"]:
+            raise LedgerError(
+                "unmatched rollover state for current track"
+            )
+    else:
+        if previous["status"] != "closed":
+            raise LedgerError("start a next track only after the current track is closed")
+        predecessor_track_id = previous["track_id"]
+        if args.track_id:
+            successor_track_id = validate_id(args.track_id, "track_id")
+            if successor_track_id == predecessor_track_id:
+                raise LedgerError("new track id must not equal predecessor track id")
+            if successor_track_id in store.archived_track_ids():
+                raise LedgerError(
+                    f"new track id already archived: {successor_track_id}"
+                )
+        else:
+            archived_ids = store.archived_track_ids()
+            while True:
+                successor_track_id = (
+                    f"gt-{dt.datetime.now(dt.timezone.utc):%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6]}"
+                )
+                if (
+                    successor_track_id != predecessor_track_id
+                    and successor_track_id not in archived_ids
+                ):
+                    break
+        rollover = {
+            "schema_version": NEW_TRACK_ROLLOVER_SCHEMA,
+            "predecessor_track_id": predecessor_track_id,
+            "successor_track_id": successor_track_id,
+            "title": require_text(args.title, "title"),
+            "mechanism": mechanism,
+            "stage": "started",
+        }
+        store.write_rollover_state(rollover)
+
+    if rollover["stage"] == "started":
+        archive_ref = store.archive_closed(previous)
+        rollover["archive_ref"] = archive_ref
+        rollover["stage"] = "archived"
+        store.write_rollover_state(rollover)
+        fail_if_requested("after_archive")
+
+    if rollover["stage"] in {"started", "archived"}:
+        if rollover["stage"] == "archived" and previous["status"] == "active":
+            ledger = previous
+            validate_rollover_successor_ledger(
+                ledger,
+                predecessor_track_id=predecessor_track_id,
+                successor_track_id=successor_track_id,
+                title=rollover["title"],
+                mechanism=mechanism,
+            )
+        else:
+            if previous["status"] != "closed":
+                raise LedgerError("cannot recover a new track rollover from this state")
+            ledger = new_ledger(
+                argparse.Namespace(
+                    track_id=successor_track_id,
+                    title=rollover["title"],
+                ),
+                mechanism,
+                predecessor_track_id,
+            )
+            store.write_projection(ledger)
+            fail_if_requested("after_ledger")
+            rollover["stage"] = "ledger_written"
+            store.write_rollover_state(rollover)
+            fail_if_requested("after_rollover_stage")
+    elif rollover["stage"] == "ledger_written":
+        ledger = store.load()
+        validate_rollover_successor_ledger(
+            ledger,
+            predecessor_track_id=predecessor_track_id,
+            successor_track_id=successor_track_id,
+            title=rollover["title"],
+            mechanism=mechanism,
+        )
+
+    store.replace_events(
+        "track_initialized",
+        {
+            "track_id": successor_track_id,
+            "predecessor_track_id": predecessor_track_id,
+            "archive_ref": rollover["archive_ref"],
+        },
+    )
+    store.clear_rollover_state()
     output(ledger)
 
 
@@ -513,7 +824,7 @@ def command_verify(store: Store, args: argparse.Namespace) -> None:
 
 
 def command_reopen(store: Store, args: argparse.Namespace) -> None:
-    require_activation(args.activation)
+    mechanism = normalize_activation(args.activation)
     ledger = store.load()
     require_mutable(ledger)
     if ledger["status"] == "paused":
@@ -532,7 +843,7 @@ def command_reopen(store: Store, args: argparse.Namespace) -> None:
         "summary": f"Reopen {decision['id']}: {reason}",
         "started_at": utc_now(),
     }
-    ledger["last_activation"] = {"mechanism": ACTIVATION, "at": utc_now()}
+    ledger["last_activation"] = {"mechanism": mechanism, "at": utc_now()}
     store.persist(
         ledger,
         "decision_reopened",
@@ -624,14 +935,14 @@ def command_pause(store: Store, args: argparse.Namespace) -> None:
 
 
 def command_resume(store: Store, args: argparse.Namespace) -> None:
-    require_activation(args.activation)
+    mechanism = normalize_activation(args.activation)
     ledger = store.load()
     require_mutable(ledger)
     if ledger["status"] != "paused":
         raise LedgerError("only a paused track can be resumed")
     ledger["status"] = "active"
-    ledger["last_activation"] = {"mechanism": ACTIVATION, "at": utc_now()}
-    store.persist(ledger, "track_resumed", {"activation": ACTIVATION})
+    ledger["last_activation"] = {"mechanism": mechanism, "at": utc_now()}
+    store.persist(ledger, "track_resumed", {"activation": mechanism})
     output(ledger)
 
 
@@ -684,11 +995,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init = subparsers.add_parser("init", help="initialize a new track")
-    init.add_argument("--activation", required=True)
+    init = subparsers.add_parser("init", help="initialize the first track")
+    init.add_argument("--activation", default="implicit")
     init.add_argument("--title", required=True)
     init.add_argument("--track-id")
     init.set_defaults(handler=command_init)
+
+    new = subparsers.add_parser(
+        "new", help="preserve a closed track and initialize the next track"
+    )
+    new.add_argument("--activation", default="implicit")
+    new.add_argument("--title", required=True)
+    new.add_argument("--track-id")
+    new.set_defaults(handler=command_new)
 
     show = subparsers.add_parser("show", help="print the current ledger")
     show.set_defaults(handler=lambda store, args: output(store.load()))
@@ -743,7 +1062,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.set_defaults(handler=command_verify)
 
     reopen = subparsers.add_parser("reopen", help="reopen a prior decision")
-    reopen.add_argument("--activation", required=True)
+    reopen.add_argument("--activation", default="implicit")
     reopen.add_argument("--id", required=True)
     reopen.add_argument("--reason", required=True)
     reopen.set_defaults(handler=command_reopen)
@@ -775,7 +1094,7 @@ def build_parser() -> argparse.ArgumentParser:
     pause.set_defaults(handler=command_pause)
 
     resume = subparsers.add_parser("resume", help="resume a paused track")
-    resume.add_argument("--activation", required=True)
+    resume.add_argument("--activation", default="implicit")
     resume.set_defaults(handler=command_resume)
 
     close = subparsers.add_parser("close", help="close after user confirmation")
@@ -793,6 +1112,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         store = Store(args.project)
+        if args.command != "new":
+            rollover = store.read_rollover_state()
+            if rollover is not None:
+                raise LedgerError(
+                    "track rollover recovery in progress for "
+                    f'{rollover["predecessor_track_id"]}; '
+                    "rerun `new` to finish recovery"
+                )
         result = args.handler(store, args)
         if isinstance(result, tuple):
             _ = result

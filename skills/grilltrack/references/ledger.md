@@ -11,6 +11,7 @@ project-local, human-readable JSON, and machine-validatable.
   .gitignore        # ignores work/
   ledger.json       # canonical current projection
   events.jsonl      # append-only transition records
+  archive/           # immutable closed ledger and event-log snapshots
   proof/             # curated evidence suitable for retention
   work/              # ignored candidates and renderer artifacts
 ```
@@ -51,7 +52,7 @@ Typical sequence:
 
 ```bash
 python3 scripts/grilltrack_ledger.py --project "$ROOT" init \
-  --activation '$grilltrack' --title "Product direction"
+  --title "Product direction"
 python3 scripts/grilltrack_ledger.py --project "$ROOT" focus \
   --domain "product direction" --cadence sequential
 python3 scripts/grilltrack_ledger.py --project "$ROOT" propose \
@@ -65,9 +66,22 @@ python3 scripts/grilltrack_ledger.py --project "$ROOT" verify \
   --id direction-001 --ref "test:product-flow"
 ```
 
-Use `pause` at a session boundary. A new session must use `resume
---activation '$grilltrack'`. Use `reopen --activation '$grilltrack'` to reopen
-a prior decision; the tool marks transitive dependents for re-verification.
+Use `pause` at a session boundary and `resume` when work naturally continues.
+Use `reopen` to revisit a prior decision; the tool marks transitive dependents
+for re-verification. The optional `--activation '$grilltrack'` records an
+explicit invocation; omission records natural implicit activation.
+
+After closeout, start another track with:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project "$ROOT" new \
+  --title "Next product direction"
+```
+
+`new` accepts only a valid closed predecessor. It snapshots the closed ledger
+and event log under `.grilltrack/archive/<track-id>/`, leaves curated proof in
+place so references remain valid, and records `predecessor_track_id` on the new
+active ledger. Existing archives are never overwritten.
 
 ## Invariants
 

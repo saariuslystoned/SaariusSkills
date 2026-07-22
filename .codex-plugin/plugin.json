@@ -27,7 +27,7 @@
     ],
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
-      "Use $grilltrack to decide and build the next product slice."
+      "Help me decide and build the next product slice with GrillTrack."
     ]
   }
 }
