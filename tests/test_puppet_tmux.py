@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -61,16 +62,34 @@ class TmuxTransportTests(unittest.TestCase):
                 self.assertEqual(len(panes), 1)
                 self.assertEqual(panes[0], metadata["pane"])
                 self.assertEqual(
-                    metadata["socket_identity"], controller.socket_identity(socket)
+                    metadata["socket_identity"],
+                    controller.socket_identity(socket),
                 )
-                self.assertEqual(panes[0], controller.metadata(socket=socket, session=session, pane=metadata["pane"])["pane"])
-                with self.assertRaisesRegex(IdentityError, "pane identity"):
-                    controller.metadata(socket=socket, session=session, pane="%999")
+                self.assertEqual(
+                    metadata["tmux_binary_identity"],
+                    controller.tmux_binary_identity(),
+                )
+                self.assertEqual(
+                    metadata["tmux_binary_identity"]["path"],
+                    controller.tmux_binary.as_posix(),
+                )
+                self.assertIn("server_identity", metadata)
+                self.assertEqual(
+                    panes[0],
+                    controller.metadata(
+                        socket=socket,
+                        session=session,
+                        pane=metadata["pane"],
+                        server_identity=metadata["server_identity"],
+                    )["pane"],
+                )
                 command = controller.attach_command(
-                    socket=socket, session=session, pane=metadata["pane"]
+                    socket=socket,
+                    session=session,
+                    server_identity=metadata["server_identity"],
                 )
                 parts = shlex.split(command)
-                self.assertEqual(parts[:2], ["tmux", "-S"])
+                self.assertEqual(parts[0], metadata["tmux_binary_identity"]["path"])
                 self.assertEqual(parts[2], str(socket))
                 self.assertEqual(parts[-1], session)
             finally:
@@ -105,14 +124,48 @@ class TmuxTransportTests(unittest.TestCase):
                         socket=socket,
                         session=session,
                         pane="%999",
+                        server_identity=metadata["server_identity"],
                     )
                 with self.assertRaisesRegex(IdentityError, "unexpected pane topology"):
-                    controller.metadata_for_session(socket=socket, session=session)
+                    controller.metadata_for_session(
+                        socket=socket,
+                        session=session,
+                        server_identity=metadata["server_identity"],
+                    )
                 controller.interrupt(
                     socket=socket,
                     session=session,
                     pane=initial[0],
+                    server_identity=metadata["server_identity"],
                 )
+            finally:
+                self._kill(socket=socket, session=session)
+
+    def test_launch_preserves_immediate_target_exit_pane(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            session = "tmux-immediate-exit"
+            metadata = controller.launch(
+                session=session,
+                repo=repo,
+                argv=["/bin/true"],
+            )
+            socket = Path(metadata["socket"])
+            try:
+                self.assertTrue(metadata["pane_dead"])
+                current = controller.metadata(
+                    socket=socket,
+                    session=session,
+                    pane=metadata["pane"],
+                    server_identity=metadata["server_identity"],
+                )
+                self.assertEqual(current["pane"], metadata["pane"])
+                self.assertTrue(current["pane_dead"])
             finally:
                 self._kill(socket=socket, session=session)
 
@@ -133,14 +186,15 @@ class TmuxTransportTests(unittest.TestCase):
                 "metadata",
                 return_value={"pane": "%1", "pane_dead": False},
             ):
-                with patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run):
-                    controller.paste_bytes(
-                        socket=socket,
-                        session="session-one",
-                        pane="%1",
-                        buffer_name="session-one-prompt",
-                        payload=payload,
-                    )
+                with patch.object(controller, "assert_tmux_binary_identity"):
+                    with patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run):
+                        controller.paste_bytes(
+                            socket=socket,
+                            session="session-one",
+                            pane="%1",
+                            buffer_name="session-one-prompt",
+                            payload=payload,
+                        )
 
             load_buffer_calls = [
                 call for call in calls if call[0][3] == "load-buffer" and call[0][4] == "-b"
@@ -154,3 +208,70 @@ class TmuxTransportTests(unittest.TestCase):
             self.assertEqual(paste_calls[0][0][-1], "%1")
             flattened = " ".join(token for call in calls for token in call[0])
             self.assertIn("delete-buffer", flattened)
+
+    def test_tmux_binary_drift_is_detected(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = TmuxController(root)
+            original = controller.tmux_binary_identity()
+            drifted = dict(original)
+            drifted["sha256"] = "0" * len(original["sha256"])
+            with patch.object(
+                TmuxController,
+                "binary_identity",
+                return_value=original,
+            ):
+                controller.assert_tmux_binary_identity(expected=original)
+            with patch.object(
+                TmuxController,
+                "binary_identity",
+                return_value=drifted,
+            ):
+                with self.assertRaises(IdentityError):
+                    controller.assert_tmux_binary_identity(expected=original)
+
+    def test_launch_cleans_up_private_session_on_launch_keyboard_interrupt(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            session = "tmux-cleanup"
+            calls: list[tuple[list[str], bool, bytes | None]] = []
+
+            def fake_run_raw(command, *, check=True, input_data=None):
+                calls.append((command, check, input_data))
+                if command[3] == "has-session":
+                    return SimpleNamespace(args=command, returncode=1, stdout=b"", stderr=b"")
+                if command[3] == "new-session":
+                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                if command[3] == "set-option":
+                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                if command[3] == "respawn-pane":
+                    raise KeyboardInterrupt
+                if command[3] == "kill-session":
+                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+
+            with patch.object(controller, "socket_identity", return_value={
+                "device": 1,
+                "inode": 1,
+                "uid": os.getuid(),
+                "mode": 0o600,
+            }):
+                with patch.object(controller, "_run_raw", side_effect=fake_run_raw):
+                    with self.assertRaises(KeyboardInterrupt):
+                        controller.launch(
+                            session=session,
+                            repo=repo,
+                            argv=["/bin/true"],
+                        )
+
+            self.assertTrue(
+                any(call[0][3] == "kill-session" and call[0][5] == session for call in calls),
+                calls,
+            )
