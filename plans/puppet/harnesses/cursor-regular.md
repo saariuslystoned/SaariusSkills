@@ -6,8 +6,8 @@
   `codex-goal-regular-qualification.md`.
 - Branch in scope: `codex/puppet-cursor-workspace-plane`.
 - Objective: map exact Cursor Agent regular-session behavior for the three instruction planes for this
-  installed tuple, and provide a launch-disabled, source-only workspace-plane substrate that can later be
-  integrated and qualified with no transcript bleed.
+  installed tuple, and provide a launch-disabled, planner-only workspace-plane substrate that can later be
+  integrated only after safe materialization, rollback, and no-bleed authority exist.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -139,41 +139,44 @@ and `https://docs.cursor.com/en/cli/using`.
 
 ## 6) Required Puppet source deltas for this lane
 
-### Implemented source-only substrate
+### Implemented planner-only substrate
 
 - `skills/puppet/scripts/puppet_lib/cursor_workspace_plane.py` is deliberately
   standalone from the shared probe and launch lifecycle. It performs no
-  subprocess, tmux, census, network, Cursor config/auth, or process operation.
+  subprocess, executable census, tmux, network, Cursor config/auth, process, or
+  filesystem mutation operation. It calls only the source-hashing
+  `adapter_implementation_fingerprint()` helper from `census.py`.
 - Planning accepts only exact version `2026.07.17-3e2a980` and its recorded
   launcher, bundled Node, `index.js`, version-output, and help hashes. It joins
-  those facts to the caller-supplied canonical doctor-manifest hash, the
-  manifest's adapter implementation hash, protocol hash, and runtime execution
-  fingerprint. The manifest must remain doctor-only with declared-only
-  capabilities and the exact incomplete base argv
-  `cursor-agent --yolo --sandbox disabled`.
-- The caller supplies an existing current-UID `0700` admitted lane, an empty
-  current-UID `0700` workspace beneath that lane, and a distinct empty private
-  transaction root beneath the same lane. All traversal and mutation is
-  descriptor-relative with no-follow opens. The workspace is the empty,
-  Puppet-owned nested scope; within that workspace the module creates only
-  `.cursor`, `.cursor/rules`, and one namespaced create-only MDC guidance
-  artifact.
-- Plan, intent, materialization receipt, and rollback records contain only
-  paths, typed root/file identities, sizes, and hashes. They never contain the
-  guidance body. Planning represents the exact dynamic argv delta
-  `--workspace <absolute-workspace-root>` but hard-codes
-  `launch_authorized=false`.
-- Materialization never overwrites existing guidance or parents. Root,
-  preimage, symlink, collision, mode, inode, and content drift fail closed.
-  Exact successful replay is idempotent; partial intent/artifact/receipt states
-  are recovery ambiguity, never permission to recreate or adopt.
-- Rollback requires the exact persisted materialization receipt and a
-  caller-supplied, receipt-bound simulated exact-halt proof. It removes only
-  the receipted artifact and the two exact empty directories it created, then
-  retains a body-free hash-only terminal rollback record.
+  those facts to the canonical doctor-manifest hash, current
+  `adapter_implementation_fingerprint()`, current `PROTOCOL_FINGERPRINT`, and
+  runtime execution fingerprint. Planning and revalidation call
+  `manifest.verify_execution_files()` so a stale, synthetic, or drifted
+  executable identity cannot qualify as current merely because its hashes are
+  caller-self-consistent. Neither API accepts a caller-provided current-authority
+  override. The manifest must remain doctor-only with declared-only capabilities
+  and the exact incomplete base argv `cursor-agent --yolo --sandbox disabled`.
+- The caller supplies an existing current-UID `0700` admitted lane and an empty
+  current-UID `0700` workspace beneath that lane. Read-only traversal is
+  descriptor-relative with no-follow opens, and the workspace must remain an
+  empty Puppet-owned nested scope.
+- The sole record is a body-free plan containing paths, typed root identities,
+  sizes, and hashes. It never contains guidance bytes. Planning represents the
+  deterministic future candidate
+  `.cursor/rules/puppet-<scope>.mdc` and exact dynamic argv delta `--workspace
+  <absolute-workspace-root>`, but hard-codes `launch_authorized=false` and
+  `materialization_supported=false`, `rollback_supported=false`, and
+  `recovery_supported=false`.
+- Python/macOS pathname deletion has a check-then-remove race: a verified file
+  or directory can be replaced before `unlink` or `rmdir`, causing an
+  unreceipted vnode to be removed. The substrate therefore contains no create,
+  unlink, rmdir, rename, rollback receipt, recovery receipt, or terminal-state
+  mutation path. It also contains no function that can mint an `exact_halt`
+  assertion. Canonical caller-shaped rollback JSON is not authority and is
+  always rejected.
 - The substrate has no call site in `probe.py`, `launch.py`, or an adapter. It
-  cannot launch or qualify Cursor and must stay source-only until the remaining
-  blockers below are independently closed.
+  cannot materialize, launch, clean up, recover, or qualify Cursor and must stay
+  planner-only until the remaining blockers below are independently closed.
 
 ### Remaining shared integration work
 
@@ -191,6 +194,11 @@ and `https://docs.cursor.com/en/cli/using`.
   - require resume evidence before marking resume as `controller_verified` for cursor live claims.
 - Tests:
   - add explicit cursor fixture assertions for resume/no-bleed behavior under worktree/workspace planes.
+  - integrate a controller-attested exact halt/lease proof before any cleanup
+    authority is considered.
+  - provide a platform primitive that conditionally removes the exact verified
+    vnode, or design a non-destructive retained-artifact lifecycle. Ordinary
+    pathname `unlink`/`rmdir` checks are insufficient.
 
 ## 7) Blockers and stop criteria
 
@@ -215,6 +223,10 @@ and `https://docs.cursor.com/en/cli/using`.
     substrate names this `cursor_workspace_rule_activation_unqualified` and
     therefore records `hypothesis/disabled` even though `.cursor/rules/*.mdc`
     is the selected candidate surface.
+  - No race-safe exact-delete primitive or controller-attested halt authority
+    is integrated. The substrate names this
+    `cursor_workspace_cleanup_has_no_race_safe_delete_primitive` and disables
+    materialization, rollback, and recovery rather than claiming exact cleanup.
   - Any source command or fixture operation that writes prompt-bearing values into argv.
 - Stop criteria:
   - Keep this lane `mapping` until regular-profile launch/steer/halt and no-bleed are proven by fixture proof.

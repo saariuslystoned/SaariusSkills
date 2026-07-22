@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import sys
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import puppet_lib.cursor_workspace_plane as cursor_module  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     BEHAVIOR_CAPABILITIES,
@@ -25,15 +29,12 @@ from puppet_lib.cursor_workspace_plane import (  # noqa: E402
     CURSOR_RUNTIME_SHA256,
     CURSOR_VERSION,
     CURSOR_VERSION_OBSERVATION_SHA256,
-    INTENT_FILENAME,
-    RECEIPT_FILENAME,
-    ROLLBACK_FILENAME,
     CursorWorkspacePlan,
     materialize_cursor_workspace_plane,
     plan_cursor_workspace_plane,
     recover_cursor_workspace_plane,
+    revalidate_cursor_workspace_plan,
     rollback_cursor_workspace_plane,
-    simulated_exact_halt_proof,
     verify_cursor_workspace_plane,
 )
 from puppet_lib.errors import (  # noqa: E402
@@ -65,7 +66,12 @@ def _execution_file(path: str, *, inode: int, sha256: str) -> dict:
     }
 
 
-def _adapter_manifest() -> dict:
+def _adapter_manifest(
+    *,
+    generated_at: str = "2026-07-22T12:00:00Z",
+    adapter_fingerprint: str = ADAPTER_IMPLEMENTATION_SHA256,
+    protocol_fingerprint: str = PROTOCOL_SHA256,
+) -> dict:
     version_root = Path("/opt/cursor-agent/versions") / CURSOR_VERSION
     launcher_path = str(version_root / "cursor-agent")
     launcher = {
@@ -107,7 +113,7 @@ def _adapter_manifest() -> dict:
     raw = {
         "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": "cursor",
-        "generated_at": "2026-07-22T12:00:00Z",
+        "generated_at": generated_at,
         "platform": {
             "system": "Darwin",
             "release": "test",
@@ -115,8 +121,8 @@ def _adapter_manifest() -> dict:
         },
         "executable": launcher,
         "execution": execution,
-        "adapter_fingerprint": ADAPTER_IMPLEMENTATION_SHA256,
-        "protocol_fingerprint": PROTOCOL_SHA256,
+        "adapter_fingerprint": adapter_fingerprint,
+        "protocol_fingerprint": protocol_fingerprint,
         "yolo_mapping": {
             "complete": False,
             "launch_argv": [
@@ -153,8 +159,7 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.lane = self.base / "lane"
         self.workspace = self.lane / "workspace"
-        self.transaction = self.lane / "transaction"
-        for path in (self.lane, self.workspace, self.transaction):
+        for path in (self.lane, self.workspace):
             path.mkdir(mode=0o700)
             path.chmod(0o700)
         self.body_marker = "CURSOR_PRIVATE_GUIDANCE_BODY_7f62"
@@ -165,7 +170,33 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
         self.manifest = _adapter_manifest()
         self.manifest_sha256 = AdapterManifest.from_dict(self.manifest).fingerprint
 
-    def _plan(self, **overrides) -> CursorWorkspacePlan:
+    @contextmanager
+    def _current_authority(
+        self,
+        *,
+        adapter_fingerprint: str = ADAPTER_IMPLEMENTATION_SHA256,
+        protocol_fingerprint: str = PROTOCOL_SHA256,
+        verify_side_effect=None,
+    ):
+        with (
+            mock.patch.object(
+                cursor_module,
+                "adapter_implementation_fingerprint",
+                return_value=adapter_fingerprint,
+            ) as fingerprint,
+            mock.patch.object(
+                cursor_module, "PROTOCOL_FINGERPRINT", protocol_fingerprint
+            ),
+            mock.patch.object(
+                AdapterManifest,
+                "verify_execution_files",
+                autospec=True,
+                side_effect=verify_side_effect,
+            ) as verify_files,
+        ):
+            yield fingerprint, verify_files
+
+    def _plan_arguments(self, **overrides):
         arguments = {
             "adapter_manifest": self.manifest,
             "expected_manifest_sha256": self.manifest_sha256,
@@ -173,165 +204,150 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
             "observed_version": CURSOR_VERSION,
             "admitted_lane_root": self.lane,
             "workspace_root": self.workspace,
-            "transaction_root": self.transaction,
             "scope_id": "qualification-01",
             "guidance": self.guidance,
         }
         arguments.update(overrides)
-        return plan_cursor_workspace_plane(**arguments)
+        return arguments
 
-    def _materialize(self, plan: CursorWorkspacePlan) -> dict:
-        return materialize_cursor_workspace_plane(
-            plan, guidance=self.guidance, adapter_manifest=self.manifest
-        )
+    def _plan(
+        self,
+        *,
+        _current_adapter: str = ADAPTER_IMPLEMENTATION_SHA256,
+        _current_protocol: str = PROTOCOL_SHA256,
+        _verify_side_effect=None,
+        **overrides,
+    ) -> CursorWorkspacePlan:
+        with self._current_authority(
+            adapter_fingerprint=_current_adapter,
+            protocol_fingerprint=_current_protocol,
+            verify_side_effect=_verify_side_effect,
+        ):
+            return plan_cursor_workspace_plane(**self._plan_arguments(**overrides))
 
-    def test_success_is_body_free_launch_disabled_and_exactly_rolled_back(self):
+    def _revalidate(
+        self,
+        plan: CursorWorkspacePlan,
+        *,
+        _current_adapter: str = ADAPTER_IMPLEMENTATION_SHA256,
+        _current_protocol: str = PROTOCOL_SHA256,
+        _verify_side_effect=None,
+    ) -> CursorWorkspacePlan:
+        with self._current_authority(
+            adapter_fingerprint=_current_adapter,
+            protocol_fingerprint=_current_protocol,
+            verify_side_effect=_verify_side_effect,
+        ):
+            return revalidate_cursor_workspace_plan(
+                plan,
+                adapter_manifest=self.manifest,
+            )
+
+    def test_success_is_body_free_current_bound_and_planner_only(self):
         plan = self._plan()
         self.assertEqual(
             plan.raw["launch_delta"],
             {"argv": ["--workspace", str(self.workspace)]},
         )
         self.assertFalse(plan.raw["launch_authorized"])
+        self.assertFalse(plan.raw["materialization_supported"])
+        self.assertFalse(plan.raw["rollback_supported"])
+        self.assertFalse(plan.raw["recovery_supported"])
         self.assertEqual(
             plan.raw["status"], {"surface": "hypothesis", "activation": "disabled"}
         )
         self.assertEqual(plan.raw["blockers"], list(BLOCKERS))
         self.assertEqual(
-            plan.raw["artifact"]["relative_path"],
+            plan.raw["planned_artifact"]["relative_path"],
             ".cursor/rules/puppet-qualification-01.mdc",
+        )
+        self.assertEqual(
+            plan.raw["planned_artifact"]["write_mode"],
+            "create_only_if_lifecycle_is_later_proved",
         )
         self.assertNotIn(self.body_marker, json.dumps(plan.to_dict()))
         self.assertEqual(list(self.workspace.iterdir()), [])
-        self.assertEqual(list(self.transaction.iterdir()), [])
+        self.assertFalse(plan.planned_artifact_path.exists())
+        self.assertEqual(self._revalidate(plan).to_dict(), plan.to_dict())
 
-        receipt = self._materialize(plan)
-        artifact = plan.artifact_path
-        self.assertEqual(artifact.read_bytes(), self.guidance)
-        self.assertEqual(stat_mode(artifact), 0o600)
-        self.assertEqual(stat_mode(artifact.parent), 0o700)
+    def test_production_path_calls_current_fingerprint_protocol_and_file_verifier(self):
+        with (
+            mock.patch.object(
+                cursor_module,
+                "adapter_implementation_fingerprint",
+                return_value=ADAPTER_IMPLEMENTATION_SHA256,
+            ) as fingerprint,
+            mock.patch.object(cursor_module, "PROTOCOL_FINGERPRINT", PROTOCOL_SHA256),
+            mock.patch.object(
+                AdapterManifest, "verify_execution_files", autospec=True
+            ) as verify_files,
+        ):
+            plan = plan_cursor_workspace_plane(**self._plan_arguments())
+        fingerprint.assert_called_once_with()
+        verify_files.assert_called_once()
         self.assertEqual(
-            verify_cursor_workspace_plane(
-                plan, receipt=receipt, adapter_manifest=self.manifest
+            plan.raw["adapter_implementation_sha256"],
+            ADAPTER_IMPLEMENTATION_SHA256,
+        )
+        self.assertEqual(plan.raw["adapter_protocol_sha256"], PROTOCOL_SHA256)
+
+    def test_nonexistent_synthetic_execution_identity_is_not_current_proof(self):
+        with (
+            mock.patch.object(
+                cursor_module,
+                "adapter_implementation_fingerprint",
+                return_value=ADAPTER_IMPLEMENTATION_SHA256,
             ),
-            receipt,
-        )
-        persisted_public = b"".join(
-            (self.transaction / name).read_bytes()
-            for name in (INTENT_FILENAME, RECEIPT_FILENAME)
-        )
-        self.assertNotIn(self.body_marker.encode("utf-8"), persisted_public)
+            mock.patch.object(cursor_module, "PROTOCOL_FINGERPRINT", PROTOCOL_SHA256),
+        ):
+            with self.assertRaisesRegex(IdentityError, "unavailable"):
+                plan_cursor_workspace_plane(**self._plan_arguments())
 
-        halt = simulated_exact_halt_proof(plan, receipt)
-        rollback = rollback_cursor_workspace_plane(
-            plan,
-            receipt,
-            exact_halt_proof=halt,
-            adapter_manifest=self.manifest,
-        )
-        self.assertEqual(rollback["terminal_state"], "rolled_back")
-        self.assertTrue(rollback["retain_hash_only_terminal_proof"])
-        self.assertEqual(list(self.workspace.iterdir()), [])
-        self.assertFalse(artifact.exists())
-        self.assertNotIn(
-            self.body_marker.encode("utf-8"),
-            (self.transaction / ROLLBACK_FILENAME).read_bytes(),
-        )
-        recovered = recover_cursor_workspace_plane(plan, adapter_manifest=self.manifest)
-        self.assertEqual(recovered.state, "rolled_back")
-        self.assertEqual(recovered.rollback_receipt, rollback)
-        self.assertEqual(
-            rollback_cursor_workspace_plane(
+    def test_stale_but_self_consistent_manifest_is_rejected(self):
+        stale_adapter = "d" * 64
+        stale = _adapter_manifest(adapter_fingerprint=stale_adapter)
+        stale_hash = AdapterManifest.from_dict(stale).fingerprint
+        with self.assertRaisesRegex(IdentityError, "adapter authority is stale"):
+            self._plan(
+                adapter_manifest=stale,
+                expected_manifest_sha256=stale_hash,
+                expected_adapter_implementation_sha256=stale_adapter,
+            )
+
+    def test_live_execution_drift_from_current_manifest_is_rejected(self):
+        with self.assertRaisesRegex(IdentityError, "live execution drift"):
+            self._plan(_verify_side_effect=IdentityError("live execution drift"))
+
+    def test_revalidation_repeats_every_current_authority_check(self):
+        plan = self._plan()
+        with self._current_authority() as (fingerprint, verify_files):
+            self.assertEqual(
+                revalidate_cursor_workspace_plan(
+                    plan,
+                    adapter_manifest=self.manifest,
+                ).to_dict(),
+                plan.to_dict(),
+            )
+        fingerprint.assert_called_once_with()
+        verify_files.assert_called_once()
+
+        with self.assertRaisesRegex(IdentityError, "adapter authority is stale"):
+            self._revalidate(plan, _current_adapter="d" * 64)
+        with self.assertRaisesRegex(IdentityError, "protocol authority is stale"):
+            self._revalidate(plan, _current_protocol="e" * 64)
+        with self.assertRaisesRegex(IdentityError, "live execution drift"):
+            self._revalidate(
                 plan,
-                receipt,
-                exact_halt_proof=halt,
-                adapter_manifest=self.manifest,
-            ),
-            rollback,
-        )
-
-    def test_existing_guidance_scope_is_never_overwritten(self):
-        existing = self.workspace / ".cursor" / "rules" / "ordinary.mdc"
-        existing.parent.mkdir(parents=True)
-        existing.write_text("ordinary user rule\n", encoding="utf-8")
-        with self.assertRaisesRegex(ConflictError, "empty Puppet-owned scope"):
-            self._plan()
-        self.assertEqual(existing.read_text(encoding="utf-8"), "ordinary user rule\n")
-
-    def test_post_plan_collision_and_symlink_fail_before_intent(self):
-        plan = self._plan()
-        outside = self.base / "outside"
-        outside.mkdir()
-        (self.workspace / ".cursor").symlink_to(outside, target_is_directory=True)
-        with self.assertRaisesRegex(IdentityError, "preimage drifted"):
-            self._materialize(plan)
-        self.assertEqual(list(self.transaction.iterdir()), [])
-        self.assertTrue((self.workspace / ".cursor").is_symlink())
-
-    def test_symlink_workspace_and_escaping_root_are_rejected(self):
-        outside = self.base / "outside"
-        outside.mkdir(mode=0o700)
-        linked = self.lane / "linked-workspace"
-        linked.symlink_to(outside, target_is_directory=True)
-        with self.assertRaisesRegex(IdentityError, "linked"):
-            self._plan(workspace_root=linked)
-
-        escaping = Path(str(self.lane / ".." / "outside"))
-        with self.assertRaisesRegex(ValidationError, "normalized"):
-            self._plan(workspace_root=escaping)
-
-    def test_root_replacement_and_mode_drift_fail_closed(self):
-        plan = self._plan()
-        original = self.lane / "workspace-original"
-        self.workspace.rename(original)
-        self.workspace.mkdir(mode=0o700)
-        with self.assertRaisesRegex(IdentityError, "workspace root identity changed"):
-            self._materialize(plan)
-
-        self.workspace.rmdir()
-        original.rename(self.workspace)
-        self.workspace.chmod(0o755)
-        with self.assertRaisesRegex(IdentityError, "current-UID 0700"):
-            self._materialize(plan)
-
-    def test_artifact_content_inode_mode_and_parent_drift_fail_closed(self):
-        plan = self._plan()
-        receipt = self._materialize(plan)
-        artifact = plan.artifact_path
-
-        artifact.write_bytes(self.guidance + b"drift\n")
-        with self.assertRaisesRegex(IdentityError, "identity or content changed"):
-            verify_cursor_workspace_plane(
-                plan, receipt=receipt, adapter_manifest=self.manifest
+                _verify_side_effect=IdentityError("live execution drift"),
             )
 
-        artifact.write_bytes(self.guidance)
-        artifact.chmod(0o644)
-        with self.assertRaisesRegex(IdentityError, "current-UID 0600"):
-            verify_cursor_workspace_plane(
-                plan, receipt=receipt, adapter_manifest=self.manifest
-            )
+    def test_stale_adapter_and_protocol_authority_are_rejected(self):
+        with self.assertRaisesRegex(IdentityError, "adapter authority is stale"):
+            self._plan(_current_adapter="d" * 64)
+        with self.assertRaisesRegex(IdentityError, "protocol authority is stale"):
+            self._plan(_current_protocol="e" * 64)
 
-        artifact.chmod(0o600)
-        artifact.unlink()
-        artifact.write_bytes(self.guidance)
-        artifact.chmod(0o600)
-        with self.assertRaisesRegex(IdentityError, "identity or content changed"):
-            verify_cursor_workspace_plane(
-                plan, receipt=receipt, adapter_manifest=self.manifest
-            )
-
-        artifact.unlink()
-        rules = artifact.parent
-        rules.rmdir()
-        outside_rules = self.base / "outside-rules"
-        outside_rules.mkdir()
-        rules.symlink_to(outside_rules, target_is_directory=True)
-        with self.assertRaisesRegex(IdentityError, "linked or replaced"):
-            verify_cursor_workspace_plane(
-                plan, receipt=receipt, adapter_manifest=self.manifest
-            )
-
-    def test_wrong_version_manifest_and_adapter_bindings_are_rejected(self):
+    def test_wrong_version_manifest_and_exact_tuple_are_rejected(self):
         with self.assertRaisesRegex(UnsupportedError, "version is unsupported"):
             self._plan(observed_version="2026.07.16-other")
 
@@ -350,93 +366,180 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
                 expected_manifest_sha256=changed_tuple_hash,
             )
 
-        with self.assertRaisesRegex(IdentityError, "adapter implementation"):
-            self._plan(expected_adapter_implementation_sha256="e" * 64)
-
-    def test_rollback_requires_caller_supplied_exact_halt_and_exact_receipt(self):
-        plan = self._plan()
-        receipt = self._materialize(plan)
-        with self.assertRaisesRegex(ValidationError, "exact-halt proof fields"):
-            rollback_cursor_workspace_plane(
-                plan,
-                receipt,
-                exact_halt_proof={},
-                adapter_manifest=self.manifest,
-            )
-        self.assertTrue(plan.artifact_path.exists())
-
-        wrong_receipt = copy.deepcopy(receipt)
-        wrong_receipt["artifact"]["sha256"] = "f" * 64
-        halt = simulated_exact_halt_proof(plan, receipt)
-        with self.assertRaisesRegex(IdentityError, "artifact binding changed"):
-            rollback_cursor_workspace_plane(
-                plan,
-                wrong_receipt,
-                exact_halt_proof=halt,
-                adapter_manifest=self.manifest,
-            )
-        self.assertTrue(plan.artifact_path.exists())
-
-    def test_rollback_never_removes_unreceipted_workspace_content(self):
-        plan = self._plan()
-        receipt = self._materialize(plan)
-        foreign = self.workspace / ".cursor" / "ordinary-user-file"
-        foreign.write_text("not Puppet-owned\n", encoding="utf-8")
-        halt = simulated_exact_halt_proof(plan, receipt)
-
-        with self.assertRaisesRegex(IdentityError, "guidance scope changed"):
-            rollback_cursor_workspace_plane(
-                plan,
-                receipt,
-                exact_halt_proof=halt,
-                adapter_manifest=self.manifest,
-            )
-        self.assertEqual(foreign.read_text(encoding="utf-8"), "not Puppet-owned\n")
-        self.assertTrue(plan.artifact_path.exists())
-
-    def test_materialization_is_idempotent_but_partial_recovery_is_ambiguous(self):
-        plan = self._plan()
-        first = self._materialize(plan)
-        self.assertEqual(self._materialize(plan), first)
-        (self.transaction / RECEIPT_FILENAME).unlink()
-        with self.assertRaisesRegex(ConflictError, "recovery is ambiguous"):
-            recover_cursor_workspace_plane(plan, adapter_manifest=self.manifest)
-        with self.assertRaisesRegex(ConflictError, "recovery is ambiguous"):
-            self._materialize(plan)
-
-    def test_preimage_drift_and_scope_traversal_fail_closed(self):
-        plan = self._plan()
-        foreign = self.workspace / "foreign.txt"
+    def test_existing_content_symlink_escape_and_private_mode_fail_closed(self):
+        foreign = self.workspace / "ordinary.txt"
         foreign.write_text("not owned\n", encoding="utf-8")
-        with self.assertRaisesRegex(IdentityError, "preimage drifted"):
-            self._materialize(plan)
+        with self.assertRaisesRegex(ConflictError, "empty Puppet-owned scope"):
+            self._plan()
         self.assertEqual(foreign.read_text(encoding="utf-8"), "not owned\n")
-        self.assertEqual(list(self.transaction.iterdir()), [])
-
         foreign.unlink()
+
+        outside = self.base / "outside"
+        outside.mkdir(mode=0o700)
+        linked = self.lane / "linked-workspace"
+        linked.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(IdentityError, "linked"):
+            self._plan(workspace_root=linked)
+
+        escaping = Path(str(self.lane / ".." / "outside"))
+        with self.assertRaisesRegex(ValidationError, "normalized"):
+            self._plan(workspace_root=escaping)
+
+        self.workspace.chmod(0o755)
+        with self.assertRaisesRegex(IdentityError, "current-UID 0700"):
+            self._plan()
+
+    def test_read_only_revalidation_rejects_root_and_preimage_drift(self):
+        plan = self._plan()
+        original = self.lane / "workspace-original"
+        self.workspace.rename(original)
+        self.workspace.mkdir(mode=0o700)
+        with self.assertRaisesRegex(IdentityError, "root identity changed"):
+            self._revalidate(plan)
+
+        self.workspace.rmdir()
+        original.rename(self.workspace)
+        foreign = self.workspace / "foreign.txt"
+        foreign.write_text("drift\n", encoding="utf-8")
+        with self.assertRaisesRegex(ConflictError, "empty Puppet-owned scope"):
+            self._revalidate(plan)
+        self.assertEqual(foreign.read_text(encoding="utf-8"), "drift\n")
+
+    def test_mutating_lifecycle_is_unconditionally_disabled(self):
+        plan = self._plan()
+        with (
+            mock.patch.object(cursor_module.os, "unlink") as unlink,
+            mock.patch.object(cursor_module.os, "rmdir") as rmdir,
+            mock.patch.object(cursor_module.os, "mkdir") as mkdir,
+        ):
+            for operation in (
+                lambda: materialize_cursor_workspace_plane(
+                    plan, guidance=self.guidance, adapter_manifest=self.manifest
+                ),
+                lambda: verify_cursor_workspace_plane(
+                    plan, receipt={}, adapter_manifest=self.manifest
+                ),
+                lambda: rollback_cursor_workspace_plane(
+                    plan,
+                    {},
+                    exact_halt_proof={"exact_halt": True},
+                    adapter_manifest=self.manifest,
+                ),
+                lambda: recover_cursor_workspace_plane(
+                    plan,
+                    rollback_record={"terminal_state": "rolled_back"},
+                    adapter_manifest=self.manifest,
+                ),
+            ):
+                with self.assertRaisesRegex(UnsupportedError, "remain disabled"):
+                    operation()
+        unlink.assert_not_called()
+        rmdir.assert_not_called()
+        mkdir.assert_not_called()
+        self.assertEqual(list(self.workspace.iterdir()), [])
+
+    def test_adversarial_path_swap_cannot_delete_an_unreceipted_replacement(self):
+        plan = self._plan()
+        replacement = self.workspace / ".cursor"
+        replacement.mkdir()
+        marker = replacement / "unreceipted.txt"
+        marker.write_text("must survive\n", encoding="utf-8")
+        forged_receipt = {
+            "schema": "puppet.cursor-workspace-plane-receipt/v1",
+            "artifact": {
+                "relative_path": ".cursor/rules/puppet-qualification-01.mdc",
+                "inode": marker.stat().st_ino,
+            },
+        }
+        with (
+            mock.patch.object(cursor_module.os, "unlink") as unlink,
+            mock.patch.object(cursor_module.os, "rmdir") as rmdir,
+        ):
+            with self.assertRaisesRegex(UnsupportedError, "remain disabled"):
+                rollback_cursor_workspace_plane(
+                    plan,
+                    forged_receipt,
+                    exact_halt_proof={"exact_halt": True},
+                    adapter_manifest=self.manifest,
+                )
+        unlink.assert_not_called()
+        rmdir.assert_not_called()
+        self.assertEqual(marker.read_text(encoding="utf-8"), "must survive\n")
+
+    def test_canonical_forged_rollback_and_self_minted_halt_are_rejected(self):
+        plan = self._plan()
+        forged_rollback = {
+            "artifact_sha256": plan.raw["planned_artifact"]["content_sha256"],
+            "materialization_receipt_sha256": "c" * 64,
+            "plan_sha256": plan.plan_sha256,
+            "schema": "puppet.cursor-workspace-plane-rollback/v1",
+            "simulated_exact_halt_proof_sha256": "d" * 64,
+            "terminal_state": "rolled_back",
+        }
+        # Canonical JSON shape does not create authority.
+        canonical = json.loads(
+            json.dumps(forged_rollback, sort_keys=True, separators=(",", ":"))
+        )
+        with self.assertRaisesRegex(UnsupportedError, "remain disabled"):
+            recover_cursor_workspace_plane(plan, rollback_record=canonical)
+        with self.assertRaisesRegex(UnsupportedError, "remain disabled"):
+            rollback_cursor_workspace_plane(
+                plan,
+                {},
+                exact_halt_proof={
+                    "target": "cursor",
+                    "simulation": True,
+                    "exact_halt": True,
+                },
+            )
+        self.assertFalse(hasattr(cursor_module, "simulated_exact_halt_proof"))
+
+    def test_plan_schema_tampering_and_scope_traversal_are_rejected(self):
+        plan = self._plan()
+        changed = plan.to_dict()
+        changed["launch_authorized"] = True
+        with self.assertRaisesRegex(UnsupportedError, "cannot authorize launch"):
+            CursorWorkspacePlan.from_dict(changed)
+        changed = plan.to_dict()
+        changed["materialization_supported"] = True
+        with self.assertRaisesRegex(UnsupportedError, "must remain disabled"):
+            CursorWorkspacePlan.from_dict(changed)
         with self.assertRaisesRegex(ValidationError, "invalid Cursor plane scope"):
             self._plan(scope_id="../escape")
 
-    def test_module_has_no_live_or_recursive_operation_surface(self):
+    def test_module_has_no_mutation_live_or_recursive_operation_surface(self):
         source = (SCRIPTS / "puppet_lib" / "cursor_workspace_plane.py").read_text(
             encoding="utf-8"
         )
         for forbidden in (
+            "os.unlink(",
+            "os.rmdir(",
+            "os.mkdir(",
+            "os.rename(",
+            "os.replace(",
+            "O_CREAT",
+            "simulated_exact_halt_proof",
+            "census_target",
             "import subprocess",
             "subprocess.",
-            "from .census",
             "from .tmux",
             "import socket",
             "os.system",
             "os.popen",
             ".rglob(",
             "rmtree(",
+            "_current_authority_test_hook",
+            "_CursorCurrentAuthorityTestHook",
         ):
             self.assertNotIn(forbidden, source)
-
-
-def stat_mode(path: Path) -> int:
-    return path.stat().st_mode & 0o7777
+        self.assertNotIn(
+            "_current_authority_test_hook",
+            inspect.signature(plan_cursor_workspace_plane).parameters,
+        )
+        self.assertNotIn(
+            "_current_authority_test_hook",
+            inspect.signature(revalidate_cursor_workspace_plan).parameters,
+        )
 
 
 if __name__ == "__main__":
