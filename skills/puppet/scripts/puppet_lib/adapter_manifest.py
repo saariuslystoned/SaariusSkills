@@ -6,8 +6,13 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from .authority import (
+    AUTHORITY_ID,
+    controller_authority_root,
+    verify_qualification_attestation,
+)
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .safety import (
     atomic_write_json,
@@ -67,6 +72,8 @@ _RECEIPT_FIELDS = {
     "target",
     "result",
     "controller",
+    "campaign_id",
+    "goal_fingerprint",
     "executable_fingerprint",
     "version_fingerprint",
     "platform_fingerprint",
@@ -78,6 +85,7 @@ _RECEIPT_FIELDS = {
     "acceptance_sha256",
     "halt_receipt_sha256",
     "proof_refs",
+    "controller_attestation",
 }
 
 _ACCEPTED_EVIDENCE_FIELDS = {
@@ -87,6 +95,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "controller",
     "profile",
     "campaign_id",
+    "goal_fingerprint",
     "authorization_sha256",
     "manifest_fingerprint",
     "executable_fingerprint",
@@ -202,7 +211,14 @@ def _validated_process_population(value: Any, label: str) -> list[Dict[str, Any]
     return records
 
 
-def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
+def verify_qualification_receipt(
+    path: Path,
+    *,
+    _authority_root: Optional[Path] = None,
+    _current_manifest: Optional["AdapterManifest"] = None,
+    _server_process_fn: Optional[Any] = None,
+    _tmux_factory: Optional[Any] = None,
+) -> Dict[str, Any]:
     """Verify an accepted receipt and every immutable proof artifact it binds."""
 
     path = Path(path)
@@ -220,6 +236,7 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         raise ValidationError("qualification receipt target is invalid")
     validate_identifier(receipt.get("run_id"), "qualification run id")
     validate_identifier(receipt.get("controller"), "qualification controller")
+    validate_identifier(receipt.get("campaign_id"), "qualification campaign id")
     for name in (
         "executable_fingerprint",
         "version_fingerprint",
@@ -230,11 +247,72 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         "accepted_checkpoint_id",
         "acceptance_sha256",
         "halt_receipt_sha256",
+        "goal_fingerprint",
     ):
         validate_sha256(receipt.get(name), name.replace("_", " "))
     capabilities = receipt.get("capabilities")
     if capabilities != list(PROBE_CAPABILITIES):
         raise ValidationError("qualification capability receipt is invalid")
+
+    receipt_core = dict(receipt)
+    attestation = receipt_core.pop("controller_attestation")
+    verify_qualification_attestation(
+        receipt_core,
+        attestation,
+        authority_root=_authority_root,
+    )
+
+    if _current_manifest is None:
+        from .census import adapter_implementation_fingerprint, census_target
+
+        current_manifest = census_target(
+            receipt["target"], adapter_implementation_fingerprint()
+        )
+    else:
+        current_manifest = _current_manifest
+    if current_manifest.target != receipt["target"]:
+        raise IdentityError("qualification current target identity mismatch")
+    current = current_manifest.raw
+    current_identities = {
+        "executable_fingerprint": current["executable"]["sha256"],
+        "version_fingerprint": current["executable"]["version_sha256"],
+        "platform_fingerprint": sha256_bytes(
+            canonical_json_bytes(current["platform"])
+        ),
+        "adapter_fingerprint": current["adapter_fingerprint"],
+        "protocol_fingerprint": current["protocol_fingerprint"],
+        "yolo_mapping_sha256": sha256_bytes(
+            canonical_json_bytes(current["yolo_mapping"])
+        ),
+    }
+    for name, observed in current_identities.items():
+        if receipt.get(name) != observed:
+            raise IdentityError(
+                "qualification is stale for the current controller identity: %s"
+                % name
+            )
+
+    state_path = path.resolve(strict=True).parent / "state.json"
+    terminal_state = read_json(
+        state_path,
+        max_bytes=131072,
+        reject_sensitive_fields=True,
+    )
+    if (
+        terminal_state.get("schema_version") != 1
+        or terminal_state.get("run_id") != receipt["run_id"]
+        or terminal_state.get("target") != receipt["target"]
+        or terminal_state.get("controller") != receipt["controller"]
+        or terminal_state.get("profile") != "source-free-pass-b-v1"
+        or terminal_state.get("phase") != "complete"
+        or terminal_state.get("result") != "accepted"
+        or terminal_state.get("blocker") is not None
+        or terminal_state.get("receipt_sha256")
+        != sha256_file(path, max_bytes=131072)
+    ):
+        raise ValidationError(
+            "qualification receipt lacks its terminal lifecycle commit"
+        )
 
     artifacts = _qualification_artifacts(path, receipt)
     authorization = read_json(
@@ -254,6 +332,13 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         or evidence.get("payload_argv_absent") is not True
     ):
         raise ValidationError("qualification evidence transport contract is invalid")
+    if (
+        terminal_state.get("tmux") != evidence.get("tmux")
+        or terminal_state.get("process") != evidence.get("process")
+        or terminal_state.get("followup_checkpoint_id")
+        != receipt["accepted_checkpoint_id"]
+    ):
+        raise ValidationError("qualification terminal state identity mismatch")
     for name in (
         "authorization_sha256",
         "manifest_fingerprint",
@@ -295,7 +380,10 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         or set(authorization) != authorization_fields
         or authorization.get("schema_version") != 1
         or authorization.get("campaign_id") != evidence.get("campaign_id")
+        or authorization.get("campaign_id") != receipt["campaign_id"]
         or authorization.get("controller") != receipt["controller"]
+        or sha256_bytes(canonical_json_bytes(authorization.get("goal")))
+        != receipt["goal_fingerprint"]
         or not isinstance(execution_authorization, dict)
         or set(execution_authorization)
         not in (execution_fields, execution_fields | {"parallel_target_override"})
@@ -379,6 +467,8 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         "session",
         "target_id",
         "socket_identity",
+        "server_identity",
+        "tmux_binary_identity",
     }:
         raise ValidationError("qualification tmux identity fields do not match schema")
     validate_identifier(tmux.get("session"), "qualification tmux session")
@@ -407,8 +497,84 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         }
     ):
         raise ValidationError("qualification tmux socket fingerprint changed")
+    tmux_binary = tmux.get("tmux_binary_identity")
+    expected_tmux_binary_fields = {
+        "path",
+        "device",
+        "inode",
+        "uid",
+        "gid",
+        "mode",
+        "size",
+        "sha256",
+        "version",
+    }
+    if (
+        not isinstance(tmux_binary, dict)
+        or set(tmux_binary) != expected_tmux_binary_fields
+        or not isinstance(tmux_binary.get("path"), str)
+        or not Path(tmux_binary["path"]).is_absolute()
+        or not isinstance(tmux_binary.get("version"), str)
+        or not tmux_binary["version"]
+        or len(tmux_binary["version"]) > 200
+    ):
+        raise ValidationError("qualification tmux executable identity is invalid")
+    validate_sha256(tmux_binary.get("sha256"), "tmux executable")
+    tmux_binary_path = Path(tmux_binary["path"])
+    if tmux_binary_path.is_symlink() or not tmux_binary_path.is_file():
+        raise ValidationError("qualification tmux executable is unavailable")
+    tmux_binary_details = tmux_binary_path.stat()
+    observed_tmux_binary = {
+        "path": str(tmux_binary_path.resolve(strict=True)),
+        "device": tmux_binary_details.st_dev,
+        "inode": tmux_binary_details.st_ino,
+        "uid": tmux_binary_details.st_uid,
+        "gid": tmux_binary_details.st_gid,
+        "mode": stat.S_IMODE(tmux_binary_details.st_mode),
+        "size": tmux_binary_details.st_size,
+        "sha256": sha256_file(tmux_binary_path),
+        "version": tmux_binary["version"],
+    }
+    if observed_tmux_binary != tmux_binary:
+        raise ValidationError("qualification tmux executable fingerprint changed")
+    server = _validated_process_record(tmux.get("server_identity"), "tmux server")
+    if (
+        Path(server["executable_path"]).resolve(strict=True) != tmux_binary_path
+        or server["device"] != tmux_binary["device"]
+        or server["inode"] != tmux_binary["inode"]
+    ):
+        raise ValidationError("qualification tmux server identity mismatch")
+    if _server_process_fn is None:
+        from .registry import process_birth_identity
+
+        server_process_fn = process_birth_identity
+    else:
+        server_process_fn = _server_process_fn
+    if server_process_fn(server["pid"]) != server:
+        raise ValidationError("qualification tmux server birth identity changed")
+    if _tmux_factory is None:
+        from .tmux import TmuxController
+
+        tmux_controller = TmuxController(socket_path.parent)
+    else:
+        tmux_controller = _tmux_factory(socket_path.parent)
+    tmux_controller.assert_tmux_binary_identity(tmux_binary)
+    tmux_controller.bind_server_identity(socket_path, server)
+    terminal_tmux = tmux_controller.metadata_for_session(
+        socket=socket_path,
+        session=tmux["session"],
+        server_identity=server,
+    )
+    if (
+        terminal_tmux.get("session") != tmux["session"]
+        or terminal_tmux.get("pane") != tmux["target_id"]
+        or terminal_tmux.get("pane_pid") != process["pid"]
+        or terminal_tmux.get("pane_dead") is not True
+    ):
+        raise ValidationError("qualification terminal tmux identity changed")
     lock = evidence.get("campaign_probe_lock")
     if not isinstance(lock, dict) or set(lock) != {
+        "authority_id",
         "path",
         "device",
         "inode",
@@ -417,7 +583,15 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
     }:
         raise ValidationError("qualification campaign lock identity is invalid")
     lock_path = Path(lock.get("path", ""))
-    if not lock_path.is_absolute() or lock_path.is_symlink() or not lock_path.is_file():
+    authority_root = controller_authority_root(_authority_root)
+    expected_lock_path = authority_root / "real-harness.lock"
+    if (
+        lock.get("authority_id") != AUTHORITY_ID
+        or lock_path != expected_lock_path
+        or not lock_path.is_absolute()
+        or lock_path.is_symlink()
+        or not lock_path.is_file()
+    ):
         raise ValidationError("qualification campaign lock is unavailable")
     lock_details = lock_path.stat()
     if (
@@ -425,6 +599,7 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         or stat.S_IMODE(lock_details.st_mode) & 0o077
         or lock
         != {
+            "authority_id": AUTHORITY_ID,
             "path": str(lock_path.resolve(strict=True)),
             "device": lock_details.st_dev,
             "inode": lock_details.st_ino,
@@ -437,6 +612,8 @@ def verify_qualification_receipt(path: Path) -> Dict[str, Any]:
         "run_id",
         "target",
         "controller",
+        "campaign_id",
+        "goal_fingerprint",
         "executable_fingerprint",
         "version_fingerprint",
         "platform_fingerprint",
@@ -803,16 +980,48 @@ class AdapterManifest:
         ):
             raise IdentityError("target process does not execute the fingerprinted launcher")
 
-    def verify_qualification(self) -> Dict[str, Any]:
+    def verify_qualification(
+        self,
+        *,
+        expected_controller: Optional[str] = None,
+        expected_campaign_id: Optional[str] = None,
+        expected_goal_fingerprint: Optional[str] = None,
+        _authority_root: Optional[Path] = None,
+        _current_manifest: Optional["AdapterManifest"] = None,
+        _server_process_fn: Optional[Any] = None,
+        _tmux_factory: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         if self.raw["doctor_only"]:
             raise UnsupportedError("doctor-only manifest has no real-harness qualification")
         qualification = self.raw["qualification"]
         path = Path(qualification["receipt_path"])
         if sha256_file(path, max_bytes=131072) != qualification["receipt_sha256"]:
             raise ValidationError("qualification receipt fingerprint changed")
-        receipt = verify_qualification_receipt(path)
+        receipt = verify_qualification_receipt(
+            path,
+            _authority_root=_authority_root,
+            _current_manifest=_current_manifest,
+            _server_process_fn=_server_process_fn,
+            _tmux_factory=_tmux_factory,
+        )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
+        expected_authority = {
+            "controller": expected_controller,
+            "campaign_id": expected_campaign_id,
+            "goal_fingerprint": expected_goal_fingerprint,
+        }
+        for name, expected in expected_authority.items():
+            if expected is None:
+                continue
+            if name == "goal_fingerprint":
+                validate_sha256(expected, "expected goal fingerprint")
+            else:
+                validate_identifier(expected, "expected qualification %s" % name)
+            if receipt.get(name) != expected:
+                raise IdentityError(
+                    "qualification %s does not match the active campaign" % name
+                )
         if not self.identity_matches(
             executable=receipt.get("executable_fingerprint"),
             adapter=receipt.get("adapter_fingerprint"),

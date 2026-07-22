@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 
 from puppet_lib.handoffs import validate_handoff
-from puppet_lib.safety import sha256_file
+from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 
 def _write_json(path: Path, value) -> None:
@@ -273,13 +273,21 @@ def write_qualification_receipt(
             "sha256": sha256_file(path),
         }
 
-    receipt = {
+    goal = {
+        "repository": "test/SaariusSkills",
+        "commit": "1" * 40,
+        "path": "plans/puppet/codex-goal.md",
+        "sha256": "2" * 64,
+    }
+    receipt_core = {
         "schema_version": 1,
         "kind": "real_harness_conformance",
         "run_id": run_id,
         "target": target,
         "result": "accepted",
         "controller": controller,
+        "campaign_id": "test-campaign",
+        "goal_fingerprint": sha256_bytes(canonical_json_bytes(goal)),
         "executable_fingerprint": executable_fingerprint,
         "version_fingerprint": version_fingerprint,
         "platform_fingerprint": platform_fingerprint,
@@ -300,5 +308,17 @@ def write_qualification_receipt(
             reference("acceptance", acceptance_path),
         ],
     }
+    receipt_digest = sha256_bytes(canonical_json_bytes(receipt_core))
+    receipt = dict(
+        receipt_core,
+        controller_attestation={
+            "authority_id": "puppet-local-controller-v1",
+            "authority_root": str(proof_root),
+            "request_id": "qualify-" + receipt_digest[:40],
+            "ledger_sequence": 1,
+            "ledger_entry_hash": "3" * 64,
+            "receipt_digest": receipt_digest,
+        },
+    )
     _write_json(receipt_path, receipt)
     return receipt

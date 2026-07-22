@@ -17,3 +17,10 @@ access, or interference with work owned by another operator.
 The disposable conformance fixture bounds and detects drift; it is not an OS
 security boundary. Preserve this warning in public docs, doctor output, and
 install guidance.
+
+The fixed controller ledger prevents another checkout or caller-selected proof
+root from independently minting qualification, and its private ownership blocks
+ordinary other UIDs. It is a hash-chain inclusion authority, not a cryptographic
+signature service. Hostile code already running as the operator UID can alter
+operator-owned state; Puppet coordinates cooperative YOLO execution rather than
+containing it.

@@ -5,10 +5,12 @@ import os
 import platform
 import socket as socket_module
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,14 +22,20 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     PROBE_CAPABILITIES,
     verify_qualification_receipt,
 )
+from puppet_lib.authority import admit_session_lease  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
     _acquire_campaign_probe_lock,
     _release_campaign_probe_lock,
+    recover_probe,
     run_probe,
 )
-from puppet_lib.safety import sha256_file  # noqa: E402
+from puppet_lib.safety import (  # noqa: E402
+    canonical_json_bytes,
+    sha256_bytes,
+    sha256_file,
+)
 
 
 def write_json(path: Path, value) -> None:
@@ -101,18 +109,44 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
     authorization = root / "campaign.json"
     write_json(manifest, raw)
     write_json(mapping_path, mapping)
+    goal_repo = root / "goal-repo"
+    goal_repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(goal_repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(goal_repo), "config", "user.email", "test@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(goal_repo), "config", "user.name", "Puppet Test"],
+        check=True,
+    )
+    goal_path = goal_repo / "plans" / "puppet" / "codex-goal.md"
+    goal_path.parent.mkdir(parents=True)
+    goal_path.write_text("bounded test goal\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(goal_repo), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(goal_repo), "commit", "-q", "-m", "goal"],
+        check=True,
+    )
+    goal_commit = subprocess.run(
+        ["git", "-C", str(goal_repo), "rev-parse", "HEAD"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    expected_goal = {
+        "repository": "test/SaariusSkills",
+        "commit": goal_commit,
+        "path": "plans/puppet/codex-goal.md",
+        "sha256": sha256_file(goal_path),
+    }
     authorization_value = {
         "schema_version": 1,
         "campaign_id": "campaign-probe-test",
         "operator_identity": "tester",
         "acknowledged_at": "2026-07-22T04:00:00Z",
         "controller": "tester",
-        "goal": {
-            "repository": "test/SaariusSkills",
-            "commit": "1" * 40,
-            "path": "plans/puppet/codex-goal.md",
-            "sha256": "2" * 64,
-        },
+        "goal": expected_goal,
         "authorization": {
             "trust_profile": "unrestricted_required",
             "harnesses": [target],
@@ -154,11 +188,17 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
     write_json(authorization, authorization_value)
     proof = root / "proof"
     proof.mkdir()
+    authority = root / "authority"
+    authority.mkdir(mode=0o700)
     return {
         "manifest": manifest,
         "mapping": mapping_path,
         "authorization": authorization,
         "proof": proof,
+        "authority": authority,
+        "goal_repo": goal_repo,
+        "expected_goal": expected_goal,
+        "campaign_id": authorization_value["campaign_id"],
         "raw": raw,
     }
 
@@ -174,6 +214,7 @@ class FakeTmux:
         exit_after_first_control=False,
         bad_claim=False,
         interrupt_on_paste=False,
+        interrupt_after_control=False,
     ):
         self.root = root
         self.socket_root = Path(tempfile.mkdtemp(prefix="pft-", dir="/tmp"))
@@ -183,6 +224,7 @@ class FakeTmux:
         self.exit_after_first_control = exit_after_first_control
         self.bad_claim = bad_claim
         self.interrupt_on_paste = interrupt_on_paste
+        self.interrupt_after_control = interrupt_after_control
         self.alive = True
         self.preserved = True
         self.launch_argv = None
@@ -194,6 +236,20 @@ class FakeTmux:
         self.pane = "%7"
         self.pid = 4242
         self.server = None
+        executable = Path("/bin/cat").resolve(strict=True)
+        executable_details = executable.stat()
+        self.tmux_identity = {
+            "path": str(executable),
+            "device": executable_details.st_dev,
+            "inode": executable_details.st_ino,
+            "uid": executable_details.st_uid,
+            "gid": executable_details.st_gid,
+            "mode": stat.S_IMODE(executable_details.st_mode),
+            "size": executable_details.st_size,
+            "sha256": sha256_file(executable),
+            "version": "fake-tmux 1",
+        }
+        self.server_process = static_process_identity(4343)
 
     def socket_path(self, session):
         return self.socket_root / (session + ".sock")
@@ -234,9 +290,25 @@ class FakeTmux:
             "pane_pid": self.pid,
             "current_command": "cat",
             "pane_dead": False,
+            "server_identity": self.server_process,
+            "tmux_binary_identity": self.tmux_identity,
         }
 
-    def metadata(self, *, socket, session, pane=None):
+    def assert_tmux_binary_identity(self, expected):
+        if expected != self.tmux_identity:
+            raise IdentityError("fake tmux binary drift")
+
+    def assert_tmux_server_identity(self, socket, expected):
+        if expected != self.server_process:
+            raise IdentityError("fake tmux server drift")
+
+    def bind_server_identity(self, socket, expected):
+        self.assert_tmux_server_identity(socket, expected)
+
+    def tmux_binary_identity(self):
+        return dict(self.tmux_identity)
+
+    def metadata(self, *, socket, session, pane=None, server_identity=None):
         return {
             "session": session,
             "pane": self.pane,
@@ -244,6 +316,14 @@ class FakeTmux:
             "current_command": "cat",
             "pane_dead": not self.alive,
         }
+
+    def metadata_for_session(self, *, socket, session, server_identity=None):
+        return self.metadata(
+            socket=socket,
+            session=session,
+            pane=self.pane,
+            server_identity=server_identity,
+        )
 
     @staticmethod
     def _exact_json(payload: bytes, marker: str):
@@ -253,7 +333,9 @@ class FakeTmux:
                 return json.loads(line[len(marker) :])
         raise AssertionError("probe payload did not contain %s" % marker)
 
-    def paste_bytes(self, *, socket, session, pane, buffer_name, payload):
+    def paste_bytes(
+        self, *, socket, session, pane, buffer_name, payload, server_identity=None
+    ):
         if self.interrupt_on_paste:
             raise KeyboardInterrupt()
         self.payloads.append(bytes(payload))
@@ -276,19 +358,25 @@ class FakeTmux:
         if self.extra_handoff:
             write_json(self.repo / "handoffs" / "unexpected.json", {"unexpected": True})
 
-    def interrupt(self, *, socket, session, pane=None):
+    def interrupt(self, *, socket, session, pane=None, server_identity=None):
         self.interrupts.append((str(socket), session, pane))
         self.alive = False
 
-    def send_control(self, *, socket, session, pane=None, key):
+    def send_control(
+        self, *, socket, session, pane=None, key, server_identity=None
+    ):
         self.control_calls.append((str(socket), session, pane, key))
+        if self.interrupt_after_control:
+            raise KeyboardInterrupt()
         if self.exit_after_first_control or len(self.control_calls) >= 2:
             self.alive = False
 
-    def exists(self, socket, session):
+    def exists(self, socket, session, *, server_identity=None):
         return self.preserved
 
-    def attach_command(self, *, socket, session, pane=None):
+    def attach_command(
+        self, *, socket, session, pane=None, server_identity=None
+    ):
         return "tmux -S %s attach-session -r -t %s" % (socket, session)
 
 
@@ -306,6 +394,8 @@ def execute(
     timeout=1.0,
     observed_manifest=None,
     process_birth_fn=None,
+    continuous_population_fn=None,
+    expected_goal=None,
 ):
     return run_probe(
         target=target,
@@ -315,18 +405,30 @@ def execute(
         mapping_path=files["mapping"],
         authorization_path=files["authorization"],
         controller="tester",
+        goal_repo=files["goal_repo"],
+        expected_campaign_id=files["campaign_id"],
+        expected_goal=expected_goal or files["expected_goal"],
         timeout=timeout,
         halt_timeout=0.1,
         run_id=run_id,
         _tmux_factory=lambda root: fake,
         _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
+        _server_process_birth_fn=lambda pid: fake.server_process,
         _process_alive_fn=lambda identity: fake.alive,
         _active_processes_fn=lambda selected: list(active or []),
+        _continuous_population_fn=continuous_population_fn
+        or (
+            lambda selected: [
+                *list(active or []),
+                *([process_identity(fake)] if fake.alive else []),
+            ]
+        ),
         _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
         _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
             observed_manifest or files["raw"]
         ),
         _sleep_fn=lambda interval: None,
+        _authority_root=files["authority"],
     )
 
 
@@ -373,7 +475,15 @@ class ProbeTests(unittest.TestCase):
             }
             manifest = AdapterManifest.from_dict(raw)
             self.assertEqual(manifest.raw["capabilities"]["resume"], "unsupported")
-            self.assertEqual(manifest.verify_qualification()["result"], "accepted")
+            self.assertEqual(
+                manifest.verify_qualification(
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda root: fake,
+                )["result"],
+                "accepted",
+            )
 
     def test_active_same_target_blocks_without_exact_override(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -607,12 +717,36 @@ class ProbeTests(unittest.TestCase):
             root = Path(temporary).resolve()
             files = controller_inputs(root)
             fake = FakeTmux(root / "fake-tmux")
-            descriptor, _ = _acquire_campaign_probe_lock(files["proof"])
+            descriptor, _ = _acquire_campaign_probe_lock(files["authority"])
             try:
                 with self.assertRaisesRegex(ConflictError, "campaign lock"):
                     execute(files, fake, run_id="probe-lock-conflict")
             finally:
                 _release_campaign_probe_lock(descriptor)
+            self.assertIsNone(fake.launch_argv)
+
+    def test_normal_session_lease_blocks_probe_across_proof_roots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            admit_session_lease(
+                session="other-live-session",
+                target="codex",
+                controller="other-controller",
+                owner={
+                    "activity": "session",
+                    "run_id": "other-live-run",
+                    "campaign_id": files["campaign_id"],
+                    "goal_fingerprint": sha256_bytes(
+                        canonical_json_bytes(files["expected_goal"])
+                    ),
+                    "proof_root": str(files["proof"]),
+                },
+                authority_root=files["authority"],
+            )
+            with self.assertRaisesRegex(ConflictError, "controller lease"):
+                execute(files, fake, run_id="probe-normal-lease-conflict")
             self.assertIsNone(fake.launch_argv)
 
     def test_receipt_rejects_mutated_bound_artifact(self):
@@ -622,7 +756,13 @@ class ProbeTests(unittest.TestCase):
             fake = FakeTmux(root / "fake-tmux")
             result = execute(files, fake, run_id="probe-receipt-tamper")
             receipt_path = Path(result["receipt"])
-            receipt = verify_qualification_receipt(receipt_path)
+            receipt = verify_qualification_receipt(
+                receipt_path,
+                _authority_root=files["authority"],
+                _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                _server_process_fn=lambda pid: fake.server_process,
+                _tmux_factory=lambda selected: fake,
+            )
             evidence_ref = next(
                 item for item in receipt["proof_refs"] if item["kind"] == "evidence"
             )
@@ -631,7 +771,13 @@ class ProbeTests(unittest.TestCase):
             evidence["result"] = "mutated"
             write_json(evidence_path, evidence)
             with self.assertRaisesRegex(ValidationError, "fingerprint changed"):
-                verify_qualification_receipt(receipt_path)
+                verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
 
     def test_receipt_cannot_upgrade_resume_without_a_separate_contract(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -644,7 +790,255 @@ class ProbeTests(unittest.TestCase):
             receipt["capabilities"].insert(-1, "resume")
             write_json(receipt_path, receipt)
             with self.assertRaisesRegex(ValidationError, "capability receipt"):
-                verify_qualification_receipt(receipt_path)
+                verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+
+    def test_terminal_state_mutation_invalidates_an_attested_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            result = execute(files, fake, run_id="probe-terminal-state")
+            receipt_path = Path(result["receipt"])
+            state_path = Path(result["run_root"]) / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["phase"] = "failed"
+            state["result"] = "failed"
+            write_json(state_path, state)
+            with self.assertRaisesRegex(ValidationError, "terminal lifecycle"):
+                verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+
+    def test_current_controller_identity_drift_invalidates_qualification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            result = execute(files, fake, run_id="probe-current-drift")
+            drifted = json.loads(json.dumps(files["raw"]))
+            drifted["adapter_fingerprint"] = "f" * 64
+            with self.assertRaisesRegex(IdentityError, "current controller"):
+                verify_qualification_receipt(
+                    Path(result["receipt"]),
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(drifted),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+
+    def test_terminal_tmux_pane_drift_invalidates_qualification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            result = execute(files, fake, run_id="probe-pane-drift")
+            fake.pane = "%99"
+            with self.assertRaisesRegex(ValidationError, "terminal tmux identity"):
+                verify_qualification_receipt(
+                    Path(result["receipt"]),
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+
+    def test_qualified_manifest_is_bound_to_campaign_controller_and_goal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            result = execute(files, fake, run_id="probe-authority-binding")
+            receipt = json.loads(Path(result["receipt"]).read_text(encoding="utf-8"))
+            raw = json.loads(json.dumps(files["raw"]))
+            raw["doctor_only"] = False
+            raw["qualification"] = {
+                "receipt_path": result["receipt"],
+                "receipt_sha256": sha256_file(Path(result["receipt"])),
+            }
+            raw["capabilities"] = {
+                name: (
+                    "controller_verified"
+                    if name in receipt["capabilities"]
+                    else "unsupported"
+                )
+                for name in raw["capabilities"]
+            }
+            manifest = AdapterManifest.from_dict(raw)
+            common = {
+                "expected_campaign_id": files["campaign_id"],
+                "expected_goal_fingerprint": sha256_bytes(
+                    canonical_json_bytes(files["expected_goal"])
+                ),
+                "_authority_root": files["authority"],
+                "_current_manifest": AdapterManifest.from_dict(files["raw"]),
+                "_server_process_fn": lambda pid: fake.server_process,
+                "_tmux_factory": lambda selected: fake,
+            }
+            with self.assertRaisesRegex(IdentityError, "active campaign"):
+                manifest.verify_qualification(
+                    expected_controller="other-controller",
+                    **common,
+                )
+            with self.assertRaisesRegex(IdentityError, "active campaign"):
+                manifest.verify_qualification(
+                    expected_controller="tester",
+                    **dict(common, expected_goal_fingerprint="0" * 64),
+                )
+
+    def test_transient_same_target_process_invalidates_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            calls = {"count": 0}
+
+            def population(selected):
+                calls["count"] += 1
+                baseline = [process_identity(fake)] if fake.alive else []
+                if calls["count"] == 3:
+                    baseline.append(static_process_identity(4999))
+                return baseline
+
+            with self.assertRaisesRegex(IdentityError, "population changed"):
+                execute(
+                    files,
+                    fake,
+                    run_id="probe-transient-process",
+                    continuous_population_fn=population,
+                )
+            self.assertFalse(fake.alive)
+            self.assertFalse(
+                (
+                    files["proof"]
+                    / "probes"
+                    / "probe-transient-process"
+                    / "receipt.json"
+                ).exists()
+            )
+
+    def test_unverified_goal_tuple_fails_before_tmux_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            wrong_goal = dict(files["expected_goal"], sha256="f" * 64)
+            with self.assertRaisesRegex(IdentityError, "goal identity"):
+                execute(
+                    files,
+                    fake,
+                    run_id="probe-goal-mismatch",
+                    expected_goal=wrong_goal,
+                )
+            self.assertIsNone(fake.launch_argv)
+
+    def test_interrupted_probe_recovery_halts_exact_target_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            with patch(
+                "puppet_lib.probe._halt_exact",
+                side_effect=KeyboardInterrupt(),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    execute(files, fake, run_id="probe-recovery")
+            original_launch_argv = list(fake.launch_argv)
+            run_root = files["proof"] / "probes" / "probe-recovery"
+            state_path = run_root / "state.json"
+            with self.assertRaises(ConflictError):
+                admit_session_lease(
+                    session="other-during-recovery",
+                    target="codex",
+                    controller="other-controller",
+                    owner={
+                        "activity": "session",
+                        "run_id": "other-during-recovery",
+                        "campaign_id": files["campaign_id"],
+                        "goal_fingerprint": sha256_bytes(
+                            canonical_json_bytes(files["expected_goal"])
+                        ),
+                        "proof_root": str(files["proof"]),
+                    },
+                    authority_root=files["authority"],
+                )
+            recovered = recover_probe(
+                target="codex",
+                proof_root=files["proof"],
+                manifest_path=files["manifest"],
+                mapping_path=files["mapping"],
+                authorization_path=files["authorization"],
+                controller="tester",
+                goal_repo=files["goal_repo"],
+                expected_campaign_id=files["campaign_id"],
+                expected_goal=files["expected_goal"],
+                run_id="probe-recovery",
+                halt_timeout=0.1,
+                _tmux_factory=lambda selected: fake,
+                _process_birth_fn=lambda pid: process_identity(fake),
+                _process_alive_fn=lambda identity: fake.alive,
+                _server_process_birth_fn=lambda pid: fake.server_process,
+                _active_processes_fn=lambda selected: [],
+                _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+                _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+                    files["raw"]
+                ),
+                _sleep_fn=lambda interval: None,
+                _authority_root=files["authority"],
+            )
+            self.assertTrue(recovered["recovered"])
+            self.assertEqual(recovered["result"], "interrupted_probe_reconciled")
+            self.assertEqual(fake.launch_argv, original_launch_argv)
+            self.assertEqual(len(fake.interrupts), 1)
+            self.assertFalse(fake.alive)
+            terminal = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(terminal["phase"], "failed")
+            self.assertTrue((run_root / "recovery.json").is_file())
+
+    def test_interrupted_agy_eof_is_ambiguous_and_never_resent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root, target="agy")
+            fake = FakeTmux(root / "fake-tmux", interrupt_after_control=True)
+            with self.assertRaises(KeyboardInterrupt):
+                execute(files, fake, target="agy", run_id="probe-agy-ambiguous")
+            self.assertEqual(len(fake.control_calls), 1)
+            fake.interrupt_after_control = False
+            with self.assertRaisesRegex(IdentityError, "ambiguous"):
+                recover_probe(
+                    target="agy",
+                    proof_root=files["proof"],
+                    manifest_path=files["manifest"],
+                    mapping_path=files["mapping"],
+                    authorization_path=files["authorization"],
+                    controller="tester",
+                    goal_repo=files["goal_repo"],
+                    expected_campaign_id=files["campaign_id"],
+                    expected_goal=files["expected_goal"],
+                    run_id="probe-agy-ambiguous",
+                    halt_timeout=0.1,
+                    _tmux_factory=lambda selected: fake,
+                    _process_birth_fn=lambda pid: process_identity(fake),
+                    _process_alive_fn=lambda identity: fake.alive,
+                    _server_process_birth_fn=lambda pid: fake.server_process,
+                    _active_processes_fn=lambda selected: [process_identity(fake)],
+                    _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+                    _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+                        files["raw"]
+                    ),
+                    _sleep_fn=lambda interval: None,
+                    _authority_root=files["authority"],
+                )
+            self.assertEqual(len(fake.control_calls), 1)
 
     def test_probe_profile_is_fixed_before_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -660,6 +1054,9 @@ class ProbeTests(unittest.TestCase):
                     mapping_path=files["mapping"],
                     authorization_path=files["authorization"],
                     controller="tester",
+                    goal_repo=files["goal_repo"],
+                    expected_campaign_id=files["campaign_id"],
+                    expected_goal=files["expected_goal"],
                     _tmux_factory=lambda selected: fake,
                 )
             self.assertIsNone(fake.launch_argv)

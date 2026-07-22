@@ -8,16 +8,25 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
 from puppet_lib.beacons import parse_beacon  # noqa: E402
+import puppet_lib.campaign as puppet_campaign  # noqa: E402
+from puppet_lib.authority import (  # noqa: E402
+    admit_session_lease,
+    current_session_lease,
+    lease_owner,
+)
 from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.diagnostics import agy_overage_advisory, terminal_verdict  # noqa: E402
 from puppet_lib.errors import ConflictError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import validate_handoff  # noqa: E402
+from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
     SessionRegistry,
     process_alive,
@@ -84,6 +93,99 @@ def followup():
 
 
 class AuthorityTests(unittest.TestCase):
+    def test_cursor_census_includes_application_subcommand_executable(self):
+        observed = []
+
+        def identity(pid):
+            observed.append(pid)
+            return {"pid": pid}
+
+        process_table = "101 /opt/bin/cursor\n102 /opt/bin/Cursor\n103 /opt/bin/cursor-agent\n"
+        with patch.object(
+            puppet_campaign.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout=process_table),
+        ), patch.object(
+            puppet_campaign,
+            "process_birth_identity",
+            side_effect=identity,
+        ):
+            result = puppet_campaign.active_target_processes("cursor")
+        self.assertEqual(observed, [101, 103])
+        self.assertEqual(result, [{"pid": 101}, {"pid": 103}])
+
+    def test_session_lease_projection_recovers_each_committed_transition(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            authority.mkdir(mode=0o700)
+            proof = root / "proof"
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="probe-crash-recovery",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+            )
+            launching = admit_session_lease(
+                session="probe-crash-recovery",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                authority_root=authority,
+            )
+            projection = authority / "current-session-lease.json"
+            projection.unlink()
+            self.assertEqual(current_session_lease(authority), launching)
+
+            process = {"pid": 4242, "start": "stable"}
+            history = Journal(authority / "session-lease-history")
+
+            def append_without_projection(state: str, number: int):
+                current = current_session_lease(authority)
+                committed = dict(
+                    current,
+                    state=state,
+                    process=process,
+                    updated_at="2026-07-22T05:00:%02dZ" % number,
+                )
+                history.append(
+                    request_id="lease-%d-%s" % (committed["generation"], state),
+                    event={"kind": "session_lease", "lease": committed},
+                )
+                self.assertEqual(current_session_lease(authority), committed)
+                return committed
+
+            append_without_projection("active", 1)
+            append_without_projection("halting", 2)
+            append_without_projection("halted", 3)
+
+            second_owner = lease_owner(
+                activity="session",
+                run_id="session-crash-recovery",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+            )
+            second = admit_session_lease(
+                session="session-crash-recovery",
+                target="claude",
+                controller="tester",
+                owner=second_owner,
+                authority_root=authority,
+            )
+            failed = dict(
+                second,
+                state="failed",
+                updated_at="2026-07-22T05:00:04Z",
+            )
+            history.append(
+                request_id="lease-%d-failed" % failed["generation"],
+                event={"kind": "session_lease", "lease": failed},
+            )
+            self.assertEqual(current_session_lease(authority), failed)
+
     def test_process_identity_binds_full_executable_file_identity(self):
         identity = process_birth_identity(os.getpid())
         self.assertEqual(
@@ -209,11 +311,23 @@ class AuthorityTests(unittest.TestCase):
             tmux_socket_path.chmod(0o600)
             self.addCleanup(tmux_socket.close)
             self.addCleanup(lambda: tmux_socket_path.unlink(missing_ok=True))
+            tmux_server_identity = process_birth_identity(os.getpid())
+            tmux_executable = Path(
+                tmux_server_identity["executable_path"]
+            ).resolve(strict=True)
+            tmux_details = tmux_executable.stat()
             record = {
                 "schema_version": 1,
                 "session": "session-1",
                 "controller": "codex",
                 "target": "agy",
+                "lease_owner": {
+                    "activity": "session",
+                    "run_id": "run-1",
+                    "campaign_id": "campaign-test",
+                    "goal_fingerprint": "f" * 64,
+                    "proof_root": str(proof.resolve(strict=True)),
+                },
                 "contract_fingerprint": "a" * 64,
                 "contract_path": str(contract_path),
                 "state": "ACTIVE",
@@ -231,6 +345,20 @@ class AuthorityTests(unittest.TestCase):
                     },
                     "session": "session-1",
                     "pane": "%1",
+                    "server_identity": tmux_server_identity,
+                    "tmux_binary_identity": {
+                        "path": str(tmux_executable),
+                        "device": tmux_details.st_dev,
+                        "inode": tmux_details.st_ino,
+                        "uid": tmux_details.st_uid,
+                        "gid": tmux_details.st_gid,
+                        "mode": tmux_details.st_mode & 0o7777,
+                        "size": tmux_details.st_size,
+                        "sha256": hashlib.sha256(
+                            tmux_executable.read_bytes()
+                        ).hexdigest(),
+                        "version": "test-python",
+                    },
                 },
                 "process": {
                     "pid": os.getpid(),
@@ -263,6 +391,9 @@ class AuthorityTests(unittest.TestCase):
                     "executable_fingerprint": "c" * 64,
                     "adapter_fingerprint": "d" * 64,
                     "protocol_fingerprint": "e" * 64,
+                    "qualification_controller": "tester",
+                    "qualification_campaign_id": "campaign-test",
+                    "qualification_goal_fingerprint": "f" * 64,
                 },
                 "protocol": {
                     "kind": "source",

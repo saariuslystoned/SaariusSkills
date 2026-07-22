@@ -9,13 +9,16 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import puppet_lib.session as puppet_session  # noqa: E402
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.authority import current_session_lease  # noqa: E402
 from puppet_lib.campaign import (  # noqa: E402
     ALLOWED_ACTIONS as CAMPAIGN_ALLOWED_ACTIONS,
     HARD_GATES as CAMPAIGN_HARD_GATES,
@@ -36,7 +39,6 @@ from puppet_lib.session import (  # noqa: E402
     status,
     wait_for,
 )
-import puppet_lib.session as puppet_session
 from puppet_lib.tmux import TmuxController  # noqa: E402
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
@@ -297,6 +299,27 @@ def kill_test_server(socket):
 
 
 class SessionIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        # Session composition tests use /bin/cat as a deterministic target.
+        # Real-adapter qualification and anti-forgery are covered separately.
+        qualification_patcher = patch.object(
+            AdapterManifest,
+            "verify_qualification",
+            return_value={"result": "accepted", "test_only": True},
+        )
+        qualification_patcher.start()
+        self.addCleanup(qualification_patcher.stop)
+        self._authority_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self._authority_temporary.cleanup)
+        authority_root = Path(self._authority_temporary.name) / "authority"
+        self.authority_root = authority_root
+        authority_patcher = patch(
+            "puppet_lib.authority.canonical_authority_root",
+            return_value=authority_root,
+        )
+        authority_patcher.start()
+        self.addCleanup(authority_patcher.stop)
+
     def test_delivery_deduplication_is_scoped_to_the_exact_session(self):
         class RecordingTmux:
             def __init__(self):
@@ -583,6 +606,259 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertTrue(result["tmux_preserved"])
                 replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
+            finally:
+                kill_test_server(socket)
+
+    def test_launch_delivery_failure_keeps_recoverable_halting_lease(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/launch-recovery", "candidate"
+            )
+            session = "codex-launch-recovery"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/launch-recovery",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                with patch.object(
+                    puppet_session,
+                    "_deliver",
+                    side_effect=RuntimeError("injected delivery failure"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "injected delivery"):
+                        launch(
+                            session=session,
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files["supervisor_executable"],
+                            prompt="Remain available for launch recovery.",
+                        )
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                self.assertEqual(record["state"], "BLOCKED")
+                self.assertTrue(record["blocker"]["cleanup_stopped"])
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "halting"
+                )
+                result = halt(state_root=files["state"], session=session, timeout=1)
+                self.assertEqual(result["state"], "HALTED")
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "halted"
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_process_binding_failure_exactly_cleans_provisional_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/provisional-cleanup", "candidate"
+            )
+            session = "codex-provisional-cleanup"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/provisional-cleanup",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = str(TmuxController(files["state"]).socket_path(session))
+            try:
+                with patch.object(
+                    puppet_session,
+                    "process_birth_identity",
+                    side_effect=IdentityError("injected process binding failure"),
+                ):
+                    with self.assertRaisesRegex(IdentityError, "injected process binding"):
+                        launch(
+                            session=session,
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files["supervisor_executable"],
+                            prompt="Remain available for provisional cleanup.",
+                        )
+                self.assertFalse(SessionRegistry(files["state"]).exists(session))
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "failed"
+                )
+                metadata = TmuxController(files["state"]).metadata_for_session(
+                    socket=Path(socket),
+                    session=session,
+                )
+                self.assertTrue(metadata["pane_dead"])
+            finally:
+                kill_test_server(socket)
+
+    def test_concurrent_conformance_followups_deliver_exactly_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-followup-owner"
+            candidate = root / "candidate"
+            fixture_contract = create_fixture(
+                candidate,
+                run_id="followup-owner-run",
+                session=session,
+                target="codex",
+            )
+            subprocess.run(
+                ["git", "init", "-q", "-b", "codex/followup-owner", str(candidate)],
+                check=True,
+            )
+            commit_all(candidate, "candidate")
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/followup-owner",
+                session=session,
+                task_profile="conformance",
+                protocol_fingerprint=fixture_contract["protocol_fingerprint"],
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for follow-up ownership proof.",
+                )
+                registry = SessionRegistry(files["state"])
+                record = registry.load(session)
+                socket = record["tmux"]["socket"]
+                protocol = dict(record["protocol"])
+                protocol.update(
+                    phase="ready_validated",
+                    ready_checkpoint_id="a" * 64,
+                    ready_artifact_sha256="b" * 64,
+                )
+                registry.update(
+                    session,
+                    {"state": "CONFORMANCE_READY", "protocol": protocol},
+                )
+                deliveries = []
+                delivery_lock = threading.Lock()
+
+                def fake_deliver(**kwargs):
+                    with delivery_lock:
+                        deliveries.append(kwargs["operation_id"])
+                    time.sleep(0.1)
+                    return {"delivery": "submitted", "content_sha256": "c" * 64}
+
+                results = []
+                errors = []
+                start = threading.Barrier(2)
+
+                def worker(request_id):
+                    try:
+                        start.wait()
+                        results.append(
+                            send_message(
+                                state_root=files["state"],
+                                session=session,
+                                message="Write exactly one follow-up.",
+                                request_id=request_id,
+                            )
+                        )
+                    except Exception as exc:
+                        errors.append(exc)
+
+                with patch.object(puppet_session, "_deliver", side_effect=fake_deliver):
+                    threads = [
+                        threading.Thread(target=worker, args=("message-a",)),
+                        threading.Thread(target=worker, args=("message-b",)),
+                    ]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join()
+                self.assertEqual(len(results), 1)
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0], ValidationError)
+                self.assertEqual(len(deliveries), 1)
+                self.assertEqual(
+                    halt(state_root=files["state"], session=session, timeout=2)[
+                        "state"
+                    ],
+                    "HALTED",
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_interrupted_normal_agy_eof_is_never_resent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/ambiguous-eof", "candidate"
+            )
+            session = "codex-ambiguous-eof"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/ambiguous-eof",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for ambiguous EOF proof.",
+                )
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+
+                class DummyAdapter:
+                    graceful_halt_keys = ("C-d", "C-d")
+
+                class InterruptingTmux:
+                    def __init__(self):
+                        self.calls = []
+
+                    def send_control(self, **kwargs):
+                        self.calls.append(kwargs["key"])
+                        raise KeyboardInterrupt()
+
+                fake_tmux = InterruptingTmux()
+
+                def fake_runtime(*args, **kwargs):
+                    return fake_tmux, {
+                        "pane_pid": record["process"]["pid"],
+                        "pane_dead": False,
+                    }
+
+                with patch.object(puppet_session, "_runtime", side_effect=fake_runtime), patch.object(
+                    puppet_session,
+                    "adapter_for",
+                    return_value=DummyAdapter(),
+                ), patch.object(puppet_session, "process_alive", return_value=True):
+                    with self.assertRaises(KeyboardInterrupt):
+                        halt(state_root=files["state"], session=session, timeout=1)
+                    with self.assertRaisesRegex(IdentityError, "ambiguous"):
+                        halt(state_root=files["state"], session=session, timeout=1)
+                self.assertEqual(fake_tmux.calls, ["C-d"])
             finally:
                 kill_test_server(socket)
 

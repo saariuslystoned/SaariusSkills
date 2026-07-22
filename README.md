@@ -23,7 +23,10 @@ The bootstrap source implements the bounded CLI, strict contracts, atomic and
 append-only state, doctor-only adapter census, source and conformance handoffs,
 controller-only verdicts, immutable-supervisor checks, sanitized status, and
 exact-target transport boundaries. Enabled manifests additionally require a
-hash-bound accepted real-harness qualification receipt. It is not yet fully
+goal-bound, current-identity-checked real-harness receipt included in a fixed,
+checkout-independent controller ledger. This remains cooperative same-UID
+coordination, not hostile-code containment; see the
+[`YOLO contract`](skills/puppet/references/yolo-contract.md). It is not yet fully
 runtime-qualified: every live
 adapter remains hard-disabled until its exact current CLI passes the shared
 real-harness conformance probe, and no self-hosting promotion is claimed.
@@ -124,8 +127,8 @@ invocation, but it is never required when the user's intent is already clear.
 - [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
   transcript-blind cross-harness operating workflow.
 - `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
-- `skills/puppet/scripts/adapter_lab.py`: zero-agent census and doctor-only
-  manifest tooling.
+- `skills/puppet/scripts/adapter_lab.py`: zero-agent census, real-harness
+  probe/recovery, receipt verification, and qualification tooling.
 - `skills/puppet/references/`: operating, adapter, prompt, provenance, and trust
   contracts.
 - [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,

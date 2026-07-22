@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .errors import ConflictError, IdentityError, ValidationError
+from .registry import process_birth_identity
 from .safety import (
     absolute_root,
     canonical_tmux_socket_path,
@@ -91,21 +92,17 @@ class TmuxController:
             "version": version_result.stdout.strip(),
         }
 
-    @staticmethod
-    def _server_birth_identity(server_pid: int) -> Dict[str, str]:
-        process_result = subprocess.run(
-            ["ps", "-p", str(server_pid), "-o", "lstart=,comm="],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            text=True,
-        )
-        if process_result.returncode != 0:
-            raise IdentityError("tmux process identity is unavailable")
-        process_identity = process_result.stdout.strip()
-        if not process_identity:
-            raise IdentityError("tmux process identity is unavailable")
-        return {"pid": server_pid, "birth_identity": process_identity}
+    def _server_birth_identity(self, server_pid: int) -> Dict[str, Any]:
+        identity = process_birth_identity(server_pid)
+        expected = self.bound_tmux_binary_identity
+        if (
+            Path(identity["executable_path"]).resolve(strict=True)
+            != Path(expected["path"])
+            or identity["device"] != expected["device"]
+            or identity["inode"] != expected["inode"]
+        ):
+            raise IdentityError("tmux server does not execute the bound tmux binary")
+        return identity
 
     def tmux_binary_identity(self) -> Dict[str, Any]:
         return dict(self.bound_tmux_binary_identity)
@@ -137,6 +134,15 @@ class TmuxController:
         if observed != expected:
             raise IdentityError("tmux server identity has drifted")
 
+    def bind_server_identity(
+        self,
+        socket: Path,
+        expected: Dict[str, Any],
+    ) -> None:
+        """Rebind a reconstructed controller to one recorded private server."""
+        self.assert_tmux_server_identity(socket, expected)
+        self._server_identity[str(socket)] = dict(expected)
+
     def _resolve_server_identity(
         self,
         socket: Path,
@@ -162,13 +168,43 @@ class TmuxController:
         socket: Path,
         session: str,
         socket_identity: Optional[Dict[str, int]],
+        created_by_launch: bool = False,
     ) -> None:
         if socket_identity is None:
-            return
-        try:
-            if self.socket_identity(socket) != socket_identity:
+            if not created_by_launch:
                 return
-        except IdentityError:
+            try:
+                details = socket.lstat()
+            except OSError:
+                return
+            if (
+                not stat.S_ISSOCK(details.st_mode)
+                or details.st_uid != os.getuid()
+                or stat.S_IMODE(details.st_mode) & 0o077
+            ):
+                return
+            socket_identity = {
+                "device": details.st_dev,
+                "inode": details.st_ino,
+                "uid": details.st_uid,
+                "mode": stat.S_IMODE(details.st_mode),
+            }
+        try:
+            details = socket.lstat()
+        except OSError:
+            return
+        observed = {
+            "device": details.st_dev,
+            "inode": details.st_ino,
+            "uid": details.st_uid,
+            "mode": stat.S_IMODE(details.st_mode),
+        }
+        if (
+            not stat.S_ISSOCK(details.st_mode)
+            or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077
+            or observed != socket_identity
+        ):
             return
         self._run_raw(
             [self.tmux_binary.as_posix(), "-S", str(socket), "kill-session", "-t", session],
@@ -322,12 +358,22 @@ class TmuxController:
                 server_identity=server_identity,
             )
         except BaseException:
-            self._kill_session(socket=socket, session=session, socket_identity=socket_identity)
+            self._kill_session(
+                socket=socket,
+                session=session,
+                socket_identity=socket_identity,
+                created_by_launch=True,
+            )
             self._server_identity.pop(str(socket), None)
             raise
 
         if metadata["session"] != session:
-            self._kill_session(socket=socket, session=session, socket_identity=socket_identity)
+            self._kill_session(
+                socket=socket,
+                session=session,
+                socket_identity=socket_identity,
+                created_by_launch=True,
+            )
             self._server_identity.pop(str(socket), None)
             raise IdentityError("tmux session initial identity is invalid")
 
@@ -391,16 +437,9 @@ class TmuxController:
         )
         if metadata["pane_dead"]:
             raise IdentityError("tmux pane is unavailable")
-        self._run_raw(
-            [
-                self.tmux_binary.as_posix(),
-                "-S",
-                str(socket),
-                "load-buffer",
-                "-b",
-                buffer_name,
-                "-",
-            ],
+        self._run(
+            socket,
+            ["load-buffer", "-b", buffer_name, "-"],
             input_data=payload,
         )
         try:

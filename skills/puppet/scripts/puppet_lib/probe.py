@@ -10,10 +10,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
-import fcntl
-import os
 import secrets
-import stat
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -24,16 +21,28 @@ from .adapter_manifest import (
     verify_qualification_receipt,
 )
 from .adapters import adapter_for
+from .authority import (
+    acquire_real_harness_lock,
+    admit_session_lease,
+    attest_qualification,
+    lease_owner as build_lease_owner,
+    require_session_lease,
+    release_real_harness_lock,
+    transition_session_lease,
+)
 from .campaign import (
     active_target_processes,
     parallel_target_override,
     validate_campaign_authorization,
+    verify_campaign_goal,
 )
 from .conformance import create_fixture, tree_fingerprint
 from .contracts import Contract, MANDATORY_HARD_GATES, TARGETS
 from .census import adapter_implementation_fingerprint, census_target
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
+from .halt_control import deliver_halt_controls
+from .journal import Journal
 from .registry import process_alive, process_birth_identity
 from .safety import (
     absolute_root,
@@ -68,48 +77,20 @@ def _new_run_id(target: str) -> str:
     return "probe-%s-%s" % (target, secrets.token_hex(8))
 
 
-def _acquire_campaign_probe_lock(proof_root: Path) -> tuple[int, Dict[str, Any]]:
-    lock_root = proof_root / "probe-locks"
-    if lock_root.exists() and lock_root.is_symlink():
-        raise IdentityError("campaign probe lock root is a symlink")
-    lock_root.mkdir(mode=0o700, exist_ok=True)
-    ensure_within(lock_root, proof_root, must_exist=True)
-    lock_path = lock_root / "real-harness.lock"
-    flags = os.O_CREAT | os.O_RDWR
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(str(lock_path), flags, 0o600)
-    try:
-        details = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(details.st_mode)
-            or details.st_uid != os.getuid()
-            or stat.S_IMODE(details.st_mode) & 0o077
-        ):
-            raise IdentityError("campaign probe lock is not user-private")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise ConflictError("another real-harness probe owns the campaign lock") from exc
-        return descriptor, {
-            "path": str(lock_path.resolve(strict=True)),
-            "device": details.st_dev,
-            "inode": details.st_ino,
-            "uid": details.st_uid,
-            "mode": stat.S_IMODE(details.st_mode),
-        }
-    except BaseException:
-        os.close(descriptor)
-        raise
+def _acquire_campaign_probe_lock(
+    authority_root: Optional[Path] = None,
+    *,
+    reject_active_lease: bool = True,
+) -> tuple[int, Dict[str, Any]]:
+    """Compatibility wrapper around the fixed controller authority lock."""
+    return acquire_real_harness_lock(
+        authority_root,
+        reject_active_lease=reject_active_lease,
+    )
 
 
 def _release_campaign_probe_lock(descriptor: Optional[int]) -> None:
-    if descriptor is None:
-        return
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-    finally:
-        os.close(descriptor)
+    release_real_harness_lock(descriptor)
 
 
 def _session_id(target: str, run_id: str) -> str:
@@ -320,12 +301,21 @@ def _assert_runtime(
     pane: str,
     pane_pid: int,
     socket_identity: Dict[str, Any],
+    server_identity: Dict[str, Any],
+    tmux_binary_identity: Dict[str, Any],
     process: Dict[str, Any],
     process_alive_fn: Callable[[Dict[str, Any]], bool],
 ) -> Dict[str, Any]:
+    tmux.assert_tmux_binary_identity(tmux_binary_identity)
+    tmux.assert_tmux_server_identity(socket, server_identity)
     if tmux.socket_identity(socket) != socket_identity:
         raise IdentityError("probe tmux socket identity changed")
-    metadata = tmux.metadata(socket=socket, session=session, pane=pane)
+    metadata = tmux.metadata(
+        socket=socket,
+        session=session,
+        pane=pane,
+        server_identity=server_identity,
+    )
     if (
         metadata.get("session") != session
         or metadata.get("pane") != pane
@@ -350,8 +340,11 @@ def _wait_for_handoff(
     pane: str,
     pane_pid: int,
     socket_identity: Dict[str, Any],
+    server_identity: Dict[str, Any],
+    tmux_binary_identity: Dict[str, Any],
     process: Dict[str, Any],
     process_alive_fn: Callable[[Dict[str, Any]], bool],
+    population_guard: Callable[[], None],
     expected_handoff_names: set[str],
     timeout: float,
     sleep_fn: Callable[[float], None],
@@ -365,9 +358,12 @@ def _wait_for_handoff(
             pane=pane,
             pane_pid=pane_pid,
             socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
             process=process,
             process_alive_fn=process_alive_fn,
         )
+        population_guard()
         if path.exists():
             handoff = validate_handoff(
                 path, allowed_roots=[fixture], expected=expected
@@ -391,24 +387,23 @@ def _halt_exact(
     session: str,
     pane: str,
     socket_identity: Dict[str, Any],
+    server_identity: Dict[str, Any],
+    tmux_binary_identity: Dict[str, Any],
     process: Dict[str, Any],
     process_alive_fn: Callable[[Dict[str, Any]], bool],
     timeout: float,
     sleep_fn: Callable[[float], None],
     reason: str,
+    journal: Journal,
     require_live: bool = False,
 ) -> Dict[str, Any]:
     target_alive = process_alive_fn(process)
     if require_live and not target_alive:
         raise IdentityError("probe target stopped before the required controller halt")
-    signal_sent = False
-    signal_name = "none_already_stopped"
-    if target_alive:
-        deadline = time.monotonic() + timeout
-        sent_keys = []
-        for key in adapter_for(target).graceful_halt_keys:
-            if not process_alive_fn(process):
-                break
+    deadline = time.monotonic() + timeout
+
+    def send_one(key: str) -> None:
+        if process_alive_fn(process):
             _assert_runtime(
                 tmux=tmux,
                 socket=socket,
@@ -416,35 +411,57 @@ def _halt_exact(
                 pane=pane,
                 pane_pid=process["pid"],
                 socket_identity=socket_identity,
+                server_identity=server_identity,
+                tmux_binary_identity=tmux_binary_identity,
                 process=process,
                 process_alive_fn=process_alive_fn,
             )
-            if key == "C-c":
-                tmux.interrupt(socket=socket, session=session, pane=pane)
-            else:
-                tmux.send_control(
-                    socket=socket,
-                    session=session,
-                    pane=pane,
-                    key=key,
-                )
-            sent_keys.append(key)
-            remaining = max(0.0, deadline - time.monotonic())
-            if remaining:
-                sleep_fn(min(0.25, remaining))
-        signal_sent = bool(sent_keys)
-        if sent_keys == ["C-d", "C-d"]:
-            signal_name = "tmux_exact_pane_ctrl_d_twice"
-        elif sent_keys == ["C-d"]:
-            signal_name = "tmux_exact_pane_ctrl_d_once_target_stopped"
-        elif sent_keys == ["C-c"]:
-            signal_name = "tmux_exact_pane_ctrl_c"
-        elif sent_keys:
-            raise IdentityError("exact halt used an unexpected control sequence")
-        while process_alive_fn(process) and time.monotonic() < deadline:
-            sleep_fn(POLL_INTERVAL_SECONDS)
+        if key == "C-c":
+            tmux.interrupt(
+                socket=socket,
+                session=session,
+                pane=pane,
+                server_identity=server_identity,
+            )
+        else:
+            tmux.send_control(
+                socket=socket,
+                session=session,
+                pane=pane,
+                key=key,
+                server_identity=server_identity,
+            )
+
+    def pause_after_send() -> None:
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining:
+            sleep_fn(min(0.25, remaining))
+
+    sent_keys = deliver_halt_controls(
+        journal=journal,
+        session=session,
+        target_pid=process["pid"],
+        keys=list(adapter_for(target).graceful_halt_keys),
+        process_alive=lambda: process_alive_fn(process),
+        send_control=send_one,
+        after_send=pause_after_send,
+    )
+    signal_sent = bool(sent_keys)
+    signal_name = "none_already_stopped"
+    if sent_keys == ["C-d", "C-d"]:
+        signal_name = "tmux_exact_pane_ctrl_d_twice"
+    elif sent_keys == ["C-d"]:
+        signal_name = "tmux_exact_pane_ctrl_d_once_target_stopped"
+    elif sent_keys == ["C-c"]:
+        signal_name = "tmux_exact_pane_ctrl_c"
+    elif sent_keys:
+        raise IdentityError("exact halt used an unexpected control sequence")
+    while process_alive_fn(process) and time.monotonic() < deadline:
+        sleep_fn(POLL_INTERVAL_SECONDS)
     stopped = not process_alive_fn(process)
-    tmux_preserved = tmux.exists(socket, session)
+    tmux_preserved = tmux.exists(
+        socket, session, server_identity=server_identity
+    )
     if not stopped:
         raise IdentityError(
             "exact probe target did not stop gracefully; no broad signal was attempted"
@@ -453,7 +470,11 @@ def _halt_exact(
         raise IdentityError("probe tmux evidence session was not preserved")
     if tmux.socket_identity(socket) != socket_identity:
         raise IdentityError("probe tmux socket identity changed during halt")
-    stopped_metadata = tmux.metadata(socket=socket, session=session, pane=pane)
+    stopped_metadata = tmux.metadata_for_session(
+        socket=socket,
+        session=session,
+        server_identity=server_identity,
+    )
     if (
         stopped_metadata.get("session") != session
         or stopped_metadata.get("pane") != pane
@@ -482,15 +503,23 @@ def _halt_provisional_exact(
     session: str,
     metadata: Dict[str, Any],
     socket_identity: Dict[str, Any],
+    server_identity: Dict[str, Any],
+    tmux_binary_identity: Dict[str, Any],
     timeout: float,
     sleep_fn: Callable[[float], None],
+    journal: Journal,
 ) -> Dict[str, Any]:
     """Clean a newly launched private pane when process birth binding failed."""
 
+    tmux.assert_tmux_binary_identity(tmux_binary_identity)
+    tmux.assert_tmux_server_identity(socket, server_identity)
     if tmux.socket_identity(socket) != socket_identity:
         raise IdentityError("provisional probe tmux socket identity changed")
     current = tmux.metadata(
-        socket=socket, session=session, pane=metadata.get("pane")
+        socket=socket,
+        session=session,
+        pane=metadata.get("pane"),
+        server_identity=server_identity,
     )
     if any(
         current.get(name) != metadata.get(name)
@@ -498,36 +527,76 @@ def _halt_provisional_exact(
     ):
         raise IdentityError("provisional probe tmux identity changed")
     deadline = time.monotonic() + timeout
-    sent_keys = []
-    for key in adapter_for(target).graceful_halt_keys:
-        current = tmux.metadata(socket=socket, session=session, pane=metadata["pane"])
+
+    def current_alive() -> bool:
+        current = tmux.metadata(
+            socket=socket,
+            session=session,
+            pane=metadata["pane"],
+            server_identity=server_identity,
+        )
         if current.get("pane_dead"):
-            break
+            return False
         if any(
             current.get(name) != metadata.get(name)
             for name in ("session", "pane", "pane_pid")
         ):
             raise IdentityError("provisional probe tmux identity changed")
+        return True
+
+    def send_one(key: str) -> None:
+        if not current_alive():
+            return
         if key == "C-c":
-            tmux.interrupt(socket=socket, session=session, pane=metadata["pane"])
+            tmux.interrupt(
+                socket=socket,
+                session=session,
+                pane=metadata["pane"],
+                server_identity=server_identity,
+            )
         else:
             tmux.send_control(
                 socket=socket,
                 session=session,
                 pane=metadata["pane"],
                 key=key,
+                server_identity=server_identity,
             )
-        sent_keys.append(key)
+
+    def pause_after_send() -> None:
         remaining = max(0.0, deadline - time.monotonic())
         if remaining:
             sleep_fn(min(0.25, remaining))
-    current = tmux.metadata(socket=socket, session=session, pane=metadata["pane"])
+
+    sent_keys = deliver_halt_controls(
+        journal=journal,
+        session=session,
+        target_pid=metadata["pane_pid"],
+        keys=list(adapter_for(target).graceful_halt_keys),
+        process_alive=current_alive,
+        send_control=send_one,
+        after_send=pause_after_send,
+    )
+    current = tmux.metadata(
+        socket=socket,
+        session=session,
+        pane=metadata["pane"],
+        server_identity=server_identity,
+    )
     while not current.get("pane_dead") and time.monotonic() < deadline:
         sleep_fn(POLL_INTERVAL_SECONDS)
-        current = tmux.metadata(socket=socket, session=session, pane=metadata["pane"])
+        current = tmux.metadata(
+            socket=socket,
+            session=session,
+            pane=metadata["pane"],
+            server_identity=server_identity,
+        )
     if not current.get("pane_dead"):
         raise IdentityError("provisional exact target did not stop gracefully")
-    if not tmux.exists(socket, session) or tmux.socket_identity(socket) != socket_identity:
+    if (
+        not tmux.exists(socket, session, server_identity=server_identity)
+        or tmux.socket_identity(socket) != socket_identity
+    ):
         raise IdentityError("provisional probe tmux evidence was not preserved")
     return {
         "schema_version": 1,
@@ -560,16 +629,26 @@ def run_probe(
     mapping_path: Path,
     authorization_path: Path,
     controller: str,
+    goal_repo: Path,
+    expected_campaign_id: str,
+    expected_goal: Dict[str, str],
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
+    _server_process_birth_fn: Callable[
+        [int], Dict[str, Any]
+    ] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
     _active_processes_fn: Callable[[str], list[Dict[str, Any]]] = active_target_processes,
+    _continuous_population_fn: Optional[
+        Callable[[str], list[Dict[str, Any]]]
+    ] = None,
     _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
     _sleep_fn: Callable[[float], None] = time.sleep,
+    _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Run one isolated source-free qualification probe.
 
@@ -597,10 +676,26 @@ def run_probe(
         census_target_fn=_census_target_fn,
     )
     authorization = validate_campaign_authorization(
-        authorization_path, target=target, controller=controller
+        authorization_path,
+        target=target,
+        controller=controller,
+        campaign_id=expected_campaign_id,
+    )
+    goal_verification = verify_campaign_goal(
+        authorization,
+        repo_root=goal_repo,
+        expected_campaign_id=expected_campaign_id,
+        expected_goal=expected_goal,
     )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
+    probe_lease_owner = build_lease_owner(
+        activity="probe",
+        run_id=run_id,
+        campaign_id=authorization["campaign_id"],
+        goal_fingerprint=goal_verification["goal_fingerprint"],
+        proof_root=proof_root,
+    )
     probes_root = proof_root / "probes"
     if probes_root.exists() and probes_root.is_symlink():
         raise ValidationError("probe root must not be a symlink")
@@ -616,6 +711,7 @@ def run_probe(
     evidence_path = run_root / "evidence.json"
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
+    halt_control_journal = Journal(run_root / "halt-control")
     state: Dict[str, Any] = {
         "schema_version": 1,
         "run_id": run_id,
@@ -636,8 +732,12 @@ def run_probe(
     tmux: Optional[TmuxController] = None
     socket: Optional[Path] = None
     socket_identity: Optional[Dict[str, Any]] = None
+    server_identity: Optional[Dict[str, Any]] = None
+    tmux_binary_identity: Optional[Dict[str, Any]] = None
     provisional_bound = False
+    launch_attempted = False
     lock_descriptor: Optional[int] = None
+    lease_owned = False
     cleanup: Optional[Dict[str, Any]] = None
     evidence: Dict[str, Any] = {
         "schema_version": 1,
@@ -646,6 +746,7 @@ def run_probe(
         "controller": controller,
         "profile": profile,
         "campaign_id": authorization["campaign_id"],
+        "goal_fingerprint": goal_verification["goal_fingerprint"],
         "authorization_sha256": sha256_file(
             authorization_snapshot_path, max_bytes=65536
         ),
@@ -680,7 +781,26 @@ def run_probe(
     }
     atomic_write_json(evidence_path, evidence)
     try:
-        lock_descriptor, lock_identity = _acquire_campaign_probe_lock(proof_root)
+        admit_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            authority_root=_authority_root,
+        )
+        lease_owned = True
+        lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
+            _authority_root,
+            reject_active_lease=False,
+        )
+        require_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            states={"launching"},
+            authority_root=_authority_root,
+        )
         evidence["campaign_probe_lock"] = lock_identity
         atomic_write_json(evidence_path, evidence)
         active = _active_processes_fn(target)
@@ -730,24 +850,56 @@ def run_probe(
         tmux = _tmux_factory(tmux_authority)
         socket = tmux.socket_path(session)
         _write_state(state_path, state, "launching")
+        launch_attempted = True
         metadata = tmux.launch(session=session, repo=fixture, argv=argv)
         if metadata.get("socket") != str(socket):
             raise IdentityError("probe launched on an unexpected tmux socket")
         socket_identity = tmux.socket_identity(socket)
+        server_identity = metadata.get("server_identity")
+        tmux_binary_identity = metadata.get("tmux_binary_identity")
         if (
             metadata.get("session") != session
             or not isinstance(metadata.get("pane_pid"), int)
             or metadata["pane_pid"] <= 1
             or not isinstance(metadata.get("pane"), str)
+            or not isinstance(server_identity, dict)
+            or not isinstance(tmux_binary_identity, dict)
         ):
             raise IdentityError("probe launch metadata is structurally incomplete")
         provisional_bound = True
         if metadata.get("socket_identity") != socket_identity:
             raise IdentityError("probe launch did not bind the private tmux socket identity")
+        tmux.assert_tmux_binary_identity(tmux_binary_identity)
+        tmux.assert_tmux_server_identity(socket, server_identity)
         process = _process_birth_fn(metadata["pane_pid"])
         if process.get("pid") != metadata["pane_pid"]:
             raise IdentityError("probe process and tmux pane identities differ")
         manifest.verify_process_executable(process)
+        transition_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            state="active",
+            process=process,
+            authority_root=_authority_root,
+            _lock_descriptor=lock_descriptor,
+        )
+        population_fn = _continuous_population_fn or _active_processes_fn
+        expected_live_population = sorted(
+            [*active, process], key=lambda item: item["pid"]
+        )
+
+        def population_guard() -> None:
+            observed_population = sorted(
+                population_fn(target), key=lambda item: item["pid"]
+            )
+            if observed_population != expected_live_population:
+                raise IdentityError(
+                    "same-target process population changed during the probe"
+                )
+
+        population_guard()
         _assert_runtime(
             tmux=tmux,
             socket=socket,
@@ -755,6 +907,8 @@ def run_probe(
             pane=metadata["pane"],
             pane_pid=metadata["pane_pid"],
             socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
             process=process,
             process_alive_fn=_process_alive_fn,
         )
@@ -765,11 +919,16 @@ def run_probe(
             "session": session,
             "target_id": metadata["pane"],
             "socket_identity": socket_identity,
+            "server_identity": server_identity,
+            "tmux_binary_identity": tmux_binary_identity,
         }
         evidence["process"] = process
         atomic_write_json(evidence_path, evidence)
         attach = tmux.attach_command(
-            socket=socket, session=session, pane=metadata["pane"]
+            socket=socket,
+            session=session,
+            pane=metadata["pane"],
+            server_identity=server_identity,
         )
         _write_state(
             state_path,
@@ -828,8 +987,11 @@ def run_probe(
             pane=metadata["pane"],
             pane_pid=metadata["pane_pid"],
             socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
             process=process,
             process_alive_fn=_process_alive_fn,
+            population_guard=population_guard,
             expected_handoff_names={"ready.json"},
             timeout=timeout,
             sleep_fn=_sleep_fn,
@@ -858,6 +1020,7 @@ def run_probe(
             _followup_prompt(fixture_contract, followup_value)
         )
         followup_payload = _payload(followup_message)
+        population_guard()
         if any(
             followup_message in argument
             or "PUPPET_REAL_HARNESS" in argument
@@ -891,8 +1054,11 @@ def run_probe(
             pane=metadata["pane"],
             pane_pid=metadata["pane_pid"],
             socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
             process=process,
             process_alive_fn=_process_alive_fn,
+            population_guard=population_guard,
             expected_handoff_names={"ready.json", "followup.json"},
             timeout=timeout,
             sleep_fn=_sleep_fn,
@@ -910,6 +1076,7 @@ def run_probe(
             "followup_validated",
             followup_checkpoint_id=followup.checkpoint_id,
         )
+        population_guard()
 
         review_evidence_path = run_root / "review-evidence.json"
         atomic_write_json(
@@ -954,6 +1121,17 @@ def run_probe(
         atomic_write_json(evidence_path, evidence)
         _write_state(state_path, state, "accepted_awaiting_halt")
 
+        population_guard()
+        transition_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            state="halting",
+            process=process,
+            authority_root=_authority_root,
+            _lock_descriptor=lock_descriptor,
+        )
         cleanup = _halt_exact(
             target=target,
             tmux=tmux,
@@ -961,12 +1139,25 @@ def run_probe(
             session=session,
             pane=metadata["pane"],
             socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
             process=process,
             process_alive_fn=_process_alive_fn,
             timeout=halt_timeout,
             sleep_fn=_sleep_fn,
             reason="accepted_probe_halt",
+            journal=halt_control_journal,
             require_live=True,
+        )
+        transition_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            state="halted",
+            process=process,
+            authority_root=_authority_root,
+            _lock_descriptor=lock_descriptor,
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
@@ -981,13 +1172,15 @@ def run_probe(
         evidence["active_target_processes_after_halt"] = active_after_halt
         evidence["result"] = "accepted"
         atomic_write_json(evidence_path, evidence)
-        receipt = {
+        receipt_core = {
             "schema_version": 1,
             "kind": "real_harness_conformance",
             "run_id": run_id,
             "target": target,
             "result": "accepted",
             "controller": controller,
+            "campaign_id": authorization["campaign_id"],
+            "goal_fingerprint": goal_verification["goal_fingerprint"],
             "executable_fingerprint": manifest.raw["executable"]["sha256"],
             "version_fingerprint": manifest.raw["executable"]["version_sha256"],
             "platform_fingerprint": evidence["platform_fingerprint"],
@@ -1014,14 +1207,29 @@ def run_probe(
                 _proof_reference("acceptance", acceptance_path, run_root),
             ],
         }
+        controller_attestation = attest_qualification(
+            receipt_core,
+            authority_root=_authority_root,
+        )
+        receipt = dict(
+            receipt_core,
+            controller_attestation=controller_attestation,
+        )
         atomic_write_json(receipt_path, receipt)
-        verify_qualification_receipt(receipt_path)
+        receipt_sha = sha256_file(receipt_path, max_bytes=131072)
         _write_state(
             state_path,
             state,
             "complete",
             result="accepted",
-            receipt_sha256=sha256_file(receipt_path, max_bytes=131072),
+            receipt_sha256=receipt_sha,
+        )
+        verify_qualification_receipt(
+            receipt_path,
+            _authority_root=_authority_root,
+            _current_manifest=manifest,
+            _server_process_fn=_server_process_birth_fn,
+            _tmux_factory=_tmux_factory,
         )
         return {
             "ok": True,
@@ -1041,6 +1249,8 @@ def run_probe(
             and process is not None
             and socket is not None
             and socket_identity is not None
+            and server_identity is not None
+            and tmux_binary_identity is not None
         ):
             try:
                 cleanup = _halt_exact(
@@ -1050,11 +1260,14 @@ def run_probe(
                     session=session,
                     pane=metadata["pane"],
                     socket_identity=socket_identity,
+                    server_identity=server_identity,
+                    tmux_binary_identity=tmux_binary_identity,
                     process=process,
                     process_alive_fn=_process_alive_fn,
                     timeout=halt_timeout,
                     sleep_fn=_sleep_fn,
                     reason="failed_probe_cleanup",
+                    journal=halt_control_journal,
                     require_live=False,
                 )
                 atomic_write_json(halt_path, cleanup)
@@ -1070,6 +1283,8 @@ def run_probe(
             and metadata is not None
             and socket is not None
             and socket_identity is not None
+            and server_identity is not None
+            and tmux_binary_identity is not None
         ):
             try:
                 cleanup = _halt_provisional_exact(
@@ -1079,8 +1294,11 @@ def run_probe(
                     session=session,
                     metadata=metadata,
                     socket_identity=socket_identity,
+                    server_identity=server_identity,
+                    tmux_binary_identity=tmux_binary_identity,
                     timeout=halt_timeout,
                     sleep_fn=_sleep_fn,
+                    journal=halt_control_journal,
                 )
                 atomic_write_json(halt_path, cleanup)
                 evidence["halt_sha256"] = sha256_file(halt_path, max_bytes=65536)
@@ -1103,10 +1321,378 @@ def run_probe(
             result="failed",
             blocker=evidence["failure"],
         )
+        safe_terminal = (
+            isinstance(cleanup, dict) and cleanup.get("stopped") is True
+        ) or not launch_attempted
+        if lease_owned and safe_terminal:
+            try:
+                transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    state="failed",
+                    process=process,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
+            except (IdentityError, ValidationError):
+                # A successful accepted halt may already have committed the
+                # terminal halted lease before a later proof write failed.
+                pass
         if isinstance(exc, PuppetError):
             raise
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
         raise ValidationError("real-harness probe execution failed") from exc
+    finally:
+        _release_campaign_probe_lock(lock_descriptor)
+
+
+def recover_probe(
+    *,
+    target: str,
+    proof_root: Path,
+    manifest_path: Path,
+    mapping_path: Path,
+    authorization_path: Path,
+    controller: str,
+    goal_repo: Path,
+    expected_campaign_id: str,
+    expected_goal: Dict[str, str],
+    run_id: str,
+    halt_timeout: float = 10.0,
+    _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
+    _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
+    _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
+    _server_process_birth_fn: Callable[
+        [int], Dict[str, Any]
+    ] = process_birth_identity,
+    _active_processes_fn: Callable[[str], list[Dict[str, Any]]] = active_target_processes,
+    _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
+    _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
+    _sleep_fn: Callable[[float], None] = time.sleep,
+    _authority_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Reconcile one persisted probe by exact identity without relaunching it."""
+    if target not in TARGETS:
+        raise ValidationError("unsupported recovery target")
+    validate_identifier(controller, "controller")
+    run_id = validate_identifier(run_id, "run id")
+    if halt_timeout < 0 or halt_timeout > MAX_HALT_SECONDS:
+        raise ValidationError("halt timeout must be between zero and 60 seconds")
+    proof_root = absolute_root(str(proof_root), "proof root")
+    manifest, _, _ = _validated_mapping(
+        manifest_path,
+        mapping_path,
+        target=target,
+        adapter_fingerprint_fn=_adapter_fingerprint_fn,
+        census_target_fn=_census_target_fn,
+    )
+    authorization = validate_campaign_authorization(
+        authorization_path,
+        target=target,
+        controller=controller,
+        campaign_id=expected_campaign_id,
+    )
+    goal_verification = verify_campaign_goal(
+        authorization,
+        repo_root=goal_repo,
+        expected_campaign_id=expected_campaign_id,
+        expected_goal=expected_goal,
+    )
+    run_root = ensure_within(
+        proof_root / "probes" / run_id,
+        proof_root,
+        must_exist=True,
+    )
+    state_path = run_root / "state.json"
+    evidence_path = run_root / "evidence.json"
+    recovery_path = run_root / "recovery.json"
+    halt_control_journal = Journal(run_root / "halt-control")
+    state = read_json(state_path, max_bytes=131072, reject_sensitive_fields=True)
+    evidence = read_json(
+        evidence_path, max_bytes=131072, reject_sensitive_fields=True
+    )
+    session = _session_id(target, run_id)
+    probe_lease_owner = build_lease_owner(
+        activity="probe",
+        run_id=run_id,
+        campaign_id=expected_campaign_id,
+        goal_fingerprint=goal_verification["goal_fingerprint"],
+        proof_root=proof_root,
+    )
+    if (
+        state.get("run_id") != run_id
+        or state.get("session") != session
+        or state.get("target") != target
+        or state.get("controller") != controller
+        or evidence.get("run_id") != run_id
+        or evidence.get("target") != target
+        or evidence.get("controller") != controller
+        or evidence.get("campaign_id") != expected_campaign_id
+        or evidence.get("goal_fingerprint")
+        != goal_verification["goal_fingerprint"]
+    ):
+        raise IdentityError("persisted probe recovery identity mismatch")
+
+    lock_descriptor: Optional[int] = None
+    try:
+        complete = state.get("phase") == "complete" and state.get("result") == "accepted"
+        lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
+            _authority_root,
+            reject_active_lease=complete,
+        )
+        if complete:
+            receipt_path = run_root / "receipt.json"
+            verify_qualification_receipt(
+                receipt_path,
+                _authority_root=_authority_root,
+                _current_manifest=manifest,
+                _server_process_fn=_server_process_birth_fn,
+                _tmux_factory=_tmux_factory,
+            )
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "target": target,
+                "result": "accepted",
+                "recovered": False,
+                "receipt": str(receipt_path),
+            }
+
+        lease = require_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            states={"launching", "active", "halting", "halted", "failed"},
+            authority_root=_authority_root,
+        )
+
+        tmux_authority_path = run_root / "tmux-authority"
+        if not tmux_authority_path.exists():
+            baseline = evidence.get("active_target_processes_before_launch")
+            observed = _active_processes_fn(target)
+            if not isinstance(baseline, list) or sorted(
+                baseline, key=lambda item: item["pid"]
+            ) != sorted(observed, key=lambda item: item["pid"]):
+                raise IdentityError(
+                    "missing private launch root has an ambiguous target population"
+                )
+            transition_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                state="failed",
+                process=None,
+                authority_root=_authority_root,
+                _lock_descriptor=lock_descriptor,
+            )
+            recovery = {
+                "schema_version": 1,
+                "run_id": run_id,
+                "target": target,
+                "controller": controller,
+                "campaign_id": expected_campaign_id,
+                "goal_fingerprint": goal_verification["goal_fingerprint"],
+                "authority_lock": lock_identity,
+                "identity_source": "private_launch_root_absent",
+                "launch_attempted": False,
+                "cleanup": None,
+                "result": "interrupted_probe_reconciled",
+            }
+            atomic_write_json(recovery_path, recovery)
+            blocker = {
+                "type": "InterruptedProbeRecovered",
+                "detail": "no target was launched; the interrupted run cannot qualify",
+                "recovery_sha256": sha256_file(recovery_path, max_bytes=131072),
+            }
+            _write_state(
+                state_path,
+                state,
+                "failed",
+                result="failed",
+                blocker=blocker,
+                recovery_sha256=blocker["recovery_sha256"],
+            )
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "target": target,
+                "result": "interrupted_probe_reconciled",
+                "recovered": True,
+                "recovery": str(recovery_path),
+                "tmux_preserved": False,
+            }
+        tmux_authority = ensure_within(
+            tmux_authority_path, run_root, must_exist=True
+        )
+        tmux = _tmux_factory(tmux_authority)
+        socket = tmux.socket_path(session)
+        tmux_record = evidence.get("tmux")
+        process = evidence.get("process")
+        identity_source = "persisted_launch_identity"
+        if not socket.exists():
+            baseline = evidence.get("active_target_processes_before_launch")
+            observed = _active_processes_fn(target)
+            if not isinstance(baseline, list) or sorted(
+                baseline, key=lambda item: item["pid"]
+            ) != sorted(observed, key=lambda item: item["pid"]):
+                raise IdentityError(
+                    "absent private probe socket has an ambiguous target population"
+                )
+            transition_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                state="failed",
+                process=None,
+                authority_root=_authority_root,
+                _lock_descriptor=lock_descriptor,
+            )
+            cleanup = {
+                "schema_version": 1,
+                "session": session,
+                "signal_sent": False,
+                "stopped": True,
+                "tmux_preserved": False,
+                "cleanup_scope": "deterministic_private_socket_absent",
+            }
+            identity_source = "deterministic_private_socket_absent"
+            process = None
+        elif isinstance(tmux_record, dict) and isinstance(process, dict):
+            if tmux_record.get("socket") != str(socket):
+                raise IdentityError("persisted recovery socket identity mismatch")
+            socket_identity = tmux_record.get("socket_identity")
+            server_identity = tmux_record.get("server_identity")
+            tmux_binary_identity = tmux_record.get("tmux_binary_identity")
+            pane = tmux_record.get("target_id")
+            tmux.assert_tmux_binary_identity(tmux_binary_identity)
+            tmux.bind_server_identity(socket, server_identity)
+            metadata = tmux.metadata(
+                socket=socket,
+                session=session,
+                pane=pane,
+                server_identity=server_identity,
+            )
+            if metadata.get("pane_pid") != process.get("pid"):
+                raise IdentityError("persisted recovery pane identity mismatch")
+            if tmux.socket_identity(socket) != socket_identity:
+                raise IdentityError("persisted recovery socket identity changed")
+            manifest.verify_process_executable(process)
+        else:
+            identity_source = "reconstructed_private_launch_identity"
+            socket_identity = tmux.socket_identity(socket)
+            tmux_binary_identity = tmux.tmux_binary_identity()
+            server_identity = tmux.server_identity(socket)
+            tmux.bind_server_identity(socket, server_identity)
+            metadata = tmux.metadata_for_session(
+                socket=socket,
+                session=session,
+                server_identity=server_identity,
+            )
+            pane = metadata["pane"]
+            process = _process_birth_fn(metadata["pane_pid"])
+            manifest.verify_process_executable(process)
+        if process is not None:
+            if lease["state"] == "launching":
+                lease = transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    state="active",
+                    process=process,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
+            if lease["state"] == "active":
+                lease = transition_session_lease(
+                    session=session,
+                    target=target,
+                    controller=controller,
+                    owner=probe_lease_owner,
+                    state="halting",
+                    process=process,
+                    authority_root=_authority_root,
+                    _lock_descriptor=lock_descriptor,
+                )
+            if lease["state"] in {"halted", "failed"} and _process_alive_fn(process):
+                raise IdentityError("terminal controller lease still has a live target")
+            cleanup = _halt_exact(
+                target=target,
+                tmux=tmux,
+                socket=socket,
+                session=session,
+                pane=pane,
+                socket_identity=socket_identity,
+                server_identity=server_identity,
+                tmux_binary_identity=tmux_binary_identity,
+                process=process,
+                process_alive_fn=_process_alive_fn,
+                timeout=halt_timeout,
+                sleep_fn=_sleep_fn,
+                reason="interrupted_probe_recovery",
+                journal=halt_control_journal,
+                require_live=False,
+            )
+        baseline = evidence.get("active_target_processes_before_launch")
+        observed = _active_processes_fn(target)
+        if not isinstance(baseline, list) or sorted(
+            baseline, key=lambda item: item["pid"]
+        ) != sorted(observed, key=lambda item: item["pid"]):
+            raise IdentityError(
+                "protected same-target process population changed during recovery"
+            )
+        if lease["state"] in {"launching", "active", "halting"}:
+            transition_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                state="failed",
+                process=process,
+                authority_root=_authority_root,
+                _lock_descriptor=lock_descriptor,
+            )
+        recovery = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "target": target,
+            "controller": controller,
+            "campaign_id": expected_campaign_id,
+            "goal_fingerprint": goal_verification["goal_fingerprint"],
+            "authority_lock": lock_identity,
+            "identity_source": identity_source,
+            "launch_attempted": False,
+            "cleanup": cleanup,
+            "result": "interrupted_probe_reconciled",
+        }
+        atomic_write_json(recovery_path, recovery)
+        blocker = {
+            "type": "InterruptedProbeRecovered",
+            "detail": "exact target halted; the interrupted run cannot qualify",
+            "recovery_sha256": sha256_file(recovery_path, max_bytes=131072),
+        }
+        _write_state(
+            state_path,
+            state,
+            "failed",
+            result="failed",
+            blocker=blocker,
+            recovery_sha256=blocker["recovery_sha256"],
+        )
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "target": target,
+            "result": "interrupted_probe_reconciled",
+            "recovered": True,
+            "recovery": str(recovery_path),
+            "tmux_preserved": True,
+        }
     finally:
         _release_campaign_probe_lock(lock_descriptor)

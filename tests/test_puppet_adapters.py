@@ -153,7 +153,7 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 3)
             self.assertIn('"error": "unsupported"', result.stderr)
 
-    def test_qualification_binds_mapping_and_real_harness_receipt(self):
+    def test_synthetic_structural_receipt_cannot_qualify_a_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             raw = manifest_raw()
@@ -220,11 +220,9 @@ class AdapterTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            qualified = AdapterManifest.from_path(out)
-            self.assertFalse(qualified.raw["doctor_only"])
-            self.assertEqual(qualified.raw["capabilities"]["resume"], "unsupported")
-            self.assertEqual(qualified.verify_qualification()["run_id"], "run-1")
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertFalse(out.exists())
+            self.assertIn("authority", result.stderr)
 
     def test_live_manifest_cannot_claim_unproved_resume(self):
         raw = manifest_raw()

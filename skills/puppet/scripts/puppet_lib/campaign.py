@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
 from .contracts import TARGETS
@@ -11,12 +11,18 @@ from .errors import IdentityError, ValidationError
 from .registry import process_birth_identity
 from .safety import (
     FORBIDDEN_FIELD_PARTS,
+    absolute_root,
+    canonical_json_bytes,
     read_json,
+    sha256_bytes,
     validate_bounded_json,
     validate_identifier,
     validate_sha1,
     validate_sha256,
 )
+
+
+MAX_GOAL_BYTES = 1024 * 1024
 
 
 ALLOWED_ACTIONS = [
@@ -203,10 +209,102 @@ def validate_campaign_authorization(
     return value
 
 
+def _git(repo: Path, arguments: list[str]) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *arguments],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise IdentityError("campaign goal git identity is unavailable")
+    return result
+
+
+def verify_campaign_goal(
+    authorization: Dict[str, Any],
+    *,
+    repo_root: Path,
+    expected_campaign_id: str,
+    expected_goal: Dict[str, str],
+) -> Dict[str, Any]:
+    """Resolve and hash the exact separately supplied campaign goal tuple."""
+    validate_identifier(expected_campaign_id, "expected campaign id")
+    if authorization.get("campaign_id") != expected_campaign_id:
+        raise IdentityError("campaign authorization identity mismatch")
+    goal = authorization.get("goal")
+    required = {"repository", "commit", "path", "sha256"}
+    if not isinstance(expected_goal, dict) or set(expected_goal) != required:
+        raise ValidationError("expected campaign goal fields do not match schema")
+    if goal != expected_goal:
+        raise IdentityError("campaign authorization goal identity mismatch")
+    validate_sha1(expected_goal.get("commit"), "expected goal commit")
+    validate_sha256(expected_goal.get("sha256"), "expected campaign goal")
+    for name in ("repository", "path"):
+        if (
+            not isinstance(expected_goal.get(name), str)
+            or not expected_goal[name]
+            or len(expected_goal[name]) > 1000
+        ):
+            raise ValidationError("expected campaign goal source identity is invalid")
+    relative = PurePosixPath(expected_goal["path"])
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or not relative.parts
+        or expected_goal["path"].startswith(".")
+        or "\\" in expected_goal["path"]
+    ):
+        raise ValidationError("campaign goal path is invalid")
+    repo = absolute_root(str(repo_root), "campaign goal repository")
+    top = Path(
+        _git(repo, ["rev-parse", "--show-toplevel"])
+        .stdout.decode("utf-8", errors="strict")
+        .strip()
+    ).resolve(strict=True)
+    if top != repo:
+        raise IdentityError("campaign goal repository root is ambiguous")
+    commit = (
+        _git(repo, ["rev-parse", "%s^{commit}" % expected_goal["commit"]])
+        .stdout.decode("ascii", errors="strict")
+        .strip()
+    )
+    if commit != expected_goal["commit"]:
+        raise IdentityError("campaign goal commit identity mismatch")
+    object_name = "%s:%s" % (commit, expected_goal["path"])
+    size_text = _git(repo, ["cat-file", "-s", object_name]).stdout.decode(
+        "ascii", errors="strict"
+    ).strip()
+    try:
+        size = int(size_text)
+    except ValueError as exc:
+        raise IdentityError("campaign goal blob size is invalid") from exc
+    if size <= 0 or size > MAX_GOAL_BYTES:
+        raise ValidationError("campaign goal blob exceeds the size bound")
+    content = _git(repo, ["cat-file", "blob", object_name]).stdout
+    if len(content) != size:
+        raise IdentityError("campaign goal blob size changed during verification")
+    observed_sha = sha256_bytes(content)
+    if observed_sha != expected_goal["sha256"]:
+        raise IdentityError("campaign goal content fingerprint mismatch")
+    return {
+        "repository_root": str(repo),
+        "campaign_id": expected_campaign_id,
+        "goal": dict(expected_goal),
+        "goal_fingerprint": sha256_bytes(canonical_json_bytes(expected_goal)),
+        "content_sha256": observed_sha,
+        "content_bytes": size,
+    }
+
+
 def active_target_processes(target: str) -> list[Dict[str, Any]]:
     expected = {
         "agy": {"agy"},
-        "cursor": {"cursor-agent"},
+        # ``cursor agent`` retains the lowercase ``cursor`` executable name.
+        # Treat that CLI process conservatively as a target without reading or
+        # recording its argv, which may contain user content.
+        "cursor": {"cursor-agent", "cursor"},
         "claude": {"claude"},
         "codex": {"codex"},
         "grok": {"grok"},

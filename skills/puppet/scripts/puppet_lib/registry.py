@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .adapter_manifest import AdapterManifest
+from .authority import validate_lease_owner
 from .beacons import PREFIXES
 from .errors import ConflictError, IdentityError, ValidationError
 from .safety import (
@@ -36,6 +37,7 @@ REQUIRED_FIELDS = {
     "session",
     "controller",
     "target",
+    "lease_owner",
     "contract_fingerprint",
     "contract_path",
     "state",
@@ -67,6 +69,28 @@ ADAPTER_FIELDS = {
     "executable_fingerprint",
     "adapter_fingerprint",
     "protocol_fingerprint",
+    "qualification_controller",
+    "qualification_campaign_id",
+    "qualification_goal_fingerprint",
+}
+PROCESS_FIELDS = {
+    "pid",
+    "start",
+    "command",
+    "executable_path",
+    "device",
+    "inode",
+}
+TMUX_BINARY_FIELDS = {
+    "path",
+    "device",
+    "inode",
+    "uid",
+    "gid",
+    "mode",
+    "size",
+    "sha256",
+    "version",
 }
 
 
@@ -153,6 +177,11 @@ class SessionRegistry:
     def _lock(self, session: str) -> Path:
         return self.sessions / (".%s.lock" % validate_identifier(session, "session"))
 
+    def operation_lock(self, session: str) -> Path:
+        return self.sessions / (
+            ".%s.operation.lock" % validate_identifier(session, "session")
+        )
+
     def _reservation_path(self, session: str) -> Path:
         validate_identifier(session, "session")
         return self.reservations / (session + ".json")
@@ -164,6 +193,8 @@ class SessionRegistry:
         validate_identifier(value.get("controller"), "controller")
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
             raise ValidationError("unsupported session target")
+        if validate_lease_owner(value.get("lease_owner")) != value["lease_owner"]:
+            raise IdentityError("session lease owner identity changed")
         validate_sha256(value.get("contract_fingerprint"), "contract fingerprint")
         proof_root = absolute_root(value.get("proof_root"), "proof root")
         contract_path = ensure_within(
@@ -200,12 +231,24 @@ class SessionRegistry:
         validate_sha256(adapter.get("executable_fingerprint"), "executable fingerprint")
         validate_sha256(adapter.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(adapter.get("protocol_fingerprint"), "protocol fingerprint")
+        validate_identifier(
+            adapter.get("qualification_controller"), "qualification controller"
+        )
+        validate_identifier(
+            adapter.get("qualification_campaign_id"), "qualification campaign id"
+        )
+        validate_sha256(
+            adapter.get("qualification_goal_fingerprint"),
+            "qualification goal fingerprint",
+        )
         tmux = value.get("tmux")
         if not isinstance(tmux, dict) or set(tmux) != {
             "socket",
             "socket_identity",
             "session",
             "pane",
+            "server_identity",
+            "tmux_binary_identity",
         }:
             raise ValidationError("invalid tmux identity")
         if tmux["session"] != value["session"]:
@@ -231,15 +274,46 @@ class SessionRegistry:
             raise ValidationError("registered tmux socket identity changed")
         if socket_details.st_uid != os.getuid() or socket_details.st_mode & 0o077:
             raise ValidationError("registered tmux socket is not user-private")
-        process = value.get("process")
-        if not isinstance(process, dict) or set(process) != {
-            "pid",
-            "start",
-            "command",
-            "executable_path",
-            "device",
-            "inode",
+        tmux_binary = tmux["tmux_binary_identity"]
+        if not isinstance(tmux_binary, dict) or set(tmux_binary) != TMUX_BINARY_FIELDS:
+            raise ValidationError("registered tmux executable identity is invalid")
+        tmux_path = Path(tmux_binary.get("path", ""))
+        if (
+            not tmux_path.is_absolute()
+            or tmux_path.is_symlink()
+            or not tmux_path.is_file()
+            or not isinstance(tmux_binary.get("version"), str)
+            or not tmux_binary["version"]
+            or len(tmux_binary["version"]) > 200
+        ):
+            raise ValidationError("registered tmux executable is unavailable")
+        validate_sha256(tmux_binary.get("sha256"), "tmux executable")
+        tmux_details = tmux_path.stat()
+        if tmux_binary != {
+            "path": str(tmux_path.resolve(strict=True)),
+            "device": tmux_details.st_dev,
+            "inode": tmux_details.st_ino,
+            "uid": tmux_details.st_uid,
+            "gid": tmux_details.st_gid,
+            "mode": stat.S_IMODE(tmux_details.st_mode),
+            "size": tmux_details.st_size,
+            "sha256": sha256_file(tmux_path),
+            "version": tmux_binary["version"],
         }:
+            raise ValidationError("registered tmux executable identity changed")
+        server = tmux["server_identity"]
+        if not isinstance(server, dict) or set(server) != PROCESS_FIELDS:
+            raise ValidationError("registered tmux server identity is invalid")
+        if process_birth_identity(server.get("pid")) != server:
+            raise ValidationError("registered tmux server birth identity changed")
+        if (
+            Path(server["executable_path"]).resolve(strict=True) != tmux_path
+            or server["device"] != tmux_binary["device"]
+            or server["inode"] != tmux_binary["inode"]
+        ):
+            raise ValidationError("registered tmux server executable mismatch")
+        process = value.get("process")
+        if not isinstance(process, dict) or set(process) != PROCESS_FIELDS:
             raise ValidationError("invalid process identity")
         process_executable = Path(process["executable_path"])
         if not process_executable.is_absolute():
@@ -543,7 +617,11 @@ class SessionRegistry:
             raise IdentityError("adapter executable file identity changed")
         if sha256_file(executable) != adapter["executable_fingerprint"]:
             raise IdentityError("adapter executable fingerprint changed")
-        manifest.verify_qualification()
+        manifest.verify_qualification(
+            expected_controller=adapter["qualification_controller"],
+            expected_campaign_id=adapter["qualification_campaign_id"],
+            expected_goal_fingerprint=adapter["qualification_goal_fingerprint"],
+        )
         manifest.require(capability)
         return manifest
 

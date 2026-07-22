@@ -17,7 +17,7 @@ from puppet_lib.adapter_manifest import (
 )
 from puppet_lib.census import adapter_implementation_fingerprint, census_many
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
-from puppet_lib.probe import run_probe
+from puppet_lib.probe import recover_probe, run_probe
 from puppet_lib.safety import (
     atomic_write_json,
     read_json,
@@ -55,6 +55,12 @@ def _scaffold(args):
 
 
 def _probe(args):
+    expected_goal = {
+        "repository": args.goal_repository,
+        "commit": args.goal_commit,
+        "path": args.goal_path,
+        "sha256": args.goal_sha256,
+    }
     return run_probe(
         target=args.target,
         profile=args.profile,
@@ -63,9 +69,34 @@ def _probe(args):
         mapping_path=args.mapping,
         authorization_path=args.authorization,
         controller=args.controller,
+        goal_repo=args.goal_repo,
+        expected_campaign_id=args.campaign_id,
+        expected_goal=expected_goal,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
+    )
+
+
+def _recover(args):
+    expected_goal = {
+        "repository": args.goal_repository,
+        "commit": args.goal_commit,
+        "path": args.goal_path,
+        "sha256": args.goal_sha256,
+    }
+    return recover_probe(
+        target=args.target,
+        proof_root=args.proof_root,
+        manifest_path=args.manifest,
+        mapping_path=args.mapping,
+        authorization_path=args.authorization,
+        controller=args.controller,
+        goal_repo=args.goal_repo,
+        expected_campaign_id=args.campaign_id,
+        expected_goal=expected_goal,
+        run_id=args.run_id,
+        halt_timeout=args.halt_timeout,
     )
 
 
@@ -137,10 +168,35 @@ def build_parser():
     probe_parser.add_argument("--mapping", required=True, type=Path)
     probe_parser.add_argument("--authorization", required=True, type=Path)
     probe_parser.add_argument("--controller", required=True)
+    probe_parser.add_argument("--campaign-id", required=True)
+    probe_parser.add_argument("--goal-repo", required=True, type=Path)
+    probe_parser.add_argument("--goal-repository", required=True)
+    probe_parser.add_argument("--goal-commit", required=True)
+    probe_parser.add_argument("--goal-path", required=True)
+    probe_parser.add_argument("--goal-sha256", required=True)
     probe_parser.add_argument("--timeout", type=float, default=300.0)
     probe_parser.add_argument("--halt-timeout", type=float, default=10.0)
     probe_parser.add_argument("--run-id")
     probe_parser.set_defaults(handler=_probe)
+    recover_parser = commands.add_parser(
+        "recover",
+        help="reconcile one persisted probe by exact identity without relaunch",
+    )
+    recover_parser.add_argument("--target", required=True)
+    recover_parser.add_argument("--proof-root", required=True, type=Path)
+    recover_parser.add_argument("--manifest", required=True, type=Path)
+    recover_parser.add_argument("--mapping", required=True, type=Path)
+    recover_parser.add_argument("--authorization", required=True, type=Path)
+    recover_parser.add_argument("--controller", required=True)
+    recover_parser.add_argument("--campaign-id", required=True)
+    recover_parser.add_argument("--goal-repo", required=True, type=Path)
+    recover_parser.add_argument("--goal-repository", required=True)
+    recover_parser.add_argument("--goal-commit", required=True)
+    recover_parser.add_argument("--goal-path", required=True)
+    recover_parser.add_argument("--goal-sha256", required=True)
+    recover_parser.add_argument("--run-id", required=True)
+    recover_parser.add_argument("--halt-timeout", type=float, default=10.0)
+    recover_parser.set_defaults(handler=_recover)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)
     verify_parser.set_defaults(handler=_verify)

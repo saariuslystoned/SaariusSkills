@@ -1,6 +1,6 @@
 ---
 name: puppet
-description: "Bootstrap/preflight Puppet controller for adapter-disabled YOLO sessions: strict, transcript-blind, controller-only, and checkpoint-driven."
+description: "Control transcript-blind YOLO harness sessions through census, exact real probes, recovery, qualification, checkpoints, and controller-only acceptance."
 ---
 
 # Puppet
@@ -23,12 +23,19 @@ security, secrets, spending, and destructive actions separately gated.
 3. Run `adapter_lab.py census` without launching an agent. Treat every generated
    capability as doctor-only until a real conformance probe qualifies the exact
    executable, adapter, platform, and protocol fingerprints. Enable it only
-   with `adapter_lab.py qualify` and the accepted receipt from that probe.
+   with `adapter_lab.py qualify` and the accepted receipt from that probe. A
+   probe also requires the separately supplied campaign ID, canonical goal
+   repository root, and exact repository/commit/path/SHA-256 goal tuple.
 4. Run `puppet.py doctor`. Stop on an active target/store lock, ambiguous
    executable identity, incomplete unrestricted mapping, missing sandbox-off
    control, prompt-in-argv transport, dirty or overlapping worktree, or missing
    proof-root writability.
 5. Run only one target and one mutation owner at a time.
+
+`--goal-repo` names the canonical local Git root. `--goal-repository`,
+`--goal-commit`, `--goal-path`, and `--goal-sha256` must exactly match the
+submitted authorization; they are independent expected values, not inferred
+from the authorization file.
 
 Never kill, rename, attach to, reuse, or repurpose a pre-existing process or
 tmux session. Never inspect `.env`, credentials, auth logs, session stores,
@@ -61,6 +68,13 @@ Use this sequence:
    terminal criteria. A target cannot review or accept itself.
 8. Use `halt` only for the exact registered target. Preserve tmux and proof.
 
+Pass B probes and normal live sessions share one fixed, checkout-independent
+controller admission lock and durable current-session lease. A caller-selected
+proof or state root cannot create a second live lane. If a probe is interrupted,
+use `adapter_lab.py recover` with the same target, run ID, controller, campaign,
+goal, manifest, mapping, authorization, and proof root. Recovery reconciles the
+persisted exact identities and may halt that exact target; it never relaunches.
+
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before
 changing adapters, and [prompt-patterns.md](references/prompt-patterns.md) when
@@ -91,10 +105,21 @@ Read [proof-provenance.md](references/proof-provenance.md) before reusing prior
 work. Historical, private, branch-only, uncommitted, terminal-derived, or
 license-unclear evidence is design input until its exact delta is re-proved.
 
+## Controller authority boundary
+
+Qualification receipts require inclusion in Puppet's fixed per-account local
+controller ledger and remain bound to the current executable, adapter,
+platform, protocol, goal, terminal state, tmux server, and proof artifacts.
+This prevents a caller-selected proof root from qualifying itself. It remains a
+cooperative same-UID mechanism, not cryptographic containment against hostile
+code already running as the operator; the YOLO warning still governs the trust
+boundary.
+
 ## Stop conditions
 
 Stop and preserve a precise blocker when identity is ambiguous, a lock belongs
 to another owner, a mapping or transport is unproved, transcript reading would
 be required, a checkpoint is malformed, exact halt is uncertain, review stays
-required after two repairs, or an external human gate appears. Never weaken a
+required after two repairs, controller-ledger inclusion is missing, an active
+lease belongs to another run, exact recovery is required, or an external human gate appears. Never weaken a
 guardrail or substitute a fake harness for real conformance.

@@ -34,6 +34,8 @@ class PuppetPackagingTests(unittest.TestCase):
         self.assertIn("live execution is YOLO-only", text)
         self.assertIn("A target cannot review or accept itself", text)
         self.assertIn("Never inspect `.env`", text)
+        self.assertIn("adapter_lab.py recover", text)
+        self.assertIn("cooperative same-UID mechanism", text)
 
     def test_metadata_supports_natural_and_explicit_invocation(self):
         metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")

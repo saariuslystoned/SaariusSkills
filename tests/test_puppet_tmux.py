@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import socket as socket_module
 import subprocess
 import sys
 import tempfile
@@ -242,12 +243,19 @@ class TmuxTransportTests(unittest.TestCase):
             controller = TmuxController(root)
             session = "tmux-cleanup"
             calls: list[tuple[list[str], bool, bytes | None]] = []
+            cleanup_server = None
 
             def fake_run_raw(command, *, check=True, input_data=None):
+                nonlocal cleanup_server
                 calls.append((command, check, input_data))
                 if command[3] == "has-session":
                     return SimpleNamespace(args=command, returncode=1, stdout=b"", stderr=b"")
                 if command[3] == "new-session":
+                    cleanup_server = socket_module.socket(
+                        socket_module.AF_UNIX, socket_module.SOCK_STREAM
+                    )
+                    cleanup_server.bind(command[2])
+                    os.chmod(command[2], 0o600)
                     return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
                 if command[3] == "set-option":
                     return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
@@ -257,12 +265,7 @@ class TmuxTransportTests(unittest.TestCase):
                     return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
                 return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
 
-            with patch.object(controller, "socket_identity", return_value={
-                "device": 1,
-                "inode": 1,
-                "uid": os.getuid(),
-                "mode": 0o600,
-            }):
+            try:
                 with patch.object(controller, "_run_raw", side_effect=fake_run_raw):
                     with self.assertRaises(KeyboardInterrupt):
                         controller.launch(
@@ -270,8 +273,39 @@ class TmuxTransportTests(unittest.TestCase):
                             repo=repo,
                             argv=["/bin/true"],
                         )
+            finally:
+                if cleanup_server is not None:
+                    cleanup_server.close()
+                controller.socket_path(session).unlink(missing_ok=True)
 
             self.assertTrue(
                 any(call[0][3] == "kill-session" and call[0][5] == session for call in calls),
                 calls,
             )
+
+    def test_launch_reconciles_exact_session_when_socket_identity_capture_fails(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            session = "tmux-socket-identity-failure"
+            socket = controller.socket_path(session)
+            with patch.object(
+                controller,
+                "socket_identity",
+                side_effect=IdentityError("injected socket identity failure"),
+            ):
+                with self.assertRaisesRegex(IdentityError, "injected"):
+                    controller.launch(
+                        session=session,
+                        repo=repo,
+                        argv=["/bin/sleep", "600"],
+                    )
+            result = self._tmux_run(
+                socket=socket,
+                arguments=["has-session", "-t", session],
+            )
+            self.assertNotEqual(result.returncode, 0)

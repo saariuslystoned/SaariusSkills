@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
+from .authority import (
+    admit_session_lease,
+    lease_owner as build_lease_owner,
+    transition_session_lease,
+)
 from .beacons import parse_beacon
 from .campaign import (
     active_target_processes,
@@ -21,6 +26,7 @@ from .conformance import tree_fingerprint
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
+from .halt_control import deliver_halt_controls
 from .journal import Journal
 from .registry import SessionRegistry, process_alive, process_birth_identity
 from .safety import (
@@ -85,6 +91,18 @@ def _authorization(path: Path, contract: Contract) -> Dict[str, Any]:
         controller=contract.controller,
         campaign_id=contract.campaign_authorization_id,
     )
+
+
+def _qualification_authority(
+    contract: Contract, authorization: Dict[str, Any]
+) -> Dict[str, str]:
+    return {
+        "controller": contract.controller,
+        "campaign_id": authorization["campaign_id"],
+        "goal_fingerprint": sha256_bytes(
+            canonical_json_bytes(authorization["goal"])
+        ),
+    }
 
 
 def _parallel_target_override(
@@ -177,6 +195,105 @@ def _delivery_request_id(session: str, operation_id: str, phase: str) -> str:
     )
 
 
+def _cleanup_incomplete_launch(
+    *,
+    tmux: TmuxController,
+    metadata: Dict[str, Any],
+    session: str,
+    target: str,
+    process: Optional[Dict[str, Any]],
+    process_verified: bool,
+    journal: Journal,
+    timeout: float = 2.0,
+) -> bool:
+    """Gracefully stop only the exact private pane created by this launch."""
+    socket = Path(metadata.get("socket", ""))
+    pane = metadata.get("pane")
+    pane_pid = metadata.get("pane_pid")
+    socket_identity = metadata.get("socket_identity")
+    server_identity = metadata.get("server_identity")
+    tmux_binary_identity = metadata.get("tmux_binary_identity")
+    if (
+        metadata.get("session") != session
+        or not isinstance(pane_pid, int)
+        or pane_pid <= 1
+        or not isinstance(pane, str)
+        or not isinstance(socket_identity, dict)
+        or not isinstance(server_identity, dict)
+        or not isinstance(tmux_binary_identity, dict)
+    ):
+        raise IdentityError("incomplete launch tmux identity is ambiguous")
+    tmux.assert_tmux_binary_identity(tmux_binary_identity)
+    tmux.bind_server_identity(socket, server_identity)
+    if tmux.socket_identity(socket) != socket_identity:
+        raise IdentityError("incomplete launch socket identity changed")
+
+    def target_alive() -> bool:
+        current = tmux.metadata(
+            socket=socket,
+            session=session,
+            pane=pane,
+            server_identity=server_identity,
+        )
+        if any(
+            current.get(name) != metadata.get(name)
+            for name in ("session", "pane", "pane_pid")
+        ):
+            raise IdentityError("incomplete launch pane identity changed")
+        if current.get("pane_dead"):
+            return False
+        if process_verified:
+            if process is None or process.get("pid") != pane_pid:
+                raise IdentityError("incomplete launch process identity changed")
+            if not process_alive(process):
+                raise IdentityError(
+                    "incomplete launch pane remained live after process identity changed"
+                )
+        return True
+
+    def send_one(key: str) -> None:
+        if target_alive():
+            tmux.send_control(
+                socket=socket,
+                session=session,
+                pane=pane,
+                key=key,
+                server_identity=server_identity,
+            )
+
+    deadline = time.monotonic() + timeout
+
+    def pause_after_send() -> None:
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+
+    deliver_halt_controls(
+        journal=journal,
+        session=session,
+        target_pid=pane_pid,
+        keys=list(adapter_for(target).graceful_halt_keys),
+        process_alive=target_alive,
+        send_control=send_one,
+        after_send=pause_after_send,
+    )
+    while target_alive() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if target_alive():
+        raise IdentityError("incomplete launch target did not stop gracefully")
+    terminal = tmux.metadata_for_session(
+        socket=socket,
+        session=session,
+        server_identity=server_identity,
+    )
+    if (
+        terminal.get("pane") != pane
+        or terminal.get("pane_pid") != pane_pid
+        or terminal.get("pane_dead") is not True
+        or tmux.socket_identity(socket) != socket_identity
+    ):
+        raise IdentityError("incomplete launch dead-pane evidence changed")
+    return True
+
+
 def _halt_terminal_result(
     journal: Journal, session: str
 ) -> Optional[Dict[str, Any]]:
@@ -261,10 +378,15 @@ def _runtime(
     registry.verify_supervisor(record)
     registry.verify_adapter(record, capability)
     tmux = TmuxController(registry.root)
+    tmux.assert_tmux_binary_identity(record["tmux"]["tmux_binary_identity"])
+    tmux.bind_server_identity(
+        Path(record["tmux"]["socket"]), record["tmux"]["server_identity"]
+    )
     metadata = tmux.metadata(
         socket=Path(record["tmux"]["socket"]),
         session=record["tmux"]["session"],
         pane=record["tmux"]["pane"],
+        server_identity=record["tmux"]["server_identity"],
     )
     if metadata["pane_pid"] != record["process"]["pid"]:
         raise IdentityError("registered tmux pane no longer owns the target process")
@@ -445,8 +567,13 @@ def doctor(
     )
     if not manifest.raw["doctor_only"]:
         try:
-            manifest.verify_qualification()
-        except (UnsupportedError, ValidationError):
+            authority = _qualification_authority(contract, authorization)
+            manifest.verify_qualification(
+                expected_controller=authority["controller"],
+                expected_campaign_id=authority["campaign_id"],
+                expected_goal_fingerprint=authority["goal_fingerprint"],
+            )
+        except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
     return {
         "ok": True,
@@ -498,7 +625,13 @@ def launch(
         or manifest.fingerprint != report["manifest_fingerprint"]
     ):
         raise IdentityError("contract or manifest changed during preflight")
-    _authorization(authorization_path, contract)
+    authorization = _authorization(authorization_path, contract)
+    qualification_authority = _qualification_authority(contract, authorization)
+    manifest.verify_qualification(
+        expected_controller=qualification_authority["controller"],
+        expected_campaign_id=qualification_authority["campaign_id"],
+        expected_goal_fingerprint=qualification_authority["goal_fingerprint"],
+    )
     if requested_model is not None and requested_model != contract.requested_model:
         raise ValidationError("CLI model selection must match the bound contract")
     if requested_effort is not None and requested_effort != contract.requested_effort:
@@ -520,6 +653,13 @@ def launch(
         supervisor_executable, contract.supervisor_root
     )
     protocol = _protocol_state(contract, manifest, session)
+    session_lease_owner = build_lease_owner(
+        activity="session",
+        run_id=protocol["run_id"],
+        campaign_id=qualification_authority["campaign_id"],
+        goal_fingerprint=qualification_authority["goal_fingerprint"],
+        proof_root=proof_root,
+    )
     initial = adapter.envelope(_initial_envelope(contract, protocol, session, prompt))
     initial_sha = sha256_bytes(_message_payload(initial))
     registry = SessionRegistry(state_root)
@@ -533,7 +673,24 @@ def launch(
         "expected_socket": str(socket),
         "created_at": _utc_now(),
     }
-    registry.reserve(reservation)
+    admit_session_lease(
+        session=session,
+        target=contract.target,
+        controller=contract.controller,
+        owner=session_lease_owner,
+    )
+    try:
+        registry.reserve(reservation)
+    except BaseException:
+        transition_session_lease(
+            session=session,
+            target=contract.target,
+            controller=contract.controller,
+            owner=session_lease_owner,
+            state="failed",
+            process=None,
+        )
+        raise
     journal = _journal(proof_root)
     try:
         journal.append(
@@ -546,21 +703,44 @@ def launch(
                 "content_sha256": initial_sha,
             },
         )
-    except Exception:
+    except BaseException:
         registry.release_reservation(session, contract.fingerprint)
+        transition_session_lease(
+            session=session,
+            target=contract.target,
+            controller=contract.controller,
+            owner=session_lease_owner,
+            state="failed",
+            process=None,
+        )
         raise
     metadata = None
     process = None
+    process_verified = False
+    lease_active = False
     activated = False
+    operation_guard = exclusive_lock(registry.operation_lock(session))
+    operation_guard.__enter__()
     try:
         metadata = tmux.launch(session=session, repo=contract.repo, argv=argv)
         process = process_birth_identity(metadata["pane_pid"])
         manifest.verify_process_executable(process)
+        process_verified = True
+        transition_session_lease(
+            session=session,
+            target=contract.target,
+            controller=contract.controller,
+            owner=session_lease_owner,
+            state="active",
+            process=process,
+        )
+        lease_active = True
         record = {
             "schema_version": 1,
             "session": session,
             "controller": contract.controller,
             "target": contract.target,
+            "lease_owner": session_lease_owner,
             "contract_fingerprint": contract.fingerprint,
             "contract_path": str(contract_copy),
             "state": "STARTING",
@@ -573,6 +753,8 @@ def launch(
                 "socket_identity": metadata["socket_identity"],
                 "session": session,
                 "pane": metadata["pane"],
+                "server_identity": metadata["server_identity"],
+                "tmux_binary_identity": metadata["tmux_binary_identity"],
             },
             "process": process,
             "supervisor": supervisor,
@@ -582,6 +764,11 @@ def launch(
                 "executable_fingerprint": manifest.raw["executable"]["sha256"],
                 "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
                 "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
+                "qualification_controller": qualification_authority["controller"],
+                "qualification_campaign_id": qualification_authority["campaign_id"],
+                "qualification_goal_fingerprint": qualification_authority[
+                    "goal_fingerprint"
+                ],
             },
             "protocol": protocol,
             "created_at": _utc_now(),
@@ -626,26 +813,34 @@ def launch(
                 pane=metadata["pane"],
             ),
         }
-    except Exception:
-        still_alive = bool(process and process_alive(process))
-        if metadata is not None and still_alive:
+    except BaseException:
+        cleanup_stopped = False
+        cleanup_error = None
+        if metadata is not None:
             try:
-                for key in adapter.graceful_halt_keys:
-                    if process is None or not process_alive(process):
-                        break
-                    tmux.send_control(
-                        socket=Path(metadata["socket"]),
+                if lease_active:
+                    transition_session_lease(
                         session=session,
-                        pane=metadata["pane"],
-                        key=key,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=session_lease_owner,
+                        state="halting",
+                        process=process,
                     )
-                    time.sleep(0.1)
-            except Exception:
-                pass
-            deadline = time.monotonic() + 2.0
-            while process and process_alive(process) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            still_alive = bool(process and process_alive(process))
+                cleanup_stopped = _cleanup_incomplete_launch(
+                    tmux=tmux,
+                    metadata=metadata,
+                    session=session,
+                    target=contract.target,
+                    process=process,
+                    process_verified=process_verified,
+                    journal=journal,
+                )
+            except Exception as cleanup_exc:
+                cleanup_error = "%s: %s" % (
+                    cleanup_exc.__class__.__name__,
+                    str(cleanup_exc)[:500],
+                )
         if activated:
             try:
                 registry.update(
@@ -654,18 +849,37 @@ def launch(
                         "state": "BLOCKED",
                         "blocker": {
                             "code": "launch_incomplete",
-                            "target_process_alive": still_alive,
+                            "target_process_alive": (
+                                process_alive(process)
+                                if process_verified and process is not None
+                                else None
+                            ),
+                            "cleanup_stopped": cleanup_stopped,
+                            "cleanup_error": cleanup_error,
                         },
                     },
                 )
             except Exception:
                 pass
-        elif not still_alive:
+        elif cleanup_stopped:
             try:
                 registry.release_reservation(session, contract.fingerprint)
             except Exception:
                 pass
+            try:
+                transition_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=session_lease_owner,
+                    state="failed",
+                    process=process if process_verified else None,
+                )
+            except Exception:
+                pass
         raise
+    finally:
+        operation_guard.__exit__(None, None, None)
 
 
 def send_message(
@@ -673,45 +887,50 @@ def send_message(
 ) -> Dict[str, Any]:
     validate_identifier(request_id, "request id")
     registry = SessionRegistry(Path(state_root))
-    record = registry.load(session)
-    _bound_contract(record)
-    tmux, _ = _runtime(registry, record, "send", require_process=True)
-    adapter = adapter_for(record["target"])
-    protocol = dict(record["protocol"])
-    if protocol["kind"] == "conformance":
-        first_submission = (
-            record["state"] == "CONFORMANCE_READY"
-            and protocol["phase"] == "ready_validated"
+    with exclusive_lock(registry.operation_lock(session)):
+        record = registry.load(session)
+        _bound_contract(record)
+        tmux, _ = _runtime(registry, record, "send", require_process=True)
+        adapter = adapter_for(record["target"])
+        protocol = dict(record["protocol"])
+        if protocol["kind"] == "conformance":
+            first_submission = (
+                record["state"] == "CONFORMANCE_READY"
+                and protocol["phase"] == "ready_validated"
+            )
+            replay = (
+                record["state"] == "ACTIVE"
+                and protocol["phase"] == "followup_sent"
+                and protocol["message_id"] == request_id
+            )
+            if not first_submission and not replay:
+                raise ValidationError("conformance follow-up is not currently authorized")
+            enveloped = adapter.envelope(
+                _followup_envelope(protocol, request_id, message)
+            )
+        else:
+            if record["state"] not in {"ACTIVE", "WAITING_EXTERNAL"}:
+                raise ValidationError("source session is not accepting messages")
+            enveloped = adapter.envelope(message)
+        delivery = _deliver(
+            tmux=tmux,
+            socket=Path(record["tmux"]["socket"]),
+            session=session,
+            pane=record["tmux"]["pane"],
+            buffer_name=request_id,
+            message=enveloped,
+            proof_root=Path(record["proof_root"]),
+            operation_id=request_id,
+            kind="send",
         )
-        replay = (
-            record["state"] == "ACTIVE"
-            and protocol["phase"] == "followup_sent"
-            and protocol["message_id"] == request_id
-        )
-        if not first_submission and not replay:
-            raise ValidationError("conformance follow-up is not currently authorized")
-        enveloped = adapter.envelope(_followup_envelope(protocol, request_id, message))
-    else:
-        if record["state"] not in {"ACTIVE", "WAITING_EXTERNAL"}:
-            raise ValidationError("source session is not accepting messages")
-        enveloped = adapter.envelope(message)
-    delivery = _deliver(
-        tmux=tmux,
-        socket=Path(record["tmux"]["socket"]),
-        session=session,
-        pane=record["tmux"]["pane"],
-        buffer_name=request_id,
-        message=enveloped,
-        proof_root=Path(record["proof_root"]),
-        operation_id=request_id,
-        kind="send",
-    )
-    if protocol["kind"] == "conformance" and first_submission:
-        if delivery["delivery"] not in {"submitted", "already_submitted"}:
-            raise ConflictError("conformance follow-up delivery is not authoritative")
-        protocol.update(phase="followup_sent", message_id=request_id)
-        registry.transition_path(session, ["ACTIVE"], {"protocol": protocol})
-    return {"ok": True, "session": session, **delivery}
+        if protocol["kind"] == "conformance" and first_submission:
+            if delivery["delivery"] not in {"submitted", "already_submitted"}:
+                raise ConflictError(
+                    "conformance follow-up delivery is not authoritative"
+                )
+            protocol.update(phase="followup_sent", message_id=request_id)
+            registry.transition_path(session, ["ACTIVE"], {"protocol": protocol})
+        return {"ok": True, "session": session, **delivery}
 
 
 def status(*, state_root: Path, session: str) -> Dict[str, Any]:
@@ -1057,7 +1276,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     if timeout < 0 or timeout > 60:
         raise ValidationError("halt timeout must be between zero and 60 seconds")
     registry = SessionRegistry(Path(state_root))
-    with exclusive_lock(registry._lock(session)):
+    with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)
         _bound_contract(record)
         journal = _journal(Path(record["proof_root"]))
@@ -1080,6 +1299,14 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
             raise IdentityError(
                 "registered process identity changed while its tmux pane remains live"
             )
+        transition_session_lease(
+            session=session,
+            target=record["target"],
+            controller=record["controller"],
+            owner=record["lease_owner"],
+            state="halting",
+            process=record["process"],
+        )
         journal.append(
             request_id=_delivery_request_id(session, session, "halt-intent"),
             event={
@@ -1089,25 +1316,36 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 "result": "intent",
             },
         )
-        if target_alive:
-            registry.verify_process(record)
-            deadline = time.monotonic() + timeout
-            for key in adapter_for(record["target"]).graceful_halt_keys:
-                if not process_alive(record["process"]):
-                    break
+        deadline = time.monotonic() + timeout
+
+        def send_one(key: str) -> None:
+            if process_alive(record["process"]):
+                registry.verify_process(record)
                 tmux.send_control(
                     socket=Path(record["tmux"]["socket"]),
                     session=session,
                     pane=record["tmux"]["pane"],
                     key=key,
                 )
-                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
-            while process_alive(record["process"]) and time.monotonic() < deadline:
-                time.sleep(0.1)
-            if process_alive(record["process"]):
-                raise IdentityError(
-                    "registered target did not stop gracefully; no broad kill attempted"
-                )
+
+        def pause_after_send() -> None:
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+
+        submitted_keys = deliver_halt_controls(
+            journal=journal,
+            session=session,
+            target_pid=record["process"]["pid"],
+            keys=list(adapter_for(record["target"]).graceful_halt_keys),
+            process_alive=lambda: process_alive(record["process"]),
+            send_control=send_one,
+            after_send=pause_after_send,
+        )
+        while process_alive(record["process"]) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if process_alive(record["process"]):
+            raise IdentityError(
+                "registered target did not stop gracefully; no broad kill attempted"
+            )
         halted_metadata = tmux.metadata(
             socket=Path(record["tmux"]["socket"]),
             session=session,
@@ -1127,7 +1365,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 "session": session,
                 "target_pid": record["process"]["pid"],
                 "result": "stopped",
-                "signal_sent": target_alive,
+                "signal_sent": bool(submitted_keys),
                 "tmux_preserved": True,
             },
         )
@@ -1135,10 +1373,18 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
         record["state"] = "HALTED"
         registry.validate(record)
         atomic_write_json(registry._path(session), record)
+        transition_session_lease(
+            session=session,
+            target=record["target"],
+            controller=record["controller"],
+            owner=record["lease_owner"],
+            state="halted",
+            process=record["process"],
+        )
         return {
             "ok": True,
             "session": session,
             "state": "HALTED",
-            "signal_sent": target_alive,
+            "signal_sent": bool(submitted_keys),
             "tmux_preserved": True,
         }
