@@ -37,6 +37,7 @@ from puppet_lib.plane_activation import (  # noqa: E402
     materialize_activation,
     plan_activation,
     recover_activation,
+    revalidate_activation_launch_context,
     rollback_activation,
     verify_activation,
 )
@@ -252,6 +253,24 @@ class PlaneActivationTests(unittest.TestCase):
         }
         arguments.update(overrides)
         return build_activation_launch_context(self.plan, **arguments)
+
+    def _revalidate_context(self, context, **overrides):
+        arguments = {
+            "adapter_manifest": self.adapter_manifest,
+            "workspace_root": self.workspace,
+            "config_root": self.config,
+            "admitted_lane_root": self.base,
+            "argv": context.argv,
+            "environment": context.environment,
+            "admitted_launch_plan": context.admitted_launch_plan,
+            "public_context": context.to_public_dict(),
+        }
+        arguments.update(overrides)
+        return revalidate_activation_launch_context(
+            context,
+            self.plan,
+            **arguments,
+        )
 
     def assert_artifact_preserved(self):
         self.assertTrue(
@@ -509,6 +528,112 @@ class PlaneActivationTests(unittest.TestCase):
         finally:
             self.config.rmdir()
             retired_config.rename(self.config)
+
+    def test_immediate_revalidator_rebuilds_the_exact_consumable_context(self):
+        self._activate()
+        context = self._launch_context()
+        with mock.patch.object(
+            activation_module,
+            "census_target",
+            side_effect=AssertionError("revalidation must remain process-free"),
+        ):
+            current = self._revalidate_context(context)
+        self.assertIsNot(current, context)
+        self.assertEqual(current.argv, context.argv)
+        self.assertEqual(current.environment, context.environment)
+        self.assertEqual(
+            current.admitted_launch_plan,
+            context.admitted_launch_plan,
+        )
+        self.assertEqual(current.to_public_dict(), context.to_public_dict())
+        self.assertEqual(
+            current.public_context_sha256,
+            context.public_context_sha256,
+        )
+
+    def test_immediate_revalidator_rejects_post_context_authority_drift(self):
+        self._activate()
+        context = self._launch_context()
+
+        original_receipt = self.plan.receipt_path.read_bytes()
+        receipt = json.loads(original_receipt.decode("utf-8"))
+        receipt["plan_sha256"] = "f" * 64
+        self.plan.receipt_path.write_bytes(canonical_json_bytes(receipt) + b"\n")
+        self.plan.receipt_path.chmod(0o600)
+        with self.assertRaisesRegex(IdentityError, "receipt binding changed"):
+            self._revalidate_context(context)
+        self.plan.receipt_path.write_bytes(original_receipt)
+        self.plan.receipt_path.chmod(0o600)
+
+        self.plan.artifact_path.write_bytes(b"X" * len(self.compiled.rendered))
+        self.plan.artifact_path.chmod(0o600)
+        with self.assertRaisesRegex(IdentityError, "artifact identity or content"):
+            self._revalidate_context(context)
+        self.plan.artifact_path.write_bytes(self.compiled.rendered)
+        self.plan.artifact_path.chmod(0o600)
+
+        retired_config = self.base / "post-context-config"
+        self.config.rename(retired_config)
+        self.config.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(IdentityError, "config root identity changed"):
+                self._revalidate_context(context)
+        finally:
+            self.config.rmdir()
+            retired_config.rename(self.config)
+
+        retired_transaction = self.base / "post-context-transaction"
+        self.transaction.rename(retired_transaction)
+        self.transaction.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(
+                IdentityError, "transaction root identity changed"
+            ):
+                self._revalidate_context(context)
+        finally:
+            self.transaction.rmdir()
+            retired_transaction.rename(self.transaction)
+
+        changed_manifest = copy.deepcopy(self.adapter_manifest)
+        changed_manifest["generated_at"] = "2026-07-22T03:00:03Z"
+        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
+            self._revalidate_context(
+                context,
+                adapter_manifest=changed_manifest,
+            )
+        with mock.patch.object(
+            activation_module,
+            "adapter_implementation_fingerprint",
+            return_value="f" * 64,
+        ):
+            with self.assertRaisesRegex(
+                IdentityError, "adapter implementation changed"
+            ):
+                self._revalidate_context(context)
+
+    def test_immediate_revalidator_rejects_private_and_public_binding_drift(self):
+        self._activate()
+        context = self._launch_context()
+
+        argv = context.argv
+        argv[-1] = str(self.base / "post-context-prompt-drift")
+        with self.assertRaisesRegex(IdentityError, "launch argv changed"):
+            self._revalidate_context(context, argv=argv)
+
+        environment = context.environment
+        environment["CLAUDE_CONFIG_DIR"] = str(self.workspace.resolve(strict=True))
+        with self.assertRaisesRegex(IdentityError, "launch environment changed"):
+            self._revalidate_context(context, environment=environment)
+
+        admitted = context.admitted_launch_plan
+        admitted["argv"][-1] = str(self.base / "post-context-plan-drift")
+        with self.assertRaisesRegex(IdentityError, "admitted launch plan changed"):
+            self._revalidate_context(context, admitted_launch_plan=admitted)
+
+        public = context.to_public_dict()
+        public["activation_receipt_sha256"] = "f" * 64
+        with self.assertRaisesRegex(IdentityError, "public context changed"):
+            self._revalidate_context(context, public_context=public)
 
     def test_only_project_isolation_may_be_closed_by_activation_roots(self):
         incomplete_dimensions = (

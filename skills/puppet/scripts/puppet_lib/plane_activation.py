@@ -29,6 +29,7 @@ from .instructions import validate_instruction_manifest
 from .launch import (
     build_admitted_launch_plan,
     build_launch_identity,
+    public_launch_identity,
     validate_admitted_launch_plan,
 )
 from .profiles import (
@@ -783,7 +784,7 @@ class ActivationLaunchContext:
         argv: Sequence[str],
         environment: Mapping[str, str],
     ) -> None:
-        """Reject mutation of either private launch input before it is used."""
+        """Reject in-memory mutation of either private launch input."""
 
         if (
             isinstance(argv, (str, bytes, bytearray))
@@ -799,6 +800,12 @@ class ActivationLaunchContext:
             raise IdentityError("activation launch environment changed") from exc
         if environment_items != self._environment_items:
             raise IdentityError("activation launch environment changed")
+
+    @property
+    def public_context_sha256(self) -> str:
+        """Return the canonical fingerprint of the value-free public context."""
+
+        return sha256_bytes(canonical_json_bytes(self.to_public_dict()))
 
     def to_public_dict(self) -> Dict[str, Any]:
         """Return the persistable binding without argv-adjacent env values."""
@@ -1410,6 +1417,106 @@ def build_activation_launch_context(
     )
     context.verify_launch_values(argv=argv, environment=environment)
     return context
+
+
+def _canonical_context_mapping(value: Any, *, label: str) -> bytes:
+    if not isinstance(value, Mapping):
+        raise ValidationError("%s must be a mapping" % label)
+    try:
+        return canonical_json_bytes(dict(value))
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise ValidationError("%s is not canonical JSON" % label) from exc
+
+
+def revalidate_activation_launch_context(
+    context: ActivationLaunchContext,
+    plan: ActivationPlan,
+    *,
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+    workspace_root: Path | str,
+    config_root: Path | str,
+    admitted_lane_root: Path | str,
+    argv: Sequence[str],
+    environment: Mapping[str, str],
+    admitted_launch_plan: Mapping[str, Any],
+    public_context: Mapping[str, Any],
+) -> ActivationLaunchContext:
+    """Re-prove and rebuild one context immediately before consumption.
+
+    This starts no process and writes no state.  Callers must consume only the
+    returned context after this function succeeds; the earlier context remains
+    an untrusted preflight snapshot.
+    """
+
+    if not isinstance(context, ActivationLaunchContext):
+        raise ValidationError("activation launch context is invalid")
+
+    # Rebuilding performs the durable checks first: verify_activation reopens
+    # the transaction and all plan-bound roots and rechecks the exact receipt,
+    # artifact inode/content, while _context_manifest rechecks the canonical
+    # manifest, execution files, and current controller implementation.
+    current = build_activation_launch_context(
+        plan,
+        adapter_manifest=adapter_manifest,
+        session=context.session,
+        run_id=context.run_id,
+        session_profile=context.session_profile,
+        workspace_root=workspace_root,
+        config_root=config_root,
+        admitted_lane_root=admitted_lane_root,
+        source_environment=environment,
+    )
+
+    context.verify_launch_values(argv=argv, environment=environment)
+    current.verify_launch_values(argv=argv, environment=environment)
+    live_identity = public_launch_identity(
+        repo=Path(current.launch_identity["cwd"]),
+        argv=argv,
+        environment=environment,
+        admitted_lane_root=Path(admitted_lane_root),
+    )
+    if (
+        live_identity != context.launch_identity
+        or live_identity != current.launch_identity
+    ):
+        raise IdentityError("activation public launch identity changed")
+
+    supplied_admitted_bytes = _canonical_context_mapping(
+        admitted_launch_plan,
+        label="admitted launch plan",
+    )
+    context_admitted_bytes = canonical_json_bytes(context.admitted_launch_plan)
+    current_admitted_bytes = canonical_json_bytes(current.admitted_launch_plan)
+    if (
+        sha256_bytes(context_admitted_bytes) != context.admitted_launch_plan_sha256
+        or sha256_bytes(current_admitted_bytes) != current.admitted_launch_plan_sha256
+        or supplied_admitted_bytes != context_admitted_bytes
+        or context_admitted_bytes != current_admitted_bytes
+    ):
+        raise IdentityError("admitted launch plan changed before consumption")
+    validated_admitted = validate_admitted_launch_plan(
+        dict(admitted_launch_plan),
+        expected_target=context.target,
+        expected_session=context.session,
+        expected_run_id=context.run_id,
+    )
+    if validated_admitted["launch_identity"] != live_identity:
+        raise IdentityError("admitted launch identity changed before consumption")
+
+    supplied_public_bytes = _canonical_context_mapping(
+        public_context,
+        label="activation public context",
+    )
+    context_public_bytes = canonical_json_bytes(context.to_public_dict())
+    current_public_bytes = canonical_json_bytes(current.to_public_dict())
+    if (
+        sha256_bytes(supplied_public_bytes) != context.public_context_sha256
+        or context.public_context_sha256 != current.public_context_sha256
+        or supplied_public_bytes != context_public_bytes
+        or context_public_bytes != current_public_bytes
+    ):
+        raise IdentityError("activation public context changed before consumption")
+    return current
 
 
 def _intent_for(plan: ActivationPlan) -> Dict[str, Any]:
@@ -2576,6 +2683,7 @@ __all__ = [
     "materialize_activation",
     "plan_activation",
     "recover_activation",
+    "revalidate_activation_launch_context",
     "rollback_activation",
     "verify_activation",
 ]

@@ -10,6 +10,7 @@ from .plane_activation import (
     materialize_activation,
     plan_activation,
     recover_activation,
+    revalidate_activation_launch_context,
     rollback_activation,
     verify_activation,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "materialize_activation",
     "plan_activation",
     "recover_activation",
+    "revalidate_activation_launch_context",
     "rollback_activation",
     "verify_activation",
 ]
