@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -26,8 +26,20 @@ from .instruction_planes import (
     validate_instruction_plane_descriptor,
 )
 from .instructions import validate_instruction_manifest
+from .launch import (
+    build_admitted_launch_plan,
+    build_launch_identity,
+    validate_admitted_launch_plan,
+)
+from .profiles import (
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    session_profiles_for,
+    startup_settle_seconds_for,
+)
 from .safety import (
     canonical_json_bytes,
+    ensure_within,
     sha256_bytes,
     sha256_file,
     validate_bounded_json,
@@ -36,11 +48,12 @@ from .safety import (
 )
 
 
-PLAN_SCHEMA = "puppet.plane-activation-plan/v1"
-INTENT_SCHEMA = "puppet.plane-activation-intent/v1"
-RECEIPT_SCHEMA = "puppet.plane-activation-receipt/v1"
-ROLLBACK_SCHEMA = "puppet.plane-activation-rollback/v1"
-ROLLBACK_INTENT_SCHEMA = "puppet.plane-activation-rollback-intent/v1"
+PLAN_SCHEMA = "puppet.plane-activation-plan/v2"
+INTENT_SCHEMA = "puppet.plane-activation-intent/v2"
+RECEIPT_SCHEMA = "puppet.plane-activation-receipt/v2"
+ROLLBACK_SCHEMA = "puppet.plane-activation-rollback/v2"
+ROLLBACK_INTENT_SCHEMA = "puppet.plane-activation-rollback-intent/v2"
+LAUNCH_CONTEXT_SCHEMA = "puppet.plane-activation-launch-context/v1"
 
 INTENT_FILENAME = "activation-intent.json"
 RECEIPT_FILENAME = "activation-receipt.json"
@@ -113,6 +126,7 @@ _PLAN_KEYS = {
     "effective_contract_sha256",
     "effective_contract_bytes",
     "adapter_manifest_sha256",
+    "adapter_implementation_sha256",
     "version_observation_sha256",
     "artifact_id",
     "artifact_relative_path",
@@ -716,6 +730,108 @@ class ActivationRecovery:
     rollback_receipt: Optional[Dict[str, Any]] = None
 
 
+@dataclass(frozen=True)
+class ActivationLaunchContext:
+    """Exact private launch values plus their body- and value-free authority."""
+
+    target: str
+    session: str
+    run_id: str
+    session_profile: str
+    adapter_manifest_sha256: str
+    adapter_implementation_sha256: str
+    activation_plan_sha256: str
+    activation_receipt_sha256: str
+    activation_delta_sha256: str
+    artifact_sha256: str
+    workspace_root_sha256: str
+    config_root_sha256: str
+    admitted_lane_root_sha256: str
+    admitted_launch_plan_sha256: str
+    _argv: Tuple[str, ...] = field(repr=False)
+    _environment_items: Tuple[Tuple[str, str], ...] = field(repr=False)
+    _launch_identity_json: bytes = field(repr=False)
+    _admitted_launch_plan_json: bytes = field(repr=False)
+
+    @property
+    def argv(self) -> list[str]:
+        """Return a fresh copy of the exact admitted argv."""
+
+        return list(self._argv)
+
+    @property
+    def environment(self) -> Dict[str, str]:
+        """Return a fresh copy of the private, closed launch environment."""
+
+        return dict(self._environment_items)
+
+    @property
+    def launch_identity(self) -> Dict[str, Any]:
+        """Return the value-free public identity for the private launch values."""
+
+        return json.loads(self._launch_identity_json.decode("utf-8"))
+
+    @property
+    def admitted_launch_plan(self) -> Dict[str, Any]:
+        """Return the existing value-private pre-lease launch-plan schema."""
+
+        return json.loads(self._admitted_launch_plan_json.decode("utf-8"))
+
+    def verify_launch_values(
+        self,
+        *,
+        argv: Sequence[str],
+        environment: Mapping[str, str],
+    ) -> None:
+        """Reject mutation of either private launch input before it is used."""
+
+        if (
+            isinstance(argv, (str, bytes, bytearray))
+            or not isinstance(argv, Sequence)
+            or tuple(argv) != self._argv
+        ):
+            raise IdentityError("activation launch argv changed")
+        if not isinstance(environment, Mapping):
+            raise IdentityError("activation launch environment changed")
+        try:
+            environment_items = tuple(sorted(environment.items()))
+        except (TypeError, ValueError) as exc:
+            raise IdentityError("activation launch environment changed") from exc
+        if environment_items != self._environment_items:
+            raise IdentityError("activation launch environment changed")
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Return the persistable binding without argv-adjacent env values."""
+
+        value = {
+            "schema": LAUNCH_CONTEXT_SCHEMA,
+            "target": self.target,
+            "session": self.session,
+            "run_id": self.run_id,
+            "session_profile": self.session_profile,
+            "adapter_manifest_sha256": self.adapter_manifest_sha256,
+            "adapter_implementation_sha256": self.adapter_implementation_sha256,
+            "activation_plan_sha256": self.activation_plan_sha256,
+            "activation_receipt_sha256": self.activation_receipt_sha256,
+            "activation_delta_sha256": self.activation_delta_sha256,
+            "artifact_sha256": self.artifact_sha256,
+            "workspace_root_sha256": self.workspace_root_sha256,
+            "config_root_sha256": self.config_root_sha256,
+            "admitted_lane_root_sha256": self.admitted_lane_root_sha256,
+            "project_isolation": "activation_bound_workspace_config_lane_roots",
+            "launch_identity": self.launch_identity,
+            "admitted_launch_plan_sha256": self.admitted_launch_plan_sha256,
+        }
+        validate_bounded_json(
+            value,
+            max_depth=4,
+            max_items=32,
+            max_string=4096,
+            reject_sensitive_fields=True,
+        )
+        return json.loads(canonical_json_bytes(value).decode("utf-8"))
+
+
 def _validate_launch(value: Any, *, plan: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != {"cwd", "env", "argv"}:
         raise ValidationError("launch plan fields are invalid")
@@ -733,7 +849,11 @@ def _validate_launch(value: Any, *, plan: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != _PLAN_KEYS:
+    if not isinstance(value, Mapping):
+        raise ValidationError("activation plan fields are invalid")
+    if value.get("schema") != PLAN_SCHEMA:
+        raise ValidationError("activation plan schema is unsupported")
+    if set(value) != _PLAN_KEYS:
         raise ValidationError("activation plan fields are invalid")
     validate_bounded_json(
         dict(value),
@@ -742,8 +862,6 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
         max_string=4096,
         reject_sensitive_fields=True,
     )
-    if value["schema"] != PLAN_SCHEMA:
-        raise ValidationError("activation plan schema is unsupported")
     result: Dict[str, Any] = {
         "schema": PLAN_SCHEMA,
         "config_root": _validate_directory_identity(
@@ -770,6 +888,10 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
         ),
         "adapter_manifest_sha256": validate_sha256(
             value["adapter_manifest_sha256"], "adapter manifest sha256"
+        ),
+        "adapter_implementation_sha256": validate_sha256(
+            value["adapter_implementation_sha256"],
+            "adapter implementation sha256",
         ),
         "version_observation_sha256": validate_sha256(
             value["version_observation_sha256"], "version observation sha256"
@@ -852,27 +974,34 @@ def _unsupported_descriptor(descriptor: Mapping[str, Any]) -> None:
     )
     if not exact:
         raise UnsupportedError(
-            "only Claude 2.1.215 factual qualification-only per-run create-only activation is supported"
+            "only Claude 2.1.215 factual qualification-only per-run create-only "
+            "activation is supported"
         )
 
 
 def _validated_census_manifest(
     supplied: AdapterManifest,
-    descriptor: Mapping[str, Any],
     *,
+    expected_target: str,
+    expected_version: str,
+    expected_manifest_sha256: str,
     current_manifest: Optional[AdapterManifest | Mapping[str, Any]],
-) -> Tuple[str, str]:
+) -> Tuple[str, str, str]:
     """Bind staging to the source-owned, exact current zero-agent census."""
 
     implementation_hash = adapter_implementation_fingerprint()
+    manifest_hash = supplied.fingerprint
+    if manifest_hash != expected_manifest_sha256:
+        raise IdentityError(
+            "descriptor does not bind the exact supplied adapter manifest"
+        )
     if current_manifest is None:
-        current = census_target(descriptor["target"]["harness"], implementation_hash)
+        current = census_target(expected_target, implementation_hash)
     elif isinstance(current_manifest, AdapterManifest):
         current = current_manifest
     else:
         current = AdapterManifest.from_dict(dict(current_manifest))
 
-    expected_target = descriptor["target"]["harness"]
     if (
         supplied.raw["target"] != expected_target
         or current.raw["target"] != expected_target
@@ -881,7 +1010,6 @@ def _validated_census_manifest(
     if (
         current.raw["adapter_fingerprint"] != implementation_hash
         or supplied.raw["adapter_fingerprint"] != implementation_hash
-        or descriptor["target"]["adapter_manifest_sha256"] != implementation_hash
     ):
         raise IdentityError("adapter implementation fingerprint is not current")
     if not supplied.raw["doctor_only"] or supplied.raw["qualification"] is not None:
@@ -891,20 +1019,22 @@ def _validated_census_manifest(
     if not current.raw["doctor_only"] or current.raw["qualification"] is not None:
         raise IdentityError("current census must be doctor-only")
 
-    bound_fields = (
-        "target",
-        "platform",
-        "executable",
-        "adapter_fingerprint",
-        "protocol_fingerprint",
-        "yolo_mapping",
-        "capabilities",
-        "doctor_only",
-        "qualification",
-    )
-    if any(supplied.raw[name] != current.raw[name] for name in bound_fields):
+    # ``generated_at`` is observation metadata, not executable or policy
+    # identity.  Compare every other canonical field so a fresh census can
+    # prove the exact supplied manifest without demanding the same timestamp.
+    supplied_identity = {
+        name: value for name, value in supplied.raw.items() if name != "generated_at"
+    }
+    current_identity = {
+        name: value for name, value in current.raw.items() if name != "generated_at"
+    }
+    if canonical_json_bytes(supplied_identity) != canonical_json_bytes(
+        current_identity
+    ):
         raise IdentityError("adapter manifest does not match the current exact census")
 
+    supplied.verify_execution_files()
+    current.verify_execution_files()
     executable = current.raw["executable"]
     executable_path = Path(executable["resolved_path"])
     if executable_path.is_symlink() or not executable_path.is_file():
@@ -919,7 +1049,7 @@ def _validated_census_manifest(
     ):
         raise IdentityError("censused executable identity changed")
 
-    version_key = (expected_target, descriptor["target"]["version"])
+    version_key = (expected_target, expected_version)
     expected_version_hash = _SUPPORTED_VERSION_OBSERVATIONS.get(version_key)
     if expected_version_hash is None:
         raise UnsupportedError("descriptor version is not enabled for activation")
@@ -927,7 +1057,7 @@ def _validated_census_manifest(
         raise IdentityError(
             "exact harness version observation does not match descriptor"
         )
-    return implementation_hash, expected_version_hash
+    return manifest_hash, implementation_hash, expected_version_hash
 
 
 def plan_activation(
@@ -953,9 +1083,13 @@ def plan_activation(
     else:
         manifest_instance = AdapterManifest.from_dict(dict(adapter_manifest))
 
-    adapter_hash, version_hash = _validated_census_manifest(
+    adapter_hash, implementation_hash, version_hash = _validated_census_manifest(
         manifest_instance,
-        normalized_descriptor,
+        expected_target=normalized_descriptor["target"]["harness"],
+        expected_version=normalized_descriptor["target"]["version"],
+        expected_manifest_sha256=normalized_descriptor["target"][
+            "adapter_manifest_sha256"
+        ],
         current_manifest=_current_manifest,
     )
     if not isinstance(effective_contract, bytes) or not effective_contract:
@@ -1034,6 +1168,7 @@ def plan_activation(
         "effective_contract_sha256": contract_hash,
         "effective_contract_bytes": len(effective_contract),
         "adapter_manifest_sha256": adapter_hash,
+        "adapter_implementation_sha256": implementation_hash,
         "version_observation_sha256": version_hash,
         "artifact_id": artifact["artifact_id"],
         "artifact_relative_path": artifact["relative_path"],
@@ -1048,15 +1183,246 @@ def plan_activation(
     return ActivationPlan.from_dict(plan)
 
 
+def _context_manifest(
+    supplied: AdapterManifest,
+    plan: ActivationPlan,
+) -> Tuple[str, str]:
+    """Revalidate a plan-bound manifest without starting any process."""
+
+    manifest_hash = supplied.fingerprint
+    if manifest_hash != plan.raw["adapter_manifest_sha256"]:
+        raise IdentityError("adapter manifest changed after activation planning")
+    implementation_hash = adapter_implementation_fingerprint()
+    if (
+        supplied.raw["target"] != "claude"
+        or supplied.raw["adapter_fingerprint"] != implementation_hash
+        or plan.raw["adapter_implementation_sha256"] != implementation_hash
+    ):
+        raise IdentityError("adapter implementation changed after activation planning")
+    if not supplied.raw["doctor_only"] or supplied.raw["qualification"] is not None:
+        raise IdentityError("activation launch context requires its doctor-only census")
+    if (
+        supplied.raw["executable"]["version_sha256"]
+        != plan.raw["version_observation_sha256"]
+    ):
+        raise IdentityError("adapter version observation changed after activation")
+    mapping = supplied.raw["yolo_mapping"]
+    expected_mapping = {
+        "complete": False,
+        "launch_argv": [
+            supplied.raw["executable"]["resolved_path"],
+            "--dangerously-skip-permissions",
+        ],
+        "permission_declared": True,
+        "permission_flags": ["--dangerously-skip-permissions"],
+        "prompt_transport": PROMPT_TRANSPORT,
+        "prompt_transport_declared": True,
+        "sandbox_disable_declared": True,
+        "sandbox_flags": [],
+        "project_isolation_declared": False,
+        "project_isolation_flags": [],
+        "session_profiles": session_profiles_for("claude"),
+        "session_profiles_declared": True,
+        "startup_settle_seconds": startup_settle_seconds_for("claude"),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+        "model_flag": "--model",
+        "effort_flag": "--effort",
+    }
+    if mapping != expected_mapping:
+        raise UnsupportedError(
+            "Claude activation may close only the missing project-isolation dimension"
+        )
+    supplied.verify_execution_files()
+    return manifest_hash, implementation_hash
+
+
+def _exact_context_root(
+    path: Path | str,
+    expected: Mapping[str, Any],
+    *,
+    label: str,
+    private: bool,
+) -> Path:
+    candidate = _absolute_lexical(path, label=label)
+    if str(candidate) != expected["path"]:
+        raise IdentityError("%s does not match the activation plan" % label)
+    descriptor, live = _open_root(candidate, label=label, private=private)
+    try:
+        _assert_identity(
+            live,
+            expected,
+            label=label,
+            compare_nlink=False,
+        )
+    finally:
+        os.close(descriptor)
+    return candidate
+
+
+def build_activation_launch_context(
+    plan: ActivationPlan,
+    *,
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+    session: str,
+    run_id: str,
+    session_profile: str,
+    workspace_root: Path | str,
+    config_root: Path | str,
+    admitted_lane_root: Path | str,
+    source_environment: Optional[Mapping[str, str]] = None,
+) -> ActivationLaunchContext:
+    """Join a verified activation to exact pre-lease Claude launch authority.
+
+    The function starts no process and writes no state.  Its private environment
+    exists only in the returned in-memory context; the persistable record keeps
+    names and fingerprints but never values or instruction bytes.
+    """
+
+    plan = ActivationPlan.from_dict(plan.to_dict())
+    # Artifact, receipt, transaction, workspace, config, and root authority must
+    # all verify before resolving any launch value.
+    receipt = verify_activation(plan)
+    if session_profile != "regular":
+        raise UnsupportedError("activation launch context requires the regular profile")
+
+    workspace = _exact_context_root(
+        workspace_root,
+        plan.raw["workspace_root"],
+        label="workspace root",
+        private=False,
+    )
+    config = _exact_context_root(
+        config_root,
+        plan.raw["config_root"],
+        label="config root",
+        private=True,
+    )
+    lane_root = _absolute_lexical(admitted_lane_root, label="admitted lane root")
+    expected_lane_root = Path(
+        os.path.commonpath(
+            [
+                plan.raw[name]["path"]
+                for name in (
+                    "workspace_root",
+                    "config_root",
+                    "ephemeral_root",
+                    "transaction_root",
+                )
+            ]
+        )
+    )
+    if str(lane_root) != str(expected_lane_root):
+        raise IdentityError("admitted lane root is not the exact activation parent")
+    lane_descriptor, lane_identity = _open_root(
+        lane_root,
+        label="admitted lane root",
+        private=True,
+    )
+    os.close(lane_descriptor)
+    for bound_root in (
+        workspace,
+        config,
+        Path(plan.raw["ephemeral_root"]["path"]),
+        Path(plan.raw["transaction_root"]["path"]),
+    ):
+        ensure_within(bound_root, lane_root, must_exist=True)
+
+    if isinstance(adapter_manifest, AdapterManifest):
+        manifest = adapter_manifest
+    else:
+        manifest = AdapterManifest.from_dict(dict(adapter_manifest))
+    manifest_hash, implementation_hash = _context_manifest(manifest, plan)
+
+    activation_delta = plan.raw["launch"]
+    base_argv = list(manifest.raw["yolo_mapping"]["launch_argv"])
+    additive_argv = list(activation_delta["argv"])
+    if set(base_argv) & set(additive_argv):
+        raise IdentityError("activation argv overlaps the adapter base mapping")
+    argv = [*base_argv, *additive_argv]
+
+    value_refs = {
+        "true_literal": "true",
+        "config_root_path": str(config),
+    }
+    bindings: Dict[str, str] = {}
+    for symbolic in activation_delta["env"]:
+        try:
+            resolved = value_refs[symbolic["value_ref"]]
+        except KeyError as exc:
+            raise IdentityError(
+                "activation environment binding is unsupported"
+            ) from exc
+        if symbolic["name"] in bindings:
+            raise IdentityError("activation environment binding is duplicated")
+        bindings[symbolic["name"]] = resolved
+
+    environment, launch_identity = build_launch_identity(
+        target="claude",
+        repo=workspace,
+        argv=argv,
+        source_environment=source_environment,
+        bindings=bindings,
+        admitted_lane_root=lane_root,
+    )
+    manifest.verify_launch_execution_environment(environment)
+    admitted_plan = build_admitted_launch_plan(
+        target="claude",
+        session=session,
+        run_id=run_id,
+        repo=workspace,
+        argv=argv,
+        environment=environment,
+        admitted_lane_root=lane_root,
+    )
+    validated_admitted = validate_admitted_launch_plan(
+        admitted_plan,
+        expected_target="claude",
+        expected_session=session,
+        expected_run_id=run_id,
+    )
+    if (
+        validated_admitted["argv"] != argv
+        or validated_admitted["launch_identity"] != launch_identity
+    ):
+        raise IdentityError("admitted launch plan changed during activation join")
+
+    context = ActivationLaunchContext(
+        target="claude",
+        session=session,
+        run_id=run_id,
+        session_profile=session_profile,
+        adapter_manifest_sha256=manifest_hash,
+        adapter_implementation_sha256=implementation_hash,
+        activation_plan_sha256=plan.plan_sha256,
+        activation_receipt_sha256=sha256_bytes(canonical_json_bytes(dict(receipt))),
+        activation_delta_sha256=plan.raw["launch_plan_sha256"],
+        artifact_sha256=receipt["artifact"]["sha256"],
+        workspace_root_sha256=sha256_bytes(
+            canonical_json_bytes(plan.raw["workspace_root"])
+        ),
+        config_root_sha256=sha256_bytes(canonical_json_bytes(plan.raw["config_root"])),
+        admitted_lane_root_sha256=sha256_bytes(canonical_json_bytes(lane_identity)),
+        admitted_launch_plan_sha256=sha256_bytes(canonical_json_bytes(admitted_plan)),
+        _argv=tuple(argv),
+        _environment_items=tuple(sorted(environment.items())),
+        _launch_identity_json=canonical_json_bytes(launch_identity),
+        _admitted_launch_plan_json=canonical_json_bytes(admitted_plan),
+    )
+    context.verify_launch_values(argv=argv, environment=environment)
+    return context
+
+
 def _intent_for(plan: ActivationPlan) -> Dict[str, Any]:
     return {"schema": INTENT_SCHEMA, "plan": plan.to_dict()}
 
 
 def _validate_intent(value: Mapping[str, Any]) -> ActivationPlan:
-    if not isinstance(value, Mapping) or set(value) != {"schema", "plan"}:
+    if not isinstance(value, Mapping):
         raise ValidationError("activation intent fields are invalid")
-    if value["schema"] != INTENT_SCHEMA:
+    if value.get("schema") != INTENT_SCHEMA:
         raise ValidationError("activation intent schema is unsupported")
+    if set(value) != {"schema", "plan"}:
+        raise ValidationError("activation intent fields are invalid")
     validate_bounded_json(dict(value), max_depth=8, max_items=64, max_string=4096)
     return ActivationPlan.from_dict(value["plan"])
 
@@ -1326,6 +1692,7 @@ def _receipt_for(
         "effective_contract_fingerprint": plan.raw["effective_contract_fingerprint"],
         "effective_contract_sha256": plan.raw["effective_contract_sha256"],
         "adapter_manifest_sha256": plan.raw["adapter_manifest_sha256"],
+        "adapter_implementation_sha256": plan.raw["adapter_implementation_sha256"],
         "version_observation_sha256": plan.raw["version_observation_sha256"],
         "launch_plan_sha256": plan.raw["launch_plan_sha256"],
         "root_before": plan.raw["ephemeral_root"],
@@ -1345,6 +1712,7 @@ def _validate_receipt(value: Mapping[str, Any], plan: ActivationPlan) -> Dict[st
         "effective_contract_fingerprint",
         "effective_contract_sha256",
         "adapter_manifest_sha256",
+        "adapter_implementation_sha256",
         "version_observation_sha256",
         "launch_plan_sha256",
         "root_before",
@@ -1352,10 +1720,12 @@ def _validate_receipt(value: Mapping[str, Any], plan: ActivationPlan) -> Dict[st
         "artifact",
         "created_directories",
     }
-    if not isinstance(value, Mapping) or set(value) != keys:
+    if not isinstance(value, Mapping):
         raise ValidationError("activation receipt fields are invalid")
-    if value["schema"] != RECEIPT_SCHEMA:
+    if value.get("schema") != RECEIPT_SCHEMA:
         raise ValidationError("activation receipt schema is unsupported")
+    if set(value) != keys:
+        raise ValidationError("activation receipt fields are invalid")
     validate_bounded_json(dict(value), max_depth=8, max_items=64, max_string=4096)
     expected_hashes = {
         "plan_sha256": plan.plan_sha256,
@@ -1365,6 +1735,7 @@ def _validate_receipt(value: Mapping[str, Any], plan: ActivationPlan) -> Dict[st
         "effective_contract_fingerprint": plan.raw["effective_contract_fingerprint"],
         "effective_contract_sha256": plan.raw["effective_contract_sha256"],
         "adapter_manifest_sha256": plan.raw["adapter_manifest_sha256"],
+        "adapter_implementation_sha256": plan.raw["adapter_implementation_sha256"],
         "version_observation_sha256": plan.raw["version_observation_sha256"],
         "launch_plan_sha256": plan.raw["launch_plan_sha256"],
     }
@@ -1770,9 +2141,13 @@ def _validate_rollback_intent(
         "created_directories",
         "root_before",
     }
-    if not isinstance(value, Mapping) or set(value) != keys:
+    if not isinstance(value, Mapping):
         raise ValidationError("rollback intent fields are invalid")
-    if value["schema"] != ROLLBACK_INTENT_SCHEMA or value["artifact_state"] != "absent":
+    if value.get("schema") != ROLLBACK_INTENT_SCHEMA:
+        raise ValidationError("rollback intent schema is unsupported")
+    if set(value) != keys:
+        raise ValidationError("rollback intent fields are invalid")
+    if value["artifact_state"] != "absent":
         raise ValidationError("rollback intent is invalid")
     validate_bounded_json(dict(value), max_depth=6, max_items=64, max_string=4096)
     expected = {
@@ -1894,9 +2269,13 @@ def _validate_rollback_receipt(
         "removed_directories",
         "root_after",
     }
-    if not isinstance(value, Mapping) or set(value) != keys:
+    if not isinstance(value, Mapping):
         raise ValidationError("rollback receipt fields are invalid")
-    if value["schema"] != ROLLBACK_SCHEMA or value["artifact_state"] != "absent":
+    if value.get("schema") != ROLLBACK_SCHEMA:
+        raise ValidationError("rollback receipt schema is unsupported")
+    if set(value) != keys:
+        raise ValidationError("rollback receipt fields are invalid")
+    if value["artifact_state"] != "absent":
         raise ValidationError("rollback receipt is invalid")
     validate_bounded_json(dict(value), max_depth=6, max_items=64, max_string=4096)
     expected = {
@@ -2189,8 +2568,10 @@ def recover_activation(transaction_root: Path | str) -> ActivationRecovery:
 
 
 __all__ = [
+    "ActivationLaunchContext",
     "ActivationPlan",
     "ActivationRecovery",
+    "build_activation_launch_context",
     "load_activation_plan",
     "materialize_activation",
     "plan_activation",

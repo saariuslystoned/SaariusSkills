@@ -32,6 +32,7 @@ from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.plane_activation import (  # noqa: E402
     INTENT_FILENAME,
     RECEIPT_FILENAME,
+    build_activation_launch_context,
     load_activation_plan,
     materialize_activation,
     plan_activation,
@@ -48,20 +49,20 @@ from puppet_lib.profiles import (  # noqa: E402
 )
 
 
-ADAPTER_SHA256 = adapter_implementation_fingerprint()
+ADAPTER_IMPLEMENTATION_SHA256 = adapter_implementation_fingerprint()
 VERSION_OBSERVATION_SHA256 = (
     "3c95eff850dac10d40c5692a73957f526b54a74767163913dc858c4f8d4c8c63"
 )
 
 
-def _descriptor() -> dict:
+def _descriptor(adapter_manifest_sha256: str) -> dict:
     return {
         "schema": "puppet.instruction-plane/v1",
         "descriptor_id": "claude-native-qualification",
         "target": {
             "harness": "claude",
             "version": "2.1.215",
-            "adapter_manifest_sha256": ADAPTER_SHA256,
+            "adapter_manifest_sha256": adapter_manifest_sha256,
             "requested_model": "default",
             "observed_model": "unavailable",
             "config_fingerprint": "unavailable",
@@ -144,23 +145,31 @@ def _adapter_manifest() -> dict:
                 "mtime_ns": executable_details.st_mtime_ns,
             }
         ),
-        "adapter_fingerprint": ADAPTER_SHA256,
+        "adapter_fingerprint": ADAPTER_IMPLEMENTATION_SHA256,
         "protocol_fingerprint": "d" * 64,
         "yolo_mapping": {
-            "complete": True,
-            "launch_argv": [str(executable)],
+            # Real Claude census is incomplete only because it has no native
+            # project-isolation selector. The activation's exact workspace,
+            # config, and admitted-lane roots close that one dimension.
+            "complete": False,
+            "launch_argv": [
+                str(executable),
+                "--dangerously-skip-permissions",
+            ],
             "permission_declared": True,
-            "permission_flags": ["--test-owned-process"],
+            "permission_flags": ["--dangerously-skip-permissions"],
             "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": [],
-            "project_isolation_declared": True,
+            "project_isolation_declared": False,
             "project_isolation_flags": [],
             "session_profiles": session_profiles_for("claude"),
             "session_profiles_declared": True,
             "startup_settle_seconds": startup_settle_seconds_for("claude"),
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+            "model_flag": "--model",
+            "effort_flag": "--effort",
         },
         "capabilities": {
             name: "declared"
@@ -200,8 +209,11 @@ class PlaneActivationTests(unittest.TestCase):
             workspace_identity={"workspace_id": "claude-native-workspace"},
             run_identity={"run_id": "claude-native-run"},
         )
-        self.descriptor = _descriptor()
         self.adapter_manifest = _adapter_manifest()
+        self.adapter_manifest_sha256 = AdapterManifest.from_dict(
+            self.adapter_manifest
+        ).fingerprint
+        self.descriptor = _descriptor(self.adapter_manifest_sha256)
         self.plan = self._plan()
 
     def _plan(self, descriptor=None, **overrides):
@@ -222,6 +234,24 @@ class PlaneActivationTests(unittest.TestCase):
         return materialize_activation(
             self.plan, effective_contract=self.compiled.rendered
         )
+
+    def _launch_context(self, **overrides):
+        arguments = {
+            "adapter_manifest": self.adapter_manifest,
+            "session": "claude-native-session",
+            "run_id": "claude-native-run",
+            "session_profile": "regular",
+            "workspace_root": self.workspace,
+            "config_root": self.config,
+            "admitted_lane_root": self.base,
+            "source_environment": {
+                "HOME": "/safe/home",
+                "PATH": "/usr/bin:/bin",
+                "PUPPET_PARENT_CANARY": "must-not-cross",
+            },
+        }
+        arguments.update(overrides)
+        return build_activation_launch_context(self.plan, **arguments)
 
     def assert_artifact_preserved(self):
         self.assertTrue(
@@ -263,7 +293,11 @@ class PlaneActivationTests(unittest.TestCase):
         self.assertEqual(
             raw["effective_contract_sha256"], sha256_bytes(self.compiled.rendered)
         )
-        self.assertEqual(raw["adapter_manifest_sha256"], ADAPTER_SHA256)
+        self.assertEqual(raw["adapter_manifest_sha256"], self.adapter_manifest_sha256)
+        self.assertEqual(
+            raw["adapter_implementation_sha256"],
+            ADAPTER_IMPLEMENTATION_SHA256,
+        )
         self.assertEqual(raw["version_observation_sha256"], VERSION_OBSERVATION_SHA256)
         self.assertEqual(raw["created_directory_paths"], [])
         self.assertEqual(
@@ -283,6 +317,275 @@ class PlaneActivationTests(unittest.TestCase):
         self.assertEqual(
             raw["launch_plan_sha256"], sha256_bytes(canonical_json_bytes(raw["launch"]))
         )
+
+    def test_plan_binds_exact_manifest_but_ignores_fresh_census_timestamp(self):
+        self.assertNotEqual(
+            self.adapter_manifest_sha256,
+            ADAPTER_IMPLEMENTATION_SHA256,
+        )
+        fresh = copy.deepcopy(self.adapter_manifest)
+        fresh["generated_at"] = "2026-07-22T03:00:01Z"
+        self.assertNotEqual(
+            AdapterManifest.from_dict(fresh).fingerprint,
+            self.adapter_manifest_sha256,
+        )
+        plan = self._plan(_current_manifest=fresh)
+        self.assertEqual(
+            plan.raw["adapter_manifest_sha256"], self.adapter_manifest_sha256
+        )
+        self.assertEqual(
+            plan.raw["adapter_implementation_sha256"],
+            ADAPTER_IMPLEMENTATION_SHA256,
+        )
+
+        implementation_bound = copy.deepcopy(self.descriptor)
+        implementation_bound["target"]["adapter_manifest_sha256"] = (
+            ADAPTER_IMPLEMENTATION_SHA256
+        )
+        with self.assertRaisesRegex(IdentityError, "exact supplied adapter manifest"):
+            self._plan(implementation_bound, _current_manifest=fresh)
+
+    def test_real_shaped_claude_activation_builds_body_free_prelease_context(self):
+        receipt = self._activate()
+        before = {
+            "config": list(self.config.iterdir()),
+            "ephemeral": [item.name for item in self.ephemeral.iterdir()],
+            "transaction": [item.name for item in self.transaction.iterdir()],
+        }
+        with mock.patch.object(
+            activation_module,
+            "census_target",
+            side_effect=AssertionError("launch context must remain process-free"),
+        ):
+            context = self._launch_context()
+        after = {
+            "config": list(self.config.iterdir()),
+            "ephemeral": [item.name for item in self.ephemeral.iterdir()],
+            "transaction": [item.name for item in self.transaction.iterdir()],
+        }
+        self.assertEqual(before, after)
+
+        expected_argv = [
+            str(Path(sys.executable).resolve()),
+            "--dangerously-skip-permissions",
+            "--append-system-prompt-file",
+            str(self.plan.artifact_path),
+        ]
+        expected_environment = {
+            "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "true",
+            "CLAUDE_CONFIG_DIR": str(self.config.resolve(strict=True)),
+            "HOME": "/safe/home",
+            "PATH": "/usr/bin:/bin",
+        }
+        self.assertEqual(context.argv, expected_argv)
+        self.assertEqual(context.environment, expected_environment)
+        self.assertNotIn("PUPPET_PARENT_CANARY", context.environment)
+        admitted = context.admitted_launch_plan
+        self.assertEqual(admitted["kind"], "puppet.admitted-launch-plan/v1")
+        self.assertEqual(admitted["argv"], expected_argv)
+        self.assertNotIn("environment", admitted)
+        self.assertEqual(
+            context.launch_identity,
+            {
+                "cwd": admitted["cwd"],
+                "argv_sha256": sha256_bytes(canonical_json_bytes(expected_argv)),
+                "env_names": admitted["env_names"],
+                "env_fingerprint": admitted["env_fingerprint"],
+            },
+        )
+
+        public = context.to_public_dict()
+        self.assertEqual(public["schema"], activation_module.LAUNCH_CONTEXT_SCHEMA)
+        self.assertEqual(public["activation_plan_sha256"], self.plan.plan_sha256)
+        self.assertEqual(
+            public["activation_receipt_sha256"],
+            sha256_bytes(canonical_json_bytes(receipt)),
+        )
+        self.assertEqual(
+            public["activation_delta_sha256"],
+            self.plan.raw["launch_plan_sha256"],
+        )
+        self.assertEqual(
+            public["adapter_manifest_sha256"], self.adapter_manifest_sha256
+        )
+        self.assertEqual(
+            public["adapter_implementation_sha256"],
+            ADAPTER_IMPLEMENTATION_SHA256,
+        )
+        self.assertEqual(
+            public["project_isolation"],
+            "activation_bound_workspace_config_lane_roots",
+        )
+        persistable = canonical_json_bytes(public) + canonical_json_bytes(admitted)
+        for forbidden in (
+            self.compiled.rendered,
+            self.body_marker.encode(),
+            str(self.config).encode(),
+            str(self.config.resolve(strict=True)).encode(),
+            b"/safe/home",
+            b"/usr/bin:/bin",
+            b"true",
+            b"must-not-cross",
+        ):
+            self.assertNotIn(forbidden, persistable)
+            self.assertNotIn(forbidden.decode("utf-8"), repr(context))
+
+    def test_launch_context_requires_verified_activation_before_resolution(self):
+        with mock.patch.object(activation_module, "build_launch_identity") as builder:
+            with self.assertRaisesRegex(ConflictError, "not in active state"):
+                self._launch_context()
+        builder.assert_not_called()
+
+    def test_launch_context_rejects_manifest_argv_and_environment_drift(self):
+        self._activate()
+        context = self._launch_context()
+
+        changed_manifest = copy.deepcopy(self.adapter_manifest)
+        changed_manifest["generated_at"] = "2026-07-22T03:00:02Z"
+        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
+            self._launch_context(adapter_manifest=changed_manifest)
+
+        changed_base_argv = copy.deepcopy(self.adapter_manifest)
+        changed_base_argv["yolo_mapping"]["launch_argv"].append("--argv-drift")
+        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
+            self._launch_context(adapter_manifest=changed_base_argv)
+
+        argv = context.argv
+        argv[-1] = str(self.base / "different-artifact")
+        with self.assertRaisesRegex(IdentityError, "launch argv changed"):
+            context.verify_launch_values(argv=argv, environment=context.environment)
+
+        environment = context.environment
+        environment["CLAUDE_CONFIG_DIR"] = str(self.workspace.resolve(strict=True))
+        with self.assertRaisesRegex(IdentityError, "launch environment changed"):
+            context.verify_launch_values(argv=context.argv, environment=environment)
+
+        with self.assertRaisesRegex(UnsupportedError, "regular profile"):
+            self._launch_context(session_profile="goal")
+
+    def test_launch_context_rejects_receipt_artifact_and_root_drift(self):
+        self._activate()
+        original_receipt = self.plan.receipt_path.read_bytes()
+        receipt = json.loads(original_receipt.decode("utf-8"))
+        receipt["plan_sha256"] = "f" * 64
+        self.plan.receipt_path.write_bytes(canonical_json_bytes(receipt) + b"\n")
+        self.plan.receipt_path.chmod(0o600)
+        with self.assertRaisesRegex(IdentityError, "receipt binding changed"):
+            self._launch_context()
+        self.plan.receipt_path.write_bytes(original_receipt)
+        self.plan.receipt_path.chmod(0o600)
+
+        changed_body = b"X" * len(self.compiled.rendered)
+        self.plan.artifact_path.write_bytes(changed_body)
+        self.plan.artifact_path.chmod(0o600)
+        with self.assertRaisesRegex(IdentityError, "artifact identity or content"):
+            self._launch_context()
+        self.plan.artifact_path.write_bytes(self.compiled.rendered)
+        self.plan.artifact_path.chmod(0o600)
+
+        wrong_workspace = self.base / "wrong-workspace"
+        wrong_workspace.mkdir(mode=0o700)
+        with self.assertRaisesRegex(
+            IdentityError, "does not match the activation plan"
+        ):
+            self._launch_context(workspace_root=wrong_workspace)
+
+        with self.assertRaisesRegex(IdentityError, "exact activation parent"):
+            self._launch_context(admitted_lane_root=self.base.parent)
+        original_lane_mode = stat.S_IMODE(self.base.stat().st_mode)
+        self.base.chmod(0o755)
+        try:
+            with self.assertRaisesRegex(IdentityError, "current-UID 0700"):
+                self._launch_context()
+        finally:
+            self.base.chmod(original_lane_mode)
+
+        retired_config = self.base / "retired-config"
+        self.config.rename(retired_config)
+        self.config.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(IdentityError, "config root identity changed"):
+                self._launch_context()
+        finally:
+            self.config.rmdir()
+            retired_config.rename(self.config)
+
+    def test_only_project_isolation_may_be_closed_by_activation_roots(self):
+        incomplete_dimensions = (
+            "permission_declared",
+            "sandbox_disable_declared",
+            "prompt_transport_declared",
+            "session_profiles_declared",
+        )
+        for dimension in incomplete_dimensions:
+            with self.subTest(dimension=dimension):
+                candidate = copy.deepcopy(self.adapter_manifest)
+                candidate["yolo_mapping"][dimension] = False
+                manifest = AdapterManifest.from_dict(candidate)
+                descriptor = copy.deepcopy(self.descriptor)
+                descriptor["target"]["adapter_manifest_sha256"] = manifest.fingerprint
+                plan = self._plan(
+                    descriptor,
+                    adapter_manifest=manifest,
+                    _current_manifest=manifest,
+                )
+                with self.assertRaisesRegex(
+                    UnsupportedError,
+                    "only the missing project-isolation dimension",
+                ):
+                    activation_module._context_manifest(manifest, plan)
+
+    def test_v2_load_and_recovery_reject_legacy_future_and_mixed_families(self):
+        current_plan = self.plan.to_dict()
+        cases = (
+            (
+                "legacy-intent",
+                {
+                    "schema": "puppet.plane-activation-intent/v1",
+                    "plan": current_plan,
+                },
+                "activation intent schema",
+            ),
+            (
+                "future-intent",
+                {
+                    "schema": "puppet.plane-activation-intent/v3",
+                    "plan": current_plan,
+                },
+                "activation intent schema",
+            ),
+            (
+                "mixed-plan",
+                {
+                    "schema": activation_module.INTENT_SCHEMA,
+                    "plan": {
+                        **current_plan,
+                        "schema": "puppet.plane-activation-plan/v1",
+                    },
+                },
+                "activation plan schema",
+            ),
+        )
+        for label, value, message in cases:
+            with self.subTest(label=label):
+                self.plan.intent_path.write_bytes(canonical_json_bytes(value) + b"\n")
+                self.plan.intent_path.chmod(0o600)
+                with self.assertRaisesRegex(ValidationError, message):
+                    load_activation_plan(self.transaction)
+                with self.assertRaisesRegex(ValidationError, message):
+                    recover_activation(self.transaction)
+                self.plan.intent_path.unlink()
+
+        self._activate()
+        self.assertEqual(load_activation_plan(self.transaction), self.plan)
+        self.assertEqual(recover_activation(self.transaction).state, "active")
+        original_receipt = self.plan.receipt_path.read_bytes()
+        receipt = json.loads(original_receipt.decode("utf-8"))
+        receipt["schema"] = "puppet.plane-activation-receipt/v1"
+        self.plan.receipt_path.write_bytes(canonical_json_bytes(receipt) + b"\n")
+        self.plan.receipt_path.chmod(0o600)
+        with self.assertRaisesRegex(ValidationError, "activation receipt schema"):
+            recover_activation(self.transaction)
 
     def test_success_intent_precedes_write_and_rollback_is_separate_and_idempotent(
         self,
@@ -857,7 +1160,7 @@ class PlaneActivationTests(unittest.TestCase):
             return_value=AdapterManifest.from_dict(self.adapter_manifest),
         ) as census:
             self._plan(_current_manifest=None)
-        census.assert_called_once_with("claude", ADAPTER_SHA256)
+        census.assert_called_once_with("claude", ADAPTER_IMPLEMENTATION_SHA256)
 
     def test_rollback_intent_is_durable_before_any_cleanup(self):
         self._activate()

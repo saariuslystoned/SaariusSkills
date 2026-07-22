@@ -2,8 +2,10 @@
 
 from .errors import ConflictError, PuppetError, UnsupportedError, ValidationError
 from .plane_activation import (
+    ActivationLaunchContext,
     ActivationPlan,
     ActivationRecovery,
+    build_activation_launch_context,
     load_activation_plan,
     materialize_activation,
     plan_activation,
@@ -17,8 +19,10 @@ __all__ = [
     "PuppetError",
     "UnsupportedError",
     "ValidationError",
+    "ActivationLaunchContext",
     "ActivationPlan",
     "ActivationRecovery",
+    "build_activation_launch_context",
     "load_activation_plan",
     "materialize_activation",
     "plan_activation",
