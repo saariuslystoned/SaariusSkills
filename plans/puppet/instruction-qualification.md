@@ -159,19 +159,23 @@ its own design and operator action.
 This is a discovery map, not qualification. Re-census the installed executable
 and authoritative documentation before implementing a plane.
 
-- Claude Code 2.1.215 exposes user, project, local, and rules-file layers plus
-  additive `--append-system-prompt`; `--system-prompt` and main `--agent`
-  replace broader prompt behavior and are not the default Puppet route.
+- Claude Code 2.1.215 exposes namespaced output styles, project rules, and an
+  exact-parser-accepted additive `--append-system-prompt-file`. Replacement
+  `--system-prompt`, `--system-prompt-file`, and main `--agent` are forbidden.
+  A unique `CLAUDE_CONFIG_DIR` plus explicit setting sources is the candidate
+  isolation boundary; `.claude/settings.local.json` is not worktree-isolated.
 - Cursor IDE 3.12.17 / Cursor Agent 2026.07.17-3e2a980 exposes User Rules,
   project `.cursor/rules`, `AGENTS.md`, and compatibility rule files. No public
   supported per-run primary system-prompt flag was found; an internal flag is
   not a product contract.
-- Grok Build 0.2.106 exposes home/project rule layers, named agent profiles, and
-  additive `--rules` / `--append-system-prompt`. Prompt-replacement flags are
-  not the default Puppet route.
-- AGY and Codex instruction-plane precedence still require exact-version
-  census and live proof; current machine/project behavior is not enough to
-  generalize a portable contract.
+- Grok Build 0.2.106 exposes home/project rule layers and named agent/profile
+  surfaces. Exact help does not expose `--append-system-prompt`; literal
+  `--rules` places content in argv and cannot qualify Puppet's per-run plane.
+  Prompt-replacement flags are forbidden.
+- AGY 1.1.5 and Codex CLI 0.145.0 have exact-version static censuses, but their
+  native planes remain unqualified. AGY lacks a proved isolated config root and
+  positive sandbox-off override; Codex's isolated `CODEX_HOME` is coupled to
+  authentication and cannot be manufactured by copying credentials.
 
 Sources for the discovery record are the exact installed help/binaries and the
 vendor documentation cited by the campaign evidence. Local config existence

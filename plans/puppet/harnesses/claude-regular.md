@@ -19,8 +19,11 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
   - permission flag: `--dangerously-skip-permissions`
   - model flag: `--model`
   - effort flag: `--effort`
-  - `project_isolation_flags`: `[]` (declared by help parse as `true`)
-  - `sandbox_disable_declared`: `true` (help text has no positive `--sandbox`)
+  - `project_isolation_flags`: `[]`; the current parser's vacuous `true` is not
+    proof of workspace/config isolation.
+  - `sandbox_disable_declared`: currently inferred as `true` from the absence
+    of a help row. That is not proof of the effective setting and must be
+    replaced before live qualification.
   - `prompt_transport`: `interactive_tmux_load_buffer_stdin_declared`
   - `session_profiles`: `{regular: "", loop: "/loop", goal: "/goal"}`
   - `launch_argv`: `["/opt/homebrew/Caskroom/claude-code@latest/2.1.215/claude", "--dangerously-skip-permissions"]`
@@ -40,16 +43,16 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 
 ### Hypotheses / evidence gaps
 
-- Default model/effort identity is unresolved unless explicitly passed with
-  `--model` / `--effort`; static census can confirm flag names only.
+- Static census cannot resolve the default model. A sanitized `SessionStart`
+  hook exposes the selected model, source, permission mode, and cwd without
+  reading a transcript. Effective effort is not exposed and remains
+  `unavailable`.
 - `/loop` runtime semantics are unproven and deferred from this regular lane.
 - Workspace / project addendum behavior is not proven from `--help` (`--settings`,
   `--setting-sources`, and `--session-id` are declared, but bleed boundaries are not proved).
-- A per-run additive layer is declared by `--append-system-prompt`;
-  `--system-prompt` is replacement behavior and forbidden. Literal prompt
-  flags still fail Puppet's no-prompt-in-argv gate.
-- Live default-model observation command was not discovered from static help; a prior direct
-  `claude models` probe did not produce output before being interrupted.
+- Exact parser probes recognize `--append-system-prompt-file <file>` even
+  though it is not rendered as a standalone help row. Replacement
+  `--system-prompt` and `--system-prompt-file` remain forbidden.
 
 ## 2) Instruction plane map for this version
 
@@ -57,26 +60,25 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 and `/goal` remain deferred commands, not instruction planes.
 
 ### Plane 1: session-selected harness-global Puppet addendum
-- Claude supports user `CLAUDE.md`/rules and selectable setting sources. Test a
-  Puppet-namespaced user layer only inside an isolated home/config root.
-- Do not use `--agent` as the default route: it replaces the main-session system
-  prompt. Prove exact activation, built-in retention, and no bleed before
-  selecting this plane.
+- Use a Puppet-namespaced custom output style under a lane-owned
+  `CLAUDE_CONFIG_DIR`, selected by a lane-owned `--settings` file containing
+  `outputStyle`. Set `keep-coding-instructions: true` so Claude Code's coding
+  instructions remain active. A matched control receives the same isolated
+  catalog but omits the selector.
+- Do not use `--agent`: it replaces broader main-session behavior.
 
 ### Plane 2: workspace/repository addendum plane (supported, unqualified)
 - Claude discovers project/local `CLAUDE.md` and `.claude/rules` surfaces.
-- Add only scoped orchestration guidance in an isolated worktree, preserving
-  existing repository authority, then prove discovery order and cleanup.
+- Use a create-only Puppet-namespaced `.claude/rules/*.md` artifact in an
+  isolated worktree, preserving existing repository authority, then prove
+  discovery order and exact cleanup. Do not use `.claude/settings.local.json`:
+  this version resolves it through the main checkout across worktrees.
 
 ### Plane 3: additive per-run system-instruction plane (candidate)
-- `--append-system-prompt` is additive, while `--system-prompt` is replacement
-  and forbidden. A file variant is mentioned by exact-version help but still
-  is not listed as its own help row.
-- Current official CLI documentation explicitly defines
-  `--append-system-prompt-file <path>` for interactive and non-interactive
-  sessions and says it preserves default tools, safety, and coding guidance.
-  The instruction body therefore need not enter argv. Exact-binary parsing,
-  additive behavior, and no-bleed still require isolated live proof.
+- `--append-system-prompt-file <path>` is parsed by the exact binary and is
+  documented as additive to the default prompt. The instruction body therefore
+  need not enter argv. Exact additive behavior, built-in retention, and
+  no-bleed still require isolated live proof.
 - Literal prompt flags expose instruction text in argv and fail closed; the
   lane-owned file form is the viable candidate.
 
@@ -86,14 +88,14 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
 
 ## 3) Default-model observation plan
 
-1. Add a lane-owned isolated run fixture with deterministic fixture home and temporary
-   settings source.
-2. Run one regular session with no explicit `--model`/`--effort`.
-3. Extend conformance/readiness handling to record the effective model/effort value in
-   deterministic fixture output (or reject the lane as blocked if unavailable).
-4. If the target does not expose explicit model/effort in the bounded handoff, classify
-   default-model state as `model_unknown` and require explicit model pinning path for all live
-   regular runs.
+1. Use a unique lane-owned `CLAUDE_CONFIG_DIR`, a deterministic technical
+   settings file, and `--setting-sources user,project,local`.
+2. Run the interactive regular TUI with no explicit `--model` or `--effort`.
+3. A controller-owned `SessionStart` hook records only session ID, source,
+   model, permission mode, cwd, and optional agent type. It discards transcript
+   paths and emits no output.
+4. Record the observed model exactly and effort as `unavailable`; never pin a
+   different model merely because the default is opaque.
 
 ## 4) Regular launch / resume / steer / halt / no-bleed matrix
 
@@ -112,18 +114,25 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
   - temporary fixture run tree under the lane workspace
   - temporary settings source file and explicit setting source constraints
   - no reads or writes against user global Claude config.
-- Candidate isolation controls are to be applied through fixture arguments and `--settings`
-  / `--setting-sources` in command entry, then validated by before/after checks on
-  ordinary-config surfaces.
+- Set `CLAUDE_CONFIG_DIR` to the lane root and pass lane-owned `--settings` plus
+  exact `--setting-sources user,project,local`. `--settings` merges; it is not
+  itself an isolation boundary. Managed policy remains higher authority and an
+  unexpected conflict blocks qualification.
+- Authentication remains macOS Keychain-backed with the relocated config root;
+  do not copy or inspect credentials. Do not use `--bare`, which prevents that
+  normal authentication behavior and disables hooks/customizations.
 - Do not keep any live command artifacts inside the default user home between runs.
 
 ## 6) Required Puppet deltas for this lane
 
-- Expand `skills/puppet/scripts/puppet_lib/probe.py` to record and verify effective default model/effort
-  from a live regular Claude handoff or equivalent deterministic fixture claim.
-- Extend `skills/puppet/scripts/puppet_lib/census.py` / `adapter_manifest.py` tests if
-  future evidence is added for isolated settings sources so source-free mapping can prove real
-  bleed boundaries for `/settings`-based addendum experiments.
+- Add allowlisted environment and immutable path-vector launch deltas for
+  `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, `--settings`,
+  `--setting-sources`, and the selected native plane.
+- Replace help-absence sandbox inference with observed isolated settings/hook
+  evidence. Record sanitized `SessionStart` and `InstructionsLoaded` events and
+  bind the observed default model to the receipt.
+- Materialize per-run files beneath a 0700 lane root as 0600 regular
+  non-symlink files; revalidate inode/hash before launch and exact rollback.
 - Keep Claude `/loop` and `/goal` evidence in the deferred command map; do not
   make either a regular-baseline gate.
 - Add no-bleed regression assertions for fixture-root-only settings handling.
@@ -131,7 +140,9 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
 ## 7) Blockers and stop criteria
 
 - Hard blockers:
-  - No live default-model proof yet; cannot declare `model_default` exact.
+  - No live hook proof yet; the default model remains unqualified.
+  - Managed settings or instructions can invalidate assumed isolation or
+    sandbox behavior.
   - Resume is unsupported under current source for this lane.
   - Any static path or launch command that injects prompt text in argv.
 - Stop criteria:

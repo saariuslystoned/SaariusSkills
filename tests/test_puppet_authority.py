@@ -28,6 +28,7 @@ from puppet_lib.authority import (  # noqa: E402
     current_session_lease,
     lease_owner,
     release_real_harness_lock,
+    require_session_lease,
     transition_session_lease,
 )
 from puppet_lib.contracts import Contract  # noqa: E402
@@ -38,6 +39,7 @@ from puppet_lib.errors import (  # noqa: E402
     ValidationError,
 )
 from puppet_lib.handoffs import validate_handoff  # noqa: E402
+from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
     SessionRegistry,
@@ -45,7 +47,11 @@ from puppet_lib.registry import (  # noqa: E402
     process_birth_identity,
     send_exact_sigint,
 )
-from puppet_lib.safety import canonical_tmux_socket_path  # noqa: E402
+from puppet_lib.safety import (  # noqa: E402
+    atomic_write_json,
+    canonical_tmux_socket_path,
+    sha256_file,
+)
 from puppet_lib.verdicts import record_review, verify_current_identity  # noqa: E402
 
 
@@ -62,6 +68,9 @@ HARD_GATES = [
     "destructive_cleanup",
 ]
 
+STABLE_INSTRUCTION_MANIFEST_SHA256 = "0" * 64
+ALTERNATE_INSTRUCTION_MANIFEST_SHA256 = "1" * 64
+
 
 def contract(repo: Path):
     return Contract.from_dict(
@@ -77,7 +86,9 @@ def contract(repo: Path):
             "repo": str(repo),
             "branch": "codex/example",
             "allowed_modes": ["read", "test"],
-            "terminal_criteria": [{"id": "proof_green", "evidence": "validated_handoff"}],
+            "terminal_criteria": [
+                {"id": "proof_green", "evidence": "validated_handoff"}
+            ],
             "hard_gates": HARD_GATES,
         }
     )
@@ -113,15 +124,20 @@ class AuthorityTests(unittest.TestCase):
             observed.append(pid)
             return {"pid": pid}
 
-        process_table = "101 /opt/bin/cursor\n102 /opt/bin/Cursor\n103 /opt/bin/cursor-agent\n"
-        with patch.object(
-            puppet_campaign.subprocess,
-            "run",
-            return_value=SimpleNamespace(returncode=0, stdout=process_table),
-        ), patch.object(
-            puppet_campaign,
-            "process_birth_identity",
-            side_effect=identity,
+        process_table = (
+            "101 /opt/bin/cursor\n102 /opt/bin/Cursor\n103 /opt/bin/cursor-agent\n"
+        )
+        with (
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=process_table),
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                side_effect=identity,
+            ),
         ):
             result = puppet_campaign.active_target_processes("cursor")
         self.assertEqual(observed, [101, 103])
@@ -140,18 +156,22 @@ class AuthorityTests(unittest.TestCase):
         }
         process_table = "4242 /opt/bin/codex\n5000 /opt/bin/helper\n"
         node = {"process": identity, "parent_pid": 1}
-        with patch.object(
-            puppet_campaign.subprocess,
-            "run",
-            return_value=SimpleNamespace(returncode=0, stdout=process_table),
-        ) as run, patch.object(
-            puppet_campaign,
-            "process_tree_identity",
-            return_value=node,
-        ), patch.object(
-            puppet_campaign,
-            "process_tree_alive",
-            return_value=True,
+        with (
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=process_table),
+            ) as run,
+            patch.object(
+                puppet_campaign,
+                "process_tree_identity",
+                return_value=node,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_alive",
+                return_value=True,
+            ),
         ):
             snapshot = puppet_campaign.target_process_snapshot("codex")
         self.assertEqual(snapshot["processes"], [identity])
@@ -183,6 +203,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=first_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             second_owner = lease_owner(state_root=second_state, **common)
@@ -192,6 +213,7 @@ class AuthorityTests(unittest.TestCase):
                     target="codex",
                     controller="tester",
                     owner=second_owner,
+                    instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                     authority_root=authority,
                 )
             self.assertEqual(
@@ -229,6 +251,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=codex_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             claude = admit_session_lease(
@@ -236,22 +259,20 @@ class AuthorityTests(unittest.TestCase):
                 target="claude",
                 controller="tester",
                 owner=claude_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             self.assertEqual(codex["generation"], 1)
             self.assertEqual(claude["generation"], 1)
-            self.assertEqual(
-                current_session_lease(authority, target="codex"), codex
-            )
-            self.assertEqual(
-                current_session_lease(authority, target="claude"), claude
-            )
+            self.assertEqual(current_session_lease(authority, target="codex"), codex)
+            self.assertEqual(current_session_lease(authority, target="claude"), claude)
             with self.assertRaisesRegex(ConflictError, "controller lease"):
                 admit_session_lease(
                     session="codex-collision",
                     target="codex",
                     controller="tester",
                     owner=codex_owner,
+                    instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                     authority_root=authority,
                 )
 
@@ -260,6 +281,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=codex_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 state="failed",
                 process=None,
                 authority_root=authority,
@@ -271,12 +293,8 @@ class AuthorityTests(unittest.TestCase):
             legacy_fence = current_session_lease(authority)
             self.assertEqual(legacy_fence["target"], "claude")
             self.assertEqual(legacy_fence["state"], "launching")
-            self.assertTrue(
-                (authority / "session-lease-history.codex").exists()
-            )
-            self.assertTrue(
-                (authority / "session-lease-history.claude").exists()
-            )
+            self.assertTrue((authority / "session-lease-history.codex").exists())
+            self.assertTrue((authority / "session-lease-history.claude").exists())
 
     def test_concurrent_different_target_admissions_serialize_only_the_fence(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -315,6 +333,7 @@ class AuthorityTests(unittest.TestCase):
                         target=target,
                         controller="tester",
                         owner=owners[target],
+                        instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                         authority_root=authority,
                     )
                 except BaseException as exc:
@@ -376,6 +395,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=codex_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             claude = admit_session_lease(
@@ -383,6 +403,7 @@ class AuthorityTests(unittest.TestCase):
                 target="claude",
                 controller="tester",
                 owner=claude_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             with patch.object(
@@ -396,6 +417,7 @@ class AuthorityTests(unittest.TestCase):
                         target="codex",
                         controller="tester",
                         owner=codex_owner,
+                        instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                         state="failed",
                         process=None,
                         authority_root=authority,
@@ -411,6 +433,7 @@ class AuthorityTests(unittest.TestCase):
                 target="claude",
                 controller="tester",
                 owner=claude_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             self.assertEqual(replayed, claude)
@@ -446,6 +469,7 @@ class AuthorityTests(unittest.TestCase):
                         target="claude",
                         controller="tester",
                         owner=owner,
+                        instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                         authority_root=authority,
                         _lock_descriptor=descriptor,
                     )
@@ -455,6 +479,7 @@ class AuthorityTests(unittest.TestCase):
                         target="claude",
                         controller="tester",
                         owner=owner,
+                        instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                         state="failed",
                         process=None,
                         authority_root=authority,
@@ -483,6 +508,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             with self.assertRaisesRegex(ConflictError, "controller lease"):
@@ -537,11 +563,10 @@ class AuthorityTests(unittest.TestCase):
                     target="claude",
                     controller="tester",
                     owner=next_owner,
+                    instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                     authority_root=authority,
                 )
-            self.assertIsNone(
-                current_session_lease(authority, target="claude")
-            )
+            self.assertIsNone(current_session_lease(authority, target="claude"))
 
     def test_session_lease_projection_recovers_each_committed_transition(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -563,6 +588,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             projection = authority / "current-session-lease.codex.json"
@@ -570,6 +596,7 @@ class AuthorityTests(unittest.TestCase):
             self.assertEqual(
                 current_session_lease(authority, target="codex"), launching
             )
+            self.assertEqual(json.loads(projection.read_text()), launching)
 
             process = {
                 "identity_version": 2,
@@ -617,6 +644,7 @@ class AuthorityTests(unittest.TestCase):
                 target="claude",
                 controller="tester",
                 owner=second_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             failed = dict(
@@ -629,9 +657,128 @@ class AuthorityTests(unittest.TestCase):
                 request_id="lease-%d-failed" % failed["generation"],
                 event={"kind": "session_lease", "lease": failed},
             )
-            self.assertEqual(
-                current_session_lease(authority, target="claude"), failed
+            self.assertEqual(current_session_lease(authority, target="claude"), failed)
+
+    def test_projection_recovery_proves_latest_ledger_row_before_rewrite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            authority.mkdir(mode=0o700)
+            proof = root / "proof"
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="wrong-ledger-row",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
             )
+            launching = admit_session_lease(
+                session="wrong-ledger-row",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
+                authority_root=authority,
+            )
+            process = {
+                "identity_version": 2,
+                "pid": 4242,
+                "start": "stable",
+                "kernel_birth_id": "test:4242",
+                "command": "codex",
+                "executable_path": "/opt/bin/codex",
+                "device": 1,
+                "inode": 2,
+            }
+            active = dict(
+                launching,
+                state="active",
+                process=process,
+                updated_at="2026-07-22T05:00:01Z",
+            )
+            Journal(authority / "session-lease-history.codex").append(
+                request_id="wrong-request-id",
+                event={"kind": "session_lease", "lease": active},
+            )
+            projection = authority / "current-session-lease.codex.json"
+            with self.assertRaisesRegex(IdentityError, "authority ledger"):
+                current_session_lease(authority, target="codex")
+            self.assertEqual(json.loads(projection.read_text()), launching)
+
+    def test_missing_projection_rejects_noncanonical_latest_ledger_row(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            authority.mkdir(mode=0o700)
+            proof = root / "proof"
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="missing-projection-wrong-row",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            launching = admit_session_lease(
+                session="missing-projection-wrong-row",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
+                authority_root=authority,
+            )
+            projection = authority / "current-session-lease.codex.json"
+            projection.unlink()
+            Journal(authority / "session-lease-history.codex").append(
+                request_id="wrong-request-id",
+                event={"kind": "session_lease", "lease": launching},
+            )
+            with self.assertRaisesRegex(IdentityError, "authority ledger"):
+                current_session_lease(authority, target="codex")
+            self.assertFalse(projection.exists())
+
+    def test_lease_schema_rejects_boolean_and_float_versions(self):
+        for version in (True, 2.0):
+            with (
+                self.subTest(version=version),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary).resolve()
+                authority = root / "authority"
+                authority.mkdir(mode=0o700)
+                proof = root / "proof"
+                proof.mkdir()
+                owner = lease_owner(
+                    activity="probe",
+                    run_id="invalid-schema",
+                    campaign_id="campaign-test",
+                    goal_fingerprint="a" * 64,
+                    proof_root=proof,
+                    state_root=proof,
+                )
+                lease = {
+                    "schema_version": version,
+                    "authority_id": "puppet-local-controller-v1",
+                    "generation": 1,
+                    "session": "invalid-schema",
+                    "target": "codex",
+                    "controller": "tester",
+                    "owner": owner,
+                    "instruction_manifest_sha256": (STABLE_INSTRUCTION_MANIFEST_SHA256),
+                    "state": "launching",
+                    "created_at": "2026-07-22T05:00:00Z",
+                    "updated_at": "2026-07-22T05:00:00Z",
+                    "process": None,
+                }
+                Journal(authority / "session-lease-history.codex").append(
+                    request_id="lease-1-launching",
+                    event={"kind": "session_lease", "lease": lease},
+                )
+                with self.assertRaisesRegex(ValidationError, "schema"):
+                    current_session_lease(authority, target="codex")
 
     def test_legacy_halted_lease_is_idempotent_and_can_be_superseded(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -671,18 +818,19 @@ class AuthorityTests(unittest.TestCase):
             )
 
             self.assertEqual(current_session_lease(authority), legacy)
-            self.assertEqual(
+            with self.assertRaisesRegex(
+                IdentityError, "controller session lease identity mismatch"
+            ):
                 transition_session_lease(
                     session="legacy-halted",
                     target="agy",
                     controller="tester",
                     owner=owner,
+                    instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                     state="halted",
                     process=legacy_process,
                     authority_root=authority,
-                ),
-                legacy,
-            )
+                )
 
             next_owner = lease_owner(
                 activity="probe",
@@ -697,6 +845,7 @@ class AuthorityTests(unittest.TestCase):
                 target="agy",
                 controller="tester",
                 owner=next_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             self.assertEqual(next_lease["generation"], 1)
@@ -717,6 +866,7 @@ class AuthorityTests(unittest.TestCase):
                 target="agy",
                 controller="tester",
                 owner=next_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 state="active",
                 process=v2_process,
                 authority_root=authority,
@@ -773,6 +923,7 @@ class AuthorityTests(unittest.TestCase):
                 target="agy",
                 controller="tester",
                 owner=next_owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             self.assertEqual(admitted["generation"], 1)
@@ -784,7 +935,10 @@ class AuthorityTests(unittest.TestCase):
             ("active", "failed"),
             ("halting", "halted"),
         ):
-            with self.subTest(live_state=live_state), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(live_state=live_state),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 root = Path(temporary).resolve()
                 authority = root / "authority"
                 proof = root / "proof"
@@ -803,6 +957,7 @@ class AuthorityTests(unittest.TestCase):
                     target="agy",
                     controller="tester",
                     owner=owner,
+                    instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                     authority_root=authority,
                 )
                 legacy_process = {"pid": 4242, "start": "legacy"}
@@ -860,6 +1015,7 @@ class AuthorityTests(unittest.TestCase):
                 target="codex",
                 controller="tester",
                 owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                 authority_root=authority,
             )
             valid = {
@@ -883,14 +1039,16 @@ class AuthorityTests(unittest.TestCase):
                 "inode": -1,
             }
             for name, invalid in invalid_values.items():
-                with self.subTest(name=name), self.assertRaisesRegex(
-                    ValidationError, "v2 process identity"
+                with (
+                    self.subTest(name=name),
+                    self.assertRaisesRegex(ValidationError, "v2 process identity"),
                 ):
                     transition_session_lease(
                         session="v2-shape",
                         target="codex",
                         controller="tester",
                         owner=owner,
+                        instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
                         state="active",
                         process=dict(valid, **{name: invalid}),
                         authority_root=authority,
@@ -899,6 +1057,107 @@ class AuthorityTests(unittest.TestCase):
                 current_session_lease(authority, target="codex")["state"],
                 "launching",
             )
+
+    def test_different_instruction_manifest_hash_blocks_same_session_idempotence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="manifest-drift",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            first = admit_session_lease(
+                session="manifest-drift",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
+                authority_root=authority,
+            )
+            self.assertEqual(
+                first["instruction_manifest_sha256"],
+                STABLE_INSTRUCTION_MANIFEST_SHA256,
+            )
+            self.assertEqual(first, current_session_lease(authority, target="codex"))
+
+            with self.assertRaisesRegex(
+                ConflictError, "another real-harness session owns the controller lease"
+            ):
+                admit_session_lease(
+                    session="manifest-drift",
+                    target="codex",
+                    controller="tester",
+                    owner=owner,
+                    instruction_manifest_sha256=ALTERNATE_INSTRUCTION_MANIFEST_SHA256,
+                    authority_root=authority,
+                )
+
+            requested = require_session_lease(
+                session="manifest-drift",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
+                states={"launching"},
+                authority_root=authority,
+            )
+            self.assertEqual(requested, first)
+            with self.assertRaisesRegex(
+                IdentityError, "controller session lease identity mismatch"
+            ):
+                require_session_lease(
+                    session="manifest-drift",
+                    target="codex",
+                    controller="tester",
+                    owner=owner,
+                    instruction_manifest_sha256=ALTERNATE_INSTRUCTION_MANIFEST_SHA256,
+                    states={"launching"},
+                    authority_root=authority,
+                )
+
+            process = {
+                "identity_version": 2,
+                "pid": 4242,
+                "start": "stable",
+                "kernel_birth_id": "test:4242",
+                "command": "codex",
+                "executable_path": "/opt/bin/codex",
+                "device": 1,
+                "inode": 2,
+            }
+            active = transition_session_lease(
+                session="manifest-drift",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                instruction_manifest_sha256=STABLE_INSTRUCTION_MANIFEST_SHA256,
+                state="active",
+                process=process,
+                authority_root=authority,
+            )
+            self.assertEqual(active["state"], "active")
+            self.assertEqual(active["process"], process)
+
+            with self.assertRaisesRegex(
+                IdentityError, "controller session lease identity mismatch"
+            ):
+                transition_session_lease(
+                    session="manifest-drift",
+                    target="codex",
+                    controller="tester",
+                    owner=owner,
+                    instruction_manifest_sha256=ALTERNATE_INSTRUCTION_MANIFEST_SHA256,
+                    state="active",
+                    process=process,
+                    authority_root=authority,
+                )
 
     def test_process_identity_binds_full_executable_file_identity(self):
         identity = process_birth_identity(os.getpid())
@@ -928,9 +1187,7 @@ class AuthorityTests(unittest.TestCase):
                 self.asserted = (pid, flavor, arg)
                 info = puppet_registry.ctypes.cast(
                     buffer,
-                    puppet_registry.ctypes.POINTER(
-                        puppet_registry._DarwinProcBSDInfo
-                    ),
+                    puppet_registry.ctypes.POINTER(puppet_registry._DarwinProcBSDInfo),
                 ).contents
                 info.pbi_pid = pid
                 info.pbi_ppid = 42
@@ -940,9 +1197,7 @@ class AuthorityTests(unittest.TestCase):
 
         proc_pidinfo = FakeProcPidInfo()
         library = SimpleNamespace(proc_pidinfo=proc_pidinfo)
-        with patch.object(
-            puppet_registry.ctypes, "CDLL", return_value=library
-        ):
+        with patch.object(puppet_registry.ctypes, "CDLL", return_value=library):
             record = puppet_registry._darwin_kernel_process_record(4242)
         self.assertEqual(proc_pidinfo.asserted, (4242, 3, 0))
         self.assertEqual(
@@ -961,10 +1216,13 @@ class AuthorityTests(unittest.TestCase):
         def fake_open(_path, _mode):
             return io.BytesIO(stat_bytes)
 
-        with patch.object(puppet_registry.Path, "open", new=fake_open), patch.object(
-            puppet_registry,
-            "_linux_boot_id",
-            return_value="12345678-1234-1234-1234-123456789abc",
+        with (
+            patch.object(puppet_registry.Path, "open", new=fake_open),
+            patch.object(
+                puppet_registry,
+                "_linux_boot_id",
+                return_value="12345678-1234-1234-1234-123456789abc",
+            ),
         ):
             record = puppet_registry._linux_kernel_process_record(4242)
         self.assertEqual(
@@ -986,18 +1244,22 @@ class AuthorityTests(unittest.TestCase):
         }
         after = dict(before, kernel_birth_id="test:after")
         executable = Path("/bin/cat").resolve(strict=True)
-        with patch.object(
-            puppet_registry,
-            "_kernel_process_record",
-            side_effect=[before, after],
-        ), patch.object(
-            puppet_registry.subprocess,
-            "run",
-            return_value=SimpleNamespace(
-                returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+        with (
+            patch.object(
+                puppet_registry,
+                "_kernel_process_record",
+                side_effect=[before, after],
             ),
-        ), patch.object(
-            puppet_registry, "_process_executable_path", return_value=executable
+            patch.object(
+                puppet_registry.subprocess,
+                "run",
+                return_value=SimpleNamespace(
+                    returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+                ),
+            ),
+            patch.object(
+                puppet_registry, "_process_executable_path", return_value=executable
+            ),
         ):
             with self.assertRaisesRegex(IdentityError, "kernel binding"):
                 puppet_registry.process_tree_identity(4242)
@@ -1008,23 +1270,27 @@ class AuthorityTests(unittest.TestCase):
             "parent_pid": 42,
             "kernel_birth_id": "test:stable",
         }
-        with patch.object(
-            puppet_registry,
-            "_kernel_process_record",
-            return_value=kernel,
-        ), patch.object(
-            puppet_registry.subprocess,
-            "run",
-            return_value=SimpleNamespace(
-                returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+        with (
+            patch.object(
+                puppet_registry,
+                "_kernel_process_record",
+                return_value=kernel,
             ),
-        ), patch.object(
-            puppet_registry,
-            "_process_executable_path",
-            side_effect=[
-                Path("/bin/cat").resolve(strict=True),
-                Path("/bin/echo").resolve(strict=True),
-            ],
+            patch.object(
+                puppet_registry.subprocess,
+                "run",
+                return_value=SimpleNamespace(
+                    returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+                ),
+            ),
+            patch.object(
+                puppet_registry,
+                "_process_executable_path",
+                side_effect=[
+                    Path("/bin/cat").resolve(strict=True),
+                    Path("/bin/echo").resolve(strict=True),
+                ],
+            ),
         ):
             with self.assertRaisesRegex(IdentityError, "executable binding"):
                 puppet_registry.process_tree_identity(4242)
@@ -1036,30 +1302,32 @@ class AuthorityTests(unittest.TestCase):
             "kernel_birth_id": "test:stable",
         }
         after = dict(before, parent_pid=1)
-        display = SimpleNamespace(
-            returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
-        )
+        display = SimpleNamespace(returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n")
         executable = Path("/bin/cat").resolve(strict=True)
-        with patch.object(
-            puppet_registry,
-            "_kernel_process_record",
-            side_effect=[before, after],
-        ), patch.object(
-            puppet_registry.subprocess, "run", return_value=display
-        ), patch.object(
-            puppet_registry, "_process_executable_path", return_value=executable
+        with (
+            patch.object(
+                puppet_registry,
+                "_kernel_process_record",
+                side_effect=[before, after],
+            ),
+            patch.object(puppet_registry.subprocess, "run", return_value=display),
+            patch.object(
+                puppet_registry, "_process_executable_path", return_value=executable
+            ),
         ):
             process = process_birth_identity(4242)
         self.assertEqual(process["kernel_birth_id"], "test:stable")
 
-        with patch.object(
-            puppet_registry,
-            "_kernel_process_record",
-            side_effect=[before, after],
-        ), patch.object(
-            puppet_registry.subprocess, "run", return_value=display
-        ), patch.object(
-            puppet_registry, "_process_executable_path", return_value=executable
+        with (
+            patch.object(
+                puppet_registry,
+                "_kernel_process_record",
+                side_effect=[before, after],
+            ),
+            patch.object(puppet_registry.subprocess, "run", return_value=display),
+            patch.object(
+                puppet_registry, "_process_executable_path", return_value=executable
+            ),
         ):
             with self.assertRaisesRegex(IdentityError, "parent changed"):
                 puppet_registry.process_tree_identity(4242)
@@ -1124,10 +1392,7 @@ class AuthorityTests(unittest.TestCase):
                 if process_alive(child_identity):
                     send_exact_sigint(child_identity)
                     deadline = time.monotonic() + 5
-                    while (
-                        process_alive(child_identity)
-                        and time.monotonic() < deadline
-                    ):
+                    while process_alive(child_identity) and time.monotonic() < deadline:
                         time.sleep(0.01)
 
     def test_advisory_cannot_stop_campaign(self):
@@ -1237,6 +1502,29 @@ class AuthorityTests(unittest.TestCase):
             contract_path.write_text('{"schema_version":1}\n', encoding="utf-8")
             manifest_path = proof / "adapter-manifest.json"
             manifest_path.write_text('{"schema_version":1}\n', encoding="utf-8")
+            compiled = compile_instruction_wrapper(
+                target="agy",
+                task="Run the bounded authority fixture.",
+                contract_identity={
+                    "fingerprint": "a" * 64,
+                    "controller": "codex",
+                    "target": "agy",
+                    "task_profile": "source",
+                },
+                workspace_identity={
+                    "repo_fingerprint": "1" * 64,
+                    "branch": "codex/example",
+                },
+                run_identity={
+                    "session": "session-1",
+                    "run_id": "run-1",
+                    "nonce": "nonce-1",
+                },
+                model_binding="default",
+                effort_binding="default",
+            )
+            instruction_path = proof / "effective-instructions.json"
+            atomic_write_json(instruction_path, compiled.manifest)
             state_root = root / "state"
             registry = SessionRegistry(state_root)
             tmux_socket_path = canonical_tmux_socket_path(registry.root, "session-1")
@@ -1246,9 +1534,9 @@ class AuthorityTests(unittest.TestCase):
             self.addCleanup(tmux_socket.close)
             self.addCleanup(lambda: tmux_socket_path.unlink(missing_ok=True))
             tmux_server_identity = process_birth_identity(os.getpid())
-            tmux_executable = Path(
-                tmux_server_identity["executable_path"]
-            ).resolve(strict=True)
+            tmux_executable = Path(tmux_server_identity["executable_path"]).resolve(
+                strict=True
+            )
             tmux_details = tmux_executable.stat()
             record = {
                 "schema_version": 1,
@@ -1332,6 +1620,19 @@ class AuthorityTests(unittest.TestCase):
                     "qualification_campaign_id": "campaign-test",
                     "qualification_goal_fingerprint": "f" * 64,
                 },
+                "instructions": {
+                    "manifest_path": str(instruction_path),
+                    "manifest_sha256": sha256_file(instruction_path),
+                    "instruction_policy_fingerprint": compiled.manifest[
+                        "instruction_policy_fingerprint"
+                    ],
+                    "effective_contract_fingerprint": compiled.manifest[
+                        "effective_contract_fingerprint"
+                    ],
+                    "rendered_sha256": compiled.manifest["rendered_sha256"],
+                    "instruction_plane": compiled.manifest["instruction_plane"],
+                    "session_profile": compiled.manifest["session_profile"],
+                },
                 "protocol": {
                     "kind": "source",
                     "run_id": "run-1",
@@ -1349,8 +1650,11 @@ class AuthorityTests(unittest.TestCase):
                 "identity_version": 1,
                 "kernel_birth_id": "",
             }.items():
-                with self.subTest(name=name), self.assertRaisesRegex(
-                    ValidationError, "registered process identity"
+                with (
+                    self.subTest(name=name),
+                    self.assertRaisesRegex(
+                        ValidationError, "registered process identity"
+                    ),
                 ):
                     registry.validate(
                         dict(record, process=dict(record["process"], **{name: invalid}))

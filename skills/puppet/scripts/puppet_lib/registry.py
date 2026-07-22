@@ -16,6 +16,7 @@ from .authority import validate_lease_owner
 from .beacons import PREFIXES
 from .contracts import Contract, PROCESS_IDENTITY_FIELDS
 from .errors import ConflictError, IdentityError, ValidationError
+from .instructions import validate_instruction_manifest
 from .safety import (
     absolute_root,
     atomic_write_json,
@@ -23,6 +24,7 @@ from .safety import (
     ensure_within,
     exclusive_lock,
     read_json,
+    sha256_bytes,
     sha256_file,
     validate_bounded_json,
     validate_branch,
@@ -51,6 +53,7 @@ REQUIRED_FIELDS = {
     "process",
     "supervisor",
     "adapter",
+    "instructions",
     "protocol",
     "created_at",
     "last_checkpoint",
@@ -74,6 +77,15 @@ ADAPTER_FIELDS = {
     "qualification_controller",
     "qualification_campaign_id",
     "qualification_goal_fingerprint",
+}
+INSTRUCTION_FIELDS = {
+    "manifest_path",
+    "manifest_sha256",
+    "instruction_policy_fingerprint",
+    "effective_contract_fingerprint",
+    "rendered_sha256",
+    "instruction_plane",
+    "session_profile",
 }
 PROCESS_FIELDS = PROCESS_IDENTITY_FIELDS
 TMUX_BINARY_FIELDS = {
@@ -106,9 +118,7 @@ def validate_process_identity_shape(
         or not isinstance(value.get("kernel_birth_id"), str)
         or not value["kernel_birth_id"]
         or len(value["kernel_birth_id"]) > 200
-        or any(
-            character in value["kernel_birth_id"] for character in "\x00\n\r"
-        )
+        or any(character in value["kernel_birth_id"] for character in "\x00\n\r")
         or not isinstance(value.get("command"), str)
         or not value["command"]
         or len(value["command"]) > 1000
@@ -197,16 +207,13 @@ def _linux_boot_id() -> str:
         value = raw.decode("ascii").strip()
     except (OSError, UnicodeError) as exc:
         raise IdentityError("kernel boot identity is unavailable") from exc
-    if (
-        len(value) != 36
-        or any(
-            (
-                character != "-"
-                if index in {8, 13, 18, 23}
-                else character.lower() not in "0123456789abcdef"
-            )
-            for index, character in enumerate(value)
+    if len(value) != 36 or any(
+        (
+            character != "-"
+            if index in {8, 13, 18, 23}
+            else character.lower() not in "0123456789abcdef"
         )
+        for index, character in enumerate(value)
     ):
         raise IdentityError("kernel boot identity is invalid")
     return value.lower()
@@ -268,7 +275,9 @@ def _process_executable_path(pid: int) -> Path:
         except OSError as exc:
             raise IdentityError("process executable identity is unavailable") from exc
     else:
-        raise IdentityError("process executable identity is unsupported on this platform")
+        raise IdentityError(
+            "process executable identity is unsupported on this platform"
+        )
     if path.is_symlink() or not path.is_file():
         raise IdentityError("process executable path is invalid")
     return path.resolve(strict=True)
@@ -312,8 +321,7 @@ def _sample_process_binding(
     executable_after = _process_executable_record(pid)
     kernel_after = _kernel_process_record(pid)
     if any(
-        kernel_after[name] != kernel_before[name]
-        for name in ("pid", "kernel_birth_id")
+        kernel_after[name] != kernel_before[name] for name in ("pid", "kernel_birth_id")
     ):
         raise IdentityError("process identity changed during kernel binding")
     if display_after != display_before or executable_after != executable_before:
@@ -445,7 +453,9 @@ class SessionRegistry:
         validate_sha1(supervisor.get("tree"), "supervisor tree")
         validate_sha256(supervisor.get("executable_sha256"), "supervisor executable")
         supervisor_executable = ensure_within(
-            Path(supervisor.get("executable_path", "")), supervisor_root, must_exist=True
+            Path(supervisor.get("executable_path", "")),
+            supervisor_root,
+            must_exist=True,
         )
         if supervisor_executable.is_symlink() or not supervisor_executable.is_file():
             raise ValidationError("invalid supervisor executable")
@@ -471,6 +481,30 @@ class SessionRegistry:
             adapter.get("qualification_goal_fingerprint"),
             "qualification goal fingerprint",
         )
+        instructions = value.get("instructions")
+        if (
+            not isinstance(instructions, dict)
+            or set(instructions) != INSTRUCTION_FIELDS
+        ):
+            raise ValidationError("missing instruction manifest identity")
+        instruction_path = ensure_within(
+            Path(instructions.get("manifest_path", "")),
+            proof_root,
+            must_exist=True,
+        )
+        if instruction_path.is_symlink() or not instruction_path.is_file():
+            raise ValidationError("invalid bound instruction manifest path")
+        for name in (
+            "manifest_sha256",
+            "instruction_policy_fingerprint",
+            "effective_contract_fingerprint",
+            "rendered_sha256",
+        ):
+            validate_sha256(instructions.get(name), name.replace("_", " "))
+        if instructions.get("instruction_plane") != "initial_message_wrapper":
+            raise ValidationError("unsupported bound instruction plane")
+        if instructions.get("session_profile") != "regular":
+            raise ValidationError("unsupported bound instruction session profile")
         tmux = value.get("tmux")
         if not isinstance(tmux, dict) or set(tmux) != {
             "socket",
@@ -672,12 +706,21 @@ class SessionRegistry:
             "contract_fingerprint",
             "proof_root",
             "expected_socket",
+            "instruction_manifest_sha256",
             "created_at",
         }
-        if not isinstance(value, dict) or set(value) != required or value.get("schema_version") != 1:
+        if (
+            not isinstance(value, dict)
+            or set(value) != required
+            or value.get("schema_version") != 1
+        ):
             raise ValidationError("invalid session reservation")
         session = validate_identifier(value.get("session"), "session")
         validate_sha256(value.get("contract_fingerprint"), "contract fingerprint")
+        validate_sha256(
+            value.get("instruction_manifest_sha256"),
+            "instruction manifest fingerprint",
+        )
         absolute_root(value.get("proof_root"), "proof root")
         expected_socket = canonical_tmux_socket_path(self.root, session)
         if value.get("expected_socket") != str(expected_socket):
@@ -702,6 +745,8 @@ class SessionRegistry:
                 reservation.get("contract_fingerprint") != value["contract_fingerprint"]
                 or reservation.get("proof_root") != value["proof_root"]
                 or reservation.get("expected_socket") != value["tmux"]["socket"]
+                or reservation.get("instruction_manifest_sha256")
+                != value["instructions"]["manifest_sha256"]
             ):
                 raise IdentityError("session reservation identity changed")
             if self._path(session).exists():
@@ -740,7 +785,11 @@ class SessionRegistry:
         return self.validate(read_json(path, max_bytes=131072))
 
     def update(self, session: str, changes: Dict[str, Any]) -> Dict[str, Any]:
-        if "session" in changes or "schema_version" in changes:
+        if (
+            "session" in changes
+            or "schema_version" in changes
+            or "instructions" in changes
+        ):
             raise ValidationError("immutable registry identity cannot change")
         with exclusive_lock(self._lock(session)):
             current = self.load(session)
@@ -758,7 +807,12 @@ class SessionRegistry:
         if not isinstance(states, list) or not states:
             raise ValidationError("transition path must be a non-empty list")
         changes = dict(changes or {})
-        if "state" in changes or "session" in changes or "schema_version" in changes:
+        if (
+            "state" in changes
+            or "session" in changes
+            or "schema_version" in changes
+            or "instructions" in changes
+        ):
             raise ValidationError("transition path contains an immutable change")
         with exclusive_lock(self._lock(session)):
             current = self.load(session)
@@ -775,7 +829,9 @@ class SessionRegistry:
     def verify_supervisor(self, record: Dict[str, Any]) -> None:
         supervisor = record["supervisor"]
         root = absolute_root(supervisor["root"], "supervisor root")
-        executable = ensure_within(Path(supervisor["executable_path"]), root, must_exist=True)
+        executable = ensure_within(
+            Path(supervisor["executable_path"]), root, must_exist=True
+        )
         if executable.is_symlink() or not executable.is_file():
             raise IdentityError("supervisor executable path is invalid")
         if sha256_file(executable) != supervisor["executable_sha256"]:
@@ -803,10 +859,14 @@ class SessionRegistry:
         if git(["status", "--porcelain=v1", "--untracked-files=all"]):
             raise IdentityError("supervisor release is not immutable and clean")
 
-    def verify_adapter(self, record: Dict[str, Any], capability: str) -> AdapterManifest:
+    def verify_adapter(
+        self, record: Dict[str, Any], capability: str
+    ) -> AdapterManifest:
         adapter = record["adapter"]
         proof_root = absolute_root(record["proof_root"], "proof root")
-        path = ensure_within(Path(adapter["manifest_path"]), proof_root, must_exist=True)
+        path = ensure_within(
+            Path(adapter["manifest_path"]), proof_root, must_exist=True
+        )
         manifest = AdapterManifest.from_path(path)
         if manifest.target != record["target"]:
             raise IdentityError("adapter target identity changed")
@@ -849,6 +909,72 @@ class SessionRegistry:
             expected_session_profile=contract.session_profile,
         )
         manifest.require(capability)
+        return manifest
+
+    def verify_instructions(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        instructions = record["instructions"]
+        proof_root = absolute_root(record["proof_root"], "proof root")
+        path = ensure_within(
+            Path(instructions["manifest_path"]), proof_root, must_exist=True
+        )
+        if sha256_file(path, max_bytes=131072) != instructions["manifest_sha256"]:
+            raise IdentityError("bound instruction manifest fingerprint changed")
+        manifest = validate_instruction_manifest(
+            read_json(path, max_bytes=131072, reject_sensitive_fields=True),
+            target=record["target"],
+        )
+        expected = {
+            "instruction_policy_fingerprint": manifest[
+                "instruction_policy_fingerprint"
+            ],
+            "effective_contract_fingerprint": manifest[
+                "effective_contract_fingerprint"
+            ],
+            "rendered_sha256": manifest["rendered_sha256"],
+            "instruction_plane": manifest["instruction_plane"],
+            "session_profile": manifest["session_profile"],
+        }
+        if any(instructions[name] != observed for name, observed in expected.items()):
+            raise IdentityError("bound instruction identity changed")
+        contract = Contract.from_path(Path(record["contract_path"]))
+        if contract.fingerprint != record["contract_fingerprint"]:
+            raise IdentityError("bound instruction contract changed")
+        contract_identity = manifest["contract_identity"]
+        run_identity = manifest["run_identity"]
+        workspace_identity = manifest["workspace_identity"]
+        protocol = record["protocol"]
+        expected_contract_identity = {
+            "fingerprint": contract.fingerprint,
+            "controller": contract.controller,
+            "target": contract.target,
+            "task_profile": contract.task_profile,
+        }
+        expected_run_identity = {
+            "session": record["session"],
+            "run_id": protocol["run_id"],
+            "nonce": protocol["nonce"],
+        }
+        expected_orchestration_contract = {
+            "mutation_owner": contract.mutation_owner,
+            "allowed_modes": sorted(contract.allowed_modes),
+            "hard_gates": sorted(contract.hard_gates),
+        }
+        if (
+            contract_identity != expected_contract_identity
+            or run_identity != expected_run_identity
+            or manifest["orchestration_contract"] != expected_orchestration_contract
+            or manifest["runtime_binding"] != {"model": "default", "effort": "default"}
+            or set(workspace_identity) != {"repo_fingerprint", "branch", "head", "tree"}
+            or workspace_identity.get("repo_fingerprint")
+            != sha256_bytes(str(contract.repo).encode("utf-8"))
+            or workspace_identity.get("branch") != contract.branch
+            or record["controller"] != contract.controller
+            or record["target"] != contract.target
+            or record["branch"] != contract.branch
+        ):
+            raise IdentityError("bound instruction authority changed")
+        validate_sha1(workspace_identity.get("head"), "instruction workspace head")
+        validate_sha1(workspace_identity.get("tree"), "instruction workspace tree")
         return manifest
 
     def verify_process(self, record: Dict[str, Any]) -> None:

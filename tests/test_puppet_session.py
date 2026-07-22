@@ -31,6 +31,7 @@ from puppet_lib.conformance import create_fixture  # noqa: E402
 from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.registry import SessionRegistry, send_exact_sigint  # noqa: E402
+from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
     _deliver,
     accept_checkpoint,
@@ -51,6 +52,7 @@ from puppet_lib.profiles import (  # noqa: E402
     session_profiles_for,
     startup_settle_seconds_for,
 )
+from puppet_lib.safety import sha256_file  # noqa: E402
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
@@ -197,7 +199,15 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "yolo_mapping": yolo_mapping,
         "capabilities": {
             name: "controller_verified" if name != "resume" else "unsupported"
-            for name in ("launch", "send", "status", "wait", "checkpoint", "resume", "halt")
+            for name in (
+                "launch",
+                "send",
+                "status",
+                "wait",
+                "checkpoint",
+                "resume",
+                "halt",
+            )
         },
         "doctor_only": False,
         "qualification": {
@@ -255,7 +265,9 @@ def controller_files(
         ),
         "terminal_criteria": [
             {
-                "id": "conformance_green" if task_profile == "conformance" else "source_green",
+                "id": "conformance_green"
+                if task_profile == "conformance"
+                else "source_green",
                 "evidence": "validated_handoff",
             }
         ],
@@ -328,7 +340,13 @@ class SessionIntegrationTests(unittest.TestCase):
         qualification_patcher = patch.object(
             AdapterManifest,
             "verify_qualification",
-            return_value={"result": "accepted", "test_only": True},
+            return_value={
+                "result": "accepted",
+                "test_only": True,
+                "instruction_policy_fingerprint": instruction_policy_fingerprint(
+                    target="codex"
+                ),
+            },
         )
         qualification_patcher.start()
         self.addCleanup(qualification_patcher.stop)
@@ -372,6 +390,171 @@ class SessionIntegrationTests(unittest.TestCase):
             self.assertEqual(replay["delivery"], "already_submitted")
             self.assertEqual(len(tmux.deliveries), 2)
 
+    def test_doctor_rejects_deferred_profile_and_model_selection(self):
+        cases = (
+            ("session_profile", "goal", "only the regular session profile"),
+            ("requested_model", "explicit-model", "model and effort selection"),
+            ("requested_effort", "high", "model and effort selection"),
+        )
+        for field, selected, blocker in cases:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                candidate = initialize_repo(
+                    root / "candidate",
+                    "codex/deferred-selector",
+                    "candidate",
+                )
+                files = controller_files(
+                    root,
+                    candidate=candidate,
+                    branch="codex/deferred-selector",
+                    session="codex-deferred-selector",
+                    task_profile="implementation",
+                    protocol_fingerprint="e" * 64,
+                )
+                contract = json.loads(files["contract"].read_text(encoding="utf-8"))
+                contract[field] = selected
+                write_json(files["contract"], contract)
+                report = puppet_session.doctor(
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                )
+                self.assertFalse(report["launch_ready"])
+                self.assertTrue(any(blocker in item for item in report["blockers"]))
+
+    def test_doctor_requires_a_clean_read_only_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate",
+                "codex/dirty-read-only",
+                "candidate",
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/dirty-read-only",
+                session="codex-dirty-read-only",
+                task_profile="conformance",
+                protocol_fingerprint="e" * 64,
+            )
+            (candidate / "candidate.txt").write_text(
+                "dirty read-only content\n", encoding="utf-8"
+            )
+            report = puppet_session.doctor(
+                contract_path=files["contract"],
+                manifest_path=files["manifest"],
+                authorization_path=files["authorization"],
+                proof_root=files["proof"],
+                state_root=files["state"],
+            )
+            self.assertFalse(report["launch_ready"])
+            self.assertIn("candidate worktree is not clean", report["blockers"])
+
+    def test_workspace_drift_after_doctor_fails_before_tmux_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-workspace-drift"
+            candidate = initialize_repo(
+                root / "candidate", "codex/workspace-drift", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/workspace-drift",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            contract = Contract.from_path(files["contract"])
+            baseline = puppet_session._workspace_snapshot(contract)
+            changed = dict(baseline, head="0" * 40)
+            with (
+                patch.object(
+                    puppet_session,
+                    "_workspace_snapshot",
+                    side_effect=[baseline, changed],
+                ),
+                patch.object(TmuxController, "launch") as tmux_launch,
+            ):
+                with self.assertRaisesRegex(
+                    IdentityError, "workspace changed after preflight"
+                ):
+                    launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Do not launch after workspace drift.",
+                    )
+            tmux_launch.assert_not_called()
+            self.assertFalse(SessionRegistry(files["state"]).exists(session))
+            self.assertEqual(
+                current_session_lease(self.authority_root, target="codex")["state"],
+                "failed",
+            )
+
+    def test_instruction_drift_during_settle_prevents_first_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-instruction-settle-drift"
+            candidate = initialize_repo(
+                root / "candidate", "codex/instruction-settle-drift", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/instruction-settle-drift",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+
+            def tamper(_interval):
+                path = files["proof"] / "effective-instructions.json"
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                manifest["rendered_sha256"] = "0" * 64
+                puppet_session.atomic_write_json(path, manifest)
+
+            try:
+                with self.assertRaisesRegex(
+                    IdentityError, "instruction manifest fingerprint changed"
+                ):
+                    _launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Never deliver this after instruction drift.",
+                        _sleep_fn=tamper,
+                    )
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                self.assertEqual(record["state"], "BLOCKED")
+                self.assertEqual(
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "halting",
+                )
+                events = [
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                ]
+                self.assertFalse(
+                    any(event.get("kind") == "initial_message" for event in events)
+                )
+            finally:
+                kill_test_server(socket)
+
     def test_complete_conformance_path_is_bound_and_accept_is_terminal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -394,6 +577,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 protocol_fingerprint=fixture_contract["protocol_fingerprint"],
             )
             socket = None
+            task_marker = "PUPPET_TASK_MARKER_42"
             try:
                 launched = launch(
                     session=session,
@@ -403,7 +587,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     proof_root=files["proof"],
                     state_root=files["state"],
                     supervisor_executable=files["supervisor_executable"],
-                    prompt="Write the bounded ready handoff and wait.",
+                    prompt=("Write the bounded ready handoff and wait. " + task_marker),
                 )
                 self.assertEqual(launched["state"], "ACTIVE")
                 self.assertFalse(
@@ -427,13 +611,57 @@ class SessionIntegrationTests(unittest.TestCase):
                     timeout=0,
                 )
                 self.assertTrue(beacon_wait["matched"])
-                self.assertEqual(
-                    beacon_wait["last_beacon"]["kind"], "status_claim"
-                )
+                self.assertEqual(beacon_wait["last_beacon"]["kind"], "status_claim")
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
+                instruction_path = Path(record["instructions"]["manifest_path"])
+                instruction_manifest = json.loads(
+                    instruction_path.read_text(encoding="utf-8")
+                )
+                self.assertEqual(
+                    launched["instruction_policy_fingerprint"],
+                    instruction_manifest["instruction_policy_fingerprint"],
+                )
+                self.assertEqual(
+                    launched["effective_contract_fingerprint"],
+                    instruction_manifest["effective_contract_fingerprint"],
+                )
+                launch_intent = next(
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                    if row["event"].get("kind") == "launch"
+                    and row["event"].get("phase") == "intent"
+                )
+                self.assertEqual(
+                    launch_intent["content_sha256"],
+                    instruction_manifest["rendered_sha256"],
+                )
+                marker_bytes = task_marker.encode("utf-8")
+                persisted = [
+                    path
+                    for root_path in (files["proof"], files["state"])
+                    for path in root_path.rglob("*")
+                    if path.is_file()
+                ]
+                self.assertTrue(persisted)
+                for path in persisted:
+                    with self.subTest(no_raw_task=path):
+                        self.assertNotIn(marker_bytes, path.read_bytes())
+
+                tampered_instructions = dict(
+                    instruction_manifest,
+                    rendered_sha256="0" * 64,
+                )
+                write_json(instruction_path, tampered_instructions)
+                with self.assertRaisesRegex(
+                    IdentityError, "instruction manifest fingerprint changed"
+                ):
+                    status(state_root=files["state"], session=session)
+                puppet_session.atomic_write_json(instruction_path, instruction_manifest)
                 bound_contract_path = Path(record["contract_path"])
-                bound_contract = json.loads(bound_contract_path.read_text(encoding="utf-8"))
+                bound_contract = json.loads(
+                    bound_contract_path.read_text(encoding="utf-8")
+                )
                 tampered_contract = dict(bound_contract, controller="other-controller")
                 write_json(bound_contract_path, tampered_contract)
                 with self.assertRaises(IdentityError):
@@ -447,7 +675,9 @@ class SessionIntegrationTests(unittest.TestCase):
                     "nonce": fixture_contract["nonce"],
                     "phase": "ready",
                     "sequence": 0,
-                    "executable_fingerprint": record["adapter"]["executable_fingerprint"],
+                    "executable_fingerprint": record["adapter"][
+                        "executable_fingerprint"
+                    ],
                     "adapter_fingerprint": record["adapter"]["adapter_fingerprint"],
                     "protocol_fingerprint": record["adapter"]["protocol_fingerprint"],
                     "timestamp": "2026-07-22T03:01:00Z",
@@ -507,7 +737,9 @@ class SessionIntegrationTests(unittest.TestCase):
                     )
                 write_json(followup_path, followup)
                 imported = import_checkpoint(
-                    state_root=files["state"], session=session, handoff_path=followup_path
+                    state_root=files["state"],
+                    session=session,
+                    handoff_path=followup_path,
                 )
                 before = status(state_root=files["state"], session=session)["state"]
                 self.assertEqual(before, "CONFORMANCE_CHECKPOINT_READY")
@@ -531,7 +763,9 @@ class SessionIntegrationTests(unittest.TestCase):
                         verdict="conformance_accept",
                         evidence_path=review_evidence,
                     )
-                self.assertEqual(status(state_root=files["state"], session=session)["state"], before)
+                self.assertEqual(
+                    status(state_root=files["state"], session=session)["state"], before
+                )
                 review_checkpoint(
                     state_root=files["state"],
                     session=session,
@@ -565,7 +799,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(accepted["state"], "ACCEPTED")
                 self.assertEqual(
-                    halt(state_root=files["state"], session=session, timeout=5)["state"],
+                    halt(state_root=files["state"], session=session, timeout=5)[
+                        "state"
+                    ],
                     "HALTED",
                 )
             finally:
@@ -574,7 +810,9 @@ class SessionIntegrationTests(unittest.TestCase):
     def test_halt_seals_an_exact_blocked_session_when_target_already_stopped(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            candidate = initialize_repo(root / "candidate", "codex/dead-target", "candidate")
+            candidate = initialize_repo(
+                root / "candidate", "codex/dead-target", "candidate"
+            )
             session = "codex-dead-target"
             files = controller_files(
                 root,
@@ -603,7 +841,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
                     metadata = TmuxController(files["state"]).metadata(
-                        socket=Path(socket), session=session, pane=record["tmux"]["pane"]
+                        socket=Path(socket),
+                        session=session,
+                        pane=record["tmux"]["pane"],
                     )
                     if metadata["pane_dead"]:
                         break
@@ -637,14 +877,16 @@ class SessionIntegrationTests(unittest.TestCase):
                         halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(registry.load(session)["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "halting"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "halting",
                 )
                 replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
                 self.assertFalse(replay["signal_sent"])
                 self.assertTrue(replay["tmux_preserved"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "halted"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "halted",
                 )
                 later_owner = lease_owner(
                     activity="session",
@@ -659,11 +901,10 @@ class SessionIntegrationTests(unittest.TestCase):
                     target="claude",
                     controller="tester",
                     owner=later_owner,
+                    instruction_manifest_sha256=sha256_file(files["manifest"]),
                     authority_root=self.authority_root,
                 )
-                replay = halt(
-                    state_root=files["state"], session=session, timeout=1
-                )
+                replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
                 self.assertEqual(
                     current_session_lease(self.authority_root, target="claude"),
@@ -710,12 +951,14 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertEqual(record["state"], "BLOCKED")
                 self.assertTrue(record["blocker"]["cleanup_stopped"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "halting"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "halting",
                 )
                 result = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(result["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "halted"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "halted",
                 )
             finally:
                 kill_test_server(socket)
@@ -794,10 +1037,13 @@ class SessionIntegrationTests(unittest.TestCase):
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "active"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "active",
                 )
                 self.assertEqual(
-                    halt(state_root=files["state"], session=session, timeout=5)["state"],
+                    halt(state_root=files["state"], session=session, timeout=5)[
+                        "state"
+                    ],
                     "HALTED",
                 )
             finally:
@@ -828,7 +1074,9 @@ class SessionIntegrationTests(unittest.TestCase):
                     "process_birth_identity",
                     side_effect=IdentityError("injected process binding failure"),
                 ):
-                    with self.assertRaisesRegex(IdentityError, "injected process binding"):
+                    with self.assertRaisesRegex(
+                        IdentityError, "injected process binding"
+                    ):
                         launch(
                             session=session,
                             contract_path=files["contract"],
@@ -841,7 +1089,8 @@ class SessionIntegrationTests(unittest.TestCase):
                         )
                 self.assertTrue(SessionRegistry(files["state"]).exists(session))
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"], "launching"
+                    current_session_lease(self.authority_root, target="codex")["state"],
+                    "launching",
                 )
                 metadata = TmuxController(files["state"]).metadata_for_session(
                     socket=Path(socket),
@@ -998,11 +1247,15 @@ class SessionIntegrationTests(unittest.TestCase):
                         "pane_dead": False,
                     }
 
-                with patch.object(puppet_session, "_runtime", side_effect=fake_runtime), patch.object(
-                    puppet_session,
-                    "adapter_for",
-                    return_value=DummyAdapter(),
-                ), patch.object(puppet_session, "process_alive", return_value=True):
+                with (
+                    patch.object(puppet_session, "_runtime", side_effect=fake_runtime),
+                    patch.object(
+                        puppet_session,
+                        "adapter_for",
+                        return_value=DummyAdapter(),
+                    ),
+                    patch.object(puppet_session, "process_alive", return_value=True),
+                ):
                     with self.assertRaises(KeyboardInterrupt):
                         halt(state_root=files["state"], session=session, timeout=1)
                     with self.assertRaisesRegex(IdentityError, "ambiguous"):
@@ -1014,7 +1267,9 @@ class SessionIntegrationTests(unittest.TestCase):
     def test_halt_is_single_owner_with_two_eof_sequence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            candidate = initialize_repo(root / "candidate", "codex/agy-halt", "candidate")
+            candidate = initialize_repo(
+                root / "candidate", "codex/agy-halt", "candidate"
+            )
             session = "codex-agy-halt"
             files = controller_files(
                 root,
@@ -1063,7 +1318,9 @@ class SessionIntegrationTests(unittest.TestCase):
                         if lock_state["sends"] >= 2:
                             lock_state["alive"] = False
 
-                    def metadata(self, *, socket: Path, session: str, pane: str | None = None):
+                    def metadata(
+                        self, *, socket: Path, session: str, pane: str | None = None
+                    ):
                         return {
                             "pane_pid": record["process"]["pid"],
                             "pane_dead": not lock_state["alive"],
@@ -1116,7 +1373,10 @@ class SessionIntegrationTests(unittest.TestCase):
                     puppet_session._runtime = fake_runtime
                     puppet_session.adapter_for = fake_adapter_for
                     puppet_session.process_alive = fake_process_alive
-                    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+                    threads = [
+                        threading.Thread(target=worker),
+                        threading.Thread(target=worker),
+                    ]
                     for thread in threads:
                         thread.start()
                     for thread in threads:
@@ -1131,7 +1391,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertEqual(results[0], results[1])
                 self.assertEqual(results[0]["state"], "HALTED")
                 self.assertEqual(fake_tmux.control_keys, ["C-d", "C-d"])
-                self.assertEqual(SessionRegistry(files["state"]).load(session)["state"], "HALTED")
+                self.assertEqual(
+                    SessionRegistry(files["state"]).load(session)["state"], "HALTED"
+                )
             finally:
                 kill_test_server(socket)
 
@@ -1164,7 +1426,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 )
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
-                (candidate / "feature.txt").write_text("bounded source\n", encoding="utf-8")
+                (candidate / "feature.txt").write_text(
+                    "bounded source\n", encoding="utf-8"
+                )
                 source_commit = commit_all(candidate, "source")
 
                 def write_source_handoff(path: Path, commit: str, summary: str):
@@ -1177,9 +1441,15 @@ class SessionIntegrationTests(unittest.TestCase):
                             "run_id": "source-run",
                             "nonce": "source-nonce",
                             "candidate_commit": commit,
-                            "executable_fingerprint": record["adapter"]["executable_fingerprint"],
-                            "adapter_fingerprint": record["adapter"]["adapter_fingerprint"],
-                            "protocol_fingerprint": record["adapter"]["protocol_fingerprint"],
+                            "executable_fingerprint": record["adapter"][
+                                "executable_fingerprint"
+                            ],
+                            "adapter_fingerprint": record["adapter"][
+                                "adapter_fingerprint"
+                            ],
+                            "protocol_fingerprint": record["adapter"][
+                                "protocol_fingerprint"
+                            ],
                             "timestamp": "2026-07-22T03:10:00Z",
                             "summary": summary,
                             "claims": [],
@@ -1191,7 +1461,9 @@ class SessionIntegrationTests(unittest.TestCase):
                     )
 
                 source_path = files["proof"] / "source-handoff.json"
-                write_source_handoff(source_path, source_commit, "Bounded source checkpoint")
+                write_source_handoff(
+                    source_path, source_commit, "Bounded source checkpoint"
+                )
                 source_import = import_checkpoint(
                     state_root=files["state"], session=session, handoff_path=source_path
                 )
@@ -1214,9 +1486,13 @@ class SessionIntegrationTests(unittest.TestCase):
                 write_json(proof_dir / "receipt.json", {"source_commit": source_commit})
                 proof_commit = commit_all(candidate, "proof")
                 proof_handoff = files["proof"] / "proof-handoff.json"
-                write_source_handoff(proof_handoff, proof_commit, "Proof-only child checkpoint")
+                write_source_handoff(
+                    proof_handoff, proof_commit, "Proof-only child checkpoint"
+                )
                 proof_import = import_checkpoint(
-                    state_root=files["state"], session=session, handoff_path=proof_handoff
+                    state_root=files["state"],
+                    session=session,
+                    handoff_path=proof_handoff,
                 )
                 final_review = files["proof"] / "final-review.json"
                 write_json(final_review, {"findings": [], "classification": "clean"})
@@ -1243,7 +1519,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(accepted["state"], "ACCEPTED")
                 self.assertEqual(
-                    halt(state_root=files["state"], session=session, timeout=5)["state"],
+                    halt(state_root=files["state"], session=session, timeout=5)[
+                        "state"
+                    ],
                     "HALTED",
                 )
             finally:

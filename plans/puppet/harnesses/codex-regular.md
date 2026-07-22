@@ -20,10 +20,13 @@
   `resume`, and an `--json`/`--summary` style diagnosis path via `doctor`.
 - Puppet source declares `session_profile` values `regular` and `goal`; this is
   not a claim from `codex --help`, and `goal` is deferred from the active baseline.
-- `codex doctor --json` reports loaded config model as `gpt-5.6-sol` (model provider
-  `openai`) in the current environment.
-- `codex doctor --json` in isolation (`CODEX_HOME=<temp>`) loads defaulted config,
-  reports `model: <default>`, and does not require the default home config to parse.
+- A bounded safe-field-only `codex doctor --json` observation reports model
+  `gpt-5.6-sol`, provider `openai`, and authenticated status for the ordinary
+  environment. This does not prove the same model/auth tuple in an isolated
+  root.
+- `CODEX_HOME=<temp> codex doctor --json` loads default config and reports
+  `model: <default>`, but authentication is coupled to `CODEX_HOME` and is not
+  present in a new lane root.
 
 ### Hypotheses requiring proof
 
@@ -33,6 +36,9 @@
   harnesses; resume behavior is not equivalent across harnesses.
 - Default model reporting from `doctor` may differ by authenticated vs unauthenticated
   environment and must be treated as live-state fact per run.
+- The regular TUI's authenticated state cannot be copied or linked from the
+  live home. A brokered process-local access-token route or a human login into
+  the lane root requires a separate gate; neither is currently available.
 
 ## 2) Instruction planes: precedence, activation, cleanup unknowns
 
@@ -44,9 +50,11 @@ instruction plane.
     `$CODEX_HOME/<name>.config.toml` over the base user config.
   - Candidate Puppet profiles may use additive `developer_instructions`; never
     use `model_instructions_file`, which replaces built-in base instructions.
-  - Qualification must use an isolated `CODEX_HOME`, prove auth still works
-    without copying credentials, and show that a control session without the
-    selected profile receives no Puppet instruction.
+  - Qualification must use a lane-owned `$CODEX_HOME/<namespace>.config.toml`,
+    select it with `--profile <namespace>`, and show that a matched control
+    without the profile receives no Puppet instruction. Authentication
+    isolation is the current blocker; never copy, link, read, or hash live
+    credentials.
 
 - **Plane 2: repository/workspace addendum**
   - Codex discovers root-to-cwd `AGENTS.md` guidance and trusted project
@@ -97,9 +105,11 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
      checkpoint hash.
 
 4. **Resume behavior**
-   - Inputs: `codex resume` (targeted and `--last`) in an isolated run.
-   - Expected: exact target identity rebind; no session migration; classified separately
-     as its own command profile with explicit blocker if replay path is not exact.
+   - Inputs: a future exact Puppet-created session ID only.
+   - Expected: a new process generation bound to the exact registered prior
+     session. Bare resume and `--last` are forbidden because they can select a
+     non-Puppet operator session. The current Puppet command surface keeps
+     resume unsupported.
 
 5. **Halt behavior**
    - Input: exact PID signal path.
@@ -118,8 +128,12 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   and pass it as environment variable `CODEX_HOME` for all Codex commands in this lane.
 - Keep fixture config minimal and lane-local; never read or write
   `~/.codex/config.toml` during this lane.
-- Launch commands with explicit `-C <fixture-repo>` and no `ChatGPT.app`-specific
-  project assumptions.
+- Launch commands with explicit `-C <absolute-fixture-repo>` and no
+  ChatGPT-app-specific project assumptions.
+- Do not copy/symlink the ordinary auth file, inspect Keychain/token stores, or
+  put credentials in argv. A future approved broker may inject only a
+  process-local credential into the exact Puppet child; otherwise a
+  human-present login must initialize the isolated root.
 - Cleanup boundary: preserve lane-owned roots as evidence until exact rollback
   and cleanup are separately authorized; never target global user paths.
 - Verification precondition: any evidence that references config/profile paths must
@@ -139,6 +153,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - `tests/test_puppet_adapters.py` and `tests/test_puppet_probe.py`
   - codex-specific test cases for all three planes, no-bleed and resume ambiguity,
     plus one test for isolated `CODEX_HOME` noninterference.
+- `skills/puppet/scripts/puppet_lib/tmux.py` / launch planning
+  - add allowlisted environment and exact absolute `-C`/profile bindings
+    without a shell wrapper or instruction/credential body in argv, state, or
+    proof.
 
 ## 7) Blockers and stop criteria
 
@@ -149,6 +167,8 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   follow-up checkpoint under bounded fixture control.
 - Blocker: any source/credential/global-session state read/write outside the lane fixture
   root.
+- Blocker: no approved authentication-preserving isolated `CODEX_HOME` route is
+  currently available.
 - Stop condition: no unsupported claims beyond this lane scope; if model/plane/resume
   evidence is inconclusive, defer plane choice and keep harness status as `experimental`
   with blockers recorded.

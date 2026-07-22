@@ -10,7 +10,11 @@ current executable fingerprint to the permission-bypass, sandbox-off, and any
 required project-isolation controls. AGY requires exactly one help-proved
 `--new-project` launch flag so a live qualification does not silently reuse its
 default project. This is project-level isolation, not a separate credential or
-global-store claim. Unknown, partial, or drifted mappings fail closed.
+global-store claim. AGY's `--sandbox` is an enable switch, and omission cannot
+prove sandbox-off when persistent settings may enable it. Until Puppet proves a
+native negative override or an authentication-preserving isolated config root,
+AGY's sandbox-off mapping is incomplete and live qualification fails closed.
+Unknown, partial, or drifted mappings fail closed.
 
 YOLO is cooperative same-user execution, not hostile containment. It changes
 harness mechanics only. It never authorizes delivery, external effects,

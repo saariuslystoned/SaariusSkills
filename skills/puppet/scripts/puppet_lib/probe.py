@@ -49,6 +49,7 @@ from .census import adapter_implementation_fingerprint, census_target
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
+from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .journal import Journal
 from .profiles import (
     INPUT_READINESS_STRATEGY,
@@ -85,6 +86,8 @@ MAX_TARGET_POPULATION = 64
 MAX_TARGET_DESCENDANTS = 32
 MAX_TARGET_ANCESTRY_NODES = 512
 MAX_ANCESTRY_DEPTH = 64
+
+
 def _utc_now() -> str:
     return (
         dt.datetime.now(dt.timezone.utc)
@@ -166,9 +169,8 @@ def _validated_target_population(
     expected = [*protected, registered]
     expected_pids = [item["pid"] for item in expected]
     observed_pids = [item["pid"] for item in observed]
-    if (
-        len(expected_pids) != len(set(expected_pids))
-        or len(observed_pids) != len(set(observed_pids))
+    if len(expected_pids) != len(set(expected_pids)) or len(observed_pids) != len(
+        set(observed_pids)
     ):
         raise IdentityError("same-target process snapshot contains duplicate PIDs")
     observed_by_pid = {item["pid"]: item for item in observed}
@@ -185,22 +187,16 @@ def _validated_target_population(
 
     protected_pids = {item["pid"] for item in protected}
     executable_identity = {
-        name: registered[name]
-        for name in ("executable_path", "device", "inode")
+        name: registered[name] for name in ("executable_path", "device", "inode")
     }
     descendants = []
     chains = []
     for identity in observed:
         if identity["pid"] in expected_pids:
             continue
-        if (
-            {
-                name: identity[name]
-                for name in ("executable_path", "device", "inode")
-            }
-            != executable_identity
-            or not process_alive_fn(identity)
-        ):
+        if {
+            name: identity[name] for name in ("executable_path", "device", "inode")
+        } != executable_identity or not process_alive_fn(identity):
             raise IdentityError(
                 "same-target extra lacks the registered executable identity"
             )
@@ -240,9 +236,7 @@ def _validated_target_population(
     return {
         "processes": sorted(observed, key=lambda item: item["pid"]),
         "descendants": sorted(descendants, key=lambda item: item["pid"]),
-        "ancestry_chains": sorted(
-            chains, key=lambda chain: chain[0]["process"]["pid"]
-        ),
+        "ancestry_chains": sorted(chains, key=lambda chain: chain[0]["process"]["pid"]),
     }
 
 
@@ -265,9 +259,16 @@ def _validated_mapping(
     candidate = AdapterManifest.from_dict(raw)
     implementation_fingerprint = adapter_fingerprint_fn()
     if candidate.raw["adapter_fingerprint"] != implementation_fingerprint:
-        raise IdentityError("doctor manifest does not bind the current adapter implementation")
+        raise IdentityError(
+            "doctor manifest does not bind the current adapter implementation"
+        )
     observed = census_target_fn(target, implementation_fingerprint)
-    for name in ("platform", "executable", "adapter_fingerprint", "protocol_fingerprint"):
+    for name in (
+        "platform",
+        "executable",
+        "adapter_fingerprint",
+        "protocol_fingerprint",
+    ):
         if observed.raw[name] != candidate.raw[name]:
             raise IdentityError("fresh zero-agent census identity changed: %s" % name)
     if observed.raw["yolo_mapping"] != mapping:
@@ -305,6 +306,24 @@ def _assert_adapter_identity(
 ) -> None:
     if fingerprint_fn() != manifest.raw["adapter_fingerprint"]:
         raise IdentityError("probe adapter implementation identity changed")
+
+
+def _assert_instruction_artifact(
+    *,
+    path: Path,
+    expected_sha256: str,
+    expected_manifest: Dict[str, Any],
+    target: str,
+) -> Dict[str, Any]:
+    if sha256_file(path, max_bytes=131072) != expected_sha256:
+        raise IdentityError("probe instruction manifest fingerprint changed")
+    observed = validate_instruction_manifest(
+        read_json(path, max_bytes=131072, reject_sensitive_fields=True),
+        target=target,
+    )
+    if canonical_json_bytes(observed) != canonical_json_bytes(expected_manifest):
+        raise IdentityError("probe instruction manifest identity changed")
+    return observed
 
 
 def _assert_handoff_set(fixture: Path, expected_names: set[str]) -> None:
@@ -416,9 +435,7 @@ def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> 
     )
 
 
-def _followup_prompt(
-    fixture_contract: Dict[str, Any], followup: Dict[str, Any]
-) -> str:
+def _followup_prompt(fixture_contract: Dict[str, Any], followup: Dict[str, Any]) -> str:
     return (
         "PUPPET_REAL_HARNESS_FOLLOWUP_V1\n"
         "Verify the same run_id and nonce plus message_id and sequence=1. "
@@ -515,11 +532,11 @@ def _wait_for_handoff(
         )
         population_guard()
         if path.exists():
-            handoff = validate_handoff(
-                path, allowed_roots=[fixture], expected=expected
-            )
+            handoff = validate_handoff(path, allowed_roots=[fixture], expected=expected)
             if handoff.data != expected_data:
-                raise IdentityError("probe handoff content differs from the exact contract")
+                raise IdentityError(
+                    "probe handoff content differs from the exact contract"
+                )
             _assert_handoff_set(fixture, expected_handoff_names)
             if tree_fingerprint(fixture) != fixture_fingerprint:
                 raise IdentityError("non-handoff conformance fixture content drifted")
@@ -609,9 +626,7 @@ def _halt_exact(
     while process_alive_fn(process) and time.monotonic() < deadline:
         sleep_fn(POLL_INTERVAL_SECONDS)
     stopped = not process_alive_fn(process)
-    tmux_preserved = tmux.exists(
-        socket, session, server_identity=server_identity
-    )
+    tmux_preserved = tmux.exists(socket, session, server_identity=server_identity)
     if not stopped:
         raise IdentityError(
             "exact probe target did not stop gracefully; no broad signal was attempted"
@@ -631,7 +646,9 @@ def _halt_exact(
         or stopped_metadata.get("pane_pid") != process["pid"]
         or not stopped_metadata.get("pane_dead")
     ):
-        raise IdentityError("probe target stopped without a preserved dead evidence pane")
+        raise IdentityError(
+            "probe target stopped without a preserved dead evidence pane"
+        )
     return {
         "schema_version": 1,
         "timestamp": _utc_now(),
@@ -748,19 +765,15 @@ def run_probe(
     run_id: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
-    _server_process_birth_fn: Callable[
-        [int], Dict[str, Any]
-    ] = process_birth_identity,
+    _server_process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
     _process_tree_alive_fn: Callable[[Dict[str, Any]], bool] = process_tree_alive,
     _exact_sigint_fn: Callable[[Dict[str, Any]], None] = send_exact_sigint,
-    _active_processes_fn: Callable[[str], list[Dict[str, Any]]] = active_target_processes,
-    _continuous_population_fn: Optional[
-        Callable[[str], list[Dict[str, Any]]]
-    ] = None,
-    _population_snapshot_fn: Optional[
-        Callable[[str], Dict[str, Any]]
-    ] = None,
+    _active_processes_fn: Callable[
+        [str], list[Dict[str, Any]]
+    ] = active_target_processes,
+    _continuous_population_fn: Optional[Callable[[str], list[Dict[str, Any]]]] = None,
+    _population_snapshot_fn: Optional[Callable[[str], Dict[str, Any]]] = None,
     _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
     _sleep_fn: Callable[[float], None] = time.sleep,
@@ -775,13 +788,19 @@ def run_probe(
     if target not in TARGETS:
         raise ValidationError("unsupported probe target")
     if profile != PROBE_PROFILE:
-        raise ValidationError("probe profile must be the fixed source-free Pass B contract")
+        raise ValidationError(
+            "probe profile must be the fixed source-free Pass B contract"
+        )
     session_profile = validate_session_profile(target, session_profile)
+    if session_profile != "regular":
+        raise ValidationError("Pass B qualification is limited to regular sessions")
     validate_identifier(controller, "controller")
     if controller == target:
         raise ValidationError("a target cannot act as its own probe controller")
     if timeout <= 0 or timeout > MAX_PROBE_SECONDS:
-        raise ValidationError("probe timeout must be greater than zero and at most 900 seconds")
+        raise ValidationError(
+            "probe timeout must be greater than zero and at most 900 seconds"
+        )
     if halt_timeout < 0 or halt_timeout > MAX_HALT_SECONDS:
         raise ValidationError("halt timeout must be between zero and 60 seconds")
     proof_root = absolute_root(str(proof_root), "proof root")
@@ -816,17 +835,10 @@ def run_probe(
         raise ConflictError("probe run id already exists")
     run_root.mkdir(mode=0o700)
     ensure_within(run_root, proof_root, must_exist=True)
-    probe_lease_owner = build_lease_owner(
-        activity="probe",
-        run_id=run_id,
-        campaign_id=authorization["campaign_id"],
-        goal_fingerprint=goal_verification["goal_fingerprint"],
-        proof_root=proof_root,
-        state_root=run_root,
-    )
     state_path = run_root / "state.json"
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
+    instruction_path = run_root / "effective-instructions.json"
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -844,8 +856,6 @@ def run_probe(
         "result": None,
         "blocker": None,
     }
-    atomic_write_json(state_path, state)
-    atomic_write_json(authorization_snapshot_path, authorization)
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
@@ -868,9 +878,7 @@ def run_probe(
         "session_profile": session_profile,
         "campaign_id": authorization["campaign_id"],
         "goal_fingerprint": goal_verification["goal_fingerprint"],
-        "authorization_sha256": sha256_file(
-            authorization_snapshot_path, max_bytes=65536
-        ),
+        "authorization_sha256": None,
         "manifest_fingerprint": manifest.fingerprint,
         "executable_fingerprint": manifest.raw["executable"]["sha256"],
         "version_fingerprint": manifest.raw["executable"]["version_sha256"],
@@ -886,6 +894,7 @@ def run_probe(
         "startup_settle_seconds": startup_settle_seconds_for(target),
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "payload_argv_absent": True,
+        "instruction_wrapper": None,
         "active_target_processes_before_launch": [],
         "active_target_processes_after_halt": None,
         "target_population_policy": TARGET_POPULATION_POLICY,
@@ -906,8 +915,92 @@ def run_probe(
         "halt_sha256": None,
         "result": "running",
     }
-    atomic_write_json(evidence_path, evidence)
     try:
+        atomic_write_json(state_path, state)
+        atomic_write_json(authorization_snapshot_path, authorization)
+        evidence["authorization_sha256"] = sha256_file(
+            authorization_snapshot_path, max_bytes=65536
+        )
+        atomic_write_json(evidence_path, evidence)
+        fixture = run_root / "fixture"
+        fixture_contract = create_fixture(
+            fixture, run_id=run_id, session=session, target=target
+        )
+        if (
+            fixture_contract["protocol_fingerprint"]
+            != manifest.raw["protocol_fingerprint"]
+        ):
+            raise IdentityError("fixture and manifest protocol fingerprints differ")
+        fixture_fingerprint = tree_fingerprint(fixture)
+        evidence["fixture_fingerprint_before"] = fixture_fingerprint
+        controller_contract = _controller_contract(
+            fixture=fixture,
+            campaign_id=authorization["campaign_id"],
+            controller=controller,
+            target=target,
+            profile=profile,
+            session_profile=session_profile,
+        )
+        atomic_write_json(
+            run_root / "controller-contract.json", controller_contract.raw
+        )
+        ready_value = _handoff_value(
+            phase="ready",
+            session=session,
+            fixture_contract=fixture_contract,
+            manifest=manifest,
+        )
+        compiled = compile_instruction_wrapper(
+            target=target,
+            task=_initial_prompt(fixture_contract, ready_value),
+            contract_identity={
+                "fingerprint": controller_contract.fingerprint,
+                "controller": controller,
+                "target": target,
+                "task_profile": profile,
+            },
+            workspace_identity={
+                "fixture_fingerprint": fixture_fingerprint,
+                "workspace": "isolated_conformance_fixture",
+            },
+            run_identity={
+                "session": session,
+                "run_id": run_id,
+                "nonce": fixture_contract["nonce"],
+            },
+            session_profile=session_profile,
+            model_binding="default",
+            effort_binding="default",
+            runtime_contract_layer={
+                "mutation_owner": controller_contract.mutation_owner,
+                "allowed_modes": sorted(controller_contract.allowed_modes),
+                "hard_gates": sorted(controller_contract.hard_gates),
+            },
+        )
+        atomic_write_json(instruction_path, compiled.manifest)
+        instruction_manifest_sha = sha256_file(instruction_path, max_bytes=131072)
+        evidence["instruction_wrapper"] = {
+            "manifest_sha256": instruction_manifest_sha,
+            "instruction_policy_fingerprint": compiled.manifest[
+                "instruction_policy_fingerprint"
+            ],
+            "effective_contract_fingerprint": compiled.manifest[
+                "effective_contract_fingerprint"
+            ],
+            "rendered_sha256": compiled.manifest["rendered_sha256"],
+            "instruction_plane": compiled.manifest["instruction_plane"],
+            "session_profile": compiled.manifest["session_profile"],
+            "delivery_transport": compiled.manifest["delivery_transport"],
+        }
+        atomic_write_json(evidence_path, evidence)
+        probe_lease_owner = build_lease_owner(
+            activity="probe",
+            run_id=run_id,
+            campaign_id=authorization["campaign_id"],
+            goal_fingerprint=goal_verification["goal_fingerprint"],
+            proof_root=proof_root,
+            state_root=run_root,
+        )
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
             target=target,
@@ -925,7 +1018,9 @@ def run_probe(
             else None
         )
         if protected_session == session:
-            raise ConflictError("probe session collides with the protected operator session")
+            raise ConflictError(
+                "probe session collides with the protected operator session"
+            )
         evidence.update(
             active_target_processes_before_launch=active,
             parallel_target_override=override,
@@ -944,6 +1039,7 @@ def run_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             authority_root=_authority_root,
             _lock_descriptor=lock_descriptor,
         )
@@ -953,6 +1049,7 @@ def run_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             states={"launching"},
             authority_root=_authority_root,
         )
@@ -962,24 +1059,6 @@ def run_probe(
             raise IdentityError(
                 "same-target process population changed before probe launch"
             )
-
-        fixture = run_root / "fixture"
-        fixture_contract = create_fixture(
-            fixture, run_id=run_id, session=session, target=target
-        )
-        if fixture_contract["protocol_fingerprint"] != manifest.raw["protocol_fingerprint"]:
-            raise IdentityError("fixture and manifest protocol fingerprints differ")
-        fixture_fingerprint = tree_fingerprint(fixture)
-        evidence["fixture_fingerprint_before"] = fixture_fingerprint
-        controller_contract = _controller_contract(
-            fixture=fixture,
-            campaign_id=authorization["campaign_id"],
-            controller=controller,
-            target=target,
-            profile=profile,
-            session_profile=session_profile,
-        )
-        atomic_write_json(run_root / "controller-contract.json", controller_contract.raw)
 
         tmux_authority = run_root / "tmux-authority"
         tmux_authority.mkdir(mode=0o700)
@@ -1004,7 +1083,9 @@ def run_probe(
             raise IdentityError("probe launch metadata is structurally incomplete")
         provisional_bound = True
         if metadata.get("socket_identity") != socket_identity:
-            raise IdentityError("probe launch did not bind the private tmux socket identity")
+            raise IdentityError(
+                "probe launch did not bind the private tmux socket identity"
+            )
         tmux.assert_tmux_binary_identity(tmux_binary_identity)
         tmux.assert_tmux_server_identity(socket, server_identity)
         candidate_process = _process_birth_fn(metadata["pane_pid"])
@@ -1027,6 +1108,7 @@ def run_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             state="active",
             process=process,
             authority_root=_authority_root,
@@ -1042,8 +1124,7 @@ def run_probe(
                 snapshot = {
                     "processes": legacy_processes,
                     "ancestry_nodes": [
-                        {"process": item, "parent_pid": 1}
-                        for item in legacy_processes
+                        {"process": item, "parent_pid": 1} for item in legacy_processes
                     ],
                 }
             else:
@@ -1155,19 +1236,17 @@ def run_probe(
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
         _write_state(state_path, state, "awaiting_ready")
 
-        ready_value = _handoff_value(
-            phase="ready",
-            session=session,
-            fixture_contract=fixture_contract,
-            manifest=manifest,
-        )
         adapter = adapter_for(target)
         initial = adapter.envelope(
-            _initial_prompt(fixture_contract, ready_value),
+            compiled.rendered.decode("utf-8"),
             session_profile,
             initial=True,
         )
         initial_payload = _payload(initial)
+        if sha256_bytes(initial_payload) != compiled.manifest["rendered_sha256"]:
+            raise IdentityError(
+                "regular profile altered the compiled instruction payload"
+            )
         if any(
             initial in argument
             or "PUPPET_REAL_HARNESS" in argument
@@ -1176,6 +1255,12 @@ def run_probe(
             for argument in argv
         ):
             raise IdentityError("initial prompt appeared in the process arguments")
+        _assert_instruction_artifact(
+            path=instruction_path,
+            expected_sha256=instruction_manifest_sha,
+            expected_manifest=compiled.manifest,
+            target=target,
+        )
         tmux.paste_bytes(
             socket=socket,
             session=session,
@@ -1332,13 +1417,9 @@ def run_probe(
             acceptance_root=run_root / "acceptance",
         )
         review_path = run_root / "verdicts" / (followup.checkpoint_id + ".json")
-        acceptance_path = (
-            run_root / "acceptance" / (followup.checkpoint_id + ".json")
-        )
+        acceptance_path = run_root / "acceptance" / (followup.checkpoint_id + ".json")
         evidence["review_sha256"] = sha256_file(review_path, max_bytes=131072)
-        evidence["acceptance_sha256"] = sha256_file(
-            acceptance_path, max_bytes=131072
-        )
+        evidence["acceptance_sha256"] = sha256_file(acceptance_path, max_bytes=131072)
         atomic_write_json(evidence_path, evidence)
         _write_state(state_path, state, "accepted_awaiting_halt")
 
@@ -1348,6 +1429,7 @@ def run_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             state="halting",
             process=process,
             authority_root=_authority_root,
@@ -1384,6 +1466,12 @@ def run_probe(
         evidence["active_target_processes_after_halt"] = active_after_halt
         evidence["result"] = "accepted"
         atomic_write_json(evidence_path, evidence)
+        _assert_instruction_artifact(
+            path=instruction_path,
+            expected_sha256=instruction_manifest_sha,
+            expected_manifest=compiled.manifest,
+            target=target,
+        )
         receipt_core = {
             "schema_version": 1,
             "kind": "real_harness_conformance",
@@ -1400,6 +1488,9 @@ def run_probe(
             "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
             "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
             "yolo_mapping_sha256": evidence["yolo_mapping_sha256"],
+            "instruction_policy_fingerprint": compiled.manifest[
+                "instruction_policy_fingerprint"
+            ],
             "capabilities": list(PROBE_CAPABILITIES),
             "accepted_checkpoint_id": followup.checkpoint_id,
             "acceptance_sha256": evidence["acceptance_sha256"],
@@ -1409,6 +1500,7 @@ def run_probe(
                     "authorization", authorization_snapshot_path, run_root
                 ),
                 _proof_reference("evidence", evidence_path, run_root),
+                _proof_reference("instructions", instruction_path, run_root),
                 _proof_reference("halt", halt_path, run_root),
                 _proof_reference(
                     "ready", fixture / "handoffs" / "ready.json", run_root
@@ -1468,6 +1560,7 @@ def run_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             state="halted",
             process=process,
             authority_root=_authority_root,
@@ -1589,6 +1682,7 @@ def run_probe(
                     target=target,
                     controller=controller,
                     owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
                     state="failed",
                     process=process,
                     authority_root=_authority_root,
@@ -1624,10 +1718,10 @@ def recover_probe(
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
     _exact_sigint_fn: Callable[[Dict[str, Any]], None] = send_exact_sigint,
-    _server_process_birth_fn: Callable[
-        [int], Dict[str, Any]
-    ] = process_birth_identity,
-    _active_processes_fn: Callable[[str], list[Dict[str, Any]]] = active_target_processes,
+    _server_process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
+    _active_processes_fn: Callable[
+        [str], list[Dict[str, Any]]
+    ] = active_target_processes,
     _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
     _sleep_fn: Callable[[float], None] = time.sleep,
@@ -1670,9 +1764,38 @@ def recover_probe(
     recovery_path = run_root / "recovery.json"
     halt_control_journal = Journal(run_root / "halt-control")
     state = read_json(state_path, max_bytes=131072, reject_sensitive_fields=True)
-    evidence = read_json(
-        evidence_path, max_bytes=131072, reject_sensitive_fields=True
+    evidence = read_json(evidence_path, max_bytes=131072, reject_sensitive_fields=True)
+    instruction_path = ensure_within(
+        run_root / "effective-instructions.json",
+        run_root,
+        must_exist=True,
     )
+    instruction_manifest_sha = sha256_file(instruction_path, max_bytes=131072)
+    instruction_manifest = validate_instruction_manifest(
+        read_json(
+            instruction_path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        ),
+        target=target,
+    )
+    expected_instruction_wrapper = {
+        "manifest_sha256": instruction_manifest_sha,
+        "instruction_policy_fingerprint": instruction_manifest[
+            "instruction_policy_fingerprint"
+        ],
+        "effective_contract_fingerprint": instruction_manifest[
+            "effective_contract_fingerprint"
+        ],
+        "rendered_sha256": instruction_manifest["rendered_sha256"],
+        "instruction_plane": instruction_manifest["instruction_plane"],
+        "session_profile": instruction_manifest["session_profile"],
+        "delivery_transport": instruction_manifest["delivery_transport"],
+    }
+    if evidence.get("instruction_wrapper") != expected_instruction_wrapper:
+        raise IdentityError(
+            "persisted probe instruction evidence differs from its manifest"
+        )
     state_session_profile = validate_session_profile(
         target, state.get("session_profile")
     )
@@ -1680,6 +1803,8 @@ def recover_probe(
         target, evidence.get("session_profile")
     )
     session = _session_id(target, run_id)
+    instruction_contract = instruction_manifest["contract_identity"]
+    instruction_run = instruction_manifest["run_identity"]
     probe_lease_owner = build_lease_owner(
         activity="probe",
         run_id=run_id,
@@ -1697,15 +1822,23 @@ def recover_probe(
         or evidence.get("target") != target
         or evidence.get("controller") != controller
         or state_session_profile != evidence_session_profile
+        or instruction_manifest["target"] != target
+        or instruction_manifest["session_profile"] != state_session_profile
+        or instruction_contract.get("controller") != controller
+        or instruction_contract.get("target") != target
+        or instruction_contract.get("task_profile") != PROBE_PROFILE
+        or instruction_run.get("session") != session
+        or instruction_run.get("run_id") != run_id
         or evidence.get("campaign_id") != expected_campaign_id
-        or evidence.get("goal_fingerprint")
-        != goal_verification["goal_fingerprint"]
+        or evidence.get("goal_fingerprint") != goal_verification["goal_fingerprint"]
     ):
         raise IdentityError("persisted probe recovery identity mismatch")
 
     lock_descriptor: Optional[int] = None
     try:
-        complete = state.get("phase") == "complete" and state.get("result") == "accepted"
+        complete = (
+            state.get("phase") == "complete" and state.get("result") == "accepted"
+        )
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
             target=target,
@@ -1717,6 +1850,7 @@ def recover_probe(
                 target=target,
                 controller=controller,
                 owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 states={"halting", "halted"},
                 authority_root=_authority_root,
             )
@@ -1754,6 +1888,7 @@ def recover_probe(
                     target=target,
                     controller=controller,
                     owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
                     state="halted",
                     process=process,
                     authority_root=_authority_root,
@@ -1774,6 +1909,7 @@ def recover_probe(
             target=target,
             controller=controller,
             owner=probe_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             states={"launching", "active", "halting", "halted", "failed"},
             authority_root=_authority_root,
         )
@@ -1800,6 +1936,7 @@ def recover_probe(
                 target=target,
                 controller=controller,
                 owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 state="failed",
                 process=None,
                 authority_root=_authority_root,
@@ -1841,9 +1978,7 @@ def recover_probe(
                 "recovery": str(recovery_path),
                 "tmux_preserved": False,
             }
-        tmux_authority = ensure_within(
-            tmux_authority_path, run_root, must_exist=True
-        )
+        tmux_authority = ensure_within(tmux_authority_path, run_root, must_exist=True)
         tmux = _tmux_factory(tmux_authority)
         socket = tmux.socket_path(session)
         tmux_record = evidence.get("tmux")
@@ -1869,6 +2004,7 @@ def recover_probe(
                 target=target,
                 controller=controller,
                 owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 state="failed",
                 process=None,
                 authority_root=_authority_root,
@@ -1952,6 +2088,7 @@ def recover_probe(
                     target=target,
                     controller=controller,
                     owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
                     state="active",
                     process=process,
                     authority_root=_authority_root,
@@ -1963,6 +2100,7 @@ def recover_probe(
                     target=target,
                     controller=controller,
                     owner=probe_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
                     state="halting",
                     process=process,
                     authority_root=_authority_root,
@@ -2002,6 +2140,7 @@ def recover_probe(
                 target=target,
                 controller=controller,
                 owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 state="failed",
                 process=process,
                 authority_root=_authority_root,

@@ -16,8 +16,10 @@ Pass B runs the shared contract against the exact real CLI. Bind the result to
 the executable, adapter implementation, platform, and probe-protocol
 fingerprints. An enabled manifest must reference a bounded accepted
 real-harness receipt whose hash, exact verified-capability list, exact YOLO
-mapping, controller verdict, acceptance, halt receipt, and proof references all
-verify. The probe must also resolve the separately supplied campaign ID and
+mapping, instruction-policy fingerprint, sanitized effective-instruction
+manifest, controller verdict, acceptance, halt receipt, and proof references
+all verify. The persisted manifest is content-addressed and contains no task or
+rendered instruction body. The probe must also resolve the separately supplied campaign ID and
 repository/commit/path/SHA-256 goal tuple from the named local Git repository.
 The accepted receipt requires exact inclusion in the fixed per-account
 controller attestation ledger and is rechecked against the current executable,
@@ -99,15 +101,16 @@ the task profile, the probe contract's `--profile`, and provider config profiles
 
 The regular baseline is the only profile enabled by the current campaign.
 Native-command mappings remain preserved but unqualified and must not be used
-without a later profile-specific Pass B receipt. The contract pins one
-`session_profile`, and each target/profile pair requires its own Pass B receipt.
-Launch the bare YOLO CLI with no prompt body in argv,
+without a later command-specific lifecycle receipt. The contract pins one
+`session_profile`. Launch the bare YOLO CLI with no instruction body in argv,
 wait through the declared bounded structural settle, revalidate the exact pane
-and process, then prepend the selected native command to the initial message
-only. Literal paste and Enter are separated by their own bounded settle and pane
-recheck because current TUIs can discard an immediate submit. Follow-ups are
-ordinary unprefixed steering. These settles are race mitigations, not readiness
-claims; only the strict handoff proves consumption.
+and process, then deliver the fingerprint-bound regular wrapper. Literal paste
+and Enter are separated by their own bounded settle and pane recheck because
+current TUIs can discard an immediate submit. These settles are race
+mitigations, not readiness claims; only the strict handoff proves consumption.
+Do not generalize initial-only or repeated-prefix behavior to native commands:
+each command must separately prove activation, continuation, steering, resume,
+and termination envelopes.
 
 Codex may present a first-use workspace-trust gate before its composer exists.
 That is a human-present security/configuration gate, not input readiness. Puppet
@@ -118,7 +121,9 @@ stop with the trust gate as the blocker.
 AGY launches require exactly one help-proved `--new-project` flag in a
 separately declared and fingerprinted project-isolation bucket. This prevents a
 qualification run from silently joining the default AGY project; it does not
-claim a separate credential or global data store. Cursor's standalone and
+claim a separate credential or global data store. It also does not prove
+sandbox-off; current AGY qualification stays blocked until a positive native
+override or safe isolated config root is proved. Cursor's standalone and
 application subcommand entrypoints remain separate until process and fingerprint
 equivalence is controller-proved.
 

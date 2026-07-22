@@ -409,7 +409,7 @@ def _expected_rendered_byte_count(layers: List[Mapping[str, Any]]) -> int:
         len(("## %s\n" % layer["name"]).encode("utf-8")) + int(layer["bytes"])
         for layer in layers
     )
-    return section_bytes + (2 * (len(layers) - 1)) + 1
+    return section_bytes + (2 * (len(layers) - 1))
 
 
 def validate_instruction_manifest(
@@ -581,7 +581,7 @@ def _render_layers(
         metadata.append(layer)
         if source in {"universal", "model", "lifecycle", "harness"}:
             policy_layers.append({"name": name, "sha256": layer["sha256"]})
-    rendered = ("\n\n".join(rendered_sections) + "\n").encode("utf-8")
+    rendered = "\n\n".join(rendered_sections).encode("utf-8")
     return rendered, metadata, policy_layers
 
 

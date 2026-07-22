@@ -32,6 +32,7 @@ from .safety import (
 
 
 AUTHORITY_ID = "puppet-local-controller-v1"
+LEASE_SCHEMA_VERSION = 2
 LEASE_TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 ACTIVE_LEASE_STATES = {"launching", "active", "halting"}
 LEGACY_FENCE_CONTROLLER = "per-target-lease-fence-v1"
@@ -42,6 +43,52 @@ LEASE_TRANSITIONS = {
     "halted": {"halted"},
     "failed": {"failed"},
 }
+
+_LEASE_V1_FIELDS = {
+    "schema_version",
+    "authority_id",
+    "generation",
+    "session",
+    "target",
+    "controller",
+    "owner",
+    "state",
+    "created_at",
+    "updated_at",
+    "process",
+}
+_LEASE_V2_FIELDS = _LEASE_V1_FIELDS | {"instruction_manifest_sha256"}
+
+
+def _lease_required_fields(value: Any) -> set[str]:
+    if not isinstance(value, dict):
+        raise ValidationError("controller session lease is invalid")
+    version = value.get("schema_version")
+    if type(version) is not int:
+        raise ValidationError("controller session lease schema is invalid")
+    if version == 1:
+        return _LEASE_V1_FIELDS
+    if version == LEASE_SCHEMA_VERSION:
+        return _LEASE_V2_FIELDS
+    raise ValidationError("controller session lease schema is invalid")
+
+
+def _lease_instruction_sha(value: Dict[str, Any]) -> Optional[str]:
+    if value.get("schema_version") == 1:
+        return None
+    return validate_sha256(
+        value.get("instruction_manifest_sha256"),
+        "lease instruction manifest fingerprint",
+    )
+
+
+def _lease_row_matches(row: Any, lease: Dict[str, Any]) -> bool:
+    return (
+        isinstance(row, dict)
+        and row.get("request_id")
+        == "lease-%d-%s" % (lease["generation"], lease["state"])
+        and row.get("event") == {"kind": "session_lease", "lease": lease}
+    )
 
 
 def _is_v2_process_identity(value: Any) -> bool:
@@ -55,9 +102,7 @@ def _is_v2_process_identity(value: Any) -> bool:
         and isinstance(value.get("kernel_birth_id"), str)
         and bool(value["kernel_birth_id"])
         and len(value["kernel_birth_id"]) <= 200
-        and not any(
-            character in value["kernel_birth_id"] for character in "\x00\n\r"
-        )
+        and not any(character in value["kernel_birth_id"] for character in "\x00\n\r")
         and isinstance(value.get("start"), str)
         and bool(value["start"])
         and len(value["start"]) <= 200
@@ -213,9 +258,7 @@ def release_real_harness_lock(descriptor: Optional[int]) -> None:
 def _lease_path(root: Path, target: Optional[str] = None) -> Path:
     if target is None:
         return root / "current-session-lease.json"
-    return root / (
-        "current-session-lease.%s.json" % _validated_lease_target(target)
-    )
+    return root / ("current-session-lease.%s.json" % _validated_lease_target(target))
 
 
 def _lease_history_path(root: Path, target: Optional[str] = None) -> Path:
@@ -239,9 +282,7 @@ def lease_owner(
         "activity": activity,
         "run_id": validate_identifier(run_id, "lease run id"),
         "campaign_id": validate_identifier(campaign_id, "lease campaign id"),
-        "goal_fingerprint": validate_sha256(
-            goal_fingerprint, "lease goal fingerprint"
-        ),
+        "goal_fingerprint": validate_sha256(goal_fingerprint, "lease goal fingerprint"),
         "proof_root": str(absolute_root(str(proof_root), "lease proof root")),
         "state_root": str(absolute_root(str(state_root), "lease state root")),
     }
@@ -279,29 +320,17 @@ def current_session_lease(
     history_path = _lease_history_path(root, target)
     rows = Journal(history_path).snapshot()
     latest = rows[-1]["event"].get("lease") if rows else None
-    if not path.exists() and latest is None:
+    projection_missing = not path.exists()
+    if projection_missing and latest is None:
         return None
     lease = (
         read_json(path, max_bytes=32768, reject_sensitive_fields=True)
         if path.exists()
         else latest
     )
-    required = {
-        "schema_version",
-        "authority_id",
-        "generation",
-        "session",
-        "target",
-        "controller",
-        "owner",
-        "state",
-        "created_at",
-        "updated_at",
-        "process",
-    }
+    required = _lease_required_fields(lease)
     if (
         set(lease) != required
-        or lease.get("schema_version") != 1
         or lease.get("authority_id") != AUTHORITY_ID
         or isinstance(lease.get("generation"), bool)
         or not isinstance(lease.get("generation"), int)
@@ -310,6 +339,7 @@ def current_session_lease(
         not in {"launching", "active", "halting", "halted", "failed"}
     ):
         raise ValidationError("controller session lease is invalid")
+    _lease_instruction_sha(lease)
     validate_identifier(lease.get("session"), "lease session")
     validate_identifier(lease.get("controller"), "lease controller")
     if validate_lease_owner(lease.get("owner")) != lease["owner"]:
@@ -328,22 +358,24 @@ def current_session_lease(
     if latest is None:
         raise IdentityError("controller session lease lacks its authority history")
     if latest != lease:
-        current_identity = {
-            name: lease[name]
-            for name in (
-                "authority_id",
-                "generation",
-                "session",
-                "target",
-                "controller",
-                "owner",
-                "created_at",
-            )
-        }
-        latest_identity = {
-            name: latest.get(name)
-            for name in current_identity
-        } if isinstance(latest, dict) else None
+        identity_fields = [
+            "schema_version",
+            "authority_id",
+            "generation",
+            "session",
+            "target",
+            "controller",
+            "owner",
+            "created_at",
+        ]
+        if lease.get("schema_version") == LEASE_SCHEMA_VERSION:
+            identity_fields.append("instruction_manifest_sha256")
+        current_identity = {name: lease[name] for name in identity_fields}
+        latest_identity = (
+            {name: latest.get(name) for name in current_identity}
+            if isinstance(latest, dict)
+            else None
+        )
         same_generation_successor = (
             latest_identity == current_identity
             and latest.get("state") in LEASE_TRANSITIONS[lease["state"]]
@@ -358,9 +390,9 @@ def current_session_lease(
         if not same_generation_successor and not next_generation_admission:
             raise IdentityError("controller session lease projection diverged")
         lease = latest
+        required = _lease_required_fields(lease)
         if (
             set(lease) != required
-            or lease.get("schema_version") != 1
             or lease.get("authority_id") != AUTHORITY_ID
             or isinstance(lease.get("generation"), bool)
             or not isinstance(lease.get("generation"), int)
@@ -369,24 +401,34 @@ def current_session_lease(
             or validate_lease_owner(lease.get("owner")) != lease["owner"]
         ):
             raise IdentityError("recovered controller lease is invalid")
+        _lease_instruction_sha(lease)
         validate_identifier(lease.get("session"), "lease session")
         validate_identifier(lease.get("controller"), "lease controller")
         if lease.get("target") not in LEASE_TARGETS:
             raise IdentityError("recovered controller lease target is invalid")
         if target is not None and lease.get("target") != target:
             raise IdentityError("recovered target lease projection is misrouted")
+        for name in ("created_at", "updated_at"):
+            if (
+                not isinstance(lease.get(name), str)
+                or not lease[name]
+                or len(lease[name]) > 80
+            ):
+                raise IdentityError(
+                    "recovered controller session lease timestamp is invalid"
+                )
         if lease["state"] == "launching" and lease.get("process") is not None:
             raise IdentityError("recovered launching lease has a process identity")
         if lease["state"] in {"active", "halting"} and not _is_v2_process_identity(
             lease.get("process")
         ):
-            raise IdentityError(
-                "recovered controller lease lacks v2 process identity"
-            )
-        if lease["state"] == "halted" and not isinstance(
-            lease.get("process"), dict
-        ):
+            raise IdentityError("recovered controller lease lacks v2 process identity")
+        if lease["state"] == "halted" and not isinstance(lease.get("process"), dict):
             raise IdentityError("recovered controller lease lacks process identity")
+        if not _lease_row_matches(rows[-1], lease):
+            raise IdentityError(
+                "recovered controller session lease is not in its authority ledger"
+            )
         atomic_write_json(path, lease)
     if lease["state"] == "launching":
         if lease.get("process") is not None:
@@ -405,6 +447,14 @@ def current_session_lease(
         "lease": lease,
     }:
         raise IdentityError("controller session lease is not in its authority ledger")
+    if projection_missing:
+        if not _lease_row_matches(rows[-1], lease):
+            raise IdentityError(
+                "recovered controller session lease is not in its authority ledger"
+            )
+        if path.is_symlink():
+            raise IdentityError("controller session lease projection is a symlink")
+        atomic_write_json(path, lease)
     return lease
 
 
@@ -414,6 +464,7 @@ def require_session_lease(
     target: str,
     controller: str,
     owner: Dict[str, str],
+    instruction_manifest_sha256: str,
     states: set[str],
     authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
@@ -429,6 +480,10 @@ def require_session_lease(
     root = controller_authority_root(authority_root)
     lease = current_session_lease(root, target=target)
     expected_owner = validate_lease_owner(owner)
+    expected_instruction_sha = validate_sha256(
+        instruction_manifest_sha256,
+        "required lease instruction manifest fingerprint",
+    )
     if lease is None:
         legacy = current_session_lease(root)
         if _lease_identity_matches(
@@ -437,15 +492,16 @@ def require_session_lease(
             target=target,
             controller=controller,
             owner=expected_owner,
+            instruction_manifest_sha256=expected_instruction_sha,
         ):
             lease = legacy
     if (
         lease is None
         or lease["session"] != validate_identifier(session, "lease session")
         or lease["target"] != target
-        or lease["controller"]
-        != validate_identifier(controller, "lease controller")
+        or lease["controller"] != validate_identifier(controller, "lease controller")
         or lease["owner"] != expected_owner
+        or lease.get("instruction_manifest_sha256") != expected_instruction_sha
         or lease["state"] not in states
     ):
         raise IdentityError("controller session lease identity mismatch")
@@ -459,6 +515,7 @@ def _lease_identity_matches(
     target: str,
     controller: str,
     owner: Dict[str, str],
+    instruction_manifest_sha256: str,
 ) -> bool:
     return (
         isinstance(lease, dict)
@@ -467,6 +524,11 @@ def _lease_identity_matches(
         and lease.get("controller")
         == validate_identifier(controller, "lease controller")
         and lease.get("owner") == owner
+        and lease.get("instruction_manifest_sha256")
+        == validate_sha256(
+            instruction_manifest_sha256,
+            "lease instruction manifest fingerprint",
+        )
     )
 
 
@@ -487,7 +549,8 @@ def _append_lease(
 
 def _legacy_fence_session(target: str, target_generation: int) -> str:
     return validate_identifier(
-        "target-fence-%s-%d" % (
+        "target-fence-%s-%d"
+        % (
             _validated_lease_target(target),
             target_generation,
         ),
@@ -496,7 +559,10 @@ def _legacy_fence_session(target: str, target_generation: int) -> str:
 
 
 def _legacy_fence_anchor(value: Any) -> Optional[tuple[str, int]]:
-    if not isinstance(value, dict) or value.get("controller") != LEGACY_FENCE_CONTROLLER:
+    if (
+        not isinstance(value, dict)
+        or value.get("controller") != LEGACY_FENCE_CONTROLLER
+    ):
         return None
     session = value.get("session")
     target = value.get("target")
@@ -545,6 +611,8 @@ def _advance_legacy_fence(
         raise IdentityError("legacy compatibility fence anchor changed")
     if fence["owner"] != anchor["owner"]:
         raise IdentityError("legacy compatibility fence owner changed")
+    if fence.get("schema_version") != 1:
+        raise IdentityError("legacy compatibility fence schema changed")
     desired = anchor["state"]
     if fence["state"] == desired:
         if desired in {"active", "halting", "halted"} and fence.get(
@@ -595,9 +663,7 @@ def _start_legacy_fence(
         "schema_version": 1,
         "authority_id": AUTHORITY_ID,
         "generation": 1 if previous is None else previous["generation"] + 1,
-        "session": _legacy_fence_session(
-            anchor["target"], anchor["generation"]
-        ),
+        "session": _legacy_fence_session(anchor["target"], anchor["generation"]),
         "target": anchor["target"],
         "controller": LEGACY_FENCE_CONTROLLER,
         "owner": anchor["owner"],
@@ -611,7 +677,7 @@ def _start_legacy_fence(
 
 
 def _sync_legacy_fence(root: Path) -> Optional[Dict[str, Any]]:
-    """Project per-target truth into the v1 lease so old controllers fail closed.
+    """Project per-target truth into the legacy lease so old controllers fail closed.
 
     The caller holds one target lock and then the legacy global lock. Per-target
     projections remain authoritative; this projection is intentionally lossy
@@ -628,7 +694,9 @@ def _sync_legacy_fence(root: Path) -> Optional[Dict[str, Any]]:
     anchor_key = _legacy_fence_anchor(legacy)
     if legacy is not None and legacy["state"] in ACTIVE_LEASE_STATES:
         if anchor_key is None or not _is_backed_legacy_fence(root, legacy):
-            raise ConflictError("a legacy real-harness session owns the controller lease")
+            raise ConflictError(
+                "a legacy real-harness session owns the controller lease"
+            )
         anchor_target, anchor_generation = anchor_key
         anchor = leases[anchor_target]
         if anchor["generation"] != anchor_generation:
@@ -666,6 +734,7 @@ def admit_session_lease(
     target: str,
     controller: str,
     owner: Dict[str, str],
+    instruction_manifest_sha256: str,
     authority_root: Optional[Path] = None,
     _lock_descriptor: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -673,6 +742,10 @@ def admit_session_lease(
     validate_identifier(controller, "lease controller")
     target = _validated_lease_target(target)
     owner = validate_lease_owner(owner)
+    instruction_manifest_sha256 = validate_sha256(
+        instruction_manifest_sha256,
+        "lease instruction manifest fingerprint",
+    )
     descriptor: Optional[int] = None
     legacy_descriptor: Optional[int] = None
     owns_descriptor = _lock_descriptor is None
@@ -701,19 +774,24 @@ def admit_session_lease(
                 and current["target"] == target
                 and current["controller"] == controller
                 and current["owner"] == owner
+                and current.get("instruction_manifest_sha256")
+                == instruction_manifest_sha256
             ):
                 _sync_legacy_fence(root)
                 return current
-            raise ConflictError("another real-harness session owns the controller lease")
+            raise ConflictError(
+                "another real-harness session owns the controller lease"
+            )
         now = _utc_now()
         lease = {
-            "schema_version": 1,
+            "schema_version": LEASE_SCHEMA_VERSION,
             "authority_id": AUTHORITY_ID,
             "generation": 1 if current is None else current["generation"] + 1,
             "session": session,
             "target": target,
             "controller": controller,
             "owner": owner,
+            "instruction_manifest_sha256": instruction_manifest_sha256,
             "state": "launching",
             "created_at": now,
             "updated_at": now,
@@ -734,6 +812,7 @@ def transition_session_lease(
     target: str,
     controller: str,
     owner: Dict[str, str],
+    instruction_manifest_sha256: str,
     state: str,
     process: Optional[Dict[str, Any]],
     authority_root: Optional[Path] = None,
@@ -742,6 +821,10 @@ def transition_session_lease(
     if state not in {"active", "halting", "halted", "failed"}:
         raise ValidationError("unsupported controller lease transition")
     owner = validate_lease_owner(owner)
+    instruction_manifest_sha256 = validate_sha256(
+        instruction_manifest_sha256,
+        "lease instruction manifest fingerprint",
+    )
     target = _validated_lease_target(target)
     descriptor: Optional[int] = None
     legacy_descriptor: Optional[int] = None
@@ -770,6 +853,7 @@ def transition_session_lease(
             target=target,
             controller=controller,
             owner=owner,
+            instruction_manifest_sha256=instruction_manifest_sha256,
         )
         if legacy_transition:
             current = legacy_current
@@ -779,6 +863,7 @@ def transition_session_lease(
             or current["target"] != target
             or current["controller"] != controller
             or current["owner"] != owner
+            or current.get("instruction_manifest_sha256") != instruction_manifest_sha256
         ):
             raise IdentityError("controller session lease identity mismatch")
         if (
@@ -788,15 +873,14 @@ def transition_session_lease(
         ):
             raise IdentityError("controller session lease process identity changed")
         if current["state"] == state:
-            if state in {"active", "halting"} and not _is_v2_process_identity(
-                process
-            ):
+            if state in {"active", "halting"} and not _is_v2_process_identity(process):
                 raise ValidationError(
                     "controller lease transition lacks v2 process identity"
                 )
-            if state in {"active", "halting", "halted"} and current.get(
-                "process"
-            ) != process:
+            if (
+                state in {"active", "halting", "halted"}
+                and current.get("process") != process
+            ):
                 raise IdentityError(
                     "%s controller lease process identity changed" % state
                 )
@@ -842,6 +926,7 @@ def reconcile_halted_session_lease(
     target: str,
     controller: str,
     owner: Dict[str, str],
+    instruction_manifest_sha256: str,
     process: Dict[str, Any],
     authority_root: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -855,6 +940,10 @@ def reconcile_halted_session_lease(
     """
 
     expected_owner = validate_lease_owner(owner)
+    instruction_manifest_sha256 = validate_sha256(
+        instruction_manifest_sha256,
+        "lease instruction manifest fingerprint",
+    )
     descriptor: Optional[int] = None
     try:
         root = controller_authority_root(authority_root)
@@ -872,6 +961,7 @@ def reconcile_halted_session_lease(
                 target=target,
                 controller=controller,
                 owner=expected_owner,
+                instruction_manifest_sha256=instruction_manifest_sha256,
             ):
                 current = legacy
         if current is None or (
@@ -880,17 +970,17 @@ def reconcile_halted_session_lease(
             or current["controller"]
             != validate_identifier(controller, "lease controller")
             or current["owner"] != expected_owner
+            or current.get("instruction_manifest_sha256") != instruction_manifest_sha256
         ):
             return None
         if current["state"] not in {"halting", "halted"}:
-            raise IdentityError(
-                "HALTED registry has a non-terminal controller lease"
-            )
+            raise IdentityError("HALTED registry has a non-terminal controller lease")
         return transition_session_lease(
             session=session,
             target=target,
             controller=controller,
             owner=expected_owner,
+            instruction_manifest_sha256=instruction_manifest_sha256,
             state="halted",
             process=process,
             authority_root=root,
@@ -916,6 +1006,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         "adapter_fingerprint",
         "protocol_fingerprint",
         "yolo_mapping_sha256",
+        "instruction_policy_fingerprint",
         "accepted_checkpoint_id",
         "acceptance_sha256",
         "halt_receipt_sha256",
@@ -931,9 +1022,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         "goal_fingerprint": receipt_core["goal_fingerprint"],
         "run_id": validate_identifier(receipt_core.get("run_id"), "run id"),
         "target": receipt_core.get("target"),
-        "controller": validate_identifier(
-            receipt_core.get("controller"), "controller"
-        ),
+        "controller": validate_identifier(receipt_core.get("controller"), "controller"),
         "executable_fingerprint": receipt_core["executable_fingerprint"],
         "platform_fingerprint": receipt_core["platform_fingerprint"],
         "adapter_fingerprint": receipt_core["adapter_fingerprint"],
@@ -986,10 +1075,9 @@ def verify_qualification_attestation(
     }
     if not isinstance(attestation, dict) or set(attestation) != expected_fields:
         raise ValidationError("qualification controller attestation fields are invalid")
-    if (
-        attestation.get("authority_id") != AUTHORITY_ID
-        or attestation.get("authority_root") != str(root)
-    ):
+    if attestation.get("authority_id") != AUTHORITY_ID or attestation.get(
+        "authority_root"
+    ) != str(root):
         raise IdentityError("qualification controller authority identity mismatch")
     validate_identifier(attestation.get("request_id"), "attestation request id")
     validate_sha256(attestation.get("ledger_entry_hash"), "attestation entry")
@@ -1003,9 +1091,7 @@ def verify_qualification_attestation(
     event = _attestation_event(receipt_core)
     if event["receipt_digest"] != attestation["receipt_digest"]:
         raise IdentityError("qualification receipt is not the attested receipt")
-    row = Journal(root / "qualification-attestations").lookup(
-        attestation["request_id"]
-    )
+    row = Journal(root / "qualification-attestations").lookup(attestation["request_id"])
     if (
         row is None
         or row.get("sequence") != attestation["ledger_sequence"]

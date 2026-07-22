@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,8 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.adapter_manifest import (  # noqa: E402
+    AdapterManifest,
+    _verify_qualification_instruction_authority,
+)
 from puppet_lib.adapters import adapter_for  # noqa: E402
+from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     DECLARED_MAPPINGS,
     _project_isolation_declared,
@@ -59,7 +65,11 @@ def manifest_raw():
         "protocol_fingerprint": "e" * 64,
         "yolo_mapping": {
             "complete": True,
-            "launch_argv": [str(executable), "--dangerously-skip-permissions", "--new-project"],
+            "launch_argv": [
+                str(executable),
+                "--dangerously-skip-permissions",
+                "--new-project",
+            ],
             "permission_declared": True,
             "permission_flags": ["--dangerously-skip-permissions"],
             "prompt_transport": PROMPT_TRANSPORT,
@@ -88,6 +98,81 @@ def manifest_raw():
 
 
 class AdapterTests(unittest.TestCase):
+    def test_qualification_instruction_authority_is_fully_joined(self):
+        manifest = {
+            "contract_identity": {
+                "fingerprint": "1" * 64,
+                "controller": "tester",
+                "target": "codex",
+                "task_profile": "source-free-pass-b-v1",
+            },
+            "workspace_identity": {
+                "fixture_fingerprint": "2" * 64,
+                "workspace": "isolated_conformance_fixture",
+            },
+            "run_identity": {
+                "session": "session-1",
+                "run_id": "run-1",
+                "nonce": "nonce-1",
+            },
+            "orchestration_contract": {
+                "mutation_owner": "none",
+                "allowed_modes": ["read", "test"],
+                "hard_gates": sorted(MANDATORY_HARD_GATES),
+            },
+            "runtime_binding": {"model": "default", "effort": "default"},
+            "rendered_sha256": "3" * 64,
+        }
+        kwargs = {
+            "instruction_manifest": manifest,
+            "receipt": {
+                "controller": "tester",
+                "target": "codex",
+                "run_id": "run-1",
+            },
+            "evidence": {"fixture_fingerprint_before": "2" * 64},
+            "ready_identity": {
+                "session": "session-1",
+                "nonce": "nonce-1",
+            },
+            "review": {"contract_fingerprint": "1" * 64},
+            "review_summary": {"initial_payload_sha256": "3" * 64},
+        }
+        _verify_qualification_instruction_authority(**kwargs)
+        mutations = {
+            "contract": ("instruction_manifest", "contract_identity", "fingerprint"),
+            "task_profile": (
+                "instruction_manifest",
+                "contract_identity",
+                "task_profile",
+            ),
+            "workspace": (
+                "instruction_manifest",
+                "workspace_identity",
+                "workspace",
+            ),
+            "run_nonce": ("instruction_manifest", "run_identity", "nonce"),
+            "orchestration": (
+                "instruction_manifest",
+                "orchestration_contract",
+                "mutation_owner",
+            ),
+            "model": ("instruction_manifest", "runtime_binding", "model"),
+            "delivered_payload": (
+                "review_summary",
+                "initial_payload_sha256",
+            ),
+        }
+        for label, path in mutations.items():
+            with self.subTest(label=label):
+                changed = copy.deepcopy(kwargs)
+                target = changed[path[0]]
+                for part in path[1:-1]:
+                    target = target[part]
+                target[path[-1]] = "changed"
+                with self.assertRaises(ValidationError):
+                    _verify_qualification_instruction_authority(**changed)
+
     def test_combined_permission_and_sandbox_switch_is_emitted_once(self):
         self.assertEqual(
             _launch_flags(DECLARED_MAPPINGS["codex"]),
@@ -106,9 +191,22 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(len(fingerprint), 64)
         self.assertNotEqual(fingerprint, adapters_only)
 
+    def test_adapter_fingerprint_binds_instruction_templates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "puppet"
+            shutil.copytree(ROOT / "skills" / "puppet", copied)
+            before = adapter_implementation_fingerprint(copied)
+            template = copied / "templates" / "instructions" / "universal.md"
+            template.write_text(
+                template.read_text(encoding="utf-8") + "\nTemplate drift.\n",
+                encoding="utf-8",
+            )
+            after = adapter_implementation_fingerprint(copied)
+            self.assertNotEqual(before, after)
+
     def test_sandbox_disable_mapping_distinguishes_omission_from_unknown(self):
         agy_help = "  --sandbox  Run in a sandbox with terminal restrictions enabled"
-        self.assertTrue(
+        self.assertFalse(
             _sandbox_disable_declared("agy", DECLARED_MAPPINGS["agy"], agy_help)
         )
         self.assertTrue(
@@ -124,9 +222,7 @@ class AdapterTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            _project_isolation_declared(
-                DECLARED_MAPPINGS["agy"], "  --new-project"
-            )
+            _project_isolation_declared(DECLARED_MAPPINGS["agy"], "  --new-project")
         )
         self.assertFalse(
             _project_isolation_declared(
@@ -174,7 +270,13 @@ class AdapterTests(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             adapter.envelope("Do the task", session_profile="invalid")
-        for value in ("/teamwork-preview duplicate", "/goal duplicate", "/btw side", "/side side", ""):
+        for value in (
+            "/teamwork-preview duplicate",
+            "/goal duplicate",
+            "/btw side",
+            "/side side",
+            "",
+        ):
             with self.subTest(value=value):
                 with self.assertRaises(ValidationError):
                     adapter.envelope(value)
@@ -203,9 +305,7 @@ class AdapterTests(unittest.TestCase):
             "/goal Do the task",
         )
         self.assertEqual(
-            claude.envelope(
-                "Do the task", session_profile="goal", initial=False
-            ),
+            claude.envelope("Do the task", session_profile="goal", initial=False),
             "Do the task",
         )
         with self.assertRaises(ValidationError):
@@ -220,8 +320,9 @@ class AdapterTests(unittest.TestCase):
 
     def test_caller_supplied_slash_commands_are_rejected(self):
         for target in ("agy", "cursor", "claude", "codex", "grok"):
-            with self.subTest(target=target), self.assertRaisesRegex(
-                ValidationError, "slash commands"
+            with (
+                self.subTest(target=target),
+                self.assertRaisesRegex(ValidationError, "slash commands"),
             ):
                 adapter_for(target).envelope("/help", initial=False)
 

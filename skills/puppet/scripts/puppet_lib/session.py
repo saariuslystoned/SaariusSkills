@@ -28,6 +28,10 @@ from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
+from .instructions import (
+    compile_instruction_wrapper,
+    instruction_policy_fingerprint,
+)
 from .journal import Journal
 from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
 from .registry import (
@@ -106,9 +110,7 @@ def _qualification_authority(
     return {
         "controller": contract.controller,
         "campaign_id": authorization["campaign_id"],
-        "goal_fingerprint": sha256_bytes(
-            canonical_json_bytes(authorization["goal"])
-        ),
+        "goal_fingerprint": sha256_bytes(canonical_json_bytes(authorization["goal"])),
     }
 
 
@@ -165,7 +167,9 @@ def _supervisor_identity(
         _git(executable.parent, ["rev-parse", "--show-toplevel"])
     ).resolve(strict=True)
     if expected_root is not None and discovered != expected_root.resolve(strict=True):
-        raise IdentityError("supervisor executable is outside the contracted release root")
+        raise IdentityError(
+            "supervisor executable is outside the contracted release root"
+        )
     ensure_within(executable, discovered, must_exist=True)
     relative = str(executable.relative_to(discovered))
     _git(discovered, ["ls-files", "--error-unmatch", "--", relative])
@@ -328,9 +332,7 @@ def _cleanup_incomplete_launch(
     return True
 
 
-def _halt_terminal_result(
-    journal: Journal, session: str
-) -> Optional[Dict[str, Any]]:
+def _halt_terminal_result(journal: Journal, session: str) -> Optional[Dict[str, Any]]:
     event = journal.lookup(_delivery_request_id(session, session, "halted"))
     if (
         event is None
@@ -410,6 +412,7 @@ def _runtime(
     require_process: bool,
 ) -> Tuple[TmuxController, Dict[str, Any]]:
     registry.verify_supervisor(record)
+    registry.verify_instructions(record)
     registry.verify_adapter(record, capability)
     tmux = TmuxController(registry.root)
     tmux.assert_tmux_binary_identity(record["tmux"]["tmux_binary_identity"])
@@ -484,7 +487,9 @@ def _protocol_state(
             "followup_checkpoint_id": None,
         }
     if not contract.run_id or not contract.nonce:
-        raise ValidationError("source contracts require controller-created run_id and nonce")
+        raise ValidationError(
+            "source contracts require controller-created run_id and nonce"
+        )
     if not contract.proof_path_prefixes:
         raise ValidationError("source contracts require proof_path_prefixes")
     return {
@@ -498,9 +503,15 @@ def _protocol_state(
 
 
 def _verify_source_identity(contract: Contract, candidate_commit: str) -> None:
-    if _git(contract.repo, ["branch", "--show-current"], identity_error=True) != contract.branch:
+    if (
+        _git(contract.repo, ["branch", "--show-current"], identity_error=True)
+        != contract.branch
+    ):
         raise IdentityError("candidate branch changed")
-    if _git(contract.repo, ["rev-parse", "HEAD"], identity_error=True) != candidate_commit:
+    if (
+        _git(contract.repo, ["rev-parse", "HEAD"], identity_error=True)
+        != candidate_commit
+    ):
         raise IdentityError("source checkpoint is not the current exact head")
     if _git(contract.repo, ["status", "--porcelain=v1"], identity_error=True):
         raise IdentityError("candidate worktree is not clean at the exact head")
@@ -545,6 +556,15 @@ def _followup_envelope(protocol: Dict[str, Any], message_id: str, message: str) 
     )
 
 
+def _workspace_snapshot(contract: Contract) -> Dict[str, Any]:
+    return {
+        "branch": _git(contract.repo, ["branch", "--show-current"]),
+        "head": _git(contract.repo, ["rev-parse", "HEAD"]),
+        "tree": _git(contract.repo, ["rev-parse", "HEAD^{tree}"]),
+        "dirty": bool(_git(contract.repo, ["status", "--porcelain=v1"])),
+    }
+
+
 def doctor(
     *,
     contract_path: Path,
@@ -568,21 +588,28 @@ def doctor(
         blockers.append("executable fingerprint drifted")
     if not TmuxController.available():
         blockers.append("tmux is unavailable")
-    branch = _git(contract.repo, ["branch", "--show-current"])
-    head = _git(contract.repo, ["rev-parse", "HEAD"])
-    tree = _git(contract.repo, ["rev-parse", "HEAD^{tree}"])
-    dirty = bool(_git(contract.repo, ["status", "--porcelain=v1"]).__len__())
+    workspace = _workspace_snapshot(contract)
+    branch = workspace["branch"]
+    head = workspace["head"]
+    tree = workspace["tree"]
+    dirty = workspace["dirty"]
     if branch != contract.branch:
         blockers.append("contract branch does not match checkout")
-    if contract.mutation_owner == "target" and dirty:
-        blockers.append("target mutation worktree is not clean")
+    if dirty:
+        blockers.append("candidate worktree is not clean")
     if not os.access(str(proof_root), os.W_OK):
         blockers.append("proof root is not writable")
     if not os.access(str(state_root), os.W_OK):
         blockers.append("state root is not writable")
     mapping = manifest.raw["yolo_mapping"]
+    if contract.session_profile != "regular":
+        blockers.append("only the regular session profile is enabled")
+    if contract.requested_model is not None or contract.requested_effort is not None:
+        blockers.append("explicit model and effort selection remain deferred")
     if not mapping.get("complete"):
-        blockers.append("exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete")
+        blockers.append(
+            "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete"
+        )
     active = _active_processes(contract.target)
     parallel_override = _parallel_target_override(
         authorization, contract.target, active
@@ -602,12 +629,18 @@ def doctor(
     if not manifest.raw["doctor_only"]:
         try:
             authority = _qualification_authority(contract, authorization)
-            manifest.verify_qualification(
+            qualification = manifest.verify_qualification(
                 expected_controller=authority["controller"],
                 expected_campaign_id=authority["campaign_id"],
                 expected_goal_fingerprint=authority["goal_fingerprint"],
                 expected_session_profile=contract.session_profile,
             )
+            if qualification.get(
+                "instruction_policy_fingerprint"
+            ) != instruction_policy_fingerprint(target=contract.target):
+                raise IdentityError(
+                    "qualification instruction policy does not match the current compiler"
+                )
         except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
     return {
@@ -627,7 +660,9 @@ def doctor(
         "unverified_capabilities": unverified,
         "unsupported_capabilities": unsupported,
         "blockers": blockers,
-        "launch_ready": not blockers and not unverified and not manifest.raw["doctor_only"],
+        "launch_ready": not blockers
+        and not unverified
+        and not manifest.raw["doctor_only"],
     }
 
 
@@ -664,12 +699,20 @@ def launch(
         raise IdentityError("contract or manifest changed during preflight")
     authorization = _authorization(authorization_path, contract)
     qualification_authority = _qualification_authority(contract, authorization)
-    manifest.verify_qualification(
+    qualification = manifest.verify_qualification(
         expected_controller=qualification_authority["controller"],
         expected_campaign_id=qualification_authority["campaign_id"],
         expected_goal_fingerprint=qualification_authority["goal_fingerprint"],
         expected_session_profile=contract.session_profile,
     )
+    current_instruction_policy = instruction_policy_fingerprint(target=contract.target)
+    if (
+        qualification.get("instruction_policy_fingerprint")
+        != current_instruction_policy
+    ):
+        raise IdentityError(
+            "qualification instruction policy does not match the current compiler"
+        )
     if requested_model is not None and requested_model != contract.requested_model:
         raise ValidationError("CLI model selection must match the bound contract")
     if requested_effort is not None and requested_effort != contract.requested_effort:
@@ -687,10 +730,43 @@ def launch(
         proof_root / "adapter-manifest.json", manifest.raw, "adapter manifest"
     )
     manifest = AdapterManifest.from_path(manifest_copy)
-    supervisor = _supervisor_identity(
-        supervisor_executable, contract.supervisor_root
-    )
+    supervisor = _supervisor_identity(supervisor_executable, contract.supervisor_root)
     protocol = _protocol_state(contract, manifest, session)
+    compiled = compile_instruction_wrapper(
+        target=contract.target,
+        task=_initial_envelope(contract, protocol, session, prompt),
+        contract_identity={
+            "fingerprint": contract.fingerprint,
+            "controller": contract.controller,
+            "target": contract.target,
+            "task_profile": contract.task_profile,
+        },
+        workspace_identity={
+            "repo_fingerprint": sha256_bytes(str(contract.repo).encode("utf-8")),
+            "branch": contract.branch,
+            "head": report["head"],
+            "tree": report["tree"],
+        },
+        run_identity={
+            "session": session,
+            "run_id": protocol["run_id"],
+            "nonce": protocol["nonce"],
+        },
+        session_profile=contract.session_profile,
+        model_binding="default",
+        effort_binding="default",
+        runtime_contract_layer={
+            "mutation_owner": contract.mutation_owner,
+            "allowed_modes": sorted(contract.allowed_modes),
+            "hard_gates": sorted(contract.hard_gates),
+        },
+    )
+    instruction_copy = _bind_json(
+        proof_root / "effective-instructions.json",
+        compiled.manifest,
+        "effective instruction manifest",
+    )
+    instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
     session_lease_owner = build_lease_owner(
         activity="session",
         run_id=protocol["run_id"],
@@ -700,11 +776,13 @@ def launch(
         state_root=state_root,
     )
     initial = adapter.envelope(
-        _initial_envelope(contract, protocol, session, prompt),
+        compiled.rendered.decode("utf-8"),
         session_profile=contract.session_profile,
         initial=True,
     )
     initial_sha = sha256_bytes(_message_payload(initial))
+    if initial_sha != compiled.manifest["rendered_sha256"]:
+        raise IdentityError("regular profile altered the compiled instruction payload")
     registry = SessionRegistry(state_root)
     tmux = TmuxController(state_root)
     socket = tmux.socket_path(session)
@@ -714,6 +792,7 @@ def launch(
         "contract_fingerprint": contract.fingerprint,
         "proof_root": str(proof_root),
         "expected_socket": str(socket),
+        "instruction_manifest_sha256": instruction_manifest_sha,
         "created_at": _utc_now(),
     }
     operation_guard = exclusive_lock(registry.operation_lock(session))
@@ -726,6 +805,7 @@ def launch(
             target=contract.target,
             controller=contract.controller,
             owner=session_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
         )
     except BaseException:
         operation_guard.__exit__(None, None, None)
@@ -739,6 +819,7 @@ def launch(
                 target=contract.target,
                 controller=contract.controller,
                 owner=session_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 state="failed",
                 process=None,
             )
@@ -755,6 +836,13 @@ def launch(
                 "contract_fingerprint": contract.fingerprint,
                 "manifest_fingerprint": manifest.fingerprint,
                 "content_sha256": initial_sha,
+                "instruction_manifest_sha256": instruction_manifest_sha,
+                "instruction_policy_fingerprint": compiled.manifest[
+                    "instruction_policy_fingerprint"
+                ],
+                "effective_contract_fingerprint": compiled.manifest[
+                    "effective_contract_fingerprint"
+                ],
             },
         )
     except BaseException:
@@ -765,6 +853,7 @@ def launch(
                 target=contract.target,
                 controller=contract.controller,
                 owner=session_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
                 state="failed",
                 process=None,
             )
@@ -776,7 +865,17 @@ def launch(
     process_verified = False
     lease_active = False
     activated = False
+    launch_attempted = False
     try:
+        current_workspace = _workspace_snapshot(contract)
+        expected_workspace = {
+            name: report[name] for name in ("branch", "head", "tree", "dirty")
+        }
+        if current_workspace != expected_workspace:
+            raise IdentityError("candidate workspace changed after preflight")
+        if current_workspace["dirty"]:
+            raise IdentityError("candidate worktree is not clean before launch")
+        launch_attempted = True
         metadata = tmux.launch(session=session, repo=contract.repo, argv=argv)
         process = process_birth_identity(metadata["pane_pid"])
         manifest.verify_process_executable(process)
@@ -786,6 +885,7 @@ def launch(
             target=contract.target,
             controller=contract.controller,
             owner=session_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
             state="active",
             process=process,
         )
@@ -825,6 +925,19 @@ def launch(
                     "goal_fingerprint"
                 ],
             },
+            "instructions": {
+                "manifest_path": str(instruction_copy),
+                "manifest_sha256": instruction_manifest_sha,
+                "instruction_policy_fingerprint": compiled.manifest[
+                    "instruction_policy_fingerprint"
+                ],
+                "effective_contract_fingerprint": compiled.manifest[
+                    "effective_contract_fingerprint"
+                ],
+                "rendered_sha256": compiled.manifest["rendered_sha256"],
+                "instruction_plane": compiled.manifest["instruction_plane"],
+                "session_profile": compiled.manifest["session_profile"],
+            },
             "protocol": protocol,
             "created_at": _utc_now(),
             "last_checkpoint": None,
@@ -833,6 +946,7 @@ def launch(
         }
         registry.activate(record)
         activated = True
+        registry.verify_instructions(record)
         journal.append(
             request_id=_delivery_request_id(session, session, "started"),
             event={
@@ -858,6 +972,7 @@ def launch(
         ):
             raise IdentityError("target changed during bounded startup settle")
         manifest.verify_process_executable(process)
+        registry.verify_instructions(record)
         journal.append(
             request_id=_delivery_request_id(session, session, "input-settled"),
             event={
@@ -867,6 +982,7 @@ def launch(
                 "seconds": settle_seconds,
             },
         )
+        registry.verify_instructions(record)
         delivery = _deliver(
             tmux=tmux,
             socket=Path(metadata["socket"]),
@@ -887,6 +1003,12 @@ def launch(
             "ok": True,
             "session": session,
             "state": "ACTIVE",
+            "instruction_policy_fingerprint": compiled.manifest[
+                "instruction_policy_fingerprint"
+            ],
+            "effective_contract_fingerprint": compiled.manifest[
+                "effective_contract_fingerprint"
+            ],
             "attach_command": tmux.attach_command(
                 socket=Path(metadata["socket"]),
                 session=session,
@@ -904,6 +1026,7 @@ def launch(
                         target=contract.target,
                         controller=contract.controller,
                         owner=session_lease_owner,
+                        instruction_manifest_sha256=instruction_manifest_sha,
                         state="halting",
                         process=process,
                     )
@@ -941,7 +1064,7 @@ def launch(
                 )
             except Exception:
                 pass
-        elif cleanup_stopped:
+        elif cleanup_stopped or not launch_attempted:
             try:
                 registry.release_reservation(session, contract.fingerprint)
             except Exception:
@@ -952,6 +1075,7 @@ def launch(
                     target=contract.target,
                     controller=contract.controller,
                     owner=session_lease_owner,
+                    instruction_manifest_sha256=instruction_manifest_sha,
                     state="failed",
                     process=process if process_verified else None,
                 )
@@ -984,7 +1108,9 @@ def send_message(
                 and protocol["message_id"] == request_id
             )
             if not first_submission and not replay:
-                raise ValidationError("conformance follow-up is not currently authorized")
+                raise ValidationError(
+                    "conformance follow-up is not currently authorized"
+                )
             enveloped = adapter.envelope(
                 _followup_envelope(protocol, request_id, message),
                 contract.session_profile,
@@ -1054,9 +1180,20 @@ def record_beacon(*, state_root: Path, session: str, line: str) -> Dict[str, Any
 
 
 def wait_for(
-    *, state_root: Path, session: str, condition: str, timeout: float, interval: float = 0.25
+    *,
+    state_root: Path,
+    session: str,
+    condition: str,
+    timeout: float,
+    interval: float = 0.25,
 ) -> Dict[str, Any]:
-    if condition not in {"beacon", "checkpoint", "action-required", "target-stopped", "done"}:
+    if condition not in {
+        "beacon",
+        "checkpoint",
+        "action-required",
+        "target-stopped",
+        "done",
+    }:
         raise ValidationError("unsupported wait condition")
     if timeout < 0 or timeout > 300:
         raise ValidationError("wait timeout must be between zero and 300 seconds")
@@ -1077,7 +1214,12 @@ def wait_for(
             report.update(condition=condition, matched=True)
             return report
         if time.monotonic() >= deadline:
-            return {"ok": True, "session": session, "condition": condition, "matched": False}
+            return {
+                "ok": True,
+                "session": session,
+                "condition": condition,
+                "matched": False,
+            }
         time.sleep(interval)
 
 
@@ -1154,17 +1296,23 @@ def import_checkpoint(
         else:
             parent = _git(contract.repo, ["rev-parse", "HEAD^"], identity_error=True)
             if parent != protocol["source_commit"]:
-                raise IdentityError("proof checkpoint is not a child of accepted source")
+                raise IdentityError(
+                    "proof checkpoint is not a child of accepted source"
+                )
             changed = _git(
                 contract.repo,
                 ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
                 identity_error=True,
             ).splitlines()
             if not changed or any(
-                not any(path.startswith(prefix) for prefix in contract.proof_path_prefixes)
+                not any(
+                    path.startswith(prefix) for prefix in contract.proof_path_prefixes
+                )
                 for path in changed
             ):
-                raise IdentityError("proof checkpoint changed files outside proof-only paths")
+                raise IdentityError(
+                    "proof checkpoint changed files outside proof-only paths"
+                )
             protocol.update(phase="proof_checkpoint", proof_commit=current_head)
             next_state = "PROOF_CHECKPOINT_READY"
     reference = handoff.reference()
@@ -1250,7 +1398,9 @@ def review_checkpoint(
             transition("AWAITING_SOURCE_REVIEW", destination)
     elif record["state"] == "PROOF_CHECKPOINT_READY":
         if verdict == "repair":
-            raise ValidationError("final proof repair requires a fresh source-review session")
+            raise ValidationError(
+                "final proof repair requires a fresh source-review session"
+            )
         transition(record["state"], "TARGET_DONE")
         transition("TARGET_DONE", "AWAITING_CONTROLLER_REVIEW")
         destination = {
@@ -1325,10 +1475,16 @@ def accept_checkpoint(
         candidate_commit=handoff.identity.get("candidate_commit"),
     )
     if handoff.checkpoint_kind == "conformance":
-        if record["state"] != "AWAITING_CONFORMANCE_REVIEW" or review.get("verdict") != "conformance_accept":
+        if (
+            record["state"] != "AWAITING_CONFORMANCE_REVIEW"
+            or review.get("verdict") != "conformance_accept"
+        ):
             raise ValidationError("conformance checkpoint lacks an accept review")
     else:
-        if record["state"] != "AWAITING_CONTROLLER_REVIEW" or review.get("verdict") != "source_accept":
+        if (
+            record["state"] != "AWAITING_CONTROLLER_REVIEW"
+            or review.get("verdict") != "source_accept"
+        ):
             raise ValidationError("source proof checkpoint lacks a final accept review")
         _verify_source_identity(contract, handoff.identity["candidate_commit"])
     acceptance = record_acceptance(
@@ -1354,7 +1510,12 @@ def attach_command(*, state_root: Path, session: str) -> Dict[str, Any]:
         session=session,
         pane=record["tmux"]["pane"],
     )
-    return {"ok": True, "session": session, "attach_command": command, "read_only": True}
+    return {
+        "ok": True,
+        "session": session,
+        "attach_command": command,
+        "read_only": True,
+    }
 
 
 def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, Any]:
@@ -1371,6 +1532,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 target=record["target"],
                 controller=record["controller"],
                 owner=record["lease_owner"],
+                instruction_manifest_sha256=record["instructions"]["manifest_sha256"],
                 process=record["process"],
             )
             terminal = _halt_terminal_result(journal, session)
@@ -1396,6 +1558,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
             target=record["target"],
             controller=record["controller"],
             owner=record["lease_owner"],
+            instruction_manifest_sha256=record["instructions"]["manifest_sha256"],
             state="halting",
             process=record["process"],
         )
@@ -1477,6 +1640,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
             target=record["target"],
             controller=record["controller"],
             owner=record["lease_owner"],
+            instruction_manifest_sha256=record["instructions"]["manifest_sha256"],
             state="halted",
             process=record["process"],
         )

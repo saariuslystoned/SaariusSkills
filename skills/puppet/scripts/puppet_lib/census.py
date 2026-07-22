@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest, BEHAVIOR_CAPABILITIES
 from .errors import ValidationError
@@ -76,13 +76,11 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
 }
 
 ZERO_AGENT_SESSION_PROFILES = {
-    target: list(session_profiles_for(target))
-    for target in SESSION_PROFILE_COMMANDS
+    target: list(session_profiles_for(target)) for target in SESSION_PROFILE_COMMANDS
 }
 ZERO_AGENT_SESSION_PROFILES_DECLARED = True
 ZERO_AGENT_STARTUP_SETTLE_SECONDS = {
-    target: startup_settle_seconds_for(target)
-    for target in SESSION_PROFILE_COMMANDS
+    target: startup_settle_seconds_for(target) for target in SESSION_PROFILE_COMMANDS
 }
 
 
@@ -117,17 +115,33 @@ def _bounded_run(argv: List[str]) -> bytes:
 
 
 def _utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        dt.datetime.now(dt.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
-def adapter_implementation_fingerprint() -> str:
-    """Bind every Python module that owns adapter/probe behavior."""
-    scripts_root = Path(__file__).resolve(strict=True).parent.parent
+def adapter_implementation_fingerprint(
+    skill_root: Optional[Path] = None,
+) -> str:
+    """Bind every source and template that owns adapter/probe behavior."""
+    skill_root = (
+        Path(skill_root).resolve(strict=True)
+        if skill_root is not None
+        else Path(__file__).resolve(strict=True).parents[2]
+    )
+    scripts_root = skill_root / "scripts"
     sources = sorted((scripts_root / "puppet_lib").glob("*.py"))
     sources.extend([scripts_root / "adapter_lab.py", scripts_root / "puppet.py"])
+    instruction_root = skill_root / "templates" / "instructions"
+    sources.extend(
+        path for path in sorted(instruction_root.rglob("*")) if path.is_file()
+    )
     rows = [
         {
-            "path": str(path.relative_to(scripts_root)),
+            "path": path.relative_to(skill_root).as_posix(),
             "sha256": sha256_file(path),
         }
         for path in sorted(sources)
@@ -142,10 +156,10 @@ def _sandbox_disable_declared(
     if flags:
         return all(flag in help_text for flag in flags)
     if target == "agy":
-        return (
-            "--sandbox" in help_text
-            and "Run in a sandbox with terminal restrictions enabled" in help_text
-        )
+        # `--sandbox` enables restrictions. Its omission cannot prove sandbox-off
+        # because AGY also has a persistent enableTerminalSandbox setting and
+        # exposes no exact negative override or isolated config-root selector.
+        return False
     if target == "claude":
         return "  --sandbox" not in help_text
     return False
@@ -153,9 +167,7 @@ def _sandbox_disable_declared(
 
 def _project_isolation_declared(mapping: Dict[str, Any], help_text: str) -> bool:
     return all(
-        re.search(
-            r"(?m)^\s*" + re.escape(flag) + r"(?:[=,\s]|$)", help_text
-        )
+        re.search(r"(?m)^\s*" + re.escape(flag) + r"(?:[=,\s]|$)", help_text)
         is not None
         for flag in mapping["project_isolation_flags"]
     )
@@ -267,5 +279,7 @@ def census_many(targets: List[str], adapter_fingerprint: str) -> Dict[str, Any]:
             target: ZERO_AGENT_STARTUP_SETTLE_SECONDS[target] for target in targets
         },
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
-        "manifests": {target: census_target(target, adapter_fingerprint).raw for target in targets},
+        "manifests": {
+            target: census_target(target, adapter_fingerprint).raw for target in targets
+        },
     }

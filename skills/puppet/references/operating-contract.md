@@ -55,11 +55,17 @@ must return to the exact protected baseline before a receipt can be accepted.
 
 ## Lifecycle
 
-Startup is `bare YOLO CLI -> bounded structural settle -> exact identity
-recheck -> initial profile command plus prompt`. The settle never establishes
-semantic readiness; a validated checkpoint is the first consumption proof.
-Native profile commands are launch selectors, so subsequent steering remains
-unprefixed.
+Startup is `compile and hash-bind regular wrapper -> reserve exact lease -> bare
+YOLO CLI -> bounded structural settle -> exact identity recheck -> deliver
+wrapper`. The rendered body exists only in memory and the target transport; the
+registry and journal retain hashes and a sanitized manifest. Every later
+operation revalidates that artifact. The settle never establishes semantic
+readiness; a validated checkpoint is the first consumption proof.
+
+The regular wrapper is not a harness-native instruction-plane result. Native
+commands are versioned lifecycle state machines, not universally initial-only
+selectors: later command work must prove activation, continuation, steering,
+resume, and termination behavior separately.
 
 The source-free conformance branch is:
 

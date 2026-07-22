@@ -21,10 +21,16 @@ fixture/test design only. No live target launch in this lane.
     - `--effort`
     - `--new-project`
     - `--sandbox`
+    - `--agent`
+    - `--add-dir`
+    - `--continue`
+    - `--conversation`
 - Manifest-derived control mapping (`census_target`):
   - `permission_flags`: [`--dangerously-skip-permissions`]
   - `project_isolation_flags`: [`--new-project`]
-  - `sandbox_disable_declared`: true (`--sandbox` declared as terminal-restricted mode)
+  - `sandbox_disable_declared`: false. `--sandbox` enables terminal
+    restrictions, while a persistent `enableTerminalSandbox` setting can also
+    enable them; omission is not a controller proof of sandbox-off.
   - `project_isolation_declared`: true
   - `prompt_transport`: `interactive_tmux_load_buffer_stdin_declared`
   - `model_flag`: `--model`
@@ -43,8 +49,10 @@ fixture/test design only. No live target launch in this lane.
   - `Adapter.envelope()` allows exactly one native profile prefix on initial send,
     rejects caller-supplied slash-prefixes (`/goal`, `/teamwork-preview`, `/btw`, `/side`) on follow-ups.
   - AGY graceful halt action is `tmux_pane_eof` (twice if still alive).
-  - AGY regular profile launch is already supported by adapter shape, but regular-lane source contracts still
-    default to `session_profile: teamwork-preview`.
+  - AGY regular profile launch is supported by adapter shape. Omitted and
+    explicit `session_profile: regular` contracts canonicalize to the same
+    identity; `/teamwork-preview` is retained only as a deferred explicit
+    mapping.
 - Model list command discovered: `agy models` currently emits:
   `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`,
   `gemini-3.5-flash-high`, `gemini-3.5-flash-medium`, `gemini-3.5-flash-low`,
@@ -65,19 +73,23 @@ fixture/test design only. No live target launch in this lane.
 `session_profile=regular` is Puppet's lifecycle selection and produces an
 unprefixed message. It is not one of the three instruction planes.
 
-### Plane 1: session-selected harness-global Puppet addendum (unknown)
-- No supported AGY profile/catalog or isolated global instruction root was
-  established by the exact-version help/census.
-- Do not infer one from another harness or write the operator's global files.
+### Plane 1: session-selected harness-global Puppet addendum (documented candidate, blocked)
+- Exact help exposes `--agent`; official AGY custom-agent documentation places
+  global agents at `~/.gemini/config/agents/<name>/agent.md`.
+- Exact help exposes no config-root selector. Puppet must not write the live
+  global location or copy/read authentication material to manufacture an
+  isolated home.
 - This plane remains hard-disabled until native activation, precedence,
-  isolation, and rollback are controller-proved.
+  authentication-preserving isolation, and rollback are controller-proved.
 
-### Plane 2: workspace/repository addendum plane (observed, unqualified)
-- Operator field work indicates worktree `AGENTS.md` wording materially affects
-  AGY/Gemini behavior, but its discovery order and interaction with existing
-  repository instructions are not controller-proved for this executable.
-- A fixture must add only scoped orchestration guidance without replacing the
-  repository contract, then prove exact discovery and cleanup.
+### Plane 2: workspace/repository addendum plane (documented candidate, unqualified)
+- Official AGY documentation places workspace custom agents at
+  `.agents/agents/<name>/agent.md`, selectable through `--agent`. Operator field
+  work separately indicates worktree `AGENTS.md` wording materially affects
+  AGY/Gemini behavior.
+- A fixture must use a Puppet-namespaced custom agent, add only scoped
+  orchestration guidance without replacing repository authority, and prove
+  selector behavior, discovery order, built-in retention, and cleanup.
 
 ### Plane 3: additive per-run system instruction / native equivalent (unknown)
 - No supported additive system-instruction flag or file transport was found in
@@ -115,6 +127,8 @@ unprefixed message. It is not one of the three instruction planes.
 - Source delta required before live execution: a proved native isolated config
   mechanism or a fail-closed unsupported verdict. Do not assume overriding
   `HOME` is safe because it may also change authentication and unrelated state.
+- A native negative sandbox override is also required. `--new-project` proves
+  project selection only; it does not neutralize the persistent sandbox setting.
 - Any config-root override must remain per-lane and never cross-target.
 
 ## 6) Required Puppet source deltas for this lane
@@ -132,6 +146,8 @@ unprefixed message. It is not one of the three instruction planes.
 - Hard blockers:
   - `/goal` and `/teamwork-preview` must remain deferred and not promoted by this lane.
   - No launch/modify path may touch live AGY configs/home.
+  - No launch may claim YOLO completeness until sandbox-off is positively
+    proved for the exact isolated run.
   - Default model/effect remains unresolved without live default-observation evidence.
 - Stop criteria:
   - one native instruction plane must win or the harness must fail closed;

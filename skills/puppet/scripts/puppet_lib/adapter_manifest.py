@@ -13,8 +13,13 @@ from .authority import (
     controller_authority_root,
     verify_qualification_attestation,
 )
-from .contracts import PROCESS_IDENTITY_FIELDS, TARGET_POPULATION_POLICY
+from .contracts import (
+    MANDATORY_HARD_GATES,
+    PROCESS_IDENTITY_FIELDS,
+    TARGET_POPULATION_POLICY,
+)
 from .errors import IdentityError, UnsupportedError, ValidationError
+from .instructions import validate_instruction_manifest
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -68,6 +73,7 @@ PROBE_CAPABILITIES = (
 QUALIFICATION_PROOF_KINDS = (
     "authorization",
     "evidence",
+    "instructions",
     "halt",
     "ready",
     "followup",
@@ -91,6 +97,7 @@ _RECEIPT_FIELDS = {
     "adapter_fingerprint",
     "protocol_fingerprint",
     "yolo_mapping_sha256",
+    "instruction_policy_fingerprint",
     "capabilities",
     "accepted_checkpoint_id",
     "acceptance_sha256",
@@ -122,6 +129,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "startup_settle_seconds",
     "submit_settle_seconds",
     "payload_argv_absent",
+    "instruction_wrapper",
     "active_target_processes_before_launch",
     "active_target_processes_after_halt",
     "target_population_policy",
@@ -145,6 +153,58 @@ _ACCEPTED_EVIDENCE_FIELDS = {
 
 _PROCESS_FIELDS = PROCESS_IDENTITY_FIELDS
 
+_INSTRUCTION_WRAPPER_FIELDS = {
+    "manifest_sha256",
+    "instruction_policy_fingerprint",
+    "effective_contract_fingerprint",
+    "rendered_sha256",
+    "instruction_plane",
+    "session_profile",
+    "delivery_transport",
+}
+
+
+def _verify_qualification_instruction_authority(
+    *,
+    instruction_manifest: Dict[str, Any],
+    receipt: Dict[str, Any],
+    evidence: Dict[str, Any],
+    ready_identity: Dict[str, Any],
+    review: Dict[str, Any],
+    review_summary: Dict[str, Any],
+) -> None:
+    expected = {
+        "contract_identity": {
+            "fingerprint": review["contract_fingerprint"],
+            "controller": receipt["controller"],
+            "target": receipt["target"],
+            "task_profile": "source-free-pass-b-v1",
+        },
+        "workspace_identity": {
+            "fixture_fingerprint": evidence["fixture_fingerprint_before"],
+            "workspace": "isolated_conformance_fixture",
+        },
+        "run_identity": {
+            "session": ready_identity["session"],
+            "run_id": receipt["run_id"],
+            "nonce": ready_identity["nonce"],
+        },
+        "orchestration_contract": {
+            "mutation_owner": "none",
+            "allowed_modes": ["read", "test"],
+            "hard_gates": sorted(MANDATORY_HARD_GATES),
+        },
+        "runtime_binding": {"model": "default", "effort": "default"},
+    }
+    if any(instruction_manifest.get(name) != value for name, value in expected.items()):
+        raise ValidationError("qualification instruction authority is incomplete")
+    if review_summary.get("initial_payload_sha256") != instruction_manifest.get(
+        "rendered_sha256"
+    ):
+        raise ValidationError(
+            "qualification delivered payload does not match instruction manifest"
+        )
+
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
     refs = receipt.get("proof_refs")
@@ -158,7 +218,9 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
             "path",
             "sha256",
         }:
-            raise ValidationError("qualification proof reference fields do not match schema")
+            raise ValidationError(
+                "qualification proof reference fields do not match schema"
+            )
         kind = reference.get("kind")
         relative_text = reference.get("path")
         if kind not in QUALIFICATION_PROOF_KINDS or kind in artifacts:
@@ -225,7 +287,9 @@ def _validated_process_population(
     records = [_validated_process_record(item, label) for item in value]
     pids = [item["pid"] for item in records]
     if len(pids) != len(set(pids)) or pids != sorted(pids):
-        raise ValidationError("%s process population order or identity is invalid" % label)
+        raise ValidationError(
+            "%s process population order or identity is invalid" % label
+        )
     return records
 
 
@@ -298,7 +362,9 @@ def verify_qualification_receipt(
         receipt.get("kind") != "real_harness_conformance"
         or receipt.get("result") != "accepted"
     ):
-        raise ValidationError("qualification receipt is not an accepted real-harness run")
+        raise ValidationError(
+            "qualification receipt is not an accepted real-harness run"
+        )
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
     validate_session_profile(receipt["target"], receipt.get("session_profile"))
@@ -312,6 +378,7 @@ def verify_qualification_receipt(
         "adapter_fingerprint",
         "protocol_fingerprint",
         "yolo_mapping_sha256",
+        "instruction_policy_fingerprint",
         "accepted_checkpoint_id",
         "acceptance_sha256",
         "halt_receipt_sha256",
@@ -344,9 +411,7 @@ def verify_qualification_receipt(
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
         "version_fingerprint": current["executable"]["version_sha256"],
-        "platform_fingerprint": sha256_bytes(
-            canonical_json_bytes(current["platform"])
-        ),
+        "platform_fingerprint": sha256_bytes(canonical_json_bytes(current["platform"])),
         "adapter_fingerprint": current["adapter_fingerprint"],
         "protocol_fingerprint": current["protocol_fingerprint"],
         "yolo_mapping_sha256": sha256_bytes(
@@ -356,8 +421,7 @@ def verify_qualification_receipt(
     for name, observed in current_identities.items():
         if receipt.get(name) != observed:
             raise IdentityError(
-                "qualification is stale for the current controller identity: %s"
-                % name
+                "qualification is stale for the current controller identity: %s" % name
             )
 
     state_path = path.resolve(strict=True).parent / "state.json"
@@ -376,8 +440,7 @@ def verify_qualification_receipt(
         or terminal_state.get("phase") != "complete"
         or terminal_state.get("result") != "accepted"
         or terminal_state.get("blocker") is not None
-        or terminal_state.get("receipt_sha256")
-        != sha256_file(path, max_bytes=131072)
+        or terminal_state.get("receipt_sha256") != sha256_file(path, max_bytes=131072)
     ):
         raise ValidationError(
             "qualification receipt lacks its terminal lifecycle commit"
@@ -387,13 +450,28 @@ def verify_qualification_receipt(
     authorization = read_json(
         artifacts["authorization"], max_bytes=65536, reject_sensitive_fields=True
     )
-    evidence = read_json(artifacts["evidence"], max_bytes=131072, reject_sensitive_fields=True)
+    evidence = read_json(
+        artifacts["evidence"], max_bytes=131072, reject_sensitive_fields=True
+    )
+    instruction_manifest = validate_instruction_manifest(
+        read_json(
+            artifacts["instructions"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        ),
+        target=receipt["target"],
+    )
     halt = read_json(artifacts["halt"], max_bytes=65536, reject_sensitive_fields=True)
-    review = read_json(artifacts["review"], max_bytes=131072, reject_sensitive_fields=True)
+    review = read_json(
+        artifacts["review"], max_bytes=131072, reject_sensitive_fields=True
+    )
     acceptance = read_json(
         artifacts["acceptance"], max_bytes=131072, reject_sensitive_fields=True
     )
-    if set(evidence) != _ACCEPTED_EVIDENCE_FIELDS or evidence.get("schema_version") != 1:
+    if (
+        set(evidence) != _ACCEPTED_EVIDENCE_FIELDS
+        or evidence.get("schema_version") != 1
+    ):
         raise ValidationError("qualification evidence fields do not match schema")
     if (
         evidence.get("profile") != "source-free-pass-b-v1"
@@ -406,6 +484,45 @@ def verify_qualification_receipt(
         or evidence.get("payload_argv_absent") is not True
     ):
         raise ValidationError("qualification evidence transport contract is invalid")
+    wrapper = evidence.get("instruction_wrapper")
+    if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
+        raise ValidationError("qualification instruction wrapper fields are invalid")
+    expected_wrapper = {
+        "manifest_sha256": sha256_file(artifacts["instructions"], max_bytes=131072),
+        "instruction_policy_fingerprint": instruction_manifest[
+            "instruction_policy_fingerprint"
+        ],
+        "effective_contract_fingerprint": instruction_manifest[
+            "effective_contract_fingerprint"
+        ],
+        "rendered_sha256": instruction_manifest["rendered_sha256"],
+        "instruction_plane": instruction_manifest["instruction_plane"],
+        "session_profile": instruction_manifest["session_profile"],
+        "delivery_transport": instruction_manifest["delivery_transport"],
+    }
+    if wrapper != expected_wrapper:
+        raise ValidationError("qualification instruction wrapper identity changed")
+    if (
+        receipt["instruction_policy_fingerprint"]
+        != instruction_manifest["instruction_policy_fingerprint"]
+        or instruction_manifest["target"] != receipt["target"]
+        or instruction_manifest["session_profile"] != receipt["session_profile"]
+        or instruction_manifest["instruction_plane"] != "initial_message_wrapper"
+        or instruction_manifest["delivery_transport"]["body_in_argv"] is not False
+        or instruction_manifest["delivery_transport"]["materialization"]
+        != "memory_only"
+        or instruction_manifest["delivery_transport"]["native_config_writes"] != []
+    ):
+        raise ValidationError("qualification instruction wrapper contract is invalid")
+    instruction_contract = instruction_manifest["contract_identity"]
+    instruction_run = instruction_manifest["run_identity"]
+    if (
+        instruction_contract.get("controller") != receipt["controller"]
+        or instruction_contract.get("target") != receipt["target"]
+        or instruction_run.get("run_id") != receipt["run_id"]
+        or instruction_run.get("session") != terminal_state.get("session")
+    ):
+        raise ValidationError("qualification instruction authority is invalid")
     if (
         terminal_state.get("tmux") != evidence.get("tmux")
         or terminal_state.get("process") != evidence.get("process")
@@ -426,9 +543,10 @@ def verify_qualification_receipt(
         validate_sha256(evidence.get(name), "qualification evidence %s" % name)
     if evidence["fixture_fingerprint_before"] != evidence["fixture_fingerprint_after"]:
         raise ValidationError("qualification fixture drifted")
-    if sha256_file(artifacts["authorization"], max_bytes=65536) != evidence[
-        "authorization_sha256"
-    ]:
+    if (
+        sha256_file(artifacts["authorization"], max_bytes=65536)
+        != evidence["authorization_sha256"]
+    ):
         raise ValidationError("qualification authorization fingerprint mismatch")
     authorization_fields = {
         "schema_version",
@@ -463,8 +581,10 @@ def verify_qualification_receipt(
         not in (execution_fields, execution_fields | {"parallel_target_override"})
         or receipt["target"] not in execution_authorization.get("harnesses", [])
         or execution_authorization.get("trust_profile") != "unrestricted_required"
-        or execution_authorization.get("disable_harness_sandbox_where_exposed") is not True
-        or execution_authorization.get("ordinary_configured_model_provider_traffic") is not True
+        or execution_authorization.get("disable_harness_sandbox_where_exposed")
+        is not True
+        or execution_authorization.get("ordinary_configured_model_provider_traffic")
+        is not True
         or execution_authorization.get("scope")
         != "bounded Puppet implementation and conformance campaign only"
         or authorization.get("allowed_actions")
@@ -506,8 +626,7 @@ def verify_qualification_receipt(
         if (
             not isinstance(override, dict)
             or override.get("target") != receipt["target"]
-            or override.get("isolation")
-            != "unique_private_tmux_socket_and_session"
+            or override.get("isolation") != "unique_private_tmux_socket_and_session"
             or override.get("failure_cleanup_scope") != "exact_new_target_only"
             or override.get("protected_session") != evidence.get("protected_session")
             or override.get("protected_processes") != active_before
@@ -561,9 +680,7 @@ def verify_qualification_receipt(
         raise ValidationError("qualification target population root identity changed")
     expected_pids = {item["pid"] for item in expected_population}
     protected_pids = {item["pid"] for item in active_before}
-    last_extras = [
-        item for item in last_processes if item["pid"] not in expected_pids
-    ]
+    last_extras = [item for item in last_processes if item["pid"] not in expected_pids]
     executable_identity = {
         name: process[name] for name in ("executable_path", "device", "inode")
     }
@@ -593,9 +710,7 @@ def verify_qualification_receipt(
         ):
             raise ValidationError("qualification target descendant identity is invalid")
         descendant_pids.add(descendant["pid"])
-        descendant_observations.append(
-            {"process": descendant, "ancestry_chain": chain}
-        )
+        descendant_observations.append({"process": descendant, "ancestry_chain": chain})
     if descendant_observations != sorted(
         descendant_observations, key=lambda item: item["process"]["pid"]
     ):
@@ -613,28 +728,20 @@ def verify_qualification_receipt(
         for item in raw_chains
     ]
     _validate_ancestry_node_coherence(chains, "last target population")
-    observed_by_pid = {
-        item["process"]["pid"]: item for item in descendant_observations
-    }
+    observed_by_pid = {item["process"]["pid"]: item for item in descendant_observations}
     last_extra_by_pid = {item["pid"]: item for item in last_extras}
     if (
-        chains
-        != sorted(chains, key=lambda chain: chain[0]["process"]["pid"])
+        chains != sorted(chains, key=lambda chain: chain[0]["process"]["pid"])
         or len(chains) != len(last_extras)
-        or {
-            chain[0]["process"]["pid"] for chain in chains
-        }
+        or {chain[0]["process"]["pid"] for chain in chains}
         != {item["pid"] for item in last_extras}
         or any(
-            observed_by_pid.get(chain[0]["process"]["pid"], {}).get(
-                "ancestry_chain"
-            )
+            observed_by_pid.get(chain[0]["process"]["pid"], {}).get("ancestry_chain")
             != chain
             for chain in chains
         )
         or any(
-            last_extra_by_pid.get(chain[0]["process"]["pid"])
-            != chain[0]["process"]
+            last_extra_by_pid.get(chain[0]["process"]["pid"]) != chain[0]["process"]
             for chain in chains
         )
         or any(item["pid"] not in descendant_pids for item in last_extras)
@@ -811,9 +918,15 @@ def verify_qualification_receipt(
         raise ValidationError("qualification halt cross-reference mismatch")
     if evidence.get("acceptance_sha256") != receipt["acceptance_sha256"]:
         raise ValidationError("qualification acceptance cross-reference mismatch")
-    if sha256_file(artifacts["halt"], max_bytes=65536) != receipt["halt_receipt_sha256"]:
+    if (
+        sha256_file(artifacts["halt"], max_bytes=65536)
+        != receipt["halt_receipt_sha256"]
+    ):
         raise ValidationError("qualification halt receipt mismatch")
-    if sha256_file(artifacts["acceptance"], max_bytes=131072) != receipt["acceptance_sha256"]:
+    if (
+        sha256_file(artifacts["acceptance"], max_bytes=131072)
+        != receipt["acceptance_sha256"]
+    ):
         raise ValidationError("qualification acceptance receipt mismatch")
 
     from .handoffs import validate_handoff
@@ -862,8 +975,12 @@ def verify_qualification_receipt(
         raise ValidationError("qualification handoff semantic acknowledgement mismatch")
     for label, handoff in (("ready", ready), ("followup", followup)):
         reference = evidence.get(label)
-        if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
-            raise ValidationError("qualification %s evidence reference mismatch" % label)
+        if not isinstance(reference, dict) or not isinstance(
+            reference.get("path"), str
+        ):
+            raise ValidationError(
+                "qualification %s evidence reference mismatch" % label
+            )
         reference_path = ensure_within(
             Path(reference["path"]), path.resolve(strict=True).parent, must_exist=True
         )
@@ -872,7 +989,9 @@ def verify_qualification_receipt(
             or reference.get("artifact_sha256") != handoff.artifact_sha256
             or reference_path != handoff.path
         ):
-            raise ValidationError("qualification %s evidence reference mismatch" % label)
+            raise ValidationError(
+                "qualification %s evidence reference mismatch" % label
+            )
     expected_review_fields = {
         "schema_version",
         "timestamp",
@@ -920,6 +1039,14 @@ def verify_qualification_receipt(
         raise ValidationError("qualification review evidence summary mismatch")
     validate_sha256(review_summary.get("initial_payload_sha256"), "initial payload")
     validate_sha256(review_summary.get("followup_payload_sha256"), "followup payload")
+    _verify_qualification_instruction_authority(
+        instruction_manifest=instruction_manifest,
+        receipt=receipt,
+        evidence=evidence,
+        ready_identity=ready.identity,
+        review=review,
+        review_summary=review_summary,
+    )
     if evidence.get("review_sha256") != sha256_file(
         artifacts["review"], max_bytes=131072
     ):
@@ -946,9 +1073,7 @@ def verify_qualification_receipt(
         or acceptance.get("terminal_criteria") != ["conformance_green"]
     ):
         raise ValidationError("qualification acceptance identity mismatch")
-    validate_sha256(
-        acceptance.get("acceptance_evidence_sha256"), "acceptance evidence"
-    )
+    validate_sha256(acceptance.get("acceptance_evidence_sha256"), "acceptance evidence")
     expected_halt_fields = {
         "schema_version",
         "timestamp",
@@ -1026,7 +1151,9 @@ class AdapterManifest:
         validate_sha256(value.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(value.get("protocol_fingerprint"), "protocol fingerprint")
         capabilities = value.get("capabilities")
-        if not isinstance(capabilities, dict) or set(capabilities) != set(BEHAVIOR_CAPABILITIES):
+        if not isinstance(capabilities, dict) or set(capabilities) != set(
+            BEHAVIOR_CAPABILITIES
+        ):
             raise ValidationError("manifest must declare every behavior capability")
         for name, state in capabilities.items():
             if state not in CAPABILITY_STATES:
@@ -1036,9 +1163,13 @@ class AdapterManifest:
         qualification = value.get("qualification")
         if value["doctor_only"]:
             if qualification is not None:
-                raise ValidationError("doctor-only manifests cannot carry qualification")
+                raise ValidationError(
+                    "doctor-only manifests cannot carry qualification"
+                )
             if any(state == "controller_verified" for state in capabilities.values()):
-                raise ValidationError("doctor-only capabilities cannot be controller-verified")
+                raise ValidationError(
+                    "doctor-only capabilities cannot be controller-verified"
+                )
         else:
             if not isinstance(qualification, dict) or set(qualification) != {
                 "receipt_path",
@@ -1047,10 +1178,17 @@ class AdapterManifest:
             }:
                 raise ValidationError("live manifest requires a qualification receipt")
             receipt_path = qualification.get("receipt_path")
-            if not isinstance(receipt_path, str) or not Path(receipt_path).is_absolute():
+            if (
+                not isinstance(receipt_path, str)
+                or not Path(receipt_path).is_absolute()
+            ):
                 raise ValidationError("qualification receipt path must be absolute")
-            validate_sha256(qualification.get("receipt_sha256"), "qualification receipt")
-            validate_session_profile(value["target"], qualification.get("session_profile"))
+            validate_sha256(
+                qualification.get("receipt_sha256"), "qualification receipt"
+            )
+            validate_session_profile(
+                value["target"], qualification.get("session_profile")
+            )
             if any(
                 capabilities[name] != "controller_verified"
                 for name in PROBE_CAPABILITIES
@@ -1102,9 +1240,13 @@ class AdapterManifest:
         ):
             raise ValidationError("manifest launch_argv is invalid")
         if argv[0] != resolved_path:
-            raise ValidationError("launch executable does not match its fingerprinted path")
+            raise ValidationError(
+                "launch executable does not match its fingerprinted path"
+            )
         if any("\x00" in item or "\n" in item or "\r" in item for item in argv):
-            raise ValidationError("manifest launch arguments contain control characters")
+            raise ValidationError(
+                "manifest launch arguments contain control characters"
+            )
         for name in (
             "permission_declared",
             "prompt_transport_declared",
@@ -1160,21 +1302,27 @@ class AdapterManifest:
         if transport != PROMPT_TRANSPORT:
             raise ValidationError("prompt transport does not match the adapter policy")
         if mapping["session_profiles"] != session_profiles_for(value["target"]):
-            raise ValidationError("session profile mapping does not match the adapter policy")
+            raise ValidationError(
+                "session profile mapping does not match the adapter policy"
+            )
         settle_seconds = mapping["startup_settle_seconds"]
         if (
             isinstance(settle_seconds, bool)
             or not isinstance(settle_seconds, (int, float))
             or settle_seconds != startup_settle_seconds_for(value["target"])
         ):
-            raise ValidationError("startup settle mapping does not match the adapter policy")
+            raise ValidationError(
+                "startup settle mapping does not match the adapter policy"
+            )
         submit_settle_seconds = mapping["submit_settle_seconds"]
         if (
             isinstance(submit_settle_seconds, bool)
             or not isinstance(submit_settle_seconds, (int, float))
             or submit_settle_seconds != SUBMIT_SETTLE_SECONDS
         ):
-            raise ValidationError("submit settle mapping does not match the adapter policy")
+            raise ValidationError(
+                "submit settle mapping does not match the adapter policy"
+            )
         if value["target"] == "agy":
             expected_argv = [resolved_path]
             for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
@@ -1218,7 +1366,10 @@ class AdapterManifest:
     def require(self, capability: str) -> None:
         if capability not in BEHAVIOR_CAPABILITIES:
             raise ValidationError("unknown adapter capability")
-        if self.raw["doctor_only"] or self.raw["capabilities"][capability] != "controller_verified":
+        if (
+            self.raw["doctor_only"]
+            or self.raw["capabilities"][capability] != "controller_verified"
+        ):
             raise UnsupportedError(
                 "%s adapter capability %s is not controller-verified"
                 % (self.target, capability)
@@ -1236,7 +1387,9 @@ class AdapterManifest:
             or process["inode"] != expected["inode"]
             or sha256_file(executable) != expected["sha256"]
         ):
-            raise IdentityError("target process does not execute the fingerprinted launcher")
+            raise IdentityError(
+                "target process does not execute the fingerprinted launcher"
+            )
 
     def verify_qualification(
         self,
@@ -1251,7 +1404,9 @@ class AdapterManifest:
         _tmux_factory: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if self.raw["doctor_only"]:
-            raise UnsupportedError("doctor-only manifest has no real-harness qualification")
+            raise UnsupportedError(
+                "doctor-only manifest has no real-harness qualification"
+            )
         qualification = self.raw["qualification"]
         path = Path(qualification["receipt_path"])
         if sha256_file(path, max_bytes=131072) != qualification["receipt_sha256"]:
@@ -1309,14 +1464,15 @@ class AdapterManifest:
             or process["device"] != expected_executable["device"]
             or process["inode"] != expected_executable["inode"]
         ):
-            raise ValidationError("qualification process does not bind the manifest executable")
+            raise ValidationError(
+                "qualification process does not bind the manifest executable"
+            )
         validate_sha256(receipt.get("version_fingerprint"), "version fingerprint")
         validate_sha256(receipt.get("platform_fingerprint"), "platform fingerprint")
-        if (
-            receipt["version_fingerprint"]
-            != self.raw["executable"]["version_sha256"]
-            or receipt["platform_fingerprint"]
-            != sha256_bytes(canonical_json_bytes(self.raw["platform"]))
+        if receipt["version_fingerprint"] != self.raw["executable"][
+            "version_sha256"
+        ] or receipt["platform_fingerprint"] != sha256_bytes(
+            canonical_json_bytes(self.raw["platform"])
         ):
             raise ValidationError("qualification platform or version identity mismatch")
         if receipt.get("yolo_mapping_sha256") != sha256_bytes(
@@ -1329,7 +1485,9 @@ class AdapterManifest:
             if self.raw["capabilities"][name] == "controller_verified"
         ]
         if receipt.get("capabilities") != verified_capabilities:
-            raise ValidationError("qualification capability receipt does not match manifest")
+            raise ValidationError(
+                "qualification capability receipt does not match manifest"
+            )
         if not set(PROBE_CAPABILITIES) <= set(verified_capabilities):
             raise ValidationError(
                 "qualification did not prove the shared behavior contract"

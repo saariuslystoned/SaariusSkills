@@ -1,16 +1,28 @@
 # Puppet prompt and handoff patterns
 
-## Initial envelope
+## Initial instruction wrapper
 
-Tell the target to read the attached contract and repository instructions,
-respect `mutation_owner`, `allowed_modes`, `hard_gates`, and terminal criteria,
-and publish only bounded structured checkpoints. State that helper reports,
-tests, commits, transport success, and target claims are not controller
-acceptance. Require the target to remain available until exact halt.
+For the regular baseline, compile the initial message in this fixed order:
+universal Puppet policy, harness overlay, unresolved-default-model overlay,
+regular lifecycle overlay, runtime contract, task packet, and optional user
+addendum. Tell the target to respect repository instructions,
+`mutation_owner`, `allowed_modes`, `hard_gates`, and terminal criteria, and to
+publish only bounded structured checkpoints. State that helper reports, tests,
+commits, transport success, and target claims are not controller acceptance.
+Require the target to remain available until exact halt.
 
 Never put the prompt body in process arguments. Use stdin, a protected prompt
 file, or a session-qualified tmux buffer. Store only a content hash and delivery
-state.
+state. The current compiler renders in memory and persists only
+`effective-instructions.json`, a sanitized manifest containing layer hashes,
+byte counts, policy/effective/rendered fingerprints, bounded identities, and a
+no-config-write transport declaration. Bind its file hash in the lease,
+registry, launch journal, Pass B evidence, and qualification receipt, and
+revalidate it before every later session operation.
+
+`initial_message_wrapper` is composition/transport fallback, not proof of a
+harness-native global, workspace, or per-run instruction plane. Native-plane
+qualification uses a separate descriptor and receipt.
 
 ## Conformance handoff
 

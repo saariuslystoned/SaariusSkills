@@ -8,7 +8,9 @@ import socket
 import stat
 from pathlib import Path
 
+from puppet_lib.contracts import MANDATORY_HARD_GATES
 from puppet_lib.handoffs import validate_handoff
+from puppet_lib.instructions import compile_instruction_wrapper
 from puppet_lib.profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -60,9 +62,7 @@ def write_qualification_receipt(
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol_fingerprint,
         "timestamp": timestamp,
-        "claims": [
-            {"id": "source_free_contract_acknowledged", "status": "ready"}
-        ],
+        "claims": [{"id": "source_free_contract_acknowledged", "status": "ready"}],
         "evidence_refs": [],
         "decisions_requested": [],
         "limitations": [],
@@ -86,6 +86,30 @@ def write_qualification_receipt(
     followup = validate_handoff(followup_path, allowed_roots=[run_root])
 
     contract_fingerprint = "9" * 64
+    fixture_fingerprint = "6" * 64
+    compiled = compile_instruction_wrapper(
+        target=target,
+        task="Perform the bounded synthetic conformance task.",
+        contract_identity={
+            "fingerprint": contract_fingerprint,
+            "controller": controller,
+            "target": target,
+            "task_profile": "source-free-pass-b-v1",
+        },
+        workspace_identity={
+            "fixture_fingerprint": fixture_fingerprint,
+            "workspace": "isolated_conformance_fixture",
+        },
+        run_identity={"session": session, "run_id": run_id, "nonce": nonce},
+        session_profile=session_profile,
+        model_binding="default",
+        effort_binding="default",
+        runtime_contract_layer={
+            "mutation_owner": "none",
+            "allowed_modes": ["read", "test"],
+            "hard_gates": sorted(MANDATORY_HARD_GATES),
+        },
+    )
     review_evidence_sha256 = "a" * 64
     review_path = proof_root / "review.json"
     _write_json(
@@ -113,8 +137,8 @@ def write_qualification_receipt(
                     "checkpoint",
                     "halt",
                 ],
-                "fixture_fingerprint": "6" * 64,
-                "initial_payload_sha256": "c" * 64,
+                "fixture_fingerprint": fixture_fingerprint,
+                "initial_payload_sha256": compiled.manifest["rendered_sha256"],
                 "followup_payload_sha256": "d" * 64,
             },
         },
@@ -222,7 +246,8 @@ def write_qualification_receipt(
     lock_path.touch(mode=0o600)
     os.chmod(lock_path, 0o600)
     lock_details = lock_path.stat()
-    fixture_fingerprint = "6" * 64
+    instruction_path = proof_root / "effective-instructions.json"
+    _write_json(instruction_path, compiled.manifest)
     evidence_path = proof_root / "evidence.json"
     _write_json(
         evidence_path,
@@ -248,6 +273,19 @@ def write_qualification_receipt(
             "startup_settle_seconds": startup_settle_seconds_for(target),
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
             "payload_argv_absent": True,
+            "instruction_wrapper": {
+                "manifest_sha256": sha256_file(instruction_path),
+                "instruction_policy_fingerprint": compiled.manifest[
+                    "instruction_policy_fingerprint"
+                ],
+                "effective_contract_fingerprint": compiled.manifest[
+                    "effective_contract_fingerprint"
+                ],
+                "rendered_sha256": compiled.manifest["rendered_sha256"],
+                "instruction_plane": compiled.manifest["instruction_plane"],
+                "session_profile": compiled.manifest["session_profile"],
+                "delivery_transport": compiled.manifest["delivery_transport"],
+            },
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
             "target_population_policy": "protected-plus-root-plus-birth-bound-descendants-v2",
@@ -320,6 +358,9 @@ def write_qualification_receipt(
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol_fingerprint,
         "yolo_mapping_sha256": yolo_mapping_sha256,
+        "instruction_policy_fingerprint": compiled.manifest[
+            "instruction_policy_fingerprint"
+        ],
         "capabilities": list(capabilities),
         "accepted_checkpoint_id": followup.checkpoint_id,
         "acceptance_sha256": sha256_file(acceptance_path),
@@ -327,6 +368,7 @@ def write_qualification_receipt(
         "proof_refs": [
             reference("authorization", authorization_path),
             reference("evidence", evidence_path),
+            reference("instructions", instruction_path),
             reference("halt", halt_path),
             reference("ready", ready_path),
             reference("followup", followup_path),
