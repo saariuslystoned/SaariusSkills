@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict
 
-from .census import PROTOCOL_FINGERPRINT
+from .handoffs import PROTOCOL_FINGERPRINT
 from .safety import atomic_write_json, canonical_json_bytes, sha256_bytes, validate_identifier
 
 

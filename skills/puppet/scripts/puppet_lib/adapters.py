@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .errors import UnsupportedError, ValidationError
@@ -13,6 +13,7 @@ from .errors import UnsupportedError, ValidationError
 class AdapterSpec:
     name: str
     required_prefix: Optional[str] = None
+    graceful_halt_keys: Tuple[str, ...] = ("C-c",)
 
     def envelope(self, message: str) -> str:
         if not isinstance(message, str) or not message.strip():
@@ -73,7 +74,11 @@ class AdapterSpec:
 
 
 ADAPTERS: Dict[str, AdapterSpec] = {
-    name: AdapterSpec(name=name, required_prefix="/teamwork-preview" if name == "agy" else None)
+    name: AdapterSpec(
+        name=name,
+        required_prefix="/teamwork-preview" if name == "agy" else None,
+        graceful_halt_keys=("C-d", "C-d") if name == "agy" else ("C-c",),
+    )
     for name in ("agy", "cursor", "claude", "codex", "grok")
 }
 

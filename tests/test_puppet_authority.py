@@ -206,6 +206,7 @@ class AuthorityTests(unittest.TestCase):
             tmux_socket_path = canonical_tmux_socket_path(registry.root, "session-1")
             tmux_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             tmux_socket.bind(str(tmux_socket_path))
+            tmux_socket_path.chmod(0o600)
             self.addCleanup(tmux_socket.close)
             self.addCleanup(lambda: tmux_socket_path.unlink(missing_ok=True))
             record = {
@@ -222,6 +223,12 @@ class AuthorityTests(unittest.TestCase):
                 "proof_root": str(proof),
                 "tmux": {
                     "socket": str(tmux_socket_path),
+                    "socket_identity": {
+                        "device": tmux_socket_path.stat().st_dev,
+                        "inode": tmux_socket_path.stat().st_ino,
+                        "uid": tmux_socket_path.stat().st_uid,
+                        "mode": tmux_socket_path.stat().st_mode & 0o7777,
+                    },
                     "session": "session-1",
                     "pane": "%1",
                 },

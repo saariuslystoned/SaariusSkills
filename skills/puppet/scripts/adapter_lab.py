@@ -9,15 +9,19 @@ import json
 import sys
 from pathlib import Path
 
-from puppet_lib.adapter_manifest import AdapterManifest
-from puppet_lib.census import census_many
+from puppet_lib.adapter_manifest import (
+    AdapterManifest,
+    BEHAVIOR_CAPABILITIES,
+    PROBE_CAPABILITIES,
+    verify_qualification_receipt,
+)
+from puppet_lib.census import adapter_implementation_fingerprint, census_many
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
+from puppet_lib.probe import run_probe
 from puppet_lib.safety import (
     atomic_write_json,
     read_json,
     sha256_file,
-    validate_identifier,
-    validate_sha256,
 )
 
 
@@ -30,8 +34,7 @@ def _targets(value: str):
 
 
 def _census(args):
-    adapter_source = Path(__file__).parent / "puppet_lib" / "adapters.py"
-    bundle = census_many(args.targets, sha256_file(adapter_source))
+    bundle = census_many(args.targets, adapter_implementation_fingerprint())
     atomic_write_json(args.out, bundle)
     return {"ok": True, "zero_agent": True, "targets": args.targets, "out": str(args.out)}
 
@@ -52,55 +55,29 @@ def _scaffold(args):
 
 
 def _probe(args):
-    raise UnsupportedError(
-        "real probe orchestration is unavailable until bootstrap Puppet N is sealed and directly tested"
+    return run_probe(
+        target=args.target,
+        profile=args.profile,
+        proof_root=args.proof_root,
+        manifest_path=args.manifest,
+        mapping_path=args.mapping,
+        authorization_path=args.authorization,
+        controller=args.controller,
+        timeout=args.timeout,
+        halt_timeout=args.halt_timeout,
+        run_id=args.run_id,
     )
 
 
+def _verified_receipt(path: Path):
+    run = verify_qualification_receipt(path)
+    if run.get("capabilities") != list(PROBE_CAPABILITIES):
+        raise ValidationError("probe receipt does not cover the shared capability contract")
+    return run
+
+
 def _verify(args):
-    run = read_json(args.run, max_bytes=131072, reject_sensitive_fields=True)
-    required = {
-        "schema_version",
-        "run_id",
-        "target",
-        "result",
-        "executable_fingerprint",
-        "adapter_fingerprint",
-        "protocol_fingerprint",
-        "yolo_mapping_sha256",
-        "controller",
-        "kind",
-        "capabilities",
-        "accepted_checkpoint_id",
-        "acceptance_sha256",
-        "halt_receipt_sha256",
-        "proof_refs",
-    }
-    if set(run) != required or run.get("schema_version") != 1:
-        raise ValidationError("probe result fields do not match schema")
-    if run.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
-        raise ValidationError("invalid probe target")
-    if run.get("kind") != "real_harness_conformance":
-        raise ValidationError("invalid probe receipt kind")
-    if run.get("result") != "accepted":
-        raise ValidationError("qualification receipt is not accepted")
-    validate_identifier(run.get("run_id"), "run id")
-    validate_identifier(run.get("controller"), "controller")
-    for field in (
-        "executable_fingerprint",
-        "adapter_fingerprint",
-        "protocol_fingerprint",
-        "yolo_mapping_sha256",
-        "accepted_checkpoint_id",
-        "acceptance_sha256",
-        "halt_receipt_sha256",
-    ):
-        validate_sha256(run.get(field), field)
-    expected_capabilities = ["launch", "send", "status", "wait", "checkpoint", "resume", "halt"]
-    if run.get("capabilities") != expected_capabilities:
-        raise ValidationError("probe receipt does not cover the complete capability contract")
-    if not isinstance(run.get("proof_refs"), list):
-        raise ValidationError("probe proof references must be a list")
+    run = _verified_receipt(args.run)
     return {"ok": True, "result": run["result"], "target": run["target"]}
 
 
@@ -110,11 +87,16 @@ def _qualify(args):
         raise ValidationError("qualification input must be a doctor-only manifest")
     mapping = read_json(args.mapping, max_bytes=65536)
     receipt_path = args.receipt.resolve(strict=True)
+    receipt = _verified_receipt(receipt_path)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {
-        name: "controller_verified"
-        for name in ("launch", "send", "status", "wait", "checkpoint", "resume", "halt")
+        name: (
+            "controller_verified"
+            if name in receipt["capabilities"]
+            else "unsupported"
+        )
+        for name in BEHAVIOR_CAPABILITIES
     }
     raw["doctor_only"] = False
     raw["qualification"] = {
@@ -147,8 +129,17 @@ def build_parser():
     scaffold_parser.set_defaults(handler=_scaffold)
     probe_parser = commands.add_parser("probe")
     probe_parser.add_argument("--target", required=True)
-    probe_parser.add_argument("--profile", required=True)
+    probe_parser.add_argument(
+        "--profile", required=True, choices=["source-free-pass-b-v1"]
+    )
     probe_parser.add_argument("--proof-root", required=True, type=Path)
+    probe_parser.add_argument("--manifest", required=True, type=Path)
+    probe_parser.add_argument("--mapping", required=True, type=Path)
+    probe_parser.add_argument("--authorization", required=True, type=Path)
+    probe_parser.add_argument("--controller", required=True)
+    probe_parser.add_argument("--timeout", type=float, default=300.0)
+    probe_parser.add_argument("--halt-timeout", type=float, default=10.0)
+    probe_parser.add_argument("--run-id")
     probe_parser.set_defaults(handler=_probe)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)

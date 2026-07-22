@@ -1,6 +1,6 @@
 ---
 name: puppet
-description: Bootstrap/preflight Puppet controller for adapter-disabled YOLO sessions: strict, transcript-blind, controller-only, and checkpoint-driven.
+description: "Bootstrap/preflight Puppet controller for adapter-disabled YOLO sessions: strict, transcript-blind, controller-only, and checkpoint-driven."
 ---
 
 # Puppet

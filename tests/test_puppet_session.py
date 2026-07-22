@@ -15,6 +15,10 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.campaign import (  # noqa: E402
+    ALLOWED_ACTIONS as CAMPAIGN_ALLOWED_ACTIONS,
+    HARD_GATES as CAMPAIGN_HARD_GATES,
+)
 from puppet_lib.conformance import create_fixture  # noqa: E402
 from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
@@ -32,6 +36,7 @@ from puppet_lib.session import (  # noqa: E402
     wait_for,
 )
 from puppet_lib.tmux import TmuxController  # noqa: E402
+from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
 HARD_GATES = [
@@ -107,46 +112,49 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "sandbox_disable_declared": True,
         "sandbox_flags": ["test-owned-process"],
     }
-    write_json(
+    platform_value = {"system": "Darwin", "release": "test", "machine": "test"}
+    platform_fingerprint = hashlib.sha256(
+        json.dumps(
+            platform_value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    mapping_fingerprint = hashlib.sha256(
+        json.dumps(
+            yolo_mapping,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    write_qualification_receipt(
         receipt_path,
-        {
-            "schema_version": 1,
-            "kind": "real_harness_conformance",
-            "run_id": "kernel-test-qualification",
-            "target": target,
-            "result": "accepted",
-            "controller": "tester",
-            "executable_fingerprint": executable_sha,
-            "adapter_fingerprint": adapter_fingerprint,
-            "protocol_fingerprint": protocol,
-            "yolo_mapping_sha256": hashlib.sha256(
-                json.dumps(
-                    yolo_mapping,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                ).encode("utf-8")
-            ).hexdigest(),
-            "capabilities": [
-                "launch",
-                "send",
-                "status",
-                "wait",
-                "checkpoint",
-                "resume",
-                "halt",
-            ],
-            "accepted_checkpoint_id": "1" * 64,
-            "acceptance_sha256": "2" * 64,
-            "halt_receipt_sha256": "3" * 64,
-            "proof_refs": ["deterministic/test-owned-kernel"],
-        },
+        run_id="kernel-test-qualification",
+        target=target,
+        controller="tester",
+        executable_path=executable,
+        executable_fingerprint=executable_sha,
+        version_fingerprint="b" * 64,
+        platform_fingerprint=platform_fingerprint,
+        adapter_fingerprint=adapter_fingerprint,
+        protocol_fingerprint=protocol,
+        yolo_mapping_sha256=mapping_fingerprint,
+        capabilities=[
+            "launch",
+            "send",
+            "status",
+            "wait",
+            "checkpoint",
+            "halt",
+        ],
     )
     raw = {
         "schema_version": 1,
         "target": target,
         "generated_at": "2026-07-22T03:00:00Z",
-        "platform": {"system": "Darwin", "release": "test", "machine": "test"},
+        "platform": platform_value,
         "executable": {
             "requested_path": str(executable),
             "resolved_path": str(executable),
@@ -162,7 +170,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "protocol_fingerprint": protocol,
         "yolo_mapping": yolo_mapping,
         "capabilities": {
-            name: "controller_verified"
+            name: "controller_verified" if name != "resume" else "unsupported"
             for name in ("launch", "send", "status", "wait", "checkpoint", "resume", "halt")
         },
         "doctor_only": False,
@@ -241,12 +249,26 @@ def controller_files(
     write_json(
         authorization_path,
         {
+            "schema_version": 1,
             "campaign_id": "campaign-test",
+            "operator_identity": "tester",
+            "controller": "tester",
+            "goal": {
+                "repository": "test/SaariusSkills",
+                "commit": "1" * 40,
+                "path": "plans/puppet/codex-goal.md",
+                "sha256": "2" * 64,
+            },
             "acknowledged_at": "2026-07-22T03:00:00Z",
             "authorization": {
                 "trust_profile": "unrestricted_required",
                 "harnesses": ["codex"],
+                "disable_harness_sandbox_where_exposed": True,
+                "ordinary_configured_model_provider_traffic": True,
+                "scope": "bounded Puppet implementation and conformance campaign only",
             },
+            "allowed_actions": CAMPAIGN_ALLOWED_ACTIONS,
+            "hard_gates": CAMPAIGN_HARD_GATES,
         },
     )
     return {

@@ -15,10 +15,16 @@ or halt.
 Pass B runs the shared contract against the exact real CLI. Bind the result to
 the executable, adapter implementation, platform, and probe-protocol
 fingerprints. An enabled manifest must reference a bounded accepted
-real-harness receipt whose hash, complete capability list, exact YOLO mapping,
-controller verdict, acceptance, halt receipt, and proof references all verify.
+real-harness receipt whose hash, exact verified-capability list, exact YOLO
+mapping, controller verdict, acceptance, halt receipt, and proof references all
+verify.
 Use `adapter_lab.py qualify` to bind that receipt; never toggle capability
 states by hand. Any relevant drift disables the capability.
+
+Qualification is capability-granular. The shared two-turn probe verifies
+`launch`, `send`, `status`, `wait`, `checkpoint`, and `halt`. It does not prove
+cross-process `resume`; keep `resume` explicitly `unsupported` until a separate
+real resume contract exists and passes for that exact harness identity.
 
 ## Interface
 

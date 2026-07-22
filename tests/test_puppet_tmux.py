@@ -60,6 +60,9 @@ class TmuxTransportTests(unittest.TestCase):
                 panes = self._list_panes(socket=socket, session=session)
                 self.assertEqual(len(panes), 1)
                 self.assertEqual(panes[0], metadata["pane"])
+                self.assertEqual(
+                    metadata["socket_identity"], controller.socket_identity(socket)
+                )
                 self.assertEqual(panes[0], controller.metadata(socket=socket, session=session, pane=metadata["pane"])["pane"])
                 with self.assertRaisesRegex(IdentityError, "pane identity"):
                     controller.metadata(socket=socket, session=session, pane="%999")

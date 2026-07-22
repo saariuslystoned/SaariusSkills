@@ -15,32 +15,40 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
+from puppet_lib.census import (  # noqa: E402
+    DECLARED_MAPPINGS,
+    adapter_implementation_fingerprint,
+    _sandbox_disable_declared,
+)
 from puppet_lib.errors import UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.provenance import admission_fingerprint, validate_admission_rows  # noqa: E402
+from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
 def manifest_raw():
+    executable = Path("/bin/echo").resolve(strict=True)
+    executable_details = executable.stat()
     return {
         "schema_version": 1,
         "target": "agy",
         "generated_at": "2026-07-22T02:00:00Z",
         "platform": {"system": "Darwin", "release": "25", "machine": "arm64"},
         "executable": {
-            "requested_path": "/bin/echo",
-            "resolved_path": "/bin/echo",
-            "sha256": "a" * 64,
+            "requested_path": str(executable),
+            "resolved_path": str(executable),
+            "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
             "version_sha256": "b" * 64,
             "help_sha256": "c" * 64,
-            "device": 1,
-            "inode": 2,
-            "size": 3,
-            "mtime_ns": 4,
+            "device": executable_details.st_dev,
+            "inode": executable_details.st_ino,
+            "size": executable_details.st_size,
+            "mtime_ns": executable_details.st_mtime_ns,
         },
         "adapter_fingerprint": "d" * 64,
         "protocol_fingerprint": "e" * 64,
         "yolo_mapping": {
             "complete": True,
-            "launch_argv": ["/bin/echo", "--safe-test-flag"],
+            "launch_argv": [str(executable), "--safe-test-flag"],
             "permission_declared": True,
             "permission_flags": ["--safe-test-flag"],
             "prompt_transport": "tmux_stdin_buffer",
@@ -63,9 +71,36 @@ def manifest_raw():
 
 
 class AdapterTests(unittest.TestCase):
+    def test_adapter_fingerprint_binds_the_runtime_module_closure(self):
+        fingerprint = adapter_implementation_fingerprint()
+        adapters_only = hashlib.sha256(
+            (SCRIPTS / "puppet_lib" / "adapters.py").read_bytes()
+        ).hexdigest()
+        self.assertEqual(len(fingerprint), 64)
+        self.assertNotEqual(fingerprint, adapters_only)
+
+    def test_sandbox_disable_mapping_distinguishes_omission_from_unknown(self):
+        agy_help = "  --sandbox  Run in a sandbox with terminal restrictions enabled"
+        self.assertTrue(
+            _sandbox_disable_declared("agy", DECLARED_MAPPINGS["agy"], agy_help)
+        )
+        self.assertTrue(
+            _sandbox_disable_declared(
+                "claude",
+                DECLARED_MAPPINGS["claude"],
+                "  --dangerously-skip-permissions",
+            )
+        )
+        self.assertFalse(
+            _sandbox_disable_declared(
+                "grok", DECLARED_MAPPINGS["grok"], "  --sandbox <PROFILE>"
+            )
+        )
+
     def test_agy_prefix_is_exactly_once(self):
         adapter = adapter_for("agy")
         self.assertEqual(adapter.envelope("Do the task"), "/teamwork-preview Do the task")
+        self.assertEqual(adapter.graceful_halt_keys, ("C-d", "C-d"))
         for value in ("/teamwork-preview duplicate", "/btw side", "/side side", ""):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 adapter.envelope(value)
@@ -78,7 +113,10 @@ class AdapterTests(unittest.TestCase):
     def test_verified_manifest_builds_argv_without_prompt(self):
         raw = manifest_raw()
         raw["doctor_only"] = False
-        raw["capabilities"] = {name: "controller_verified" for name in raw["capabilities"]}
+        raw["capabilities"] = {
+            name: "controller_verified" if name != "resume" else "unsupported"
+            for name in raw["capabilities"]
+        }
         raw["qualification"] = {
             "receipt_path": "/tmp/puppet-test-qualification.json",
             "receipt_sha256": "f" * 64,
@@ -128,32 +166,34 @@ class AdapterTests(unittest.TestCase):
                     ensure_ascii=False,
                 ).encode("utf-8")
             ).hexdigest()
-            receipt = {
-                "schema_version": 1,
-                "kind": "real_harness_conformance",
-                "run_id": "run-1",
-                "target": "agy",
-                "result": "accepted",
-                "controller": "codex",
-                "executable_fingerprint": "a" * 64,
-                "adapter_fingerprint": "d" * 64,
-                "protocol_fingerprint": "e" * 64,
-                "yolo_mapping_sha256": mapping_hash,
-                "capabilities": [
+            write_qualification_receipt(
+                receipt_path,
+                run_id="run-1",
+                target="agy",
+                controller="codex",
+                executable_path=Path(raw["executable"]["resolved_path"]),
+                executable_fingerprint=raw["executable"]["sha256"],
+                version_fingerprint="b" * 64,
+                platform_fingerprint=hashlib.sha256(
+                    json.dumps(
+                        raw["platform"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ).encode("utf-8")
+                ).hexdigest(),
+                adapter_fingerprint="d" * 64,
+                protocol_fingerprint="e" * 64,
+                yolo_mapping_sha256=mapping_hash,
+                capabilities=[
                     "launch",
                     "send",
                     "status",
                     "wait",
                     "checkpoint",
-                    "resume",
                     "halt",
                 ],
-                "accepted_checkpoint_id": "1" * 64,
-                "acceptance_sha256": "2" * 64,
-                "halt_receipt_sha256": "3" * 64,
-                "proof_refs": ["proof/agy-conformance"],
-            }
-            receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+            )
             result = subprocess.run(
                 [
                     sys.executable,
@@ -176,7 +216,22 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             qualified = AdapterManifest.from_path(out)
             self.assertFalse(qualified.raw["doctor_only"])
+            self.assertEqual(qualified.raw["capabilities"]["resume"], "unsupported")
             self.assertEqual(qualified.verify_qualification()["run_id"], "run-1")
+
+    def test_live_manifest_cannot_claim_unproved_resume(self):
+        raw = manifest_raw()
+        raw["doctor_only"] = False
+        raw["capabilities"] = {
+            name: "controller_verified" if name != "resume" else "declared"
+            for name in raw["capabilities"]
+        }
+        raw["qualification"] = {
+            "receipt_path": "/tmp/puppet-test-qualification.json",
+            "receipt_sha256": "f" * 64,
+        }
+        with self.assertRaisesRegex(ValidationError, "fail closed"):
+            AdapterManifest.from_dict(raw)
 
     def test_provenance_requires_license_for_extraction(self):
         row = {

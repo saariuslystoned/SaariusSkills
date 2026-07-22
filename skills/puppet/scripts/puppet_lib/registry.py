@@ -201,7 +201,12 @@ class SessionRegistry:
         validate_sha256(adapter.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(adapter.get("protocol_fingerprint"), "protocol fingerprint")
         tmux = value.get("tmux")
-        if not isinstance(tmux, dict) or set(tmux) != {"socket", "session", "pane"}:
+        if not isinstance(tmux, dict) or set(tmux) != {
+            "socket",
+            "socket_identity",
+            "session",
+            "pane",
+        }:
             raise ValidationError("invalid tmux identity")
         if tmux["session"] != value["session"]:
             raise ValidationError("tmux session identity mismatch")
@@ -214,6 +219,18 @@ class SessionRegistry:
             raise ValidationError("registered tmux socket is unavailable")
         if not stat.S_ISSOCK(socket_path.stat().st_mode):
             raise ValidationError("registered tmux path is not a socket")
+        socket_details = socket_path.stat()
+        socket_identity = tmux["socket_identity"]
+        expected_socket_identity = {
+            "device": socket_details.st_dev,
+            "inode": socket_details.st_ino,
+            "uid": socket_details.st_uid,
+            "mode": stat.S_IMODE(socket_details.st_mode),
+        }
+        if socket_identity != expected_socket_identity:
+            raise ValidationError("registered tmux socket identity changed")
+        if socket_details.st_uid != os.getuid() or socket_details.st_mode & 0o077:
+            raise ValidationError("registered tmux socket is not user-private")
         process = value.get("process")
         if not isinstance(process, dict) or set(process) != {
             "pid",

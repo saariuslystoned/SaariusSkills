@@ -12,6 +12,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
 from .beacons import parse_beacon
+from .campaign import (
+    active_target_processes,
+    parallel_target_override,
+    validate_campaign_authorization,
+)
 from .conformance import tree_fingerprint
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
@@ -69,60 +74,23 @@ def _git(repo: Path, arguments: List[str], *, identity_error: bool = False) -> s
     return result.stdout.strip()
 
 
-def _active_processes(target: str) -> List[int]:
-    expected = {
-        "agy": {"agy"},
-        "cursor": {"cursor-agent"},
-        "claude": {"claude"},
-        "codex": {"codex"},
-        "grok": {"grok"},
-    }[target]
-    result = subprocess.run(
-        ["ps", "-axo", "pid=,comm="],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
-    found = []
-    for line in result.stdout.splitlines():
-        fields = line.strip().split(None, 1)
-        if len(fields) != 2:
-            continue
-        if Path(fields[1]).name in expected:
-            found.append(int(fields[0]))
-    return found
+def _active_processes(target: str) -> List[Dict[str, Any]]:
+    return active_target_processes(target)
 
 
 def _authorization(path: Path, contract: Contract) -> Dict[str, Any]:
-    value = read_json(Path(path), max_bytes=32768)
-    if value.get("campaign_id") != contract.campaign_authorization_id:
-        raise ValidationError("campaign authorization identity mismatch")
-    if not value.get("acknowledged_at"):
-        raise ValidationError("campaign has no local YOLO acknowledgement")
-    authorization = value.get("authorization")
-    if not isinstance(authorization, dict):
-        raise ValidationError("campaign authorization is missing")
-    if authorization.get("trust_profile") != "unrestricted_required":
-        raise ValidationError("campaign does not authorize unrestricted execution")
-    harnesses = authorization.get("harnesses")
-    if not isinstance(harnesses, list) or contract.target not in harnesses:
-        raise ValidationError("target is outside the campaign authorization")
-    return value
-
-
-def _parallel_target_override(authorization: Dict[str, Any], target: str) -> bool:
-    override = authorization.get("authorization", {}).get("parallel_target_override")
-    if not isinstance(override, dict):
-        return False
-    return (
-        override.get("target") == target
-        and override.get("isolation") == "unique_private_tmux_socket_and_session"
-        and override.get("failure_cleanup_scope") == "exact_new_target_only"
-        and isinstance(override.get("protected_session"), str)
-        and bool(override["protected_session"])
+    return validate_campaign_authorization(
+        path,
+        target=contract.target,
+        controller=contract.controller,
+        campaign_id=contract.campaign_authorization_id,
     )
+
+
+def _parallel_target_override(
+    authorization: Dict[str, Any], target: str, active: List[Dict[str, Any]]
+) -> bool:
+    return parallel_target_override(authorization, target, active)
 
 
 def _bind_json(path: Path, value: Dict[str, Any], label: str) -> Path:
@@ -441,13 +409,20 @@ def doctor(
     if not mapping.get("complete"):
         blockers.append("exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete")
     active = _active_processes(contract.target)
-    parallel_override = _parallel_target_override(authorization, contract.target)
+    parallel_override = _parallel_target_override(
+        authorization, contract.target, active
+    )
     if contract.target == "agy" and active and not parallel_override:
         blockers.append("active AGY process may hold the exclusive store lock")
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()
-        if status != "controller_verified"
+        if status not in {"controller_verified", "unsupported"}
+    )
+    unsupported = sorted(
+        name
+        for name, status in manifest.raw["capabilities"].items()
+        if status == "unsupported"
     )
     if not manifest.raw["doctor_only"]:
         try:
@@ -465,9 +440,10 @@ def doctor(
         "head": head,
         "tree": tree,
         "dirty": dirty,
-        "active_target_pids": active,
+        "active_target_pids": [item["pid"] for item in active],
         "parallel_target_override": parallel_override,
         "unverified_capabilities": unverified,
+        "unsupported_capabilities": unsupported,
         "blockers": blockers,
         "launch_ready": not blockers and not unverified and not manifest.raw["doctor_only"],
     }
@@ -560,6 +536,7 @@ def launch(
     try:
         metadata = tmux.launch(session=session, repo=contract.repo, argv=argv)
         process = process_birth_identity(metadata["pane_pid"])
+        manifest.verify_process_executable(process)
         record = {
             "schema_version": 1,
             "session": session,
@@ -574,6 +551,7 @@ def launch(
             "proof_root": str(proof_root),
             "tmux": {
                 "socket": metadata["socket"],
+                "socket_identity": metadata["socket_identity"],
                 "session": session,
                 "pane": metadata["pane"],
             },
@@ -633,11 +611,16 @@ def launch(
         still_alive = bool(process and process_alive(process))
         if metadata is not None and still_alive:
             try:
-                tmux.interrupt(
-                    socket=Path(metadata["socket"]),
-                    session=session,
-                    pane=metadata["pane"],
-                )
+                for key in adapter.graceful_halt_keys:
+                    if process is None or not process_alive(process):
+                        break
+                    tmux.send_control(
+                        socket=Path(metadata["socket"]),
+                        session=session,
+                        pane=metadata["pane"],
+                        key=key,
+                    )
+                    time.sleep(0.1)
             except Exception:
                 pass
             deadline = time.monotonic() + 2.0
@@ -1084,18 +1067,35 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     )
     if target_alive:
         registry.verify_process(record)
-        tmux.interrupt(
-            socket=Path(record["tmux"]["socket"]),
-            session=session,
-            pane=record["tmux"]["pane"],
-        )
         deadline = time.monotonic() + timeout
+        for key in adapter_for(record["target"]).graceful_halt_keys:
+            if not process_alive(record["process"]):
+                break
+            tmux.send_control(
+                socket=Path(record["tmux"]["socket"]),
+                session=session,
+                pane=record["tmux"]["pane"],
+                key=key,
+            )
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
         while process_alive(record["process"]) and time.monotonic() < deadline:
             time.sleep(0.1)
         if process_alive(record["process"]):
             raise IdentityError(
                 "registered target did not stop gracefully; no broad kill attempted"
             )
+    halted_metadata = tmux.metadata(
+        socket=Path(record["tmux"]["socket"]),
+        session=session,
+        pane=record["tmux"]["pane"],
+    )
+    if (
+        halted_metadata["pane_pid"] != record["process"]["pid"]
+        or not halted_metadata["pane_dead"]
+        or tmux.socket_identity(Path(record["tmux"]["socket"]))
+        != record["tmux"]["socket_identity"]
+    ):
+        raise IdentityError("registered tmux evidence did not survive exact halt")
     journal.append(
         request_id=_delivery_request_id(session, session, "halted"),
         event={

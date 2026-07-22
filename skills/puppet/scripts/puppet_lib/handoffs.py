@@ -46,6 +46,28 @@ CONFORMANCE_FIELDS = COMMON_FIELDS | {
     "message_id",
     "prior_checkpoint_sha256",
 }
+CONFORMANCE_PROTOCOL_DESCRIPTOR = {
+    "schema_version": 1,
+    "name": "PUPPET_CONFORMANCE_V1",
+    "checkpoint_kind": "conformance",
+    "fields": sorted(CONFORMANCE_FIELDS),
+    "phases": {
+        "ready": {
+            "sequence": 0,
+            "forbidden": ["message_id", "prior_checkpoint_sha256"],
+        },
+        "followup": {
+            "sequence": 1,
+            "required": ["message_id", "prior_checkpoint_sha256"],
+        },
+    },
+    "max_handoff_bytes": MAX_HANDOFF_BYTES,
+    "max_list_items": 32,
+    "transcript_fields_forbidden": True,
+}
+PROTOCOL_FINGERPRINT = sha256_bytes(
+    canonical_json_bytes(CONFORMANCE_PROTOCOL_DESCRIPTOR)
+)
 
 
 @dataclass(frozen=True)

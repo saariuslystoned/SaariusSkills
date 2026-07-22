@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -11,7 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
 from puppet_lib.errors import ValidationError  # noqa: E402
-from puppet_lib.handoffs import validate_handoff  # noqa: E402
+from puppet_lib.handoffs import (  # noqa: E402
+    CONFORMANCE_PROTOCOL_DESCRIPTOR,
+    PROTOCOL_FINGERPRINT,
+    validate_handoff,
+)
+from puppet_lib.safety import canonical_json_bytes  # noqa: E402
 
 
 FP = "a" * 64
@@ -42,6 +48,18 @@ def write_json(path: Path, value):
 
 
 class HandoffTests(unittest.TestCase):
+    def test_protocol_fingerprint_binds_the_canonical_schema_descriptor(self):
+        self.assertEqual(
+            PROTOCOL_FINGERPRINT,
+            hashlib.sha256(
+                canonical_json_bytes(CONFORMANCE_PROTOCOL_DESCRIPTOR)
+            ).hexdigest(),
+        )
+        self.assertNotEqual(
+            PROTOCOL_FINGERPRINT,
+            hashlib.sha256(b"PUPPET_CONFORMANCE_V1").hexdigest(),
+        )
+
     def test_ready_conformance_is_source_free(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

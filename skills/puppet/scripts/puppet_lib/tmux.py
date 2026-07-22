@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -30,6 +32,23 @@ class TmuxController:
 
     def socket_path(self, session: str) -> Path:
         return canonical_tmux_socket_path(self.registry_root, session)
+
+    @staticmethod
+    def socket_identity(socket: Path) -> Dict[str, int]:
+        socket = Path(socket)
+        if socket.is_symlink() or not socket.exists():
+            raise IdentityError("tmux socket is unavailable or a symlink")
+        details = socket.stat()
+        if not stat.S_ISSOCK(details.st_mode):
+            raise IdentityError("tmux authority path is not a socket")
+        if details.st_uid != os.getuid() or details.st_mode & 0o077:
+            raise IdentityError("tmux socket is not user-private")
+        return {
+            "device": details.st_dev,
+            "inode": details.st_ino,
+            "uid": details.st_uid,
+            "mode": stat.S_IMODE(details.st_mode),
+        }
 
     def _run(self, socket: Path, arguments: List[str], check: bool = True, input_data: Optional[bytes] = None) -> subprocess.CompletedProcess:
         return self._run_raw(
@@ -134,6 +153,7 @@ class TmuxController:
             self._run(socket, ["kill-session", "-t", session], check=False)
             raise IdentityError("tmux session initial identity is invalid")
         metadata["socket"] = str(socket)
+        metadata["socket_identity"] = self.socket_identity(socket)
         return metadata
 
     def metadata(self, *, socket: Path, session: str, pane: Optional[str] = None) -> Dict[str, Any]:
@@ -203,10 +223,22 @@ class TmuxController:
         )
 
     def interrupt(self, *, socket: Path, session: str, pane: Optional[str] = None) -> None:
+        self.send_control(socket=socket, session=session, pane=pane, key="C-c")
+
+    def send_control(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        pane: Optional[str] = None,
+        key: str,
+    ) -> None:
+        if key not in {"C-c", "C-d"}:
+            raise ValidationError("control key is outside the exact halt allowlist")
         metadata = self.metadata(socket=socket, session=session, pane=pane)
         if metadata["pane_dead"]:
             raise IdentityError("tmux pane is unavailable")
-        self._run(socket, ["send-keys", "-t", metadata["pane"], "C-c"])
+        self._run(socket, ["send-keys", "-t", metadata["pane"], key])
 
     def attach_command(self, *, socket: Path, session: str, pane: Optional[str] = None) -> str:
         self.metadata(socket=socket, session=session, pane=pane)

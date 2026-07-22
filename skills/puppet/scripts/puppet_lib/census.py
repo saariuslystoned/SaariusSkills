@@ -12,14 +12,12 @@ from typing import Any, Dict, List, Tuple
 
 from .adapter_manifest import AdapterManifest, BEHAVIOR_CAPABILITIES
 from .errors import ValidationError
-from .safety import sha256_bytes, sha256_file
+from .handoffs import PROTOCOL_FINGERPRINT
+from .safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 
 MAX_OUTPUT_BYTES = 65536
 TIMEOUT_SECONDS = 10
-PROTOCOL_FINGERPRINT = sha256_bytes(b"PUPPET_CONFORMANCE_V1")
-
-
 COMMANDS: Dict[str, Tuple[str, ...]] = {
     "agy": ("agy",),
     "cursor": ("cursor-agent",),
@@ -31,28 +29,36 @@ COMMANDS: Dict[str, Tuple[str, ...]] = {
 DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "agy": {
         "permission_flags": ["--dangerously-skip-permissions"],
-        "sandbox_flags": ["--sandbox=false"],
-        "prompt_transport": "interactive_tmux_buffer_unproved",
+        "sandbox_flags": [],
+        "prompt_transport": "interactive_tmux_buffer_declared",
+        "model_flag": "--model",
+        "effort_flag": "--effort",
     },
     "cursor": {
         "permission_flags": ["--yolo"],
         "sandbox_flags": ["--sandbox", "disabled"],
-        "prompt_transport": "interactive_tmux_buffer_unproved",
+        "prompt_transport": "interactive_tmux_buffer_declared",
+        "model_flag": "--model",
     },
     "claude": {
         "permission_flags": ["--dangerously-skip-permissions"],
         "sandbox_flags": [],
-        "prompt_transport": "stdin_print_declared",
+        "prompt_transport": "interactive_tmux_buffer_declared",
+        "model_flag": "--model",
+        "effort_flag": "--effort",
     },
     "codex": {
         "permission_flags": ["--dangerously-bypass-approvals-and-sandbox"],
         "sandbox_flags": ["--dangerously-bypass-approvals-and-sandbox"],
-        "prompt_transport": "stdin_exec_declared",
+        "prompt_transport": "interactive_tmux_buffer_declared",
+        "model_flag": "--model",
     },
     "grok": {
         "permission_flags": ["--always-approve"],
         "sandbox_flags": [],
-        "prompt_transport": "prompt_file_declared",
+        "prompt_transport": "interactive_tmux_buffer_declared",
+        "model_flag": "--model",
+        "effort_flag": "--reasoning-effort",
     },
 }
 
@@ -91,6 +97,37 @@ def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def adapter_implementation_fingerprint() -> str:
+    """Bind every Python module that owns adapter/probe behavior."""
+    scripts_root = Path(__file__).resolve(strict=True).parent.parent
+    sources = sorted((scripts_root / "puppet_lib").glob("*.py"))
+    sources.extend([scripts_root / "adapter_lab.py", scripts_root / "puppet.py"])
+    rows = [
+        {
+            "path": str(path.relative_to(scripts_root)),
+            "sha256": sha256_file(path),
+        }
+        for path in sorted(sources)
+    ]
+    return sha256_bytes(canonical_json_bytes(rows))
+
+
+def _sandbox_disable_declared(
+    target: str, mapping: Dict[str, Any], help_text: str
+) -> bool:
+    flags = mapping["sandbox_flags"]
+    if flags:
+        return all(flag in help_text for flag in flags)
+    if target == "agy":
+        return (
+            "--sandbox" in help_text
+            and "Run in a sandbox with terminal restrictions enabled" in help_text
+        )
+    if target == "claude":
+        return "  --sandbox" not in help_text
+    return False
+
+
 def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     if target not in COMMANDS:
         raise ValidationError("target is not on the census allowlist")
@@ -107,8 +144,8 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     help_output = _bounded_run(command_prefix + ["--help"])
     mapping = dict(DECLARED_MAPPINGS[target])
     help_text = help_output.decode("utf-8", errors="replace")
-    permission_declared = all(flag in help_text for flag in mapping["permission_flags"][:1])
-    sandbox_declared = bool(mapping["sandbox_flags"]) and mapping["sandbox_flags"][0] in help_text
+    permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
+    sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
     prompt_declared = mapping["prompt_transport"].endswith("_declared")
     complete = permission_declared and sandbox_declared and prompt_declared
     mapping.update(
