@@ -6,8 +6,11 @@ partly automatic modes are unsupported.
 
 Before launch, require a local uncommitted acknowledgement naming the campaign,
 operator, exact harnesses, bounded task scope, and hard gates. Map the exact
-current executable fingerprint to the permission-bypass and sandbox-off
-controls. Unknown, partial, or drifted mappings fail closed.
+current executable fingerprint to the permission-bypass, sandbox-off, and any
+required project-isolation controls. AGY requires exactly one help-proved
+`--new-project` launch flag so a live qualification does not silently reuse its
+default project. This is project-level isolation, not a separate credential or
+global-store claim. Unknown, partial, or drifted mappings fail closed.
 
 YOLO is cooperative same-user execution, not hostile containment. It changes
 harness mechanics only. It never authorizes delivery, external effects,

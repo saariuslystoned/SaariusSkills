@@ -81,9 +81,13 @@ graceful halt behavior. Use exact positive PID `SIGINT` for non-AGY halt; AGY
 halts through private-pane EOF only. Never send tmux `C-c` or process-group
 signals. Return `unsupported` when any piece is unknown.
 
-AGY substantive messages receive exactly one literal `/teamwork-preview`
-prefix. Cursor's standalone and application subcommand entrypoints remain
-separate until process and fingerprint equivalence is controller-proved.
+AGY launches require exactly one help-proved `--new-project` flag in a
+separately declared and fingerprinted project-isolation bucket. This prevents a
+qualification run from silently joining the default AGY project; it does not
+claim a separate credential or global data store. AGY substantive messages
+receive exactly one literal `/teamwork-preview` prefix. Cursor's standalone and
+application subcommand entrypoints remain separate until process and
+fingerprint equivalence is controller-proved.
 
 The local controller ledger is deliberately proof-root and checkout
 independent, but it is cooperative same-UID authority rather than a signature

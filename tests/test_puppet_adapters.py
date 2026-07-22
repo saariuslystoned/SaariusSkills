@@ -50,15 +50,15 @@ def manifest_raw():
         "protocol_fingerprint": "e" * 64,
         "yolo_mapping": {
             "complete": True,
-            "launch_argv": [str(executable), "--safe-test-flag"],
+            "launch_argv": [str(executable), "--dangerously-skip-permissions", "--new-project"],
             "permission_declared": True,
-            "permission_flags": ["--safe-test-flag"],
+            "permission_flags": ["--dangerously-skip-permissions"],
             "prompt_transport": "tmux_stdin_buffer",
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
-            "sandbox_flags": ["--safe-test-flag"],
+            "sandbox_flags": [],
             "project_isolation_declared": True,
-            "project_isolation_flags": [],
+            "project_isolation_flags": ["--new-project"],
         },
         "capabilities": {
             "launch": "declared",
@@ -150,9 +150,15 @@ class AdapterTests(unittest.TestCase):
         }
         manifest = AdapterManifest.from_dict(raw)
         argv = adapter_for("agy").build_launch_argv(manifest)
-        self.assertEqual(argv, ["/bin/echo", "--safe-test-flag"])
+        self.assertEqual(
+            argv,
+            ["/bin/echo", "--dangerously-skip-permissions", "--new-project"],
+        )
         self.assertNotIn("Do the task", argv)
-        self.assertEqual(raw["yolo_mapping"]["launch_argv"], ["/bin/echo", "--safe-test-flag"])
+        self.assertEqual(
+            raw["yolo_mapping"]["launch_argv"],
+            ["/bin/echo", "--dangerously-skip-permissions", "--new-project"],
+        )
 
     def test_manifest_cannot_fingerprint_one_executable_and_launch_another(self):
         raw = manifest_raw()
@@ -243,6 +249,44 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stdout)
             self.assertFalse(out.exists())
             self.assertIn("authority", result.stderr)
+
+    def test_agy_project_isolation_flag_set_is_required(self):
+        raw = manifest_raw()
+        with self.subTest("mismatched_flags"):
+            mismatched = dict(raw)
+            mismatched["yolo_mapping"] = dict(raw["yolo_mapping"])
+            mismatched["yolo_mapping"]["project_isolation_flags"] = ["--other-project"]
+            mismatched["yolo_mapping"]["launch_argv"] = [
+                str(Path(raw["executable"]["resolved_path"])),
+                "--dangerously-skip-permissions",
+                "--other-project",
+            ]
+            with self.assertRaises(ValidationError):
+                AdapterManifest.from_dict(mismatched)
+        with self.subTest("missing_flags"):
+            missing = dict(raw)
+            missing["yolo_mapping"] = dict(raw["yolo_mapping"])
+            missing["yolo_mapping"]["project_isolation_flags"] = []
+            missing["yolo_mapping"]["launch_argv"] = [
+                str(Path(raw["executable"]["resolved_path"])),
+                "--dangerously-skip-permissions",
+            ]
+            with self.assertRaises(ValidationError):
+                AdapterManifest.from_dict(missing)
+        with self.subTest("duplicate_flags"):
+            duplicate = dict(raw)
+            duplicate["yolo_mapping"] = dict(raw["yolo_mapping"])
+            duplicate["yolo_mapping"]["project_isolation_flags"] = [
+                "--new-project",
+                "--new-project",
+            ]
+            duplicate["yolo_mapping"]["launch_argv"] = [
+                str(Path(raw["executable"]["resolved_path"])),
+                "--dangerously-skip-permissions",
+                "--new-project",
+            ]
+            with self.assertRaises(ValidationError):
+                AdapterManifest.from_dict(duplicate)
 
     def test_live_manifest_cannot_claim_unproved_resume(self):
         raw = manifest_raw()

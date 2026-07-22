@@ -1089,9 +1089,27 @@ class AdapterManifest:
                 isinstance(item, str) and item for item in flags
             ):
                 raise ValidationError("%s must be a string list" % name)
+            if len(flags) != len(set(flags)):
+                raise ValidationError("%s contains duplicate entries" % name)
+
+        if value["target"] == "agy":
+            if mapping["project_isolation_flags"] != ["--new-project"]:
+                raise ValidationError("agy project isolation flags are invalid")
         transport = mapping["prompt_transport"]
         if not isinstance(transport, str) or not transport or len(transport) > 80:
             raise ValidationError("prompt transport declaration is invalid")
+        if value["target"] == "agy":
+            expected_argv = [resolved_path]
+            for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
+                if flag not in expected_argv:
+                    expected_argv.append(flag)
+            for flag in mapping["project_isolation_flags"]:
+                if flag not in expected_argv:
+                    expected_argv.append(flag)
+            if argv != expected_argv:
+                raise ValidationError(
+                    "manifest launch_argv does not match declared flags"
+                )
         if mapping["complete"] and not all(
             mapping[name]
             for name in (
