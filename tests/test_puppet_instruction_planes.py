@@ -253,18 +253,21 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                         "materialize": [],
                     }
                 ),
-                "factual activatable descriptors must materialize artifacts",
+                "materialize must be a non-empty bounded list",
             ),
             (
                 "patch_mode_missing_preimage",
-                lambda value: value["materialize"].append(
-                    {
-                        "artifact_id": "patched_missing",
-                        "root_ref": "config_root",
-                        "relative_path": "workspace/.puppet/config/patch.md",
-                        "content_ref": "effective_contract",
-                        "write_mode": "patch_if_base_sha256",
-                    }
+                lambda value: (
+                    value["materialize"].append(
+                        {
+                            "artifact_id": "patched_missing",
+                            "root_ref": "config_root",
+                            "relative_path": "workspace/.puppet/config/patch.md",
+                            "content_ref": "effective_contract",
+                            "write_mode": "patch_if_base_sha256",
+                        }
+                    )
+                    or value["rollback"]["owned_artifacts"].append("patched_missing")
                 ),
                 "need rollback preimage",
             ),
@@ -364,10 +367,10 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
             ),
             (
                 "rollback_unknown_artifact",
-                lambda value: value["rollback"]["owned_artifacts"].append(
-                    "missing_artifact"
+                lambda value: value["rollback"]["preimage_sha256"].append(
+                    {"artifact_id": "missing_artifact", "sha256": "1" * 64}
                 ),
-                "references unknown artifact",
+                "rollback preimage references unknown artifact",
             ),
             (
                 "rollback_ownership_must_cover_all_artifacts",
