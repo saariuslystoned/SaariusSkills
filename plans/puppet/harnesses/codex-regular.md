@@ -27,6 +27,25 @@
 - `CODEX_HOME=<temp> codex doctor --json` loads default config and reports
   `model: <default>`, but authentication is coupled to `CODEX_HOME` and is not
   present in a new lane root.
+- Current official Codex documentation defines `CODEX_HOME` as the shared root
+  for configuration, authentication, logs, sessions, skills, and standalone
+  package metadata. `CODEX_SQLITE_HOME` redirects only SQLite-backed state; it
+  is not a credential/config split. See
+  <https://learn.chatgpt.com/docs/config-file/environment-variables#core-locations>.
+- Official authentication documentation permits `CODEX_ACCESS_TOKEN` as a
+  process-local credential for trusted CLI/app-server automation without a
+  persisted login. This is the only documented clean route found for combining
+  a fresh Puppet-owned `CODEX_HOME` with ChatGPT/Codex entitlement; Puppet does
+  not currently have such a token authority. See
+  <https://learn.chatgpt.com/docs/config-file/environment-variables#authentication-and-network>
+  and <https://learn.chatgpt.com/docs/enterprise/access-tokens#use-an-access-token-with-codex-cli>.
+- A 2026-07-22 status-only probe ran Codex 0.145.0 with an empty private
+  `CODEX_HOME`, a closed non-secret environment, and
+  `cli_auth_credentials_store="keyring"`. `codex login status` returned
+  `Not logged in`; the private root remained empty. Therefore this machine's
+  ordinary login cannot be assumed reusable from an isolated home through the
+  keyring selector. No session was launched and no credential value or auth
+  file was read.
 
 ### Hypotheses requiring proof
 
@@ -39,6 +58,10 @@
 - The regular TUI's authenticated state cannot be copied or linked from the
   live home. A brokered process-local access-token route or a human login into
   the lane root requires a separate gate; neither is currently available.
+- `--ephemeral` or `CODEX_SQLITE_HOME` may reduce specific persistence, but
+  neither is evidence of an isolated configuration/instruction stack because
+  the ordinary `CODEX_HOME` still owns auth, configuration, logs, sessions,
+  skills, and other state. Do not use either as a substitute for the lane root.
 
 ## 2) Instruction planes: precedence, activation, cleanup unknowns
 
@@ -168,7 +191,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Blocker: any source/credential/global-session state read/write outside the lane fixture
   root.
 - Blocker: no approved authentication-preserving isolated `CODEX_HOME` route is
-  currently available.
+  currently available. The supported candidate is controller-brokered,
+  process-local `CODEX_ACCESS_TOKEN` injection into the exact child with no
+  value in argv, proof, logs, or agent context; no such authority exists in the
+  current campaign.
 - Stop condition: no unsupported claims beyond this lane scope; if model/plane/resume
   evidence is inconclusive, defer plane choice and keep harness status as `experimental`
   with blockers recorded.
