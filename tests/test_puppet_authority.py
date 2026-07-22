@@ -18,7 +18,11 @@ from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.diagnostics import agy_overage_advisory, terminal_verdict  # noqa: E402
 from puppet_lib.errors import ConflictError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import validate_handoff  # noqa: E402
-from puppet_lib.registry import SessionRegistry  # noqa: E402
+from puppet_lib.registry import (  # noqa: E402
+    SessionRegistry,
+    process_alive,
+    process_birth_identity,
+)
 from puppet_lib.safety import canonical_tmux_socket_path  # noqa: E402
 from puppet_lib.verdicts import record_review, verify_current_identity  # noqa: E402
 
@@ -80,6 +84,16 @@ def followup():
 
 
 class AuthorityTests(unittest.TestCase):
+    def test_process_identity_binds_full_executable_file_identity(self):
+        identity = process_birth_identity(os.getpid())
+        self.assertEqual(
+            set(identity),
+            {"pid", "start", "command", "executable_path", "device", "inode"},
+        )
+        self.assertTrue(Path(identity["executable_path"]).is_absolute())
+        self.assertTrue(process_alive(identity))
+        self.assertFalse(process_alive(dict(identity, inode=identity["inode"] + 1)))
+
     def test_advisory_cannot_stop_campaign(self):
         advisory = agy_overage_advisory(
             executable_fingerprint="a" * 64, current_surface_validated=False
@@ -211,7 +225,14 @@ class AuthorityTests(unittest.TestCase):
                     "session": "session-1",
                     "pane": "%1",
                 },
-                "process": {"pid": os.getpid(), "start": "x", "command": "python"},
+                "process": {
+                    "pid": os.getpid(),
+                    "start": "x",
+                    "command": "python",
+                    "executable_path": str(Path(sys.executable).resolve(strict=True)),
+                    "device": Path(sys.executable).resolve(strict=True).stat().st_dev,
+                    "inode": Path(sys.executable).resolve(strict=True).stat().st_ino,
+                },
                 "supervisor": {
                     "root": str(repo),
                     "commit": subprocess.run(
@@ -246,6 +267,7 @@ class AuthorityTests(unittest.TestCase):
                 },
                 "created_at": "2026-07-22T02:00:00Z",
                 "last_checkpoint": None,
+                "last_beacon": None,
                 "blocker": None,
             }
             registry.create(record)

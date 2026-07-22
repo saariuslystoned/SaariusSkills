@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,14 +20,18 @@ from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.registry import SessionRegistry  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
+    _deliver,
     accept_checkpoint,
     halt,
     import_checkpoint,
     launch,
+    record_beacon,
     review_checkpoint,
     send_message,
     status,
+    wait_for,
 )
+from puppet_lib.tmux import TmuxController  # noqa: E402
 
 
 HARD_GATES = [
@@ -90,6 +95,7 @@ def initialize_repo(path: Path, branch: str, name: str) -> Path:
 
 def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
     executable_sha = hashlib.sha256(executable.read_bytes()).hexdigest()
+    executable_stat = executable.stat()
     adapter_fingerprint = "d" * 64
     yolo_mapping = {
         "complete": True,
@@ -147,6 +153,10 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
             "sha256": executable_sha,
             "version_sha256": "b" * 64,
             "help_sha256": "c" * 64,
+            "device": executable_stat.st_dev,
+            "inode": executable_stat.st_ino,
+            "size": executable_stat.st_size,
+            "mtime_ns": executable_stat.st_mtime_ns,
         },
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol,
@@ -263,6 +273,35 @@ def kill_test_server(socket):
 
 
 class SessionIntegrationTests(unittest.TestCase):
+    def test_delivery_deduplication_is_scoped_to_the_exact_session(self):
+        class RecordingTmux:
+            def __init__(self):
+                self.deliveries = []
+
+            def paste_bytes(self, **kwargs):
+                self.deliveries.append(kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            proof_root = Path(temporary).resolve()
+            tmux = RecordingTmux()
+            common = {
+                "tmux": tmux,
+                "socket": proof_root / "unused.sock",
+                "pane": "%0",
+                "buffer_name": "message-1",
+                "message": "One bounded message.",
+                "proof_root": proof_root,
+                "operation_id": "message-1",
+                "kind": "send",
+            }
+            first = _deliver(session="session-one", **common)
+            second = _deliver(session="session-two", **common)
+            replay = _deliver(session="session-one", **common)
+            self.assertEqual(first["delivery"], "submitted")
+            self.assertEqual(second["delivery"], "submitted")
+            self.assertEqual(replay["delivery"], "already_submitted")
+            self.assertEqual(len(tmux.deliveries), 2)
+
     def test_complete_conformance_path_is_bound_and_accept_is_terminal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -297,6 +336,30 @@ class SessionIntegrationTests(unittest.TestCase):
                     prompt="Write the bounded ready handoff and wait.",
                 )
                 self.assertEqual(launched["state"], "ACTIVE")
+                self.assertFalse(
+                    wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="beacon",
+                        timeout=0,
+                    )["matched"]
+                )
+                recorded_beacon = record_beacon(
+                    state_root=files["state"],
+                    session=session,
+                    line='PUPPET_STATUS {"phase":"ready-contract"}',
+                )
+                self.assertEqual(recorded_beacon["beacon"]["authority"], "target_claim")
+                beacon_wait = wait_for(
+                    state_root=files["state"],
+                    session=session,
+                    condition="beacon",
+                    timeout=0,
+                )
+                self.assertTrue(beacon_wait["matched"])
+                self.assertEqual(
+                    beacon_wait["last_beacon"]["kind"], "status_claim"
+                )
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 bound_contract_path = Path(record["contract_path"])
@@ -435,6 +498,67 @@ class SessionIntegrationTests(unittest.TestCase):
                     halt(state_root=files["state"], session=session, timeout=5)["state"],
                     "HALTED",
                 )
+            finally:
+                kill_test_server(socket)
+
+    def test_halt_seals_an_exact_blocked_session_when_target_already_stopped(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(root / "candidate", "codex/dead-target", "candidate")
+            session = "codex-dead-target"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/dead-target",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for exact halt.",
+                )
+                registry = SessionRegistry(files["state"])
+                record = registry.load(session)
+                socket = record["tmux"]["socket"]
+                TmuxController(files["state"]).interrupt(
+                    socket=Path(socket),
+                    session=session,
+                    pane=record["tmux"]["pane"],
+                )
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    metadata = TmuxController(files["state"]).metadata(
+                        socket=Path(socket), session=session, pane=record["tmux"]["pane"]
+                    )
+                    if metadata["pane_dead"]:
+                        break
+                    time.sleep(0.05)
+                self.assertTrue(metadata["pane_dead"])
+                registry.update(
+                    session,
+                    {
+                        "state": "BLOCKED",
+                        "blocker": {
+                            "code": "launch_incomplete",
+                            "target_process_alive": False,
+                        },
+                    },
+                )
+                result = halt(state_root=files["state"], session=session, timeout=1)
+                self.assertEqual(result["state"], "HALTED")
+                self.assertFalse(result["signal_sent"])
+                self.assertTrue(result["tmux_preserved"])
+                replay = halt(state_root=files["state"], session=session, timeout=1)
+                self.assertEqual(replay["state"], "HALTED")
             finally:
                 kill_test_server(socket)
 

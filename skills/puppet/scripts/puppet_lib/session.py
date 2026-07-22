@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
+from .beacons import parse_beacon
 from .conformance import tree_fingerprint
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
@@ -201,8 +202,11 @@ def _journal(proof_root: Path) -> Journal:
     return Journal(Path(proof_root) / "journal")
 
 
-def _delivery_request_id(operation_id: str, phase: str) -> str:
-    return sha256_bytes((phase + "\x00" + operation_id).encode("utf-8"))
+def _delivery_request_id(session: str, operation_id: str, phase: str) -> str:
+    validate_identifier(session, "session")
+    return sha256_bytes(
+        (session + "\x00" + phase + "\x00" + operation_id).encode("utf-8")
+    )
 
 
 def _deliver(
@@ -221,10 +225,11 @@ def _deliver(
     payload = _message_payload(message)
     content_sha = sha256_bytes(payload)
     journal = _journal(proof_root)
-    intent_id = _delivery_request_id(operation_id, "intent")
-    submitted_id = _delivery_request_id(operation_id, "submitted")
+    intent_id = _delivery_request_id(session, operation_id, "intent")
+    submitted_id = _delivery_request_id(session, operation_id, "submitted")
     intent_event = {
         "kind": kind,
+        "session": session,
         "operation_id": operation_id,
         "content_sha256": content_sha,
         "delivery": "intent",
@@ -537,7 +542,7 @@ def launch(
     journal = _journal(proof_root)
     try:
         journal.append(
-            request_id=_delivery_request_id(session, "launch"),
+            request_id=_delivery_request_id(session, session, "launch"),
             event={
                 "kind": "launch",
                 "phase": "intent",
@@ -584,12 +589,13 @@ def launch(
             "protocol": protocol,
             "created_at": _utc_now(),
             "last_checkpoint": None,
+            "last_beacon": None,
             "blocker": None,
         }
         registry.activate(record)
         activated = True
         journal.append(
-            request_id=_delivery_request_id(session, "started"),
+            request_id=_delivery_request_id(session, session, "started"),
             event={
                 "kind": "launch",
                 "phase": "target_started",
@@ -610,7 +616,7 @@ def launch(
         )
         registry.transition_path(session, ["ACTIVE"])
         journal.append(
-            request_id=_delivery_request_id(session, "active"),
+            request_id=_delivery_request_id(session, session, "active"),
             event={"kind": "launch", "phase": "active", **delivery},
         )
         return {
@@ -725,8 +731,20 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
         "tmux_alive": not metadata["pane_dead"],
         "protocol": record["protocol"],
         "last_checkpoint": record["last_checkpoint"],
+        "last_beacon": record["last_beacon"],
         "blocker": record["blocker"],
     }
+
+
+def record_beacon(*, state_root: Path, session: str, line: str) -> Dict[str, Any]:
+    """Ingest one line from an adapter-owned sanitized event hook."""
+    registry = SessionRegistry(Path(state_root))
+    record = registry.load(session)
+    _bound_contract(record)
+    _runtime(registry, record, "status", require_process=True)
+    beacon = dict(parse_beacon(line), received_at=_utc_now())
+    registry.update(session, {"last_beacon": beacon})
+    return {"ok": True, "session": session, "beacon": beacon}
 
 
 def wait_for(
@@ -739,7 +757,9 @@ def wait_for(
     deadline = time.monotonic() + timeout
     while True:
         report = status(state_root=state_root, session=session)
-        if condition in {"beacon", "checkpoint"}:
+        if condition == "beacon":
+            matched = report["last_beacon"] is not None
+        elif condition == "checkpoint":
             matched = report["last_checkpoint"] is not None
         elif condition == "action-required":
             matched = report["blocker"] is not None
@@ -1038,27 +1058,58 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     record = registry.load(session)
     _bound_contract(record)
     if record["state"] == "HALTED":
-        return {"ok": True, "session": session, "state": "HALTED", "tmux_preserved": True}
+        return {
+            "ok": True,
+            "session": session,
+            "state": "HALTED",
+            "signal_sent": False,
+            "tmux_preserved": True,
+        }
     transition(record["state"], "HALTED")
-    tmux, _ = _runtime(registry, record, "halt", require_process=True)
+    tmux, metadata = _runtime(registry, record, "halt", require_process=False)
+    target_alive = process_alive(record["process"])
+    if not target_alive and not metadata["pane_dead"]:
+        raise IdentityError(
+            "registered process identity changed while its tmux pane remains live"
+        )
     journal = _journal(Path(record["proof_root"]))
     journal.append(
-        request_id=_delivery_request_id(session, "halt-intent"),
-        event={"kind": "halt", "target_pid": record["process"]["pid"], "result": "intent"},
+        request_id=_delivery_request_id(session, session, "halt-intent"),
+        event={
+            "kind": "halt",
+            "session": session,
+            "target_pid": record["process"]["pid"],
+            "result": "intent",
+        },
     )
-    tmux.interrupt(
-        socket=Path(record["tmux"]["socket"]),
-        session=session,
-        pane=record["tmux"]["pane"],
-    )
-    deadline = time.monotonic() + timeout
-    while process_alive(record["process"]) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    if process_alive(record["process"]):
-        raise IdentityError("registered target did not stop gracefully; no broad kill attempted")
-    registry.transition_path(session, ["HALTED"])
+    if target_alive:
+        registry.verify_process(record)
+        tmux.interrupt(
+            socket=Path(record["tmux"]["socket"]),
+            session=session,
+            pane=record["tmux"]["pane"],
+        )
+        deadline = time.monotonic() + timeout
+        while process_alive(record["process"]) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if process_alive(record["process"]):
+            raise IdentityError(
+                "registered target did not stop gracefully; no broad kill attempted"
+            )
     journal.append(
-        request_id=_delivery_request_id(session, "halted"),
-        event={"kind": "halt", "target_pid": record["process"]["pid"], "result": "graceful"},
+        request_id=_delivery_request_id(session, session, "halted"),
+        event={
+            "kind": "halt",
+            "session": session,
+            "target_pid": record["process"]["pid"],
+            "result": "stopped",
+        },
     )
-    return {"ok": True, "session": session, "state": "HALTED", "tmux_preserved": True}
+    registry.transition_path(session, ["HALTED"])
+    return {
+        "ok": True,
+        "session": session,
+        "state": "HALTED",
+        "signal_sent": target_alive,
+        "tmux_preserved": True,
+    }

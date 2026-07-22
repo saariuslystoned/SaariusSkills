@@ -73,6 +73,13 @@ class AdapterManifest:
         validate_sha256(executable.get("sha256"), "executable fingerprint")
         validate_sha256(executable.get("version_sha256"), "version fingerprint")
         validate_sha256(executable.get("help_sha256"), "help fingerprint")
+        for name in ("device", "inode", "size", "mtime_ns"):
+            if isinstance(executable.get(name), bool) or not isinstance(
+                executable.get(name), int
+            ):
+                raise ValidationError("executable %s identity is missing" % name)
+            if executable[name] < 0:
+                raise ValidationError("executable %s identity is invalid" % name)
         validate_sha256(value.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(value.get("protocol_fingerprint"), "protocol fingerprint")
         capabilities = value.get("capabilities")

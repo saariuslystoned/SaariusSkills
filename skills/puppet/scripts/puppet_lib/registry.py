@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
 from .adapter_manifest import AdapterManifest
+from .beacons import PREFIXES
 from .errors import ConflictError, IdentityError, ValidationError
 from .safety import (
     absolute_root,
@@ -18,6 +21,7 @@ from .safety import (
     exclusive_lock,
     read_json,
     sha256_file,
+    validate_bounded_json,
     validate_branch,
     validate_identifier,
     validate_pane_id,
@@ -46,6 +50,7 @@ REQUIRED_FIELDS = {
     "protocol",
     "created_at",
     "last_checkpoint",
+    "last_beacon",
     "blocker",
 }
 
@@ -65,6 +70,29 @@ ADAPTER_FIELDS = {
 }
 
 
+def _process_executable_path(pid: int) -> Path:
+    if sys.platform == "darwin":
+        try:
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            buffer = ctypes.create_string_buffer(4096)
+            length = libproc.proc_pidpath(pid, buffer, len(buffer))
+        except (OSError, AttributeError) as exc:
+            raise IdentityError("process executable identity is unavailable") from exc
+        if length <= 0:
+            raise IdentityError("process executable identity is unavailable")
+        path = Path(os.fsdecode(buffer.value))
+    elif sys.platform.startswith("linux"):
+        try:
+            path = Path(os.readlink("/proc/%d/exe" % pid))
+        except OSError as exc:
+            raise IdentityError("process executable identity is unavailable") from exc
+    else:
+        raise IdentityError("process executable identity is unsupported on this platform")
+    if path.is_symlink() or not path.is_file():
+        raise IdentityError("process executable path is invalid")
+    return path.resolve(strict=True)
+
+
 def process_birth_identity(pid: int) -> Dict[str, Any]:
     if not isinstance(pid, int) or pid <= 1:
         raise ValidationError("invalid process id")
@@ -82,7 +110,16 @@ def process_birth_identity(pid: int) -> Dict[str, Any]:
     parts = line.split()
     if len(parts) < 6:
         raise IdentityError("process birth identity is ambiguous")
-    return {"pid": pid, "start": " ".join(parts[:5]), "command": " ".join(parts[5:])}
+    executable = _process_executable_path(pid)
+    executable_stat = executable.stat()
+    return {
+        "pid": pid,
+        "start": " ".join(parts[:5]),
+        "command": " ".join(parts[5:]),
+        "executable_path": str(executable),
+        "device": executable_stat.st_dev,
+        "inode": executable_stat.st_ino,
+    }
 
 
 def process_alive(identity: Dict[str, Any]) -> bool:
@@ -178,8 +215,25 @@ class SessionRegistry:
         if not stat.S_ISSOCK(socket_path.stat().st_mode):
             raise ValidationError("registered tmux path is not a socket")
         process = value.get("process")
-        if not isinstance(process, dict) or set(process) != {"pid", "start", "command"}:
+        if not isinstance(process, dict) or set(process) != {
+            "pid",
+            "start",
+            "command",
+            "executable_path",
+            "device",
+            "inode",
+        }:
             raise ValidationError("invalid process identity")
+        process_executable = Path(process["executable_path"])
+        if not process_executable.is_absolute():
+            raise ValidationError("process executable path must be absolute")
+        for name in ("pid", "device", "inode"):
+            if (
+                isinstance(process.get(name), bool)
+                or not isinstance(process.get(name), int)
+                or process[name] <= 0
+            ):
+                raise ValidationError("invalid process %s identity" % name)
         protocol = value.get("protocol")
         if not isinstance(protocol, dict) or protocol.get("kind") not in {
             "conformance",
@@ -272,6 +326,31 @@ class SessionRegistry:
             }[protocol["phase"]]
             if (source_present, proof_present) != expected_presence:
                 raise ValidationError("source protocol identity is incomplete")
+        beacon = value.get("last_beacon")
+        if beacon is not None:
+            if not isinstance(beacon, dict) or set(beacon) != {
+                "received_at",
+                "prefix",
+                "kind",
+                "authority",
+                "data",
+            }:
+                raise ValidationError("invalid last beacon projection")
+            if not isinstance(beacon["received_at"], str) or not beacon["received_at"]:
+                raise ValidationError("last beacon timestamp is missing")
+            if beacon["authority"] != "target_claim":
+                raise ValidationError("last beacon authority is invalid")
+            if PREFIXES.get(beacon["prefix"]) != beacon["kind"]:
+                raise ValidationError("last beacon prefix or kind is invalid")
+            if not isinstance(beacon["data"], dict):
+                raise ValidationError("last beacon data is invalid")
+            validate_bounded_json(
+                beacon["data"],
+                max_depth=4,
+                max_items=32,
+                max_string=512,
+                reject_sensitive_fields=True,
+            )
         return value
 
     def exists(self, session: str) -> bool:
@@ -433,6 +512,18 @@ class SessionRegistry:
         executable = Path(manifest.raw["executable"]["resolved_path"])
         if executable.is_symlink() or not executable.is_file():
             raise IdentityError("adapter executable is unavailable")
+        executable_stat = executable.stat()
+        expected_executable = manifest.raw["executable"]
+        if any(
+            executable_stat_value != expected_executable[name]
+            for name, executable_stat_value in (
+                ("device", executable_stat.st_dev),
+                ("inode", executable_stat.st_ino),
+                ("size", executable_stat.st_size),
+                ("mtime_ns", executable_stat.st_mtime_ns),
+            )
+        ):
+            raise IdentityError("adapter executable file identity changed")
         if sha256_file(executable) != adapter["executable_fingerprint"]:
             raise IdentityError("adapter executable fingerprint changed")
         manifest.verify_qualification()
@@ -442,8 +533,3 @@ class SessionRegistry:
     def verify_process(self, record: Dict[str, Any]) -> None:
         if not process_alive(record["process"]):
             raise IdentityError("registered process birth identity changed")
-        manifest = AdapterManifest.from_path(Path(record["adapter"]["manifest_path"]))
-        if Path(record["process"]["command"]).name != Path(
-            manifest.raw["executable"]["resolved_path"]
-        ).name:
-            raise IdentityError("registered process is not the adapter executable")
