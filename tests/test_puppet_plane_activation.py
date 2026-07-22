@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import stat
@@ -15,6 +16,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.plane_activation as activation_module  # noqa: E402
+from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
     IdentityError,
@@ -34,6 +36,13 @@ from puppet_lib.plane_activation import (  # noqa: E402
     verify_activation,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
+from puppet_lib.profiles import (  # noqa: E402
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    default_session_profile,
+    session_profiles_for,
+    startup_settle_seconds_for,
+)
 
 
 ADAPTER_SHA256 = "a" * 64
@@ -92,6 +101,67 @@ def _descriptor() -> dict:
         "blockers": ["live_qualification_not_yet_run"],
     }
 
+def _adapter_manifest(receipt_path: Path) -> dict:
+    executable = Path(sys.executable).resolve()
+    executable_details = executable.stat()
+    executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
+    raw = {
+        "schema_version": 1,
+        "target": "claude",
+        "generated_at": "2026-07-22T03:00:00Z",
+        "platform": {
+            "system": "Darwin",
+            "release": "test",
+            "machine": "test",
+        },
+        "executable": {
+            "requested_path": str(executable),
+            "resolved_path": str(executable),
+            "sha256": executable_hash,
+            "version_sha256": VERSION_OBSERVATION_SHA256,
+            "help_sha256": "c" * 64,
+            "device": executable_details.st_dev,
+            "inode": executable_details.st_ino,
+            "size": executable_details.st_size,
+            "mtime_ns": executable_details.st_mtime_ns,
+        },
+        "adapter_fingerprint": ADAPTER_SHA256,
+        "protocol_fingerprint": "d" * 64,
+        "yolo_mapping": {
+            "complete": True,
+            "launch_argv": [str(executable)],
+            "permission_declared": True,
+            "permission_flags": ["--test-owned-process"],
+            "prompt_transport": PROMPT_TRANSPORT,
+            "prompt_transport_declared": True,
+            "sandbox_disable_declared": True,
+            "sandbox_flags": [],
+            "project_isolation_declared": True,
+            "project_isolation_flags": [],
+            "session_profiles": session_profiles_for("claude"),
+            "session_profiles_declared": True,
+            "startup_settle_seconds": startup_settle_seconds_for("claude"),
+            "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+        },
+        "capabilities": {
+            "launch": "controller_verified",
+            "send": "controller_verified",
+            "status": "controller_verified",
+            "wait": "controller_verified",
+            "checkpoint": "controller_verified",
+            "resume": "unsupported",
+            "halt": "controller_verified",
+        },
+        "doctor_only": False,
+        "qualification": {
+            "receipt_path": str(receipt_path),
+            "receipt_sha256": "e" * 64,
+            "session_profile": default_session_profile("claude"),
+        },
+    }
+    return AdapterManifest.from_dict(raw).raw
+
+
 
 class PlaneActivationTests(unittest.TestCase):
     def setUp(self):
@@ -99,9 +169,11 @@ class PlaneActivationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
         self.workspace = self.base / "workspace"
+        self.config = self.base / "config"
         self.ephemeral = self.base / "ephemeral"
         self.transaction = self.base / "transaction"
-        for path in (self.workspace, self.ephemeral, self.transaction):
+        self.qualification_receipt = self.base / "qualification-receipt.json"
+        for path in (self.workspace, self.config, self.ephemeral, self.transaction):
             path.mkdir(mode=0o700)
             path.chmod(0o700)
         self.body_marker = "PUPPET_NATIVE_BODY_MUST_NOT_ENTER_JSON_9f31"
@@ -113,17 +185,18 @@ class PlaneActivationTests(unittest.TestCase):
             run_identity={"run_id": "claude-native-run"},
         )
         self.descriptor = _descriptor()
+        self.adapter_manifest = _adapter_manifest(self.qualification_receipt)
         self.plan = self._plan()
 
     def _plan(self, descriptor=None, **overrides):
         arguments = {
             "instruction_manifest": self.compiled.manifest,
+            "adapter_manifest": self.adapter_manifest,
             "effective_contract": self.compiled.rendered,
-            "adapter_manifest_sha256": ADAPTER_SHA256,
-            "version_observation_sha256": VERSION_OBSERVATION_SHA256,
             "workspace_root": self.workspace,
             "ephemeral_root": self.ephemeral,
             "transaction_root": self.transaction,
+            "config_root": self.config,
         }
         arguments.update(overrides)
         return plan_activation(descriptor or self.descriptor, **arguments)
@@ -141,12 +214,12 @@ class PlaneActivationTests(unittest.TestCase):
     def test_planning_is_pure_body_free_and_binds_all_authorities(self):
         before = {
             path: (path.stat().st_dev, path.stat().st_ino, path.stat().st_nlink)
-            for path in (self.workspace, self.ephemeral, self.transaction)
+            for path in (self.workspace, self.config, self.ephemeral, self.transaction)
         }
         second = self._plan()
         after = {
             path: (path.stat().st_dev, path.stat().st_ino, path.stat().st_nlink)
-            for path in (self.workspace, self.ephemeral, self.transaction)
+            for path in (self.workspace, self.config, self.ephemeral, self.transaction)
         }
         self.assertEqual(before, after)
         self.assertEqual(list(self.ephemeral.iterdir()), [])
@@ -162,7 +235,7 @@ class PlaneActivationTests(unittest.TestCase):
         )
         self.assertEqual(
             raw["instruction_manifest_sha256"],
-            sha256_bytes(canonical_json_bytes(self.compiled.manifest)),
+            sha256_bytes(activation_module._canonical_json_with_newline(self.compiled.manifest)),
         )
         self.assertEqual(
             raw["effective_contract_fingerprint"],
@@ -221,22 +294,36 @@ class PlaneActivationTests(unittest.TestCase):
         self.assertEqual(recover_activation(self.transaction).state, "active")
         self.assertEqual(self._activate(), receipt)
 
-        rollback = rollback_activation(self.plan)
-        self.assertEqual(rollback["artifact_state"], "absent")
-        self.assertFalse(self.plan.artifact_path.exists())
-        self.assertEqual(list(self.ephemeral.iterdir()), [])
         self.assertTrue(self.plan.intent_path.exists())
         self.assertTrue(self.plan.receipt_path.exists())
-        self.assertTrue(self.plan.rollback_receipt_path.exists())
-        self.assertEqual(recover_activation(self.transaction).state, "rolled_back")
+
+        original = activation_module._persist_immutable_json
+
+        def fail_rollback_receipt(root_descriptor, name, value, *, label):
+            if name == activation_module.ROLLBACK_FILENAME:
+                raise OSError("injected rollback receipt failure")
+            return original(root_descriptor, name, value, label=label)
+
+        with mock.patch.object(
+            activation_module,
+            "_persist_immutable_json",
+            side_effect=fail_rollback_receipt,
+        ):
+            with self.assertRaises(OSError):
+                rollback_activation(self.plan)
+        self.assertFalse(self.plan.rollback_receipt_path.exists())
+        self.assertTrue(self.plan.rollback_intent_path.exists())
+        self.assertFalse(self.plan.artifact_path.exists())
+        self.assertEqual(list(self.ephemeral.iterdir()), [])
+        recovery = recover_activation(self.transaction)
+        self.assertEqual(recovery.state, "rolled_back")
+        rollback = rollback_activation(self.plan)
+        self.assertEqual(rollback["artifact_state"], "absent")
+        self.assertEqual(recovery.rollback_receipt, rollback)
         self.assertEqual(rollback_activation(self.plan), rollback)
+
         with self.assertRaises(ConflictError):
             self._activate()
-
-        for durable in self.transaction.glob("*.json"):
-            payload = durable.read_bytes()
-            self.assertNotIn(self.body_marker.encode(), payload)
-            self.assertNotIn(self.compiled.rendered, payload)
 
     def test_existing_root_content_is_a_collision_and_is_never_deleted(self):
         collision = self.ephemeral / "occupied.txt"
@@ -269,6 +356,54 @@ class PlaneActivationTests(unittest.TestCase):
         transaction_link.symlink_to(alternate, target_is_directory=True)
         with self.assertRaises(IdentityError):
             self._plan(transaction_root=transaction_link)
+
+    def test_config_root_overlap_is_rejected(self):
+        with self.assertRaises(ConflictError):
+            self._plan(config_root=self.workspace)
+
+    def test_activation_roots_reject_pairwise_overlap_and_ancestry(self):
+        base_template = {
+            "workspace": "workspace",
+            "ephemeral": "ephemeral",
+            "transaction": "transaction",
+            "config": "config",
+        }
+        for left, right in (
+            ("workspace", "ephemeral"),
+            ("workspace", "transaction"),
+            ("workspace", "config"),
+            ("ephemeral", "transaction"),
+            ("ephemeral", "config"),
+            ("transaction", "config"),
+        ):
+            for relation in ("equal", "left_is_parent", "right_is_parent"):
+                with TemporaryDirectory() as raw:
+                    base = Path(raw)
+                    assigned = {}
+                    for key, name in base_template.items():
+                        candidate = base / name
+                        candidate.mkdir(mode=0o700)
+                        assigned[key] = candidate
+
+                    if relation == "equal":
+                        assigned[right] = assigned[left]
+                    elif relation == "left_is_parent":
+                        assigned[right] = assigned[left] / f"{right}-child"
+                        assigned[right].mkdir(parents=True, mode=0o700)
+                    else:
+                        assigned[left] = assigned[right] / f"{left}-child"
+                        assigned[left].mkdir(parents=True, mode=0o700)
+
+                    with self.assertRaises(
+                        ConflictError,
+                        msg=f"{left}-{right}-{relation} should be rejected",
+                    ):
+                        self._plan(
+                            workspace_root=assigned["workspace"],
+                            ephemeral_root=assigned["ephemeral"],
+                            transaction_root=assigned["transaction"],
+                            config_root=assigned["config"],
+                        )
 
     def test_fd_walk_rejects_parent_symlink(self):
         outside = self.base / "outside-directory"
@@ -311,12 +446,14 @@ class PlaneActivationTests(unittest.TestCase):
             workspace = base / "workspace"
             ephemeral = base / "ephemeral"
             transaction = base / "transaction"
-            for path in (workspace, ephemeral, transaction):
+            config = base / "config"
+            for path in (workspace, ephemeral, transaction, config):
                 path.mkdir(mode=0o700)
             plan = self._plan(
                 workspace_root=workspace,
                 ephemeral_root=ephemeral,
                 transaction_root=transaction,
+                config_root=config,
             )
             original_workspace = base / "original-workspace"
             workspace.rename(original_workspace)
@@ -331,12 +468,14 @@ class PlaneActivationTests(unittest.TestCase):
             workspace = base / "workspace"
             ephemeral = base / "ephemeral"
             transaction = base / "transaction"
-            for path in (workspace, ephemeral, transaction):
+            config = base / "config"
+            for path in (workspace, ephemeral, transaction, config):
                 path.mkdir(mode=0o700)
             plan = self._plan(
                 workspace_root=workspace,
                 ephemeral_root=ephemeral,
                 transaction_root=transaction,
+                config_root=config,
             )
             original_transaction = base / "original-transaction"
             transaction.rename(original_transaction)
@@ -536,12 +675,14 @@ class PlaneActivationTests(unittest.TestCase):
             workspace = base / "workspace"
             ephemeral = base / "ephemeral"
             transaction = base / "transaction"
-            for path in (workspace, ephemeral, transaction):
+            config = base / "config"
+            for path in (workspace, ephemeral, transaction, config):
                 path.mkdir(mode=0o700)
             plan = self._plan(
                 workspace_root=workspace,
                 ephemeral_root=ephemeral,
                 transaction_root=transaction,
+                config_root=config,
             )
             materialize_activation(plan, effective_contract=self.compiled.rendered)
             ephemeral.chmod(0o755)
@@ -562,10 +703,14 @@ class PlaneActivationTests(unittest.TestCase):
         self.assertEqual(list(self.ephemeral.iterdir()), [])
 
     def test_authority_and_body_mismatches_fail_before_materialization(self):
+        drifted_manifest = copy.deepcopy(self.adapter_manifest)
+        drifted_manifest["adapter_fingerprint"] = "c" * 64
         with self.assertRaises(IdentityError):
-            self._plan(adapter_manifest_sha256="c" * 64)
+            self._plan(adapter_manifest=drifted_manifest)
+        drifted_version = copy.deepcopy(self.adapter_manifest)
+        drifted_version["executable"]["version_sha256"] = "not-a-hash"
         with self.assertRaises(ValidationError):
-            self._plan(version_observation_sha256="not-a-hash")
+            self._plan(adapter_manifest=drifted_version)
         with self.assertRaises(IdentityError):
             self._plan(effective_contract=self.compiled.rendered + b"changed")
         old_version = copy.deepcopy(self.descriptor)

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
+from .adapter_manifest import AdapterManifest
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .instruction_planes import (
     descriptor_fingerprint,
@@ -36,10 +37,12 @@ PLAN_SCHEMA = "puppet.plane-activation-plan/v1"
 INTENT_SCHEMA = "puppet.plane-activation-intent/v1"
 RECEIPT_SCHEMA = "puppet.plane-activation-receipt/v1"
 ROLLBACK_SCHEMA = "puppet.plane-activation-rollback/v1"
+ROLLBACK_INTENT_SCHEMA = "puppet.plane-activation-rollback-intent/v1"
 
 INTENT_FILENAME = "activation-intent.json"
 RECEIPT_FILENAME = "activation-receipt.json"
 ROLLBACK_FILENAME = "rollback-receipt.json"
+ROLLBACK_INTENT_FILENAME = "rollback-intent.json"
 
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
@@ -89,6 +92,7 @@ _CLAUDE_SYMBOLIC_ENV = [
 ]
 _PLAN_KEYS = {
     "schema",
+    "config_root",
     "descriptor_id",
     "descriptor_sha256",
     "instruction_manifest_sha256",
@@ -148,6 +152,33 @@ def _relative_parts(value: str, *, label: str) -> Tuple[str, ...]:
     if any(not part or part in {".", ".."} for part in parts):
         raise ValidationError("%s must be a safe relative path" % label)
     return parts
+
+
+def _canonical_json_with_newline(value: Mapping[str, Any]) -> bytes:
+    return canonical_json_bytes(dict(value)) + b"\n"
+
+
+def _paths_overlap(first: str, second: str) -> bool:
+    first_parts = Path(first).resolve().parts
+    second_parts = Path(second).resolve().parts
+    return (
+        first_parts == second_parts[: len(first_parts)]
+        or second_parts == first_parts[: len(second_parts)]
+    )
+
+
+def _assert_root_topology(*, roots: Sequence[Tuple[str, Mapping[str, Any]]]) -> None:
+    for index, (left_label, left) in enumerate(roots):
+        for right_label, right in roots[index + 1 :]:
+            left_identity = (left["device"], left["inode"])
+            right_identity = (right["device"], right["inode"])
+            if left_identity == right_identity:
+                raise ConflictError("activation roots must be distinct")
+            if _paths_overlap(left["path"], right["path"]):
+                raise ConflictError(
+                    "activation roots must be pairwise non-overlapping: %s and %s"
+                    % (left_label, right_label)
+                )
 
 
 def _stat_directory_identity(details: os.stat_result, *, path: str) -> Dict[str, Any]:
@@ -477,7 +508,11 @@ def _read_named_bytes(
 
 def _read_named_json(root_descriptor: int, name: str, *, label: str) -> Dict[str, Any]:
     raw, _ = _read_named_bytes(root_descriptor, name, label=label)
-    return _decode_json(raw, label=label)
+    value = _decode_json(raw, label=label)
+    canonical = _canonical_json_with_newline(value)
+    if raw != canonical:
+        raise ValidationError("%s is not canonical durable JSON" % label)
+    return value
 
 
 def _persist_immutable_json(
@@ -487,7 +522,7 @@ def _persist_immutable_json(
     *,
     label: str,
 ) -> None:
-    payload = canonical_json_bytes(dict(value)) + b"\n"
+    payload = _canonical_json_with_newline(value)
     if len(payload) > _MAX_JSON_BYTES:
         raise ValidationError("%s is oversized" % label)
     descriptor: Optional[int] = None
@@ -538,6 +573,32 @@ def _persist_immutable_json(
             os.close(descriptor)
 
 
+def _open_parent_from_root_impl(
+    root_descriptor: int,
+    parent_parts: Sequence[str],
+    *,
+    allow_missing: bool = False,
+) -> Optional[int]:
+    current = os.dup(root_descriptor)
+    try:
+        for name in parent_parts:
+            try:
+                child = os.open(name, _DIRECTORY_FLAGS, dir_fd=current)
+            except FileNotFoundError:
+                if allow_missing:
+                    os.close(current)
+                    return None
+                raise IdentityError("activation parent path changed")
+            except OSError as exc:
+                raise IdentityError("activation parent path changed") from exc
+            os.close(current)
+            current = child
+        return current
+    except Exception:
+        os.close(current)
+        raise
+
+
 @dataclass(frozen=True)
 class ActivationPlan:
     """Pure, body-free native activation plan."""
@@ -574,6 +635,10 @@ class ActivationPlan:
     @property
     def rollback_receipt_path(self) -> Path:
         return Path(self.raw["transaction_root"]["path"]) / ROLLBACK_FILENAME
+
+    @property
+    def rollback_intent_path(self) -> Path:
+        return Path(self.raw["transaction_root"]["path"]) / ROLLBACK_INTENT_FILENAME
 
 
 @dataclass(frozen=True)
@@ -616,6 +681,9 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
         raise ValidationError("activation plan schema is unsupported")
     result: Dict[str, Any] = {
         "schema": PLAN_SCHEMA,
+        "config_root": _validate_directory_identity(
+            value["config_root"], label="config root", private=False
+        ),
         "descriptor_id": validate_identifier(value["descriptor_id"], "descriptor id"),
         "descriptor_sha256": validate_sha256(
             value["descriptor_sha256"], "descriptor sha256"
@@ -655,6 +723,14 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
             value["transaction_root"], label="transaction root", private=True
         ),
     }
+    _assert_root_topology(
+        roots=(
+            ("workspace", result["workspace_root"]),
+            ("ephemeral", result["ephemeral_root"]),
+            ("transaction", result["transaction_root"]),
+            ("config", result["config_root"]),
+        )
+    )
     paths = value["created_directory_paths"]
     if not isinstance(paths, list):
         raise ValidationError("created directory paths must be a list")
@@ -719,38 +795,46 @@ def plan_activation(
     descriptor: Mapping[str, Any],
     *,
     instruction_manifest: Mapping[str, Any],
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
     effective_contract: bytes,
-    adapter_manifest_sha256: str,
-    version_observation_sha256: str,
     workspace_root: Path | str,
     ephemeral_root: Path | str,
     transaction_root: Path | str,
+    config_root: Path | str | None = None,
     template_root: Optional[Path | str] = None,
 ) -> ActivationPlan:
     """Create a pure, body-free plan without changing the filesystem."""
     normalized_descriptor = validate_instruction_plane_descriptor(descriptor)
     _unsupported_descriptor(normalized_descriptor)
-    adapter_hash = validate_sha256(adapter_manifest_sha256, "adapter manifest sha256")
+    if isinstance(adapter_manifest, AdapterManifest):
+        manifest_instance = adapter_manifest
+    else:
+        manifest_instance = AdapterManifest.from_dict(dict(adapter_manifest))
+
+    if manifest_instance.raw["target"] != normalized_descriptor["target"]["harness"]:
+        raise IdentityError("adapter manifest target does not match descriptor")
+    adapter_hash = manifest_instance.raw["adapter_fingerprint"]
     if adapter_hash != normalized_descriptor["target"]["adapter_manifest_sha256"]:
-        raise IdentityError("adapter manifest does not match the descriptor")
-    version_hash = validate_sha256(
-        version_observation_sha256, "version observation sha256"
-    )
+        raise IdentityError("adapter manifest does not match descriptor target hash")
+    version_hash = manifest_instance.raw["executable"]["version_sha256"]
     if not isinstance(effective_contract, bytes) or not effective_contract:
         raise ValidationError("effective contract must be non-empty bytes")
-    manifest = validate_instruction_manifest(
+    compiled_manifest = validate_instruction_manifest(
         instruction_manifest,
         target="claude",
         template_root=template_root,
     )
     contract_hash = sha256_bytes(effective_contract)
     if (
-        contract_hash != manifest["rendered_sha256"]
-        or len(effective_contract) != manifest["byte_count"]
+        contract_hash != compiled_manifest["rendered_sha256"]
+        or len(effective_contract) != compiled_manifest["byte_count"]
     ):
         raise IdentityError(
             "effective contract does not match its instruction manifest"
         )
+
+    if config_root is None:
+        config_root = workspace_root
 
     workspace_descriptor, workspace_identity = _open_root(
         workspace_root, label="workspace root", private=False
@@ -761,7 +845,18 @@ def plan_activation(
     transaction_descriptor, transaction_identity = _open_root(
         transaction_root, label="transaction root", private=True, empty=True
     )
+    config_descriptor, config_identity = _open_root(
+        config_root, label="config root", private=False
+    )
     try:
+        _assert_root_topology(
+            roots=(
+                ("workspace", workspace_identity),
+                ("ephemeral", ephemeral_identity),
+                ("transaction", transaction_identity),
+                ("config", config_identity),
+            )
+        )
         if (ephemeral_identity["device"], ephemeral_identity["inode"]) == (
             transaction_identity["device"],
             transaction_identity["inode"],
@@ -771,6 +866,7 @@ def plan_activation(
         os.close(transaction_descriptor)
         os.close(ephemeral_descriptor)
         os.close(workspace_descriptor)
+        os.close(config_descriptor)
 
     artifact = normalized_descriptor["materialize"][0]
     artifact_parts = _relative_parts(artifact["relative_path"], label="artifact path")
@@ -790,10 +886,15 @@ def plan_activation(
     }
     plan: Dict[str, Any] = {
         "schema": PLAN_SCHEMA,
+        "config_root": config_identity,
         "descriptor_id": normalized_descriptor["descriptor_id"],
         "descriptor_sha256": descriptor_fingerprint(normalized_descriptor),
-        "instruction_manifest_sha256": sha256_bytes(canonical_json_bytes(manifest)),
-        "effective_contract_fingerprint": manifest["effective_contract_fingerprint"],
+        "instruction_manifest_sha256": sha256_bytes(
+            _canonical_json_with_newline(compiled_manifest)
+        ),
+        "effective_contract_fingerprint": compiled_manifest[
+            "effective_contract_fingerprint"
+        ],
         "effective_contract_sha256": contract_hash,
         "effective_contract_bytes": len(effective_contract),
         "adapter_manifest_sha256": adapter_hash,
@@ -826,7 +927,12 @@ def _validate_intent(value: Mapping[str, Any]) -> ActivationPlan:
 
 def _transaction_entries(descriptor: int) -> set[str]:
     entries = set(os.listdir(descriptor))
-    allowed = {INTENT_FILENAME, RECEIPT_FILENAME, ROLLBACK_FILENAME}
+    allowed = {
+        INTENT_FILENAME,
+        RECEIPT_FILENAME,
+        ROLLBACK_FILENAME,
+        ROLLBACK_INTENT_FILENAME,
+    }
     if not entries <= allowed:
         raise ConflictError("transaction root contains unexpected entries")
     return entries
@@ -900,20 +1006,15 @@ def _artifact_from_fd(
     }
 
 
-def _open_parent_from_root(root_descriptor: int, parent_parts: Sequence[str]) -> int:
-    current = os.dup(root_descriptor)
-    try:
-        for name in parent_parts:
-            try:
-                child = os.open(name, _DIRECTORY_FLAGS, dir_fd=current)
-            except OSError as exc:
-                raise IdentityError("activation parent path changed") from exc
-            os.close(current)
-            current = child
-        return current
-    except Exception:
-        os.close(current)
-        raise
+def _open_parent_from_root(
+    root_descriptor: int,
+    parent_parts: Sequence[str],
+    *,
+    allow_missing: bool = False,
+) -> Optional[int]:
+    return _open_parent_from_root_impl(
+        root_descriptor, parent_parts, allow_missing=allow_missing
+    )
 
 
 def _directory_live_at(root_descriptor: int, relative_path: str) -> Dict[str, Any]:
@@ -933,15 +1034,24 @@ def _remove_created_directories(
     created: Sequence[Mapping[str, Any]],
     *,
     compare_nlink: bool,
+    allow_missing: bool = False,
 ) -> None:
     for expected in reversed(created):
         parts = _relative_parts(
             expected["relative_path"], label="created directory path"
         )
-        parent = _open_parent_from_root(root_descriptor, parts[:-1])
+        parent = _open_parent_from_root(
+            root_descriptor, parts[:-1], allow_missing=allow_missing
+        )
         try:
+            if parent is None:
+                if allow_missing:
+                    continue
+                raise IdentityError("transaction-created directory changed")
             details = _safe_stat_at(parent, parts[-1])
             if details is None or stat.S_ISLNK(details.st_mode):
+                if allow_missing:
+                    continue
                 raise IdentityError("transaction-created directory changed")
             live = _created_directory_identity(
                 details, relative_path=expected["relative_path"]
@@ -1426,6 +1536,118 @@ def _rollback_for(
     }
 
 
+def _rollback_intent_for(plan: ActivationPlan, receipt: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "schema": ROLLBACK_INTENT_SCHEMA,
+        "plan_sha256": plan.plan_sha256,
+        "activation_receipt_sha256": sha256_bytes(canonical_json_bytes(dict(receipt))),
+        "artifact_state": "absent",
+        "artifact_sha256": plan.raw["effective_contract_sha256"],
+    }
+
+
+def _validate_rollback_intent(
+    value: Mapping[str, Any], plan: ActivationPlan, receipt: Mapping[str, Any]
+) -> Dict[str, Any]:
+    keys = {
+        "schema",
+        "plan_sha256",
+        "activation_receipt_sha256",
+        "artifact_state",
+        "artifact_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValidationError("rollback intent fields are invalid")
+    if value["schema"] != ROLLBACK_INTENT_SCHEMA or value["artifact_state"] != "absent":
+        raise ValidationError("rollback intent is invalid")
+    validate_bounded_json(dict(value), max_depth=4, max_items=16, max_string=4096)
+    expected = {
+        "plan_sha256": plan.plan_sha256,
+        "activation_receipt_sha256": sha256_bytes(canonical_json_bytes(dict(receipt))),
+        "artifact_sha256": plan.raw["effective_contract_sha256"],
+    }
+    for key, digest in expected.items():
+        if validate_sha256(value[key], key.replace("_", " ")) != digest:
+            raise IdentityError("rollback intent binding changed")
+    return {
+        "schema": ROLLBACK_INTENT_SCHEMA,
+        **expected,
+        "artifact_state": "absent",
+    }
+
+
+def _perform_rollback_cleanup(
+    plan: ActivationPlan, receipt: Mapping[str, Any], *, allow_missing: bool
+) -> Dict[str, Any]:
+    root = _open_bound_root(
+        receipt["root_after"],
+        label="ephemeral root",
+        private=True,
+        compare_nlink=not allow_missing,
+    )
+    try:
+        parts = _relative_parts(
+            plan.raw["artifact_relative_path"], label="artifact path"
+        )
+        parent = _open_parent_from_root(
+            root, parts[:-1], allow_missing=allow_missing
+        )
+        try:
+            if parent is None:
+                if not allow_missing:
+                    raise IdentityError("activation artifact parent changed")
+            else:
+                try:
+                    descriptor = os.open(parts[-1], _READ_FLAGS, dir_fd=parent)
+                except FileNotFoundError:
+                    if not allow_missing:
+                        raise IdentityError("activation artifact is missing or unsafe")
+                except OSError as exc:
+                    raise IdentityError("activation artifact is missing or unsafe") from exc
+                else:
+                    try:
+                        live = _artifact_from_fd(
+                            descriptor,
+                            artifact_id=plan.raw["artifact_id"],
+                            relative_path=plan.raw["artifact_relative_path"],
+                        )
+                        if live != receipt["artifact"]:
+                            raise IdentityError(
+                                "activation artifact changed before rollback"
+                            )
+                        _unlink_open_leaf(
+                            parent,
+                            parts[-1],
+                            descriptor,
+                            expected_device=live["device"],
+                            expected_inode=live["inode"],
+                            expected=live,
+                        )
+                    finally:
+                        os.close(descriptor)
+        finally:
+            if parent is not None:
+                os.close(parent)
+
+        _remove_created_directories(
+            root, receipt["created_directories"], compare_nlink=False, allow_missing=allow_missing
+        )
+        if os.listdir(root):
+            raise IdentityError("ephemeral root is not empty after rollback")
+        root_after = _stat_directory_identity(
+            os.fstat(root), path=plan.raw["ephemeral_root"]["path"]
+        )
+        _assert_identity(
+            root_after,
+            plan.raw["ephemeral_root"],
+            label="ephemeral root",
+            compare_nlink=not allow_missing,
+        )
+        return root_after
+    finally:
+        os.close(root)
+
+
 def _validate_rollback_receipt(
     value: Mapping[str, Any], plan: ActivationPlan, receipt: Mapping[str, Any]
 ) -> Dict[str, Any]:
@@ -1457,8 +1679,12 @@ def _validate_rollback_receipt(
     root_after = _validate_directory_identity(
         value["root_after"], label="rollback root", private=True
     )
-    if root_after != plan.raw["ephemeral_root"]:
-        raise IdentityError("rollback root identity changed")
+    _assert_identity(
+        root_after,
+        plan.raw["ephemeral_root"],
+        label="rollback root",
+        compare_nlink=False,
+    )
     return {
         "schema": ROLLBACK_SCHEMA,
         **expected,
@@ -1516,65 +1742,46 @@ def rollback_activation(plan: ActivationPlan) -> Dict[str, Any]:
                 transaction, ROLLBACK_FILENAME, label="rollback receipt"
             )
             return _prove_rolled_back(plan, receipt, rollback)
+        if ROLLBACK_INTENT_FILENAME in entries:
+            rollback_intent = _read_named_json(
+                transaction, ROLLBACK_INTENT_FILENAME, label="rollback intent"
+            )
+            _validate_rollback_intent(rollback_intent, plan, receipt)
+            root_after = _perform_rollback_cleanup(
+                plan, receipt, allow_missing=True
+            )
+            rollback = _rollback_for(
+                plan,
+                receipt,
+                removed_directories=list(reversed(plan.raw["created_directory_paths"])),
+                root_after=root_after,
+            )
+            _persist_immutable_json(
+                transaction,
+                ROLLBACK_FILENAME,
+                rollback,
+                label="rollback receipt",
+            )
+            persisted = _read_named_json(
+                transaction, ROLLBACK_FILENAME, label="rollback receipt"
+            )
+            return _prove_rolled_back(plan, receipt, persisted)
         if entries != {INTENT_FILENAME, RECEIPT_FILENAME}:
             raise ConflictError("activation transaction state is ambiguous")
 
         # Verify the complete active state before any removal.
         receipt = _verify_active_with_root(plan, receipt)
-        root = _open_bound_root(
-            receipt["root_after"], label="ephemeral root", private=True
+        root_after = _perform_rollback_cleanup(plan, receipt, allow_missing=False)
+        rollback_intent = _rollback_intent_for(
+            plan,
+            receipt,
         )
-        try:
-            parts = _relative_parts(
-                plan.raw["artifact_relative_path"], label="artifact path"
-            )
-            _verify_tree_inventory(root, parts)
-            for expected in receipt["created_directories"]:
-                if _directory_live_at(root, expected["relative_path"]) != expected:
-                    raise IdentityError("transaction-created directory changed")
-            parent = _open_parent_from_root(root, parts[:-1])
-            try:
-                try:
-                    artifact_descriptor = os.open(parts[-1], _READ_FLAGS, dir_fd=parent)
-                except OSError as exc:
-                    raise IdentityError(
-                        "activation artifact is missing or unsafe"
-                    ) from exc
-                try:
-                    live = _artifact_from_fd(
-                        artifact_descriptor,
-                        artifact_id=plan.raw["artifact_id"],
-                        relative_path=plan.raw["artifact_relative_path"],
-                    )
-                    if live != receipt["artifact"]:
-                        raise IdentityError(
-                            "activation artifact changed before rollback"
-                        )
-                    _unlink_open_leaf(
-                        parent,
-                        parts[-1],
-                        artifact_descriptor,
-                        expected_device=live["device"],
-                        expected_inode=live["inode"],
-                        expected=live,
-                    )
-                finally:
-                    os.close(artifact_descriptor)
-            finally:
-                os.close(parent)
-            _remove_created_directories(
-                root, receipt["created_directories"], compare_nlink=False
-            )
-            if os.listdir(root):
-                raise IdentityError("ephemeral root is not empty after rollback")
-            root_after = _stat_directory_identity(
-                os.fstat(root), path=plan.raw["ephemeral_root"]["path"]
-            )
-            _assert_identity(
-                root_after, plan.raw["ephemeral_root"], label="ephemeral root"
-            )
-        finally:
-            os.close(root)
+        _persist_immutable_json(
+            transaction,
+            ROLLBACK_INTENT_FILENAME,
+            rollback_intent,
+            label="rollback intent",
+        )
 
         rollback = _rollback_for(
             plan,
@@ -1641,6 +1848,84 @@ def recover_activation(transaction_root: Path | str) -> ActivationRecovery:
                 receipt=receipt,
                 rollback_receipt=normalized_rollback,
             )
+        if ROLLBACK_INTENT_FILENAME in entries:
+            if RECEIPT_FILENAME not in entries:
+                raise IdentityError(
+                    "rollback evidence exists without activation receipt"
+                )
+            receipt = _validate_receipt(
+                _read_named_json(
+                    transaction_descriptor,
+                    RECEIPT_FILENAME,
+                    label="activation receipt",
+                ),
+                plan,
+            )
+            rollback_intent = _read_named_json(
+                transaction_descriptor,
+                ROLLBACK_INTENT_FILENAME,
+                label="rollback intent",
+            )
+            _validate_rollback_intent(rollback_intent, plan, receipt)
+            try:
+                verified = _verify_active_with_root(plan, receipt)
+            except IdentityError:
+                root = _open_bound_root(
+                    plan.raw["ephemeral_root"],
+                    label="ephemeral root",
+                    private=True,
+                )
+                try:
+                    parts = _relative_parts(
+                        plan.raw["artifact_relative_path"],
+                        label="artifact path",
+                    )
+                    parent = _open_parent_from_root(
+                        root,
+                        parts[:-1],
+                        allow_missing=True,
+                    )
+                    try:
+                        if parent is not None and _safe_stat_at(
+                            parent, parts[-1]
+                        ) is not None:
+                            raise IdentityError("rollback state is ambiguous")
+                    finally:
+                        if parent is not None:
+                            os.close(parent)
+                    if os.listdir(root):
+                        raise IdentityError("rollback state is ambiguous")
+                    root_after = _stat_directory_identity(
+                        os.fstat(root),
+                        path=plan.raw["ephemeral_root"]["path"],
+                    )
+                    _assert_identity(
+                        root_after,
+                        plan.raw["ephemeral_root"],
+                        label="ephemeral root",
+                    )
+                    rollback = _rollback_for(
+                        plan,
+                        receipt,
+                        removed_directories=list(
+                            reversed(plan.raw["created_directory_paths"])
+                        ),
+                        root_after=root_after,
+                    )
+                    return ActivationRecovery(
+                        state="rolled_back",
+                        plan=plan,
+                        receipt=receipt,
+                        rollback_receipt=rollback,
+                    )
+                finally:
+                    os.close(root)
+            else:
+                return ActivationRecovery(
+                    state="active",
+                    plan=plan,
+                    receipt=verified,
+                )
         if RECEIPT_FILENAME in entries:
             receipt = _verify_active_with_root(
                 plan,
