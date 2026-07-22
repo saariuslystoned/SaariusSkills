@@ -126,4 +126,7 @@ teamwork-preview, Codex regular/goal, Claude regular/goal/loop, and regular
 sessions for Cursor and Grok. Each command needs its own activation,
 continuation, steering, resume, and termination proof. Default/alternative model
 selection is a separate dimension. Automatic harness/model/command routing stays
-deferred until this evidence exists.
+deferred until this evidence exists. Pi-specific RPC, child-session, and
+observation-lease evidence is recorded separately in
+`plans/puppet/deferred-pi-adapter.md`; it does not add Pi to the current matrix
+or authorize an upstream dependency.
