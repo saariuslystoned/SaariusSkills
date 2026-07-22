@@ -1335,16 +1335,6 @@ def run_probe(
             active, key=lambda item: item["pid"]
         ):
             raise IdentityError("protected same-target process population changed")
-        transition_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            state="halted",
-            process=process,
-            authority_root=_authority_root,
-            _lock_descriptor=lock_descriptor,
-        )
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -1410,7 +1400,16 @@ def run_probe(
             _server_process_fn=_server_process_birth_fn,
             _tmux_factory=_tmux_factory,
         )
-        return {
+        _assert_executable_identity(manifest)
+        _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
+        active_before_terminal = _active_processes_fn(target)
+        if sorted(active_before_terminal, key=lambda item: item["pid"]) != sorted(
+            active, key=lambda item: item["pid"]
+        ):
+            raise IdentityError(
+                "protected same-target process population changed before terminal lease"
+            )
+        accepted_result = {
             "ok": True,
             "run_id": run_id,
             "target": target,
@@ -1420,6 +1419,17 @@ def run_probe(
             "tmux_preserved": True,
             "attach_command": attach,
         }
+        transition_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            state="halted",
+            process=process,
+            authority_root=_authority_root,
+            _lock_descriptor=lock_descriptor,
+        )
+        return accepted_result
     except BaseException as exc:
         cleanup_error = None
         if (

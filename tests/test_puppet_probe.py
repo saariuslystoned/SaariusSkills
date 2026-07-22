@@ -839,6 +839,103 @@ class ProbeTests(unittest.TestCase):
                 current_session_lease(files["authority"])["state"], "halting"
             )
 
+    def test_late_proof_failure_keeps_lease_fenced_if_a_descendant_appears(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            child = static_process_identity(4999)
+            active_calls = {"count": 0}
+            survivor_present = {"value": True}
+
+            def active_during_failed_attestation(_target):
+                active_calls["count"] += 1
+                return (
+                    []
+                    if active_calls["count"] <= 3 or not survivor_present["value"]
+                    else [child]
+                )
+
+            with patch(
+                "puppet_lib.probe.attest_qualification",
+                side_effect=ValidationError("injected attestation failure"),
+            ):
+                with self.assertRaisesRegex(
+                    ValidationError, "injected attestation failure"
+                ):
+                    execute(
+                        files,
+                        fake,
+                        run_id="probe-late-proof-failure-descendant",
+                        active_processes_fn=active_during_failed_attestation,
+                    )
+
+            self.assertFalse(fake.alive)
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halting"
+            )
+            with self.assertRaises(ConflictError):
+                admit_session_lease(
+                    session="other-after-late-proof-failure",
+                    target="codex",
+                    controller="other-controller",
+                    owner={
+                        "activity": "session",
+                        "run_id": "other-after-late-proof-failure",
+                        "campaign_id": files["campaign_id"],
+                        "goal_fingerprint": sha256_bytes(
+                            canonical_json_bytes(files["expected_goal"])
+                        ),
+                        "proof_root": str(files["proof"]),
+                        "state_root": str(files["proof"]),
+                    },
+                    authority_root=files["authority"],
+                )
+
+            def recover():
+                return recover_probe(
+                    target="codex",
+                    proof_root=files["proof"],
+                    manifest_path=files["manifest"],
+                    mapping_path=files["mapping"],
+                    authorization_path=files["authorization"],
+                    controller="tester",
+                    goal_repo=files["goal_repo"],
+                    expected_campaign_id=files["campaign_id"],
+                    expected_goal=files["expected_goal"],
+                    run_id="probe-late-proof-failure-descendant",
+                    halt_timeout=0.1,
+                    _tmux_factory=lambda selected: fake,
+                    _process_birth_fn=lambda pid: process_identity(fake),
+                    _process_alive_fn=lambda identity: fake.alive,
+                    _exact_sigint_fn=fake.exact_sigint,
+                    _server_process_birth_fn=lambda pid: fake.server_process,
+                    _active_processes_fn=active_during_failed_attestation,
+                    _adapter_fingerprint_fn=lambda: files["raw"][
+                        "adapter_fingerprint"
+                    ],
+                    _census_target_fn=lambda selected, fingerprint: (
+                        AdapterManifest.from_dict(files["raw"])
+                    ),
+                    _sleep_fn=lambda interval: None,
+                    _authority_root=files["authority"],
+                )
+
+            with self.assertRaisesRegex(
+                IdentityError, "protected same-target process population changed"
+            ):
+                recover()
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halting"
+            )
+
+            survivor_present["value"] = False
+            recovered = recover()
+            self.assertEqual(recovered["result"], "interrupted_probe_reconciled")
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "failed"
+            )
+
     def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
