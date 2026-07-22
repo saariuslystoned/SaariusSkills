@@ -130,8 +130,13 @@ def _parallel_target_override(
 def _grok_population(
     manifest: AdapterManifest,
 ) -> Dict[str, List[Dict[str, Any]]]:
+    runtime = manifest.raw["execution"]["runtime_executable"]
     return grok_process_population(
-        execution_files=manifest.process_execution_selectors()
+        runtime_selector={
+            "path": runtime["path"],
+            "device": runtime["device"],
+            "inode": runtime["inode"],
+        }
     )
 
 

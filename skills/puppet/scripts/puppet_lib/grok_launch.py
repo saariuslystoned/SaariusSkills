@@ -8,6 +8,7 @@ must bind while keeping leader/child halt semantics as an explicit blocker.
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import uuid
 from dataclasses import dataclass
@@ -39,6 +40,8 @@ GROK_MAIN_HELP_SHA256 = (
     "17211afac01a2f089f47a0c6f0e9ec0ff38c0bc86a977c2da713e16c63e25fe2"
 )
 GROK_RUNTIME_BASENAME = "grok-macos-aarch64"
+GROK_SAFE_PATH_COMPONENTS: Tuple[str, ...] = ("/usr/bin", "/bin")
+GROK_REQUIRED_PATH_TOOLS: Tuple[str, ...] = ("git", "sh")
 GROK_LAUNCH_AUTHORITY_BLOCKERS: Tuple[str, ...] = (
     "grok_authentication_isolation_unapproved",
     "grok_native_instruction_plane_unqualified",
@@ -156,6 +159,37 @@ def _session_uuid(value: str) -> str:
     return value
 
 
+def _source_owned_environment(home: Path) -> dict[str, str]:
+    """Build Grok's closed baseline without consulting operator environment."""
+
+    path_entries = []
+    for value in GROK_SAFE_PATH_COMPONENTS:
+        if (
+            not isinstance(value, str)
+            or not value
+            or os.pathsep in value
+            or not Path(value).is_absolute()
+            or not Path(value).is_dir()
+        ):
+            raise ValidationError(
+                "Grok safe PATH must contain existing absolute directories"
+            )
+        path_entries.append(value)
+    if len(path_entries) != len(set(path_entries)):
+        raise ValidationError("Grok safe PATH contains duplicate directories")
+    safe_path = os.pathsep.join(path_entries)
+    for tool in GROK_REQUIRED_PATH_TOOLS:
+        discovered = shutil.which(tool, path=safe_path)
+        if discovered is None or not Path(discovered).is_absolute():
+            raise ValidationError("Grok safe PATH is missing required tooling")
+    return {
+        "HOME": str(home),
+        "PATH": safe_path,
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+
+
 def _leader_socket(path: Path, lane_root: Path, roots: Sequence[Path]) -> Path:
     candidate = Path(path)
     if not candidate.is_absolute():
@@ -192,7 +226,6 @@ def build_grok_launch_context(
     controller_session: str,
     run_id: str,
     grok_session_id: str,
-    source_environment: Mapping[str, str] | None = None,
 ) -> GrokLaunchContext:
     """Build an exact source-only Grok plan without task or instruction inputs."""
 
@@ -230,14 +263,7 @@ def build_grok_launch_context(
         "--session-id",
         target_session,
     )
-    if source_environment is not None and not isinstance(source_environment, Mapping):
-        raise ValidationError("Grok source environment must be a mapping")
-    source = dict(os.environ if source_environment is None else source_environment)
-    # HOME is an explicit lane value here.  Never inherit an operator HOME for
-    # Grok, even when the ambient source contains one.
-    source["HOME"] = str(lane_home)
-    source.pop("GROK_HOME", None)
-    source.pop("GROK_DISABLE_AUTOUPDATER", None)
+    source = _source_owned_environment(lane_home)
     environment, launch_identity = build_launch_identity(
         target="grok",
         repo=workspace,
@@ -249,6 +275,7 @@ def build_grok_launch_context(
         },
         admitted_lane_root=lane_root,
     )
+    manifest.verify_launch_execution_environment(environment)
     if environment.get("HOME") != str(lane_home):
         raise ValidationError("Grok launch context did not bind the private lane HOME")
     admitted_plan = build_admitted_launch_plan(

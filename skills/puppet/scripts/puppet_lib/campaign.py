@@ -500,18 +500,18 @@ def active_target_processes(
 
 
 def grok_process_population(
-    execution_files: list[Dict[str, Any]],
+    runtime_selector: Dict[str, Any],
 ) -> Dict[str, list[Dict[str, Any]]]:
     """Return the argv-free Grok population split by exact executable identity.
 
     Unlike ``active_target_processes``, this keeps same-name candidates whose
-    mapped executable is not in the current manifest.  Normal Grok sessions use
-    the mismatched set as a hard no-interference blocker instead of silently
-    treating another version or vnode as absent.  Candidate names are fixed and
-    never broadened by transient execution selectors.
+    mapped executable is not the current manifest's final runtime. Normal Grok
+    sessions use the mismatched set as a hard no-interference blocker instead
+    of silently treating another version or vnode as absent. Candidate names
+    are fixed, and launcher or transient roles never gain matching authority.
     """
 
-    _, selectors = _target_process_selectors("grok", execution_files)
+    _, selectors = _target_process_selectors("grok", [runtime_selector])
     rows = _target_process_rows(
         {"grok", "grok-macos-aarch64"},
         set(),

@@ -16,6 +16,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.campaign as campaign  # noqa: E402
+import puppet_lib.grok_launch as grok_launch  # noqa: E402
 import puppet_lib.session as puppet_session  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
@@ -37,6 +38,7 @@ from puppet_lib.grok_launch import (  # noqa: E402
     GROK_EXECUTABLE_SHA256,
     GROK_LAUNCH_AUTHORITY_BLOCKER,
     GROK_MAIN_HELP_SHA256,
+    GROK_SAFE_PATH_COMPONENTS,
     GROK_VERSION_OUTPUT_SHA256,
     build_grok_launch_context,
     require_live_grok_launch,
@@ -162,16 +164,23 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
     def test_body_free_plan_binds_exact_private_grok_context(self):
         with tempfile.TemporaryDirectory() as temporary:
             layout = self._layout(Path(temporary).resolve())
-            context = self._build_context(
-                layout,
-                source_environment={
-                    "HOME": "/ambient/operator/home",
-                    "PATH": "/usr/bin:/bin",
-                    "GROK_HOME": "/ambient/operator/grok-home",
-                    "GROK_DISABLE_AUTOUPDATER": "false",
-                    "PUPPET_TASK_BODY_CANARY": "must-not-cross",
-                },
-            )
+            ambient = {
+                "HOME": "/ambient/operator/home",
+                "PATH": "/ambient/operator/bin",
+                "SSH_AUTH_SOCK": "/ambient/operator/agent.sock",
+                "SHELL": "/ambient/operator/shell",
+                "USER": "ambient-operator",
+                "LOGNAME": "ambient-operator",
+                "TMPDIR": "/ambient/operator/tmp",
+                "LANG": "ambient_LOCALE",
+                "LC_ALL": "ambient_LOCALE",
+                "GROK_HOME": "/ambient/operator/grok-home",
+                "GROK_DISABLE_AUTOUPDATER": "false",
+                "PUPPET_TASK_BODY_CANARY": "must-not-cross",
+                "OPENAI_API_KEY": "credential-channel-canary",
+            }
+            with patch.dict(os.environ, ambient, clear=True):
+                context = self._build_context(layout)
             expected_argv = (
                 str(Path(layout["manifest_path"]).parent / "grok-macos-aarch64"),
                 "--always-approve",
@@ -191,7 +200,20 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 context.environment["GROK_DISABLE_AUTOUPDATER"],
                 GROK_DISABLE_AUTOUPDATER_VALUE,
             )
+            self.assertEqual(
+                dict(context.environment),
+                {
+                    "GROK_DISABLE_AUTOUPDATER": GROK_DISABLE_AUTOUPDATER_VALUE,
+                    "GROK_HOME": str(layout["grok_home"]),
+                    "HOME": str(layout["home"]),
+                    "LANG": "C",
+                    "LC_ALL": "C",
+                    "PATH": os.pathsep.join(GROK_SAFE_PATH_COMPONENTS),
+                },
+            )
             self.assertNotIn("PUPPET_TASK_BODY_CANARY", context.environment)
+            self.assertNotIn("SSH_AUTH_SOCK", context.environment)
+            self.assertNotIn("OPENAI_API_KEY", context.environment)
             self.assertNotIn("/ambient/operator", repr(context.environment))
             self.assertNotIn("--model", context.argv)
             self.assertNotIn("--reasoning-effort", context.argv)
@@ -230,6 +252,19 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                     Path(layout["admitted_lane_root"]).chmod(0o755)
                 with self.assertRaises(ValidationError):
                     self._build_context(layout)
+
+    def test_source_owned_path_policy_rejects_relative_components(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            layout = self._layout(Path(temporary).resolve())
+            with (
+                patch.object(
+                    grok_launch,
+                    "GROK_SAFE_PATH_COMPONENTS",
+                    ("relative/bin", "/usr/bin"),
+                ),
+                self.assertRaisesRegex(ValidationError, "existing absolute"),
+            ):
+                self._build_context(layout)
 
     def test_workspace_socket_and_uuid_collisions_fail_closed(self):
         cases = ("workspace", "socket-home", "socket-exists", "uuid")
@@ -333,25 +368,43 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             self.assertFalse(manifest.raw["yolo_mapping"]["sandbox_disable_declared"])
             self.assertFalse(manifest.raw["yolo_mapping"]["project_isolation_declared"])
 
-    def test_candidate_population_keeps_a_different_vnode_as_a_blocker(self):
-        selector = {
-            "path": "/opt/grok-macos-aarch64",
+    def test_same_name_transient_vnode_is_not_a_runtime_match(self):
+        runtime_selector = {
+            "path": "/opt/runtime/grok-macos-aarch64",
             "device": 10,
             "inode": 20,
+        }
+        transient_selector = {
+            "path": "/opt/transient/grok-macos-aarch64",
+            "device": 11,
+            "inode": 21,
         }
         matching = process_identity(
             101,
             command="grok",
-            executable_path=selector["path"],
-            device=selector["device"],
-            inode=selector["inode"],
+            executable_path=runtime_selector["path"],
+            device=runtime_selector["device"],
+            inode=runtime_selector["inode"],
         )
         mismatched = process_identity(
             102,
             command="grok-macos-aarch64",
-            executable_path="/other/grok-macos-aarch64",
-            device=11,
-            inode=21,
+            executable_path=transient_selector["path"],
+            device=transient_selector["device"],
+            inode=transient_selector["inode"],
+        )
+        manifest = SimpleNamespace(
+            raw={
+                "executable": {
+                    "resolved_path": "/opt/launcher/grok-macos-aarch64",
+                    "device": 13,
+                    "inode": 23,
+                },
+                "execution": {
+                    "runtime_executable": runtime_selector,
+                    "transient_executables": [transient_selector],
+                },
+            }
         )
         with (
             patch.object(
@@ -368,18 +421,17 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 side_effect=[matching, mismatched],
             ),
         ):
-            population = campaign.grok_process_population(execution_files=[selector])
+            population = puppet_session._grok_population(manifest)
         self.assertEqual(population["candidates"], [matching, mismatched])
         self.assertEqual(population["matching"], [matching])
         self.assertEqual(population["mismatched"], [mismatched])
 
-    def test_declared_transient_bash_is_not_a_grok_candidate(self):
+    def test_transient_bash_row_is_not_a_grok_candidate(self):
         grok_selector = {
             "path": "/opt/grok-macos-aarch64",
             "device": 10,
             "inode": 20,
         }
-        bash_selector = {"path": "/bin/bash", "device": 11, "inode": 21}
         grok = process_identity(
             202,
             command="/opt/grok-macos-aarch64",
@@ -400,11 +452,46 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             patch.object(campaign, "process_birth_identity", return_value=grok),
         ):
             population = campaign.grok_process_population(
-                execution_files=[grok_selector, bash_selector]
+                runtime_selector=grok_selector
             )
         self.assertEqual(population["candidates"], [grok])
         self.assertEqual(population["matching"], [grok])
         self.assertEqual(population["mismatched"], [])
+
+    def test_session_filters_launcher_and_transient_roles_from_grok_matching(self):
+        runtime = {
+            "path": "/opt/runtime/grok-macos-aarch64",
+            "device": 10,
+            "inode": 20,
+        }
+        manifest = SimpleNamespace(
+            raw={
+                "execution": {
+                    "runtime_executable": {
+                        **runtime,
+                        "size": 100,
+                        "mtime_ns": 200,
+                        "sha256": "a" * 64,
+                    },
+                    "transient_executables": [
+                        {
+                            "path": "/opt/transient/grok-macos-aarch64",
+                            "device": 11,
+                            "inode": 21,
+                        },
+                        {"path": "/bin/bash", "device": 12, "inode": 22},
+                    ],
+                }
+            }
+        )
+        expected = {"candidates": [], "matching": [], "mismatched": []}
+        with patch.object(
+            puppet_session,
+            "grok_process_population",
+            return_value=expected,
+        ) as population:
+            self.assertEqual(puppet_session._grok_population(manifest), expected)
+        population.assert_called_once_with(runtime_selector=runtime)
 
     def test_session_assessment_requires_exact_override_and_rejects_mismatch(self):
         matching = process_identity(

@@ -124,6 +124,9 @@ env:
   HOME: <unique-lane-home>
   GROK_HOME: <unique-lane-grok-home>
   GROK_DISABLE_AUTOUPDATER: "true"
+  PATH: /usr/bin:/bin
+  LANG: C
+  LC_ALL: C
 argv:
   - --always-approve
   - --sandbox
@@ -141,7 +144,13 @@ current-UID-owned mode-`0700` directories. `HOME` and `GROK_HOME` are distinct,
 non-overlapping children of the lane root; the workspace is a separate admitted
 root; the leader socket is a new contained non-symlink path; and the Grok
 session id is a canonical UUIDv4. Ambient operator `HOME`, `GROK_HOME`, and
-updater values cannot become this candidate's bindings.
+updater values cannot become this candidate's bindings. The planner does not
+accept an ambient environment source: its fixed baseline is the lane `HOME`,
+`PATH=/usr/bin:/bin`, and `C` locale above. Every PATH component is an existing
+absolute directory, and `git` plus `sh` must resolve against that exact PATH.
+`SSH_AUTH_SOCK`, operator PATH additions, user/shell/tmp identity, dynamic
+loader settings, cloud/API credentials, and all other ambient values are
+absent.
 
 This is planning authority only. The candidate records
 `launch_authorized=false` with blockers for authentication isolation, the
@@ -161,8 +170,9 @@ the current single pane-process identity is insufficient for a shared leader.
 Normal-session preflight now retains every current-UID `grok` or
 `grok-macos-aarch64` candidate found by the repository-native argv-free census.
 Execution selectors cannot broaden those candidate basenames, so a declared
-transient such as `bash` does not become a Grok candidate. Exact matching may
-still use the validated current runtime selector.
+transient such as `bash` does not become a Grok candidate. A same-name
+launcher/transient vnode is retained as a candidate but cannot match: only the
+validated final-runtime selector carries matching authority.
 An exact current-manifest population still requires the existing exact V2
 parallel override. A same-name different-vnode candidate is a hard blocker and
 cannot be hidden by that override. Because all live Grok launch remains fenced,
@@ -190,8 +200,8 @@ authority rather than an unreachable launch hook.
 
 - Implemented source-only: exact doctor-manifest/source/executable tuple,
   body-free argv/environment planning, private root and socket containment,
-  UUID shape, no ambient-home fallback, and an admitted value-private
-  launch-plan identity.
+  UUID shape, a closed source-owned PATH/locale baseline with no ambient
+  credential channels, and an admitted value-private launch-plan identity.
 - Implemented source-only: normal-session census retains exact and mismatched
   Grok candidates, requires the existing exact override for a matching active
   population, and fails closed on different executable identity.
