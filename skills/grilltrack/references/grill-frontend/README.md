@@ -15,14 +15,20 @@ Load this pack only for frontend or visual decision cycles.
 - Preview a precise user-requested hybrid for confirmation as a replacement for
   the active five, not as a sixth option.
 - Keep generated and rejected artifacts local and ignored.
+- For a greenfield whole-product build, maintain a canonical design contract
+  according to [design-contract.md](design-contract.md).
 
 ## Router
 
-Always read [picker.md](picker.md). Then load only the focused module:
+Always read [picker.md](picker.md). For a greenfield website, app, or other
+whole-product frontend build, also read [design-contract.md](design-contract.md)
+before the first visual implementation and at closeout. Then load only the
+focused module:
 
 | Focused grill | Module |
 | --- | --- |
 | Overall layout or visual language | [layout.md](layout.md) |
+| Typography or fonts | [typography.md](typography.md) |
 | Imagery | [imagery.md](imagery.md) |
 | Motion | [motion.md](motion.md) |
 | Icons | [icons.md](icons.md) |
