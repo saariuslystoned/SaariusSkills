@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.plane_activation as activation_module  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     direct_execution_bundle,
 )
@@ -114,7 +115,7 @@ def _adapter_manifest() -> dict:
     executable_details = executable.stat()
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
     raw = {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": "claude",
         "generated_at": "2026-07-22T03:00:00Z",
         "platform": {
