@@ -51,7 +51,7 @@ from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .journal import Journal
-from .launch import build_launch_identity
+from .launch import build_admitted_launch_plan, build_launch_identity
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -820,6 +820,7 @@ def run_probe(
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
     instruction_path = run_root / "effective-instructions.json"
+    launch_plan_path = run_root / "launch-plan.json"
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -871,6 +872,7 @@ def run_probe(
         "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
         "yolo_mapping_sha256": sha256_bytes(canonical_json_bytes(mapping)),
         "launch_argv_sha256": sha256_bytes(canonical_json_bytes(argv)),
+        "launch_plan_sha256": None,
         "input_transport": OBSERVED_INPUT_TRANSPORT,
         "input_readiness_strategy": INPUT_READINESS_STRATEGY,
         "startup_settle_seconds": startup_settle_seconds_for(target),
@@ -974,6 +976,23 @@ def run_probe(
             "session_profile": compiled.manifest["session_profile"],
             "delivery_transport": compiled.manifest["delivery_transport"],
         }
+        launch_environment, launch_identity = build_launch_identity(
+            target=target,
+            repo=fixture,
+            argv=argv,
+        )
+        manifest.verify_launch_execution_environment(launch_environment)
+        launch_plan = build_admitted_launch_plan(
+            target=target,
+            session=session,
+            run_id=run_id,
+            repo=fixture,
+            argv=argv,
+            environment=launch_environment,
+        )
+        atomic_write_json(launch_plan_path, launch_plan)
+        evidence["launch_plan_sha256"] = sha256_file(launch_plan_path, max_bytes=131072)
+        evidence["launch_identity"] = launch_identity
         atomic_write_json(evidence_path, evidence)
         probe_lease_owner = build_lease_owner(
             activity="probe",
@@ -1016,51 +1035,47 @@ def run_probe(
             raise ConflictError(
                 "an active same-target process blocks Pass B without the exact parallel isolation override"
             )
-        admit_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            instruction_manifest_sha256=instruction_manifest_sha,
-            authority_root=_authority_root,
-            _lock_descriptor=lock_descriptor,
-        )
-        lease_owned = True
-        require_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            instruction_manifest_sha256=instruction_manifest_sha,
-            states={"launching"},
-            authority_root=_authority_root,
-        )
-        if sorted(
-            _active_population(_active_processes_fn, target, manifest),
-            key=lambda item: item["pid"],
-        ) != sorted(active, key=lambda item: item["pid"]):
-            raise IdentityError(
-                "same-target process population changed before probe launch"
-            )
-
         tmux_authority = run_root / "tmux-authority"
         tmux_authority.mkdir(mode=0o700)
         tmux = _tmux_factory(tmux_authority)
         socket = tmux.socket_path(session)
-        _write_state(state_path, state, "launching")
-        launch_environment, launch_identity = build_launch_identity(
-            target=target,
-            repo=fixture,
-            argv=argv,
-        )
-        manifest.verify_launch_execution_environment(launch_environment)
-        launch_attempted = True
+        def admit_before_start() -> None:
+            nonlocal lease_owned, launch_attempted
+            admit_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
+                authority_root=_authority_root,
+                _lock_descriptor=lock_descriptor,
+            )
+            lease_owned = True
+            require_session_lease(
+                session=session,
+                target=target,
+                controller=controller,
+                owner=probe_lease_owner,
+                instruction_manifest_sha256=instruction_manifest_sha,
+                states={"launching"},
+                authority_root=_authority_root,
+            )
+            if sorted(
+                _active_population(_active_processes_fn, target, manifest),
+                key=lambda item: item["pid"],
+            ) != sorted(active, key=lambda item: item["pid"]):
+                raise IdentityError(
+                    "same-target process population changed before probe launch"
+                )
+            _write_state(state_path, state, "launching")
+            launch_attempted = True
         metadata = tmux.launch(
             session=session,
             target=target,
             repo=fixture,
             argv=argv,
             environment=launch_environment,
+            before_start=admit_before_start,
         )
         if metadata.get("launch_identity") != launch_identity:
             raise IdentityError("probe launch context identity is invalid")
@@ -1511,6 +1526,7 @@ def run_probe(
             "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
             "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
             "yolo_mapping_sha256": evidence["yolo_mapping_sha256"],
+            "launch_plan_sha256": evidence["launch_plan_sha256"],
             "instruction_policy_fingerprint": compiled.manifest[
                 "instruction_policy_fingerprint"
             ],
@@ -1523,6 +1539,7 @@ def run_probe(
                     "authorization", authorization_snapshot_path, run_root
                 ),
                 _proof_reference("evidence", evidence_path, run_root),
+                _proof_reference("launch_plan", launch_plan_path, run_root),
                 _proof_reference("instructions", instruction_path, run_root),
                 _proof_reference("halt", halt_path, run_root),
                 _proof_reference(
@@ -1693,6 +1710,7 @@ def run_probe(
             "type": exc.__class__.__name__,
             "detail": str(exc)[:1000],
             "cleanup_error": cleanup_error,
+            "launch_attempted": launch_attempted,
         }
         atomic_write_json(evidence_path, evidence)
         _write_state(
@@ -2018,8 +2036,15 @@ def recover_probe(
         process = evidence.get("process")
         identity_source = "persisted_launch_identity"
         launch_attempted: Optional[bool]
+        failure = evidence.get("failure")
+        persisted_launch_attempted = (
+            failure.get("launch_attempted")
+            if isinstance(failure, dict)
+            and isinstance(failure.get("launch_attempted"), bool)
+            else None
+        )
         if not socket.exists():
-            launch_attempted = None
+            launch_attempted = persisted_launch_attempted
             if isinstance(process, dict) and _process_alive_fn(process):
                 raise IdentityError(
                     "absent private probe socket still has a live persisted target"
@@ -2213,7 +2238,11 @@ def recover_probe(
             "result": "interrupted_probe_reconciled",
             "recovered": True,
             "recovery": str(recovery_path),
-            "tmux_preserved": True,
+            "tmux_preserved": (
+                cleanup.get("tmux_preserved", True)
+                if isinstance(cleanup, dict)
+                else True
+            ),
         }
     finally:
         _release_campaign_probe_lock(lock_descriptor)

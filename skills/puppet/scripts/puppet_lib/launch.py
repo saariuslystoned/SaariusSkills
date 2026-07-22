@@ -9,8 +9,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Sequence, Tuple
 
-from .errors import ValidationError
-from .safety import canonical_json_bytes, sha256_bytes, validate_sha256
+from .errors import IdentityError, ValidationError
+from .safety import (
+    absolute_root,
+    canonical_json_bytes,
+    ensure_within,
+    sha256_bytes,
+    validate_identifier,
+    validate_sha256,
+)
 
 
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -57,6 +64,23 @@ TARGET_ENVIRONMENT_EXTENSIONS: Mapping[str, frozenset[str]] = MappingProxyType(
 _RESTRICTED_ENVIRONMENT_NAMES = frozenset({"PWD", "OLDPWD", "TMUX", "TERM"})
 _SENSITIVE_NAME_PARTS = ("SECRET", "TOKEN", "KEY", "PASSWORD")
 _MAX_ENVIRONMENT_VALUE = 32768
+_CONFIG_ROOT_ENVIRONMENT_NAMES = frozenset(
+    {"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME"}
+)
+_TRUE_ENVIRONMENT_NAMES = frozenset(
+    {"CLAUDE_CODE_DISABLE_AUTO_MEMORY", "GROK_DISABLE_AUTOUPDATER"}
+)
+_LAUNCH_PLAN_FIELDS = {
+    "schema_version",
+    "kind",
+    "target",
+    "session",
+    "run_id",
+    "cwd",
+    "argv",
+    "env_names",
+    "env_fingerprint",
+}
 
 
 def _validate_environment_name(name: Any, *, allowed: frozenset[str]) -> str:
@@ -72,13 +96,28 @@ def _validate_environment_name(name: Any, *, allowed: frozenset[str]) -> str:
     return name
 
 
-def _validate_environment_value(value: Any) -> str:
+def _validate_environment_value(
+    name: str,
+    value: Any,
+    *,
+    admitted_lane_root: Path | None = None,
+) -> str:
     if (
         not isinstance(value, str)
         or len(value) > _MAX_ENVIRONMENT_VALUE
         or any(unicodedata.category(character).startswith("C") for character in value)
     ):
         raise ValidationError("launch environment value is invalid")
+    if name in _TRUE_ENVIRONMENT_NAMES and value != "true":
+        raise ValidationError("launch control environment value must be exact true")
+    if name in _CONFIG_ROOT_ENVIRONMENT_NAMES:
+        if admitted_lane_root is None:
+            raise ValidationError(
+                "launch config root requires an explicitly admitted lane root"
+            )
+        lane_root = absolute_root(str(admitted_lane_root), "admitted lane root")
+        config_root = absolute_root(value, "launch config root")
+        return str(ensure_within(config_root, lane_root, must_exist=True))
     return value
 
 
@@ -101,6 +140,7 @@ def _closed_environment(
     ambient_allowed: frozenset[str],
     source_environment: Mapping[str, str],
     bindings: Mapping[str, str],
+    admitted_lane_root: Path | None = None,
 ) -> Dict[str, str]:
     if not isinstance(source_environment, Mapping) or not isinstance(bindings, Mapping):
         raise ValidationError("launch environment source must be a mapping")
@@ -110,9 +150,17 @@ def _closed_environment(
     selected: Dict[str, str] = {}
     for name in sorted(allowed):
         if name in bindings:
-            selected[name] = _validate_environment_value(bindings[name])
+            selected[name] = _validate_environment_value(
+                name,
+                bindings[name],
+                admitted_lane_root=admitted_lane_root,
+            )
         elif name in ambient_allowed and name in source_environment:
-            selected[name] = _validate_environment_value(source_environment[name])
+            selected[name] = _validate_environment_value(
+                name,
+                source_environment[name],
+                admitted_lane_root=admitted_lane_root,
+            )
     return selected
 
 
@@ -135,6 +183,7 @@ def select_launch_environment(
     target: str,
     source_environment: Mapping[str, str] | None = None,
     bindings: Mapping[str, str] | None = None,
+    admitted_lane_root: Path | None = None,
 ) -> Dict[str, str]:
     """Select one complete target environment from ambient safe names and bindings."""
 
@@ -149,11 +198,15 @@ def select_launch_environment(
         ambient_allowed=_BASE_ENVIRONMENT_NAMES,
         source_environment=source,
         bindings=normalized_bindings,
+        admitted_lane_root=admitted_lane_root,
     )
 
 
 def validate_launch_environment(
-    *, target: str, environment: Mapping[str, str]
+    *,
+    target: str,
+    environment: Mapping[str, str],
+    admitted_lane_root: Path | None = None,
 ) -> Dict[str, str]:
     """Validate a complete environment without consulting ambient process state."""
 
@@ -163,12 +216,18 @@ def validate_launch_environment(
     validated: Dict[str, str] = {}
     for name, value in environment.items():
         normalized = _validate_environment_name(name, allowed=allowed)
-        validated[normalized] = _validate_environment_value(value)
+        validated[normalized] = _validate_environment_value(
+            normalized,
+            value,
+            admitted_lane_root=admitted_lane_root,
+        )
     return validated
 
 
 def validate_subprocess_environment(
     environment: Mapping[str, str],
+    *,
+    admitted_lane_root: Path | None = None,
 ) -> Dict[str, str]:
     """Validate a closed tmux-client environment against all source-owned names."""
 
@@ -180,7 +239,11 @@ def validate_subprocess_environment(
     validated: Dict[str, str] = {}
     for name, value in environment.items():
         normalized = _validate_environment_name(name, allowed=allowed)
-        validated[normalized] = _validate_environment_value(value)
+        validated[normalized] = _validate_environment_value(
+            normalized,
+            value,
+            admitted_lane_root=admitted_lane_root,
+        )
     return validated
 
 
@@ -206,14 +269,32 @@ def _validate_argv(argv: Sequence[str]) -> list[str]:
     return normalized
 
 
+def validate_tmux_launch_argv(argv: Sequence[str]) -> list[str]:
+    """Validate argv for tmux's direct-exec, multi-argument command form."""
+
+    normalized = _validate_argv(argv)
+    if len(normalized) < 2:
+        raise ValidationError(
+            "tmux launch argv must contain at least two arguments for direct exec"
+        )
+    return normalized
+
+
 def public_launch_identity(
-    *, repo: Path, argv: Sequence[str], environment: Mapping[str, str]
+    *,
+    repo: Path,
+    argv: Sequence[str],
+    environment: Mapping[str, str],
+    admitted_lane_root: Path | None = None,
 ) -> Dict[str, Any]:
     """Return value-free public identity for one already-closed launch context."""
 
     cwd = str(Path(repo).resolve(strict=True))
     normalized_argv = _validate_argv(argv)
-    closed_environment = validate_subprocess_environment(environment)
+    closed_environment = validate_subprocess_environment(
+        environment,
+        admitted_lane_root=admitted_lane_root,
+    )
     environment_names = sorted(closed_environment)
     return {
         "cwd": cwd,
@@ -273,16 +354,117 @@ def build_launch_identity(
     argv: Sequence[str],
     source_environment: Mapping[str, str] | None = None,
     bindings: Mapping[str, str] | None = None,
+    admitted_lane_root: Path | None = None,
 ) -> Tuple[Dict[str, str], Dict[str, Any]]:
     """Build private launch values and their separate value-free public identity."""
 
+    normalized_argv = validate_tmux_launch_argv(argv)
     environment = select_launch_environment(
         target=target,
         source_environment=source_environment,
         bindings=bindings,
+        admitted_lane_root=admitted_lane_root,
     )
     return environment, public_launch_identity(
         repo=repo,
-        argv=argv,
+        argv=normalized_argv,
         environment=environment,
+        admitted_lane_root=admitted_lane_root,
     )
+
+
+def build_admitted_launch_plan(
+    *,
+    target: str,
+    session: str,
+    run_id: str,
+    repo: Path,
+    argv: Sequence[str],
+    environment: Mapping[str, str],
+    admitted_lane_root: Path | None = None,
+) -> Dict[str, Any]:
+    """Build the value-private plan that must exist before lease admission."""
+
+    _allowed_environment_names(target)
+    validate_identifier(session, "launch plan session")
+    validate_identifier(run_id, "launch plan run id")
+    normalized_argv = validate_tmux_launch_argv(argv)
+    normalized_environment = validate_launch_environment(
+        target=target,
+        environment=environment,
+        admitted_lane_root=admitted_lane_root,
+    )
+    identity = public_launch_identity(
+        repo=repo,
+        argv=normalized_argv,
+        environment=normalized_environment,
+        admitted_lane_root=admitted_lane_root,
+    )
+    return {
+        "schema_version": 1,
+        "kind": "puppet.admitted-launch-plan/v1",
+        "target": target,
+        "session": session,
+        "run_id": run_id,
+        "cwd": identity["cwd"],
+        "argv": normalized_argv,
+        "env_names": identity["env_names"],
+        "env_fingerprint": identity["env_fingerprint"],
+    }
+
+
+def validate_admitted_launch_plan(
+    value: Any,
+    *,
+    expected_target: str | None = None,
+    expected_session: str | None = None,
+    expected_run_id: str | None = None,
+) -> Dict[str, Any]:
+    """Validate an admitted plan and derive its exact public launch identity."""
+
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != _LAUNCH_PLAN_FIELDS
+        or value.get("schema_version") != 1
+        or value.get("kind") != "puppet.admitted-launch-plan/v1"
+    ):
+        raise ValidationError("admitted launch plan fields are invalid")
+    target = value.get("target")
+    _allowed_environment_names(target)
+    session = validate_identifier(value.get("session"), "launch plan session")
+    run_id = validate_identifier(value.get("run_id"), "launch plan run id")
+    if expected_target is not None and target != expected_target:
+        raise IdentityError("admitted launch plan target is unexpected")
+    if expected_session is not None and session != expected_session:
+        raise IdentityError("admitted launch plan session is unexpected")
+    if expected_run_id is not None and run_id != expected_run_id:
+        raise IdentityError("admitted launch plan run id is unexpected")
+    cwd_value = value.get("cwd")
+    cwd = absolute_root(cwd_value, "admitted launch plan cwd")
+    argv = validate_tmux_launch_argv(value.get("argv"))
+    names = value.get("env_names")
+    if (
+        not isinstance(names, list)
+        or not all(isinstance(name, str) for name in names)
+        or names != sorted(set(names))
+    ):
+        raise ValidationError("admitted launch plan environment names are invalid")
+    allowed = _allowed_environment_names(target)
+    for name in names:
+        _validate_environment_name(name, allowed=allowed)
+    fingerprint = validate_sha256(
+        value.get("env_fingerprint"),
+        "admitted launch plan environment fingerprint",
+    )
+    plan = dict(value)
+    plan["cwd"] = str(cwd)
+    plan["argv"] = argv
+    plan["env_names"] = names
+    plan["env_fingerprint"] = fingerprint
+    plan["launch_identity"] = {
+        "cwd": str(cwd),
+        "argv_sha256": sha256_bytes(canonical_json_bytes(argv)),
+        "env_names": names,
+        "env_fingerprint": fingerprint,
+    }
+    return plan

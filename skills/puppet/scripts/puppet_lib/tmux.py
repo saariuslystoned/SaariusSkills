@@ -10,7 +10,7 @@ import stat
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from .errors import ConflictError, IdentityError, ValidationError
 from .launch import (
@@ -18,6 +18,7 @@ from .launch import (
     public_launch_identity,
     validate_launch_environment,
     validate_subprocess_environment,
+    validate_tmux_launch_argv,
 )
 from .profiles import SUBMIT_SETTLE_SECONDS
 from .registry import process_birth_identity
@@ -258,8 +259,14 @@ class TmuxController:
         session: str,
         repo: Path,
         environment: Mapping[str, str],
+        admitted_lane_root: Path | None,
+        before_start: Optional[Callable[[], None]],
     ) -> subprocess.CompletedProcess:
-        self.assert_tmux_binary_identity(self.bound_tmux_binary_identity)
+        def admit_after_binary_validation() -> None:
+            self.assert_tmux_binary_identity(self.bound_tmux_binary_identity)
+            if before_start is not None:
+                before_start()
+
         return self._run_raw(
             self._tmux_command(
                 socket,
@@ -276,6 +283,8 @@ class TmuxController:
                 ],
             ),
             env=environment,
+            admitted_lane_root=admitted_lane_root,
+            before_run=admit_after_binary_validation,
         )
 
     @staticmethod
@@ -285,8 +294,15 @@ class TmuxController:
         check: bool = True,
         input_data: Optional[bytes] = None,
         env: Mapping[str, str],
+        admitted_lane_root: Path | None = None,
+        before_run: Optional[Callable[[], None]] = None,
     ) -> subprocess.CompletedProcess:
-        closed_environment = validate_subprocess_environment(env)
+        closed_environment = validate_subprocess_environment(
+            env,
+            admitted_lane_root=admitted_lane_root,
+        )
+        if before_run is not None:
+            before_run()
         run_options = {
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
@@ -373,24 +389,26 @@ class TmuxController:
         repo: Path,
         argv: List[str],
         environment: Mapping[str, str],
+        admitted_lane_root: Path | None = None,
+        before_start: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         validate_identifier(session, "session")
         repo = absolute_root(str(repo), "repo")
-        if not argv or not all(isinstance(item, str) and item for item in argv):
-            raise ValidationError("launch argv must be a non-empty string list")
+        argv = validate_tmux_launch_argv(argv)
         socket = self.socket_path(session)
         if socket.exists() or self.exists(socket, session):
             raise ConflictError("tmux socket or session already exists")
         launch_environment = validate_launch_environment(
             target=target,
             environment=environment,
+            admitted_lane_root=admitted_lane_root,
         )
         launch_identity = public_launch_identity(
             repo=repo,
             argv=argv,
             environment=launch_environment,
+            admitted_lane_root=admitted_lane_root,
         )
-
         socket_identity: Optional[Dict[str, int]] = None
         server_identity: Optional[Dict[str, Any]] = None
 
@@ -400,6 +418,8 @@ class TmuxController:
                 session=session,
                 repo=repo,
                 environment=launch_environment,
+                admitted_lane_root=admitted_lane_root,
+                before_start=before_start,
             )
             socket_identity = self.socket_identity(socket)
             self._run(

@@ -11,6 +11,7 @@ from pathlib import Path
 from puppet_lib.contracts import MANDATORY_HARD_GATES
 from puppet_lib.handoffs import validate_handoff
 from puppet_lib.instructions import compile_instruction_wrapper
+from puppet_lib.launch import build_admitted_launch_plan
 from puppet_lib.profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -40,6 +41,7 @@ def write_qualification_receipt(
     adapter_fingerprint: str,
     protocol_fingerprint: str,
     yolo_mapping_sha256: str,
+    launch_argv: list[str],
     capabilities: list[str],
     session_profile: str | None = None,
     runtime_executable_path: Path | None = None,
@@ -252,6 +254,22 @@ def write_qualification_receipt(
     lock_details = lock_path.stat()
     instruction_path = proof_root / "effective-instructions.json"
     _write_json(instruction_path, compiled.manifest)
+    launch_plan_path = proof_root / "launch-plan.json"
+    launch_plan = build_admitted_launch_plan(
+        target=target,
+        session=session,
+        run_id=run_id,
+        repo=handoff_root.parent,
+        argv=launch_argv,
+        environment={},
+    )
+    _write_json(launch_plan_path, launch_plan)
+    launch_identity = {
+        "cwd": launch_plan["cwd"],
+        "argv_sha256": sha256_bytes(canonical_json_bytes(launch_plan["argv"])),
+        "env_names": launch_plan["env_names"],
+        "env_fingerprint": launch_plan["env_fingerprint"],
+    }
     evidence_path = proof_root / "evidence.json"
     _write_json(
         evidence_path,
@@ -271,13 +289,9 @@ def write_qualification_receipt(
             "adapter_fingerprint": adapter_fingerprint,
             "protocol_fingerprint": protocol_fingerprint,
             "yolo_mapping_sha256": yolo_mapping_sha256,
-            "launch_argv_sha256": "8" * 64,
-            "launch_identity": {
-                "cwd": str(proof_root),
-                "argv_sha256": "8" * 64,
-                "env_names": [],
-                "env_fingerprint": sha256_bytes(canonical_json_bytes([])),
-            },
+            "launch_argv_sha256": launch_identity["argv_sha256"],
+            "launch_plan_sha256": sha256_file(launch_plan_path),
+            "launch_identity": launch_identity,
             "input_transport": OBSERVED_INPUT_TRANSPORT,
             "input_readiness_strategy": INPUT_READINESS_STRATEGY,
             "session_profile": session_profile,
@@ -370,6 +384,7 @@ def write_qualification_receipt(
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol_fingerprint,
         "yolo_mapping_sha256": yolo_mapping_sha256,
+        "launch_plan_sha256": sha256_file(launch_plan_path),
         "instruction_policy_fingerprint": compiled.manifest[
             "instruction_policy_fingerprint"
         ],
@@ -380,6 +395,7 @@ def write_qualification_receipt(
         "proof_refs": [
             reference("authorization", authorization_path),
             reference("evidence", evidence_path),
+            reference("launch_plan", launch_plan_path),
             reference("instructions", instruction_path),
             reference("halt", halt_path),
             reference("ready", ready_path),

@@ -19,9 +19,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.launch import (  # noqa: E402
+    build_admitted_launch_plan,
     build_launch_identity,
     control_environment,
     select_launch_environment,
+    validate_admitted_launch_plan,
 )
 from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
 from puppet_lib.tmux import TmuxController  # noqa: E402
@@ -29,8 +31,16 @@ from puppet_lib.tmux import TmuxController  # noqa: E402
 
 class TmuxTransportTests(unittest.TestCase):
     @staticmethod
-    def _launch_environment(target: str = "codex", **bindings: str) -> dict[str, str]:
-        return select_launch_environment(target=target, bindings=bindings)
+    def _launch_environment(
+        target: str = "codex",
+        admitted_lane_root: Path | None = None,
+        **bindings: str,
+    ) -> dict[str, str]:
+        return select_launch_environment(
+            target=target,
+            bindings=bindings,
+            admitted_lane_root=admitted_lane_root,
+        )
 
     def _tmux_run(
         self, *, socket: Path, arguments: list[str]
@@ -140,6 +150,8 @@ class TmuxTransportTests(unittest.TestCase):
                 encoding="utf-8",
             )
             codex_home = root / "private-codex-home"
+            codex_home.mkdir()
+            codex_home = codex_home.resolve()
             output = root / "target.json"
             source = dict(os.environ)
             source["PUPPET_PARENT_CANARY"] = "parent-canary-value"
@@ -163,6 +175,7 @@ class TmuxTransportTests(unittest.TestCase):
                 argv=argv,
                 source_environment=source,
                 bindings={"CODEX_HOME": str(codex_home)},
+                admitted_lane_root=root,
             )
             controller = TmuxController(root)
             metadata = controller.launch(
@@ -171,6 +184,7 @@ class TmuxTransportTests(unittest.TestCase):
                 repo=repo,
                 argv=argv,
                 environment=environment,
+                admitted_lane_root=root,
             )
             socket = Path(metadata["socket"])
             try:
@@ -199,6 +213,11 @@ class TmuxTransportTests(unittest.TestCase):
     def test_closed_environment_rejects_arbitrary_sensitive_and_control_bindings(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
+            lane_root = repo / "lane"
+            lane_root.mkdir()
+            codex_home = lane_root / "codex-home"
+            codex_home.mkdir()
+            codex_home = codex_home.resolve()
             source = {
                 "HOME": "/safe/home",
                 "PATH": "/usr/bin:/bin",
@@ -209,14 +228,15 @@ class TmuxTransportTests(unittest.TestCase):
             environment, identity = build_launch_identity(
                 target="codex",
                 repo=repo,
-                argv=["/bin/true"],
+                argv=["/bin/true", "--"],
                 source_environment=source,
-                bindings={"CODEX_HOME": "/safe/codex"},
+                bindings={"CODEX_HOME": str(codex_home)},
+                admitted_lane_root=lane_root,
             )
             self.assertEqual(
                 environment,
                 {
-                    "CODEX_HOME": "/safe/codex",
+                    "CODEX_HOME": str(codex_home),
                     "HOME": "/safe/home",
                     "PATH": "/usr/bin:/bin",
                 },
@@ -230,12 +250,58 @@ class TmuxTransportTests(unittest.TestCase):
                     source_environment=ambient_extension,
                 ),
             )
+            with self.assertRaisesRegex(ValidationError, "explicitly admitted"):
+                select_launch_environment(
+                    target="codex",
+                    bindings={"CODEX_HOME": str(codex_home)},
+                )
+            outside = repo / "outside"
+            outside.mkdir()
+            with self.assertRaisesRegex(ValidationError, "escapes"):
+                select_launch_environment(
+                    target="codex",
+                    bindings={"CODEX_HOME": str(outside)},
+                    admitted_lane_root=lane_root,
+                )
             with self.assertRaisesRegex(ValidationError, "allowlisted"):
                 select_launch_environment(
                     target="codex",
                     source_environment=source,
                     bindings={"HOME": "/caller/cannot/override/baseline"},
                 )
+            for target, config_name in (
+                ("codex", "CODEX_HOME"),
+                ("claude", "CLAUDE_CONFIG_DIR"),
+                ("grok", "GROK_HOME"),
+            ):
+                config_root = lane_root / (target + "-config")
+                config_root.mkdir()
+                config_root = config_root.resolve()
+                selected = select_launch_environment(
+                    target=target,
+                    bindings={config_name: str(config_root)},
+                    admitted_lane_root=lane_root,
+                )
+                self.assertEqual(selected[config_name], str(config_root))
+            for target, control_name in (
+                ("claude", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"),
+                ("grok", "GROK_DISABLE_AUTOUPDATER"),
+            ):
+                control = select_launch_environment(
+                    target=target,
+                    bindings={control_name: "true"},
+                )
+                self.assertEqual(control[control_name], "true")
+                for bad_control in ("1", "TRUE", ""):
+                    with self.subTest(
+                        target=target,
+                        bad_control=bad_control,
+                    ):
+                        with self.assertRaisesRegex(ValidationError, "exact true"):
+                            select_launch_environment(
+                                target=target,
+                                bindings={control_name: bad_control},
+                            )
             for name in (
                 "FOO",
                 "PWD",
@@ -272,6 +338,57 @@ class TmuxTransportTests(unittest.TestCase):
                             bindings={"CODEX_HOME": value},
                         )
 
+    def test_admitted_launch_plan_binds_exact_context_and_rejects_missing_plan_data(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            repo.mkdir()
+            argv = ["/bin/true", "--literal"]
+            environment, identity = build_launch_identity(
+                target="codex",
+                repo=repo,
+                argv=argv,
+                source_environment={},
+            )
+            plan = build_admitted_launch_plan(
+                target="codex",
+                session="plan-session",
+                run_id="plan-run",
+                repo=repo,
+                argv=argv,
+                environment=environment,
+            )
+            validated = validate_admitted_launch_plan(
+                plan,
+                expected_target="codex",
+                expected_session="plan-session",
+                expected_run_id="plan-run",
+            )
+            self.assertEqual(validated["cwd"], str(repo.resolve()))
+            self.assertEqual(validated["argv"], argv)
+            self.assertEqual(validated["launch_identity"], identity)
+
+            missing_argv = dict(plan)
+            missing_argv.pop("argv")
+            with self.assertRaisesRegex(ValidationError, "fields are invalid"):
+                validate_admitted_launch_plan(missing_argv)
+
+            malformed_names = dict(plan)
+            malformed_names["env_names"] = [{}]
+            with self.assertRaisesRegex(
+                ValidationError, "environment names are invalid"
+            ):
+                validate_admitted_launch_plan(malformed_names)
+
+            changed_argv = dict(plan)
+            changed_argv["argv"] = ["/bin/false", "--literal"]
+            changed = validate_admitted_launch_plan(changed_argv)
+            self.assertNotEqual(
+                changed["launch_identity"]["argv_sha256"],
+                identity["argv_sha256"],
+            )
+
     def test_launch_command_shape_is_direct_value_private_and_same_cwd(self):
         if not TmuxController.available():
             self.skipTest("tmux is unavailable")
@@ -279,15 +396,31 @@ class TmuxTransportTests(unittest.TestCase):
             root = Path(temporary)
             repo = root / "repo"
             repo.mkdir()
-            secret_value = str(root / "private-codex-home")
-            environment = self._launch_environment(CODEX_HOME=secret_value)
+            secret_root = root / "private-codex-home"
+            secret_root.mkdir()
+            secret_root = secret_root.resolve()
+            secret_value = str(secret_root)
+            environment = self._launch_environment(
+                admitted_lane_root=root, CODEX_HOME=secret_value
+            )
             controller = TmuxController(root)
             session = "tmux-command-shape"
             socket = controller.socket_path(session)
             argv = ["/bin/echo", "argument with spaces", "--literal"]
             calls = []
+            admission = []
 
-            def fake_run_raw(command, *, check=True, input_data=None, env):
+            def fake_run_raw(
+                command,
+                *,
+                check=True,
+                input_data=None,
+                env,
+                admitted_lane_root=None,
+                before_run=None,
+            ):
+                if before_run is not None:
+                    before_run()
                 calls.append((list(command), dict(env)))
                 return SimpleNamespace(
                     args=command,
@@ -328,9 +461,12 @@ class TmuxTransportTests(unittest.TestCase):
                     repo=repo,
                     argv=argv,
                     environment=environment,
+                    admitted_lane_root=root,
+                    before_start=lambda: admission.append("admitted"),
                 )
 
             commands = [command for command, _environment in calls]
+            self.assertEqual(admission, ["admitted"])
             self.assertTrue(commands)
             self.assertTrue(
                 all(
@@ -449,8 +585,32 @@ class TmuxTransportTests(unittest.TestCase):
                     session="tmux-environment-required",
                     target="codex",
                     repo=repo,
-                    argv=["/bin/true"],
+                    argv=["/bin/true", "--"],
                 )
+
+    def test_singleton_tmux_argv_rejects_shell_metacharacter_path(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            marker = root / "must-not-exist"
+            session = "tmux-singleton-shell-rejected"
+            admission = []
+            with self.assertRaisesRegex(ValidationError, "direct exec"):
+                controller.launch(
+                    session=session,
+                    target="codex",
+                    repo=repo,
+                    argv=[f"/bin/true; touch {marker}"],
+                    environment=self._launch_environment(),
+                    before_start=lambda: admission.append("must-not-admit"),
+                )
+            self.assertEqual(admission, [])
+            self.assertFalse(marker.exists())
+            self.assertFalse(controller.socket_path(session).exists())
 
     def test_control_requires_exact_pane_and_rejects_sigint_key(self):
         if not TmuxController.available():
@@ -527,7 +687,7 @@ class TmuxTransportTests(unittest.TestCase):
                 session=session,
                 target="codex",
                 repo=repo,
-                argv=["/bin/true"],
+                argv=["/bin/true", "--"],
                 environment=self._launch_environment(),
             )
             socket = Path(metadata["socket"])
@@ -652,6 +812,39 @@ class TmuxTransportTests(unittest.TestCase):
                 with self.assertRaises(IdentityError):
                     controller.assert_tmux_binary_identity(expected=original)
 
+    def test_before_start_waits_for_nested_binary_and_environment_validation(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            admissions = []
+            with patch.object(
+                controller,
+                "assert_tmux_binary_identity",
+                side_effect=IdentityError("injected binary drift"),
+            ):
+                with self.assertRaisesRegex(IdentityError, "binary drift"):
+                    controller._start_server(
+                        socket=controller.socket_path("nested-validation"),
+                        session="nested-validation",
+                        repo=repo,
+                        environment={},
+                        admitted_lane_root=None,
+                        before_start=lambda: admissions.append("binary"),
+                    )
+            self.assertEqual(admissions, [])
+
+            with self.assertRaisesRegex(ValidationError, "value is invalid"):
+                controller._run_raw(
+                    ["/bin/true", "--"],
+                    env={"HOME": "bad\nvalue"},
+                    before_run=lambda: admissions.append("environment"),
+                )
+            self.assertEqual(admissions, [])
+
     def test_launch_cleans_up_private_session_on_launch_keyboard_interrupt(self):
         if not TmuxController.available():
             self.skipTest("tmux is unavailable")
@@ -664,7 +857,15 @@ class TmuxTransportTests(unittest.TestCase):
             calls: list[tuple[list[str], bool, bytes | None]] = []
             cleanup_server = None
 
-            def fake_run_raw(command, *, check=True, input_data=None, env):
+            def fake_run_raw(
+                command,
+                *,
+                check=True,
+                input_data=None,
+                env,
+                admitted_lane_root=None,
+                before_run=None,
+            ):
                 nonlocal cleanup_server
                 calls.append((command, check, input_data))
                 operation = command[5]
@@ -702,7 +903,7 @@ class TmuxTransportTests(unittest.TestCase):
                             session=session,
                             target="codex",
                             repo=repo,
-                            argv=["/bin/true"],
+                            argv=["/bin/true", "--"],
                             environment=self._launch_environment(),
                         )
             finally:

@@ -790,6 +790,20 @@ def launch(
     initial_sha = sha256_bytes(_message_payload(initial))
     if initial_sha != compiled.manifest["rendered_sha256"]:
         raise IdentityError("regular profile altered the compiled instruction payload")
+    current_workspace = _workspace_snapshot(contract)
+    expected_workspace = {
+        name: report[name] for name in ("branch", "head", "tree", "dirty")
+    }
+    if current_workspace != expected_workspace:
+        raise IdentityError("candidate workspace changed after preflight")
+    if current_workspace["dirty"]:
+        raise IdentityError("candidate worktree is not clean before launch")
+    launch_environment, launch_identity = build_launch_identity(
+        target=contract.target,
+        repo=contract.repo,
+        argv=argv,
+    )
+    manifest.verify_launch_execution_environment(launch_environment)
     registry = SessionRegistry(state_root)
     tmux = TmuxController(state_root)
     socket = tmux.socket_path(session)
@@ -802,11 +816,18 @@ def launch(
         "instruction_manifest_sha256": instruction_manifest_sha,
         "created_at": _utc_now(),
     }
-    operation_guard = exclusive_lock(registry.operation_lock(session))
-    operation_guard.__enter__()
-    try:
-        if registry.exists(session):
-            raise ConflictError("session is already reserved or registered")
+    journal = _journal(proof_root)
+    metadata = None
+    process = None
+    process_verified = False
+    lease_active = False
+    lease_owned = False
+    reservation_owned = False
+    activated = False
+    launch_attempted = False
+
+    def admit_before_start() -> None:
+        nonlocal launch_attempted, lease_owned, reservation_owned
         admit_session_lease(
             session=session,
             target=contract.target,
@@ -814,27 +835,9 @@ def launch(
             owner=session_lease_owner,
             instruction_manifest_sha256=instruction_manifest_sha,
         )
-    except BaseException:
-        operation_guard.__exit__(None, None, None)
-        raise
-    try:
+        lease_owned = True
         registry.reserve(reservation)
-    except BaseException:
-        try:
-            transition_session_lease(
-                session=session,
-                target=contract.target,
-                controller=contract.controller,
-                owner=session_lease_owner,
-                instruction_manifest_sha256=instruction_manifest_sha,
-                state="failed",
-                process=None,
-            )
-        finally:
-            operation_guard.__exit__(None, None, None)
-        raise
-    journal = _journal(proof_root)
-    try:
+        reservation_owned = True
         journal.append(
             request_id=_delivery_request_id(session, session, "launch"),
             event={
@@ -852,49 +855,27 @@ def launch(
                 ],
             },
         )
-    except BaseException:
-        try:
-            registry.release_reservation(session, contract.fingerprint)
-            transition_session_lease(
-                session=session,
-                target=contract.target,
-                controller=contract.controller,
-                owner=session_lease_owner,
-                instruction_manifest_sha256=instruction_manifest_sha,
-                state="failed",
-                process=None,
-            )
-        finally:
-            operation_guard.__exit__(None, None, None)
-        raise
-    metadata = None
-    process = None
-    process_verified = False
-    lease_active = False
-    activated = False
-    launch_attempted = False
-    try:
-        current_workspace = _workspace_snapshot(contract)
-        expected_workspace = {
-            name: report[name] for name in ("branch", "head", "tree", "dirty")
-        }
-        if current_workspace != expected_workspace:
-            raise IdentityError("candidate workspace changed after preflight")
-        if current_workspace["dirty"]:
-            raise IdentityError("candidate worktree is not clean before launch")
-        launch_environment, launch_identity = build_launch_identity(
-            target=contract.target,
-            repo=contract.repo,
-            argv=argv,
-        )
-        manifest.verify_launch_execution_environment(launch_environment)
         launch_attempted = True
+
+    operation_guard = exclusive_lock(registry.operation_lock(session))
+    operation_guard.__enter__()
+    try:
+        if registry.exists(session):
+            raise ConflictError("session is already reserved or registered")
+        if socket.exists() or tmux.exists(socket, session):
+            raise ConflictError("tmux socket or session already exists")
+    except BaseException:
+        operation_guard.__exit__(None, None, None)
+        raise
+
+    try:
         metadata = tmux.launch(
             session=session,
             target=contract.target,
             repo=contract.repo,
             argv=argv,
             environment=launch_environment,
+            before_start=admit_before_start,
         )
         if metadata.get("launch_identity") != launch_identity:
             raise IdentityError("tmux launch context identity is invalid")
@@ -1115,22 +1096,24 @@ def launch(
             except Exception:
                 pass
         elif cleanup_stopped or not launch_attempted:
-            try:
-                registry.release_reservation(session, contract.fingerprint)
-            except Exception:
-                pass
-            try:
-                transition_session_lease(
-                    session=session,
-                    target=contract.target,
-                    controller=contract.controller,
-                    owner=session_lease_owner,
-                    instruction_manifest_sha256=instruction_manifest_sha,
-                    state="failed",
-                    process=process if process_verified else None,
-                )
-            except Exception:
-                pass
+            if reservation_owned:
+                try:
+                    registry.release_reservation(session, contract.fingerprint)
+                except Exception:
+                    pass
+            if lease_owned:
+                try:
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=session_lease_owner,
+                        instruction_manifest_sha256=instruction_manifest_sha,
+                        state="failed",
+                        process=process if process_verified else None,
+                    )
+                except Exception:
+                    pass
         raise
     finally:
         operation_guard.__exit__(None, None, None)

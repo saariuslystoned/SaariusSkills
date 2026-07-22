@@ -19,9 +19,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import (  # noqa: E402
     AdapterManifest,
+    _RECEIPT_FIELDS,
     _verify_qualification_instruction_authority,
     direct_execution_bundle,
     execution_file_identity,
+    verify_qualification_receipt,
 )
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
@@ -180,6 +182,18 @@ class AdapterTests(unittest.TestCase):
                 target[path[-1]] = "changed"
                 with self.assertRaises(ValidationError):
                     _verify_qualification_instruction_authority(**changed)
+
+    def test_qualification_receipt_without_launch_plan_binding_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt_path = Path(temporary) / "receipt.json"
+            receipt = {field: None for field in _RECEIPT_FIELDS}
+            receipt.pop("launch_plan_sha256")
+            receipt_path.write_text(
+                json.dumps(receipt, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
+                verify_qualification_receipt(receipt_path)
 
     def test_combined_permission_and_sandbox_switch_is_emitted_once(self):
         self.assertEqual(
@@ -602,6 +616,7 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
                 adapter_fingerprint="d" * 64,
                 protocol_fingerprint="e" * 64,
                 yolo_mapping_sha256=mapping_hash,
+                launch_argv=raw["yolo_mapping"]["launch_argv"],
                 capabilities=[
                     "launch",
                     "send",

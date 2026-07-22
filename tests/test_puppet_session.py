@@ -130,7 +130,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
     adapter_fingerprint = "d" * 64
     yolo_mapping = {
         "complete": True,
-        "launch_argv": [str(executable)],
+        "launch_argv": [str(executable), "-"],
         "permission_declared": True,
         "permission_flags": ["test-owned-process"],
         "prompt_transport": PROMPT_TRANSPORT,
@@ -186,6 +186,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         adapter_fingerprint=adapter_fingerprint,
         protocol_fingerprint=protocol,
         yolo_mapping_sha256=mapping_fingerprint,
+        launch_argv=yolo_mapping["launch_argv"],
         capabilities=[
             "launch",
             "send",
@@ -503,9 +504,54 @@ class SessionIntegrationTests(unittest.TestCase):
                     )
             tmux_launch.assert_not_called()
             self.assertFalse(SessionRegistry(files["state"]).exists(session))
-            self.assertEqual(
-                current_session_lease(self.authority_root, target="codex")["state"],
-                "failed",
+            self.assertIsNone(
+                current_session_lease(self.authority_root, target="codex")
+            )
+            with (
+                patch.object(
+                    puppet_session,
+                    "build_launch_identity",
+                    side_effect=ValidationError("injected launch context failure"),
+                ),
+                patch.object(TmuxController, "launch") as build_tmux_launch,
+            ):
+                with self.assertRaisesRegex(ValidationError, "injected launch context"):
+                    launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Do not reserve after launch context failure.",
+                    )
+            build_tmux_launch.assert_not_called()
+            self.assertFalse(SessionRegistry(files["state"]).exists(session))
+            self.assertIsNone(
+                current_session_lease(self.authority_root, target="codex")
+            )
+
+            with patch.object(
+                TmuxController,
+                "launch",
+                side_effect=ValidationError("injected tmux validation failure"),
+            ) as validation_tmux_launch:
+                with self.assertRaisesRegex(ValidationError, "tmux validation"):
+                    launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Do not reserve after tmux validation failure.",
+                    )
+            validation_tmux_launch.assert_called_once()
+            self.assertFalse(SessionRegistry(files["state"]).exists(session))
+            self.assertIsNone(
+                current_session_lease(self.authority_root, target="codex")
             )
 
     def test_instruction_drift_during_settle_prevents_first_delivery(self):
@@ -1022,9 +1068,16 @@ class SessionIntegrationTests(unittest.TestCase):
 
             def paused_launch(controller, **kwargs):
                 launch_calls.append(kwargs["session"])
-                first_entered_tmux.set()
-                if not release_first.wait(timeout=5):
-                    raise RuntimeError("test launch barrier timed out")
+                before_start = kwargs.get("before_start")
+
+                def paused_before_start():
+                    if before_start is not None:
+                        before_start()
+                    first_entered_tmux.set()
+                    if not release_first.wait(timeout=5):
+                        raise RuntimeError("test launch barrier timed out")
+
+                kwargs["before_start"] = paused_before_start
                 return original_launch(controller, **kwargs)
 
             def run_first():

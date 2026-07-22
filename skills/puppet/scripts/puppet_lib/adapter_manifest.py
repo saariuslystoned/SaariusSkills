@@ -22,7 +22,7 @@ from .contracts import (
 )
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
-from .launch import validate_public_launch_identity
+from .launch import validate_admitted_launch_plan, validate_public_launch_identity
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -232,6 +232,7 @@ PROBE_CAPABILITIES = (
 QUALIFICATION_PROOF_KINDS = (
     "authorization",
     "evidence",
+    "launch_plan",
     "instructions",
     "halt",
     "ready",
@@ -257,6 +258,7 @@ _RECEIPT_FIELDS = {
     "adapter_fingerprint",
     "protocol_fingerprint",
     "yolo_mapping_sha256",
+    "launch_plan_sha256",
     "instruction_policy_fingerprint",
     "capabilities",
     "accepted_checkpoint_id",
@@ -285,6 +287,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "protocol_fingerprint",
     "yolo_mapping_sha256",
     "launch_argv_sha256",
+    "launch_plan_sha256",
     "launch_identity",
     "input_transport",
     "input_readiness_strategy",
@@ -541,6 +544,7 @@ def verify_qualification_receipt(
         "adapter_fingerprint",
         "protocol_fingerprint",
         "yolo_mapping_sha256",
+        "launch_plan_sha256",
         "instruction_policy_fingerprint",
         "accepted_checkpoint_id",
         "acceptance_sha256",
@@ -617,6 +621,16 @@ def verify_qualification_receipt(
     evidence = read_json(
         artifacts["evidence"], max_bytes=131072, reject_sensitive_fields=True
     )
+    launch_plan = validate_admitted_launch_plan(
+        read_json(
+            artifacts["launch_plan"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        ),
+        expected_target=receipt["target"],
+        expected_session=terminal_state.get("session"),
+        expected_run_id=receipt["run_id"],
+    )
     instruction_manifest = validate_instruction_manifest(
         read_json(
             artifacts["instructions"],
@@ -652,8 +666,32 @@ def verify_qualification_receipt(
         evidence.get("launch_identity"),
         target=receipt["target"],
     )
-    if launch_identity["argv_sha256"] != evidence.get("launch_argv_sha256"):
-        raise ValidationError("qualification launch identity is inconsistent")
+    if launch_identity != launch_plan["launch_identity"]:
+        raise ValidationError(
+            "qualification launch identity differs from its admitted plan"
+        )
+    observed_plan_sha = sha256_file(artifacts["launch_plan"], max_bytes=131072)
+    if (
+        evidence.get("launch_plan_sha256") != observed_plan_sha
+        or receipt.get("launch_plan_sha256") != observed_plan_sha
+    ):
+        raise ValidationError("qualification launch plan fingerprint mismatch")
+    if (
+        evidence.get("launch_argv_sha256")
+        != launch_plan["launch_identity"]["argv_sha256"]
+    ):
+        raise ValidationError(
+            "qualification launch argv differs from its admitted plan"
+        )
+    expected_fixture = artifacts["ready"].resolve(strict=True).parent.parent
+    if launch_plan["cwd"] != str(expected_fixture):
+        raise ValidationError(
+            "qualification launch cwd differs from its admitted fixture"
+        )
+    if launch_plan["argv"] != current["yolo_mapping"]["launch_argv"]:
+        raise ValidationError(
+            "qualification launch argv differs from the current mapping"
+        )
     wrapper = evidence.get("instruction_wrapper")
     if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
         raise ValidationError("qualification instruction wrapper fields are invalid")
@@ -705,6 +743,7 @@ def verify_qualification_receipt(
         "manifest_fingerprint",
         "execution_fingerprint",
         "launch_argv_sha256",
+        "launch_plan_sha256",
         "fixture_fingerprint_before",
         "fixture_fingerprint_after",
         "review_sha256",
@@ -1075,6 +1114,7 @@ def verify_qualification_receipt(
         "adapter_fingerprint",
         "protocol_fingerprint",
         "yolo_mapping_sha256",
+        "launch_plan_sha256",
     ):
         if evidence.get(name) != receipt.get(name):
             raise ValidationError("qualification evidence identity mismatch: %s" % name)

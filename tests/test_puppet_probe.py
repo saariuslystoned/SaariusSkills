@@ -73,7 +73,12 @@ def manifest_value(target: str = "codex"):
         project_isolation_flags = ["--new-project"]
     mapping = {
         "complete": True,
-        "launch_argv": [str(executable)] + permission_flags + project_isolation_flags,
+        "launch_argv": (
+            [str(executable)]
+            + ([] if target == "agy" else ["-"])
+            + permission_flags
+            + project_isolation_flags
+        ),
         "permission_declared": True,
         "permission_flags": permission_flags,
         "prompt_transport": PROMPT_TRANSPORT,
@@ -323,7 +328,9 @@ class FakeTmux:
             "mode": stat.S_IMODE(details.st_mode),
         }
 
-    def launch(self, *, session, target, repo, argv, environment):
+    def launch(self, *, session, target, repo, argv, environment, before_start=None):
+        if before_start is not None:
+            before_start()
         self.session = session
         self.repo = Path(repo)
         self.launch_argv = list(argv)
@@ -1795,6 +1802,40 @@ class ProbeTests(unittest.TestCase):
                     / "receipt.json"
                 ).exists()
             )
+
+    def test_launch_context_build_failure_does_not_admit_target_lease(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            with patch.object(
+                puppet_probe,
+                "build_launch_identity",
+                side_effect=ValidationError("injected launch context failure"),
+            ):
+                with self.assertRaisesRegex(ValidationError, "injected launch context"):
+                    execute(
+                        files,
+                        fake,
+                        run_id="probe-launch-context-failure",
+                    )
+            self.assertIsNone(fake.launch_argv)
+            self.assertIsNone(current_session_lease(files["authority"], target="codex"))
+
+            validation_fake = FakeTmux(root / "validation-fake-tmux")
+            with patch.object(
+                validation_fake,
+                "launch",
+                side_effect=ValidationError("injected tmux validation failure"),
+            ):
+                with self.assertRaisesRegex(ValidationError, "tmux validation"):
+                    execute(
+                        files,
+                        validation_fake,
+                        run_id="probe-tmux-validation-failure",
+                    )
+            self.assertIsNone(validation_fake.launch_argv)
+            self.assertIsNone(current_session_lease(files["authority"], target="codex"))
 
     def test_unverified_goal_tuple_fails_before_tmux_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
