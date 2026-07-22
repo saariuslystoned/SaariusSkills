@@ -2508,8 +2508,23 @@ def validate_terminal_activation_evidence(
         != {"surface": "factual", "activation": "qualification_only"}
     ):
         raise IdentityError("terminal activation descriptor is not the Claude plane")
+    _unsupported_descriptor(normalized_descriptor)
 
     plan = _validate_intent(intent)
+    descriptor_target = normalized_descriptor["target"]
+    descriptor_artifact = normalized_descriptor["materialize"][0]
+    version_hash = _SUPPORTED_VERSION_OBSERVATIONS.get(
+        (descriptor_target["harness"], descriptor_target["version"])
+    )
+    if (
+        plan.raw["descriptor_id"] != normalized_descriptor["descriptor_id"]
+        or plan.raw["adapter_manifest_sha256"]
+        != descriptor_target["adapter_manifest_sha256"]
+        or plan.raw["version_observation_sha256"] != version_hash
+        or plan.raw["artifact_id"] != descriptor_artifact["artifact_id"]
+        or plan.raw["artifact_relative_path"] != descriptor_artifact["relative_path"]
+    ):
+        raise IdentityError("terminal activation descriptor authority changed")
     normalized_receipt = _validate_receipt(materialization_receipt, plan)
     normalized_rollback_intent = _validate_rollback_intent(
         rollback_intent,

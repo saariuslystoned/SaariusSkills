@@ -898,6 +898,11 @@ def verify_qualification_receipt(
         )
         if terminal_activation != plane_activation:
             raise ValidationError("terminal plane activation binding changed")
+        activation_plan = activation_intent.get("plan")
+        if not isinstance(activation_plan, dict) or evidence.get(
+            "manifest_fingerprint"
+        ) != activation_plan.get("adapter_manifest_sha256"):
+            raise ValidationError("qualification activation manifest binding changed")
     if (
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
