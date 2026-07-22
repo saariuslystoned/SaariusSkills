@@ -15,6 +15,15 @@ from .authority import (
 )
 from .contracts import PROCESS_IDENTITY_FIELDS, TARGET_POPULATION_POLICY
 from .errors import IdentityError, UnsupportedError, ValidationError
+from .profiles import (
+    INPUT_READINESS_STRATEGY,
+    OBSERVED_INPUT_TRANSPORT,
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    session_profiles_for,
+    startup_settle_seconds_for,
+    validate_session_profile,
+)
 from .safety import (
     atomic_write_json,
     canonical_json_bytes,
@@ -71,6 +80,7 @@ _RECEIPT_FIELDS = {
     "kind",
     "run_id",
     "target",
+    "session_profile",
     "result",
     "controller",
     "campaign_id",
@@ -95,6 +105,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "target",
     "controller",
     "profile",
+    "session_profile",
     "campaign_id",
     "goal_fingerprint",
     "authorization_sha256",
@@ -107,6 +118,9 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "yolo_mapping_sha256",
     "launch_argv_sha256",
     "input_transport",
+    "input_readiness_strategy",
+    "startup_settle_seconds",
+    "submit_settle_seconds",
     "payload_argv_absent",
     "active_target_processes_before_launch",
     "active_target_processes_after_halt",
@@ -287,6 +301,7 @@ def verify_qualification_receipt(
         raise ValidationError("qualification receipt is not an accepted real-harness run")
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
+    validate_session_profile(receipt["target"], receipt.get("session_profile"))
     validate_identifier(receipt.get("run_id"), "qualification run id")
     validate_identifier(receipt.get("controller"), "qualification controller")
     validate_identifier(receipt.get("campaign_id"), "qualification campaign id")
@@ -357,6 +372,7 @@ def verify_qualification_receipt(
         or terminal_state.get("target") != receipt["target"]
         or terminal_state.get("controller") != receipt["controller"]
         or terminal_state.get("profile") != "source-free-pass-b-v1"
+        or terminal_state.get("session_profile") != receipt["session_profile"]
         or terminal_state.get("phase") != "complete"
         or terminal_state.get("result") != "accepted"
         or terminal_state.get("blocker") is not None
@@ -381,7 +397,12 @@ def verify_qualification_receipt(
         raise ValidationError("qualification evidence fields do not match schema")
     if (
         evidence.get("profile") != "source-free-pass-b-v1"
-        or evidence.get("input_transport") != "tmux_load_buffer_stdin"
+        or evidence.get("session_profile") != receipt["session_profile"]
+        or evidence.get("input_transport") != OBSERVED_INPUT_TRANSPORT
+        or evidence.get("input_readiness_strategy") != INPUT_READINESS_STRATEGY
+        or evidence.get("startup_settle_seconds")
+        != startup_settle_seconds_for(receipt["target"])
+        or evidence.get("submit_settle_seconds") != SUBMIT_SETTLE_SECONDS
         or evidence.get("payload_argv_absent") is not True
     ):
         raise ValidationError("qualification evidence transport contract is invalid")
@@ -1019,12 +1040,14 @@ class AdapterManifest:
             if not isinstance(qualification, dict) or set(qualification) != {
                 "receipt_path",
                 "receipt_sha256",
+                "session_profile",
             }:
                 raise ValidationError("live manifest requires a qualification receipt")
             receipt_path = qualification.get("receipt_path")
             if not isinstance(receipt_path, str) or not Path(receipt_path).is_absolute():
                 raise ValidationError("qualification receipt path must be absolute")
             validate_sha256(qualification.get("receipt_sha256"), "qualification receipt")
+            validate_session_profile(value["target"], qualification.get("session_profile"))
             if any(
                 capabilities[name] != "controller_verified"
                 for name in PROBE_CAPABILITIES
@@ -1057,6 +1080,10 @@ class AdapterManifest:
             "sandbox_flags",
             "project_isolation_declared",
             "project_isolation_flags",
+            "session_profiles",
+            "session_profiles_declared",
+            "startup_settle_seconds",
+            "submit_settle_seconds",
         }
         allowed_mapping = required_mapping | {"model_flag", "effort_flag"}
         if not required_mapping <= set(mapping) or set(mapping) - allowed_mapping:
@@ -1080,6 +1107,7 @@ class AdapterManifest:
             "prompt_transport_declared",
             "sandbox_disable_declared",
             "project_isolation_declared",
+            "session_profiles_declared",
         ):
             if not isinstance(mapping[name], bool):
                 raise ValidationError("%s must be boolean" % name)
@@ -1126,6 +1154,24 @@ class AdapterManifest:
         transport = mapping["prompt_transport"]
         if not isinstance(transport, str) or not transport or len(transport) > 80:
             raise ValidationError("prompt transport declaration is invalid")
+        if transport != PROMPT_TRANSPORT:
+            raise ValidationError("prompt transport does not match the adapter policy")
+        if mapping["session_profiles"] != session_profiles_for(value["target"]):
+            raise ValidationError("session profile mapping does not match the adapter policy")
+        settle_seconds = mapping["startup_settle_seconds"]
+        if (
+            isinstance(settle_seconds, bool)
+            or not isinstance(settle_seconds, (int, float))
+            or settle_seconds != startup_settle_seconds_for(value["target"])
+        ):
+            raise ValidationError("startup settle mapping does not match the adapter policy")
+        submit_settle_seconds = mapping["submit_settle_seconds"]
+        if (
+            isinstance(submit_settle_seconds, bool)
+            or not isinstance(submit_settle_seconds, (int, float))
+            or submit_settle_seconds != SUBMIT_SETTLE_SECONDS
+        ):
+            raise ValidationError("submit settle mapping does not match the adapter policy")
         if value["target"] == "agy":
             expected_argv = [resolved_path]
             for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
@@ -1145,6 +1191,7 @@ class AdapterManifest:
                 "prompt_transport_declared",
                 "sandbox_disable_declared",
                 "project_isolation_declared",
+                "session_profiles_declared",
             )
         ):
             raise ValidationError("complete YOLO mapping lacks a proved component")
@@ -1194,6 +1241,7 @@ class AdapterManifest:
         expected_controller: Optional[str] = None,
         expected_campaign_id: Optional[str] = None,
         expected_goal_fingerprint: Optional[str] = None,
+        expected_session_profile: Optional[str] = None,
         _authority_root: Optional[Path] = None,
         _current_manifest: Optional["AdapterManifest"] = None,
         _server_process_fn: Optional[Any] = None,
@@ -1214,6 +1262,16 @@ class AdapterManifest:
         )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
+        if receipt.get("session_profile") != qualification["session_profile"]:
+            raise ValidationError("qualification session profile mismatch")
+        if expected_session_profile is not None:
+            expected_session_profile = validate_session_profile(
+                self.target, expected_session_profile
+            )
+            if receipt.get("session_profile") != expected_session_profile:
+                raise IdentityError(
+                    "qualification session profile does not match the active contract"
+                )
         expected_authority = {
             "controller": expected_controller,
             "campaign_id": expected_campaign_id,

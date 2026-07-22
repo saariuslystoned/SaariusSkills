@@ -21,6 +21,15 @@ from puppet_lib.census import (  # noqa: E402
     _launch_flags,
     adapter_implementation_fingerprint,
     _sandbox_disable_declared,
+    ZERO_AGENT_SESSION_PROFILES,
+    ZERO_AGENT_SESSION_PROFILES_DECLARED,
+    ZERO_AGENT_STARTUP_SETTLE_SECONDS,
+)
+from puppet_lib.profiles import (  # noqa: E402
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    session_profiles_for,
+    startup_settle_seconds_for,
 )
 from puppet_lib.errors import UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.provenance import admission_fingerprint, validate_admission_rows  # noqa: E402
@@ -53,12 +62,16 @@ def manifest_raw():
             "launch_argv": [str(executable), "--dangerously-skip-permissions", "--new-project"],
             "permission_declared": True,
             "permission_flags": ["--dangerously-skip-permissions"],
-            "prompt_transport": "tmux_stdin_buffer",
+            "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": [],
             "project_isolation_declared": True,
             "project_isolation_flags": ["--new-project"],
+            "session_profiles": session_profiles_for("agy"),
+            "session_profiles_declared": True,
+            "startup_settle_seconds": startup_settle_seconds_for("agy"),
+            "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         },
         "capabilities": {
             "launch": "declared",
@@ -132,16 +145,105 @@ class AdapterTests(unittest.TestCase):
                     )
                 )
 
-    def test_agy_prefix_is_exactly_once(self):
+    def test_agy_prefix_is_explicit_and_closed(self):
         adapter = adapter_for("agy")
-        self.assertEqual(adapter.envelope("Do the task"), "/teamwork-preview Do the task")
+        self.assertEqual(adapter.envelope("Do the task"), "Do the task")
+        self.assertEqual(
+            adapter.envelope("Do the task", session_profile="goal", initial=True),
+            "/goal Do the task",
+        )
+        self.assertEqual(
+            adapter.envelope("Do the task", session_profile="goal", initial=False),
+            "Do the task",
+        )
+        self.assertEqual(
+            adapter.envelope(
+                "Do the task", session_profile="teamwork-preview", initial=True
+            ),
+            "/teamwork-preview Do the task",
+        )
+        self.assertEqual(
+            adapter.envelope(
+                "Do the task", session_profile="teamwork-preview", initial=False
+            ),
+            "Do the task",
+        )
         self.assertEqual(
             adapter.graceful_halt_actions,
             ("tmux_pane_eof", "tmux_pane_eof"),
         )
-        for value in ("/teamwork-preview duplicate", "/btw side", "/side side", ""):
-            with self.subTest(value=value), self.assertRaises(ValidationError):
-                adapter.envelope(value)
+        with self.assertRaises(ValidationError):
+            adapter.envelope("Do the task", session_profile="invalid")
+        for value in ("/teamwork-preview duplicate", "/goal duplicate", "/btw side", "/side side", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    adapter.envelope(value)
+
+    def test_codex_and_claude_profile_selection_is_explicit(self):
+        codex = adapter_for("codex")
+        claude = adapter_for("claude")
+        self.assertEqual(codex.envelope("Do the task"), "Do the task")
+        self.assertEqual(
+            codex.envelope("Do the task", session_profile="goal", initial=True),
+            "/goal Do the task",
+        )
+        self.assertEqual(
+            codex.envelope("Do the task", session_profile="goal", initial=False),
+            "Do the task",
+        )
+        with self.assertRaises(ValidationError):
+            codex.envelope("Do the task", session_profile="loop")
+        self.assertEqual(claude.envelope("Do the task"), "Do the task")
+        self.assertEqual(
+            claude.envelope("Do the task", session_profile="loop", initial=True),
+            "/loop Do the task",
+        )
+        self.assertEqual(
+            claude.envelope("Do the task", session_profile="goal", initial=True),
+            "/goal Do the task",
+        )
+        self.assertEqual(
+            claude.envelope(
+                "Do the task", session_profile="goal", initial=False
+            ),
+            "Do the task",
+        )
+        with self.assertRaises(ValidationError):
+            claude.envelope("/loop task", session_profile="loop")
+
+    def test_cursor_and_grok_are_regular_only(self):
+        for target in ("cursor", "grok"):
+            adapter = adapter_for(target)
+            self.assertEqual(adapter.envelope("Do the task"), "Do the task")
+            with self.assertRaises(ValidationError):
+                adapter.envelope("Do the task", session_profile="goal")
+
+    def test_caller_supplied_slash_commands_are_rejected(self):
+        for target in ("agy", "cursor", "claude", "codex", "grok"):
+            with self.subTest(target=target), self.assertRaisesRegex(
+                ValidationError, "slash commands"
+            ):
+                adapter_for(target).envelope("/help", initial=False)
+
+    def test_zero_agent_session_profile_mapping_is_explicit(self):
+        self.assertTrue(ZERO_AGENT_SESSION_PROFILES_DECLARED)
+        self.assertEqual(
+            ZERO_AGENT_SESSION_PROFILES,
+            {
+                "agy": ["regular", "goal", "teamwork-preview"],
+                "cursor": ["regular"],
+                "claude": ["regular", "loop", "goal"],
+                "codex": ["regular", "goal"],
+                "grok": ["regular"],
+            },
+        )
+        self.assertEqual(
+            ZERO_AGENT_STARTUP_SETTLE_SECONDS,
+            {
+                target: startup_settle_seconds_for(target)
+                for target in ("agy", "cursor", "claude", "codex", "grok")
+            },
+        )
 
     def test_doctor_only_manifest_cannot_launch(self):
         manifest = AdapterManifest.from_dict(manifest_raw())
@@ -158,6 +260,7 @@ class AdapterTests(unittest.TestCase):
         raw["qualification"] = {
             "receipt_path": "/tmp/puppet-test-qualification.json",
             "receipt_sha256": "f" * 64,
+            "session_profile": "teamwork-preview",
         }
         manifest = AdapterManifest.from_dict(raw)
         argv = adapter_for("agy").build_launch_argv(manifest)
@@ -181,6 +284,7 @@ class AdapterTests(unittest.TestCase):
         raw["qualification"] = {
             "receipt_path": "/tmp/puppet-test-qualification.json",
             "receipt_sha256": "f" * 64,
+            "session_profile": "teamwork-preview",
         }
         raw["yolo_mapping"].update(
             model_flag="--model",
@@ -365,6 +469,7 @@ class AdapterTests(unittest.TestCase):
         raw["qualification"] = {
             "receipt_path": "/tmp/puppet-test-qualification.json",
             "receipt_sha256": "f" * 64,
+            "session_profile": "teamwork-preview",
         }
         with self.assertRaisesRegex(ValidationError, "fail closed"):
             AdapterManifest.from_dict(raw)

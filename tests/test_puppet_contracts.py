@@ -62,6 +62,39 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(first.fingerprint, second.fingerprint)
             self.assertEqual(first.target, "agy")
 
+    def test_agy_default_session_profile_is_back_compatible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = valid_contract(Path(temporary))
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.target, "agy")
+            self.assertEqual(contract.session_profile, "teamwork-preview")
+            self.assertNotIn("session_profile", contract.raw)
+
+    def test_explicit_session_profile_is_part_of_contract_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = valid_contract(Path(temporary))
+            defaulted = Contract.from_dict(raw)
+            raw["session_profile"] = "teamwork-preview"
+            explicit = Contract.from_dict(raw)
+            self.assertEqual(defaulted.session_profile, explicit.session_profile)
+            self.assertNotEqual(defaulted.fingerprint, explicit.fingerprint)
+
+    def test_non_agy_default_session_profile_is_regular(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = valid_contract(Path(temporary))
+            raw["target"] = "codex"
+            raw["controller"] = "agy"
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.target, "codex")
+            self.assertEqual(contract.session_profile, "regular")
+
+    def test_invalid_session_profile_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = valid_contract(Path(temporary))
+            raw["session_profile"] = "not-a-profile"
+            with self.assertRaisesRegex(ValidationError, "unsupported session profile"):
+                Contract.from_dict(raw)
+
     def test_missing_gate_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
             raw = valid_contract(Path(temporary))

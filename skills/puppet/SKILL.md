@@ -53,15 +53,20 @@ Use this sequence:
 
 1. `doctor` validates the current executable, YOLO mapping, repository,
    authorization, tmux, proof root, and collision state.
-2. `launch` creates one deterministic user-private tmux socket/session from a controller-verified
-   manifest. Deliver the initial prompt through a protected file or literal
-   tmux buffer, never as a process argument.
+2. `launch` creates one deterministic user-private tmux socket/session from a
+   controller-verified manifest, waits through the adapter's bounded structural
+   startup settle, rechecks process/pane identity, and then delivers the initial
+   prompt through a protected file or literal tmux buffer, never as a process
+   argument. The settle reduces startup races; only a validated handoff proves
+   the harness consumed the prompt.
 3. Give the human the exact command from `attach-command`; do not have the
    controller attach or read the pane.
 4. Use `status` and bounded `wait` calls for structural state and validated
    checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text.
-5. Use `send` with stdin or `--message-file`. For AGY, Puppet adds exactly one
-   `/teamwork-preview` prefix and rejects `/btw`, `/side`, and duplicates.
+5. Pin one adapter-qualified `session_profile` in the contract. Puppet applies
+   that profile's native command only to the initial launch message; later
+   `send` calls are ordinary steering messages. For AGY, Puppet also rejects
+   `/btw`, `/side`, and caller-supplied profile prefixes.
 6. Import handoffs with `checkpoint`, inspect the bounded referenced artifact,
    and record controller findings with `review`.
 7. Use `accept` only after independently verifying the exact checkpoint and

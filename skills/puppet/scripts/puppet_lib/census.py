@@ -14,6 +14,13 @@ from typing import Any, Dict, List, Tuple
 from .adapter_manifest import AdapterManifest, BEHAVIOR_CAPABILITIES
 from .errors import ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
+from .profiles import (
+    PROMPT_TRANSPORT,
+    SESSION_PROFILE_COMMANDS,
+    SUBMIT_SETTLE_SECONDS,
+    startup_settle_seconds_for,
+    session_profiles_for,
+)
 from .safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 
@@ -32,7 +39,7 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "permission_flags": ["--dangerously-skip-permissions"],
         "project_isolation_flags": ["--new-project"],
         "sandbox_flags": [],
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--effort",
     },
@@ -40,14 +47,14 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "permission_flags": ["--yolo"],
         "project_isolation_flags": [],
         "sandbox_flags": ["--sandbox", "disabled"],
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
     },
     "claude": {
         "permission_flags": ["--dangerously-skip-permissions"],
         "project_isolation_flags": [],
         "sandbox_flags": [],
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--effort",
     },
@@ -55,17 +62,27 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "permission_flags": ["--dangerously-bypass-approvals-and-sandbox"],
         "project_isolation_flags": [],
         "sandbox_flags": ["--dangerously-bypass-approvals-and-sandbox"],
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
     },
     "grok": {
         "permission_flags": ["--always-approve"],
         "project_isolation_flags": [],
         "sandbox_flags": [],
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--reasoning-effort",
     },
+}
+
+ZERO_AGENT_SESSION_PROFILES = {
+    target: list(session_profiles_for(target))
+    for target in SESSION_PROFILE_COMMANDS
+}
+ZERO_AGENT_SESSION_PROFILES_DECLARED = True
+ZERO_AGENT_STARTUP_SETTLE_SECONDS = {
+    target: startup_settle_seconds_for(target)
+    for target in SESSION_PROFILE_COMMANDS
 }
 
 
@@ -177,11 +194,16 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
     isolation_declared = _project_isolation_declared(mapping, help_text)
     prompt_declared = mapping["prompt_transport"].endswith("_declared")
+    session_profiles = session_profiles_for(target)
+    session_profiles_declared = bool(session_profiles)
+    startup_settle_seconds = startup_settle_seconds_for(target)
     complete = (
         permission_declared
         and sandbox_declared
         and isolation_declared
         and prompt_declared
+        and session_profiles_declared
+        and startup_settle_seconds > 0
     )
     mapping.update(
         {
@@ -190,6 +212,10 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "sandbox_disable_declared": sandbox_declared,
             "project_isolation_declared": isolation_declared,
             "prompt_transport_declared": prompt_declared,
+            "session_profiles": session_profiles,
+            "session_profiles_declared": session_profiles_declared,
+            "startup_settle_seconds": startup_settle_seconds,
+            "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
             "launch_argv": [str(resolved_path)] + _launch_flags(mapping),
         }
     )
@@ -227,9 +253,19 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
 def census_many(targets: List[str], adapter_fingerprint: str) -> Dict[str, Any]:
     if len(set(targets)) != len(targets):
         raise ValidationError("duplicate census targets")
+    if set(targets) - set(COMMANDS):
+        raise ValidationError("target is not on the census allowlist")
     return {
         "schema_version": 1,
         "generated_at": _utc_now(),
         "zero_agent": True,
+        "session_profiles": {
+            target: list(ZERO_AGENT_SESSION_PROFILES[target]) for target in targets
+        },
+        "session_profiles_declared": ZERO_AGENT_SESSION_PROFILES_DECLARED,
+        "startup_settle_seconds": {
+            target: ZERO_AGENT_STARTUP_SETTLE_SECONDS[target] for target in targets
+        },
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "manifests": {target: census_target(target, adapter_fingerprint).raw for target in targets},
     }

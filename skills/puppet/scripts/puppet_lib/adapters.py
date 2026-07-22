@@ -7,25 +7,47 @@ from typing import Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .errors import UnsupportedError, ValidationError
+from .profiles import (
+    SESSION_PROFILE_COMMANDS,
+    default_session_profile,
+    session_command_for,
+    validate_session_profile,
+)
 
 
 @dataclass(frozen=True)
 class AdapterSpec:
     name: str
-    required_prefix: Optional[str] = None
+    session_profiles: Dict[str, str]
     graceful_halt_actions: Tuple[str, ...] = ("exact_pid_sigint",)
 
-    def envelope(self, message: str) -> str:
+    def envelope(
+        self,
+        message: str,
+        session_profile: Optional[str] = None,
+        *,
+        initial: bool = False,
+    ) -> str:
         if not isinstance(message, str) or not message.strip():
             raise ValidationError("message must not be empty")
+        profile = (
+            default_session_profile(self.name)
+            if session_profile is None
+            else session_profile
+        )
+        profile = validate_session_profile(self.name, profile)
+        profile_prefix = session_command_for(self.name, profile)
         body = message.strip()
-        lowered = body.lower()
-        if self.name == "agy":
-            if lowered.startswith("/btw") or lowered.startswith("/side"):
-                raise ValidationError("AGY side-channel commands are forbidden")
-            if lowered.startswith("/teamwork-preview"):
-                raise ValidationError("caller must not provide the AGY native prefix")
-            return "/teamwork-preview " + body
+        first_token = body.split(None, 1)[0].lower()
+        native_prefixes = {value for value in self.session_profiles.values() if value}
+        if self.name == "agy" and first_token.startswith(("/btw", "/side")):
+            raise ValidationError("AGY side-channel commands are forbidden")
+        if first_token in native_prefixes:
+            raise ValidationError("caller must not provide a supported session profile prefix")
+        if first_token.startswith("/"):
+            raise ValidationError("caller-supplied slash commands are forbidden")
+        if initial and profile_prefix:
+            return profile_prefix + " " + body
         return body
 
     def build_launch_argv(
@@ -80,7 +102,7 @@ class AdapterSpec:
 ADAPTERS: Dict[str, AdapterSpec] = {
     name: AdapterSpec(
         name=name,
-        required_prefix="/teamwork-preview" if name == "agy" else None,
+        session_profiles=SESSION_PROFILE_COMMANDS[name],
         graceful_halt_actions=(
             ("tmux_pane_eof", "tmux_pane_eof")
             if name == "agy"

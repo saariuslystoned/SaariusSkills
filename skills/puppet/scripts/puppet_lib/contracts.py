@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from .errors import ValidationError
+from .profiles import default_session_profile, validate_session_profile
 from .safety import (
     absolute_root,
     canonical_json_bytes,
@@ -56,6 +57,7 @@ class Contract:
     campaign_authorization_id: str
     controller: str
     target: str
+    session_profile: str
     requested_model: Optional[str]
     requested_effort: Optional[str]
     max_helpers: int
@@ -82,6 +84,7 @@ class Contract:
             "campaign_authorization_id",
             "controller",
             "target",
+            "session_profile",
             "requested_model",
             "requested_effort",
             "task_profile",
@@ -116,6 +119,13 @@ class Contract:
             raise ValidationError("unsupported target")
         if controller == target:
             raise ValidationError("controller and target must be different identities")
+        session_profile = validate_session_profile(
+            target,
+            value.get("session_profile", default_session_profile(target)),
+        )
+        # Keep the exact schema-v1 payload for legacy fingerprint compatibility.
+        # The resolved profile is separately bound by the adapter fingerprint and
+        # profile-specific qualification, so a policy/default change fails closed.
         requested_model = value.get("requested_model")
         if requested_model is not None and (
             not isinstance(requested_model, str)
@@ -218,6 +228,7 @@ class Contract:
             campaign_authorization_id=campaign,
             controller=controller,
             target=target,
+            session_profile=session_profile,
             requested_model=requested_model.strip() if requested_model else None,
             requested_effort=requested_effort.strip() if requested_effort else None,
             max_helpers=max_helpers,

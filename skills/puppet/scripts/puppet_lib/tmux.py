@@ -8,10 +8,12 @@ import shlex
 import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .errors import ConflictError, IdentityError, ValidationError
+from .profiles import SUBMIT_SETTLE_SECONDS
 from .registry import process_birth_identity
 from .safety import (
     absolute_root,
@@ -26,7 +28,7 @@ _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
 
 
 class TmuxController:
-    def __init__(self, registry_root: Path):
+    def __init__(self, registry_root: Path, _sleep_fn=time.sleep):
         self.registry_root = Path(registry_root).resolve(strict=True)
         tmux_binary = shutil.which("tmux")
         if tmux_binary is None:
@@ -34,6 +36,7 @@ class TmuxController:
         self.tmux_binary = Path(tmux_binary).resolve()
         self.bound_tmux_binary_identity = self.binary_identity(self.tmux_binary)
         self._server_identity: Dict[str, Dict[str, Any]] = {}
+        self._sleep_fn = _sleep_fn
 
     @staticmethod
     def available() -> bool:
@@ -444,7 +447,20 @@ class TmuxController:
         )
         try:
             self._run(socket, ["paste-buffer", "-d", "-b", buffer_name, "-t", metadata["pane"]])
-            self._run(socket, ["send-keys", "-t", metadata["pane"], "Enter"])
+            self._sleep_fn(SUBMIT_SETTLE_SECONDS)
+            settled = self.metadata(
+                socket=socket,
+                session=session,
+                pane=metadata["pane"],
+                server_identity=server_identity,
+            )
+            if (
+                settled["pane"] != metadata["pane"]
+                or settled["pane_pid"] != metadata["pane_pid"]
+                or settled["pane_dead"]
+            ):
+                raise IdentityError("tmux pane changed before input submission")
+            self._run(socket, ["send-keys", "-t", settled["pane"], "Enter"])
         finally:
             self._run(socket, ["delete-buffer", "-b", buffer_name], check=False)
 

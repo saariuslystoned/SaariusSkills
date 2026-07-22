@@ -14,7 +14,7 @@ from typing import Any, Dict
 from .adapter_manifest import AdapterManifest
 from .authority import validate_lease_owner
 from .beacons import PREFIXES
-from .contracts import PROCESS_IDENTITY_FIELDS
+from .contracts import Contract, PROCESS_IDENTITY_FIELDS
 from .errors import ConflictError, IdentityError, ValidationError
 from .safety import (
     absolute_root,
@@ -835,10 +835,18 @@ class SessionRegistry:
             raise IdentityError("adapter executable file identity changed")
         if sha256_file(executable) != adapter["executable_fingerprint"]:
             raise IdentityError("adapter executable fingerprint changed")
+        contract = Contract.from_path(Path(record["contract_path"]))
+        if (
+            contract.fingerprint != record["contract_fingerprint"]
+            or contract.target != record["target"]
+            or contract.controller != record["controller"]
+        ):
+            raise IdentityError("bound contract identity changed")
         manifest.verify_qualification(
             expected_controller=adapter["qualification_controller"],
             expected_campaign_id=adapter["qualification_campaign_id"],
             expected_goal_fingerprint=adapter["qualification_goal_fingerprint"],
+            expected_session_profile=contract.session_profile,
         )
         manifest.require(capability)
         return manifest

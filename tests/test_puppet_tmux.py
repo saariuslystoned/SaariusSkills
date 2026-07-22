@@ -16,6 +16,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
+from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
 from puppet_lib.tmux import TmuxController  # noqa: E402
 
 
@@ -187,7 +188,8 @@ class TmuxTransportTests(unittest.TestCase):
     def test_paste_bytes_streams_literal_data_via_stdin(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            controller = TmuxController(root)
+            sleeps = []
+            controller = TmuxController(root, _sleep_fn=sleeps.append)
             socket = root / "sock"
             payload = b"prompt:Do the task\ntest-bytes"
             calls = []
@@ -199,7 +201,7 @@ class TmuxTransportTests(unittest.TestCase):
             with patch.object(
                 controller,
                 "metadata",
-                return_value={"pane": "%1", "pane_dead": False},
+                return_value={"pane": "%1", "pane_pid": 42, "pane_dead": False},
             ):
                 with patch.object(controller, "assert_tmux_binary_identity"):
                     with patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run):
@@ -221,8 +223,48 @@ class TmuxTransportTests(unittest.TestCase):
             paste_calls = [call for call in calls if "paste-buffer" in call[0]]
             self.assertEqual(len(paste_calls), 1)
             self.assertEqual(paste_calls[0][0][-1], "%1")
+            submit_calls = [call for call in calls if "send-keys" in call[0]]
+            self.assertEqual(len(submit_calls), 1)
+            self.assertEqual(sleeps, [SUBMIT_SETTLE_SECONDS])
+            self.assertLess(calls.index(paste_calls[0]), calls.index(submit_calls[0]))
             flattened = " ".join(token for call in calls for token in call[0])
             self.assertIn("delete-buffer", flattened)
+
+    def test_paste_bytes_rechecks_pane_after_submit_settle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = TmuxController(root, _sleep_fn=lambda _: None)
+            socket = root / "sock"
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+
+            with patch.object(
+                controller,
+                "metadata",
+                side_effect=[
+                    {"pane": "%1", "pane_pid": 42, "pane_dead": False},
+                    {"pane": "%1", "pane_pid": 42, "pane_dead": True},
+                ],
+            ):
+                with patch.object(controller, "assert_tmux_binary_identity"):
+                    with patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run):
+                        with self.assertRaisesRegex(
+                            IdentityError, "changed before input submission"
+                        ):
+                            controller.paste_bytes(
+                                socket=socket,
+                                session="session-one",
+                                pane="%1",
+                                buffer_name="session-one-prompt",
+                                payload=b"message",
+                            )
+
+            self.assertTrue(any("paste-buffer" in call for call in calls))
+            self.assertFalse(any("send-keys" in call for call in calls))
+            self.assertTrue(any("delete-buffer" in call for call in calls))
 
     def test_tmux_binary_drift_is_detected(self):
         if not TmuxController.available():

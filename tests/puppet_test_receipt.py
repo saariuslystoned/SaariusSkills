@@ -9,6 +9,13 @@ import stat
 from pathlib import Path
 
 from puppet_lib.handoffs import validate_handoff
+from puppet_lib.profiles import (
+    INPUT_READINESS_STRATEGY,
+    OBSERVED_INPUT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    default_session_profile,
+    startup_settle_seconds_for,
+)
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 
@@ -31,6 +38,7 @@ def write_qualification_receipt(
     protocol_fingerprint: str,
     yolo_mapping_sha256: str,
     capabilities: list[str],
+    session_profile: str | None = None,
 ) -> dict:
     receipt_path = Path(receipt_path)
     run_root = receipt_path.parent
@@ -40,6 +48,8 @@ def write_qualification_receipt(
     session = "test-%s-session" % target
     nonce = "testnonce1234"
     timestamp = "2026-07-22T04:00:00Z"
+    if session_profile is None:
+        session_profile = default_session_profile(target)
     common = {
         "schema_version": 1,
         "checkpoint_kind": "conformance",
@@ -232,7 +242,11 @@ def write_qualification_receipt(
             "protocol_fingerprint": protocol_fingerprint,
             "yolo_mapping_sha256": yolo_mapping_sha256,
             "launch_argv_sha256": "8" * 64,
-            "input_transport": "tmux_load_buffer_stdin",
+            "input_transport": OBSERVED_INPUT_TRANSPORT,
+            "input_readiness_strategy": INPUT_READINESS_STRATEGY,
+            "session_profile": session_profile,
+            "startup_settle_seconds": startup_settle_seconds_for(target),
+            "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
             "payload_argv_absent": True,
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
@@ -295,6 +309,7 @@ def write_qualification_receipt(
         "kind": "real_harness_conformance",
         "run_id": run_id,
         "target": target,
+        "session_profile": session_profile,
         "result": "accepted",
         "controller": controller,
         "campaign_id": "test-campaign",

@@ -194,6 +194,16 @@ pin a harness/model. A later auto mode may switch only at declared task or
 checkpoint boundaries, must explain exact-version outcome evidence, must not
 hard-code permanent brand roles, and must never silently override the user.
 
+### `routing-002` — exhaustive provider slash-command catalog
+
+An exhaustive, versioned map of every provider slash command is deferred with
+auto mode. The current adapter surface declares only the major long-running
+session profiles needed for launch and conformance. If broader discovery later
+proves useful, keep the catalog in a generated or dedicated reference consumed
+by routing logic—not in `SKILL.md`—and bind every entry to an exact harness
+version and live qualification. Catalog presence alone must never enable a
+command or imply behavior proof.
+
 ## Closeout understanding
 
 Bootstrap Puppet N and accepted Puppet N+1 must form a transcript-blind,

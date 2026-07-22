@@ -50,6 +50,13 @@ from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .journal import Journal
+from .profiles import (
+    INPUT_READINESS_STRATEGY,
+    OBSERVED_INPUT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    startup_settle_seconds_for,
+    validate_session_profile,
+)
 from .registry import (
     process_alive,
     process_birth_identity,
@@ -327,6 +334,7 @@ def _controller_contract(
     controller: str,
     target: str,
     profile: str,
+    session_profile: str,
 ) -> Contract:
     raw = {
         "schema_version": 1,
@@ -334,6 +342,7 @@ def _controller_contract(
         "campaign_authorization_id": campaign_id,
         "controller": controller,
         "target": target,
+        "session_profile": session_profile,
         "requested_model": None,
         "requested_effort": None,
         "task_profile": profile,
@@ -723,6 +732,7 @@ def run_probe(
     *,
     target: str,
     profile: str,
+    session_profile: str,
     proof_root: Path,
     manifest_path: Path,
     mapping_path: Path,
@@ -764,6 +774,7 @@ def run_probe(
         raise ValidationError("unsupported probe target")
     if profile != PROBE_PROFILE:
         raise ValidationError("probe profile must be the fixed source-free Pass B contract")
+    session_profile = validate_session_profile(target, session_profile)
     validate_identifier(controller, "controller")
     if controller == target:
         raise ValidationError("a target cannot act as its own probe controller")
@@ -824,6 +835,7 @@ def run_probe(
         "target": target,
         "controller": controller,
         "profile": profile,
+        "session_profile": session_profile,
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
         "phase": "preflight",
@@ -851,6 +863,7 @@ def run_probe(
         "target": target,
         "controller": controller,
         "profile": profile,
+        "session_profile": session_profile,
         "campaign_id": authorization["campaign_id"],
         "goal_fingerprint": goal_verification["goal_fingerprint"],
         "authorization_sha256": sha256_file(
@@ -866,7 +879,10 @@ def run_probe(
         "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
         "yolo_mapping_sha256": sha256_bytes(canonical_json_bytes(mapping)),
         "launch_argv_sha256": sha256_bytes(canonical_json_bytes(argv)),
-        "input_transport": "tmux_load_buffer_stdin",
+        "input_transport": OBSERVED_INPUT_TRANSPORT,
+        "input_readiness_strategy": INPUT_READINESS_STRATEGY,
+        "startup_settle_seconds": startup_settle_seconds_for(target),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "payload_argv_absent": True,
         "active_target_processes_before_launch": [],
         "active_target_processes_after_halt": None,
@@ -958,6 +974,7 @@ def run_probe(
             controller=controller,
             target=target,
             profile=profile,
+            session_profile=session_profile,
         )
         atomic_write_json(run_root / "controller-contract.json", controller_contract.raw)
 
@@ -1111,11 +1128,29 @@ def run_probe(
         _write_state(
             state_path,
             state,
-            "awaiting_ready",
+            "settling_input",
             tmux=evidence["tmux"],
             process=process,
             attach_command=attach,
         )
+        settle_seconds = startup_settle_seconds_for(target)
+        _sleep_fn(settle_seconds)
+        population_guard()
+        _assert_runtime(
+            tmux=tmux,
+            socket=socket,
+            session=session,
+            pane=metadata["pane"],
+            pane_pid=metadata["pane_pid"],
+            socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
+            process=process,
+            process_alive_fn=_process_alive_fn,
+        )
+        _assert_executable_identity(manifest)
+        _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
+        _write_state(state_path, state, "awaiting_ready")
 
         ready_value = _handoff_value(
             phase="ready",
@@ -1123,8 +1158,11 @@ def run_probe(
             fixture_contract=fixture_contract,
             manifest=manifest,
         )
-        initial = adapter_for(target).envelope(
-            _initial_prompt(fixture_contract, ready_value)
+        adapter = adapter_for(target)
+        initial = adapter.envelope(
+            _initial_prompt(fixture_contract, ready_value),
+            session_profile,
+            initial=True,
         )
         initial_payload = _payload(initial)
         if any(
@@ -1194,8 +1232,10 @@ def run_probe(
             message_id=message_id,
             prior_checkpoint_sha256=ready.artifact_sha256,
         )
-        followup_message = adapter_for(target).envelope(
-            _followup_prompt(fixture_contract, followup_value)
+        followup_message = adapter.envelope(
+            _followup_prompt(fixture_contract, followup_value),
+            session_profile,
+            initial=False,
         )
         followup_payload = _payload(followup_message)
         population_guard()
@@ -1346,6 +1386,7 @@ def run_probe(
             "kind": "real_harness_conformance",
             "run_id": run_id,
             "target": target,
+            "session_profile": session_profile,
             "result": "accepted",
             "controller": controller,
             "campaign_id": authorization["campaign_id"],
@@ -1629,6 +1670,12 @@ def recover_probe(
     evidence = read_json(
         evidence_path, max_bytes=131072, reject_sensitive_fields=True
     )
+    state_session_profile = validate_session_profile(
+        target, state.get("session_profile")
+    )
+    evidence_session_profile = validate_session_profile(
+        target, evidence.get("session_profile")
+    )
     session = _session_id(target, run_id)
     probe_lease_owner = build_lease_owner(
         activity="probe",
@@ -1646,6 +1693,7 @@ def recover_probe(
         or evidence.get("run_id") != run_id
         or evidence.get("target") != target
         or evidence.get("controller") != controller
+        or state_session_profile != evidence_session_profile
         or evidence.get("campaign_id") != expected_campaign_id
         or evidence.get("goal_fingerprint")
         != goal_verification["goal_fingerprint"]
@@ -1711,6 +1759,7 @@ def recover_probe(
                 "ok": True,
                 "run_id": run_id,
                 "target": target,
+                "session_profile": state_session_profile,
                 "result": "accepted",
                 "recovered": recovered,
                 "receipt": str(receipt_path),

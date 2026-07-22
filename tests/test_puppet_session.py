@@ -36,7 +36,7 @@ from puppet_lib.session import (  # noqa: E402
     accept_checkpoint,
     halt,
     import_checkpoint,
-    launch,
+    launch as _launch,
     record_beacon,
     review_checkpoint,
     send_message,
@@ -44,6 +44,13 @@ from puppet_lib.session import (  # noqa: E402
     wait_for,
 )
 from puppet_lib.tmux import TmuxController  # noqa: E402
+from puppet_lib.profiles import (  # noqa: E402
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    default_session_profile,
+    session_profiles_for,
+    startup_settle_seconds_for,
+)
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
@@ -63,6 +70,11 @@ HARD_GATES = [
 
 def write_json(path: Path, value):
     path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def launch(**kwargs):
+    kwargs.setdefault("_sleep_fn", lambda _interval: None)
+    return _launch(**kwargs)
 
 
 def git(repo: Path, *arguments: str) -> str:
@@ -115,12 +127,16 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "launch_argv": [str(executable)],
         "permission_declared": True,
         "permission_flags": ["test-owned-process"],
-        "prompt_transport": "tmux_stdin_buffer",
+        "prompt_transport": PROMPT_TRANSPORT,
         "prompt_transport_declared": True,
         "sandbox_disable_declared": True,
         "sandbox_flags": ["test-owned-process"],
         "project_isolation_declared": True,
         "project_isolation_flags": [],
+        "session_profiles": session_profiles_for(target),
+        "session_profiles_declared": True,
+        "startup_settle_seconds": startup_settle_seconds_for(target),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
     }
     platform_value = {"system": "Darwin", "release": "test", "machine": "test"}
     platform_fingerprint = hashlib.sha256(
@@ -187,6 +203,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "qualification": {
             "receipt_path": str(receipt_path),
             "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+            "session_profile": default_session_profile(target),
         },
     }
     return AdapterManifest.from_dict(raw).raw

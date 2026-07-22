@@ -64,6 +64,7 @@ def _probe(args):
     return run_probe(
         target=args.target,
         profile=args.profile,
+        session_profile=args.session_profile,
         proof_root=args.proof_root,
         manifest_path=args.manifest,
         mapping_path=args.mapping,
@@ -109,7 +110,12 @@ def _verified_receipt(path: Path):
 
 def _verify(args):
     run = _verified_receipt(args.run)
-    return {"ok": True, "result": run["result"], "target": run["target"]}
+    return {
+        "ok": True,
+        "result": run["result"],
+        "target": run["target"],
+        "session_profile": run["session_profile"],
+    }
 
 
 def _qualify(args):
@@ -133,6 +139,7 @@ def _qualify(args):
     raw["qualification"] = {
         "receipt_path": str(receipt_path),
         "receipt_sha256": sha256_file(receipt_path, max_bytes=131072),
+        "session_profile": receipt["session_profile"],
     }
     qualified = AdapterManifest.from_dict(raw)
     qualified.verify_qualification()
@@ -140,6 +147,7 @@ def _qualify(args):
     return {
         "ok": True,
         "target": qualified.target,
+        "session_profile": receipt["session_profile"],
         "manifest_fingerprint": qualified.fingerprint,
         "out": str(args.out),
     }
@@ -163,6 +171,7 @@ def build_parser():
     probe_parser.add_argument(
         "--profile", required=True, choices=["source-free-pass-b-v1"]
     )
+    probe_parser.add_argument("--session-profile", required=True)
     probe_parser.add_argument("--proof-root", required=True, type=Path)
     probe_parser.add_argument("--manifest", required=True, type=Path)
     probe_parser.add_argument("--mapping", required=True, type=Path)

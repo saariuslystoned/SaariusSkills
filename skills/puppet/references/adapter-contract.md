@@ -52,7 +52,8 @@ The operational sequence is:
 
 ```text
 adapter_lab.py probe --profile source-free-pass-b-v1 \
-  --target TARGET --proof-root ROOT --manifest MANIFEST --mapping MAPPING \
+  --target TARGET --session-profile SESSION_PROFILE \
+  --proof-root ROOT --manifest MANIFEST --mapping MAPPING \
   --authorization AUTH --controller CONTROLLER --campaign-id CAMPAIGN \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
   --goal-path PATH --goal-sha256 SHA256 [--run-id RUN]
@@ -81,13 +82,40 @@ graceful halt behavior. Use exact positive PID `SIGINT` for non-AGY halt; AGY
 halts through private-pane EOF only. Never send tmux `C-c` or process-group
 signals. Return `unsupported` when any piece is unknown.
 
+The current major long-running session profiles are deliberately small:
+
+`session_profile` is Puppet's native session-mode selector; it is distinct from
+the task profile, the probe contract's `--profile`, and provider config profiles.
+
+| Target | Qualified profiles | Initial native command |
+| --- | --- | --- |
+| AGY | `regular`, `goal`, `teamwork-preview` | none, `/goal`, `/teamwork-preview` |
+| Codex | `regular`, `goal` | none, `/goal` |
+| Claude | `regular`, `loop`, `goal` | none, `/loop`, `/goal` |
+| Cursor | `regular` | none |
+| Grok | `regular` | none |
+
+The contract pins one `session_profile`, and each target/profile pair requires
+its own Pass B receipt. Launch the bare YOLO CLI with no prompt body in argv,
+wait through the declared bounded structural settle, revalidate the exact pane
+and process, then prepend the selected native command to the initial message
+only. Literal paste and Enter are separated by their own bounded settle and pane
+recheck because current TUIs can discard an immediate submit. Follow-ups are
+ordinary unprefixed steering. These settles are race mitigations, not readiness
+claims; only the strict handoff proves consumption.
+
+Codex may present a first-use workspace-trust gate before its composer exists.
+That is a human-present security/configuration gate, not input readiness. Puppet
+must not answer it, edit or inspect Codex configuration, or paste a task into
+the gate. Qualify Codex only in an already trusted exact fixture root; otherwise
+stop with the trust gate as the blocker.
+
 AGY launches require exactly one help-proved `--new-project` flag in a
 separately declared and fingerprinted project-isolation bucket. This prevents a
 qualification run from silently joining the default AGY project; it does not
-claim a separate credential or global data store. AGY substantive messages
-receive exactly one literal `/teamwork-preview` prefix. Cursor's standalone and
-application subcommand entrypoints remain separate until process and
-fingerprint equivalence is controller-proved.
+claim a separate credential or global data store. Cursor's standalone and
+application subcommand entrypoints remain separate until process and fingerprint
+equivalence is controller-proved.
 
 The local controller ledger is deliberately proof-root and checkout
 independent, but it is cooperative same-UID authority rather than a signature

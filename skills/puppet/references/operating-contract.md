@@ -48,6 +48,12 @@ must return to the exact protected baseline before a receipt can be accepted.
 
 ## Lifecycle
 
+Startup is `bare YOLO CLI -> bounded structural settle -> exact identity
+recheck -> initial profile command plus prompt`. The settle never establishes
+semantic readiness; a validated checkpoint is the first consumption proof.
+Native profile commands are launch selectors, so subsequent steering remains
+unprefixed.
+
 The source-free conformance branch is:
 
 ```text

@@ -39,6 +39,13 @@ from puppet_lib.probe import (  # noqa: E402
     run_probe,
 )
 from puppet_lib.contracts import TARGET_POPULATION_POLICY  # noqa: E402
+from puppet_lib.profiles import (  # noqa: E402
+    PROMPT_TRANSPORT,
+    SUBMIT_SETTLE_SECONDS,
+    default_session_profile,
+    session_profiles_for,
+    startup_settle_seconds_for,
+)
 from puppet_lib.safety import (  # noqa: E402
     canonical_json_bytes,
     sha256_bytes,
@@ -66,12 +73,16 @@ def manifest_value(target: str = "codex"):
         + project_isolation_flags,
         "permission_declared": True,
         "permission_flags": permission_flags,
-        "prompt_transport": "interactive_tmux_buffer_declared",
+        "prompt_transport": PROMPT_TRANSPORT,
         "prompt_transport_declared": True,
         "sandbox_disable_declared": True,
         "sandbox_flags": [],
         "project_isolation_declared": True,
         "project_isolation_flags": project_isolation_flags,
+        "session_profiles": session_profiles_for(target),
+        "session_profiles_declared": True,
+        "startup_settle_seconds": startup_settle_seconds_for(target),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
     }
     raw = {
         "schema_version": 1,
@@ -431,6 +442,7 @@ def execute(
     fake,
     *,
     target="codex",
+    session_profile=None,
     run_id="probe-test-1",
     active=None,
     timeout=1.0,
@@ -440,10 +452,14 @@ def execute(
     population_snapshot_fn=None,
     active_processes_fn=None,
     expected_goal=None,
+    sleep_fn=None,
 ):
     return run_probe(
         target=target,
         profile="source-free-pass-b-v1",
+        session_profile=(
+            default_session_profile(target) if session_profile is None else session_profile
+        ),
         proof_root=files["proof"],
         manifest_path=files["manifest"],
         mapping_path=files["mapping"],
@@ -475,12 +491,52 @@ def execute(
         _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
             observed_manifest or files["raw"]
         ),
-        _sleep_fn=lambda interval: None,
+        _sleep_fn=sleep_fn or (lambda interval: None),
         _authority_root=files["authority"],
     )
 
 
 class ProbeTests(unittest.TestCase):
+    def test_startup_settle_precedes_initial_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            sleeps = []
+
+            def settle(interval):
+                if not sleeps:
+                    self.assertEqual(fake.payloads, [])
+                sleeps.append(interval)
+
+            execute(
+                files,
+                fake,
+                run_id="probe-input-settle-order",
+                sleep_fn=settle,
+            )
+            self.assertGreaterEqual(len(sleeps), 1)
+            self.assertEqual(sleeps[0], startup_settle_seconds_for("codex"))
+            self.assertEqual(len(fake.payloads), 2)
+
+    def test_process_death_during_startup_settle_prevents_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+
+            def die_during_settle(_interval):
+                fake.alive = False
+
+            with self.assertRaises(IdentityError):
+                execute(
+                    files,
+                    fake,
+                    run_id="probe-input-settle-death",
+                    sleep_fn=die_during_settle,
+                )
+            self.assertEqual(fake.payloads, [])
+
     def test_population_policy_accepts_only_exact_registered_descendants(self):
         protected = [static_process_identity(991)]
         registered = static_process_identity(4242)
@@ -958,6 +1014,7 @@ class ProbeTests(unittest.TestCase):
             raw["qualification"] = {
                 "receipt_path": result["receipt"],
                 "receipt_sha256": sha256_file(Path(result["receipt"])),
+                "session_profile": receipt["session_profile"],
             }
             raw["capabilities"] = {
                 name: "controller_verified" if name in receipt["capabilities"] else "unsupported"
@@ -974,6 +1031,14 @@ class ProbeTests(unittest.TestCase):
                 )["result"],
                 "accepted",
             )
+            with self.assertRaisesRegex(IdentityError, "session profile"):
+                manifest.verify_qualification(
+                    expected_session_profile="goal",
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
 
     def test_active_same_target_blocks_without_exact_override(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1378,6 +1443,7 @@ class ProbeTests(unittest.TestCase):
             raw["qualification"] = {
                 "receipt_path": result["receipt"],
                 "receipt_sha256": sha256_file(Path(result["receipt"])),
+                "session_profile": receipt["session_profile"],
             }
             raw["capabilities"] = {
                 name: (
@@ -1811,6 +1877,7 @@ class ProbeTests(unittest.TestCase):
                 run_probe(
                     target="codex",
                     profile="arbitrary",
+                    session_profile=default_session_profile("codex"),
                     proof_root=files["proof"],
                     manifest_path=files["manifest"],
                     mapping_path=files["mapping"],

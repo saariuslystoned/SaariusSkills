@@ -364,7 +364,11 @@ Behavior:
   `submitted`, and target-acknowledged; transport success alone is not proof the
   parent consumed the steering turn.
 
-For AGY, every substantive message must begin with exactly one literal `/teamwork-preview`. Reject `/btw`, `/side`, empty messages, and duplicated prefixes. The caller supplies the content; the adapter supplies the prefix.
+For AGY `teamwork-preview` sessions, only the initial substantive message begins
+with exactly one literal `/teamwork-preview`. Reject `/btw`, `/side`, empty
+messages, and caller-supplied profile prefixes. The caller supplies content; the
+adapter supplies the selected native launch command. Follow-ups are ordinary
+unprefixed steering messages.
 
 ### `status`
 
@@ -683,7 +687,8 @@ Requirements:
 - Live launch is allowed only when the installed AGY fingerprint maps to its
   verified permission-bypass behavior with the sandbox disabled or absent.
 - Model and effort selection use verified launch flags when available; otherwise use a deterministic, separately proven selector. Never silently accept model drift.
-- Initial and follow-up substantive messages begin with exactly one `/teamwork-preview`.
+- The initial substantive message begins with exactly one selected native profile
+  command; follow-ups remain unprefixed.
 - `/btw`, `/side`, duplicate prefixes, and direct transcript inspection are prohibited.
 - Prefer one persistent AGY parent and no nested AGY process.
 - Use AGY-native helpers, messaging, scheduling, and task management from the target parent.
@@ -1218,7 +1223,8 @@ substitute for these real behaviors.
   transcript, or secret material.
 - One command launches an exact target in a durable tmux session.
 - The human receives a functioning read-only attach command.
-- Every AGY substantive message begins with exactly one `/teamwork-preview` without relying on controller memory.
+- Every AGY session applies its selected native profile command exactly once to
+  the initial substantive message without relying on controller memory.
 - Every live adapter is YOLO-only; the package warns users upfront, requires an
   explicit local acknowledgement, proves the exact current-version
   auto-approve/sandbox-disable mapping, and otherwise fails closed.

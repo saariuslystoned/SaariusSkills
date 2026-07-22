@@ -29,6 +29,7 @@ from .errors import ConflictError, IdentityError, UnsupportedError, ValidationEr
 from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .journal import Journal
+from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
 from .registry import (
     SessionRegistry,
     process_alive,
@@ -605,6 +606,7 @@ def doctor(
                 expected_controller=authority["controller"],
                 expected_campaign_id=authority["campaign_id"],
                 expected_goal_fingerprint=authority["goal_fingerprint"],
+                expected_session_profile=contract.session_profile,
             )
         except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
@@ -612,6 +614,7 @@ def doctor(
         "ok": True,
         "warning": YOLO_WARNING,
         "target": contract.target,
+        "session_profile": contract.session_profile,
         "contract_fingerprint": contract.fingerprint,
         "manifest_fingerprint": manifest.fingerprint,
         "repo": str(contract.repo),
@@ -640,6 +643,7 @@ def launch(
     prompt: str,
     requested_model: Optional[str] = None,
     requested_effort: Optional[str] = None,
+    _sleep_fn: Any = time.sleep,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     report = doctor(
@@ -664,6 +668,7 @@ def launch(
         expected_controller=qualification_authority["controller"],
         expected_campaign_id=qualification_authority["campaign_id"],
         expected_goal_fingerprint=qualification_authority["goal_fingerprint"],
+        expected_session_profile=contract.session_profile,
     )
     if requested_model is not None and requested_model != contract.requested_model:
         raise ValidationError("CLI model selection must match the bound contract")
@@ -694,7 +699,11 @@ def launch(
         proof_root=proof_root,
         state_root=state_root,
     )
-    initial = adapter.envelope(_initial_envelope(contract, protocol, session, prompt))
+    initial = adapter.envelope(
+        _initial_envelope(contract, protocol, session, prompt),
+        session_profile=contract.session_profile,
+        initial=True,
+    )
     initial_sha = sha256_bytes(_message_payload(initial))
     registry = SessionRegistry(state_root)
     tmux = TmuxController(state_root)
@@ -833,6 +842,31 @@ def launch(
                 "tmux_target_id": metadata["pane"],
             },
         )
+        settle_seconds = startup_settle_seconds_for(contract.target)
+        _sleep_fn(settle_seconds)
+        settled = tmux.metadata(
+            socket=Path(metadata["socket"]),
+            session=session,
+            pane=metadata["pane"],
+            server_identity=metadata["server_identity"],
+        )
+        if (
+            settled.get("pane") != metadata["pane"]
+            or settled.get("pane_pid") != process["pid"]
+            or settled.get("pane_dead") is True
+            or not process_alive(process)
+        ):
+            raise IdentityError("target changed during bounded startup settle")
+        manifest.verify_process_executable(process)
+        journal.append(
+            request_id=_delivery_request_id(session, session, "input-settled"),
+            event={
+                "kind": "launch",
+                "phase": "input_settled",
+                "strategy": INPUT_READINESS_STRATEGY,
+                "seconds": settle_seconds,
+            },
+        )
         delivery = _deliver(
             tmux=tmux,
             socket=Path(metadata["socket"]),
@@ -935,7 +969,7 @@ def send_message(
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)
-        _bound_contract(record)
+        contract = _bound_contract(record)
         tmux, _ = _runtime(registry, record, "send", require_process=True)
         adapter = adapter_for(record["target"])
         protocol = dict(record["protocol"])
@@ -952,12 +986,16 @@ def send_message(
             if not first_submission and not replay:
                 raise ValidationError("conformance follow-up is not currently authorized")
             enveloped = adapter.envelope(
-                _followup_envelope(protocol, request_id, message)
+                _followup_envelope(protocol, request_id, message),
+                contract.session_profile,
+                initial=False,
             )
         else:
             if record["state"] not in {"ACTIVE", "WAITING_EXTERNAL"}:
                 raise ValidationError("source session is not accepting messages")
-            enveloped = adapter.envelope(message)
+            enveloped = adapter.envelope(
+                message, contract.session_profile, initial=False
+            )
         delivery = _deliver(
             tmux=tmux,
             socket=Path(record["tmux"]["socket"]),
@@ -982,7 +1020,7 @@ def send_message(
 def status(*, state_root: Path, session: str) -> Dict[str, Any]:
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
-    _bound_contract(record)
+    contract = _bound_contract(record)
     _, metadata = _runtime(registry, record, "status", require_process=False)
     alive = process_alive(record["process"])
     return {
@@ -990,6 +1028,7 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
         "session": session,
         "controller": record["controller"],
         "target": record["target"],
+        "session_profile": contract.session_profile,
         "repo": record["repo"],
         "branch": record["branch"],
         "mutation_owner": record["mutation_owner"],
