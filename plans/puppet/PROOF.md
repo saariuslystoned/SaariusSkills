@@ -1,9 +1,9 @@
 # Puppet GrillTrack public closeout proof
 
 > Historical scope: this is the immutable design-closeout claim from before
-> implementation. It is not the current runtime verdict. See
-> `proof/puppet-v01/` for commit-bound implementation proof as that campaign is
-> promoted into the repository.
+> implementation. It is not the current runtime verdict. No sanitized runtime
+> proof root is committed yet; see `instruction-qualification.md` and
+> `codex-goal-regular-qualification.md` for the active campaign amendment.
 
 ## Scope and verdict
 
@@ -34,7 +34,11 @@ read-only first AGY stop, pre-mutation independent review qualification,
 immutable-between-session self-hosting promotion, and explicit external-action
 gates.
 
-## Public artifacts
+## Historical public artifacts
+
+The following hashes bind the files exactly as merged by PR #4 at commit
+`7193d11df03cc3ec54fbd8d98e6f5b7be1154f84`. Later implementation commits may
+change the current files without changing this historical closeout claim.
 
 | Artifact | Role | SHA-256 |
 |---|---|---|
@@ -43,8 +47,9 @@ gates.
 | `prior-proof-provenance.md` | Public-safe evidence families, limitations, license rules, and fresh deltas | `78651f33d05aa9155026fdeac243efc13f4640a6c993429c10760312a329ba8a` |
 | `DECISIONS.md` | All verified, superseded, and deferred GrillTrack decisions | `13a83260ee4e27ac9c6e8b15ba9159a2bd37468b2f27fb2fb957ce7d230dd822` |
 
-These hashes bind the public, operator-neutral forms rather than the local
-working copies used during the private GrillTrack conversation.
+These hashes bind the PR #4 public, operator-neutral forms rather than the
+current branch or the local working copies used during the private GrillTrack
+conversation.
 
 ## Public-boundary review
 
@@ -102,10 +107,11 @@ Document checks cover:
 - a clean diff containing only the curated plan, root discoverability, and
   contribution-policy clarification.
 
-The branch starts from public `origin/main` commit
-`05ddea1d12ca370aca8c822f9a86920bb4c64b65`. Publication is documentation-only:
-it does not register a Puppet plugin, add `skills/puppet/`, or change runtime
-packaging.
+The historical branch started from public `origin/main` commit
+`05ddea1d12ca370aca8c822f9a86920bb4c64b65`. That publication was
+documentation-only: it did not register a Puppet plugin, add `skills/puppet/`,
+or change runtime packaging. Those statements describe the PR #4 snapshot, not
+the later implementation branch.
 
 ## Residual risks and next proof
 

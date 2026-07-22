@@ -1,9 +1,15 @@
 # Puppet pre-implementation bundle
 
-Status: historical GrillTrack design-closeout snapshot. Bootstrap source now
-lives under `skills/puppet/`; current implementation proof is tracked
-separately under `proof/puppet-v01/`. The live five-harness campaign remains
-in progress until that newer proof says otherwise.
+Status: the original GrillTrack design-closeout snapshot is preserved here.
+Bootstrap source now lives under `skills/puppet/`. Machine-private dogfood
+proof is intentionally excluded from the public branch; the live five-harness
+campaign remains incomplete until commit-bound public proof says otherwise.
+
+The active 2026-07-22 campaign amendment is
+[`instruction-qualification.md`](instruction-qualification.md). It narrows the
+first portable baseline to regular sessions, adds instruction-plane safety and
+qualification, and permits isolated per-harness qualification lanes. Where it
+conflicts with the historical packet, the amendment wins for new work.
 
 At the time of this snapshot, Puppet was a proposed skill and CLI for
 supervising real coding-agent harnesses
@@ -20,8 +26,15 @@ conversation.
 
 ## Start here
 
-- [`codex-goal.md`](codex-goal.md) is the self-contained goal packet used by
-  the implementation campaign.
+- [`codex-goal-regular-qualification.md`](codex-goal-regular-qualification.md)
+  is the active autonomous Codex goal packet.
+- [`instruction-qualification.md`](instruction-qualification.md) records the
+  post-closeout decisions on instruction composition, workspace ownership,
+  regular-session scope, concurrency, models, and deferred native commands.
+- [`codex-goal.md`](codex-goal.md) is the historical bootstrap goal packet. Its
+  unchanged safety, evidence, and controller-authority clauses still apply,
+  but its serial/profile-specific requirements are superseded by the active
+  amendment.
 - [`implementation-seed.md`](implementation-seed.md) is the complete product,
   CLI, adapter, lifecycle, trust, test, and acceptance contract.
 - [`prior-proof-provenance.md`](prior-proof-provenance.md) maps the existing
@@ -42,18 +55,21 @@ Run the repository tests plus the structural and hash checks recorded in
 [`PROOF.md`](PROOF.md). The public bundle is intentionally not a resumable raw
 `.grilltrack` state directory.
 
-The closed track contains 12 verified decisions, four superseded decisions,
-and one intentionally deferred decision: evidence-based automatic harness/model
-routing. The goal captures routing telemetry now but keeps explicit user
-selection authoritative.
+The initial closed track contains 12 verified decisions, four superseded
+decisions, and deferred evidence-based automatic harness/model routing. The
+2026-07-22 amendment keeps automatic routing deferred, preserves explicit user
+selection, and records the new instruction-plane and regular-baseline policy.
 
 ## Implementation boundary
 
-The first implementation campaign must start in a fresh isolated worktree. It
-may create local commits and run the serial real-harness proof ladder described
-in the goal, but the packet itself grants no push, pull-request, merge, deploy,
-publication, global-install, external-send, spending, destructive-cleanup,
-account/security, or secret authority.
+Mutating work must use isolated worktrees. The active campaign may create local
+commits and run isolated real-harness proof lanes under the submitted goal. It
+may not modify live operator-global harness files or interfere with sessions it
+did not create. Repository text by itself grants no push, pull-request, merge,
+deploy, publication, global-install, external-send, spending,
+destructive-cleanup, account/security, or secret authority. A deliberately
+submitted goal may record separate operator authority for one named draft PR;
+the active goal permits updates to PR #5 but still forbids merge.
 
 No target terminal, transcript, conversation store, pane capture, credential,
 or auth log was copied into this bundle. The current CLI versions and AGY
