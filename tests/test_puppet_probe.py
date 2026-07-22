@@ -31,9 +31,11 @@ from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
     _acquire_campaign_probe_lock,
     _release_campaign_probe_lock,
+    _validated_target_population,
     recover_probe,
     run_probe,
 )
+from puppet_lib.contracts import TARGET_POPULATION_POLICY  # noqa: E402
 from puppet_lib.safety import (  # noqa: E402
     canonical_json_bytes,
     sha256_bytes,
@@ -398,6 +400,8 @@ def execute(
     observed_manifest=None,
     process_birth_fn=None,
     continuous_population_fn=None,
+    population_snapshot_fn=None,
+    active_processes_fn=None,
     expected_goal=None,
 ):
     return run_probe(
@@ -418,7 +422,8 @@ def execute(
         _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
         _server_process_birth_fn=lambda pid: fake.server_process,
         _process_alive_fn=lambda identity: fake.alive,
-        _active_processes_fn=lambda selected: list(active or []),
+        _active_processes_fn=active_processes_fn
+        or (lambda selected: list(active or [])),
         _continuous_population_fn=continuous_population_fn
         or (
             lambda selected: [
@@ -426,6 +431,7 @@ def execute(
                 *([process_identity(fake)] if fake.alive else []),
             ]
         ),
+        _population_snapshot_fn=population_snapshot_fn,
         _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
         _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
             observed_manifest or files["raw"]
@@ -436,6 +442,95 @@ def execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_population_policy_accepts_only_exact_registered_descendants(self):
+        protected = [static_process_identity(991)]
+        registered = static_process_identity(4242)
+        child = static_process_identity(4999)
+        grandchild = static_process_identity(5000)
+
+        direct = _validated_target_population(
+            snapshot={
+                "processes": [protected[0], registered, child],
+                "parents": {4999: 4242},
+            },
+            protected=protected,
+            registered=registered,
+            process_alive_fn=lambda identity: True,
+        )
+        self.assertEqual(direct["descendants"], [child])
+        self.assertEqual(direct["ancestry_chains"], [[4999, 4242]])
+
+        nested = _validated_target_population(
+            snapshot={
+                "processes": [protected[0], registered, child, grandchild],
+                "parents": {4999: 4242, 5000: 4999},
+            },
+            protected=protected,
+            registered=registered,
+            process_alive_fn=lambda identity: True,
+        )
+        self.assertEqual(nested["descendants"], [child, grandchild])
+        self.assertEqual(
+            nested["ancestry_chains"], [[4999, 4242], [5000, 4999, 4242]]
+        )
+
+        disappeared = _validated_target_population(
+            snapshot={
+                "processes": [protected[0], registered],
+                "parents": {},
+            },
+            protected=protected,
+            registered=registered,
+            process_alive_fn=lambda identity: True,
+        )
+        self.assertEqual(disappeared["descendants"], [])
+
+    def test_population_policy_rejects_unproved_or_drifted_extras(self):
+        protected = [static_process_identity(991)]
+        registered = static_process_identity(4242)
+        child = static_process_identity(4999)
+        cases = {
+            "unrelated": ({4999: 7777, 7777: 1}, child, lambda identity: True),
+            "protected": ({4999: 991}, child, lambda identity: True),
+            "missing": ({}, child, lambda identity: True),
+            "cycle": ({4999: 5000, 5000: 4999}, child, lambda identity: True),
+            "pid_reuse": (
+                {4999: 4242},
+                child,
+                lambda identity: identity["pid"] != 4999,
+            ),
+            "executable_drift": (
+                {4999: 4242},
+                dict(child, inode=child["inode"] + 1),
+                lambda identity: True,
+            ),
+        }
+        for name, (parents, extra, alive) in cases.items():
+            with self.subTest(name=name), self.assertRaises(IdentityError):
+                _validated_target_population(
+                    snapshot={
+                        "processes": [protected[0], registered, extra],
+                        "parents": parents,
+                    },
+                    protected=protected,
+                    registered=registered,
+                    process_alive_fn=alive,
+                )
+
+        with self.assertRaisesRegex(IdentityError, "identity changed"):
+            _validated_target_population(
+                snapshot={
+                    "processes": [
+                        protected[0],
+                        dict(registered, start="different birth"),
+                    ],
+                    "parents": {},
+                },
+                protected=protected,
+                registered=registered,
+                process_alive_fn=lambda identity: True,
+            )
+
     def test_success_emits_accepted_receipt_without_prompt_argv_and_preserves_tmux(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -457,6 +552,72 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(halt["tmux_preserved"])
             self.assertFalse(fake.alive)
             self.assertTrue(fake.preserved)
+            self.assertEqual(len(fake.interrupts), 1)
+
+    def test_probe_accepts_same_binary_descendant_and_records_ancestry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            child = static_process_identity(4999)
+
+            def population(_target):
+                if not fake.alive:
+                    return {"processes": [], "parents": {}}
+                return {
+                    "processes": [process_identity(fake), child],
+                    "parents": {4999: fake.pid},
+                }
+
+            result = execute(
+                files,
+                fake,
+                run_id="probe-descendant",
+                population_snapshot_fn=population,
+            )
+            evidence = json.loads(
+                (Path(result["run_root"]) / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                evidence["target_population_policy"], TARGET_POPULATION_POLICY
+            )
+            self.assertEqual(evidence["observed_target_descendants"], [child])
+            self.assertEqual(
+                evidence["last_target_population"]["ancestry_chains"],
+                [[4999, fake.pid]],
+            )
+
+    def test_probe_rejects_same_target_descendant_that_survives_exact_halt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            child = static_process_identity(4999)
+            active_calls = {"count": 0}
+
+            def active_after_halt(_target):
+                active_calls["count"] += 1
+                return [] if active_calls["count"] <= 2 else [child]
+
+            def population(_target):
+                return {
+                    "processes": [process_identity(fake), child],
+                    "parents": {4999: fake.pid},
+                }
+
+            with self.assertRaisesRegex(
+                IdentityError, "protected same-target process population changed"
+            ):
+                execute(
+                    files,
+                    fake,
+                    run_id="probe-descendant-survives-halt",
+                    population_snapshot_fn=population,
+                    active_processes_fn=active_after_halt,
+                )
+            self.assertFalse(fake.alive)
             self.assertEqual(len(fake.interrupts), 1)
 
     def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
@@ -913,7 +1074,7 @@ class ProbeTests(unittest.TestCase):
                     baseline.append(static_process_identity(4999))
                 return baseline
 
-            with self.assertRaisesRegex(IdentityError, "population changed"):
+            with self.assertRaisesRegex(IdentityError, "ancestry chain"):
                 execute(
                     files,
                     fake,

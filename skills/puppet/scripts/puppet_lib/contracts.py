@@ -19,6 +19,7 @@ from .safety import (
 
 
 TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
+TARGET_POPULATION_POLICY = "protected-plus-root-plus-exact-descendants-v1"
 ALLOWED_MODES = frozenset({"read", "test", "mutate", "local_commit"})
 MANDATORY_HARD_GATES = frozenset(
     {

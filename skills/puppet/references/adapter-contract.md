@@ -33,6 +33,17 @@ the same exact run and identity inputs. Recovery never launches a target: it
 verifies an already complete receipt or reconciles and gracefully halts only
 the exact persisted target.
 
+During a live probe, the target-population guard admits only the exact
+authorized pre-existing population, the exact registered pane process, and
+bounded same-executable processes whose freshly sampled PPID chain reaches
+that registered process. The sample uses `pid`, `ppid`, `lstart`, and `comm`;
+it never reads argv or terminal content. Missing ancestry, protected-process
+ancestry, PID reuse, executable drift, cycles, or unrelated same-name
+processes fail closed. Descendants are evidence, never signaling authority:
+halt controls still address only the registered private pane, and accepted
+proof requires the post-halt target population to equal the exact protected
+baseline.
+
 The operational sequence is:
 
 ```text

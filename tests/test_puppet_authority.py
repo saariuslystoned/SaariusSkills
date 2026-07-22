@@ -114,6 +114,40 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(observed, [101, 103])
         self.assertEqual(result, [{"pid": 101}, {"pid": 103}])
 
+    def test_target_process_snapshot_binds_ppid_birth_and_comm_without_argv(self):
+        identity = {
+            "pid": 4242,
+            "start": "Wed Jul 22 02:05:39 2026",
+            "command": "/opt/bin/codex",
+            "executable_path": "/opt/bin/codex",
+            "device": 1,
+            "inode": 2,
+        }
+        process_table = (
+            "4242 1 Wed Jul 22 02:05:39 2026 /opt/bin/codex\n"
+            "5000 4242 Wed Jul 22 02:05:40 2026 /opt/bin/helper\n"
+        )
+        with patch.object(
+            puppet_campaign.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout=process_table),
+        ) as run, patch.object(
+            puppet_campaign,
+            "process_birth_identity",
+            return_value=identity,
+        ), patch.object(
+            puppet_campaign,
+            "process_alive",
+            return_value=True,
+        ):
+            snapshot = puppet_campaign.target_process_snapshot("codex")
+        self.assertEqual(snapshot["processes"], [identity])
+        self.assertEqual(snapshot["parents"], {4242: 1, 5000: 4242})
+        self.assertEqual(
+            run.call_args.args[0],
+            ["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+        )
+
     def test_duplicate_session_identity_cannot_change_state_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

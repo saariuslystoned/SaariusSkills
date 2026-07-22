@@ -13,6 +13,7 @@ from .authority import (
     controller_authority_root,
     verify_qualification_attestation,
 )
+from .contracts import TARGET_POPULATION_POLICY
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .safety import (
     atomic_write_json,
@@ -109,6 +110,9 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "payload_argv_absent",
     "active_target_processes_before_launch",
     "active_target_processes_after_halt",
+    "target_population_policy",
+    "observed_target_descendants",
+    "last_target_population",
     "parallel_target_override",
     "protected_session",
     "parallel_isolation",
@@ -201,8 +205,10 @@ def _validated_process_record(value: Any, label: str) -> Dict[str, Any]:
     return value
 
 
-def _validated_process_population(value: Any, label: str) -> list[Dict[str, Any]]:
-    if not isinstance(value, list) or len(value) > 32:
+def _validated_process_population(
+    value: Any, label: str, *, max_items: int = 32
+) -> list[Dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > max_items:
         raise ValidationError("%s process population is invalid" % label)
     records = [_validated_process_record(item, label) for item in value]
     pids = [item["pid"] for item in records]
@@ -461,6 +467,70 @@ def verify_qualification_receipt(
         or sha256_file(executable_path) != receipt["executable_fingerprint"]
     ):
         raise ValidationError("qualification process executable identity mismatch")
+    descendants = _validated_process_population(
+        evidence.get("observed_target_descendants"),
+        "observed target descendant",
+    )
+    last_population = evidence.get("last_target_population")
+    if (
+        evidence.get("target_population_policy") != TARGET_POPULATION_POLICY
+        or not isinstance(last_population, dict)
+        or set(last_population)
+        != {"policy", "processes", "ancestry_chains", "accepted"}
+        or last_population.get("policy") != TARGET_POPULATION_POLICY
+        or last_population.get("accepted") is not True
+    ):
+        raise ValidationError("qualification target population policy is invalid")
+    last_processes = _validated_process_population(
+        last_population.get("processes"),
+        "last target population",
+        max_items=64,
+    )
+    expected_population = sorted(
+        [*active_before, process], key=lambda item: item["pid"]
+    )
+    last_by_pid = {item["pid"]: item for item in last_processes}
+    if any(last_by_pid.get(item["pid"]) != item for item in expected_population):
+        raise ValidationError("qualification target population root identity changed")
+    expected_pids = {item["pid"] for item in expected_population}
+    last_extras = [
+        item for item in last_processes if item["pid"] not in expected_pids
+    ]
+    executable_identity = {
+        name: process[name] for name in ("executable_path", "device", "inode")
+    }
+    if any(
+        {
+            name: item[name]
+            for name in ("executable_path", "device", "inode")
+        }
+        != executable_identity
+        for item in [*descendants, *last_extras]
+    ):
+        raise ValidationError("qualification target descendant executable changed")
+    descendant_pids = {item["pid"] for item in descendants}
+    if descendant_pids & expected_pids or any(
+        item["pid"] not in descendant_pids for item in last_extras
+    ):
+        raise ValidationError("qualification target descendant identity is invalid")
+    chains = last_population.get("ancestry_chains")
+    if (
+        not isinstance(chains, list)
+        or len(chains) > 32
+        or chains != sorted(chains)
+        or len(chains) != len(last_extras)
+        or any(
+            not isinstance(chain, list)
+            or not 2 <= len(chain) <= 65
+            or not all(isinstance(pid, int) and pid > 1 for pid in chain)
+            or len(chain) != len(set(chain))
+            or chain[-1] != process["pid"]
+            for chain in chains
+        )
+        or {chain[0] for chain in chains}
+        != {item["pid"] for item in last_extras}
+    ):
+        raise ValidationError("qualification target ancestry evidence is invalid")
     tmux = evidence.get("tmux")
     if not isinstance(tmux, dict) or set(tmux) != {
         "socket",

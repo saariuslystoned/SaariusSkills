@@ -33,11 +33,17 @@ from .authority import (
 from .campaign import (
     active_target_processes,
     parallel_target_override,
+    target_process_snapshot,
     validate_campaign_authorization,
     verify_campaign_goal,
 )
 from .conformance import create_fixture, tree_fingerprint
-from .contracts import Contract, MANDATORY_HARD_GATES, TARGETS
+from .contracts import (
+    Contract,
+    MANDATORY_HARD_GATES,
+    TARGET_POPULATION_POLICY,
+    TARGETS,
+)
 from .census import adapter_implementation_fingerprint, census_target
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
@@ -62,6 +68,17 @@ MAX_PROBE_SECONDS = 900.0
 MAX_HALT_SECONDS = 60.0
 POLL_INTERVAL_SECONDS = 0.1
 PROBE_PROFILE = "source-free-pass-b-v1"
+MAX_TARGET_POPULATION = 64
+MAX_TARGET_DESCENDANTS = 32
+MAX_ANCESTRY_DEPTH = 64
+PROCESS_IDENTITY_FIELDS = {
+    "pid",
+    "start",
+    "command",
+    "executable_path",
+    "device",
+    "inode",
+}
 
 
 def _utc_now() -> str:
@@ -96,6 +113,109 @@ def _release_campaign_probe_lock(descriptor: Optional[int]) -> None:
 def _session_id(target: str, run_id: str) -> str:
     digest = sha256_bytes(run_id.encode("utf-8"))[:16]
     return validate_identifier("probe-%s-%s" % (target, digest), "session")
+
+
+def _validated_target_population(
+    *,
+    snapshot: Dict[str, Any],
+    protected: list[Dict[str, Any]],
+    registered: Dict[str, Any],
+    process_alive_fn: Callable[[Dict[str, Any]], bool],
+) -> Dict[str, Any]:
+    """Admit only exact protected/root identities plus exact root descendants."""
+
+    if not isinstance(snapshot, dict) or set(snapshot) != {"processes", "parents"}:
+        raise IdentityError("same-target process snapshot fields are invalid")
+    observed = snapshot["processes"]
+    parents = snapshot["parents"]
+    if (
+        not isinstance(observed, list)
+        or len(observed) > MAX_TARGET_POPULATION
+        or not isinstance(parents, dict)
+        or len(parents) > 32768
+    ):
+        raise IdentityError("same-target process snapshot exceeds its bound")
+    if not all(
+        isinstance(pid, int)
+        and pid > 0
+        and isinstance(ppid, int)
+        and ppid >= 0
+        for pid, ppid in parents.items()
+    ):
+        raise IdentityError("same-target process parent map is invalid")
+    for identity in [*protected, registered, *observed]:
+        if not isinstance(identity, dict) or set(identity) != PROCESS_IDENTITY_FIELDS:
+            raise IdentityError("same-target process identity fields are invalid")
+    expected = [*protected, registered]
+    expected_pids = [item["pid"] for item in expected]
+    observed_pids = [item["pid"] for item in observed]
+    if (
+        len(expected_pids) != len(set(expected_pids))
+        or len(observed_pids) != len(set(observed_pids))
+    ):
+        raise IdentityError("same-target process snapshot contains duplicate PIDs")
+    observed_by_pid = {item["pid"]: item for item in observed}
+    for identity in expected:
+        if observed_by_pid.get(identity["pid"]) != identity or not process_alive_fn(
+            identity
+        ):
+            raise IdentityError("protected or registered process identity changed")
+
+    protected_pids = {item["pid"] for item in protected}
+    root_pid = registered["pid"]
+    executable_identity = {
+        name: registered[name]
+        for name in ("executable_path", "device", "inode")
+    }
+    descendants = []
+    chains = []
+    for identity in observed:
+        if identity["pid"] in expected_pids:
+            continue
+        if (
+            {
+                name: identity[name]
+                for name in ("executable_path", "device", "inode")
+            }
+            != executable_identity
+            or not process_alive_fn(identity)
+        ):
+            raise IdentityError(
+                "same-target extra lacks the registered executable identity"
+            )
+        chain = [identity["pid"]]
+        seen = {identity["pid"]}
+        current = identity["pid"]
+        for _ in range(MAX_ANCESTRY_DEPTH):
+            parent = parents.get(current)
+            if parent is None or parent <= 1 or parent in seen:
+                raise IdentityError(
+                    "same-target extra lacks an exact registered-target ancestry chain"
+                )
+            chain.append(parent)
+            if parent == root_pid:
+                break
+            if parent in protected_pids:
+                raise IdentityError(
+                    "same-target extra descends from a protected process"
+                )
+            seen.add(parent)
+            current = parent
+        else:
+            raise IdentityError("same-target ancestry exceeds the depth bound")
+        if chain[-1] != root_pid:
+            raise IdentityError(
+                "same-target extra is unrelated to the registered target"
+            )
+        descendants.append(identity)
+        chains.append(chain)
+        if len(descendants) > MAX_TARGET_DESCENDANTS:
+            raise IdentityError("same-target descendants exceed the count bound")
+    return {
+        "processes": sorted(observed, key=lambda item: item["pid"]),
+        "descendants": sorted(descendants, key=lambda item: item["pid"]),
+        "ancestry_chains": sorted(chains),
+    }
 
 
 def _validated_mapping(
@@ -645,6 +765,9 @@ def run_probe(
     _continuous_population_fn: Optional[
         Callable[[str], list[Dict[str, Any]]]
     ] = None,
+    _population_snapshot_fn: Optional[
+        Callable[[str], Dict[str, Any]]
+    ] = None,
     _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
     _sleep_fn: Callable[[float], None] = time.sleep,
@@ -765,6 +888,9 @@ def run_probe(
         "payload_argv_absent": True,
         "active_target_processes_before_launch": [],
         "active_target_processes_after_halt": None,
+        "target_population_policy": TARGET_POPULATION_POLICY,
+        "observed_target_descendants": [],
+        "last_target_population": None,
         "parallel_target_override": False,
         "protected_session": None,
         "parallel_isolation": None,
@@ -893,19 +1019,61 @@ def run_probe(
             authority_root=_authority_root,
             _lock_descriptor=lock_descriptor,
         )
-        population_fn = _continuous_population_fn or _active_processes_fn
-        expected_live_population = sorted(
-            [*active, process], key=lambda item: item["pid"]
-        )
+        observed_descendants: Dict[str, Dict[str, Any]] = {}
 
         def population_guard() -> None:
-            observed_population = sorted(
-                population_fn(target), key=lambda item: item["pid"]
-            )
-            if observed_population != expected_live_population:
-                raise IdentityError(
-                    "same-target process population changed during the probe"
+            if _population_snapshot_fn is not None:
+                snapshot = _population_snapshot_fn(target)
+            elif _continuous_population_fn is not None:
+                snapshot = {
+                    "processes": _continuous_population_fn(target),
+                    "parents": {},
+                }
+            else:
+                snapshot = target_process_snapshot(target)
+            try:
+                observation = _validated_target_population(
+                    snapshot=snapshot,
+                    protected=active,
+                    registered=process,
+                    process_alive_fn=_process_alive_fn,
                 )
+            except BaseException:
+                raw_processes = (
+                    snapshot.get("processes") if isinstance(snapshot, dict) else None
+                )
+                processes = []
+                if isinstance(raw_processes, list):
+                    for item in raw_processes[:MAX_TARGET_POPULATION]:
+                        if (
+                            isinstance(item, dict)
+                            and set(item) == PROCESS_IDENTITY_FIELDS
+                        ):
+                            processes.append(item)
+                evidence["last_target_population"] = {
+                    "policy": TARGET_POPULATION_POLICY,
+                    "processes": processes,
+                    "ancestry_chains": [],
+                    "accepted": False,
+                }
+                raise
+            evidence["last_target_population"] = {
+                "policy": TARGET_POPULATION_POLICY,
+                "processes": observation["processes"],
+                "ancestry_chains": observation["ancestry_chains"],
+                "accepted": True,
+            }
+            changed = False
+            for descendant in observation["descendants"]:
+                identity = sha256_bytes(canonical_json_bytes(descendant))
+                if identity not in observed_descendants:
+                    observed_descendants[identity] = descendant
+                    changed = True
+            if changed:
+                evidence["observed_target_descendants"] = sorted(
+                    observed_descendants.values(), key=lambda item: item["pid"]
+                )
+                atomic_write_json(evidence_path, evidence)
 
         population_guard()
         _assert_runtime(

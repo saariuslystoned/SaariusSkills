@@ -192,6 +192,14 @@ def write_qualification_receipt(
     )
     executable_path = Path(executable_path).resolve(strict=True)
     executable_details = executable_path.stat()
+    target_process = {
+        "pid": 4242,
+        "start": "Wed Jul 22 04:00:00 2026",
+        "command": executable_path.name,
+        "executable_path": str(executable_path),
+        "device": executable_details.st_dev,
+        "inode": executable_details.st_ino,
+    }
     socket_path = proof_root / "s"
     socket_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     socket_server.bind(str(socket_path))
@@ -226,6 +234,14 @@ def write_qualification_receipt(
             "payload_argv_absent": True,
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
+            "target_population_policy": "protected-plus-root-plus-exact-descendants-v1",
+            "observed_target_descendants": [],
+            "last_target_population": {
+                "policy": "protected-plus-root-plus-exact-descendants-v1",
+                "processes": [target_process],
+                "ancestry_chains": [],
+                "accepted": True,
+            },
             "parallel_target_override": False,
             "protected_session": None,
             "parallel_isolation": None,
@@ -240,14 +256,7 @@ def write_qualification_receipt(
             "halt_sha256": sha256_file(halt_path),
             "acceptance_sha256": sha256_file(acceptance_path),
             "review_sha256": sha256_file(review_path),
-            "process": {
-                "pid": 4242,
-                "start": "Wed Jul 22 04:00:00 2026",
-                "command": executable_path.name,
-                "executable_path": str(executable_path),
-                "device": executable_details.st_dev,
-                "inode": executable_details.st_ino,
-            },
+            "process": target_process,
             "tmux": {
                 "socket": str(socket_path.resolve(strict=True)),
                 "session": session,

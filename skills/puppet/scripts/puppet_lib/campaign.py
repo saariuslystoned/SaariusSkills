@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from .contracts import TARGETS
 from .errors import IdentityError, ValidationError
-from .registry import process_birth_identity
+from .registry import process_alive, process_birth_identity
 from .safety import (
     FORBIDDEN_FIELD_PARTS,
     absolute_root,
@@ -23,6 +23,8 @@ from .safety import (
 
 
 MAX_GOAL_BYTES = 1024 * 1024
+MAX_PROCESS_SNAPSHOT_BYTES = 4 * 1024 * 1024
+MAX_PROCESS_SNAPSHOT_ROWS = 32768
 
 
 ALLOWED_ACTIONS = [
@@ -330,6 +332,69 @@ def active_target_processes(target: str) -> list[Dict[str, Any]]:
             except ValueError as exc:
                 raise IdentityError("same-target process inventory is ambiguous") from exc
     return [process_birth_identity(pid) for pid in sorted(set(found))]
+
+
+def target_process_snapshot(target: str) -> Dict[str, Any]:
+    """Return one bounded argv-free process-tree snapshot for a target name.
+
+    The first sample binds PID, PPID, birth time, and ``comm`` in one ``ps``
+    table.  Each same-target row is then revalidated through the full
+    executable birth identity before the snapshot is accepted.  The parent map
+    contains PIDs only and is used transiently for ancestry checks; callers
+    must not treat PPID alone as authority.
+    """
+
+    expected = {
+        "agy": {"agy"},
+        "cursor": {"cursor-agent", "cursor"},
+        "claude": {"claude"},
+        "codex": {"codex"},
+        "grok": {"grok"},
+    }[target]
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise IdentityError("process-tree snapshot is unavailable")
+    if len(result.stdout.encode("utf-8")) > MAX_PROCESS_SNAPSHOT_BYTES:
+        raise IdentityError("process-tree snapshot exceeds the byte bound")
+    lines = result.stdout.splitlines()
+    if len(lines) > MAX_PROCESS_SNAPSHOT_ROWS:
+        raise IdentityError("process-tree snapshot exceeds the row bound")
+    parents: Dict[int, int] = {}
+    target_rows: list[tuple[int, str, str]] = []
+    for line in lines:
+        fields = line.strip().split()
+        if len(fields) < 8:
+            continue
+        try:
+            pid = int(fields[0])
+            ppid = int(fields[1])
+        except ValueError as exc:
+            raise IdentityError("process-tree snapshot is ambiguous") from exc
+        if pid <= 0 or ppid < 0 or pid in parents:
+            raise IdentityError("process-tree snapshot contains an invalid PID")
+        parents[pid] = ppid
+        start = " ".join(fields[2:7])
+        command = " ".join(fields[7:])
+        if Path(command).name in expected:
+            target_rows.append((pid, start, command))
+    processes = []
+    for pid, start, command in sorted(target_rows):
+        identity = process_birth_identity(pid)
+        if (
+            identity["start"] != start
+            or identity["command"] != command
+            or not process_alive(identity)
+        ):
+            raise IdentityError("same-target process changed during the snapshot")
+        processes.append(identity)
+    return {"processes": processes, "parents": parents}
 
 
 def parallel_target_override(

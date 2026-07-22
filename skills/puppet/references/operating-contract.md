@@ -27,6 +27,15 @@ an interrupted intent is ambiguous and must never be resent. The explicit
 parallel-target override accounts only for the named pre-existing process set;
 it does not bypass the controller lease.
 
+A real-harness probe may observe a bounded same-executable child population
+created by its registered pane process. Each child needs an exact live birth
+and executable identity plus an acyclic PPID chain to that registered root in
+the same argv-free process-table sample. Siblings, children of a protected
+process, missing parents, PID reuse, and identity drift fail closed. Puppet
+never signals those descendants or a process group; its halt authority remains
+the exact registered private pane. After halt, the same-target population must
+return to the exact protected baseline before a receipt can be accepted.
+
 ## Lifecycle
 
 The source-free conformance branch is:
