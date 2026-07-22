@@ -177,6 +177,25 @@ def _delivery_request_id(session: str, operation_id: str, phase: str) -> str:
     )
 
 
+def _halt_terminal_result(
+    journal: Journal, session: str
+) -> Optional[Dict[str, Any]]:
+    event = journal.lookup(_delivery_request_id(session, session, "halted"))
+    if (
+        event is None
+        or event.get("event", {}).get("kind") != "halt"
+        or event.get("event", {}).get("result") != "stopped"
+    ):
+        return None
+    return {
+        "ok": True,
+        "session": session,
+        "state": "HALTED",
+        "signal_sent": bool(event["event"].get("signal_sent")),
+        "tmux_preserved": bool(event["event"].get("tmux_preserved", True)),
+    }
+
+
 def _deliver(
     *,
     tmux: TmuxController,
@@ -1038,78 +1057,88 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     if timeout < 0 or timeout > 60:
         raise ValidationError("halt timeout must be between zero and 60 seconds")
     registry = SessionRegistry(Path(state_root))
-    record = registry.load(session)
-    _bound_contract(record)
-    if record["state"] == "HALTED":
+    with exclusive_lock(registry._lock(session)):
+        record = registry.load(session)
+        _bound_contract(record)
+        journal = _journal(Path(record["proof_root"]))
+        if record["state"] == "HALTED":
+            terminal = _halt_terminal_result(journal, session)
+            if terminal is not None:
+                return terminal
+            return {
+                "ok": True,
+                "session": session,
+                "state": "HALTED",
+                "signal_sent": False,
+                "tmux_preserved": True,
+            }
+
+        transition(record["state"], "HALTED")
+        tmux, metadata = _runtime(registry, record, "halt", require_process=False)
+        target_alive = process_alive(record["process"])
+        if not target_alive and not metadata["pane_dead"]:
+            raise IdentityError(
+                "registered process identity changed while its tmux pane remains live"
+            )
+        journal.append(
+            request_id=_delivery_request_id(session, session, "halt-intent"),
+            event={
+                "kind": "halt",
+                "session": session,
+                "target_pid": record["process"]["pid"],
+                "result": "intent",
+            },
+        )
+        if target_alive:
+            registry.verify_process(record)
+            deadline = time.monotonic() + timeout
+            for key in adapter_for(record["target"]).graceful_halt_keys:
+                if not process_alive(record["process"]):
+                    break
+                tmux.send_control(
+                    socket=Path(record["tmux"]["socket"]),
+                    session=session,
+                    pane=record["tmux"]["pane"],
+                    key=key,
+                )
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+            while process_alive(record["process"]) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if process_alive(record["process"]):
+                raise IdentityError(
+                    "registered target did not stop gracefully; no broad kill attempted"
+                )
+        halted_metadata = tmux.metadata(
+            socket=Path(record["tmux"]["socket"]),
+            session=session,
+            pane=record["tmux"]["pane"],
+        )
+        if (
+            halted_metadata["pane_pid"] != record["process"]["pid"]
+            or not halted_metadata["pane_dead"]
+            or tmux.socket_identity(Path(record["tmux"]["socket"]))
+            != record["tmux"]["socket_identity"]
+        ):
+            raise IdentityError("registered tmux evidence did not survive exact halt")
+        journal.append(
+            request_id=_delivery_request_id(session, session, "halted"),
+            event={
+                "kind": "halt",
+                "session": session,
+                "target_pid": record["process"]["pid"],
+                "result": "stopped",
+                "signal_sent": target_alive,
+                "tmux_preserved": True,
+            },
+        )
+        record = dict(record)
+        record["state"] = "HALTED"
+        registry.validate(record)
+        atomic_write_json(registry._path(session), record)
         return {
             "ok": True,
             "session": session,
             "state": "HALTED",
-            "signal_sent": False,
+            "signal_sent": target_alive,
             "tmux_preserved": True,
         }
-    transition(record["state"], "HALTED")
-    tmux, metadata = _runtime(registry, record, "halt", require_process=False)
-    target_alive = process_alive(record["process"])
-    if not target_alive and not metadata["pane_dead"]:
-        raise IdentityError(
-            "registered process identity changed while its tmux pane remains live"
-        )
-    journal = _journal(Path(record["proof_root"]))
-    journal.append(
-        request_id=_delivery_request_id(session, session, "halt-intent"),
-        event={
-            "kind": "halt",
-            "session": session,
-            "target_pid": record["process"]["pid"],
-            "result": "intent",
-        },
-    )
-    if target_alive:
-        registry.verify_process(record)
-        deadline = time.monotonic() + timeout
-        for key in adapter_for(record["target"]).graceful_halt_keys:
-            if not process_alive(record["process"]):
-                break
-            tmux.send_control(
-                socket=Path(record["tmux"]["socket"]),
-                session=session,
-                pane=record["tmux"]["pane"],
-                key=key,
-            )
-            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
-        while process_alive(record["process"]) and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if process_alive(record["process"]):
-            raise IdentityError(
-                "registered target did not stop gracefully; no broad kill attempted"
-            )
-    halted_metadata = tmux.metadata(
-        socket=Path(record["tmux"]["socket"]),
-        session=session,
-        pane=record["tmux"]["pane"],
-    )
-    if (
-        halted_metadata["pane_pid"] != record["process"]["pid"]
-        or not halted_metadata["pane_dead"]
-        or tmux.socket_identity(Path(record["tmux"]["socket"]))
-        != record["tmux"]["socket_identity"]
-    ):
-        raise IdentityError("registered tmux evidence did not survive exact halt")
-    journal.append(
-        request_id=_delivery_request_id(session, session, "halted"),
-        event={
-            "kind": "halt",
-            "session": session,
-            "target_pid": record["process"]["pid"],
-            "result": "stopped",
-        },
-    )
-    registry.transition_path(session, ["HALTED"])
-    return {
-        "ok": True,
-        "session": session,
-        "state": "HALTED",
-        "signal_sent": target_alive,
-        "tmux_preserved": True,
-    }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ from puppet_lib.session import (  # noqa: E402
     status,
     wait_for,
 )
+import puppet_lib.session as puppet_session
 from puppet_lib.tmux import TmuxController  # noqa: E402
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
@@ -581,6 +583,127 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertTrue(result["tmux_preserved"])
                 replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
+            finally:
+                kill_test_server(socket)
+
+    def test_halt_is_single_owner_with_two_eof_sequence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(root / "candidate", "codex/agy-halt", "candidate")
+            session = "codex-agy-halt"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/agy-halt",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Stay idle for halt concurrency proof.",
+                )
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                lock_state = {"alive": True, "sends": 0}
+
+                class DummyAdapter:
+                    graceful_halt_keys = ("C-d", "C-d")
+
+                class FakeTmux:
+                    def __init__(self):
+                        self.control_keys = []
+
+                    def send_control(
+                        self,
+                        *,
+                        socket: Path,
+                        session: str,
+                        pane: str | None = None,
+                        key: str,
+                    ):
+                        self.control_keys.append(key)
+                        lock_state["sends"] += 1
+                        if lock_state["sends"] >= 2:
+                            lock_state["alive"] = False
+
+                    def metadata(self, *, socket: Path, session: str, pane: str | None = None):
+                        return {
+                            "pane_pid": record["process"]["pid"],
+                            "pane_dead": not lock_state["alive"],
+                        }
+
+                    def socket_identity(self, socket: Path):
+                        return record["tmux"]["socket_identity"]
+
+                fake_tmux = FakeTmux()
+
+                def fake_runtime(
+                    registry: SessionRegistry,
+                    _record: dict,
+                    capability: str,
+                    *,
+                    require_process: bool,
+                ) -> tuple[FakeTmux, dict]:
+                    return fake_tmux, {
+                        "pane_pid": record["process"]["pid"],
+                        "pane_dead": False,
+                    }
+
+                def fake_process_alive(identity):
+                    return bool(lock_state["alive"])
+
+                def fake_adapter_for(_target: str) -> DummyAdapter:
+                    return DummyAdapter()
+
+                original_runtime = puppet_session._runtime
+                original_adapter_for = puppet_session.adapter_for
+                original_process_alive = puppet_session.process_alive
+                results = []
+                errors = []
+                start = threading.Barrier(2)
+
+                def worker():
+                    try:
+                        start.wait()
+                        results.append(
+                            halt(
+                                state_root=files["state"],
+                                session=session,
+                                timeout=1,
+                            )
+                        )
+                    except Exception as exc:
+                        errors.append(exc)
+
+                try:
+                    puppet_session._runtime = fake_runtime
+                    puppet_session.adapter_for = fake_adapter_for
+                    puppet_session.process_alive = fake_process_alive
+                    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join()
+                finally:
+                    puppet_session._runtime = original_runtime
+                    puppet_session.adapter_for = original_adapter_for
+                    puppet_session.process_alive = original_process_alive
+
+                self.assertEqual(errors, [])
+                self.assertEqual(len(results), 2)
+                self.assertEqual(results[0], results[1])
+                self.assertEqual(results[0]["state"], "HALTED")
+                self.assertEqual(fake_tmux.control_keys, ["C-d", "C-d"])
+                self.assertEqual(SessionRegistry(files["state"]).load(session)["state"], "HALTED")
             finally:
                 kill_test_server(socket)
 
