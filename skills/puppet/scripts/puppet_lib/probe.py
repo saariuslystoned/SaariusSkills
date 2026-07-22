@@ -841,6 +841,7 @@ def run_probe(
     tmux_binary_identity: Optional[Dict[str, Any]] = None
     provisional_bound = False
     launch_attempted = False
+    active: Optional[list[Dict[str, Any]]] = None
     lock_descriptor: Optional[int] = None
     lease_owned = False
     cleanup: Optional[Dict[str, Any]] = None
@@ -1490,6 +1491,29 @@ def run_probe(
                     halt_exc.__class__.__name__,
                     str(halt_exc)[:500],
                 )
+        safe_terminal = not launch_attempted
+        if isinstance(cleanup, dict) and cleanup.get("stopped") is True:
+            safe_terminal = False
+            if active is not None:
+                try:
+                    active_after_cleanup = _active_processes_fn(target)
+                    evidence["active_target_processes_after_halt"] = (
+                        active_after_cleanup
+                    )
+                    safe_terminal = sorted(
+                        active_after_cleanup, key=lambda item: item["pid"]
+                    ) == sorted(active, key=lambda item: item["pid"])
+                    if not safe_terminal:
+                        cleanup_error = (
+                            cleanup_error
+                            or "IdentityError: protected same-target process "
+                            "population did not return to the pre-launch baseline"
+                        )
+                except Exception as population_exc:
+                    cleanup_error = cleanup_error or "%s: %s" % (
+                        population_exc.__class__.__name__,
+                        str(population_exc)[:500],
+                    )
         evidence["result"] = "failed"
         evidence["failure"] = {
             "type": exc.__class__.__name__,
@@ -1504,9 +1528,6 @@ def run_probe(
             result="failed",
             blocker=evidence["failure"],
         )
-        safe_terminal = (
-            isinstance(cleanup, dict) and cleanup.get("stopped") is True
-        ) or not launch_attempted
         if lease_owned and safe_terminal:
             try:
                 transition_session_lease(

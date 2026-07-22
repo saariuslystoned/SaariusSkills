@@ -836,7 +836,7 @@ class ProbeTests(unittest.TestCase):
             self.assertFalse(fake.alive)
             self.assertEqual(len(fake.interrupts), 1)
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "failed"
+                current_session_lease(files["authority"])["state"], "halting"
             )
 
     def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
