@@ -20,12 +20,14 @@ from .authority import (
 from .beacons import parse_beacon
 from .campaign import (
     active_target_processes,
+    grok_process_population,
     parallel_target_override,
     validate_campaign_authorization,
 )
 from .conformance import tree_fingerprint, validate_fixture_contract
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
+from .grok_launch import GROK_LAUNCH_AUTHORITY_BLOCKER
 from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .instructions import (
@@ -123,6 +125,34 @@ def _parallel_target_override(
     authorization: Dict[str, Any], target: str, active: List[Dict[str, Any]]
 ) -> bool:
     return parallel_target_override(authorization, target, active)
+
+
+def _grok_population(
+    manifest: AdapterManifest,
+) -> Dict[str, List[Dict[str, Any]]]:
+    return grok_process_population(
+        execution_files=manifest.process_execution_selectors()
+    )
+
+
+def _assess_grok_population(
+    authorization: Dict[str, Any],
+    population: Dict[str, List[Dict[str, Any]]],
+) -> Tuple[List[Dict[str, Any]], bool, List[str]]:
+    matching = population["matching"]
+    mismatched = population["mismatched"]
+    override = _parallel_target_override(authorization, "grok", matching)
+    blockers = []
+    if mismatched:
+        blockers.append(
+            "a live Grok candidate has a different executable identity and "
+            "blocks launch"
+        )
+    if matching and not override:
+        blockers.append(
+            "active Grok processes require the exact parallel isolation override"
+        )
+    return matching, override, blockers
 
 
 def _bind_json(path: Path, value: Dict[str, Any], label: str) -> Path:
@@ -592,12 +622,26 @@ def doctor(
         blockers.append(
             "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete"
         )
-    active = _active_processes(contract.target, manifest)
-    parallel_override = _parallel_target_override(
-        authorization, contract.target, active
-    )
-    if contract.target == "agy" and active and not parallel_override:
-        blockers.append("active AGY process may hold the exclusive store lock")
+    candidate_processes: List[Dict[str, Any]]
+    if contract.target == "grok":
+        grok_population = _grok_population(manifest)
+        active, parallel_override, population_blockers = _assess_grok_population(
+            authorization, grok_population
+        )
+        candidate_processes = grok_population["candidates"]
+        blockers.extend(population_blockers)
+        # The source-only Grok planner binds private roots and an exact launch
+        # vector, but no live session may start until leader/child halt authority
+        # and the remaining Grok-specific qualification gates are proved.
+        blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
+    else:
+        active = _active_processes(contract.target, manifest)
+        candidate_processes = active
+        parallel_override = _parallel_target_override(
+            authorization, contract.target, active
+        )
+        if contract.target == "agy" and active and not parallel_override:
+            blockers.append("active AGY process may hold the exclusive store lock")
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()
@@ -638,6 +682,7 @@ def doctor(
         "tree": tree,
         "dirty": dirty,
         "active_target_pids": [item["pid"] for item in active],
+        "candidate_target_pids": [item["pid"] for item in candidate_processes],
         "parallel_target_override": parallel_override,
         "unverified_capabilities": unverified,
         "unsupported_capabilities": unsupported,
@@ -673,6 +718,10 @@ def launch(
         proof_root=proof_root,
         state_root=state_root,
     )
+    if report["target"] == "grok":
+        # Defense in depth: no generic launch path may inherit an operator HOME
+        # or pretend the pane PID owns Grok's possible leader/child process tree.
+        raise UnsupportedError(GROK_LAUNCH_AUTHORITY_BLOCKER)
     if not report["launch_ready"]:
         raise UnsupportedError("adapter remains doctor-only or preflight is blocked")
     contract = Contract.from_path(contract_path)

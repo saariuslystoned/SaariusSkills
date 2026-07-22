@@ -5,9 +5,14 @@ Status: exact-version mapping only; no live Grok session is qualified.
 ## Scope and lane contract
 
 - Target: Grok Build 0.2.106 regular TUI with its current default model.
-- Source head inspected: `b8cce94bf2a4a62f974207a95abcfe1668412b90`.
-- This lane used bounded parser/model/config probes only. It did not launch a
-  model session, read live config/auth/session contents, or modify any file.
+- Parser-evidence source head inspected:
+  `b8cce94bf2a4a62f974207a95abcfe1668412b90`.
+- Source-only launch-authority implementation base:
+  `e18dc4509644eaf069f3e9ce41ab3db081f01dbd`.
+- The parser-evidence lane used bounded parser/model/config probes only. It did
+  not launch a model session, read live config/auth/session contents, or modify
+  any file. This follow-up changes source and tests only; it performs no live
+  Grok or credential-bearing operation.
 - `/goal`, `/loop`, native agent profiles, automatic routing, explicit model
   selection, and non-Puppet session adoption remain out of scope.
 
@@ -106,16 +111,19 @@ Available models:
 - Omit `--model` and `--reasoning-effort`; do not pin a replacement when the
   default cannot yet be observed in the live isolated tuple.
 
-## 4) Recommended qualification launch delta
+## 4) Source-only qualification launch candidate
 
-After auth/config isolation is approved and implemented, the workspace-plane
-candidate should bind:
+`puppet_lib/grok_launch.py` now builds a typed, body-free candidate only from a
+schema-valid doctor manifest bound to the current adapter/protocol source and
+the exact 0.2.106 binary, version-output, and main-help hashes. It rechecks the
+manifest's current execution-file identity, then binds the following exact
+values without granting launch authority:
 
 ```yaml
 env:
   HOME: <unique-lane-home>
   GROK_HOME: <unique-lane-grok-home>
-  GROK_DISABLE_AUTOUPDATER: "1"
+  GROK_DISABLE_AUTOUPDATER: "true"
 argv:
   - --always-approve
   - --sandbox
@@ -128,6 +136,19 @@ argv:
   - <controller-owned-new-uuid>
 ```
 
+The admitted lane root, `HOME`, `GROK_HOME`, and leader-socket parent must be
+current-UID-owned mode-`0700` directories. `HOME` and `GROK_HOME` are distinct,
+non-overlapping children of the lane root; the workspace is a separate admitted
+root; the leader socket is a new contained non-symlink path; and the Grok
+session id is a canonical UUIDv4. Ambient operator `HOME`, `GROK_HOME`, and
+updater values cannot become this candidate's bindings.
+
+This is planning authority only. The candidate records
+`launch_authorized=false` with blockers for authentication isolation, the
+native instruction plane, and leader/child halt authority. Normal-session
+doctor also keeps Grok blocked even if a synthetic manifest claims readiness.
+No live Grok session was launched or qualified by this change.
+
 The task remains in the tmux-buffer transport. The wrapper is not native-plane
 proof. Literal/replacement prompt flags, saved/latest sessions, `--continue`,
 Grok-managed worktrees, and inherited operator homes are forbidden.
@@ -136,6 +157,17 @@ Grok-managed worktrees, and inherited operator homes are forbidden.
 consult it. Qualification needs a lane-owned `HOME` or an exact complete
 scanner-disable contract. Bind any leader process/socket and spawned children;
 the current single pane-process identity is insufficient for a shared leader.
+
+Normal-session preflight now retains every current-UID `grok` or
+`grok-macos-aarch64` candidate found by the repository-native argv-free census.
+Execution selectors cannot broaden those candidate basenames, so a declared
+transient such as `bash` does not become a Grok candidate. Exact matching may
+still use the validated current runtime selector.
+An exact current-manifest population still requires the existing exact V2
+parallel override. A same-name different-vnode candidate is a hard blocker and
+cannot be hidden by that override. Because all live Grok launch remains fenced,
+the eventual pre-start population recheck belongs with the future leader-tree
+authority rather than an unreachable launch hook.
 
 ## 5) Required proof and rollback
 
@@ -154,15 +186,24 @@ the current single pane-process identity is insufficient for a shared leader.
   retains hashes and sanitized metadata, never prompt bodies, transcripts,
   scrollback, config contents, or credentials.
 
-## 6) Required Puppet source deltas
+## 6) Source status and remaining deltas
 
-- `census.py` / `adapter_manifest.py`: bind or reject launcher chains; record
+- Implemented source-only: exact doctor-manifest/source/executable tuple,
+  body-free argv/environment planning, private root and socket containment,
+  UUID shape, no ambient-home fallback, and an admitted value-private
+  launch-plan identity.
+- Implemented source-only: normal-session census retains exact and mismatched
+  Grok candidates, requires the existing exact override for a matching active
+  population, and fails closed on different executable identity.
+- Intentionally unchanged: census remains `doctor_only` and its incomplete
+  mapping does not promote help/parser facts into live sandbox or isolation
+  claims.
+- Remaining `census.py` / `adapter_manifest.py`: bind proved live semantics for
   explicit `--sandbox off`, parser facts, and clean-root model evidence.
 - `instructions.py`: bind a native-plane descriptor digest separately from the
   fallback wrapper.
-- `adapters.py` / `session.py` / `tmux.py`: support allowlisted per-launch
-  environment, exact cwd, leader socket, and session UUID without a shell
-  wrapper or body in argv/env/proof.
+- `session.py` / `tmux.py`: consume the typed plan only after qualification and
+  recheck the exact candidate population immediately before target start.
 - `registry.py` / `probe.py`: bind leader/child identities, lane homes, artifact
   hash, model/auth observation, no-bleed control, and exact rollback.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
@@ -176,7 +217,8 @@ the current single pane-process identity is insufficient for a shared leader.
 - No invocation-scoped additive file plane.
 - Sandbox-off and always-approve semantics are parser-proved but not live-
   observed in the isolated authenticated tuple.
-- Launcher/runtime and possible leader-process identities are not yet modeled.
+- The direct launcher/runtime vnode is censused, but possible leader/child
+  process identity and exact tree halt authority are not modeled.
 - No direct/cockpit lifecycle, control, no-bleed, or rollback proof exists.
 
 Keep Grok at `doctor_only/mapping`. Do not start live Pass B until these gates

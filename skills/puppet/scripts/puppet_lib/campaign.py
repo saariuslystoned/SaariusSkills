@@ -499,6 +499,54 @@ def active_target_processes(
     return processes
 
 
+def grok_process_population(
+    execution_files: list[Dict[str, Any]],
+) -> Dict[str, list[Dict[str, Any]]]:
+    """Return the argv-free Grok population split by exact executable identity.
+
+    Unlike ``active_target_processes``, this keeps same-name candidates whose
+    mapped executable is not in the current manifest.  Normal Grok sessions use
+    the mismatched set as a hard no-interference blocker instead of silently
+    treating another version or vnode as absent.  Candidate names are fixed and
+    never broadened by transient execution selectors.
+    """
+
+    _, selectors = _target_process_selectors("grok", execution_files)
+    rows = _target_process_rows(
+        {"grok", "grok-macos-aarch64"},
+        set(),
+        error_prefix="Grok candidate process inventory",
+    )
+    candidates = []
+    for pid, command in sorted(rows):
+        try:
+            process = process_birth_identity(pid)
+        except ExecTransitionSamplingError:
+            raise
+        except IdentityError:
+            if not _pid_still_exists(pid):
+                continue
+            raise
+        if process["command"] != command:
+            raise IdentityError("Grok candidate changed during the inventory")
+        candidates.append(process)
+    matching = [
+        process
+        for process in candidates
+        if _matches_execution_selector(process, selectors)
+    ]
+    mismatched = [
+        process
+        for process in candidates
+        if not _matches_execution_selector(process, selectors)
+    ]
+    return {
+        "candidates": sorted(candidates, key=lambda item: item["pid"]),
+        "matching": sorted(matching, key=lambda item: item["pid"]),
+        "mismatched": sorted(mismatched, key=lambda item: item["pid"]),
+    }
+
+
 def target_process_snapshot(
     target: str, execution_files: Optional[list[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
