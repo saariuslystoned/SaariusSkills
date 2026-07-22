@@ -142,6 +142,7 @@ def lease_owner(
     campaign_id: str,
     goal_fingerprint: str,
     proof_root: Path,
+    state_root: Path,
 ) -> Dict[str, str]:
     if activity not in {"probe", "session"}:
         raise ValidationError("controller lease activity is invalid")
@@ -153,6 +154,7 @@ def lease_owner(
             goal_fingerprint, "lease goal fingerprint"
         ),
         "proof_root": str(absolute_root(str(proof_root), "lease proof root")),
+        "state_root": str(absolute_root(str(state_root), "lease state root")),
     }
 
 
@@ -163,6 +165,7 @@ def validate_lease_owner(value: Any) -> Dict[str, str]:
         "campaign_id",
         "goal_fingerprint",
         "proof_root",
+        "state_root",
     }:
         raise ValidationError("controller lease owner fields are invalid")
     return lease_owner(
@@ -171,6 +174,7 @@ def validate_lease_owner(value: Any) -> Dict[str, str]:
         campaign_id=value["campaign_id"],
         goal_fingerprint=value["goal_fingerprint"],
         proof_root=Path(value["proof_root"]),
+        state_root=Path(value["state_root"]),
     )
 
 
@@ -348,6 +352,7 @@ def admit_session_lease(
     controller: str,
     owner: Dict[str, str],
     authority_root: Optional[Path] = None,
+    _lock_descriptor: Optional[int] = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "lease session")
     validate_identifier(controller, "lease controller")
@@ -355,11 +360,23 @@ def admit_session_lease(
         raise ValidationError("controller session lease target is invalid")
     owner = validate_lease_owner(owner)
     descriptor: Optional[int] = None
+    owns_descriptor = _lock_descriptor is None
     try:
-        descriptor, _ = acquire_real_harness_lock(
-            authority_root, reject_active_lease=False
-        )
         root = controller_authority_root(authority_root)
+        if _lock_descriptor is None:
+            descriptor, _ = acquire_real_harness_lock(
+                authority_root, reject_active_lease=False
+            )
+        else:
+            descriptor = _lock_descriptor
+            details = os.fstat(descriptor)
+            lock_details = (root / "real-harness.lock").stat()
+            if (
+                details.st_dev != lock_details.st_dev
+                or details.st_ino != lock_details.st_ino
+                or not stat.S_ISREG(details.st_mode)
+            ):
+                raise IdentityError("controller lease lock descriptor changed")
         current = current_session_lease(root)
         if current is not None and current["state"] in ACTIVE_LEASE_STATES:
             if (
@@ -387,7 +404,8 @@ def admit_session_lease(
         }
         return _append_lease(root, lease)
     finally:
-        release_real_harness_lock(descriptor)
+        if owns_descriptor:
+            release_real_harness_lock(descriptor)
 
 
 def transition_session_lease(
@@ -458,6 +476,58 @@ def transition_session_lease(
     finally:
         if owns_descriptor:
             release_real_harness_lock(descriptor)
+
+
+def reconcile_halted_session_lease(
+    *,
+    session: str,
+    target: str,
+    controller: str,
+    owner: Dict[str, str],
+    process: Dict[str, Any],
+    authority_root: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Finish an interrupted terminal transition without touching a later lease.
+
+    The session registry and the fixed authority ledger are separate durable
+    records.  A controller can therefore stop after committing ``HALTED`` to
+    the registry while its exact authority lease is still ``halting``.  This
+    helper reconciles only that same lease under the global authority lock.  A
+    newer or unrelated lease is deliberately left unchanged.
+    """
+
+    expected_owner = validate_lease_owner(owner)
+    descriptor: Optional[int] = None
+    try:
+        root = controller_authority_root(authority_root)
+        descriptor, _ = acquire_real_harness_lock(
+            authority_root, reject_active_lease=False
+        )
+        current = current_session_lease(root)
+        if current is None or (
+            current["session"] != validate_identifier(session, "lease session")
+            or current["target"] != target
+            or current["controller"]
+            != validate_identifier(controller, "lease controller")
+            or current["owner"] != expected_owner
+        ):
+            return None
+        if current["state"] not in {"halting", "halted"}:
+            raise IdentityError(
+                "HALTED registry has a non-terminal controller lease"
+            )
+        return transition_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=expected_owner,
+            state="halted",
+            process=process,
+            authority_root=root,
+            _lock_descriptor=descriptor,
+        )
+    finally:
+        release_real_harness_lock(descriptor)
 
 
 def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:

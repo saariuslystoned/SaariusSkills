@@ -114,6 +114,41 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(observed, [101, 103])
         self.assertEqual(result, [{"pid": 101}, {"pid": 103}])
 
+    def test_duplicate_session_identity_cannot_change_state_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            first_state = root / "state-one"
+            second_state = root / "state-two"
+            for path in (authority, proof, first_state, second_state):
+                path.mkdir(mode=0o700)
+            common = {
+                "activity": "session",
+                "run_id": "duplicate-launch",
+                "campaign_id": "campaign-test",
+                "goal_fingerprint": "a" * 64,
+                "proof_root": proof,
+            }
+            first_owner = lease_owner(state_root=first_state, **common)
+            admit_session_lease(
+                session="duplicate-launch",
+                target="codex",
+                controller="tester",
+                owner=first_owner,
+                authority_root=authority,
+            )
+            second_owner = lease_owner(state_root=second_state, **common)
+            with self.assertRaisesRegex(ConflictError, "controller lease"):
+                admit_session_lease(
+                    session="duplicate-launch",
+                    target="codex",
+                    controller="tester",
+                    owner=second_owner,
+                    authority_root=authority,
+                )
+            self.assertEqual(current_session_lease(authority)["owner"], first_owner)
+
     def test_session_lease_projection_recovers_each_committed_transition(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -127,6 +162,7 @@ class AuthorityTests(unittest.TestCase):
                 campaign_id="campaign-test",
                 goal_fingerprint="a" * 64,
                 proof_root=proof,
+                state_root=proof,
             )
             launching = admit_session_lease(
                 session="probe-crash-recovery",
@@ -167,6 +203,7 @@ class AuthorityTests(unittest.TestCase):
                 campaign_id="campaign-test",
                 goal_fingerprint="a" * 64,
                 proof_root=proof,
+                state_root=proof,
             )
             second = admit_session_lease(
                 session="session-crash-recovery",
@@ -327,6 +364,7 @@ class AuthorityTests(unittest.TestCase):
                     "campaign_id": "campaign-test",
                     "goal_fingerprint": "f" * 64,
                     "proof_root": str(proof.resolve(strict=True)),
+                    "state_root": str(state_root.resolve(strict=True)),
                 },
                 "contract_fingerprint": "a" * 64,
                 "contract_path": str(contract_path),

@@ -20,9 +20,9 @@ checkout-independent. Both mechanisms assume cooperative same-UID execution
 and do not turn YOLO targets into hostile-code containment.
 
 The durable lease binds activity kind, run, campaign, goal fingerprint, proof
-root, session, target, controller, process, and lifecycle state. Normal launch,
-follow-up delivery, cleanup, and halt serialize through one per-session
-operation lock. Graceful control keys use intent/submission journal entries;
+root, state root, session, target, controller, process, and lifecycle state.
+Normal launch, follow-up delivery, cleanup, and halt serialize through one
+per-session operation lock. Graceful control keys use intent/submission journal entries;
 an interrupted intent is ambiguous and must never be resent. The explicit
 parallel-target override accounts only for the named pre-existing process set;
 it does not bypass the controller lease.

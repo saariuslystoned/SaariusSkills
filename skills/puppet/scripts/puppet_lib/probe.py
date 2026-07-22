@@ -689,13 +689,6 @@ def run_probe(
     )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
-    probe_lease_owner = build_lease_owner(
-        activity="probe",
-        run_id=run_id,
-        campaign_id=authorization["campaign_id"],
-        goal_fingerprint=goal_verification["goal_fingerprint"],
-        proof_root=proof_root,
-    )
     probes_root = proof_root / "probes"
     if probes_root.exists() and probes_root.is_symlink():
         raise ValidationError("probe root must not be a symlink")
@@ -706,6 +699,14 @@ def run_probe(
         raise ConflictError("probe run id already exists")
     run_root.mkdir(mode=0o700)
     ensure_within(run_root, proof_root, must_exist=True)
+    probe_lease_owner = build_lease_owner(
+        activity="probe",
+        run_id=run_id,
+        campaign_id=authorization["campaign_id"],
+        goal_fingerprint=goal_verification["goal_fingerprint"],
+        proof_root=proof_root,
+        state_root=run_root,
+    )
     state_path = run_root / "state.json"
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
@@ -781,25 +782,9 @@ def run_probe(
     }
     atomic_write_json(evidence_path, evidence)
     try:
-        admit_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            authority_root=_authority_root,
-        )
-        lease_owned = True
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
             reject_active_lease=False,
-        )
-        require_session_lease(
-            session=session,
-            target=target,
-            controller=controller,
-            owner=probe_lease_owner,
-            states={"launching"},
-            authority_root=_authority_root,
         )
         evidence["campaign_probe_lock"] = lock_identity
         atomic_write_json(evidence_path, evidence)
@@ -826,6 +811,29 @@ def run_probe(
         if active and not override:
             raise ConflictError(
                 "an active same-target process blocks Pass B without the exact parallel isolation override"
+            )
+        admit_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            authority_root=_authority_root,
+            _lock_descriptor=lock_descriptor,
+        )
+        lease_owned = True
+        require_session_lease(
+            session=session,
+            target=target,
+            controller=controller,
+            owner=probe_lease_owner,
+            states={"launching"},
+            authority_root=_authority_root,
+        )
+        if sorted(_active_processes_fn(target), key=lambda item: item["pid"]) != sorted(
+            active, key=lambda item: item["pid"]
+        ):
+            raise IdentityError(
+                "same-target process population changed before probe launch"
             )
 
         fixture = run_root / "fixture"
@@ -1421,6 +1429,7 @@ def recover_probe(
         campaign_id=expected_campaign_id,
         goal_fingerprint=goal_verification["goal_fingerprint"],
         proof_root=proof_root,
+        state_root=run_root,
     )
     if (
         state.get("run_id") != run_id
@@ -1534,7 +1543,9 @@ def recover_probe(
         tmux_record = evidence.get("tmux")
         process = evidence.get("process")
         identity_source = "persisted_launch_identity"
+        launch_attempted: Optional[bool]
         if not socket.exists():
+            launch_attempted = None
             baseline = evidence.get("active_target_processes_before_launch")
             observed = _active_processes_fn(target)
             if not isinstance(baseline, list) or sorted(
@@ -1564,6 +1575,7 @@ def recover_probe(
             identity_source = "deterministic_private_socket_absent"
             process = None
         elif isinstance(tmux_record, dict) and isinstance(process, dict):
+            launch_attempted = True
             if tmux_record.get("socket") != str(socket):
                 raise IdentityError("persisted recovery socket identity mismatch")
             socket_identity = tmux_record.get("socket_identity")
@@ -1584,6 +1596,7 @@ def recover_probe(
                 raise IdentityError("persisted recovery socket identity changed")
             manifest.verify_process_executable(process)
         else:
+            launch_attempted = True
             identity_source = "reconstructed_private_launch_identity"
             socket_identity = tmux.socket_identity(socket)
             tmux_binary_identity = tmux.tmux_binary_identity()
@@ -1667,7 +1680,7 @@ def recover_probe(
             "goal_fingerprint": goal_verification["goal_fingerprint"],
             "authority_lock": lock_identity,
             "identity_source": identity_source,
-            "launch_attempted": False,
+            "launch_attempted": launch_attempted,
             "cleanup": cleanup,
             "result": "interrupted_probe_reconciled",
         }

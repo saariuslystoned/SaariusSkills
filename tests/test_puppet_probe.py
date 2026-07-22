@@ -22,7 +22,10 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     PROBE_CAPABILITIES,
     verify_qualification_receipt,
 )
-from puppet_lib.authority import admit_session_lease  # noqa: E402
+from puppet_lib.authority import (  # noqa: E402
+    admit_session_lease,
+    current_session_lease,
+)
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
@@ -742,6 +745,7 @@ class ProbeTests(unittest.TestCase):
                         canonical_json_bytes(files["expected_goal"])
                     ),
                     "proof_root": str(files["proof"]),
+                    "state_root": str(files["proof"]),
                 },
                 authority_root=files["authority"],
             )
@@ -968,6 +972,7 @@ class ProbeTests(unittest.TestCase):
                             canonical_json_bytes(files["expected_goal"])
                         ),
                         "proof_root": str(files["proof"]),
+                        "state_root": str(files["proof"]),
                     },
                     authority_root=files["authority"],
                 )
@@ -1003,6 +1008,82 @@ class ProbeTests(unittest.TestCase):
             terminal = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(terminal["phase"], "failed")
             self.assertTrue((run_root / "recovery.json").is_file())
+            recovery = json.loads(
+                (run_root / "recovery.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(recovery["launch_attempted"])
+
+    def test_prelaunch_recovery_preserves_authorized_parallel_population(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root, target="agy", override=True)
+            fake = FakeTmux(root / "fake-tmux")
+            protected = [static_process_identity(991)]
+
+            def admit_then_interrupt(**kwargs):
+                admit_session_lease(**kwargs)
+                raise KeyboardInterrupt()
+
+            with patch(
+                "puppet_lib.probe.admit_session_lease",
+                side_effect=admit_then_interrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    execute(
+                        files,
+                        fake,
+                        target="agy",
+                        run_id="probe-protected-prelaunch-crash",
+                        active=protected,
+                    )
+            self.assertIsNone(fake.launch_argv)
+            run_root = (
+                files["proof"]
+                / "probes"
+                / "probe-protected-prelaunch-crash"
+            )
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                evidence["active_target_processes_before_launch"], protected
+            )
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "launching"
+            )
+            recovered = recover_probe(
+                target="agy",
+                proof_root=files["proof"],
+                manifest_path=files["manifest"],
+                mapping_path=files["mapping"],
+                authorization_path=files["authorization"],
+                controller="tester",
+                goal_repo=files["goal_repo"],
+                expected_campaign_id=files["campaign_id"],
+                expected_goal=files["expected_goal"],
+                run_id="probe-protected-prelaunch-crash",
+                halt_timeout=0.1,
+                _tmux_factory=lambda selected: fake,
+                _process_birth_fn=lambda pid: process_identity(fake),
+                _process_alive_fn=lambda identity: fake.alive,
+                _server_process_birth_fn=lambda pid: fake.server_process,
+                _active_processes_fn=lambda selected: list(protected),
+                _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+                _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+                    files["raw"]
+                ),
+                _sleep_fn=lambda interval: None,
+                _authority_root=files["authority"],
+            )
+            self.assertTrue(recovered["recovered"])
+            self.assertFalse(recovered["tmux_preserved"])
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "failed"
+            )
+            recovery = json.loads(
+                (run_root / "recovery.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(recovery["launch_attempted"])
 
     def test_interrupted_agy_eof_is_ambiguous_and_never_resent(self):
         with tempfile.TemporaryDirectory() as temporary:

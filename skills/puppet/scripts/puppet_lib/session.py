@@ -14,6 +14,7 @@ from .adapters import adapter_for
 from .authority import (
     admit_session_lease,
     lease_owner as build_lease_owner,
+    reconcile_halted_session_lease,
     transition_session_lease,
 )
 from .beacons import parse_beacon
@@ -659,6 +660,7 @@ def launch(
         campaign_id=qualification_authority["campaign_id"],
         goal_fingerprint=qualification_authority["goal_fingerprint"],
         proof_root=proof_root,
+        state_root=state_root,
     )
     initial = adapter.envelope(_initial_envelope(contract, protocol, session, prompt))
     initial_sha = sha256_bytes(_message_payload(initial))
@@ -673,23 +675,34 @@ def launch(
         "expected_socket": str(socket),
         "created_at": _utc_now(),
     }
-    admit_session_lease(
-        session=session,
-        target=contract.target,
-        controller=contract.controller,
-        owner=session_lease_owner,
-    )
+    operation_guard = exclusive_lock(registry.operation_lock(session))
+    operation_guard.__enter__()
     try:
-        registry.reserve(reservation)
-    except BaseException:
-        transition_session_lease(
+        if registry.exists(session):
+            raise ConflictError("session is already reserved or registered")
+        admit_session_lease(
             session=session,
             target=contract.target,
             controller=contract.controller,
             owner=session_lease_owner,
-            state="failed",
-            process=None,
         )
+    except BaseException:
+        operation_guard.__exit__(None, None, None)
+        raise
+    try:
+        registry.reserve(reservation)
+    except BaseException:
+        try:
+            transition_session_lease(
+                session=session,
+                target=contract.target,
+                controller=contract.controller,
+                owner=session_lease_owner,
+                state="failed",
+                process=None,
+            )
+        finally:
+            operation_guard.__exit__(None, None, None)
         raise
     journal = _journal(proof_root)
     try:
@@ -704,23 +717,24 @@ def launch(
             },
         )
     except BaseException:
-        registry.release_reservation(session, contract.fingerprint)
-        transition_session_lease(
-            session=session,
-            target=contract.target,
-            controller=contract.controller,
-            owner=session_lease_owner,
-            state="failed",
-            process=None,
-        )
+        try:
+            registry.release_reservation(session, contract.fingerprint)
+            transition_session_lease(
+                session=session,
+                target=contract.target,
+                controller=contract.controller,
+                owner=session_lease_owner,
+                state="failed",
+                process=None,
+            )
+        finally:
+            operation_guard.__exit__(None, None, None)
         raise
     metadata = None
     process = None
     process_verified = False
     lease_active = False
     activated = False
-    operation_guard = exclusive_lock(registry.operation_lock(session))
-    operation_guard.__enter__()
     try:
         metadata = tmux.launch(session=session, repo=contract.repo, argv=argv)
         process = process_birth_identity(metadata["pane_pid"])
@@ -1281,6 +1295,13 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
         _bound_contract(record)
         journal = _journal(Path(record["proof_root"]))
         if record["state"] == "HALTED":
+            reconcile_halted_session_lease(
+                session=session,
+                target=record["target"],
+                controller=record["controller"],
+                owner=record["lease_owner"],
+                process=record["process"],
+            )
             terminal = _halt_terminal_result(journal, session)
             if terminal is not None:
                 return terminal

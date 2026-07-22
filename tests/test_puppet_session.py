@@ -18,7 +18,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.session as puppet_session  # noqa: E402
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
-from puppet_lib.authority import current_session_lease  # noqa: E402
+from puppet_lib.authority import (  # noqa: E402
+    admit_session_lease,
+    current_session_lease,
+    lease_owner,
+)
 from puppet_lib.campaign import (  # noqa: E402
     ALLOWED_ACTIONS as CAMPAIGN_ALLOWED_ACTIONS,
     HARD_GATES as CAMPAIGN_HARD_GATES,
@@ -600,12 +604,53 @@ class SessionIntegrationTests(unittest.TestCase):
                         },
                     },
                 )
-                result = halt(state_root=files["state"], session=session, timeout=1)
-                self.assertEqual(result["state"], "HALTED")
-                self.assertFalse(result["signal_sent"])
-                self.assertTrue(result["tmux_preserved"])
+                original_transition = puppet_session.transition_session_lease
+                injected = {"raised": False}
+
+                def interrupt_terminal_lease(**kwargs):
+                    if kwargs.get("state") == "halted" and not injected["raised"]:
+                        injected["raised"] = True
+                        raise KeyboardInterrupt()
+                    return original_transition(**kwargs)
+
+                with patch.object(
+                    puppet_session,
+                    "transition_session_lease",
+                    side_effect=interrupt_terminal_lease,
+                ):
+                    with self.assertRaises(KeyboardInterrupt):
+                        halt(state_root=files["state"], session=session, timeout=1)
+                self.assertEqual(registry.load(session)["state"], "HALTED")
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "halting"
+                )
                 replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
+                self.assertFalse(replay["signal_sent"])
+                self.assertTrue(replay["tmux_preserved"])
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "halted"
+                )
+                later_owner = lease_owner(
+                    activity="session",
+                    run_id="later-session-run",
+                    campaign_id="campaign-test",
+                    goal_fingerprint="a" * 64,
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                )
+                later = admit_session_lease(
+                    session="later-session",
+                    target="claude",
+                    controller="tester",
+                    owner=later_owner,
+                    authority_root=self.authority_root,
+                )
+                replay = halt(
+                    state_root=files["state"], session=session, timeout=1
+                )
+                self.assertEqual(replay["state"], "HALTED")
+                self.assertEqual(current_session_lease(self.authority_root), later)
             finally:
                 kill_test_server(socket)
 
@@ -655,6 +700,92 @@ class SessionIntegrationTests(unittest.TestCase):
                     current_session_lease(self.authority_root)["state"], "halted"
                 )
             finally:
+                kill_test_server(socket)
+
+    def test_concurrent_duplicate_launch_cannot_switch_state_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/duplicate-launch", "candidate"
+            )
+            session = "codex-duplicate-launch"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/duplicate-launch",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            second_state = root / "second-state"
+            second_state.mkdir(mode=0o700)
+            socket = None
+            first_entered_tmux = threading.Event()
+            release_first = threading.Event()
+            original_launch = TmuxController.launch
+            launch_calls = []
+            first_result = []
+            first_error = []
+
+            def paused_launch(controller, **kwargs):
+                launch_calls.append(kwargs["session"])
+                first_entered_tmux.set()
+                if not release_first.wait(timeout=5):
+                    raise RuntimeError("test launch barrier timed out")
+                return original_launch(controller, **kwargs)
+
+            def run_first():
+                try:
+                    first_result.append(
+                        launch(
+                            session=session,
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files["supervisor_executable"],
+                            prompt="Remain available for exact halt.",
+                        )
+                    )
+                except BaseException as exc:
+                    first_error.append(exc)
+
+            try:
+                with patch.object(TmuxController, "launch", new=paused_launch):
+                    thread = threading.Thread(target=run_first)
+                    thread.start()
+                    self.assertTrue(first_entered_tmux.wait(timeout=5))
+                    with self.assertRaisesRegex(ConflictError, "controller lease"):
+                        launch(
+                            session=session,
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=second_state,
+                            supervisor_executable=files["supervisor_executable"],
+                            prompt="Remain available for exact halt.",
+                        )
+                    release_first.set()
+                    thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(first_error, [])
+                self.assertEqual(len(first_result), 1)
+                self.assertEqual(launch_calls, [session])
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                self.assertEqual(
+                    current_session_lease(self.authority_root)["state"], "active"
+                )
+                self.assertEqual(
+                    halt(state_root=files["state"], session=session, timeout=5)["state"],
+                    "HALTED",
+                )
+            finally:
+                release_first.set()
+                if "thread" in locals() and thread.is_alive():
+                    thread.join(timeout=5)
                 kill_test_server(socket)
 
     def test_process_binding_failure_exactly_cleans_provisional_launch(self):
