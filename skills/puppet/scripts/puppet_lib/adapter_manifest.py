@@ -13,7 +13,7 @@ from .authority import (
     controller_authority_root,
     verify_qualification_attestation,
 )
-from .contracts import TARGET_POPULATION_POLICY
+from .contracts import PROCESS_IDENTITY_FIELDS, TARGET_POPULATION_POLICY
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .safety import (
     atomic_write_json,
@@ -129,14 +129,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "result",
 }
 
-_PROCESS_FIELDS = {
-    "pid",
-    "start",
-    "command",
-    "executable_path",
-    "device",
-    "inode",
-}
+_PROCESS_FIELDS = PROCESS_IDENTITY_FIELDS
 
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
@@ -183,12 +176,17 @@ def _validated_process_record(value: Any, label: str) -> Dict[str, Any]:
     if not isinstance(value, dict) or set(value) != _PROCESS_FIELDS:
         raise ValidationError("%s process identity fields do not match schema" % label)
     if (
-        isinstance(value.get("pid"), bool)
+        value.get("identity_version") != 2
+        or isinstance(value.get("pid"), bool)
         or not isinstance(value.get("pid"), int)
         or value["pid"] <= 1
         or not isinstance(value.get("start"), str)
         or not value["start"]
         or len(value["start"]) > 200
+        or not isinstance(value.get("kernel_birth_id"), str)
+        or not value["kernel_birth_id"]
+        or len(value["kernel_birth_id"]) > 200
+        or any(character in value["kernel_birth_id"] for character in "\x00\n\r")
         or not isinstance(value.get("command"), str)
         or not value["command"]
         or len(value["command"]) > 1000
@@ -215,6 +213,55 @@ def _validated_process_population(
     if len(pids) != len(set(pids)) or pids != sorted(pids):
         raise ValidationError("%s process population order or identity is invalid" % label)
     return records
+
+
+def _validated_ancestry_chain(
+    value: Any,
+    label: str,
+    *,
+    registered: Dict[str, Any],
+    protected_pids: set[int],
+) -> list[Dict[str, Any]]:
+    if not isinstance(value, list) or not 2 <= len(value) <= 65:
+        raise ValidationError("%s ancestry chain is invalid" % label)
+    nodes = []
+    pids = []
+    for item in value:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"process", "parent_pid"}
+            or isinstance(item.get("parent_pid"), bool)
+            or not isinstance(item.get("parent_pid"), int)
+            or item["parent_pid"] < 0
+        ):
+            raise ValidationError("%s ancestry node is invalid" % label)
+        process = _validated_process_record(item.get("process"), label)
+        nodes.append({"process": process, "parent_pid": item["parent_pid"]})
+        pids.append(process["pid"])
+    if (
+        len(pids) != len(set(pids))
+        or nodes[-1]["process"] != registered
+        or any(node["process"]["pid"] in protected_pids for node in nodes[1:-1])
+        or any(
+            child["parent_pid"] != parent["process"]["pid"]
+            for child, parent in zip(nodes, nodes[1:])
+        )
+    ):
+        raise ValidationError("%s ancestry edge identity is invalid" % label)
+    return nodes
+
+
+def _validate_ancestry_node_coherence(
+    chains: list[list[Dict[str, Any]]], label: str
+) -> None:
+    nodes_by_pid: Dict[int, Dict[str, Any]] = {}
+    for chain in chains:
+        for node in chain:
+            pid = node["process"]["pid"]
+            prior = nodes_by_pid.get(pid)
+            if prior is not None and prior != node:
+                raise ValidationError("%s ancestry node identity conflicts" % label)
+            nodes_by_pid[pid] = node
 
 
 def verify_qualification_receipt(
@@ -467,10 +514,9 @@ def verify_qualification_receipt(
         or sha256_file(executable_path) != receipt["executable_fingerprint"]
     ):
         raise ValidationError("qualification process executable identity mismatch")
-    descendants = _validated_process_population(
-        evidence.get("observed_target_descendants"),
-        "observed target descendant",
-    )
+    raw_descendants = evidence.get("observed_target_descendants")
+    if not isinstance(raw_descendants, list) or len(raw_descendants) > 32:
+        raise ValidationError("observed target descendants are invalid")
     last_population = evidence.get("last_target_population")
     if (
         evidence.get("target_population_policy") != TARGET_POPULATION_POLICY
@@ -493,42 +539,84 @@ def verify_qualification_receipt(
     if any(last_by_pid.get(item["pid"]) != item for item in expected_population):
         raise ValidationError("qualification target population root identity changed")
     expected_pids = {item["pid"] for item in expected_population}
+    protected_pids = {item["pid"] for item in active_before}
     last_extras = [
         item for item in last_processes if item["pid"] not in expected_pids
     ]
     executable_identity = {
         name: process[name] for name in ("executable_path", "device", "inode")
     }
-    if any(
-        {
-            name: item[name]
-            for name in ("executable_path", "device", "inode")
-        }
-        != executable_identity
-        for item in [*descendants, *last_extras]
+    descendant_observations = []
+    descendant_pids = set()
+    for item in raw_descendants:
+        if not isinstance(item, dict) or set(item) != {"process", "ancestry_chain"}:
+            raise ValidationError("observed target descendant fields are invalid")
+        descendant = _validated_process_record(
+            item.get("process"), "observed target descendant"
+        )
+        chain = _validated_ancestry_chain(
+            item.get("ancestry_chain"),
+            "observed target descendant",
+            registered=process,
+            protected_pids=protected_pids,
+        )
+        if (
+            chain[0]["process"] != descendant
+            or descendant["pid"] in descendant_pids
+            or descendant["pid"] in expected_pids
+            or {
+                name: descendant[name]
+                for name in ("executable_path", "device", "inode")
+            }
+            != executable_identity
+        ):
+            raise ValidationError("qualification target descendant identity is invalid")
+        descendant_pids.add(descendant["pid"])
+        descendant_observations.append(
+            {"process": descendant, "ancestry_chain": chain}
+        )
+    if descendant_observations != sorted(
+        descendant_observations, key=lambda item: item["process"]["pid"]
     ):
-        raise ValidationError("qualification target descendant executable changed")
-    descendant_pids = {item["pid"] for item in descendants}
-    if descendant_pids & expected_pids or any(
-        item["pid"] not in descendant_pids for item in last_extras
-    ):
-        raise ValidationError("qualification target descendant identity is invalid")
-    chains = last_population.get("ancestry_chains")
+        raise ValidationError("qualification target descendant order is invalid")
+    raw_chains = last_population.get("ancestry_chains")
+    if not isinstance(raw_chains, list) or len(raw_chains) > 32:
+        raise ValidationError("qualification target ancestry evidence is invalid")
+    chains = [
+        _validated_ancestry_chain(
+            item,
+            "last target population",
+            registered=process,
+            protected_pids=protected_pids,
+        )
+        for item in raw_chains
+    ]
+    _validate_ancestry_node_coherence(chains, "last target population")
+    observed_by_pid = {
+        item["process"]["pid"]: item for item in descendant_observations
+    }
+    last_extra_by_pid = {item["pid"]: item for item in last_extras}
     if (
-        not isinstance(chains, list)
-        or len(chains) > 32
-        or chains != sorted(chains)
+        chains
+        != sorted(chains, key=lambda chain: chain[0]["process"]["pid"])
         or len(chains) != len(last_extras)
+        or {
+            chain[0]["process"]["pid"] for chain in chains
+        }
+        != {item["pid"] for item in last_extras}
         or any(
-            not isinstance(chain, list)
-            or not 2 <= len(chain) <= 65
-            or not all(isinstance(pid, int) and pid > 1 for pid in chain)
-            or len(chain) != len(set(chain))
-            or chain[-1] != process["pid"]
+            observed_by_pid.get(chain[0]["process"]["pid"], {}).get(
+                "ancestry_chain"
+            )
+            != chain
             for chain in chains
         )
-        or {chain[0] for chain in chains}
-        != {item["pid"] for item in last_extras}
+        or any(
+            last_extra_by_pid.get(chain[0]["process"]["pid"])
+            != chain[0]["process"]
+            for chain in chains
+        )
+        or any(item["pid"] not in descendant_pids for item in last_extras)
     ):
         raise ValidationError("qualification target ancestry evidence is invalid")
     tmux = evidence.get("tmux")
@@ -852,7 +940,7 @@ def verify_qualification_receipt(
     expected_signal = (
         {"tmux_exact_pane_ctrl_d_twice", "tmux_exact_pane_ctrl_d_once_target_stopped"}
         if receipt["target"] == "agy"
-        else {"tmux_exact_pane_ctrl_c"}
+        else {"exact_registered_pid_sigint"}
     )
     if (
         set(halt) != expected_halt_fields

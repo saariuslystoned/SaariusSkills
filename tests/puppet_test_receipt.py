@@ -137,7 +137,7 @@ def write_qualification_receipt(
             "signal": (
                 "tmux_exact_pane_ctrl_d_twice"
                 if target == "agy"
-                else "tmux_exact_pane_ctrl_c"
+                else "exact_registered_pid_sigint"
             ),
             "cleanup_scope": "exact_new_target_only",
             "reason": "accepted_probe_halt",
@@ -193,8 +193,10 @@ def write_qualification_receipt(
     executable_path = Path(executable_path).resolve(strict=True)
     executable_details = executable_path.stat()
     target_process = {
+        "identity_version": 2,
         "pid": 4242,
         "start": "Wed Jul 22 04:00:00 2026",
+        "kernel_birth_id": "test:4242",
         "command": executable_path.name,
         "executable_path": str(executable_path),
         "device": executable_details.st_dev,
@@ -234,10 +236,10 @@ def write_qualification_receipt(
             "payload_argv_absent": True,
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
-            "target_population_policy": "protected-plus-root-plus-exact-descendants-v1",
+            "target_population_policy": "protected-plus-root-plus-birth-bound-descendants-v2",
             "observed_target_descendants": [],
             "last_target_population": {
-                "policy": "protected-plus-root-plus-exact-descendants-v1",
+                "policy": "protected-plus-root-plus-birth-bound-descendants-v2",
                 "processes": [target_process],
                 "ancestry_chains": [],
                 "accepted": True,

@@ -22,19 +22,29 @@ and do not turn YOLO targets into hostile-code containment.
 The durable lease binds activity kind, run, campaign, goal fingerprint, proof
 root, state root, session, target, controller, process, and lifecycle state.
 Normal launch, follow-up delivery, cleanup, and halt serialize through one
-per-session operation lock. Graceful control keys use intent/submission journal entries;
-an interrupted intent is ambiguous and must never be resent. The explicit
-parallel-target override accounts only for the named pre-existing process set;
-it does not bypass the controller lease.
+per-session operation lock. Graceful halt intent/submission entries bind the
+target PID, v2 identity digest, action index, and action; an interrupted intent
+is ambiguous and must never be resent. The explicit parallel-target override
+accounts only for the named pre-existing process set; it does not bypass the
+controller lease.
+
+Halt action is target-aware: non-AGY uses exact positive-PID `SIGINT`; AGY uses
+private-pane EOF. Never send tmux `C-c` or process-group signals.
 
 A real-harness probe may observe a bounded same-executable child population
-created by its registered pane process. Each child needs an exact live birth
-and executable identity plus an acyclic PPID chain to that registered root in
-the same argv-free process-table sample. Siblings, children of a protected
-process, missing parents, PID reuse, and identity drift fail closed. Puppet
-never signals those descendants or a process group; its halt authority remains
-the exact registered private pane. After halt, the same-target population must
-return to the exact protected baseline before a receipt can be accepted.
+created by its registered pane process. Each child needs an exact live v2 birth
+identity and executable identity plus an acyclic kernel-revalidated PPID chain to
+the registered root from one bounded discovery pass plus birth-bound per-node
+samples. On Darwin, birth identity is `proc_pidinfo` `(sec, usec)`; on Linux,
+`(kernel.boot_id,
+/proc/<pid>/stat_starttime_ticks)`. Siblings, children of a protected process,
+missing parents, PID reuse, and identity drift fail closed. Keep full ancestry
+history for transient descendants as receipt evidence. Puppet never signals those
+descendants or a process group; non-AGY halt authority is the exact registered
+positive PID and AGY EOF authority is the exact registered private pane. If a
+provisional target cannot be fully controller-bound before input, keep it fenced
+and non-qualifying without any halt action. After halt, the same-target population
+must return to the exact protected baseline before a receipt can be accepted.
 
 ## Lifecycle
 
@@ -76,7 +86,10 @@ registered target; `close` is unsupported by bootstrap Puppet.
 An interrupted Pass B probe is recovered only through its persisted exact
 identity with `adapter_lab.py recover`. Recovery never relaunches. It either
 verifies the committed terminal receipt or gracefully halts the exact surviving
-target and records a failed recovery result for controller review.
+target and records a failed recovery result for controller review. On Linux,
+use pidfd when available for signal delivery; on macOS, acknowledge residual
+identity check-to-kill races and re-sample deterministically before blocker
+finalization.
 
 ## Human gates
 

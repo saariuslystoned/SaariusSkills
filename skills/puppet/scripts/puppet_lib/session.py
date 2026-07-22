@@ -27,9 +27,14 @@ from .conformance import tree_fingerprint
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
-from .halt_control import deliver_halt_controls
+from .halt_control import deliver_halt_actions
 from .journal import Journal
-from .registry import SessionRegistry, process_alive, process_birth_identity
+from .registry import (
+    SessionRegistry,
+    process_alive,
+    process_birth_identity,
+    send_exact_sigint,
+)
 from .safety import (
     SECRET_TEXT_PATTERNS,
     absolute_root,
@@ -252,28 +257,55 @@ def _cleanup_incomplete_launch(
                 )
         return True
 
-    def send_one(key: str) -> None:
-        if target_alive():
+    initially_alive = target_alive()
+    if initially_alive and not process_verified:
+        raise IdentityError(
+            "incomplete launch process remains unbound; no halt action was attempted"
+        )
+    if not initially_alive and process is None:
+        terminal = tmux.metadata_for_session(
+            socket=socket,
+            session=session,
+            server_identity=server_identity,
+        )
+        if (
+            terminal.get("pane") != pane
+            or terminal.get("pane_pid") != pane_pid
+            or terminal.get("pane_dead") is not True
+            or tmux.socket_identity(socket) != socket_identity
+        ):
+            raise IdentityError("incomplete launch dead-pane evidence changed")
+        return True
+
+    def deliver_one(action: str) -> None:
+        if not target_alive() or process is None:
+            raise IdentityError("incomplete launch stopped before its halt action")
+        if action == "exact_pid_sigint":
+            send_exact_sigint(process)
+        elif action == "tmux_pane_eof":
             tmux.send_control(
                 socket=socket,
                 session=session,
                 pane=pane,
-                key=key,
+                key="C-d",
                 server_identity=server_identity,
+                expected_pane_pid=pane_pid,
             )
+        else:
+            raise IdentityError("incomplete launch selected an unknown halt action")
 
     deadline = time.monotonic() + timeout
 
     def pause_after_send() -> None:
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
-    deliver_halt_controls(
+    deliver_halt_actions(
         journal=journal,
         session=session,
-        target_pid=pane_pid,
-        keys=list(adapter_for(target).graceful_halt_keys),
+        target_identity=process,
+        actions=list(adapter_for(target).graceful_halt_actions),
         process_alive=target_alive,
-        send_control=send_one,
+        deliver_action=deliver_one,
         after_send=pause_after_send,
     )
     while target_alive() and time.monotonic() < deadline:
@@ -1339,26 +1371,33 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
         )
         deadline = time.monotonic() + timeout
 
-        def send_one(key: str) -> None:
-            if process_alive(record["process"]):
-                registry.verify_process(record)
+        def deliver_one(action: str) -> None:
+            if not process_alive(record["process"]):
+                raise IdentityError("registered target stopped before its halt action")
+            registry.verify_process(record)
+            if action == "exact_pid_sigint":
+                send_exact_sigint(record["process"])
+            elif action == "tmux_pane_eof":
                 tmux.send_control(
                     socket=Path(record["tmux"]["socket"]),
                     session=session,
                     pane=record["tmux"]["pane"],
-                    key=key,
+                    key="C-d",
+                    expected_pane_pid=record["process"]["pid"],
                 )
+            else:
+                raise IdentityError("registered target selected an unknown halt action")
 
         def pause_after_send() -> None:
             time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
-        submitted_keys = deliver_halt_controls(
+        submitted_actions = deliver_halt_actions(
             journal=journal,
             session=session,
-            target_pid=record["process"]["pid"],
-            keys=list(adapter_for(record["target"]).graceful_halt_keys),
+            target_identity=record["process"],
+            actions=list(adapter_for(record["target"]).graceful_halt_actions),
             process_alive=lambda: process_alive(record["process"]),
-            send_control=send_one,
+            deliver_action=deliver_one,
             after_send=pause_after_send,
         )
         while process_alive(record["process"]) and time.monotonic() < deadline:
@@ -1386,7 +1425,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 "session": session,
                 "target_pid": record["process"]["pid"],
                 "result": "stopped",
-                "signal_sent": bool(submitted_keys),
+                "signal_sent": bool(submitted_actions),
                 "tmux_preserved": True,
             },
         )
@@ -1406,6 +1445,6 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
             "ok": True,
             "session": session,
             "state": "HALTED",
-            "signal_sent": bool(submitted_keys),
+            "signal_sent": bool(submitted_actions),
             "tmux_preserved": True,
         }

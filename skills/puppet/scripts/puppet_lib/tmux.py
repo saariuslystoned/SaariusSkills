@@ -479,22 +479,6 @@ class TmuxController:
             payload=path.read_bytes(),
         )
 
-    def interrupt(
-        self,
-        *,
-        socket: Path,
-        session: str,
-        pane: Optional[str] = None,
-        server_identity: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        self.send_control(
-            socket=socket,
-            session=session,
-            pane=pane,
-            key="C-c",
-            server_identity=server_identity,
-        )
-
     def send_control(
         self,
         *,
@@ -502,10 +486,17 @@ class TmuxController:
         session: str,
         pane: Optional[str] = None,
         key: str,
+        expected_pane_pid: int,
         server_identity: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if key not in {"C-c", "C-d"}:
+        if key != "C-d":
             raise ValidationError("control key is outside the exact halt allowlist")
+        if (
+            isinstance(expected_pane_pid, bool)
+            or not isinstance(expected_pane_pid, int)
+            or expected_pane_pid <= 1
+        ):
+            raise ValidationError("expected pane process identity is invalid")
         metadata = self.metadata(
             socket=socket,
             session=session,
@@ -514,6 +505,8 @@ class TmuxController:
         )
         if metadata["pane_dead"]:
             raise IdentityError("tmux pane is unavailable")
+        if metadata["pane_pid"] != expected_pane_pid:
+            raise IdentityError("tmux pane process identity changed")
         self._run(socket, ["send-keys", "-t", metadata["pane"], key])
 
     def attach_command(

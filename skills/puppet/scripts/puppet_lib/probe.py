@@ -41,15 +41,21 @@ from .conformance import create_fixture, tree_fingerprint
 from .contracts import (
     Contract,
     MANDATORY_HARD_GATES,
+    PROCESS_IDENTITY_FIELDS,
     TARGET_POPULATION_POLICY,
     TARGETS,
 )
 from .census import adapter_implementation_fingerprint, census_target
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
-from .halt_control import deliver_halt_controls
+from .halt_control import deliver_halt_actions
 from .journal import Journal
-from .registry import process_alive, process_birth_identity
+from .registry import (
+    process_alive,
+    process_birth_identity,
+    process_tree_alive,
+    send_exact_sigint,
+)
 from .safety import (
     absolute_root,
     atomic_write_json,
@@ -70,17 +76,8 @@ POLL_INTERVAL_SECONDS = 0.1
 PROBE_PROFILE = "source-free-pass-b-v1"
 MAX_TARGET_POPULATION = 64
 MAX_TARGET_DESCENDANTS = 32
+MAX_TARGET_ANCESTRY_NODES = 512
 MAX_ANCESTRY_DEPTH = 64
-PROCESS_IDENTITY_FIELDS = {
-    "pid",
-    "start",
-    "command",
-    "executable_path",
-    "device",
-    "inode",
-}
-
-
 def _utc_now() -> str:
     return (
         dt.datetime.now(dt.timezone.utc)
@@ -121,31 +118,42 @@ def _validated_target_population(
     protected: list[Dict[str, Any]],
     registered: Dict[str, Any],
     process_alive_fn: Callable[[Dict[str, Any]], bool],
+    process_tree_alive_fn: Callable[[Dict[str, Any]], bool],
 ) -> Dict[str, Any]:
     """Admit only exact protected/root identities plus exact root descendants."""
 
-    if not isinstance(snapshot, dict) or set(snapshot) != {"processes", "parents"}:
+    if not isinstance(snapshot, dict) or set(snapshot) != {
+        "processes",
+        "ancestry_nodes",
+    }:
         raise IdentityError("same-target process snapshot fields are invalid")
     observed = snapshot["processes"]
-    parents = snapshot["parents"]
+    nodes = snapshot["ancestry_nodes"]
     if (
         not isinstance(observed, list)
         or len(observed) > MAX_TARGET_POPULATION
-        or not isinstance(parents, dict)
-        or len(parents) > 32768
+        or not isinstance(nodes, list)
+        or len(nodes) > MAX_TARGET_ANCESTRY_NODES
     ):
         raise IdentityError("same-target process snapshot exceeds its bound")
-    if not all(
-        isinstance(pid, int)
-        and pid > 0
-        and isinstance(ppid, int)
-        and ppid >= 0
-        for pid, ppid in parents.items()
-    ):
-        raise IdentityError("same-target process parent map is invalid")
     for identity in [*protected, registered, *observed]:
         if not isinstance(identity, dict) or set(identity) != PROCESS_IDENTITY_FIELDS:
             raise IdentityError("same-target process identity fields are invalid")
+    nodes_by_pid = {}
+    for node in nodes:
+        if (
+            not isinstance(node, dict)
+            or set(node) != {"process", "parent_pid"}
+            or not isinstance(node["process"], dict)
+            or set(node["process"]) != PROCESS_IDENTITY_FIELDS
+            or isinstance(node["parent_pid"], bool)
+            or not isinstance(node["parent_pid"], int)
+            or node["parent_pid"] < 0
+            or node["process"]["pid"] in nodes_by_pid
+            or not process_tree_alive_fn(node)
+        ):
+            raise IdentityError("same-target ancestry node is invalid")
+        nodes_by_pid[node["process"]["pid"]] = node
     expected = [*protected, registered]
     expected_pids = [item["pid"] for item in expected]
     observed_pids = [item["pid"] for item in observed]
@@ -155,6 +163,11 @@ def _validated_target_population(
     ):
         raise IdentityError("same-target process snapshot contains duplicate PIDs")
     observed_by_pid = {item["pid"]: item for item in observed}
+    if any(
+        nodes_by_pid.get(identity["pid"], {}).get("process") != identity
+        for identity in observed
+    ):
+        raise IdentityError("same-target process lacks an exact ancestry node")
     for identity in expected:
         if observed_by_pid.get(identity["pid"]) != identity or not process_alive_fn(
             identity
@@ -162,7 +175,6 @@ def _validated_target_population(
             raise IdentityError("protected or registered process identity changed")
 
     protected_pids = {item["pid"] for item in protected}
-    root_pid = registered["pid"]
     executable_identity = {
         name: registered[name]
         for name in ("executable_path", "device", "inode")
@@ -183,27 +195,32 @@ def _validated_target_population(
             raise IdentityError(
                 "same-target extra lacks the registered executable identity"
             )
-        chain = [identity["pid"]]
+        chain = [nodes_by_pid[identity["pid"]]]
         seen = {identity["pid"]}
-        current = identity["pid"]
+        current = nodes_by_pid[identity["pid"]]
         for _ in range(MAX_ANCESTRY_DEPTH):
-            parent = parents.get(current)
-            if parent is None or parent <= 1 or parent in seen:
+            parent_pid = current["parent_pid"]
+            if parent_pid <= 1 or parent_pid in seen:
+                raise IdentityError(
+                    "same-target extra lacks an exact registered-target ancestry chain"
+                )
+            parent = nodes_by_pid.get(parent_pid)
+            if parent is None:
                 raise IdentityError(
                     "same-target extra lacks an exact registered-target ancestry chain"
                 )
             chain.append(parent)
-            if parent == root_pid:
+            if parent["process"] == registered:
                 break
-            if parent in protected_pids:
+            if parent_pid in protected_pids:
                 raise IdentityError(
                     "same-target extra descends from a protected process"
                 )
-            seen.add(parent)
+            seen.add(parent_pid)
             current = parent
         else:
             raise IdentityError("same-target ancestry exceeds the depth bound")
-        if chain[-1] != root_pid:
+        if chain[-1]["process"] != registered:
             raise IdentityError(
                 "same-target extra is unrelated to the registered target"
             )
@@ -214,7 +231,9 @@ def _validated_target_population(
     return {
         "processes": sorted(observed, key=lambda item: item["pid"]),
         "descendants": sorted(descendants, key=lambda item: item["pid"]),
-        "ancestry_chains": sorted(chains),
+        "ancestry_chains": sorted(
+            chains, key=lambda chain: chain[0]["process"]["pid"]
+        ),
     }
 
 
@@ -516,66 +535,66 @@ def _halt_exact(
     reason: str,
     journal: Journal,
     require_live: bool = False,
+    exact_sigint_fn: Callable[[Dict[str, Any]], None] = send_exact_sigint,
 ) -> Dict[str, Any]:
     target_alive = process_alive_fn(process)
     if require_live and not target_alive:
         raise IdentityError("probe target stopped before the required controller halt")
     deadline = time.monotonic() + timeout
 
-    def send_one(key: str) -> None:
-        if process_alive_fn(process):
-            _assert_runtime(
-                tmux=tmux,
-                socket=socket,
-                session=session,
-                pane=pane,
-                pane_pid=process["pid"],
-                socket_identity=socket_identity,
-                server_identity=server_identity,
-                tmux_binary_identity=tmux_binary_identity,
-                process=process,
-                process_alive_fn=process_alive_fn,
-            )
-        if key == "C-c":
-            tmux.interrupt(
-                socket=socket,
-                session=session,
-                pane=pane,
-                server_identity=server_identity,
-            )
-        else:
+    def deliver_one(action: str) -> None:
+        if not process_alive_fn(process):
+            raise IdentityError("probe target stopped before its exact halt action")
+        _assert_runtime(
+            tmux=tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            pane_pid=process["pid"],
+            socket_identity=socket_identity,
+            server_identity=server_identity,
+            tmux_binary_identity=tmux_binary_identity,
+            process=process,
+            process_alive_fn=process_alive_fn,
+        )
+        if action == "exact_pid_sigint":
+            exact_sigint_fn(process)
+        elif action == "tmux_pane_eof":
             tmux.send_control(
                 socket=socket,
                 session=session,
                 pane=pane,
-                key=key,
+                key="C-d",
                 server_identity=server_identity,
+                expected_pane_pid=process["pid"],
             )
+        else:
+            raise IdentityError("exact halt selected an unknown action")
 
     def pause_after_send() -> None:
         remaining = max(0.0, deadline - time.monotonic())
         if remaining:
             sleep_fn(min(0.25, remaining))
 
-    sent_keys = deliver_halt_controls(
+    submitted_actions = deliver_halt_actions(
         journal=journal,
         session=session,
-        target_pid=process["pid"],
-        keys=list(adapter_for(target).graceful_halt_keys),
+        target_identity=process,
+        actions=list(adapter_for(target).graceful_halt_actions),
         process_alive=lambda: process_alive_fn(process),
-        send_control=send_one,
+        deliver_action=deliver_one,
         after_send=pause_after_send,
     )
-    signal_sent = bool(sent_keys)
+    signal_sent = bool(submitted_actions)
     signal_name = "none_already_stopped"
-    if sent_keys == ["C-d", "C-d"]:
+    if submitted_actions == ["tmux_pane_eof", "tmux_pane_eof"]:
         signal_name = "tmux_exact_pane_ctrl_d_twice"
-    elif sent_keys == ["C-d"]:
+    elif submitted_actions == ["tmux_pane_eof"]:
         signal_name = "tmux_exact_pane_ctrl_d_once_target_stopped"
-    elif sent_keys == ["C-c"]:
-        signal_name = "tmux_exact_pane_ctrl_c"
-    elif sent_keys:
-        raise IdentityError("exact halt used an unexpected control sequence")
+    elif submitted_actions == ["exact_pid_sigint"]:
+        signal_name = "exact_registered_pid_sigint"
+    elif submitted_actions:
+        raise IdentityError("exact halt used an unexpected action sequence")
     while process_alive_fn(process) and time.monotonic() < deadline:
         sleep_fn(POLL_INTERVAL_SECONDS)
     stopped = not process_alive_fn(process)
@@ -598,6 +617,7 @@ def _halt_exact(
     if (
         stopped_metadata.get("session") != session
         or stopped_metadata.get("pane") != pane
+        or stopped_metadata.get("pane_pid") != process["pid"]
         or not stopped_metadata.get("pane_dead")
     ):
         raise IdentityError("probe target stopped without a preserved dead evidence pane")
@@ -628,8 +648,12 @@ def _halt_provisional_exact(
     timeout: float,
     sleep_fn: Callable[[float], None],
     journal: Journal,
+    manifest: AdapterManifest,
+    process_birth_fn: Callable[[int], Dict[str, Any]],
+    process_alive_fn: Callable[[Dict[str, Any]], bool],
+    exact_sigint_fn: Callable[[Dict[str, Any]], None],
 ) -> Dict[str, Any]:
-    """Clean a newly launched private pane when process birth binding failed."""
+    """Rebind and clean a provisional pane, or leave it fenced without input."""
 
     tmux.assert_tmux_binary_identity(tmux_binary_identity)
     tmux.assert_tmux_server_identity(socket, server_identity)
@@ -646,91 +670,46 @@ def _halt_provisional_exact(
         for name in ("session", "pane", "pane_pid")
     ):
         raise IdentityError("provisional probe tmux identity changed")
-    deadline = time.monotonic() + timeout
-
-    def current_alive() -> bool:
-        current = tmux.metadata(
-            socket=socket,
-            session=session,
-            pane=metadata["pane"],
-            server_identity=server_identity,
-        )
-        if current.get("pane_dead"):
-            return False
-        if any(
-            current.get(name) != metadata.get(name)
-            for name in ("session", "pane", "pane_pid")
-        ):
-            raise IdentityError("provisional probe tmux identity changed")
-        return True
-
-    def send_one(key: str) -> None:
-        if not current_alive():
-            return
-        if key == "C-c":
-            tmux.interrupt(
-                socket=socket,
-                session=session,
-                pane=metadata["pane"],
-                server_identity=server_identity,
-            )
-        else:
-            tmux.send_control(
-                socket=socket,
-                session=session,
-                pane=metadata["pane"],
-                key=key,
-                server_identity=server_identity,
-            )
-
-    def pause_after_send() -> None:
-        remaining = max(0.0, deadline - time.monotonic())
-        if remaining:
-            sleep_fn(min(0.25, remaining))
-
-    sent_keys = deliver_halt_controls(
-        journal=journal,
-        session=session,
-        target_pid=metadata["pane_pid"],
-        keys=list(adapter_for(target).graceful_halt_keys),
-        process_alive=current_alive,
-        send_control=send_one,
-        after_send=pause_after_send,
-    )
-    current = tmux.metadata(
+    if current.get("pane_dead"):
+        return {
+            "schema_version": 1,
+            "timestamp": _utc_now(),
+            "session": session,
+            "target_pid": metadata["pane_pid"],
+            "reason": "failed_probe_provisional_cleanup",
+            "signal": "none_already_stopped",
+            "signal_sent": False,
+            "stopped": True,
+            "tmux_preserved": True,
+            "cleanup_scope": "exact_new_target_only",
+            "identity_binding": "new_private_dead_tmux_pane",
+        }
+    try:
+        process = process_birth_fn(metadata["pane_pid"])
+        manifest.verify_process_executable(process)
+    except (IdentityError, ValidationError) as exc:
+        raise IdentityError(
+            "provisional probe process remains unbound; no halt action was attempted"
+        ) from exc
+    cleanup = _halt_exact(
+        target=target,
+        tmux=tmux,
         socket=socket,
         session=session,
         pane=metadata["pane"],
+        socket_identity=socket_identity,
         server_identity=server_identity,
+        tmux_binary_identity=tmux_binary_identity,
+        process=process,
+        process_alive_fn=process_alive_fn,
+        timeout=timeout,
+        sleep_fn=sleep_fn,
+        reason="failed_probe_provisional_cleanup",
+        journal=journal,
+        require_live=False,
+        exact_sigint_fn=exact_sigint_fn,
     )
-    while not current.get("pane_dead") and time.monotonic() < deadline:
-        sleep_fn(POLL_INTERVAL_SECONDS)
-        current = tmux.metadata(
-            socket=socket,
-            session=session,
-            pane=metadata["pane"],
-            server_identity=server_identity,
-        )
-    if not current.get("pane_dead"):
-        raise IdentityError("provisional exact target did not stop gracefully")
-    if (
-        not tmux.exists(socket, session, server_identity=server_identity)
-        or tmux.socket_identity(socket) != socket_identity
-    ):
-        raise IdentityError("provisional probe tmux evidence was not preserved")
-    return {
-        "schema_version": 1,
-        "timestamp": _utc_now(),
-        "session": session,
-        "target_pid": metadata["pane_pid"],
-        "reason": "failed_probe_provisional_cleanup",
-        "signal": "tmux_exact_pane_" + "_".join(key.lower().replace("-", "_") for key in sent_keys),
-        "signal_sent": bool(sent_keys),
-        "stopped": True,
-        "tmux_preserved": True,
-        "cleanup_scope": "exact_new_target_only",
-        "identity_binding": "new_private_tmux_pane",
-    }
+    return dict(cleanup, identity_binding="rebound_exact_process_birth")
 
 
 def _write_state(path: Path, state: Dict[str, Any], phase: str, **changes: Any) -> None:
@@ -761,6 +740,8 @@ def run_probe(
         [int], Dict[str, Any]
     ] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
+    _process_tree_alive_fn: Callable[[Dict[str, Any]], bool] = process_tree_alive,
+    _exact_sigint_fn: Callable[[Dict[str, Any]], None] = send_exact_sigint,
     _active_processes_fn: Callable[[str], list[Dict[str, Any]]] = active_target_processes,
     _continuous_population_fn: Optional[
         Callable[[str], list[Dict[str, Any]]]
@@ -1005,10 +986,21 @@ def run_probe(
             raise IdentityError("probe launch did not bind the private tmux socket identity")
         tmux.assert_tmux_binary_identity(tmux_binary_identity)
         tmux.assert_tmux_server_identity(socket, server_identity)
-        process = _process_birth_fn(metadata["pane_pid"])
-        if process.get("pid") != metadata["pane_pid"]:
+        candidate_process = _process_birth_fn(metadata["pane_pid"])
+        if candidate_process.get("pid") != metadata["pane_pid"]:
             raise IdentityError("probe process and tmux pane identities differ")
-        manifest.verify_process_executable(process)
+        manifest.verify_process_executable(candidate_process)
+        process = candidate_process
+        evidence["tmux"] = {
+            "socket": str(socket),
+            "session": session,
+            "target_id": metadata["pane"],
+            "socket_identity": socket_identity,
+            "server_identity": server_identity,
+            "tmux_binary_identity": tmux_binary_identity,
+        }
+        evidence["process"] = process
+        atomic_write_json(evidence_path, evidence)
         transition_session_lease(
             session=session,
             target=target,
@@ -1025,9 +1017,13 @@ def run_probe(
             if _population_snapshot_fn is not None:
                 snapshot = _population_snapshot_fn(target)
             elif _continuous_population_fn is not None:
+                legacy_processes = _continuous_population_fn(target)
                 snapshot = {
-                    "processes": _continuous_population_fn(target),
-                    "parents": {},
+                    "processes": legacy_processes,
+                    "ancestry_nodes": [
+                        {"process": item, "parent_pid": 1}
+                        for item in legacy_processes
+                    ],
                 }
             else:
                 snapshot = target_process_snapshot(target)
@@ -1037,6 +1033,7 @@ def run_probe(
                     protected=active,
                     registered=process,
                     process_alive_fn=_process_alive_fn,
+                    process_tree_alive_fn=_process_tree_alive_fn,
                 )
             except BaseException:
                 raw_processes = (
@@ -1064,14 +1061,28 @@ def run_probe(
                 "accepted": True,
             }
             changed = False
+            chains_by_pid = {
+                chain[0]["process"]["pid"]: chain
+                for chain in observation["ancestry_chains"]
+            }
             for descendant in observation["descendants"]:
+                descendant_observation = {
+                    "process": descendant,
+                    "ancestry_chain": chains_by_pid[descendant["pid"]],
+                }
                 identity = sha256_bytes(canonical_json_bytes(descendant))
-                if identity not in observed_descendants:
-                    observed_descendants[identity] = descendant
+                previous = observed_descendants.get(identity)
+                if previous is not None and previous != descendant_observation:
+                    raise IdentityError(
+                        "same-target descendant ancestry changed during the probe"
+                    )
+                if previous is None:
+                    observed_descendants[identity] = descendant_observation
                     changed = True
             if changed:
                 evidence["observed_target_descendants"] = sorted(
-                    observed_descendants.values(), key=lambda item: item["pid"]
+                    observed_descendants.values(),
+                    key=lambda item: item["process"]["pid"],
                 )
                 atomic_write_json(evidence_path, evidence)
 
@@ -1090,16 +1101,6 @@ def run_probe(
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
-        evidence["tmux"] = {
-            "socket": str(socket),
-            "session": session,
-            "target_id": metadata["pane"],
-            "socket_identity": socket_identity,
-            "server_identity": server_identity,
-            "tmux_binary_identity": tmux_binary_identity,
-        }
-        evidence["process"] = process
-        atomic_write_json(evidence_path, evidence)
         attach = tmux.attach_command(
             socket=socket,
             session=session,
@@ -1324,7 +1325,15 @@ def run_probe(
             reason="accepted_probe_halt",
             journal=halt_control_journal,
             require_live=True,
+            exact_sigint_fn=_exact_sigint_fn,
         )
+        _assert_executable_identity(manifest)
+        _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
+        active_after_halt = _active_processes_fn(target)
+        if sorted(active_after_halt, key=lambda item: item["pid"]) != sorted(
+            active, key=lambda item: item["pid"]
+        ):
+            raise IdentityError("protected same-target process population changed")
         transition_session_lease(
             session=session,
             target=target,
@@ -1335,13 +1344,6 @@ def run_probe(
             authority_root=_authority_root,
             _lock_descriptor=lock_descriptor,
         )
-        _assert_executable_identity(manifest)
-        _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
-        active_after_halt = _active_processes_fn(target)
-        if sorted(active_after_halt, key=lambda item: item["pid"]) != sorted(
-            active, key=lambda item: item["pid"]
-        ):
-            raise IdentityError("protected same-target process population changed")
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -1445,6 +1447,7 @@ def run_probe(
                     reason="failed_probe_cleanup",
                     journal=halt_control_journal,
                     require_live=False,
+                    exact_sigint_fn=_exact_sigint_fn,
                 )
                 atomic_write_json(halt_path, cleanup)
                 evidence["halt_sha256"] = sha256_file(halt_path, max_bytes=65536)
@@ -1475,6 +1478,10 @@ def run_probe(
                     timeout=halt_timeout,
                     sleep_fn=_sleep_fn,
                     journal=halt_control_journal,
+                    manifest=manifest,
+                    process_birth_fn=_process_birth_fn,
+                    process_alive_fn=_process_alive_fn,
+                    exact_sigint_fn=_exact_sigint_fn,
                 )
                 atomic_write_json(halt_path, cleanup)
                 evidence["halt_sha256"] = sha256_file(halt_path, max_bytes=65536)
@@ -1541,6 +1548,7 @@ def recover_probe(
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
+    _exact_sigint_fn: Callable[[Dict[str, Any]], None] = send_exact_sigint,
     _server_process_birth_fn: Callable[
         [int], Dict[str, Any]
     ] = process_birth_identity,
@@ -1649,6 +1657,13 @@ def recover_probe(
 
         tmux_authority_path = run_root / "tmux-authority"
         if not tmux_authority_path.exists():
+            persisted_process = evidence.get("process")
+            if isinstance(persisted_process, dict) and _process_alive_fn(
+                persisted_process
+            ):
+                raise IdentityError(
+                    "missing private launch root still has a live persisted target"
+                )
             baseline = evidence.get("active_target_processes_before_launch")
             observed = _active_processes_fn(target)
             if not isinstance(baseline, list) or sorted(
@@ -1714,6 +1729,10 @@ def recover_probe(
         launch_attempted: Optional[bool]
         if not socket.exists():
             launch_attempted = None
+            if isinstance(process, dict) and _process_alive_fn(process):
+                raise IdentityError(
+                    "absent private probe socket still has a live persisted target"
+                )
             baseline = evidence.get("active_target_processes_before_launch")
             observed = _active_processes_fn(target)
             if not isinstance(baseline, list) or sorted(
@@ -1765,20 +1784,45 @@ def recover_probe(
             manifest.verify_process_executable(process)
         else:
             launch_attempted = True
-            identity_source = "reconstructed_private_launch_identity"
-            socket_identity = tmux.socket_identity(socket)
-            tmux_binary_identity = tmux.tmux_binary_identity()
-            server_identity = tmux.server_identity(socket)
-            tmux.bind_server_identity(socket, server_identity)
-            metadata = tmux.metadata_for_session(
-                socket=socket,
-                session=session,
-                server_identity=server_identity,
+            identity_source = "unpersisted_private_launch_identity"
+            recovery = {
+                "schema_version": 1,
+                "run_id": run_id,
+                "target": target,
+                "controller": controller,
+                "campaign_id": expected_campaign_id,
+                "goal_fingerprint": goal_verification["goal_fingerprint"],
+                "authority_lock": lock_identity,
+                "identity_source": identity_source,
+                "launch_attempted": True,
+                "cleanup": None,
+                "result": "interrupted_probe_fenced",
+            }
+            atomic_write_json(recovery_path, recovery)
+            blocker = {
+                "type": "InterruptedProbeIdentityUnpersisted",
+                "detail": (
+                    "private socket exists without a durably persisted exact launch "
+                    "identity; no halt action was attempted"
+                ),
+                "recovery_sha256": sha256_file(recovery_path, max_bytes=131072),
+            }
+            _write_state(
+                state_path,
+                state,
+                "failed",
+                result="failed",
+                blocker=blocker,
+                recovery_sha256=blocker["recovery_sha256"],
             )
-            pane = metadata["pane"]
-            process = _process_birth_fn(metadata["pane_pid"])
-            manifest.verify_process_executable(process)
+            raise IdentityError(
+                "private launch identity was not durably persisted; target remains fenced"
+            )
         if process is not None:
+            if lease.get("process") is not None and lease["process"] != process:
+                raise IdentityError(
+                    "persisted recovery process differs from the controller lease"
+                )
             if lease["state"] == "launching":
                 lease = transition_session_lease(
                     session=session,
@@ -1819,6 +1863,7 @@ def recover_probe(
                 reason="interrupted_probe_recovery",
                 journal=halt_control_journal,
                 require_live=False,
+                exact_sigint_fn=_exact_sigint_fn,
             )
         baseline = evidence.get("active_target_processes_before_launch")
         observed = _active_processes_fn(target)

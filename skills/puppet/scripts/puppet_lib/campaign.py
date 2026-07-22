@@ -6,9 +6,13 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
-from .contracts import TARGETS
+from .contracts import PROCESS_IDENTITY_FIELDS, TARGETS
 from .errors import IdentityError, ValidationError
-from .registry import process_alive, process_birth_identity
+from .registry import (
+    process_birth_identity,
+    process_tree_alive,
+    process_tree_identity,
+)
 from .safety import (
     FORBIDDEN_FIELD_PARTS,
     absolute_root,
@@ -25,6 +29,8 @@ from .safety import (
 MAX_GOAL_BYTES = 1024 * 1024
 MAX_PROCESS_SNAPSHOT_BYTES = 4 * 1024 * 1024
 MAX_PROCESS_SNAPSHOT_ROWS = 32768
+MAX_PROCESS_ANCESTRY_NODES = 512
+MAX_PROCESS_ANCESTRY_DEPTH = 64
 
 
 ALLOWED_ACTIONS = [
@@ -51,16 +57,6 @@ HARD_GATES = [
     "interference_with_preexisting_processes_or_sessions",
 ]
 
-PROCESS_IDENTITY_FIELDS = {
-    "pid",
-    "start",
-    "command",
-    "executable_path",
-    "device",
-    "inode",
-}
-
-
 def _assert_non_secret_shape(value: Any, path: str = "authorization") -> None:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -82,12 +78,17 @@ def _validate_process_record(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict) or set(value) != PROCESS_IDENTITY_FIELDS:
         raise ValidationError("protected process identity fields do not match schema")
     if (
-        isinstance(value.get("pid"), bool)
+        value.get("identity_version") != 2
+        or isinstance(value.get("pid"), bool)
         or not isinstance(value.get("pid"), int)
         or value["pid"] <= 1
         or not isinstance(value.get("start"), str)
         or not value["start"]
         or len(value["start"]) > 200
+        or not isinstance(value.get("kernel_birth_id"), str)
+        or not value["kernel_birth_id"]
+        or len(value["kernel_birth_id"]) > 200
+        or any(character in value["kernel_birth_id"] for character in "\x00\n\r")
         or not isinstance(value.get("command"), str)
         or not value["command"]
         or len(value["command"]) > 1000
@@ -335,14 +336,7 @@ def active_target_processes(target: str) -> list[Dict[str, Any]]:
 
 
 def target_process_snapshot(target: str) -> Dict[str, Any]:
-    """Return one bounded argv-free process-tree snapshot for a target name.
-
-    The first sample binds PID, PPID, birth time, and ``comm`` in one ``ps``
-    table.  Each same-target row is then revalidated through the full
-    executable birth identity before the snapshot is accepted.  The parent map
-    contains PIDs only and is used transiently for ancestry checks; callers
-    must not treat PPID alone as authority.
-    """
+    """Return a bounded argv-free, kernel-bound target ancestry snapshot."""
 
     expected = {
         "agy": {"agy"},
@@ -352,7 +346,7 @@ def target_process_snapshot(target: str) -> Dict[str, Any]:
         "grok": {"grok"},
     }[target]
     result = subprocess.run(
-        ["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+        ["ps", "-axo", "pid=,comm="],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -366,35 +360,52 @@ def target_process_snapshot(target: str) -> Dict[str, Any]:
     lines = result.stdout.splitlines()
     if len(lines) > MAX_PROCESS_SNAPSHOT_ROWS:
         raise IdentityError("process-tree snapshot exceeds the row bound")
-    parents: Dict[int, int] = {}
-    target_rows: list[tuple[int, str, str]] = []
+    observed_pids = set()
+    target_rows: list[tuple[int, str]] = []
     for line in lines:
-        fields = line.strip().split()
-        if len(fields) < 8:
+        fields = line.strip().split(maxsplit=1)
+        if len(fields) != 2:
             continue
         try:
             pid = int(fields[0])
-            ppid = int(fields[1])
         except ValueError as exc:
             raise IdentityError("process-tree snapshot is ambiguous") from exc
-        if pid <= 0 or ppid < 0 or pid in parents:
+        if pid <= 0 or pid in observed_pids:
             raise IdentityError("process-tree snapshot contains an invalid PID")
-        parents[pid] = ppid
-        start = " ".join(fields[2:7])
-        command = " ".join(fields[7:])
+        observed_pids.add(pid)
+        command = fields[1]
         if Path(command).name in expected:
-            target_rows.append((pid, start, command))
+            target_rows.append((pid, command))
     processes = []
-    for pid, start, command in sorted(target_rows):
-        identity = process_birth_identity(pid)
-        if (
-            identity["start"] != start
-            or identity["command"] != command
-            or not process_alive(identity)
-        ):
+    ancestry_nodes: Dict[int, Dict[str, Any]] = {}
+    for pid, command in sorted(target_rows):
+        node = process_tree_identity(pid)
+        if node["process"]["command"] != command:
             raise IdentityError("same-target process changed during the snapshot")
-        processes.append(identity)
-    return {"processes": processes, "parents": parents}
+        processes.append(node["process"])
+        for _ in range(MAX_PROCESS_ANCESTRY_DEPTH):
+            node_pid = node["process"]["pid"]
+            existing = ancestry_nodes.get(node_pid)
+            if existing is not None and existing != node:
+                raise IdentityError("process ancestry node changed during the snapshot")
+            ancestry_nodes[node_pid] = node
+            if len(ancestry_nodes) > MAX_PROCESS_ANCESTRY_NODES:
+                raise IdentityError("process ancestry exceeds the node bound")
+            parent_pid = node["parent_pid"]
+            if parent_pid <= 1:
+                break
+            node = process_tree_identity(parent_pid)
+        else:
+            raise IdentityError("process ancestry exceeds the depth bound")
+    for node in ancestry_nodes.values():
+        if not process_tree_alive(node):
+            raise IdentityError("process ancestry changed during revalidation")
+    return {
+        "processes": sorted(processes, key=lambda item: item["pid"]),
+        "ancestry_nodes": sorted(
+            ancestry_nodes.values(), key=lambda item: item["process"]["pid"]
+        ),
+    }
 
 
 def parallel_target_override(

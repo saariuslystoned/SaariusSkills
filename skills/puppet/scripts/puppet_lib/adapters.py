@@ -13,7 +13,7 @@ from .errors import UnsupportedError, ValidationError
 class AdapterSpec:
     name: str
     required_prefix: Optional[str] = None
-    graceful_halt_keys: Tuple[str, ...] = ("C-c",)
+    graceful_halt_actions: Tuple[str, ...] = ("exact_pid_sigint",)
 
     def envelope(self, message: str) -> str:
         if not isinstance(message, str) or not message.strip():
@@ -77,7 +77,11 @@ ADAPTERS: Dict[str, AdapterSpec] = {
     name: AdapterSpec(
         name=name,
         required_prefix="/teamwork-preview" if name == "agy" else None,
-        graceful_halt_keys=("C-d", "C-d") if name == "agy" else ("C-c",),
+        graceful_halt_actions=(
+            ("tmux_pane_eof", "tmux_pane_eof")
+            if name == "agy"
+            else ("exact_pid_sigint",)
+        ),
     )
     for name in ("agy", "cursor", "claude", "codex", "grok")
 }

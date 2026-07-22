@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from puppet_lib.errors import IdentityError  # noqa: E402
+from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.tmux import TmuxController  # noqa: E402
 
 
@@ -96,7 +96,7 @@ class TmuxTransportTests(unittest.TestCase):
             finally:
                 self._kill(socket=socket, session=session)
 
-    def test_interrupt_requires_exact_pane_after_topology_change(self):
+    def test_control_requires_exact_pane_and_rejects_sigint_key(self):
         if not TmuxController.available():
             self.skipTest("tmux is unavailable")
         with tempfile.TemporaryDirectory() as temporary:
@@ -114,6 +114,15 @@ class TmuxTransportTests(unittest.TestCase):
             try:
                 initial = self._list_panes(socket=socket, session=session)
                 self.assertEqual(len(initial), 1)
+                with self.assertRaisesRegex(IdentityError, "process identity"):
+                    controller.send_control(
+                        socket=socket,
+                        session=session,
+                        pane=initial[0],
+                        key="C-d",
+                        server_identity=metadata["server_identity"],
+                        expected_pane_pid=metadata["pane_pid"] + 1,
+                    )
                 self._tmux_run(
                     socket=socket,
                     arguments=["split-window", "-t", session, "/bin/sleep", "600"],
@@ -121,10 +130,12 @@ class TmuxTransportTests(unittest.TestCase):
                 panes = self._list_panes(socket=socket, session=session)
                 self.assertGreaterEqual(len(panes), 2)
                 with self.assertRaisesRegex(IdentityError, "pane identity"):
-                    controller.interrupt(
+                    controller.send_control(
                         socket=socket,
                         session=session,
                         pane="%999",
+                        key="C-d",
+                        expected_pane_pid=metadata["pane_pid"],
                         server_identity=metadata["server_identity"],
                     )
                 with self.assertRaisesRegex(IdentityError, "unexpected pane topology"):
@@ -133,12 +144,15 @@ class TmuxTransportTests(unittest.TestCase):
                         session=session,
                         server_identity=metadata["server_identity"],
                     )
-                controller.interrupt(
-                    socket=socket,
-                    session=session,
-                    pane=initial[0],
-                    server_identity=metadata["server_identity"],
-                )
+                with self.assertRaisesRegex(ValidationError, "allowlist"):
+                    controller.send_control(
+                        socket=socket,
+                        session=session,
+                        pane=initial[0],
+                        key="C-c",
+                        expected_pane_pid=metadata["pane_pid"],
+                        server_identity=metadata["server_identity"],
+                    )
             finally:
                 self._kill(socket=socket, session=session)
 

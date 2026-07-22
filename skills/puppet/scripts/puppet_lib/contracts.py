@@ -19,7 +19,19 @@ from .safety import (
 
 
 TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
-TARGET_POPULATION_POLICY = "protected-plus-root-plus-exact-descendants-v1"
+TARGET_POPULATION_POLICY = "protected-plus-root-plus-birth-bound-descendants-v2"
+PROCESS_IDENTITY_FIELDS = frozenset(
+    {
+        "identity_version",
+        "pid",
+        "start",
+        "kernel_birth_id",
+        "command",
+        "executable_path",
+        "device",
+        "inode",
+    }
+)
 ALLOWED_MODES = frozenset({"read", "test", "mutate", "local_commit"})
 MANDATORY_HARD_GATES = frozenset(
     {

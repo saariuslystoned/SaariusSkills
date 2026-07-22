@@ -35,14 +35,18 @@ the exact persisted target.
 
 During a live probe, the target-population guard admits only the exact
 authorized pre-existing population, the exact registered pane process, and
-bounded same-executable processes whose freshly sampled PPID chain reaches
-that registered process. The sample uses `pid`, `ppid`, `lstart`, and `comm`;
-it never reads argv or terminal content. Missing ancestry, protected-process
-ancestry, PID reuse, executable drift, cycles, or unrelated same-name
-processes fail closed. Descendants are evidence, never signaling authority:
-halt controls still address only the registered private pane, and accepted
-proof requires the post-halt target population to equal the exact protected
-baseline.
+bounded same-executable processes whose freshly sampled kernel-revalidated
+parent edges and v2 birth identity reach that registered process. One bounded
+discovery pass uses `ps` only to find target `pid`/`comm` rows; per-node parent
+edges and birth identity come from Darwin `proc_pidinfo` `(sec,usec)` or Linux
+`(kernel.boot_id,/proc/<pid>/stat_starttime_ticks)`. It never reads argv or
+terminal content. Missing ancestry, protected-process ancestry, PID reuse,
+executable drift, cycles, or unrelated same-name processes fail closed. Keep
+full historical ancestry evidence for transient descendants until verdict.
+Descendants are evidence, never signaling authority:
+non-AGY halt signals only the registered positive PID, AGY EOF targets only the
+registered private pane, and accepted proof requires the post-halt target
+population to equal the exact protected baseline.
 
 The operational sequence is:
 
@@ -73,7 +77,9 @@ real resume contract exists and passes for that exact harness identity.
 An adapter must provide detection and fingerprinting, current unrestricted and
 sandbox-off mapping, argv construction without prompt bodies, initial and
 follow-up envelopes, process/pane validation, proved queue behavior, and exact
-graceful halt behavior. Return `unsupported` when any piece is unknown.
+graceful halt behavior. Use exact positive PID `SIGINT` for non-AGY halt; AGY
+halts through private-pane EOF only. Never send tmux `C-c` or process-group
+signals. Return `unsupported` when any piece is unknown.
 
 AGY substantive messages receive exactly one literal `/teamwork-preview`
 prefix. Cursor's standalone and application subcommand entrypoints remain
@@ -82,6 +88,12 @@ separate until process and fingerprint equivalence is controller-proved.
 The local controller ledger is deliberately proof-root and checkout
 independent, but it is cooperative same-UID authority rather than a signature
 service or hostile-user security boundary. Do not claim otherwise.
+
+Halt delivery is crash-aware and journaled: each action records its target PID,
+v2 identity digest, index, action, intent, and submitted state. An interrupted
+intent is ambiguous and must never be resent. A provisional target that cannot
+be fully bound before input must remain fenced and non-qualifying without any
+halt action.
 
 ## Transcript blindness
 

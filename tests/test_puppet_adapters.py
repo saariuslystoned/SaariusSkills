@@ -107,7 +107,10 @@ class AdapterTests(unittest.TestCase):
     def test_agy_prefix_is_exactly_once(self):
         adapter = adapter_for("agy")
         self.assertEqual(adapter.envelope("Do the task"), "/teamwork-preview Do the task")
-        self.assertEqual(adapter.graceful_halt_keys, ("C-d", "C-d"))
+        self.assertEqual(
+            adapter.graceful_halt_actions,
+            ("tmux_pane_eof", "tmux_pane_eof"),
+        )
         for value in ("/teamwork-preview duplicate", "/btw side", "/side side", ""):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 adapter.envelope(value)

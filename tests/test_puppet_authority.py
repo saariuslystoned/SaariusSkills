@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,20 +19,27 @@ sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
 from puppet_lib.beacons import parse_beacon  # noqa: E402
 import puppet_lib.campaign as puppet_campaign  # noqa: E402
+import puppet_lib.registry as puppet_registry  # noqa: E402
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
     current_session_lease,
     lease_owner,
+    transition_session_lease,
 )
 from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.diagnostics import agy_overage_advisory, terminal_verdict  # noqa: E402
-from puppet_lib.errors import ConflictError, ValidationError  # noqa: E402
+from puppet_lib.errors import (  # noqa: E402
+    ConflictError,
+    IdentityError,
+    ValidationError,
+)
 from puppet_lib.handoffs import validate_handoff  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
     SessionRegistry,
     process_alive,
     process_birth_identity,
+    send_exact_sigint,
 )
 from puppet_lib.safety import canonical_tmux_socket_path  # noqa: E402
 from puppet_lib.verdicts import record_review, verify_current_identity  # noqa: E402
@@ -116,36 +125,36 @@ class AuthorityTests(unittest.TestCase):
 
     def test_target_process_snapshot_binds_ppid_birth_and_comm_without_argv(self):
         identity = {
+            "identity_version": 2,
             "pid": 4242,
             "start": "Wed Jul 22 02:05:39 2026",
+            "kernel_birth_id": "test:4242",
             "command": "/opt/bin/codex",
             "executable_path": "/opt/bin/codex",
             "device": 1,
             "inode": 2,
         }
-        process_table = (
-            "4242 1 Wed Jul 22 02:05:39 2026 /opt/bin/codex\n"
-            "5000 4242 Wed Jul 22 02:05:40 2026 /opt/bin/helper\n"
-        )
+        process_table = "4242 /opt/bin/codex\n5000 /opt/bin/helper\n"
+        node = {"process": identity, "parent_pid": 1}
         with patch.object(
             puppet_campaign.subprocess,
             "run",
             return_value=SimpleNamespace(returncode=0, stdout=process_table),
         ) as run, patch.object(
             puppet_campaign,
-            "process_birth_identity",
-            return_value=identity,
+            "process_tree_identity",
+            return_value=node,
         ), patch.object(
             puppet_campaign,
-            "process_alive",
+            "process_tree_alive",
             return_value=True,
         ):
             snapshot = puppet_campaign.target_process_snapshot("codex")
         self.assertEqual(snapshot["processes"], [identity])
-        self.assertEqual(snapshot["parents"], {4242: 1, 5000: 4242})
+        self.assertEqual(snapshot["ancestry_nodes"], [node])
         self.assertEqual(
             run.call_args.args[0],
-            ["ps", "-axo", "pid=,ppid=,lstart=,comm="],
+            ["ps", "-axo", "pid=,comm="],
         )
 
     def test_duplicate_session_identity_cannot_change_state_root(self):
@@ -209,7 +218,16 @@ class AuthorityTests(unittest.TestCase):
             projection.unlink()
             self.assertEqual(current_session_lease(authority), launching)
 
-            process = {"pid": 4242, "start": "stable"}
+            process = {
+                "identity_version": 2,
+                "pid": 4242,
+                "start": "stable",
+                "kernel_birth_id": "test:4242",
+                "command": "codex",
+                "executable_path": "/opt/bin/codex",
+                "device": 1,
+                "inode": 2,
+            }
             history = Journal(authority / "session-lease-history")
 
             def append_without_projection(state: str, number: int):
@@ -257,15 +275,497 @@ class AuthorityTests(unittest.TestCase):
             )
             self.assertEqual(current_session_lease(authority), failed)
 
+    def test_legacy_halted_lease_is_idempotent_and_can_be_superseded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="legacy-halted",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            legacy_process = {"pid": 4242, "start": "legacy"}
+            legacy = {
+                "schema_version": 1,
+                "authority_id": "puppet-local-controller-v1",
+                "generation": 1,
+                "session": "legacy-halted",
+                "target": "agy",
+                "controller": "tester",
+                "owner": owner,
+                "state": "halted",
+                "created_at": "2026-07-22T05:00:00Z",
+                "updated_at": "2026-07-22T05:00:01Z",
+                "process": legacy_process,
+            }
+            Journal(authority / "session-lease-history").append(
+                request_id="lease-1-halted",
+                event={"kind": "session_lease", "lease": legacy},
+            )
+            (authority / "current-session-lease.json").write_text(
+                json.dumps(legacy) + "\n", encoding="utf-8"
+            )
+
+            self.assertEqual(current_session_lease(authority), legacy)
+            self.assertEqual(
+                transition_session_lease(
+                    session="legacy-halted",
+                    target="agy",
+                    controller="tester",
+                    owner=owner,
+                    state="halted",
+                    process=legacy_process,
+                    authority_root=authority,
+                ),
+                legacy,
+            )
+
+            next_owner = lease_owner(
+                activity="probe",
+                run_id="v2-next",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            next_lease = admit_session_lease(
+                session="v2-next",
+                target="agy",
+                controller="tester",
+                owner=next_owner,
+                authority_root=authority,
+            )
+            self.assertEqual(next_lease["generation"], 2)
+            self.assertEqual(next_lease["state"], "launching")
+            v2_process = {
+                "identity_version": 2,
+                "pid": 5252,
+                "start": "stable",
+                "kernel_birth_id": "test:5252",
+                "command": "agy",
+                "executable_path": "/opt/bin/agy",
+                "device": 1,
+                "inode": 2,
+            }
+            active = transition_session_lease(
+                session="v2-next",
+                target="agy",
+                controller="tester",
+                owner=next_owner,
+                state="active",
+                process=v2_process,
+                authority_root=authority,
+            )
+            self.assertEqual(active["process"], v2_process)
+
+    def test_legacy_failed_lease_can_be_superseded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="legacy-failed",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            legacy = {
+                "schema_version": 1,
+                "authority_id": "puppet-local-controller-v1",
+                "generation": 1,
+                "session": "legacy-failed",
+                "target": "agy",
+                "controller": "tester",
+                "owner": owner,
+                "state": "failed",
+                "created_at": "2026-07-22T05:00:00Z",
+                "updated_at": "2026-07-22T05:00:01Z",
+                "process": {"pid": 4242, "start": "legacy"},
+            }
+            Journal(authority / "session-lease-history").append(
+                request_id="lease-1-failed",
+                event={"kind": "session_lease", "lease": legacy},
+            )
+            (authority / "current-session-lease.json").write_text(
+                json.dumps(legacy) + "\n", encoding="utf-8"
+            )
+            self.assertEqual(current_session_lease(authority), legacy)
+
+            next_owner = lease_owner(
+                activity="probe",
+                run_id="after-legacy-failure",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            admitted = admit_session_lease(
+                session="after-legacy-failure",
+                target="agy",
+                controller="tester",
+                owner=next_owner,
+                authority_root=authority,
+            )
+            self.assertEqual(admitted["generation"], 2)
+            self.assertEqual(admitted["state"], "launching")
+
+    def test_legacy_live_projection_recovers_an_appended_terminal_successor(self):
+        for live_state, terminal_state in (
+            ("active", "failed"),
+            ("halting", "halted"),
+        ):
+            with self.subTest(live_state=live_state), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                authority = root / "authority"
+                proof = root / "proof"
+                authority.mkdir(mode=0o700)
+                proof.mkdir()
+                owner = lease_owner(
+                    activity="probe",
+                    run_id="legacy-projection",
+                    campaign_id="campaign-test",
+                    goal_fingerprint="a" * 64,
+                    proof_root=proof,
+                    state_root=proof,
+                )
+                launching = admit_session_lease(
+                    session="legacy-projection",
+                    target="agy",
+                    controller="tester",
+                    owner=owner,
+                    authority_root=authority,
+                )
+                legacy_process = {"pid": 4242, "start": "legacy"}
+                live = dict(
+                    launching,
+                    state=live_state,
+                    updated_at="2026-07-22T05:00:01Z",
+                    process=legacy_process,
+                )
+                terminal = dict(
+                    live,
+                    state=terminal_state,
+                    updated_at="2026-07-22T05:00:02Z",
+                )
+                history = Journal(authority / "session-lease-history")
+                history.append(
+                    request_id="lease-1-%s" % live_state,
+                    event={"kind": "session_lease", "lease": live},
+                )
+                (authority / "current-session-lease.json").write_text(
+                    json.dumps(live) + "\n", encoding="utf-8"
+                )
+                history.append(
+                    request_id="lease-1-%s" % terminal_state,
+                    event={"kind": "session_lease", "lease": terminal},
+                )
+
+                self.assertEqual(current_session_lease(authority), terminal)
+                self.assertEqual(
+                    json.loads(
+                        (authority / "current-session-lease.json").read_text(
+                            encoding="utf-8"
+                        )
+                    ),
+                    terminal,
+                )
+
+    def test_active_lease_rejects_each_malformed_v2_identity_field(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir()
+            owner = lease_owner(
+                activity="probe",
+                run_id="v2-shape",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            admit_session_lease(
+                session="v2-shape",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                authority_root=authority,
+            )
+            valid = {
+                "identity_version": 2,
+                "pid": 4242,
+                "start": "stable",
+                "kernel_birth_id": "test:4242",
+                "command": "codex",
+                "executable_path": "/opt/bin/codex",
+                "device": 1,
+                "inode": 2,
+            }
+            invalid_values = {
+                "identity_version": 1,
+                "pid": True,
+                "start": [],
+                "kernel_birth_id": "",
+                "command": {},
+                "executable_path": "relative/codex",
+                "device": "1",
+                "inode": -1,
+            }
+            for name, invalid in invalid_values.items():
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValidationError, "v2 process identity"
+                ):
+                    transition_session_lease(
+                        session="v2-shape",
+                        target="codex",
+                        controller="tester",
+                        owner=owner,
+                        state="active",
+                        process=dict(valid, **{name: invalid}),
+                        authority_root=authority,
+                    )
+            self.assertEqual(current_session_lease(authority)["state"], "launching")
+
     def test_process_identity_binds_full_executable_file_identity(self):
         identity = process_birth_identity(os.getpid())
         self.assertEqual(
             set(identity),
-            {"pid", "start", "command", "executable_path", "device", "inode"},
+            {
+                "identity_version",
+                "pid",
+                "start",
+                "kernel_birth_id",
+                "command",
+                "executable_path",
+                "device",
+                "inode",
+            },
         )
         self.assertTrue(Path(identity["executable_path"]).is_absolute())
         self.assertTrue(process_alive(identity))
         self.assertFalse(process_alive(dict(identity, inode=identity["inode"] + 1)))
+
+    def test_darwin_kernel_sampler_binds_microsecond_birth_and_parent(self):
+        class FakeProcPidInfo:
+            argtypes = None
+            restype = None
+
+            def __call__(self, pid, flavor, arg, buffer, size):
+                self.asserted = (pid, flavor, arg)
+                info = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry._DarwinProcBSDInfo
+                    ),
+                ).contents
+                info.pbi_pid = pid
+                info.pbi_ppid = 42
+                info.pbi_start_tvsec = 1_784_700_000
+                info.pbi_start_tvusec = 1234
+                return size
+
+        proc_pidinfo = FakeProcPidInfo()
+        library = SimpleNamespace(proc_pidinfo=proc_pidinfo)
+        with patch.object(
+            puppet_registry.ctypes, "CDLL", return_value=library
+        ):
+            record = puppet_registry._darwin_kernel_process_record(4242)
+        self.assertEqual(proc_pidinfo.asserted, (4242, 3, 0))
+        self.assertEqual(
+            record,
+            {
+                "pid": 4242,
+                "parent_pid": 42,
+                "kernel_birth_id": "darwin:1784700000:001234",
+            },
+        )
+
+    def test_linux_kernel_sampler_parses_parent_and_start_ticks(self):
+        fields = ["S", "42", *("0" for _ in range(17)), "987654321"]
+        stat_bytes = ("4242 (worker name) " + " ".join(fields) + "\n").encode()
+
+        def fake_open(_path, _mode):
+            return io.BytesIO(stat_bytes)
+
+        with patch.object(puppet_registry.Path, "open", new=fake_open), patch.object(
+            puppet_registry,
+            "_linux_boot_id",
+            return_value="12345678-1234-1234-1234-123456789abc",
+        ):
+            record = puppet_registry._linux_kernel_process_record(4242)
+        self.assertEqual(
+            record,
+            {
+                "pid": 4242,
+                "parent_pid": 42,
+                "kernel_birth_id": (
+                    "linux:12345678-1234-1234-1234-123456789abc:987654321"
+                ),
+            },
+        )
+
+    def test_process_tree_binding_rejects_kernel_identity_drift(self):
+        before = {
+            "pid": 4242,
+            "parent_pid": 42,
+            "kernel_birth_id": "test:before",
+        }
+        after = dict(before, kernel_birth_id="test:after")
+        executable = Path("/bin/cat").resolve(strict=True)
+        with patch.object(
+            puppet_registry,
+            "_kernel_process_record",
+            side_effect=[before, after],
+        ), patch.object(
+            puppet_registry.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+            ),
+        ), patch.object(
+            puppet_registry, "_process_executable_path", return_value=executable
+        ):
+            with self.assertRaisesRegex(IdentityError, "kernel binding"):
+                puppet_registry.process_tree_identity(4242)
+
+    def test_process_tree_binding_rejects_executable_drift(self):
+        kernel = {
+            "pid": 4242,
+            "parent_pid": 42,
+            "kernel_birth_id": "test:stable",
+        }
+        with patch.object(
+            puppet_registry,
+            "_kernel_process_record",
+            return_value=kernel,
+        ), patch.object(
+            puppet_registry.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+            ),
+        ), patch.object(
+            puppet_registry,
+            "_process_executable_path",
+            side_effect=[
+                Path("/bin/cat").resolve(strict=True),
+                Path("/bin/echo").resolve(strict=True),
+            ],
+        ):
+            with self.assertRaisesRegex(IdentityError, "executable binding"):
+                puppet_registry.process_tree_identity(4242)
+
+    def test_process_birth_identity_tolerates_reparent_but_tree_identity_does_not(self):
+        before = {
+            "pid": 4242,
+            "parent_pid": 42,
+            "kernel_birth_id": "test:stable",
+        }
+        after = dict(before, parent_pid=1)
+        display = SimpleNamespace(
+            returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
+        )
+        executable = Path("/bin/cat").resolve(strict=True)
+        with patch.object(
+            puppet_registry,
+            "_kernel_process_record",
+            side_effect=[before, after],
+        ), patch.object(
+            puppet_registry.subprocess, "run", return_value=display
+        ), patch.object(
+            puppet_registry, "_process_executable_path", return_value=executable
+        ):
+            process = process_birth_identity(4242)
+        self.assertEqual(process["kernel_birth_id"], "test:stable")
+
+        with patch.object(
+            puppet_registry,
+            "_kernel_process_record",
+            side_effect=[before, after],
+        ), patch.object(
+            puppet_registry.subprocess, "run", return_value=display
+        ), patch.object(
+            puppet_registry, "_process_executable_path", return_value=executable
+        ):
+            with self.assertRaisesRegex(IdentityError, "parent changed"):
+                puppet_registry.process_tree_identity(4242)
+
+    def test_exact_sigint_does_not_signal_a_shared_process_group(self):
+        parent = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import subprocess,sys,time;"
+                    "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);"
+                    "print(child.pid,flush=True);time.sleep(30)"
+                ),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        child_pid = None
+        child_identity = None
+        try:
+            child_pid = int(parent.stdout.readline().strip())
+            identity_deadline = time.monotonic() + 5
+            while time.monotonic() < identity_deadline:
+                try:
+                    candidate = process_birth_identity(child_pid)
+                except IdentityError:
+                    time.sleep(0.01)
+                    continue
+                if process_alive(candidate):
+                    child_identity = candidate
+                    break
+                time.sleep(0.01)
+            self.assertIsNotNone(child_identity)
+            parent_identity = process_birth_identity(parent.pid)
+            self.assertEqual(os.getpgid(parent.pid), os.getpgid(child_pid))
+
+            send_exact_sigint(parent_identity)
+            parent.wait(timeout=5)
+            survival_deadline = time.monotonic() + 5
+            while (
+                not process_alive(child_identity)
+                and time.monotonic() < survival_deadline
+            ):
+                time.sleep(0.01)
+            self.assertTrue(process_alive(child_identity))
+        finally:
+            if parent.stdout is not None:
+                parent.stdout.close()
+            if parent.poll() is None:
+                parent.terminate()
+                parent.wait(timeout=5)
+            if child_identity is not None:
+                cleanup_identity_deadline = time.monotonic() + 2
+                while (
+                    not process_alive(child_identity)
+                    and time.monotonic() < cleanup_identity_deadline
+                ):
+                    time.sleep(0.01)
+                if process_alive(child_identity):
+                    send_exact_sigint(child_identity)
+                    deadline = time.monotonic() + 5
+                    while (
+                        process_alive(child_identity)
+                        and time.monotonic() < deadline
+                    ):
+                        time.sleep(0.01)
 
     def test_advisory_cannot_stop_campaign(self):
         advisory = agy_overage_advisory(
@@ -433,8 +933,10 @@ class AuthorityTests(unittest.TestCase):
                     },
                 },
                 "process": {
+                    "identity_version": 2,
                     "pid": os.getpid(),
                     "start": "x",
+                    "kernel_birth_id": "test:%d" % os.getpid(),
                     "command": "python",
                     "executable_path": str(Path(sys.executable).resolve(strict=True)),
                     "device": Path(sys.executable).resolve(strict=True).stat().st_dev,
@@ -480,6 +982,16 @@ class AuthorityTests(unittest.TestCase):
                 "last_beacon": None,
                 "blocker": None,
             }
+            for name, invalid in {
+                "identity_version": 1,
+                "kernel_birth_id": "",
+            }.items():
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValidationError, "registered process identity"
+                ):
+                    registry.validate(
+                        dict(record, process=dict(record["process"], **{name: invalid}))
+                    )
             registry.create(record)
             with self.assertRaises(ConflictError):
                 registry.create(record)

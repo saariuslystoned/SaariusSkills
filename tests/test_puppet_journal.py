@@ -10,11 +10,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
-from puppet_lib.errors import ConflictError, ValidationError  # noqa: E402
+from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
+from puppet_lib.halt_control import deliver_halt_actions  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 
 
 class JournalTests(unittest.TestCase):
+    @staticmethod
+    def _process_identity(kernel_birth_id="test:4242"):
+        return {
+            "identity_version": 2,
+            "pid": 4242,
+            "start": "Wed Jul 22 04:00:00 2026",
+            "kernel_birth_id": kernel_birth_id,
+            "command": "agy",
+            "executable_path": "/opt/bin/agy",
+            "device": 1,
+            "inode": 2,
+        }
+
     def test_append_replay_and_idempotency(self):
         with tempfile.TemporaryDirectory() as temporary:
             journal = Journal(Path(temporary))
@@ -116,6 +130,86 @@ class JournalTests(unittest.TestCase):
                     request_id="request-1",
                     event={"kind": "send", "prompt_body": "must not persist"},
                 )
+
+    def test_kernel_birth_id_is_not_secret_shaped_but_token_field_is(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            journal = Journal(Path(temporary))
+            recorded = journal.append(
+                request_id="request-birth",
+                event={
+                    "kind": "identity",
+                    "kernel_birth_id": "darwin:1784700000:001234",
+                },
+            )
+            self.assertEqual(
+                recorded["event"]["kernel_birth_id"],
+                "darwin:1784700000:001234",
+            )
+            with self.assertRaisesRegex(ValidationError, "forbidden"):
+                journal.append(
+                    request_id="request-token",
+                    event={"kind": "identity", "birth_token": "not-a-secret"},
+                )
+
+    def test_interrupted_exact_signal_attempt_is_never_resent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            journal = Journal(Path(temporary))
+            attempts = []
+
+            def interrupt_after_attempt(action):
+                attempts.append(action)
+                raise KeyboardInterrupt()
+
+            with self.assertRaises(KeyboardInterrupt):
+                deliver_halt_actions(
+                    journal=journal,
+                    session="exact-sigint",
+                    target_identity=self._process_identity(),
+                    actions=["exact_pid_sigint"],
+                    process_alive=lambda: True,
+                    deliver_action=interrupt_after_attempt,
+                )
+            with self.assertRaisesRegex(IdentityError, "ambiguous"):
+                deliver_halt_actions(
+                    journal=journal,
+                    session="exact-sigint",
+                    target_identity=self._process_identity(),
+                    actions=["exact_pid_sigint"],
+                    process_alive=lambda: True,
+                    deliver_action=lambda action: attempts.append(action),
+                )
+            self.assertEqual(attempts, ["exact_pid_sigint"])
+
+    def test_halt_journal_rejects_same_pid_with_a_new_birth_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            journal = Journal(Path(temporary))
+            alive = {"value": True}
+            attempted = []
+
+            def stop_after_first(action):
+                attempted.append(action)
+                alive["value"] = False
+
+            deliver_halt_actions(
+                journal=journal,
+                session="agy-birth-bound",
+                target_identity=self._process_identity("test:first"),
+                actions=["tmux_pane_eof", "tmux_pane_eof"],
+                process_alive=lambda: alive["value"],
+                deliver_action=stop_after_first,
+            )
+            self.assertEqual(attempted, ["tmux_pane_eof"])
+
+            with self.assertRaisesRegex(IdentityError, "identity changed"):
+                deliver_halt_actions(
+                    journal=journal,
+                    session="agy-birth-bound",
+                    target_identity=self._process_identity("test:replacement"),
+                    actions=["tmux_pane_eof", "tmux_pane_eof"],
+                    process_alive=lambda: True,
+                    deliver_action=lambda action: attempted.append(action),
+                )
+            self.assertEqual(attempted, ["tmux_pane_eof"])
 
 
 if __name__ == "__main__":

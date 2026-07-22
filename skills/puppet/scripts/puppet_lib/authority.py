@@ -15,6 +15,7 @@ import stat
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .contracts import PROCESS_IDENTITY_FIELDS
 from .errors import ConflictError, IdentityError, ValidationError
 from .journal import Journal
 from .safety import (
@@ -38,6 +39,42 @@ LEASE_TRANSITIONS = {
     "halted": {"halted"},
     "failed": {"failed"},
 }
+
+
+def _is_v2_process_identity(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == PROCESS_IDENTITY_FIELDS
+        and value.get("identity_version") == 2
+        and not isinstance(value.get("pid"), bool)
+        and isinstance(value.get("pid"), int)
+        and value["pid"] > 1
+        and isinstance(value.get("kernel_birth_id"), str)
+        and bool(value["kernel_birth_id"])
+        and len(value["kernel_birth_id"]) <= 200
+        and not any(
+            character in value["kernel_birth_id"] for character in "\x00\n\r"
+        )
+        and isinstance(value.get("start"), str)
+        and bool(value["start"])
+        and len(value["start"]) <= 200
+        and not any(character in value["start"] for character in "\x00\n\r")
+        and isinstance(value.get("command"), str)
+        and bool(value["command"])
+        and len(value["command"]) <= 1000
+        and "\x00" not in value["command"]
+        and isinstance(value.get("executable_path"), str)
+        and bool(value["executable_path"])
+        and len(value["executable_path"]) <= 4096
+        and "\x00" not in value["executable_path"]
+        and Path(value["executable_path"]).is_absolute()
+        and not isinstance(value.get("device"), bool)
+        and isinstance(value.get("device"), int)
+        and value["device"] > 0
+        and not isinstance(value.get("inode"), bool)
+        and isinstance(value.get("inode"), int)
+        and value["inode"] > 0
+    )
 
 
 def _utc_now() -> str:
@@ -229,13 +266,6 @@ def current_session_lease(
             or len(lease[name]) > 80
         ):
             raise ValidationError("controller session lease timestamp is invalid")
-    if lease["state"] == "launching":
-        if lease.get("process") is not None:
-            raise ValidationError("launching controller lease has a process identity")
-    elif lease["state"] in {"active", "halting", "halted"} and not isinstance(
-        lease.get("process"), dict
-    ):
-        raise ValidationError("controller lease lacks its process identity")
     if latest is None:
         raise IdentityError("controller session lease lacks its authority history")
     if latest != lease:
@@ -268,7 +298,6 @@ def current_session_lease(
         )
         if not same_generation_successor and not next_generation_admission:
             raise IdentityError("controller session lease projection diverged")
-        atomic_write_json(path, latest)
         lease = latest
         if (
             set(lease) != required
@@ -287,10 +316,26 @@ def current_session_lease(
             raise IdentityError("recovered controller lease target is invalid")
         if lease["state"] == "launching" and lease.get("process") is not None:
             raise IdentityError("recovered launching lease has a process identity")
-        if lease["state"] in {"active", "halting", "halted"} and not isinstance(
+        if lease["state"] in {"active", "halting"} and not _is_v2_process_identity(
+            lease.get("process")
+        ):
+            raise IdentityError(
+                "recovered controller lease lacks v2 process identity"
+            )
+        if lease["state"] == "halted" and not isinstance(
             lease.get("process"), dict
         ):
             raise IdentityError("recovered controller lease lacks process identity")
+        atomic_write_json(path, lease)
+    if lease["state"] == "launching":
+        if lease.get("process") is not None:
+            raise ValidationError("launching controller lease has a process identity")
+    elif lease["state"] in {"active", "halting"} and not _is_v2_process_identity(
+        lease.get("process")
+    ):
+        raise ValidationError("controller lease lacks its v2 process identity")
+    elif lease["state"] == "halted" and not isinstance(lease.get("process"), dict):
+        raise ValidationError("controller lease lacks its process identity")
     row = Journal(root / "session-lease-history").lookup(
         "lease-%d-%s" % (lease["generation"], lease["state"])
     )
@@ -456,9 +501,25 @@ def transition_session_lease(
         ):
             raise IdentityError("controller session lease process identity changed")
         if current["state"] == state:
-            if state == "active" and current.get("process") != process:
-                raise IdentityError("active controller lease process identity changed")
+            if state in {"active", "halting"} and not _is_v2_process_identity(
+                process
+            ):
+                raise ValidationError(
+                    "controller lease transition lacks v2 process identity"
+                )
+            if state in {"active", "halting", "halted"} and current.get(
+                "process"
+            ) != process:
+                raise IdentityError(
+                    "%s controller lease process identity changed" % state
+                )
             return current
+        if state in {"active", "halting", "halted"} and not _is_v2_process_identity(
+            process
+        ):
+            raise ValidationError(
+                "controller lease transition lacks v2 process identity"
+            )
         if state not in LEASE_TRANSITIONS[current["state"]]:
             raise ValidationError("illegal controller session lease transition")
         if state != "failed" and not isinstance(process, dict):

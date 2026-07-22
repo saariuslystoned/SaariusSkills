@@ -20,6 +20,8 @@ sys.path.insert(0, str(SCRIPTS))
 from puppet_lib.adapter_manifest import (  # noqa: E402
     AdapterManifest,
     PROBE_CAPABILITIES,
+    _validate_ancestry_node_coherence,
+    _validated_ancestry_chain,
     verify_qualification_receipt,
 )
 from puppet_lib.authority import (  # noqa: E402
@@ -98,13 +100,19 @@ def static_process_identity(pid: int):
     executable = Path("/bin/cat").resolve(strict=True)
     details = executable.stat()
     return {
+        "identity_version": 2,
         "pid": pid,
         "start": "Wed Jul 22 04:00:00 2026",
+        "kernel_birth_id": "test:%d" % pid,
         "command": "cat",
         "executable_path": str(executable),
         "device": details.st_dev,
         "inode": details.st_ino,
     }
+
+
+def process_tree_node(process, parent_pid):
+    return {"process": process, "parent_pid": parent_pid}
 
 
 def controller_inputs(root: Path, *, target: str = "codex", override=False):
@@ -220,6 +228,7 @@ class FakeTmux:
         bad_claim=False,
         interrupt_on_paste=False,
         interrupt_after_control=False,
+        terminal_pid_drift=False,
     ):
         self.root = root
         self.socket_root = Path(tempfile.mkdtemp(prefix="pft-", dir="/tmp"))
@@ -230,6 +239,7 @@ class FakeTmux:
         self.bad_claim = bad_claim
         self.interrupt_on_paste = interrupt_on_paste
         self.interrupt_after_control = interrupt_after_control
+        self.terminal_pid_drift = terminal_pid_drift
         self.alive = True
         self.preserved = True
         self.launch_argv = None
@@ -317,7 +327,11 @@ class FakeTmux:
         return {
             "session": session,
             "pane": self.pane,
-            "pane_pid": self.pid,
+            "pane_pid": (
+                self.pid + 1
+                if self.terminal_pid_drift and not self.alive
+                else self.pid
+            ),
             "current_command": "cat",
             "pane_dead": not self.alive,
         }
@@ -367,9 +381,22 @@ class FakeTmux:
         self.interrupts.append((str(socket), session, pane))
         self.alive = False
 
+    def exact_sigint(self, identity):
+        self.interrupts.append(("exact_pid_sigint", identity["pid"], None))
+        self.alive = False
+
     def send_control(
-        self, *, socket, session, pane=None, key, server_identity=None
+        self,
+        *,
+        socket,
+        session,
+        pane=None,
+        key,
+        server_identity=None,
+        expected_pane_pid=None,
     ):
+        if expected_pane_pid is not None and expected_pane_pid != self.pid:
+            raise IdentityError("fake pane process drift")
         self.control_calls.append((str(socket), session, pane, key))
         if self.interrupt_after_control:
             raise KeyboardInterrupt()
@@ -422,6 +449,8 @@ def execute(
         _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
         _server_process_birth_fn=lambda pid: fake.server_process,
         _process_alive_fn=lambda identity: fake.alive,
+        _process_tree_alive_fn=lambda identity: fake.alive,
+        _exact_sigint_fn=fake.exact_sigint,
         _active_processes_fn=active_processes_fn
         or (lambda selected: list(active or [])),
         _continuous_population_fn=continuous_population_fn
@@ -447,41 +476,54 @@ class ProbeTests(unittest.TestCase):
         registered = static_process_identity(4242)
         child = static_process_identity(4999)
         grandchild = static_process_identity(5000)
+        protected_node = process_tree_node(protected[0], 1)
+        root_node = process_tree_node(registered, 1)
+        child_node = process_tree_node(child, registered["pid"])
+        grandchild_node = process_tree_node(grandchild, child["pid"])
 
         direct = _validated_target_population(
             snapshot={
                 "processes": [protected[0], registered, child],
-                "parents": {4999: 4242},
+                "ancestry_nodes": [protected_node, root_node, child_node],
             },
             protected=protected,
             registered=registered,
             process_alive_fn=lambda identity: True,
+            process_tree_alive_fn=lambda identity: True,
         )
         self.assertEqual(direct["descendants"], [child])
-        self.assertEqual(direct["ancestry_chains"], [[4999, 4242]])
+        self.assertEqual(direct["ancestry_chains"], [[child_node, root_node]])
 
         nested = _validated_target_population(
             snapshot={
                 "processes": [protected[0], registered, child, grandchild],
-                "parents": {4999: 4242, 5000: 4999},
+                "ancestry_nodes": [
+                    protected_node,
+                    root_node,
+                    child_node,
+                    grandchild_node,
+                ],
             },
             protected=protected,
             registered=registered,
             process_alive_fn=lambda identity: True,
+            process_tree_alive_fn=lambda identity: True,
         )
         self.assertEqual(nested["descendants"], [child, grandchild])
         self.assertEqual(
-            nested["ancestry_chains"], [[4999, 4242], [5000, 4999, 4242]]
+            nested["ancestry_chains"],
+            [[child_node, root_node], [grandchild_node, child_node, root_node]],
         )
 
         disappeared = _validated_target_population(
             snapshot={
                 "processes": [protected[0], registered],
-                "parents": {},
+                "ancestry_nodes": [protected_node, root_node],
             },
             protected=protected,
             registered=registered,
             process_alive_fn=lambda identity: True,
+            process_tree_alive_fn=lambda identity: True,
         )
         self.assertEqual(disappeared["descendants"], [])
 
@@ -489,32 +531,59 @@ class ProbeTests(unittest.TestCase):
         protected = [static_process_identity(991)]
         registered = static_process_identity(4242)
         child = static_process_identity(4999)
+        protected_node = process_tree_node(protected[0], 1)
+        root_node = process_tree_node(registered, 1)
+        unrelated = static_process_identity(7777)
+        cycle = static_process_identity(5000)
         cases = {
-            "unrelated": ({4999: 7777, 7777: 1}, child, lambda identity: True),
-            "protected": ({4999: 991}, child, lambda identity: True),
-            "missing": ({}, child, lambda identity: True),
-            "cycle": ({4999: 5000, 5000: 4999}, child, lambda identity: True),
+            "unrelated": (
+                [
+                    process_tree_node(child, 7777),
+                    process_tree_node(unrelated, 1),
+                ],
+                child,
+                lambda identity: True,
+            ),
+            "protected": (
+                [process_tree_node(child, 991)],
+                child,
+                lambda identity: True,
+            ),
+            "missing": (
+                [process_tree_node(child, 7777)],
+                child,
+                lambda identity: True,
+            ),
+            "cycle": (
+                [
+                    process_tree_node(child, 5000),
+                    process_tree_node(cycle, 4999),
+                ],
+                child,
+                lambda identity: True,
+            ),
             "pid_reuse": (
-                {4999: 4242},
+                [process_tree_node(child, 4242)],
                 child,
                 lambda identity: identity["pid"] != 4999,
             ),
             "executable_drift": (
-                {4999: 4242},
+                [process_tree_node(dict(child, inode=child["inode"] + 1), 4242)],
                 dict(child, inode=child["inode"] + 1),
                 lambda identity: True,
             ),
         }
-        for name, (parents, extra, alive) in cases.items():
+        for name, (nodes, extra, alive) in cases.items():
             with self.subTest(name=name), self.assertRaises(IdentityError):
                 _validated_target_population(
                     snapshot={
                         "processes": [protected[0], registered, extra],
-                        "parents": parents,
+                        "ancestry_nodes": [protected_node, root_node, *nodes],
                     },
                     protected=protected,
                     registered=registered,
                     process_alive_fn=alive,
+                    process_tree_alive_fn=lambda identity: True,
                 )
 
         with self.assertRaisesRegex(IdentityError, "identity changed"):
@@ -524,11 +593,87 @@ class ProbeTests(unittest.TestCase):
                         protected[0],
                         dict(registered, start="different birth"),
                     ],
-                    "parents": {},
+                    "ancestry_nodes": [
+                        protected_node,
+                        process_tree_node(
+                            dict(registered, start="different birth"), 1
+                        ),
+                    ],
                 },
                 protected=protected,
                 registered=registered,
                 process_alive_fn=lambda identity: True,
+                process_tree_alive_fn=lambda identity: True,
+            )
+
+        intermediate = dict(static_process_identity(4888), command="helper")
+        with self.assertRaisesRegex(IdentityError, "ancestry node"):
+            _validated_target_population(
+                snapshot={
+                    "processes": [protected[0], registered, child],
+                    "ancestry_nodes": [
+                        protected_node,
+                        root_node,
+                        process_tree_node(child, intermediate["pid"]),
+                        process_tree_node(intermediate, registered["pid"]),
+                    ],
+                },
+                protected=protected,
+                registered=registered,
+                process_alive_fn=lambda identity: True,
+                process_tree_alive_fn=lambda node: (
+                    node["process"]["kernel_birth_id"]
+                    != intermediate["kernel_birth_id"]
+                ),
+            )
+
+    def test_receipt_ancestry_rejects_protected_splice_and_node_conflict(self):
+        registered = static_process_identity(4242)
+        protected = static_process_identity(991)
+        child = static_process_identity(4999)
+        protected_splice = [
+            process_tree_node(child, protected["pid"]),
+            process_tree_node(protected, registered["pid"]),
+            process_tree_node(registered, 1),
+        ]
+        with self.assertRaisesRegex(ValidationError, "ancestry edge identity"):
+            _validated_ancestry_chain(
+                protected_splice,
+                "receipt",
+                registered=registered,
+                protected_pids={protected["pid"]},
+            )
+
+        intermediate_a = dict(
+            static_process_identity(4888), kernel_birth_id="test:intermediate-a"
+        )
+        intermediate_b = dict(
+            static_process_identity(4888), kernel_birth_id="test:intermediate-b"
+        )
+        root_node = process_tree_node(registered, 1)
+        first = _validated_ancestry_chain(
+            [
+                process_tree_node(child, 4888),
+                process_tree_node(intermediate_a, registered["pid"]),
+                root_node,
+            ],
+            "receipt",
+            registered=registered,
+            protected_pids=set(),
+        )
+        second = _validated_ancestry_chain(
+            [
+                process_tree_node(static_process_identity(5000), 4888),
+                process_tree_node(intermediate_b, registered["pid"]),
+                root_node,
+            ],
+            "receipt",
+            registered=registered,
+            protected_pids=set(),
+        )
+        with self.assertRaisesRegex(ValidationError, "node identity conflicts"):
+            _validate_ancestry_node_coherence(
+                [first, second], "last target population"
             )
 
     def test_success_emits_accepted_receipt_without_prompt_argv_and_preserves_tmux(self):
@@ -560,13 +705,16 @@ class ProbeTests(unittest.TestCase):
             files = controller_inputs(root)
             fake = FakeTmux(root / "fake-tmux")
             child = static_process_identity(4999)
+            root_process = process_identity(fake)
+            root_node = process_tree_node(root_process, 1)
+            child_node = process_tree_node(child, fake.pid)
 
             def population(_target):
                 if not fake.alive:
-                    return {"processes": [], "parents": {}}
+                    return {"processes": [], "ancestry_nodes": []}
                 return {
-                    "processes": [process_identity(fake), child],
-                    "parents": {4999: fake.pid},
+                    "processes": [root_process, child],
+                    "ancestry_nodes": [root_node, child_node],
                 }
 
             result = execute(
@@ -583,10 +731,74 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(
                 evidence["target_population_policy"], TARGET_POPULATION_POLICY
             )
-            self.assertEqual(evidence["observed_target_descendants"], [child])
+            self.assertEqual(
+                evidence["observed_target_descendants"],
+                [
+                    {
+                        "process": child,
+                        "ancestry_chain": [child_node, root_node],
+                    }
+                ],
+            )
             self.assertEqual(
                 evidence["last_target_population"]["ancestry_chains"],
-                [[4999, fake.pid]],
+                [[child_node, root_node]],
+            )
+
+    def test_transient_descendant_keeps_historical_chain_in_accepted_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            child = static_process_identity(4999)
+            root_process = process_identity(fake)
+            root_node = process_tree_node(root_process, 1)
+            child_node = process_tree_node(child, fake.pid)
+            calls = {"count": 0}
+
+            def population(_target):
+                if not fake.alive:
+                    return {"processes": [], "ancestry_nodes": []}
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    return {
+                        "processes": [root_process, child],
+                        "ancestry_nodes": [root_node, child_node],
+                    }
+                return {
+                    "processes": [root_process],
+                    "ancestry_nodes": [root_node],
+                }
+
+            result = execute(
+                files,
+                fake,
+                run_id="probe-transient-descendant",
+                population_snapshot_fn=population,
+            )
+            self.assertEqual(result["result"], "accepted")
+            evidence = json.loads(
+                (Path(result["run_root"]) / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                evidence["observed_target_descendants"],
+                [
+                    {
+                        "process": child,
+                        "ancestry_chain": [child_node, root_node],
+                    }
+                ],
+            )
+            self.assertEqual(
+                evidence["last_target_population"],
+                {
+                    "policy": TARGET_POPULATION_POLICY,
+                    "processes": [root_process],
+                    "ancestry_chains": [],
+                    "accepted": True,
+                },
             )
 
     def test_probe_rejects_same_target_descendant_that_survives_exact_halt(self):
@@ -602,9 +814,13 @@ class ProbeTests(unittest.TestCase):
                 return [] if active_calls["count"] <= 2 else [child]
 
             def population(_target):
+                root_process = process_identity(fake)
                 return {
-                    "processes": [process_identity(fake), child],
-                    "parents": {4999: fake.pid},
+                    "processes": [root_process, child],
+                    "ancestry_nodes": [
+                        process_tree_node(root_process, 1),
+                        process_tree_node(child, fake.pid),
+                    ],
                 }
 
             with self.assertRaisesRegex(
@@ -619,6 +835,9 @@ class ProbeTests(unittest.TestCase):
                 )
             self.assertFalse(fake.alive)
             self.assertEqual(len(fake.interrupts), 1)
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "failed"
+            )
 
     def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -742,7 +961,9 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationError, "timed out"):
                 execute(files, fake, run_id="probe-timeout", timeout=0.001)
             self.assertEqual(len(fake.interrupts), 1)
-            self.assertEqual(fake.interrupts[0][1], fake.session)
+            self.assertEqual(
+                fake.interrupts[0], ("exact_pid_sigint", fake.pid, None)
+            )
             halt = json.loads(
                 (
                     files["proof"]
@@ -769,6 +990,18 @@ class ProbeTests(unittest.TestCase):
             )
             self.assertEqual(halt["signal"], "none_already_stopped")
             self.assertTrue(halt["tmux_preserved"])
+
+    def test_halt_rejects_a_dead_pane_with_changed_process_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", terminal_pid_drift=True)
+            with self.assertRaisesRegex(IdentityError, "preserved dead evidence pane"):
+                execute(files, fake, run_id="probe-terminal-pane-drift")
+            self.assertFalse(fake.alive)
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "halting"
+            )
 
     def test_agy_uses_exact_double_eof_graceful_halt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -818,7 +1051,7 @@ class ProbeTests(unittest.TestCase):
                 execute(files, fake, run_id="probe-bad-claim")
             self.assertFalse(fake.alive)
 
-    def test_process_must_execute_the_fingerprinted_launcher(self):
+    def test_wrong_launcher_remains_fenced_without_any_halt_action(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             files = controller_inputs(root)
@@ -838,9 +1071,14 @@ class ProbeTests(unittest.TestCase):
                     run_id="probe-process-mismatch",
                     process_birth_fn=lambda pid: wrong_process,
                 )
-            self.assertFalse(fake.alive)
+            self.assertTrue(fake.alive)
+            self.assertEqual(fake.interrupts, [])
+            self.assertEqual(fake.control_calls, [])
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "launching"
+            )
 
-    def test_process_birth_failure_cleans_the_exact_private_pane(self):
+    def test_process_birth_failure_remains_fenced_without_any_halt_action(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             files = controller_inputs(root)
@@ -856,16 +1094,20 @@ class ProbeTests(unittest.TestCase):
                     run_id="probe-process-birth-failure",
                     process_birth_fn=unavailable,
                 )
-            self.assertFalse(fake.alive)
-            halt = json.loads(
-                (
-                    files["proof"]
-                    / "probes"
-                    / "probe-process-birth-failure"
-                    / "halt.json"
-                ).read_text(encoding="utf-8")
+            self.assertTrue(fake.alive)
+            self.assertEqual(fake.interrupts, [])
+            self.assertEqual(fake.control_calls, [])
+            run_root = (
+                files["proof"] / "probes" / "probe-process-birth-failure"
             )
-            self.assertEqual(halt["identity_binding"], "new_private_tmux_pane")
+            self.assertFalse((run_root / "halt.json").exists())
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("remains unbound", evidence["failure"]["cleanup_error"])
+            self.assertEqual(
+                current_session_lease(files["authority"])["state"], "launching"
+            )
 
     def test_keyboard_interrupt_still_cleans_the_exact_new_target(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1152,6 +1394,7 @@ class ProbeTests(unittest.TestCase):
                 _tmux_factory=lambda selected: fake,
                 _process_birth_fn=lambda pid: process_identity(fake),
                 _process_alive_fn=lambda identity: fake.alive,
+                _exact_sigint_fn=fake.exact_sigint,
                 _server_process_birth_fn=lambda pid: fake.server_process,
                 _active_processes_fn=lambda selected: [],
                 _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
@@ -1173,6 +1416,74 @@ class ProbeTests(unittest.TestCase):
                 (run_root / "recovery.json").read_text(encoding="utf-8")
             )
             self.assertTrue(recovery["launch_attempted"])
+
+    def test_recovery_never_reconstructs_an_unpersisted_socket_occupant(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            with patch(
+                "puppet_lib.probe._halt_exact",
+                side_effect=KeyboardInterrupt(),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    execute(files, fake, run_id="probe-unpersisted-recovery")
+            run_root = files["proof"] / "probes" / "probe-unpersisted-recovery"
+            evidence_path = run_root / "evidence.json"
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            lease_before = current_session_lease(files["authority"])
+            controls_before = list(fake.control_calls)
+            signals_before = list(fake.interrupts)
+
+            def recover():
+                return recover_probe(
+                    target="codex",
+                    proof_root=files["proof"],
+                    manifest_path=files["manifest"],
+                    mapping_path=files["mapping"],
+                    authorization_path=files["authorization"],
+                    controller="tester",
+                    goal_repo=files["goal_repo"],
+                    expected_campaign_id=files["campaign_id"],
+                    expected_goal=files["expected_goal"],
+                    run_id="probe-unpersisted-recovery",
+                    halt_timeout=0.1,
+                    _tmux_factory=lambda selected: fake,
+                    _process_birth_fn=lambda pid: process_identity(fake),
+                    _process_alive_fn=lambda identity: fake.alive,
+                    _exact_sigint_fn=fake.exact_sigint,
+                    _server_process_birth_fn=lambda pid: fake.server_process,
+                    _active_processes_fn=lambda selected: [process_identity(fake)],
+                    _adapter_fingerprint_fn=lambda: files["raw"][
+                        "adapter_fingerprint"
+                    ],
+                    _census_target_fn=lambda selected, fingerprint: (
+                        AdapterManifest.from_dict(files["raw"])
+                    ),
+                    _sleep_fn=lambda interval: None,
+                    _authority_root=files["authority"],
+                )
+
+            replacement = json.loads(json.dumps(evidence))
+            replacement["process"]["kernel_birth_id"] = "test:replacement"
+            write_json(evidence_path, replacement)
+            with self.assertRaisesRegex(IdentityError, "controller lease"):
+                recover()
+            self.assertEqual(fake.control_calls, controls_before)
+            self.assertEqual(fake.interrupts, signals_before)
+
+            evidence["tmux"] = None
+            evidence["process"] = None
+            write_json(evidence_path, evidence)
+            with self.assertRaisesRegex(IdentityError, "remains fenced"):
+                recover()
+            self.assertEqual(current_session_lease(files["authority"]), lease_before)
+            self.assertEqual(fake.control_calls, controls_before)
+            self.assertEqual(fake.interrupts, signals_before)
+            recovery = json.loads(
+                (run_root / "recovery.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(recovery["result"], "interrupted_probe_fenced")
 
     def test_prelaunch_recovery_preserves_authorized_parallel_population(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1227,6 +1538,7 @@ class ProbeTests(unittest.TestCase):
                 _tmux_factory=lambda selected: fake,
                 _process_birth_fn=lambda pid: process_identity(fake),
                 _process_alive_fn=lambda identity: fake.alive,
+                _exact_sigint_fn=fake.exact_sigint,
                 _server_process_birth_fn=lambda pid: fake.server_process,
                 _active_processes_fn=lambda selected: list(protected),
                 _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
@@ -1271,6 +1583,7 @@ class ProbeTests(unittest.TestCase):
                     _tmux_factory=lambda selected: fake,
                     _process_birth_fn=lambda pid: process_identity(fake),
                     _process_alive_fn=lambda identity: fake.alive,
+                    _exact_sigint_fn=fake.exact_sigint,
                     _server_process_birth_fn=lambda pid: fake.server_process,
                     _active_processes_fn=lambda selected: [process_identity(fake)],
                     _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],

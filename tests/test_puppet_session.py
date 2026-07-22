@@ -30,7 +30,7 @@ from puppet_lib.campaign import (  # noqa: E402
 from puppet_lib.conformance import create_fixture  # noqa: E402
 from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
-from puppet_lib.registry import SessionRegistry  # noqa: E402
+from puppet_lib.registry import SessionRegistry, send_exact_sigint  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
     _deliver,
     accept_checkpoint,
@@ -580,11 +580,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 registry = SessionRegistry(files["state"])
                 record = registry.load(session)
                 socket = record["tmux"]["socket"]
-                TmuxController(files["state"]).interrupt(
-                    socket=Path(socket),
-                    session=session,
-                    pane=record["tmux"]["pane"],
-                )
+                send_exact_sigint(record["process"])
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
                     metadata = TmuxController(files["state"]).metadata(
@@ -788,7 +784,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     thread.join(timeout=5)
                 kill_test_server(socket)
 
-    def test_process_binding_failure_exactly_cleans_provisional_launch(self):
+    def test_process_binding_failure_fences_provisional_launch_without_input(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             candidate = initialize_repo(
@@ -821,15 +817,15 @@ class SessionIntegrationTests(unittest.TestCase):
                             supervisor_executable=files["supervisor_executable"],
                             prompt="Remain available for provisional cleanup.",
                         )
-                self.assertFalse(SessionRegistry(files["state"]).exists(session))
+                self.assertTrue(SessionRegistry(files["state"]).exists(session))
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "failed"
+                    current_session_lease(self.authority_root)["state"], "launching"
                 )
                 metadata = TmuxController(files["state"]).metadata_for_session(
                     socket=Path(socket),
                     session=session,
                 )
-                self.assertTrue(metadata["pane_dead"])
+                self.assertFalse(metadata["pane_dead"])
             finally:
                 kill_test_server(socket)
 
@@ -962,7 +958,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 socket = record["tmux"]["socket"]
 
                 class DummyAdapter:
-                    graceful_halt_keys = ("C-d", "C-d")
+                    graceful_halt_actions = ("tmux_pane_eof", "tmux_pane_eof")
 
                 class InterruptingTmux:
                     def __init__(self):
@@ -1023,7 +1019,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 lock_state = {"alive": True, "sends": 0}
 
                 class DummyAdapter:
-                    graceful_halt_keys = ("C-d", "C-d")
+                    graceful_halt_actions = ("tmux_pane_eof", "tmux_pane_eof")
 
                 class FakeTmux:
                     def __init__(self):
@@ -1036,7 +1032,10 @@ class SessionIntegrationTests(unittest.TestCase):
                         session: str,
                         pane: str | None = None,
                         key: str,
+                        expected_pane_pid: int | None = None,
                     ):
+                        if expected_pane_pid != record["process"]["pid"]:
+                            raise AssertionError("halt did not bind the pane PID")
                         self.control_keys.append(key)
                         lock_state["sends"] += 1
                         if lock_state["sends"] >= 2:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from typing import Any, Dict
 from .adapter_manifest import AdapterManifest
 from .authority import validate_lease_owner
 from .beacons import PREFIXES
+from .contracts import PROCESS_IDENTITY_FIELDS
 from .errors import ConflictError, IdentityError, ValidationError
 from .safety import (
     absolute_root,
@@ -73,14 +75,7 @@ ADAPTER_FIELDS = {
     "qualification_campaign_id",
     "qualification_goal_fingerprint",
 }
-PROCESS_FIELDS = {
-    "pid",
-    "start",
-    "command",
-    "executable_path",
-    "device",
-    "inode",
-}
+PROCESS_FIELDS = PROCESS_IDENTITY_FIELDS
 TMUX_BINARY_FIELDS = {
     "path",
     "device",
@@ -92,6 +87,168 @@ TMUX_BINARY_FIELDS = {
     "sha256",
     "version",
 }
+
+
+def validate_process_identity_shape(
+    value: Any, label: str = "process"
+) -> Dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != PROCESS_FIELDS:
+        raise ValidationError("%s identity fields do not match schema" % label)
+    if (
+        value.get("identity_version") != 2
+        or isinstance(value.get("pid"), bool)
+        or not isinstance(value.get("pid"), int)
+        or value["pid"] <= 1
+        or not isinstance(value.get("start"), str)
+        or not value["start"]
+        or len(value["start"]) > 200
+        or any(character in value["start"] for character in "\x00\n\r")
+        or not isinstance(value.get("kernel_birth_id"), str)
+        or not value["kernel_birth_id"]
+        or len(value["kernel_birth_id"]) > 200
+        or any(
+            character in value["kernel_birth_id"] for character in "\x00\n\r"
+        )
+        or not isinstance(value.get("command"), str)
+        or not value["command"]
+        or len(value["command"]) > 1000
+        or "\x00" in value["command"]
+        or not isinstance(value.get("executable_path"), str)
+        or not value["executable_path"]
+        or len(value["executable_path"]) > 4096
+        or "\x00" in value["executable_path"]
+        or not Path(value["executable_path"]).is_absolute()
+        or any(
+            isinstance(value.get(name), bool)
+            or not isinstance(value.get(name), int)
+            or value[name] <= 0
+            for name in ("device", "inode")
+        )
+    ):
+        raise ValidationError("%s identity is invalid" % label)
+    return value
+
+
+class _DarwinProcBSDInfo(ctypes.Structure):
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+
+def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+        info = _DarwinProcBSDInfo()
+        size = ctypes.sizeof(info)
+        length = libproc.proc_pidinfo(pid, 3, 0, ctypes.byref(info), size)
+    except (OSError, AttributeError) as exc:
+        raise IdentityError("kernel process identity is unavailable") from exc
+    if (
+        length != size
+        or info.pbi_pid != pid
+        or not 1 <= info.pbi_ppid <= 2**31 - 1
+        or info.pbi_start_tvsec <= 0
+        or info.pbi_start_tvusec >= 1_000_000
+    ):
+        raise IdentityError("kernel process identity is unavailable")
+    return {
+        "pid": pid,
+        "parent_pid": int(info.pbi_ppid),
+        "kernel_birth_id": "darwin:%d:%06d"
+        % (info.pbi_start_tvsec, info.pbi_start_tvusec),
+    }
+
+
+def _linux_boot_id() -> str:
+    try:
+        with Path("/proc/sys/kernel/random/boot_id").open("rb") as handle:
+            raw = handle.read(129)
+        if len(raw) > 128:
+            raise IdentityError("kernel boot identity exceeds its bound")
+        value = raw.decode("ascii").strip()
+    except (OSError, UnicodeError) as exc:
+        raise IdentityError("kernel boot identity is unavailable") from exc
+    if (
+        len(value) != 36
+        or any(
+            (
+                character != "-"
+                if index in {8, 13, 18, 23}
+                else character.lower() not in "0123456789abcdef"
+            )
+            for index, character in enumerate(value)
+        )
+    ):
+        raise IdentityError("kernel boot identity is invalid")
+    return value.lower()
+
+
+def _linux_kernel_process_record(pid: int) -> Dict[str, Any]:
+    try:
+        with Path("/proc/%d/stat" % pid).open("rb") as handle:
+            raw = handle.read(65537)
+        if len(raw) > 65536:
+            raise IdentityError("kernel process identity exceeds its bound")
+        value = raw.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise IdentityError("kernel process identity is unavailable") from exc
+    closing = value.rfind(")")
+    if closing <= 0 or not value.startswith("%d (" % pid):
+        raise IdentityError("kernel process identity is ambiguous")
+    fields = value[closing + 1 :].strip().split()
+    if len(fields) < 20:
+        raise IdentityError("kernel process identity is ambiguous")
+    try:
+        parent_pid = int(fields[1])
+        start_ticks = int(fields[19])
+    except ValueError as exc:
+        raise IdentityError("kernel process identity is ambiguous") from exc
+    if not 1 <= parent_pid <= 2**31 - 1 or start_ticks <= 0:
+        raise IdentityError("kernel process identity is invalid")
+    return {
+        "pid": pid,
+        "parent_pid": parent_pid,
+        "kernel_birth_id": "linux:%s:%d" % (_linux_boot_id(), start_ticks),
+    }
+
+
+def _kernel_process_record(pid: int) -> Dict[str, Any]:
+    if not isinstance(pid, int) or pid <= 1:
+        raise ValidationError("invalid process id")
+    if sys.platform == "darwin":
+        return _darwin_kernel_process_record(pid)
+    if sys.platform.startswith("linux"):
+        return _linux_kernel_process_record(pid)
+    raise IdentityError("kernel process identity is unsupported on this platform")
 
 
 def _process_executable_path(pid: int) -> Path:
@@ -117,9 +274,7 @@ def _process_executable_path(pid: int) -> Path:
     return path.resolve(strict=True)
 
 
-def process_birth_identity(pid: int) -> Dict[str, Any]:
-    if not isinstance(pid, int) or pid <= 1:
-        raise ValidationError("invalid process id")
+def _process_display_record(pid: int) -> Dict[str, str]:
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart=,comm="],
         stdin=subprocess.DEVNULL,
@@ -134,16 +289,57 @@ def process_birth_identity(pid: int) -> Dict[str, Any]:
     parts = line.split()
     if len(parts) < 6:
         raise IdentityError("process birth identity is ambiguous")
+    return {"start": " ".join(parts[:5]), "command": " ".join(parts[5:])}
+
+
+def _process_executable_record(pid: int) -> Dict[str, Any]:
     executable = _process_executable_path(pid)
-    executable_stat = executable.stat()
+    details = executable.stat()
     return {
-        "pid": pid,
-        "start": " ".join(parts[:5]),
-        "command": " ".join(parts[5:]),
         "executable_path": str(executable),
-        "device": executable_stat.st_dev,
-        "inode": executable_stat.st_ino,
+        "device": details.st_dev,
+        "inode": details.st_ino,
     }
+
+
+def _sample_process_binding(
+    pid: int,
+) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    kernel_before = _kernel_process_record(pid)
+    display_before = _process_display_record(pid)
+    executable_before = _process_executable_record(pid)
+    display_after = _process_display_record(pid)
+    executable_after = _process_executable_record(pid)
+    kernel_after = _kernel_process_record(pid)
+    if any(
+        kernel_after[name] != kernel_before[name]
+        for name in ("pid", "kernel_birth_id")
+    ):
+        raise IdentityError("process identity changed during kernel binding")
+    if display_after != display_before or executable_after != executable_before:
+        raise IdentityError("process changed during display or executable binding")
+    process = {
+        "identity_version": 2,
+        "pid": pid,
+        "kernel_birth_id": kernel_before["kernel_birth_id"],
+        **display_before,
+        **executable_before,
+    }
+    return process, kernel_before, kernel_after
+
+
+def process_tree_identity(pid: int) -> Dict[str, Any]:
+    """Bind one process and a stable parent edge to kernel birth identities."""
+
+    process, kernel_before, kernel_after = _sample_process_binding(pid)
+    if kernel_after["parent_pid"] != kernel_before["parent_pid"]:
+        raise IdentityError("process parent changed during kernel binding")
+    return {"process": process, "parent_pid": kernel_before["parent_pid"]}
+
+
+def process_birth_identity(pid: int) -> Dict[str, Any]:
+    process, _, _ = _sample_process_binding(pid)
+    return process
 
 
 def process_alive(identity: Dict[str, Any]) -> bool:
@@ -152,6 +348,40 @@ def process_alive(identity: Dict[str, Any]) -> bool:
     except (IdentityError, KeyError):
         return False
     return current == identity
+
+
+def process_tree_alive(identity: Dict[str, Any]) -> bool:
+    try:
+        process = identity["process"]
+        current = process_tree_identity(process["pid"])
+    except (IdentityError, KeyError, TypeError):
+        return False
+    return current == identity
+
+
+def send_exact_sigint(identity: Dict[str, Any]) -> None:
+    """Send SIGINT to one revalidated process identity, never to a group."""
+
+    validate_process_identity_shape(identity, "exact signal process")
+    pid = identity["pid"]
+    if not process_alive(identity):
+        raise IdentityError("exact signal process identity changed")
+    if (
+        sys.platform.startswith("linux")
+        and hasattr(os, "pidfd_open")
+        and hasattr(signal, "pidfd_send_signal")
+    ):
+        descriptor = os.pidfd_open(pid, 0)
+        try:
+            if not process_alive(identity):
+                raise IdentityError("exact signal process identity changed")
+            signal.pidfd_send_signal(descriptor, signal.SIGINT, None, 0)
+        finally:
+            os.close(descriptor)
+        return
+    if not process_alive(identity):
+        raise IdentityError("exact signal process identity changed")
+    os.kill(pid, signal.SIGINT)
 
 
 class SessionRegistry:
@@ -302,8 +532,7 @@ class SessionRegistry:
         }:
             raise ValidationError("registered tmux executable identity changed")
         server = tmux["server_identity"]
-        if not isinstance(server, dict) or set(server) != PROCESS_FIELDS:
-            raise ValidationError("registered tmux server identity is invalid")
+        validate_process_identity_shape(server, "registered tmux server")
         if process_birth_identity(server.get("pid")) != server:
             raise ValidationError("registered tmux server birth identity changed")
         if (
@@ -313,18 +542,7 @@ class SessionRegistry:
         ):
             raise ValidationError("registered tmux server executable mismatch")
         process = value.get("process")
-        if not isinstance(process, dict) or set(process) != PROCESS_FIELDS:
-            raise ValidationError("invalid process identity")
-        process_executable = Path(process["executable_path"])
-        if not process_executable.is_absolute():
-            raise ValidationError("process executable path must be absolute")
-        for name in ("pid", "device", "inode"):
-            if (
-                isinstance(process.get(name), bool)
-                or not isinstance(process.get(name), int)
-                or process[name] <= 0
-            ):
-                raise ValidationError("invalid process %s identity" % name)
+        validate_process_identity_shape(process, "registered process")
         protocol = value.get("protocol")
         if not isinstance(protocol, dict) or protocol.get("kind") not in {
             "conformance",
