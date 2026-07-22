@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.plane_activation as activation_module  # noqa: E402
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
     IdentityError,
@@ -39,14 +40,15 @@ from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
-    default_session_profile,
     session_profiles_for,
     startup_settle_seconds_for,
 )
 
 
-ADAPTER_SHA256 = "a" * 64
-VERSION_OBSERVATION_SHA256 = "b" * 64
+ADAPTER_SHA256 = adapter_implementation_fingerprint()
+VERSION_OBSERVATION_SHA256 = (
+    "3c95eff850dac10d40c5692a73957f526b54a74767163913dc858c4f8d4c8c63"
+)
 
 
 def _descriptor() -> dict:
@@ -101,7 +103,8 @@ def _descriptor() -> dict:
         "blockers": ["live_qualification_not_yet_run"],
     }
 
-def _adapter_manifest(receipt_path: Path) -> dict:
+
+def _adapter_manifest() -> dict:
     executable = Path(sys.executable).resolve()
     executable_details = executable.stat()
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
@@ -144,23 +147,21 @@ def _adapter_manifest(receipt_path: Path) -> dict:
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         },
         "capabilities": {
-            "launch": "controller_verified",
-            "send": "controller_verified",
-            "status": "controller_verified",
-            "wait": "controller_verified",
-            "checkpoint": "controller_verified",
-            "resume": "unsupported",
-            "halt": "controller_verified",
+            name: "declared"
+            for name in (
+                "launch",
+                "send",
+                "status",
+                "wait",
+                "checkpoint",
+                "resume",
+                "halt",
+            )
         },
-        "doctor_only": False,
-        "qualification": {
-            "receipt_path": str(receipt_path),
-            "receipt_sha256": "e" * 64,
-            "session_profile": default_session_profile("claude"),
-        },
+        "doctor_only": True,
+        "qualification": None,
     }
     return AdapterManifest.from_dict(raw).raw
-
 
 
 class PlaneActivationTests(unittest.TestCase):
@@ -172,7 +173,6 @@ class PlaneActivationTests(unittest.TestCase):
         self.config = self.base / "config"
         self.ephemeral = self.base / "ephemeral"
         self.transaction = self.base / "transaction"
-        self.qualification_receipt = self.base / "qualification-receipt.json"
         for path in (self.workspace, self.config, self.ephemeral, self.transaction):
             path.mkdir(mode=0o700)
             path.chmod(0o700)
@@ -185,7 +185,7 @@ class PlaneActivationTests(unittest.TestCase):
             run_identity={"run_id": "claude-native-run"},
         )
         self.descriptor = _descriptor()
-        self.adapter_manifest = _adapter_manifest(self.qualification_receipt)
+        self.adapter_manifest = _adapter_manifest()
         self.plan = self._plan()
 
     def _plan(self, descriptor=None, **overrides):
@@ -197,6 +197,7 @@ class PlaneActivationTests(unittest.TestCase):
             "ephemeral_root": self.ephemeral,
             "transaction_root": self.transaction,
             "config_root": self.config,
+            "_current_manifest": self.adapter_manifest,
         }
         arguments.update(overrides)
         return plan_activation(descriptor or self.descriptor, **arguments)
@@ -235,7 +236,9 @@ class PlaneActivationTests(unittest.TestCase):
         )
         self.assertEqual(
             raw["instruction_manifest_sha256"],
-            sha256_bytes(activation_module._canonical_json_with_newline(self.compiled.manifest)),
+            sha256_bytes(
+                activation_module._canonical_json_with_newline(self.compiled.manifest)
+            ),
         )
         self.assertEqual(
             raw["effective_contract_fingerprint"],
@@ -404,6 +407,65 @@ class PlaneActivationTests(unittest.TestCase):
                             transaction_root=assigned["transaction"],
                             config_root=assigned["config"],
                         )
+
+    def test_config_root_is_required_and_revalidated_at_use_time(self):
+        with self.assertRaisesRegex(ValidationError, "config root is required"):
+            self._plan(config_root=None)
+
+        original_config = self.base / "original-config"
+        self.config.rename(original_config)
+        self.config.mkdir(mode=0o700)
+        with self.assertRaises(IdentityError):
+            self._activate()
+
+        with TemporaryDirectory() as raw:
+            base = Path(raw)
+            roots = {
+                name: base / name
+                for name in ("workspace", "ephemeral", "transaction", "config")
+            }
+            for path in roots.values():
+                path.mkdir(mode=0o700)
+            plan = self._plan(
+                workspace_root=roots["workspace"],
+                ephemeral_root=roots["ephemeral"],
+                transaction_root=roots["transaction"],
+                config_root=roots["config"],
+            )
+            materialize_activation(plan, effective_contract=self.compiled.rendered)
+            roots["config"].rename(base / "retired-config")
+            roots["config"].mkdir(mode=0o700)
+            with self.assertRaises(IdentityError):
+                verify_activation(plan)
+
+    @unittest.skipUnless(Path("/dev/fd").is_dir(), "/dev/fd is unavailable")
+    def test_partial_root_and_child_open_failures_do_not_leak_fds_or_residue(self):
+        before = len(os.listdir("/dev/fd"))
+        missing = self.base / "missing-config"
+        for _ in range(8):
+            with self.assertRaises(ValidationError):
+                self._plan(config_root=missing)
+        self.assertEqual(len(os.listdir("/dev/fd")), before)
+
+        root_descriptor = os.open(
+            self.ephemeral,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+        try:
+            child_before = len(os.listdir("/dev/fd"))
+            with mock.patch.object(
+                activation_module.os,
+                "fchmod",
+                side_effect=OSError("injected fchmod failure"),
+            ):
+                with self.assertRaises(IdentityError):
+                    activation_module._open_or_create_parents(
+                        root_descriptor, ["created-parent"]
+                    )
+            self.assertEqual(len(os.listdir("/dev/fd")), child_before)
+            self.assertFalse((self.ephemeral / "created-parent").exists())
+        finally:
+            os.close(root_descriptor)
 
     def test_fd_walk_rejects_parent_symlink(self):
         outside = self.base / "outside-directory"
@@ -708,9 +770,13 @@ class PlaneActivationTests(unittest.TestCase):
         with self.assertRaises(IdentityError):
             self._plan(adapter_manifest=drifted_manifest)
         drifted_version = copy.deepcopy(self.adapter_manifest)
-        drifted_version["executable"]["version_sha256"] = "not-a-hash"
-        with self.assertRaises(ValidationError):
+        drifted_version["executable"]["version_sha256"] = "f" * 64
+        with self.assertRaises(IdentityError):
             self._plan(adapter_manifest=drifted_version)
+        fake_executable = copy.deepcopy(self.adapter_manifest)
+        fake_executable["executable"]["resolved_path"] = str(self.workspace)
+        with self.assertRaises((IdentityError, ValidationError)):
+            self._plan(adapter_manifest=fake_executable)
         with self.assertRaises(IdentityError):
             self._plan(effective_contract=self.compiled.rendered + b"changed")
         old_version = copy.deepcopy(self.descriptor)
@@ -719,6 +785,49 @@ class PlaneActivationTests(unittest.TestCase):
             self._plan(old_version)
         self.assertEqual(list(self.ephemeral.iterdir()), [])
         self.assertEqual(list(self.transaction.iterdir()), [])
+
+    def test_default_plan_path_recensuses_exact_current_manifest(self):
+        with mock.patch.object(
+            activation_module,
+            "census_target",
+            return_value=AdapterManifest.from_dict(self.adapter_manifest),
+        ) as census:
+            self._plan(_current_manifest=None)
+        census.assert_called_once_with("claude", ADAPTER_SHA256)
+
+    def test_rollback_intent_is_durable_before_any_cleanup(self):
+        self._activate()
+        original = activation_module._persist_immutable_json
+
+        def fail_intent(root_descriptor, name, value, *, label):
+            if name == activation_module.ROLLBACK_INTENT_FILENAME:
+                self.assertTrue(self.plan.artifact_path.exists())
+                raise OSError("injected rollback intent failure")
+            return original(root_descriptor, name, value, label=label)
+
+        with mock.patch.object(
+            activation_module,
+            "_persist_immutable_json",
+            side_effect=fail_intent,
+        ):
+            with self.assertRaises(OSError):
+                rollback_activation(self.plan)
+        self.assert_artifact_preserved()
+        self.assertFalse(self.plan.rollback_intent_path.exists())
+        self.assertEqual(recover_activation(self.transaction).state, "active")
+
+        with mock.patch.object(
+            activation_module,
+            "_perform_rollback_cleanup",
+            side_effect=OSError("injected post-intent crash"),
+        ):
+            with self.assertRaises(OSError):
+                rollback_activation(self.plan)
+        self.assertTrue(self.plan.rollback_intent_path.exists())
+        self.assert_artifact_preserved()
+        self.assertEqual(recover_activation(self.transaction).state, "active")
+        rollback_activation(self.plan)
+        self.assertEqual(recover_activation(self.transaction).state, "rolled_back")
 
     def test_unsupported_descriptor_forms_remain_closed(self):
         cases = []
