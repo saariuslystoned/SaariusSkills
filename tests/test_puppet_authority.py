@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import errno
 import os
 import socket
 import subprocess
@@ -36,12 +37,14 @@ from puppet_lib.diagnostics import agy_overage_advisory, terminal_verdict  # noq
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
     IdentityError,
+    UnsupportedError,
     ValidationError,
 )
-from puppet_lib.handoffs import validate_handoff  # noqa: E402
+from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, validate_handoff  # noqa: E402
 from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
+    SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     process_alive,
     process_birth_identity,
@@ -50,9 +53,18 @@ from puppet_lib.registry import (  # noqa: E402
 from puppet_lib.safety import (  # noqa: E402
     atomic_write_json,
     canonical_tmux_socket_path,
+    canonical_json_bytes,
+    sha256_bytes,
     sha256_file,
 )
-from puppet_lib.verdicts import record_review, verify_current_identity  # noqa: E402
+from puppet_lib.verdicts import (  # noqa: E402
+    ACCEPTANCE_SCHEMA_VERSION,
+    REVIEW_SCHEMA_VERSION,
+    record_acceptance,
+    record_review,
+    validate_acceptance_record,
+    verify_current_identity,
+)
 
 
 HARD_GATES = [
@@ -96,7 +108,7 @@ def contract(repo: Path):
 
 def followup():
     return {
-        "schema_version": 1,
+        "schema_version": HANDOFF_SCHEMA_VERSION,
         "checkpoint_kind": "conformance",
         "session": "agy-proof",
         "run_id": "run-1",
@@ -117,8 +129,157 @@ def followup():
     }
 
 
+def qualification_receipt_core(schema_version=2):
+    return {
+        "schema_version": schema_version,
+        "campaign_id": "campaign-test",
+        "goal_fingerprint": "1" * 64,
+        "run_id": "run-test",
+        "target": "codex",
+        "controller": "controller-test",
+        "executable_fingerprint": "2" * 64,
+        "execution_fingerprint": "3" * 64,
+        "platform_fingerprint": "4" * 64,
+        "adapter_fingerprint": "5" * 64,
+        "protocol_fingerprint": "6" * 64,
+        "yolo_mapping_sha256": "7" * 64,
+        "instruction_policy_fingerprint": "8" * 64,
+        "accepted_checkpoint_id": "9" * 64,
+        "acceptance_sha256": "a" * 64,
+        "halt_receipt_sha256": "b" * 64,
+    }
+
+
 class AuthorityTests(unittest.TestCase):
-    def test_cursor_runtime_selector_includes_bundled_node_only(self):
+    def test_qualification_attestation_v2_is_distinct_from_legacy_rows(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            current_core = qualification_receipt_core(
+                puppet_authority.QUALIFICATION_ATTESTATION_SCHEMA_VERSION
+            )
+            legacy_core = qualification_receipt_core(1)
+            legacy_digest = sha256_bytes(canonical_json_bytes(legacy_core))
+            legacy_event = puppet_authority._attestation_event(current_core)
+            legacy_event.pop("schema_version")
+            legacy_event["receipt_digest"] = legacy_digest
+            legacy_row = Journal(root / "qualification-attestations").append(
+                request_id="qualify-" + legacy_digest[:40],
+                event=legacy_event,
+            )
+
+            attestation = puppet_authority.attest_qualification(
+                current_core,
+                authority_root=root,
+            )
+            row = puppet_authority.verify_qualification_attestation(
+                current_core,
+                attestation,
+                authority_root=root,
+            )
+            self.assertEqual(
+                attestation["schema_version"],
+                puppet_authority.QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
+            )
+            self.assertEqual(
+                row["event"]["schema_version"],
+                puppet_authority.QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
+            )
+            self.assertNotEqual(attestation["request_id"], legacy_row["request_id"])
+
+            missing_execution = dict(current_core)
+            missing_execution.pop("execution_fingerprint")
+            with self.assertRaisesRegex(ValidationError, "execution fingerprint"):
+                puppet_authority._attestation_event(missing_execution)
+
+            with self.assertRaisesRegex(IdentityError, "not the attested receipt"):
+                puppet_authority.verify_qualification_attestation(
+                    dict(current_core, execution_fingerprint="0" * 64),
+                    attestation,
+                    authority_root=root,
+                )
+
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                puppet_authority._attestation_event(legacy_core)
+            with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
+                puppet_authority._attestation_event(
+                    qualification_receipt_core(
+                        puppet_authority.QUALIFICATION_ATTESTATION_SCHEMA_VERSION + 1
+                    )
+                )
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                puppet_authority.verify_qualification_attestation(
+                    current_core,
+                    dict(attestation, schema_version=1),
+                    authority_root=root,
+                )
+            with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
+                puppet_authority.verify_qualification_attestation(
+                    current_core,
+                    dict(
+                        attestation,
+                        schema_version=(
+                            puppet_authority.QUALIFICATION_ATTESTATION_SCHEMA_VERSION
+                            + 1
+                        ),
+                    ),
+                    authority_root=root,
+                )
+
+    def test_live_exact_selector_with_unavailable_executable_fails_closed(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        output = "4242 %d node\n" % os.getuid()
+        unavailable = puppet_registry.ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        )
+        with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=output),
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=unavailable,
+            ),
+            patch.object(
+                puppet_campaign, "_pid_still_exists", return_value=True
+            ) as recheck,
+            self.assertRaisesRegex(IdentityError, "live PID"),
+        ):
+            puppet_campaign.active_target_processes("cursor", execution_files=[bundled])
+        recheck.assert_called_once_with(4242)
+
+        with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=output),
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=unavailable,
+            ),
+            patch.object(
+                puppet_campaign, "_pid_still_exists", return_value=False
+            ) as recheck,
+        ):
+            self.assertEqual(
+                puppet_campaign.active_target_processes(
+                    "cursor", execution_files=[bundled]
+                ),
+                [],
+            )
+        recheck.assert_called_once_with(4242)
+
+    def test_cursor_exact_selector_includes_bundled_node_only(self):
         bundled = {
             "path": "/opt/cursor/node",
             "device": 41,
@@ -146,7 +307,7 @@ class AuthorityTests(unittest.TestCase):
                 "inode": 52,
             },
         }
-        output = "101 %d renamed-worker\n102 %d node\n" % (
+        output = "101 %d node\n102 %d node\n" % (
             os.getuid(),
             os.getuid(),
         )
@@ -162,6 +323,7 @@ class AuthorityTests(unittest.TestCase):
             }
 
         with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
             patch.object(
                 puppet_campaign.subprocess,
                 "run",
@@ -182,6 +344,125 @@ class AuthorityTests(unittest.TestCase):
                 "cursor", execution_files=[bundled]
             )
         self.assertEqual(observed, [identities[101]])
+
+    def test_darwin_prefilter_rejects_spoofed_and_ignores_unrelated_names(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        inventory = [
+            {
+                "pid": 101,
+                "uid": os.getuid(),
+                "name": "node",
+                "comm": "node",
+                "command": "node",
+            },
+            {
+                "pid": 102,
+                "uid": os.getuid(),
+                "name": "python3",
+                "comm": "python3",
+                "command": "python3",
+            },
+        ]
+        spoofed = {
+            "pid": 101,
+            "kernel_birth_id": "darwin:1:000001",
+            "executable_path": "/usr/local/bin/node",
+            "device": 42,
+            "inode": 52,
+        }
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                return_value=spoofed,
+            ) as exact_identity,
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                side_effect=AssertionError("Darwin census must not invoke ps"),
+            ),
+        ):
+            self.assertEqual(
+                puppet_campaign.active_target_processes(
+                    "cursor", execution_files=[bundled]
+                ),
+                [],
+            )
+        exact_identity.assert_called_once_with(101)
+
+    def test_darwin_prefilter_fails_closed_for_live_matching_unreadable_pid(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        inventory = [
+            {
+                "pid": 101,
+                "uid": os.getuid(),
+                "name": "node",
+                "comm": "node",
+                "command": "node",
+            },
+            {
+                "pid": 102,
+                "uid": os.getuid(),
+                "name": "python3",
+                "comm": "python3",
+                "command": "python3",
+            },
+        ]
+        unavailable = puppet_registry.ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        )
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=unavailable,
+            ) as exact_identity,
+            patch.object(puppet_campaign, "_pid_still_exists", return_value=True),
+            self.assertRaisesRegex(IdentityError, "live PID"),
+        ):
+            puppet_campaign.active_target_processes("cursor", execution_files=[bundled])
+        exact_identity.assert_called_once_with(101)
+
+    def test_process_selector_bound_covers_launcher_runtime_and_max_transients(self):
+        selectors = [
+            {
+                "path": "/opt/puppet/tool-%d" % index,
+                "device": index + 1,
+                "inode": index + 101,
+            }
+            for index in range(puppet_campaign.MAX_PROCESS_EXECUTION_SELECTORS)
+        ]
+        expected, identities = puppet_campaign._target_process_selectors(
+            "cursor", selectors
+        )
+        self.assertEqual(len(identities), 10)
+        self.assertIn("tool-9", expected)
+        with self.assertRaisesRegex(ValidationError, "selectors are invalid"):
+            puppet_campaign._target_process_selectors(
+                "cursor",
+                selectors
+                + [{"path": "/opt/puppet/overflow", "device": 99, "inode": 199}],
+            )
 
     def test_cursor_runtime_snapshot_excludes_unrelated_node(self):
         bundled = {
@@ -211,7 +492,7 @@ class AuthorityTests(unittest.TestCase):
                 "inode": 52,
             },
         }
-        output = "101 %d renamed-worker\n102 %d node\n" % (
+        output = "101 %d node\n102 %d node\n" % (
             os.getuid(),
             os.getuid(),
         )
@@ -227,6 +508,7 @@ class AuthorityTests(unittest.TestCase):
             }
 
         with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
             patch.object(
                 puppet_campaign.subprocess,
                 "run",
@@ -263,10 +545,14 @@ class AuthorityTests(unittest.TestCase):
 
     def test_cursor_census_includes_application_subcommand_executable(self):
         observed = []
+        commands = {
+            101: "/opt/bin/cursor",
+            103: "/opt/bin/cursor-agent",
+        }
 
         def identity(pid):
             observed.append(pid)
-            return {"pid": pid}
+            return {"pid": pid, "command": commands[pid]}
 
         process_table = (
             "101 %d /opt/bin/cursor\n102 %d /opt/bin/Cursor\n103 %d /opt/bin/cursor-agent\n"
@@ -277,6 +563,7 @@ class AuthorityTests(unittest.TestCase):
             )
         )
         with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
             patch.object(
                 puppet_campaign.subprocess,
                 "run",
@@ -290,7 +577,13 @@ class AuthorityTests(unittest.TestCase):
         ):
             result = puppet_campaign.active_target_processes("cursor")
         self.assertEqual(observed, [101, 103])
-        self.assertEqual(result, [{"pid": 101}, {"pid": 103}])
+        self.assertEqual(
+            result,
+            [
+                {"pid": 101, "command": commands[101]},
+                {"pid": 103, "command": commands[103]},
+            ],
+        )
 
     def test_target_process_snapshot_binds_ppid_birth_and_comm_without_argv(self):
         identity = {
@@ -309,6 +602,7 @@ class AuthorityTests(unittest.TestCase):
         )
         node = {"process": identity, "parent_pid": 1}
         with (
+            patch.object(puppet_campaign.sys, "platform", "linux"),
             patch.object(
                 puppet_campaign.subprocess,
                 "run",
@@ -1343,6 +1637,9 @@ class AuthorityTests(unittest.TestCase):
                 ).contents
                 info.pbi_pid = pid
                 info.pbi_ppid = 42
+                info.pbi_uid = os.getuid()
+                info.pbi_comm = b"codex"
+                info.pbi_name = b"codex-worker"
                 info.pbi_start_tvsec = 1_784_700_000
                 info.pbi_start_tvusec = 1234
                 return size
@@ -1360,6 +1657,465 @@ class AuthorityTests(unittest.TestCase):
                 "kernel_birth_id": "darwin:1784700000:001234",
             },
         )
+
+    def test_darwin_bsd_sampler_binds_uid_birth_and_kernel_names(self):
+        class FakeProcPidInfo:
+            argtypes = None
+            restype = None
+
+            def __call__(self, pid, flavor, arg, buffer, size):
+                info = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(puppet_registry._DarwinProcBSDInfo),
+                ).contents
+                info.pbi_pid = pid
+                info.pbi_ppid = 42
+                info.pbi_uid = os.getuid()
+                info.pbi_comm = b"node"
+                info.pbi_name = b"cursor-agent"
+                info.pbi_start_tvsec = 1_784_700_000
+                info.pbi_start_tvusec = 1234
+                return size
+
+        record = puppet_registry._darwin_process_bsd_record(
+            4242,
+            SimpleNamespace(proc_pidinfo=FakeProcPidInfo()),
+        )
+        self.assertEqual(
+            record,
+            {
+                "pid": 4242,
+                "parent_pid": 42,
+                "uid": os.getuid(),
+                "kernel_birth_id": "darwin:1784700000:001234",
+                "start": "darwin:1784700000:001234",
+                "command": "cursor-agent",
+                "name": "cursor-agent",
+                "comm": "node",
+            },
+        )
+
+    def test_darwin_uid_pid_snapshot_uses_slack_for_a_stable_set(self):
+        integer_size = puppet_registry.ctypes.sizeof(puppet_registry.ctypes.c_int)
+        controller_pid = os.getpid()
+
+        class FakeProcListPids:
+            argtypes = None
+            restype = None
+
+            def __init__(self):
+                self.query_counts = [2, 2]
+                self.capacity = None
+
+            def __call__(self, flavor, uid, buffer, size):
+                self.asserted = (flavor, uid)
+                if buffer is None:
+                    return self.query_counts.pop(0) * integer_size
+                self.capacity = size // integer_size
+                values = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry.ctypes.c_int * self.capacity
+                    ),
+                ).contents
+                values[0] = controller_pid
+                values[1] = 4242
+                return 2 * integer_size
+
+        proc_listpids = FakeProcListPids()
+        observed = puppet_registry._darwin_uid_process_ids(
+            SimpleNamespace(proc_listpids=proc_listpids)
+        )
+        self.assertEqual(observed, [controller_pid, 4242])
+        self.assertEqual(
+            proc_listpids.capacity,
+            2 + puppet_registry._DARWIN_PID_LIST_SLACK,
+        )
+        self.assertEqual(
+            proc_listpids.asserted,
+            (puppet_registry._DARWIN_PROC_UID_ONLY, os.getuid()),
+        )
+
+    def test_darwin_uid_pid_snapshot_retries_growth_and_truncation(self):
+        integer_size = puppet_registry.ctypes.sizeof(puppet_registry.ctypes.c_int)
+        controller_pid = os.getpid()
+
+        class FakeProcListPids:
+            argtypes = None
+            restype = None
+
+            def __init__(self, *, query_counts, fill_sets, truncate_first=False):
+                self.query_counts = list(query_counts)
+                self.fill_sets = list(fill_sets)
+                self.truncate_first = truncate_first
+                self.fill_calls = 0
+
+            def __call__(self, flavor, uid, buffer, size):
+                if buffer is None:
+                    return self.query_counts.pop(0) * integer_size
+                pids = self.fill_sets.pop(0)
+                capacity = size // integer_size
+                values = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry.ctypes.c_int * capacity
+                    ),
+                ).contents
+                for index, pid in enumerate(pids):
+                    values[index] = pid
+                self.fill_calls += 1
+                if self.truncate_first and self.fill_calls == 1:
+                    return size
+                return len(pids) * integer_size
+
+        cases = {
+            "growth": FakeProcListPids(
+                query_counts=[2, 3, 3, 3],
+                fill_sets=[
+                    [controller_pid, 4242],
+                    [controller_pid, 4242, 4243],
+                ],
+            ),
+            "truncation": FakeProcListPids(
+                query_counts=[2, 2, 2, 2],
+                fill_sets=[
+                    [controller_pid, 4242],
+                    [controller_pid, 4242],
+                ],
+                truncate_first=True,
+            ),
+        }
+        for name, proc_listpids in cases.items():
+            with self.subTest(name=name):
+                observed = puppet_registry._darwin_uid_process_ids(
+                    SimpleNamespace(proc_listpids=proc_listpids)
+                )
+                self.assertEqual(observed[:2], [controller_pid, 4242])
+                self.assertEqual(proc_listpids.fill_calls, 2)
+
+    def test_darwin_uid_pid_snapshot_rejects_duplicate_malformed_and_capped_rows(self):
+        integer_size = puppet_registry.ctypes.sizeof(puppet_registry.ctypes.c_int)
+        controller_pid = os.getpid()
+
+        class FakeProcListPids:
+            argtypes = None
+            restype = None
+
+            def __init__(self, *, values, used_bytes=None):
+                self.values = values
+                self.used_bytes = used_bytes
+
+            def __call__(self, flavor, uid, buffer, size):
+                if buffer is None:
+                    return len(self.values) * integer_size
+                capacity = size // integer_size
+                rows = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry.ctypes.c_int * capacity
+                    ),
+                ).contents
+                for index, pid in enumerate(self.values):
+                    rows[index] = pid
+                if self.used_bytes is not None:
+                    return self.used_bytes
+                return len(self.values) * integer_size
+
+        cases = {
+            "duplicate": (
+                FakeProcListPids(values=[controller_pid, controller_pid]),
+                {},
+                "invalid PIDs",
+            ),
+            "malformed": (
+                FakeProcListPids(values=[controller_pid], used_bytes=3),
+                {},
+                "payload",
+            ),
+            "cap": (
+                FakeProcListPids(values=[controller_pid, 4242]),
+                {"max_processes": 2},
+                "no bounded slack",
+            ),
+        }
+        for name, (proc_listpids, arguments, error) in cases.items():
+            with self.subTest(name=name), self.assertRaisesRegex(IdentityError, error):
+                puppet_registry._darwin_uid_process_ids(
+                    SimpleNamespace(proc_listpids=proc_listpids),
+                    **arguments,
+                )
+
+    def test_darwin_inventory_skips_only_proven_exit_and_rejects_pid_reuse(self):
+        controller_pid = os.getpid()
+        controller_record = {
+            "pid": controller_pid,
+            "uid": os.getuid(),
+            "kernel_birth_id": "darwin:1:000001",
+        }
+        vanished = IdentityError("BSD row unavailable")
+
+        with (
+            patch.object(puppet_registry.ctypes, "CDLL", return_value=object()),
+            patch.object(
+                puppet_registry,
+                "_darwin_uid_process_ids",
+                side_effect=[[controller_pid, 4242], [controller_pid]],
+            ),
+            patch.object(
+                puppet_registry,
+                "_darwin_process_bsd_record",
+                side_effect=[controller_record, vanished],
+            ),
+        ):
+            self.assertEqual(
+                puppet_registry.darwin_process_inventory(),
+                [controller_record],
+            )
+
+        reused_record = {
+            "pid": 4242,
+            "uid": os.getuid(),
+            "kernel_birth_id": "darwin:2:000002",
+        }
+        with (
+            patch.object(puppet_registry.ctypes, "CDLL", return_value=object()),
+            patch.object(
+                puppet_registry,
+                "_darwin_uid_process_ids",
+                side_effect=[
+                    [controller_pid, 4242],
+                    [controller_pid, 4242],
+                ],
+            ),
+            patch.object(
+                puppet_registry,
+                "_darwin_process_bsd_record",
+                side_effect=[controller_record, vanished, reused_record],
+            ),
+            self.assertRaisesRegex(IdentityError, "reappeared"),
+        ):
+            puppet_registry.darwin_process_inventory()
+
+    def test_darwin_executable_identity_comes_from_mapped_vnode(self):
+        executable_path = b"/renamed/process-owned/codex"
+
+        class FakeProcPidPath:
+            argtypes = None
+            restype = None
+
+            def __call__(self, pid, buffer, size):
+                self.asserted_pid = pid
+                puppet_registry.ctypes.memmove(
+                    buffer, executable_path + b"\x00", len(executable_path) + 1
+                )
+                return len(executable_path)
+
+        class FakeProcPidInfo:
+            argtypes = None
+            restype = None
+
+            def __init__(self):
+                self.calls = []
+
+            def __call__(self, pid, flavor, address, buffer, size):
+                self.calls.append((pid, flavor, address))
+                if address:
+                    puppet_registry.ctypes.set_errno(errno.EINVAL)
+                    return 0
+                info = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry._DarwinProcRegionWithPathInfo
+                    ),
+                ).contents
+                info.prp_prinfo.pri_address = 0x1000
+                info.prp_prinfo.pri_size = 0x1000
+                info.prp_prinfo.pri_protection = 5
+                info.prp_vip.vip_vi.vi_stat.vst_mode = 0o100755
+                info.prp_vip.vip_vi.vi_stat.vst_dev = 71
+                info.prp_vip.vip_vi.vi_stat.vst_ino = 81
+                info.prp_vip.vip_path = executable_path
+                return size
+
+        proc_pidpath = FakeProcPidPath()
+        proc_pidinfo = FakeProcPidInfo()
+        library = SimpleNamespace(
+            proc_pidpath=proc_pidpath,
+            proc_pidinfo=proc_pidinfo,
+        )
+        with patch.object(puppet_registry.ctypes, "CDLL", return_value=library):
+            record = puppet_registry._darwin_process_executable_record(4242)
+        self.assertEqual(
+            record,
+            {
+                "executable_path": executable_path.decode(),
+                "device": 71,
+                "inode": 81,
+            },
+        )
+        self.assertEqual(
+            proc_pidinfo.calls,
+            [
+                (4242, puppet_registry._DARWIN_PROC_PIDREGIONPATHINFO, 0),
+                (4242, puppet_registry._DARWIN_PROC_PIDREGIONPATHINFO, 0x2000),
+            ],
+        )
+
+    def test_darwin_region_inventory_failures_are_not_authoritative(self):
+        executable_path = b"/mapped/process-owned/codex"
+
+        class FakeProcPidPath:
+            argtypes = None
+            restype = None
+
+            def __init__(self, values):
+                self.values = list(values)
+
+            def __call__(self, pid, buffer, size):
+                value = self.values.pop(0) if len(self.values) > 1 else self.values[0]
+                puppet_registry.ctypes.memmove(buffer, value + b"\x00", len(value) + 1)
+                return len(value)
+
+        class FakeProcPidInfo:
+            argtypes = None
+            restype = None
+
+            def __init__(self, responses):
+                self.responses = list(responses)
+
+            def __call__(self, pid, flavor, address, buffer, size):
+                if not self.responses:
+                    puppet_registry.ctypes.set_errno(errno.EIO)
+                    return 0
+                response = self.responses.pop(0)
+                if "terminal_errno" in response:
+                    puppet_registry.ctypes.set_errno(response["terminal_errno"])
+                    return 0
+                info = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry._DarwinProcRegionWithPathInfo
+                    ),
+                ).contents
+                info.prp_prinfo.pri_address = response["address"]
+                info.prp_prinfo.pri_size = response["size"]
+                info.prp_prinfo.pri_protection = response.get("protection", 5)
+                info.prp_vip.vip_vi.vi_stat.vst_mode = 0o100755
+                info.prp_vip.vip_vi.vi_stat.vst_dev = response.get("device", 71)
+                info.prp_vip.vip_vi.vi_stat.vst_ino = response.get("inode", 81)
+                info.prp_vip.vip_path = response.get("path", executable_path)
+                puppet_registry.ctypes.set_errno(response.get("errno", 0))
+                return size
+
+        region = {
+            "address": 0x1000,
+            "size": 0x1000,
+            "device": 71,
+            "inode": 81,
+        }
+        cases = {
+            "multiple_vnodes": {
+                "responses": [
+                    region,
+                    dict(region, address=0x2000, device=72, inode=82),
+                    {"terminal_errno": errno.EINVAL},
+                ],
+                "paths": [executable_path],
+                "error": "ambiguous",
+                "bound": None,
+            },
+            "no_executable_match": {
+                "responses": [
+                    dict(region, protection=1),
+                    {"terminal_errno": errno.EINVAL},
+                ],
+                "paths": [executable_path],
+                "error": "ambiguous",
+                "bound": None,
+            },
+            "path_drift": {
+                "responses": [region, {"terminal_errno": errno.EINVAL}],
+                "paths": [executable_path, b"/mapped/replaced/codex"],
+                "error": "ambiguous",
+                "bound": None,
+            },
+            "partial_error": {
+                "responses": [region, {"terminal_errno": errno.EIO}],
+                "paths": [executable_path],
+                "error": "ended with an error",
+                "bound": None,
+            },
+            "region_bound": {
+                "responses": [region],
+                "paths": [executable_path],
+                "error": "exceeds its bound",
+                "bound": 1,
+            },
+            "address_overflow": {
+                "responses": [
+                    dict(
+                        region,
+                        address=puppet_registry._DARWIN_UINT64_MAX - 1,
+                        size=4,
+                    )
+                ],
+                "paths": [executable_path],
+                "error": "ambiguous",
+                "bound": None,
+            },
+        }
+        for name, case in cases.items():
+            library = SimpleNamespace(
+                proc_pidpath=FakeProcPidPath(case["paths"]),
+                proc_pidinfo=FakeProcPidInfo(case["responses"]),
+            )
+            patches = [
+                patch.object(puppet_registry.ctypes, "CDLL", return_value=library)
+            ]
+            if case["bound"] is not None:
+                patches.append(
+                    patch.object(puppet_registry, "_DARWIN_MAX_REGIONS", case["bound"])
+                )
+            with self.subTest(name=name):
+                for active_patch in patches:
+                    active_patch.start()
+                try:
+                    with self.assertRaisesRegex(
+                        puppet_registry.ProcessExecutableUnavailable,
+                        case["error"],
+                    ):
+                        puppet_registry._darwin_process_executable_record(4242)
+                finally:
+                    for active_patch in reversed(patches):
+                        active_patch.stop()
+
+    def test_linux_executable_identity_fstats_process_owned_descriptor(self):
+        details = SimpleNamespace(st_mode=0o100755, st_dev=91, st_ino=101)
+        with (
+            patch.object(puppet_registry.sys, "platform", "linux"),
+            patch.object(
+                puppet_registry.os,
+                "readlink",
+                side_effect=["/mapped/original", "/mapped/original"],
+            ),
+            patch.object(puppet_registry.os, "open", return_value=12) as opened,
+            patch.object(
+                puppet_registry.os, "fstat", side_effect=[details, details]
+            ) as fstat,
+            patch.object(puppet_registry.os, "close") as closed,
+        ):
+            record = puppet_registry._linux_process_executable_record(4242)
+        self.assertEqual(
+            record,
+            {
+                "executable_path": "/mapped/original",
+                "device": 91,
+                "inode": 101,
+            },
+        )
+        opened.assert_called_once()
+        self.assertEqual(fstat.call_count, 2)
+        closed.assert_called_once_with(12)
 
     def test_linux_kernel_sampler_parses_parent_and_start_ticks(self):
         fields = ["S", "42", *("0" for _ in range(17)), "987654321"]
@@ -1396,6 +2152,12 @@ class AuthorityTests(unittest.TestCase):
         }
         after = dict(before, kernel_birth_id="test:after")
         executable = Path("/bin/cat").resolve(strict=True)
+        executable_details = executable.stat()
+        executable_record = {
+            "executable_path": str(executable),
+            "device": executable_details.st_dev,
+            "inode": executable_details.st_ino,
+        }
         with (
             patch.object(
                 puppet_registry,
@@ -1403,14 +2165,17 @@ class AuthorityTests(unittest.TestCase):
                 side_effect=[before, after],
             ),
             patch.object(
-                puppet_registry.subprocess,
-                "run",
-                return_value=SimpleNamespace(
-                    returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
-                ),
+                puppet_registry,
+                "_process_display_record",
+                return_value={
+                    "start": "Wed Jul 22 02:05:39 2026",
+                    "command": "cat",
+                },
             ),
             patch.object(
-                puppet_registry, "_process_executable_path", return_value=executable
+                puppet_registry,
+                "_process_executable_record",
+                return_value=executable_record,
             ),
         ):
             with self.assertRaisesRegex(IdentityError, "kernel binding"):
@@ -1422,6 +2187,8 @@ class AuthorityTests(unittest.TestCase):
             "parent_pid": 42,
             "kernel_birth_id": "test:stable",
         }
+        first_path = Path("/bin/cat").resolve(strict=True)
+        second_path = Path("/bin/echo").resolve(strict=True)
         with (
             patch.object(
                 puppet_registry,
@@ -1429,18 +2196,27 @@ class AuthorityTests(unittest.TestCase):
                 return_value=kernel,
             ),
             patch.object(
-                puppet_registry.subprocess,
-                "run",
-                return_value=SimpleNamespace(
-                    returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n"
-                ),
+                puppet_registry,
+                "_process_display_record",
+                return_value={
+                    "start": "Wed Jul 22 02:05:39 2026",
+                    "command": "cat",
+                },
             ),
             patch.object(
                 puppet_registry,
-                "_process_executable_path",
+                "_process_executable_record",
                 side_effect=[
-                    Path("/bin/cat").resolve(strict=True),
-                    Path("/bin/echo").resolve(strict=True),
+                    {
+                        "executable_path": str(first_path),
+                        "device": first_path.stat().st_dev,
+                        "inode": first_path.stat().st_ino,
+                    },
+                    {
+                        "executable_path": str(second_path),
+                        "device": second_path.stat().st_dev,
+                        "inode": second_path.stat().st_ino,
+                    },
                 ],
             ),
         ):
@@ -1454,17 +2230,30 @@ class AuthorityTests(unittest.TestCase):
             "kernel_birth_id": "test:stable",
         }
         after = dict(before, parent_pid=1)
-        display = SimpleNamespace(returncode=0, stdout="Wed Jul 22 02:05:39 2026 cat\n")
+        display = {
+            "start": "Wed Jul 22 02:05:39 2026",
+            "command": "cat",
+        }
         executable = Path("/bin/cat").resolve(strict=True)
+        executable_details = executable.stat()
+        executable_record = {
+            "executable_path": str(executable),
+            "device": executable_details.st_dev,
+            "inode": executable_details.st_ino,
+        }
         with (
             patch.object(
                 puppet_registry,
                 "_kernel_process_record",
                 side_effect=[before, after],
             ),
-            patch.object(puppet_registry.subprocess, "run", return_value=display),
             patch.object(
-                puppet_registry, "_process_executable_path", return_value=executable
+                puppet_registry, "_process_display_record", return_value=display
+            ),
+            patch.object(
+                puppet_registry,
+                "_process_executable_record",
+                return_value=executable_record,
             ),
         ):
             process = process_birth_identity(4242)
@@ -1476,9 +2265,13 @@ class AuthorityTests(unittest.TestCase):
                 "_kernel_process_record",
                 side_effect=[before, after],
             ),
-            patch.object(puppet_registry.subprocess, "run", return_value=display),
             patch.object(
-                puppet_registry, "_process_executable_path", return_value=executable
+                puppet_registry, "_process_display_record", return_value=display
+            ),
+            patch.object(
+                puppet_registry,
+                "_process_executable_record",
+                return_value=executable_record,
             ),
         ):
             with self.assertRaisesRegex(IdentityError, "parent changed"):
@@ -1505,16 +2298,25 @@ class AuthorityTests(unittest.TestCase):
         try:
             child_pid = int(parent.stdout.readline().strip())
             identity_deadline = time.monotonic() + 5
+            stable_samples = 0
+            prior_candidate = None
             while time.monotonic() < identity_deadline:
                 try:
                     candidate = process_birth_identity(child_pid)
                 except IdentityError:
+                    stable_samples = 0
+                    prior_candidate = None
                     time.sleep(0.01)
                     continue
-                if process_alive(candidate):
+                if candidate == prior_candidate and process_alive(candidate):
+                    stable_samples += 1
+                else:
+                    stable_samples = 1
+                prior_candidate = candidate
+                if stable_samples >= 3:
                     child_identity = candidate
                     break
-                time.sleep(0.01)
+                time.sleep(0.05)
             self.assertIsNotNone(child_identity)
             parent_identity = process_birth_identity(parent.pid)
             self.assertEqual(os.getpgid(parent.pid), os.getpgid(child_pid))
@@ -1613,11 +2415,134 @@ class AuthorityTests(unittest.TestCase):
                 verdict_root=root / "verdicts",
             )
             self.assertEqual(first, second)
+            self.assertEqual(first["schema_version"], REVIEW_SCHEMA_VERSION)
             with self.assertRaisesRegex(ValidationError, "stale"):
                 verify_current_identity(
                     first,
                     checkpoint_id=handoff.checkpoint_id,
                     artifact_sha256="f" * 64,
+                )
+            acceptance_evidence = root / "acceptance-evidence.json"
+            acceptance_evidence.write_text(
+                json.dumps({"terminal_criteria": ["proof_green"]}) + "\n",
+                encoding="utf-8",
+            )
+            acceptance = record_acceptance(
+                contract=current_contract,
+                actor="codex",
+                review=first,
+                evidence_path=acceptance_evidence,
+                acceptance_root=root / "acceptance",
+            )
+            self.assertEqual(acceptance["schema_version"], ACCEPTANCE_SCHEMA_VERSION)
+
+            with self.assertRaisesRegex(UnsupportedError, "legacy review"):
+                verify_current_identity(
+                    dict(first, schema_version=1),
+                    checkpoint_id=handoff.checkpoint_id,
+                    artifact_sha256=handoff.artifact_sha256,
+                )
+            with self.assertRaisesRegex(ValidationError, "unsupported review"):
+                verify_current_identity(
+                    dict(first, schema_version=REVIEW_SCHEMA_VERSION + 1),
+                    checkpoint_id=handoff.checkpoint_id,
+                    artifact_sha256=handoff.artifact_sha256,
+                )
+            mixed_identity = dict(first["checkpoint_identity"])
+            mixed_identity.pop("execution_fingerprint")
+            with self.assertRaisesRegex(ValidationError, "execution fingerprint"):
+                verify_current_identity(
+                    dict(first, checkpoint_identity=mixed_identity),
+                    checkpoint_id=handoff.checkpoint_id,
+                    artifact_sha256=handoff.artifact_sha256,
+                )
+            changed_identity = dict(first["checkpoint_identity"])
+            changed_identity["execution_fingerprint"] = "0" * 64
+            with self.assertRaisesRegex(ValidationError, "checkpoint id"):
+                verify_current_identity(
+                    dict(first, checkpoint_identity=changed_identity),
+                    checkpoint_id=handoff.checkpoint_id,
+                    artifact_sha256=handoff.artifact_sha256,
+                )
+            for field, value in {
+                "actor": "other-controller",
+                "target": "codex",
+                "contract_fingerprint": "c" * 64,
+            }.items():
+                with (
+                    self.subTest(acceptance_authority_field=field),
+                    self.assertRaisesRegex(
+                        ValidationError, "review authority identity"
+                    ),
+                ):
+                    record_acceptance(
+                        contract=current_contract,
+                        actor="codex",
+                        review=dict(first, **{field: value}),
+                        evidence_path=acceptance_evidence,
+                        acceptance_root=root / ("acceptance-tampered-" + field),
+                    )
+            source_identity = dict(
+                first["checkpoint_identity"], checkpoint_kind="source"
+            )
+            incoherent = dict(
+                first,
+                checkpoint_kind="source",
+                checkpoint_identity=source_identity,
+            )
+            incoherent["checkpoint_id"] = sha256_bytes(
+                canonical_json_bytes(
+                    {
+                        "identity": source_identity,
+                        "artifact_sha256": first["artifact_sha256"],
+                    }
+                )
+            )
+            with self.assertRaisesRegex(ValidationError, "kind and verdict"):
+                record_acceptance(
+                    contract=current_contract,
+                    actor="codex",
+                    review=incoherent,
+                    evidence_path=acceptance_evidence,
+                    acceptance_root=root / "acceptance-incoherent-kind",
+                )
+            with self.assertRaisesRegex(UnsupportedError, "legacy acceptance"):
+                validate_acceptance_record(dict(acceptance, schema_version=1))
+            with self.assertRaisesRegex(ValidationError, "unsupported acceptance"):
+                validate_acceptance_record(
+                    dict(
+                        acceptance,
+                        schema_version=ACCEPTANCE_SCHEMA_VERSION + 1,
+                    )
+                )
+
+            review_path = root / "verdicts" / (handoff.checkpoint_id + ".json")
+            review_path.write_text(
+                json.dumps(dict(first, schema_version=1)) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(UnsupportedError, "legacy review"):
+                record_review(
+                    contract=current_contract,
+                    actor="codex",
+                    handoff=handoff,
+                    verdict="conformance_accept",
+                    evidence_path=evidence,
+                    verdict_root=root / "verdicts",
+                )
+
+            acceptance_path = root / "acceptance" / (handoff.checkpoint_id + ".json")
+            acceptance_path.write_text(
+                json.dumps(dict(acceptance, schema_version=1)) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(UnsupportedError, "legacy acceptance"):
+                record_acceptance(
+                    contract=current_contract,
+                    actor="codex",
+                    review=first,
+                    evidence_path=acceptance_evidence,
+                    acceptance_root=root / "acceptance",
                 )
 
     def test_session_collision_and_supervisor_hash_drift_fail(self):
@@ -1691,7 +2616,7 @@ class AuthorityTests(unittest.TestCase):
             )
             tmux_details = tmux_executable.stat()
             record = {
-                "schema_version": 1,
+                "schema_version": SESSION_REGISTRY_SCHEMA_VERSION,
                 "session": "session-1",
                 "controller": "codex",
                 "target": "agy",
@@ -1799,6 +2724,18 @@ class AuthorityTests(unittest.TestCase):
                 "last_beacon": None,
                 "blocker": None,
             }
+            with self.assertRaisesRegex(UnsupportedError, "legacy session registry"):
+                registry.validate(dict(record, schema_version=1))
+            with self.assertRaisesRegex(
+                ValidationError, "unsupported session registry"
+            ):
+                registry.validate(
+                    dict(record, schema_version=SESSION_REGISTRY_SCHEMA_VERSION + 1)
+                )
+            mixed_adapter = dict(record["adapter"])
+            mixed_adapter.pop("execution_fingerprint")
+            with self.assertRaisesRegex(ValidationError, "adapter identity"):
+                registry.validate(dict(record, adapter=mixed_adapter))
             for name, invalid in {
                 "identity_version": 1,
                 "kernel_birth_id": "",

@@ -18,6 +18,12 @@ from typing import Any, Callable, Dict, Optional
 from .adapter_manifest import (
     AdapterManifest,
     PROBE_CAPABILITIES,
+    QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
+    QUALIFICATION_PROFILE,
+    QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+    QUALIFICATION_STATE_SCHEMA_VERSION,
+    validate_qualification_evidence_schema,
+    validate_qualification_state_schema,
     verify_qualification_receipt,
 )
 from .adapters import adapter_for
@@ -46,8 +52,13 @@ from .contracts import (
     TARGETS,
 )
 from .census import adapter_implementation_fingerprint, census_target
-from .errors import ConflictError, IdentityError, PuppetError, ValidationError
-from .handoffs import ValidatedHandoff, validate_handoff
+from .errors import (
+    ConflictError,
+    IdentityError,
+    PuppetError,
+    ValidationError,
+)
+from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .journal import Journal
@@ -83,7 +94,7 @@ from .verdicts import record_acceptance, record_review
 MAX_PROBE_SECONDS = 900.0
 MAX_HALT_SECONDS = 60.0
 POLL_INTERVAL_SECONDS = 0.1
-PROBE_PROFILE = "source-free-pass-b-v1"
+PROBE_PROFILE = QUALIFICATION_PROFILE
 MAX_TARGET_POPULATION = 64
 MAX_TARGET_DESCENDANTS = 32
 MAX_TARGET_ANCESTRY_NODES = 512
@@ -392,7 +403,7 @@ def _handoff_value(
     prior_checkpoint_sha256: Optional[str] = None,
 ) -> Dict[str, Any]:
     value: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": HANDOFF_SCHEMA_VERSION,
         "checkpoint_kind": "conformance",
         "session": session,
         "run_id": fixture_contract["run_id"],
@@ -422,7 +433,7 @@ def _handoff_value(
 
 def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> str:
     return (
-        "PUPPET_REAL_HARNESS_CONFORMANCE_V1\n"
+        "PUPPET_REAL_HARNESS_CONFORMANCE_V2\n"
         "Read ./contract.json and verify schema_version, run_id, nonce, and "
         "allowed_fixture_root. Make no source, repository, account, external-send, "
         "or system changes. Atomically write only ./handoffs/ready.json with the "
@@ -439,7 +450,7 @@ def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> 
 
 def _followup_prompt(fixture_contract: Dict[str, Any], followup: Dict[str, Any]) -> str:
     return (
-        "PUPPET_REAL_HARNESS_FOLLOWUP_V1\n"
+        "PUPPET_REAL_HARNESS_FOLLOWUP_V2\n"
         "Verify the same run_id and nonce plus message_id and sequence=1. "
         "Atomically write only ./handoffs/followup.json with the exact JSON object "
         "below, make no other changes, and remain waiting for exact halt.\n"
@@ -825,7 +836,7 @@ def run_probe(
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
     state: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": QUALIFICATION_STATE_SCHEMA_VERSION,
         "run_id": run_id,
         "session": session,
         "target": target,
@@ -852,7 +863,7 @@ def run_probe(
     lease_owned = False
     cleanup: Optional[Dict[str, Any]] = None
     evidence: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
         "run_id": run_id,
         "target": target,
         "controller": controller,
@@ -898,6 +909,7 @@ def run_probe(
         "acceptance_sha256": None,
         "halt_sha256": None,
         "result": "running",
+        "failure": None,
     }
     try:
         atomic_write_json(state_path, state)
@@ -1039,6 +1051,7 @@ def run_probe(
         tmux_authority.mkdir(mode=0o700)
         tmux = _tmux_factory(tmux_authority)
         socket = tmux.socket_path(session)
+
         def admit_before_start() -> None:
             nonlocal lease_owned, launch_attempted
             admit_session_lease(
@@ -1069,6 +1082,7 @@ def run_probe(
                 )
             _write_state(state_path, state, "launching")
             launch_attempted = True
+
         metadata = tmux.launch(
             session=session,
             target=target,
@@ -1510,7 +1524,7 @@ def run_probe(
             target=target,
         )
         receipt_core = {
-            "schema_version": 1,
+            "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
             "kind": "real_harness_conformance",
             "run_id": run_id,
             "target": target,
@@ -1808,8 +1822,11 @@ def recover_probe(
     evidence_path = run_root / "evidence.json"
     recovery_path = run_root / "recovery.json"
     halt_control_journal = Journal(run_root / "halt-control")
-    state = read_json(state_path, max_bytes=131072, reject_sensitive_fields=True)
+    state = validate_qualification_state_schema(
+        read_json(state_path, max_bytes=131072, reject_sensitive_fields=True)
+    )
     evidence = read_json(evidence_path, max_bytes=131072, reject_sensitive_fields=True)
+    evidence = validate_qualification_evidence_schema(evidence)
     instruction_path = ensure_within(
         run_root / "effective-instructions.json",
         run_root,

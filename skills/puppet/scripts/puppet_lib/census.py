@@ -12,11 +12,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import (
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     BEHAVIOR_CAPABILITIES,
+    CURSOR_REQUIRED_PATH_TOOLS,
     build_execution_bundle,
     direct_execution_bundle,
     execution_file_identity,
+    execution_file_snapshot,
     launcher_execution_identity,
 )
 from .errors import ValidationError
@@ -35,6 +38,45 @@ MAX_OUTPUT_BYTES = 65536
 TIMEOUT_SECONDS = 10
 CURSOR_EXECUTION_SETTLE_SECONDS = 5.0
 DIRECT_EXECUTION_SETTLE_SECONDS = 2.0
+CENSUS_SCHEMA_VERSION = 2
+CURSOR_STATIC_LAUNCHER_LAYOUTS = (
+    b"""#!/usr/bin/env bash
+set -euo pipefail
+export CURSOR_INVOKED_AS="$(basename "$0")"
+# Get the directory of the actual script (handles symlinks)
+if command -v realpath >/dev/null 2>&1; then
+  SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+else
+  SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"
+fi
+NODE_BIN="$SCRIPT_DIR/node"
+
+# Enable Node.js compile cache for faster CLI startup (requires Node.js >= 22.1.0)
+# Cache is automatically invalidated when source files change
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  if [[ "${OSTYPE:-}" == darwin* ]]; then
+    export NODE_COMPILE_CACHE="$HOME/Library/Caches/cursor-compile-cache"
+  else
+    export NODE_COMPILE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/cursor-compile-cache"
+  fi
+fi
+
+should_skip_system_ca() {
+  case "${AGENT_CLI_CREDENTIAL_STORE:-}" in
+    file)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+if ! should_skip_system_ca && "$NODE_BIN" --use-system-ca --version >/dev/null 2>&1; then
+  exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"
+fi
+
+exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
+""",
+)
 COMMANDS: Dict[str, Tuple[str, ...]] = {
     "agy": ("agy",),
     "cursor": ("cursor-agent",),
@@ -202,53 +244,10 @@ def _cursor_execution_bundle(
 ) -> Dict[str, Any]:
     """Resolve only Cursor's exact observed shell-launcher execution layout."""
 
-    raw = launcher_path.read_bytes()
-    if len(raw) > 8192:
-        raise ValidationError("cursor launcher exceeds the static layout bound")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValidationError(
-            "cursor launcher is not the recognized shell layout"
-        ) from exc
-    required_lines = {
-        "#!/usr/bin/env bash",
-        'SCRIPT_DIR="$(dirname "$(realpath "$0")")"',
-        'SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"',
-        'NODE_BIN="$SCRIPT_DIR/node"',
-        'exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"',
-        'exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"',
-    }
-    stripped_lines = [line.strip() for line in text.splitlines()]
-    exec_lines = [line for line in stripped_lines if line.startswith("exec ")]
-    expected_exec_lines = sorted(
-        line for line in required_lines if line.startswith("exec ")
-    )
-    execution_variable_lines = [
-        line
-        for line in stripped_lines
-        if line
-        and not line.startswith("#")
-        and ("SCRIPT_DIR" in line or "NODE_BIN" in line)
-    ]
-    expected_execution_variable_lines = [
-        line for line in required_lines if "SCRIPT_DIR" in line or "NODE_BIN" in line
-    ]
-    undeclared_exec_lines = [
-        line
-        for line in stripped_lines
-        if line
-        and not line.startswith("#")
-        and re.search(r"\bexec\b", line)
-        and line not in expected_exec_lines
-    ]
-    if (
-        not text.startswith("#!/usr/bin/env bash\n")
-        or not required_lines <= set(stripped_lines)
-        or sorted(exec_lines) != expected_exec_lines
-        or sorted(execution_variable_lines) != sorted(expected_execution_variable_lines)
-        or undeclared_exec_lines
-    ):
+    observed_launcher, raw = execution_file_snapshot(launcher_path, max_bytes=8192)
+    if observed_launcher != launcher_execution_identity(launcher):
+        raise ValidationError("cursor launcher changed during static validation")
+    if raw not in CURSOR_STATIC_LAUNCHER_LAYOUTS:
         raise ValidationError("cursor launcher is not the recognized shell layout")
     directory = launcher_path.parent
     runtime = execution_file_identity(directory / "node")
@@ -260,14 +259,14 @@ def _cursor_execution_bundle(
     path_entries = path_value.split(os.pathsep)
     if any(not item or not Path(item).is_absolute() for item in path_entries):
         raise ValidationError("cursor launcher PATH is cwd-dependent")
-    bash_discovered = shutil.which("bash", path=path_value)
-    if not bash_discovered:
-        raise ValidationError("cursor launcher bash interpreter is unavailable")
+    transient_paths = [env_path]
+    for tool in CURSOR_REQUIRED_PATH_TOOLS:
+        discovered = shutil.which(tool, path=path_value)
+        if not discovered:
+            raise ValidationError("cursor launcher %s is unavailable" % tool)
+        transient_paths.append(Path(discovered).resolve(strict=True))
     transients = sorted(
-        [
-            execution_file_identity(env_path),
-            execution_file_identity(Path(bash_discovered).resolve(strict=True)),
-        ],
+        [execution_file_identity(path) for path in transient_paths],
         key=lambda item: item["path"],
     )
     return build_execution_bundle(
@@ -296,6 +295,19 @@ def _execution_bundle(
     )
 
 
+def _census_command_prefix(
+    target: str, resolved_path: Path, execution: Dict[str, Any]
+) -> List[str]:
+    """Avoid executing Cursor's shell wrapper during zero-agent inspection."""
+
+    if target != "cursor":
+        return [str(resolved_path)] + list(COMMANDS[target][1:])
+    support = execution["support_files"]
+    if len(support) != 1 or Path(support[0]["path"]).name != "index.js":
+        raise ValidationError("cursor entrypoint layout is invalid")
+    return [execution["runtime_executable"]["path"], support[0]["path"]]
+
+
 def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     if target not in COMMANDS:
         raise ValidationError("target is not on the census allowlist")
@@ -307,9 +319,24 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     resolved_path = requested_path.resolve(strict=True)
     if not resolved_path.is_file():
         raise ValidationError("resolved executable is not a regular file")
-    command_prefix = [str(resolved_path)] + list(COMMANDS[target][1:])
+    launcher = execution_file_identity(resolved_path)
+    executable = {
+        "requested_path": str(requested_path),
+        "resolved_path": launcher["path"],
+        "device": launcher["device"],
+        "inode": launcher["inode"],
+        "size": launcher["size"],
+        "mtime_ns": launcher["mtime_ns"],
+        "sha256": launcher["sha256"],
+    }
+    execution = _execution_bundle(target, resolved_path, executable)
+    command_prefix = _census_command_prefix(target, resolved_path, execution)
     version = _bounded_run(command_prefix + ["--version"])
     help_output = _bounded_run(command_prefix + ["--help"])
+    if execution_file_identity(resolved_path) != launcher:
+        raise ValidationError("target launcher changed during bounded census")
+    if _execution_bundle(target, resolved_path, executable) != execution:
+        raise ValidationError("target runtime layout changed during bounded census")
     mapping = dict(DECLARED_MAPPINGS[target])
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
@@ -341,20 +368,12 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "launch_argv": [str(resolved_path)] + _launch_flags(mapping),
         }
     )
-    stat_result = resolved_path.stat()
-    executable = {
-        "requested_path": str(requested_path),
-        "resolved_path": str(resolved_path),
-        "device": stat_result.st_dev,
-        "inode": stat_result.st_ino,
-        "size": stat_result.st_size,
-        "mtime_ns": stat_result.st_mtime_ns,
-        "sha256": sha256_file(resolved_path),
-        "version_sha256": sha256_bytes(version),
-        "help_sha256": sha256_bytes(help_output),
-    }
+    executable.update(
+        version_sha256=sha256_bytes(version),
+        help_sha256=sha256_bytes(help_output),
+    )
     raw = {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": target,
         "generated_at": _utc_now(),
         "platform": {
@@ -363,7 +382,7 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "machine": platform.machine(),
         },
         "executable": executable,
-        "execution": _execution_bundle(target, resolved_path, executable),
+        "execution": execution,
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": PROTOCOL_FINGERPRINT,
         "yolo_mapping": mapping,
@@ -380,7 +399,7 @@ def census_many(targets: List[str], adapter_fingerprint: str) -> Dict[str, Any]:
     if set(targets) - set(COMMANDS):
         raise ValidationError("target is not on the census allowlist")
     return {
-        "schema_version": 1,
+        "schema_version": CENSUS_SCHEMA_VERSION,
         "generated_at": _utc_now(),
         "zero_agent": True,
         "session_profiles": {

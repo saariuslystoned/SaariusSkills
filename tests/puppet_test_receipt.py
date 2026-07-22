@@ -9,7 +9,12 @@ import stat
 from pathlib import Path
 
 from puppet_lib.contracts import MANDATORY_HARD_GATES
-from puppet_lib.handoffs import validate_handoff
+from puppet_lib.authority import QUALIFICATION_ATTESTATION_SCHEMA_VERSION
+from puppet_lib.adapter_manifest import (
+    QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
+    QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+)
+from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, validate_handoff
 from puppet_lib.instructions import compile_instruction_wrapper
 from puppet_lib.launch import build_admitted_launch_plan
 from puppet_lib.profiles import (
@@ -20,6 +25,7 @@ from puppet_lib.profiles import (
     startup_settle_seconds_for,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file
+from puppet_lib.verdicts import ACCEPTANCE_SCHEMA_VERSION, REVIEW_SCHEMA_VERSION
 
 
 def _write_json(path: Path, value) -> None:
@@ -57,7 +63,7 @@ def write_qualification_receipt(
     if session_profile is None:
         session_profile = default_session_profile(target)
     common = {
-        "schema_version": 1,
+        "schema_version": HANDOFF_SCHEMA_VERSION,
         "checkpoint_kind": "conformance",
         "session": session,
         "run_id": run_id,
@@ -99,7 +105,7 @@ def write_qualification_receipt(
             "fingerprint": contract_fingerprint,
             "controller": controller,
             "target": target,
-            "task_profile": "source-free-pass-b-v1",
+            "task_profile": "source-free-pass-b-v2",
         },
         workspace_identity={
             "fixture_fingerprint": fixture_fingerprint,
@@ -120,7 +126,7 @@ def write_qualification_receipt(
     _write_json(
         review_path,
         {
-            "schema_version": 1,
+            "schema_version": REVIEW_SCHEMA_VERSION,
             "timestamp": timestamp,
             "actor": controller,
             "target": target,
@@ -152,7 +158,7 @@ def write_qualification_receipt(
     _write_json(
         acceptance_path,
         {
-            "schema_version": 1,
+            "schema_version": ACCEPTANCE_SCHEMA_VERSION,
             "timestamp": timestamp,
             "actor": controller,
             "checkpoint_id": followup.checkpoint_id,
@@ -274,11 +280,11 @@ def write_qualification_receipt(
     _write_json(
         evidence_path,
         {
-            "schema_version": 1,
+            "schema_version": QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
             "run_id": run_id,
             "target": target,
             "controller": controller,
-            "profile": "source-free-pass-b-v1",
+            "profile": "source-free-pass-b-v2",
             "campaign_id": "test-campaign",
             "authorization_sha256": sha256_file(authorization_path),
             "manifest_fingerprint": "7" * 64,
@@ -368,7 +374,7 @@ def write_qualification_receipt(
         "sha256": "2" * 64,
     }
     receipt_core = {
-        "schema_version": 1,
+        "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
         "kind": "real_harness_conformance",
         "run_id": run_id,
         "target": target,
@@ -408,6 +414,7 @@ def write_qualification_receipt(
     receipt = dict(
         receipt_core,
         controller_attestation={
+            "schema_version": QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
             "authority_id": "puppet-local-controller-v1",
             "authority_root": str(proof_root),
             "request_id": "qualify-" + receipt_digest[:40],

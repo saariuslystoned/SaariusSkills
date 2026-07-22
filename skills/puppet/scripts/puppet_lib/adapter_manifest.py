@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import shutil
@@ -43,6 +44,7 @@ from .safety import (
     validate_pane_id,
     validate_sha256,
 )
+from .verdicts import validate_acceptance_record, validate_review_record
 
 
 EXECUTION_FILE_FIELDS = {
@@ -64,26 +66,124 @@ EXECUTION_FIELDS = {
 EXECUTION_TRANSITIONS = frozenset({"direct", "same_pid_exec"})
 MAX_TRANSIENT_EXECUTABLES = 8
 MAX_EXECUTION_SUPPORT_FILES = 16
+ADAPTER_MANIFEST_SCHEMA_VERSION = 2
+QUALIFICATION_RECEIPT_SCHEMA_VERSION = 2
+QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 2
+QUALIFICATION_STATE_SCHEMA_VERSION = 2
+QUALIFICATION_PROFILE = "source-free-pass-b-v2"
+LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS = frozenset({1})
+CURSOR_REQUIRED_PATH_TOOLS = ("bash", "basename", "dirname", "realpath", "readlink")
+_EXECUTION_FILE_CHUNK_BYTES = 1024 * 1024
+
+
+def _stable_execution_file_snapshot(
+    path: Path, *, max_bytes: Optional[int] = None
+) -> tuple[Dict[str, Any], Optional[bytes]]:
+    """Hash one opened regular file and prove its path and fd stayed joined."""
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise ValidationError("execution file path must be absolute")
+    if max_bytes is not None and (
+        isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0
+    ):
+        raise ValidationError("execution file byte bound is invalid")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(candidate, flags)
+    except OSError as exc:
+        raise ValidationError(
+            "execution file must be a regular non-symlink file"
+        ) from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValidationError("execution file must be a regular non-symlink file")
+        try:
+            resolved = candidate.resolve(strict=True)
+            path_before = os.stat(resolved, follow_symlinks=False)
+        except OSError as exc:
+            raise ValidationError("execution file path is unavailable") from exc
+        if not stat.S_ISREG(path_before.st_mode) or (
+            path_before.st_dev,
+            path_before.st_ino,
+        ) != (before.st_dev, before.st_ino):
+            raise ValidationError("execution file path changed while opening")
+
+        digest = hashlib.sha256()
+        captured = bytearray() if max_bytes is not None else None
+        total = 0
+        while True:
+            chunk = os.read(descriptor, _EXECUTION_FILE_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ValidationError("execution file exceeds the byte bound")
+            digest.update(chunk)
+            if captured is not None:
+                captured.extend(chunk)
+
+        after = os.fstat(descriptor)
+        try:
+            path_after = os.stat(resolved, follow_symlinks=False)
+        except OSError as exc:
+            raise ValidationError(
+                "execution file path changed during identity sampling"
+            ) from exc
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(getattr(before, name) != getattr(after, name) for name in stable_fields):
+            raise ValidationError("execution file changed during identity sampling")
+        if not stat.S_ISREG(path_after.st_mode) or (
+            path_after.st_dev,
+            path_after.st_ino,
+        ) != (after.st_dev, after.st_ino):
+            raise ValidationError(
+                "execution file path changed during identity sampling"
+            )
+        return (
+            {
+                "path": str(resolved),
+                "device": after.st_dev,
+                "inode": after.st_ino,
+                "size": after.st_size,
+                "mtime_ns": after.st_mtime_ns,
+                "sha256": digest.hexdigest(),
+            },
+            bytes(captured) if captured is not None else None,
+        )
+    except OSError as exc:
+        raise ValidationError("execution file identity sampling failed") from exc
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
 
 
 def execution_file_identity(path: Path) -> Dict[str, Any]:
     """Return one exact regular-file identity for a launch execution bundle."""
 
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        raise ValidationError("execution file path must be absolute")
-    if candidate.is_symlink() or not candidate.is_file():
-        raise ValidationError("execution file must be a regular non-symlink file")
-    resolved = candidate.resolve(strict=True)
-    details = resolved.stat()
-    return {
-        "path": str(resolved),
-        "device": details.st_dev,
-        "inode": details.st_ino,
-        "size": details.st_size,
-        "mtime_ns": details.st_mtime_ns,
-        "sha256": sha256_file(resolved),
-    }
+    identity, _ = _stable_execution_file_snapshot(path)
+    return identity
+
+
+def execution_file_snapshot(
+    path: Path, *, max_bytes: int
+) -> tuple[Dict[str, Any], bytes]:
+    """Return an fd-stable file identity and the exact bytes hashed for it."""
+
+    identity, content = _stable_execution_file_snapshot(path, max_bytes=max_bytes)
+    if content is None:  # pragma: no cover - guarded by the required bound
+        raise ValidationError("execution file snapshot is unavailable")
+    return identity, content
 
 
 def validate_execution_file_identity(
@@ -114,21 +214,10 @@ def validate_execution_file_identity(
     validate_sha256(value.get("sha256"), "%s execution file" % label)
     validated = dict(value)
     if verify_current:
-        path = Path(path_text)
-        if path.is_symlink() or not path.is_file():
-            raise IdentityError("%s execution file is unavailable" % label)
-        resolved = path.resolve(strict=True)
-        if str(resolved) != path_text:
-            raise IdentityError("%s execution file path changed" % label)
-        details = resolved.stat()
-        current = {
-            "path": str(resolved),
-            "device": details.st_dev,
-            "inode": details.st_ino,
-            "size": details.st_size,
-            "mtime_ns": details.st_mtime_ns,
-            "sha256": sha256_file(resolved),
-        }
+        try:
+            current = execution_file_identity(Path(path_text))
+        except ValidationError as exc:
+            raise IdentityError("%s execution file is unavailable" % label) from exc
         if current != validated:
             raise IdentityError("%s execution file identity changed" % label)
     return validated
@@ -314,7 +403,47 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "acceptance_sha256",
     "halt_sha256",
     "result",
+    "failure",
 }
+
+
+def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
+    """Reject legacy, future, and mixed-shape qualification evidence."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("qualification evidence root must be an object")
+    schema_version = value.get("schema_version")
+    if schema_version in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy qualification evidence lacks authoritative runtime execution identity"
+        )
+    if schema_version != QUALIFICATION_EVIDENCE_SCHEMA_VERSION:
+        raise ValidationError("unsupported qualification evidence schema")
+    if set(value) != _ACCEPTED_EVIDENCE_FIELDS:
+        raise ValidationError("qualification evidence fields do not match schema")
+    validate_sha256(
+        value.get("execution_fingerprint"),
+        "qualification evidence execution fingerprint",
+    )
+    return dict(value)
+
+
+def validate_qualification_state_schema(value: Any) -> Dict[str, Any]:
+    """Validate the lifecycle envelope that commits a v2 qualification."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("qualification state root must be an object")
+    schema_version = value.get("schema_version")
+    if schema_version in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy qualification state lacks authoritative runtime execution identity"
+        )
+    if schema_version != QUALIFICATION_STATE_SCHEMA_VERSION:
+        raise ValidationError("unsupported qualification state schema")
+    if value.get("profile") != QUALIFICATION_PROFILE:
+        raise ValidationError("qualification state schema and profile are mixed")
+    return dict(value)
+
 
 _PROCESS_FIELDS = PROCESS_IDENTITY_FIELDS
 
@@ -343,7 +472,7 @@ def _verify_qualification_instruction_authority(
             "fingerprint": review["contract_fingerprint"],
             "controller": receipt["controller"],
             "target": receipt["target"],
-            "task_profile": "source-free-pass-b-v1",
+            "task_profile": QUALIFICATION_PROFILE,
         },
         "workspace_identity": {
             "fixture_fingerprint": evidence["fixture_fingerprint_before"],
@@ -521,7 +650,16 @@ def verify_qualification_receipt(
     if path.is_symlink() or not path.is_file():
         raise ValidationError("qualification receipt is unavailable or a symlink")
     receipt = read_json(path, max_bytes=131072, reject_sensitive_fields=True)
-    if set(receipt) != _RECEIPT_FIELDS or receipt.get("schema_version") != 1:
+    if not isinstance(receipt, dict):
+        raise ValidationError("qualification receipt root must be an object")
+    receipt_schema = receipt.get("schema_version")
+    if receipt_schema in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy qualification receipt lacks authoritative runtime execution identity"
+        )
+    if receipt_schema != QUALIFICATION_RECEIPT_SCHEMA_VERSION:
+        raise ValidationError("unsupported qualification receipt schema")
+    if set(receipt) != _RECEIPT_FIELDS:
         raise ValidationError("qualification receipt fields do not match schema")
     if (
         receipt.get("kind") != "real_harness_conformance"
@@ -593,17 +731,17 @@ def verify_qualification_receipt(
             )
 
     state_path = path.resolve(strict=True).parent / "state.json"
-    terminal_state = read_json(
-        state_path,
-        max_bytes=131072,
-        reject_sensitive_fields=True,
+    terminal_state = validate_qualification_state_schema(
+        read_json(
+            state_path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
     )
     if (
-        terminal_state.get("schema_version") != 1
-        or terminal_state.get("run_id") != receipt["run_id"]
+        terminal_state.get("run_id") != receipt["run_id"]
         or terminal_state.get("target") != receipt["target"]
         or terminal_state.get("controller") != receipt["controller"]
-        or terminal_state.get("profile") != "source-free-pass-b-v1"
         or terminal_state.get("session_profile") != receipt["session_profile"]
         or terminal_state.get("phase") != "complete"
         or terminal_state.get("result") != "accepted"
@@ -646,13 +784,9 @@ def verify_qualification_receipt(
     acceptance = read_json(
         artifacts["acceptance"], max_bytes=131072, reject_sensitive_fields=True
     )
+    evidence = validate_qualification_evidence_schema(evidence)
     if (
-        set(evidence) != _ACCEPTED_EVIDENCE_FIELDS
-        or evidence.get("schema_version") != 1
-    ):
-        raise ValidationError("qualification evidence fields do not match schema")
-    if (
-        evidence.get("profile") != "source-free-pass-b-v1"
+        evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
         or evidence.get("input_transport") != OBSERVED_INPUT_TRANSPORT
         or evidence.get("input_readiness_strategy") != INPUT_READINESS_STRATEGY
@@ -1200,24 +1334,9 @@ def verify_qualification_receipt(
             raise ValidationError(
                 "qualification %s evidence reference mismatch" % label
             )
-    expected_review_fields = {
-        "schema_version",
-        "timestamp",
-        "actor",
-        "target",
-        "contract_fingerprint",
-        "checkpoint_id",
-        "checkpoint_kind",
-        "checkpoint_identity",
-        "artifact_sha256",
-        "verdict",
-        "evidence_sha256",
-        "evidence_summary",
-    }
+    review = validate_review_record(review)
     if (
-        set(review) != expected_review_fields
-        or review.get("schema_version") != 1
-        or review.get("actor") != receipt["controller"]
+        review.get("actor") != receipt["controller"]
         or review.get("target") != receipt["target"]
         or review.get("checkpoint_id") != followup.checkpoint_id
         or review.get("checkpoint_kind") != "conformance"
@@ -1259,21 +1378,9 @@ def verify_qualification_receipt(
         artifacts["review"], max_bytes=131072
     ):
         raise ValidationError("qualification review cross-reference mismatch")
-    expected_acceptance_fields = {
-        "schema_version",
-        "timestamp",
-        "actor",
-        "checkpoint_id",
-        "review_verdict",
-        "review_evidence_sha256",
-        "contract_fingerprint",
-        "terminal_criteria",
-        "acceptance_evidence_sha256",
-    }
+    acceptance = validate_acceptance_record(acceptance)
     if (
-        set(acceptance) != expected_acceptance_fields
-        or acceptance.get("schema_version") != 1
-        or acceptance.get("actor") != receipt["controller"]
+        acceptance.get("actor") != receipt["controller"]
         or acceptance.get("checkpoint_id") != followup.checkpoint_id
         or acceptance.get("review_verdict") != "conformance_accept"
         or acceptance.get("review_evidence_sha256") != review.get("evidence_sha256")
@@ -1321,6 +1428,15 @@ class AdapterManifest:
 
     @classmethod
     def from_dict(cls, value: Dict[str, Any]) -> "AdapterManifest":
+        if not isinstance(value, dict):
+            raise ValidationError("adapter manifest root must be an object")
+        schema_version = value.get("schema_version")
+        if schema_version in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+            raise UnsupportedError(
+                "legacy adapter manifest lacks authoritative runtime execution identity"
+            )
+        if schema_version != ADAPTER_MANIFEST_SCHEMA_VERSION:
+            raise ValidationError("unsupported adapter manifest schema")
         required = {
             "schema_version",
             "target",
@@ -1337,8 +1453,6 @@ class AdapterManifest:
         }
         if set(value) != required:
             raise ValidationError("adapter manifest fields do not match schema")
-        if value.get("schema_version") != 1:
-            raise ValidationError("unsupported adapter manifest schema")
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
             raise ValidationError("unsupported adapter target")
         executable = value.get("executable")
@@ -1704,16 +1818,27 @@ class AdapterManifest:
         return float(self.raw["execution"]["settle_timeout_seconds"])
 
     def process_execution_selectors(self) -> list[Dict[str, Any]]:
-        """Return the exact final-runtime selector for global process census."""
+        """Return launcher/runtime/transient selectors for process prefiltering."""
 
         execution = self.raw["execution"]
-        return [
-            {
-                "path": execution["runtime_executable"]["path"],
-                "device": execution["runtime_executable"]["device"],
-                "inode": execution["runtime_executable"]["inode"],
-            }
+        identities = [
+            launcher_execution_identity(self.raw["executable"]),
+            execution["runtime_executable"],
+            *execution["transient_executables"],
         ]
+        selectors = []
+        observed = set()
+        for identity in identities:
+            selector = {
+                "path": identity["path"],
+                "device": identity["device"],
+                "inode": identity["inode"],
+            }
+            key = (selector["path"], selector["device"], selector["inode"])
+            if key not in observed:
+                observed.add(key)
+                selectors.append(selector)
+        return selectors
 
     def verify_execution_files(self) -> None:
         """Recheck every launcher, runtime, transient, and support file."""
@@ -1798,17 +1923,22 @@ class AdapterManifest:
         path_entries = path_value.split(os.pathsep)
         if any(not item or not Path(item).is_absolute() for item in path_entries):
             raise IdentityError("cursor runtime PATH is cwd-dependent")
-        discovered = shutil.which("bash", path=path_value)
-        if not discovered:
-            raise IdentityError("cursor runtime bash interpreter is unavailable")
-        bash = execution_file_identity(Path(discovered).resolve(strict=True))
-        observed = {
-            "executable_path": bash["path"],
-            "device": bash["device"],
-            "inode": bash["inode"],
-        }
-        if self.classify_executable_identity(observed) != "transient":
-            raise IdentityError("cursor runtime bash interpreter is not declared")
+        for tool in CURSOR_REQUIRED_PATH_TOOLS:
+            discovered = shutil.which(tool, path=path_value)
+            if not discovered:
+                raise IdentityError("cursor runtime %s is unavailable" % tool)
+            identity = execution_file_identity(Path(discovered).resolve(strict=True))
+            observed = {
+                "executable_path": identity["path"],
+                "device": identity["device"],
+                "inode": identity["inode"],
+            }
+            try:
+                classification = self.classify_executable_identity(observed)
+            except IdentityError as exc:
+                raise IdentityError("cursor runtime %s is not declared" % tool) from exc
+            if classification != "transient":
+                raise IdentityError("cursor runtime %s is not declared" % tool)
 
     def verify_qualification(
         self,

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import (  # noqa: E402
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     build_execution_bundle,
     direct_execution_bundle,
@@ -100,7 +102,7 @@ def manifest_raw(
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
     }
     return {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": target,
         "generated_at": "2026-07-22T13:00:00Z",
         "platform": {
@@ -186,15 +188,27 @@ class ExecutionKernelTests(unittest.TestCase):
     def test_manifest_fingerprint_and_all_execution_files_are_strict(self):
         manifest = self.same_exec_manifest()
         self.assertEqual(len(manifest.execution_fingerprint), 64)
+        launcher_identity = execution_file_identity(self.launcher)
         runtime_identity = execution_file_identity(self.runtime)
+        transient_identity = execution_file_identity(self.transient)
         self.assertEqual(
             manifest.process_execution_selectors(),
             [
                 {
+                    "path": launcher_identity["path"],
+                    "device": launcher_identity["device"],
+                    "inode": launcher_identity["inode"],
+                },
+                {
                     "path": runtime_identity["path"],
                     "device": runtime_identity["device"],
                     "inode": runtime_identity["inode"],
-                }
+                },
+                {
+                    "path": transient_identity["path"],
+                    "device": transient_identity["device"],
+                    "inode": transient_identity["inode"],
+                },
             ],
         )
         drifted = copy.deepcopy(manifest.raw)
@@ -204,6 +218,24 @@ class ExecutionKernelTests(unittest.TestCase):
         self.support.write_bytes(b"changed support")
         with self.assertRaisesRegex(IdentityError, "support"):
             manifest.verify_execution_files()
+
+    def test_execution_file_identity_rejects_path_replacement_after_open(self):
+        original = self.root / "replaceable"
+        replacement = self.root / "replacement"
+        original.write_bytes(b"original")
+        replacement.write_bytes(b"replacement")
+        real_open = os.open
+
+        def open_then_replace(path, flags):
+            descriptor = real_open(path, flags)
+            os.replace(replacement, original)
+            return descriptor
+
+        with (
+            patch("puppet_lib.adapter_manifest.os.open", side_effect=open_then_replace),
+            self.assertRaisesRegex(ValidationError, "path changed"),
+        ):
+            execution_file_identity(original)
 
     def test_execution_file_roles_reject_hard_link_aliases(self):
         hard_link = self.root / "transient-support-alias"

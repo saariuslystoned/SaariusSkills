@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
@@ -12,6 +13,7 @@ from .errors import IdentityError, ValidationError
 from .registry import (
     ExecTransitionSamplingError,
     ProcessExecutableUnavailable,
+    darwin_process_inventory,
     process_birth_identity,
     process_executable_identity,
     process_tree_alive,
@@ -35,6 +37,7 @@ MAX_PROCESS_SNAPSHOT_BYTES = 4 * 1024 * 1024
 MAX_PROCESS_SNAPSHOT_ROWS = 32768
 MAX_PROCESS_ANCESTRY_NODES = 512
 MAX_PROCESS_ANCESTRY_DEPTH = 64
+MAX_PROCESS_EXECUTION_SELECTORS = 10
 
 
 ALLOWED_ACTIONS = [
@@ -325,7 +328,10 @@ def _target_process_selectors(
     }[target]
     if execution_files is None:
         return expected, set()
-    if not isinstance(execution_files, list) or not 1 <= len(execution_files) <= 9:
+    if (
+        not isinstance(execution_files, list)
+        or not 1 <= len(execution_files) <= MAX_PROCESS_EXECUTION_SELECTORS
+    ):
         raise ValidationError("target execution selectors are invalid")
     identities: set[tuple[str, int, int]] = set()
     for item in execution_files:
@@ -376,6 +382,22 @@ def _target_process_rows(
     *,
     error_prefix: str,
 ) -> list[tuple[int, Optional[str]]]:
+    if sys.platform == "darwin":
+        inventory = darwin_process_inventory(max_processes=MAX_PROCESS_SNAPSHOT_ROWS)
+        rows: list[tuple[int, Optional[str]]] = []
+        for record in inventory:
+            names = {
+                Path(value).name
+                for value in (
+                    record.get("name"),
+                    record.get("comm"),
+                    record.get("command"),
+                )
+                if isinstance(value, str) and value
+            }
+            if names & expected:
+                rows.append((record["pid"], record["command"]))
+        return rows
     result = subprocess.run(
         ["ps", "-axo", "pid=,uid=,comm="],
         stdin=subprocess.DEVNULL,
@@ -408,10 +430,11 @@ def _target_process_rows(
         if pid == 1:
             continue
         command = fields[2] if len(fields) == 3 else None
-        if selectors:
-            if uid == os.getuid():
-                rows.append((pid, None))
-        elif command is not None and Path(command).name in expected:
+        if (
+            uid == os.getuid()
+            and command is not None
+            and Path(command).name in expected
+        ):
             rows.append((pid, command))
     return rows
 
@@ -423,8 +446,12 @@ def _selected_process_identity(
         executable = process_executable_identity(pid)
     except ExecTransitionSamplingError:
         raise
-    except ProcessExecutableUnavailable:
-        return None
+    except ProcessExecutableUnavailable as exc:
+        if not _pid_still_exists(pid):
+            return None
+        raise IdentityError(
+            "same-target executable identity is unavailable for a live PID"
+        ) from exc
     except IdentityError:
         if not _pid_still_exists(pid):
             return None
@@ -459,13 +486,16 @@ def active_target_processes(
         error_prefix="same-target process inventory",
     )
     processes = []
-    for pid, _ in sorted(rows):
+    for pid, command in sorted(rows):
         if selectors:
             process = _selected_process_identity(pid, selectors)
             if process is not None:
                 processes.append(process)
         else:
-            processes.append(process_birth_identity(pid))
+            process = process_birth_identity(pid)
+            if process["command"] != command:
+                raise IdentityError("same-target process changed during the inventory")
+            processes.append(process)
     return processes
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .contracts import PROCESS_IDENTITY_FIELDS
-from .errors import ConflictError, IdentityError, ValidationError
+from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .journal import Journal
 from .safety import (
     absolute_root,
@@ -33,6 +33,7 @@ from .safety import (
 
 AUTHORITY_ID = "puppet-local-controller-v1"
 LEASE_SCHEMA_VERSION = 2
+QUALIFICATION_ATTESTATION_SCHEMA_VERSION = 2
 LEASE_TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 ACTIVE_LEASE_STATES = {"launching", "active", "halting"}
 LEGACY_FENCE_CONTROLLER = "per-target-lease-fence-v1"
@@ -998,6 +999,13 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         max_string=4096,
         reject_sensitive_fields=True,
     )
+    receipt_schema = receipt_core.get("schema_version")
+    if receipt_schema == 1:
+        raise UnsupportedError(
+            "legacy qualification receipt cannot authorize a runtime attestation"
+        )
+    if receipt_schema != QUALIFICATION_ATTESTATION_SCHEMA_VERSION:
+        raise ValidationError("unsupported qualification receipt attestation schema")
     receipt_digest = sha256_bytes(canonical_json_bytes(receipt_core))
     for name in (
         "goal_fingerprint",
@@ -1014,6 +1022,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
     ):
         validate_sha256(receipt_core.get(name), name.replace("_", " "))
     return {
+        "schema_version": QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
         "kind": "qualification_attestation",
         "authority_id": AUTHORITY_ID,
         "receipt_digest": receipt_digest,
@@ -1050,6 +1059,7 @@ def attest_qualification(
         event=event,
     )
     return {
+        "schema_version": QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
         "authority_id": AUTHORITY_ID,
         "authority_root": str(root),
         "request_id": request_id,
@@ -1068,6 +1078,7 @@ def verify_qualification_attestation(
     """Require exact inclusion in the fixed controller-owned hash chain."""
     root = controller_authority_root(authority_root)
     expected_fields = {
+        "schema_version",
         "authority_id",
         "authority_root",
         "request_id",
@@ -1077,6 +1088,13 @@ def verify_qualification_attestation(
     }
     if not isinstance(attestation, dict) or set(attestation) != expected_fields:
         raise ValidationError("qualification controller attestation fields are invalid")
+    attestation_schema = attestation.get("schema_version")
+    if attestation_schema == 1:
+        raise UnsupportedError(
+            "legacy qualification controller attestation is not authoritative"
+        )
+    if attestation_schema != QUALIFICATION_ATTESTATION_SCHEMA_VERSION:
+        raise ValidationError("unsupported qualification controller attestation schema")
     if attestation.get("authority_id") != AUTHORITY_ID or attestation.get(
         "authority_root"
     ) != str(root):

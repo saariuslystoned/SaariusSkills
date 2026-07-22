@@ -19,6 +19,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     PROBE_CAPABILITIES,
     _validate_ancestry_node_coherence,
@@ -37,6 +38,7 @@ from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # n
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.launch import public_launch_identity  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
+    PROBE_PROFILE,
     _acquire_campaign_probe_lock,
     _release_campaign_probe_lock,
     _validated_target_population,
@@ -104,7 +106,7 @@ def manifest_value(target: str = "codex"):
         "help_sha256": "c" * 64,
     }
     raw = {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": target,
         "generated_at": "2026-07-22T04:00:00Z",
         "platform": {
@@ -485,7 +487,7 @@ def execute(
 ):
     return run_probe(
         target=target,
-        profile="source-free-pass-b-v1",
+        profile=PROBE_PROFILE,
         session_profile=(
             default_session_profile(target)
             if session_profile is None
@@ -903,7 +905,7 @@ class ProbeTests(unittest.TestCase):
             )
             instruction_path = Path(result["run_root"]) / instruction_ref["path"]
             self.assertTrue(instruction_path.is_file())
-            marker = b"PUPPET_REAL_HARNESS_CONFORMANCE_V1"
+            marker = b"PUPPET_REAL_HARNESS_CONFORMANCE_V2"
             for path in Path(result["run_root"]).rglob("*"):
                 if path.is_file():
                     with self.subTest(no_raw_initial_body=path):
@@ -2208,6 +2210,7 @@ class ProbeTests(unittest.TestCase):
             root = Path(temporary).resolve()
             files = controller_inputs(root)
             fake = FakeTmux(root / "fake-tmux")
+            self.assertEqual(PROBE_PROFILE, "source-free-pass-b-v2")
             with self.assertRaisesRegex(ValidationError, "fixed source-free Pass B"):
                 run_probe(
                     target="codex",
@@ -2227,7 +2230,7 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationError, "limited to regular"):
                 run_probe(
                     target="codex",
-                    profile="source-free-pass-b-v1",
+                    profile=PROBE_PROFILE,
                     session_profile="goal",
                     proof_root=files["proof"],
                     manifest_path=files["manifest"],

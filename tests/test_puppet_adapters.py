@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -17,23 +18,36 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import adapter_lab as puppet_adapter_lab  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
+    CURSOR_REQUIRED_PATH_TOOLS,
+    QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
+    QUALIFICATION_PROFILE,
+    QUALIFICATION_STATE_SCHEMA_VERSION,
     _RECEIPT_FIELDS,
+    _ACCEPTED_EVIDENCE_FIELDS,
     _verify_qualification_instruction_authority,
     direct_execution_bundle,
     execution_file_identity,
+    QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+    validate_qualification_evidence_schema,
+    validate_qualification_state_schema,
     verify_qualification_receipt,
 )
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
+    CENSUS_SCHEMA_VERSION,
+    CURSOR_STATIC_LAUNCHER_LAYOUTS,
     DECLARED_MAPPINGS,
     _cursor_execution_bundle,
     _execution_bundle,
     _project_isolation_declared,
     _launch_flags,
     adapter_implementation_fingerprint,
+    census_target,
     _sandbox_disable_declared,
     ZERO_AGENT_SESSION_PROFILES,
     ZERO_AGENT_SESSION_PROFILES_DECLARED,
@@ -65,7 +79,7 @@ def manifest_raw():
         "mtime_ns": executable_details.st_mtime_ns,
     }
     return {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": "agy",
         "generated_at": "2026-07-22T02:00:00Z",
         "platform": {"system": "Darwin", "release": "25", "machine": "arm64"},
@@ -114,7 +128,7 @@ class AdapterTests(unittest.TestCase):
                 "fingerprint": "1" * 64,
                 "controller": "tester",
                 "target": "codex",
-                "task_profile": "source-free-pass-b-v1",
+                "task_profile": "source-free-pass-b-v2",
             },
             "workspace_identity": {
                 "fixture_fingerprint": "2" * 64,
@@ -187,6 +201,7 @@ class AdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             receipt_path = Path(temporary) / "receipt.json"
             receipt = {field: None for field in _RECEIPT_FIELDS}
+            receipt["schema_version"] = QUALIFICATION_RECEIPT_SCHEMA_VERSION
             receipt.pop("launch_plan_sha256")
             receipt_path.write_text(
                 json.dumps(receipt, sort_keys=True) + "\n",
@@ -274,16 +289,7 @@ class AdapterTests(unittest.TestCase):
             launcher = root / "cursor-agent"
             node = root / "node"
             entrypoint = root / "index.js"
-            launcher.write_text(
-                """#!/usr/bin/env bash
-SCRIPT_DIR="$(dirname "$(realpath "$0")")"
-SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"
-NODE_BIN="$SCRIPT_DIR/node"
-exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"
-exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
-""",
-                encoding="utf-8",
-            )
+            launcher.write_bytes(CURSOR_STATIC_LAUNCHER_LAYOUTS[0])
             node.write_bytes(b"synthetic bundled node")
             entrypoint.write_bytes(b"synthetic cursor entrypoint")
             launcher_file = execution_file_identity(launcher)
@@ -312,7 +318,7 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
                     Path(item["path"]).name
                     for item in execution["transient_executables"]
                 },
-                {"bash", "env"},
+                {"env", *CURSOR_REQUIRED_PATH_TOOLS},
             )
             cursor_manifest = AdapterManifest(
                 {"target": "cursor", "execution": execution}
@@ -322,9 +328,8 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
                 for item in execution["transient_executables"]
                 if Path(item["path"]).name == "bash"
             )
-            cursor_manifest.verify_launch_execution_environment(
-                {"PATH": str(bash_path.parent)}
-            )
+            cursor_path = os.environ["PATH"]
+            cursor_manifest.verify_launch_execution_environment({"PATH": cursor_path})
             with self.assertRaisesRegex(IdentityError, "cwd-dependent"):
                 cursor_manifest.verify_launch_execution_environment(
                     {"PATH": "bin" + os.pathsep + str(bash_path.parent)}
@@ -346,6 +351,55 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
                 self.assertRaisesRegex(ValidationError, "cwd-dependent"),
             ):
                 _cursor_execution_bundle(launcher, executable)
+
+    def test_cursor_census_validates_before_probe_and_never_executes_wrapper(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            launcher = root / "cursor-agent"
+            node = root / "node"
+            entrypoint = root / "index.js"
+            launcher.write_bytes(CURSOR_STATIC_LAUNCHER_LAYOUTS[0])
+            node.write_bytes(b"synthetic bundled node")
+            entrypoint.write_bytes(b"synthetic cursor entrypoint")
+            real_which = shutil.which
+
+            def discovered(command, path=None):
+                if command == "cursor-agent":
+                    return str(launcher)
+                return real_which(command, path=path)
+
+            with (
+                patch("puppet_lib.census.shutil.which", side_effect=discovered),
+                patch(
+                    "puppet_lib.census._bounded_run",
+                    side_effect=[
+                        b"cursor-agent 1\n",
+                        b"--yolo --sandbox disabled\n",
+                    ],
+                ) as bounded_run,
+            ):
+                census_target("cursor", "d" * 64)
+            self.assertEqual(
+                [call.args[0] for call in bounded_run.call_args_list],
+                [
+                    [str(node.resolve()), str(entrypoint.resolve()), "--version"],
+                    [str(node.resolve()), str(entrypoint.resolve()), "--help"],
+                ],
+            )
+
+            launcher.write_bytes(
+                CURSOR_STATIC_LAUNCHER_LAYOUTS[0].replace(
+                    b"set -euo pipefail\n",
+                    b"set -euo pipefail\nexport PATH=/attacker-controlled-bin\n",
+                )
+            )
+            with (
+                patch("puppet_lib.census.shutil.which", side_effect=discovered),
+                patch("puppet_lib.census._bounded_run") as bounded_run,
+                self.assertRaisesRegex(ValidationError, "recognized shell layout"),
+            ):
+                census_target("cursor", "d" * 64)
+            bounded_run.assert_not_called()
 
     def test_unknown_cursor_and_grok_shell_wrappers_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -372,16 +426,11 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
             with self.assertRaisesRegex(ValidationError, "no exact runtime resolver"):
                 _execution_bundle("grok", launcher, executable)
 
-            launcher.write_text(
-                """#!/usr/bin/env bash
-SCRIPT_DIR="$(dirname "$(realpath "$0")")"
-SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"
-NODE_BIN="$SCRIPT_DIR/node"
-NODE_BIN=/usr/bin/false
-exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"
-exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
-""",
-                encoding="utf-8",
+            launcher.write_bytes(
+                CURSOR_STATIC_LAUNCHER_LAYOUTS[0].replace(
+                    b'NODE_BIN="$SCRIPT_DIR/node"\n',
+                    b'NODE_BIN="$SCRIPT_DIR/node"\nNODE_BIN=/usr/bin/false\n',
+                )
             )
             changed_launcher_file = execution_file_identity(launcher)
             changed_executable = dict(executable)
@@ -506,6 +555,158 @@ exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
         manifest = AdapterManifest.from_dict(manifest_raw())
         with self.assertRaises(UnsupportedError):
             adapter_for("agy").build_launch_argv(manifest)
+
+    def test_runtime_manifest_schema_versions_fail_closed(self):
+        current_manifest = AdapterManifest.from_dict(manifest_raw())
+        selectors = current_manifest.process_execution_selectors()
+        self.assertEqual(len(selectors), 1)
+        self.assertEqual(
+            selectors[0]["path"], current_manifest.raw["executable"]["resolved_path"]
+        )
+
+        legacy = manifest_raw()
+        legacy["schema_version"] = 1
+        with self.assertRaisesRegex(UnsupportedError, "legacy adapter manifest"):
+            AdapterManifest.from_dict(legacy)
+
+        future = manifest_raw()
+        future["schema_version"] = ADAPTER_MANIFEST_SCHEMA_VERSION + 1
+        with self.assertRaisesRegex(ValidationError, "unsupported adapter manifest"):
+            AdapterManifest.from_dict(future)
+
+        mixed = manifest_raw()
+        mixed.pop("execution")
+        with self.assertRaisesRegex(ValidationError, "fields"):
+            AdapterManifest.from_dict(mixed)
+
+    def test_census_scaffold_schema_versions_and_mixed_bundle_fail_closed(self):
+        current = {
+            "schema_version": CENSUS_SCHEMA_VERSION,
+            "zero_agent": True,
+            "manifests": {"agy": manifest_raw()},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            census_path = root / "census.json"
+            cases = {
+                "current": (current, None, None),
+                "legacy": (
+                    dict(current, schema_version=1),
+                    UnsupportedError,
+                    "legacy zero-agent census",
+                ),
+                "future": (
+                    dict(current, schema_version=CENSUS_SCHEMA_VERSION + 1),
+                    ValidationError,
+                    "unsupported zero-agent census",
+                ),
+                "mixed": (
+                    dict(current, zero_agent=False),
+                    ValidationError,
+                    "invalid zero-agent census bundle",
+                ),
+            }
+            for name, (bundle, error, message) in cases.items():
+                census_path.write_text(json.dumps(bundle) + "\n", encoding="utf-8")
+                arguments = SimpleNamespace(
+                    census=census_path,
+                    out=root / ("scaffold-" + name),
+                )
+                with self.subTest(name=name):
+                    if error is None:
+                        result = puppet_adapter_lab._scaffold(arguments)
+                        self.assertTrue(result["ok"])
+                        self.assertEqual(len(result["manifests"]), 1)
+                    else:
+                        with self.assertRaisesRegex(error, message):
+                            puppet_adapter_lab._scaffold(arguments)
+
+    def test_qualification_receipt_schema_versions_fail_before_inference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "receipt.json"
+            for version, error, message in (
+                (1, UnsupportedError, "legacy qualification receipt"),
+                (
+                    QUALIFICATION_RECEIPT_SCHEMA_VERSION + 1,
+                    ValidationError,
+                    "unsupported qualification receipt",
+                ),
+                (
+                    QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+                    ValidationError,
+                    "fields do not match",
+                ),
+            ):
+                with self.subTest(version=version):
+                    path.write_text(
+                        json.dumps({"schema_version": version}) + "\n",
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(error, message):
+                        verify_qualification_receipt(path)
+
+            legacy_shape = {
+                name: None
+                for name in _RECEIPT_FIELDS
+                if name != "execution_fingerprint"
+            }
+            legacy_shape["schema_version"] = 1
+            path.write_text(json.dumps(legacy_shape) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                verify_qualification_receipt(path)
+
+            current_missing_execution = {name: None for name in _RECEIPT_FIELDS}
+            current_missing_execution["schema_version"] = (
+                QUALIFICATION_RECEIPT_SCHEMA_VERSION
+            )
+            current_missing_execution.pop("execution_fingerprint")
+            path.write_text(
+                json.dumps(current_missing_execution) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValidationError, "fields do not match"):
+                verify_qualification_receipt(path)
+
+    def test_qualification_evidence_schema_versions_and_mixed_shape_fail_closed(self):
+        current = {name: None for name in _ACCEPTED_EVIDENCE_FIELDS}
+        current.update(
+            schema_version=QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
+            execution_fingerprint="a" * 64,
+        )
+        self.assertEqual(validate_qualification_evidence_schema(current), current)
+
+        with self.assertRaisesRegex(UnsupportedError, "legacy qualification evidence"):
+            validate_qualification_evidence_schema(dict(current, schema_version=1))
+        with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
+            validate_qualification_evidence_schema(
+                dict(
+                    current,
+                    schema_version=QUALIFICATION_EVIDENCE_SCHEMA_VERSION + 1,
+                )
+            )
+        mixed = dict(current)
+        mixed.pop("execution_fingerprint")
+        with self.assertRaisesRegex(ValidationError, "fields do not match"):
+            validate_qualification_evidence_schema(mixed)
+
+    def test_qualification_state_schema_versions_and_profile_fail_closed(self):
+        current = {
+            "schema_version": QUALIFICATION_STATE_SCHEMA_VERSION,
+            "profile": QUALIFICATION_PROFILE,
+        }
+        self.assertEqual(validate_qualification_state_schema(current), current)
+        with self.assertRaisesRegex(UnsupportedError, "legacy qualification state"):
+            validate_qualification_state_schema(dict(current, schema_version=1))
+        with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
+            validate_qualification_state_schema(
+                dict(
+                    current,
+                    schema_version=QUALIFICATION_STATE_SCHEMA_VERSION + 1,
+                )
+            )
+        with self.assertRaisesRegex(ValidationError, "schema and profile are mixed"):
+            validate_qualification_state_schema(
+                dict(current, profile="source-free-pass-b-v1")
+            )
 
     def test_verified_manifest_builds_argv_without_prompt(self):
         raw = manifest_raw()

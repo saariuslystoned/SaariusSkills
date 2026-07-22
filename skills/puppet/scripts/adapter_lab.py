@@ -15,9 +15,13 @@ from puppet_lib.adapter_manifest import (
     PROBE_CAPABILITIES,
     verify_qualification_receipt,
 )
-from puppet_lib.census import adapter_implementation_fingerprint, census_many
+from puppet_lib.census import (
+    CENSUS_SCHEMA_VERSION,
+    adapter_implementation_fingerprint,
+    census_many,
+)
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
-from puppet_lib.probe import recover_probe, run_probe
+from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
 from puppet_lib.safety import (
     atomic_write_json,
     read_json,
@@ -29,18 +33,34 @@ def _targets(value: str):
     targets = [item.strip() for item in value.split(",") if item.strip()]
     allowed = {"agy", "cursor", "claude", "codex", "grok"}
     if not targets or len(set(targets)) != len(targets) or not set(targets) <= allowed:
-        raise argparse.ArgumentTypeError("targets must be unique allowlisted harness names")
+        raise argparse.ArgumentTypeError(
+            "targets must be unique allowlisted harness names"
+        )
     return targets
 
 
 def _census(args):
     bundle = census_many(args.targets, adapter_implementation_fingerprint())
     atomic_write_json(args.out, bundle)
-    return {"ok": True, "zero_agent": True, "targets": args.targets, "out": str(args.out)}
+    return {
+        "ok": True,
+        "zero_agent": True,
+        "targets": args.targets,
+        "out": str(args.out),
+    }
 
 
 def _scaffold(args):
     bundle = read_json(args.census, max_bytes=1024 * 1024)
+    if not isinstance(bundle, dict):
+        raise ValidationError("zero-agent census root must be an object")
+    schema_version = bundle.get("schema_version")
+    if schema_version == 1:
+        raise UnsupportedError(
+            "legacy zero-agent census lacks authoritative runtime execution identity"
+        )
+    if schema_version != CENSUS_SCHEMA_VERSION:
+        raise ValidationError("unsupported zero-agent census schema")
     manifests = bundle.get("manifests")
     if bundle.get("zero_agent") is not True or not isinstance(manifests, dict):
         raise ValidationError("invalid zero-agent census bundle")
@@ -104,7 +124,9 @@ def _recover(args):
 def _verified_receipt(path: Path):
     run = verify_qualification_receipt(path)
     if run.get("capabilities") != list(PROBE_CAPABILITIES):
-        raise ValidationError("probe receipt does not cover the shared capability contract")
+        raise ValidationError(
+            "probe receipt does not cover the shared capability contract"
+        )
     return run
 
 
@@ -129,9 +151,7 @@ def _qualify(args):
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {
         name: (
-            "controller_verified"
-            if name in receipt["capabilities"]
-            else "unsupported"
+            "controller_verified" if name in receipt["capabilities"] else "unsupported"
         )
         for name in BEHAVIOR_CAPABILITIES
     }
@@ -168,9 +188,7 @@ def build_parser():
     scaffold_parser.set_defaults(handler=_scaffold)
     probe_parser = commands.add_parser("probe")
     probe_parser.add_argument("--target", required=True)
-    probe_parser.add_argument(
-        "--profile", required=True, choices=["source-free-pass-b-v1"]
-    )
+    probe_parser.add_argument("--profile", required=True, choices=[PROBE_PROFILE])
     probe_parser.add_argument("--session-profile", required=True)
     probe_parser.add_argument("--proof-root", required=True, type=Path)
     probe_parser.add_argument("--manifest", required=True, type=Path)
@@ -210,7 +228,8 @@ def build_parser():
     verify_parser.add_argument("--run", required=True, type=Path)
     verify_parser.set_defaults(handler=_verify)
     qualify_parser = commands.add_parser(
-        "qualify", help="bind an accepted real-harness receipt to a doctor-only manifest"
+        "qualify",
+        help="bind an accepted real-harness receipt to a doctor-only manifest",
     )
     qualify_parser.add_argument("--manifest", required=True, type=Path)
     qualify_parser.add_argument("--mapping", required=True, type=Path)

@@ -6,11 +6,89 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict
 
+from .errors import UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
-from .safety import atomic_write_json, canonical_json_bytes, sha256_bytes, validate_identifier
+from .safety import (
+    atomic_write_json,
+    canonical_json_bytes,
+    sha256_bytes,
+    validate_identifier,
+)
 
 
-def create_fixture(root: Path, *, run_id: str, session: str, target: str) -> Dict[str, Any]:
+CONFORMANCE_CONTRACT_SCHEMA_VERSION = 2
+LEGACY_CONFORMANCE_CONTRACT_SCHEMA_VERSIONS = frozenset({1})
+CONFORMANCE_CONTRACT_FIELDS = {
+    "schema_version",
+    "checkpoint_kind",
+    "run_id",
+    "session",
+    "nonce",
+    "target",
+    "protocol_fingerprint",
+    "allowed_fixture_root",
+    "allowed_actions",
+    "forbidden_actions",
+}
+ALLOWED_FIXTURE_ACTIONS = [
+    "read_contract",
+    "write_bounded_handoffs",
+    "wait_for_halt",
+]
+FORBIDDEN_FIXTURE_ACTIONS = [
+    "source_mutation",
+    "repository_mutation",
+    "account_change",
+    "external_send",
+    "system_change",
+]
+
+
+def validate_fixture_contract(
+    value: Any,
+    *,
+    root: Path,
+    session: str,
+    target: str,
+) -> Dict[str, Any]:
+    """Validate a current conformance contract and its v2 protocol binding."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("conformance fixture contract root must be an object")
+    schema_version = value.get("schema_version")
+    if schema_version in LEGACY_CONFORMANCE_CONTRACT_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy conformance fixture contract lacks runtime execution identity"
+        )
+    if schema_version != CONFORMANCE_CONTRACT_SCHEMA_VERSION:
+        raise ValidationError("unsupported conformance fixture contract schema")
+    if set(value) != CONFORMANCE_CONTRACT_FIELDS:
+        raise ValidationError("conformance fixture contract fields do not match schema")
+    if value.get("checkpoint_kind") != "conformance":
+        raise ValidationError("fixture is not a conformance contract")
+    if value.get("session") != validate_identifier(session, "session"):
+        raise ValidationError("fixture session identity mismatch")
+    if target not in {"agy", "cursor", "claude", "codex", "grok"}:
+        raise ValidationError("unsupported fixture target")
+    if value.get("target") != target:
+        raise ValidationError("fixture target identity mismatch")
+    validate_identifier(value.get("run_id"), "run id")
+    validate_identifier(value.get("nonce"), "nonce")
+    if value.get("protocol_fingerprint") != PROTOCOL_FINGERPRINT:
+        raise ValidationError("conformance fixture protocol version is mixed")
+    expected_root = str(Path(root).resolve(strict=True))
+    if value.get("allowed_fixture_root") != expected_root:
+        raise ValidationError("fixture root identity mismatch")
+    if value.get("allowed_actions") != ALLOWED_FIXTURE_ACTIONS:
+        raise ValidationError("fixture allowed actions changed")
+    if value.get("forbidden_actions") != FORBIDDEN_FIXTURE_ACTIONS:
+        raise ValidationError("fixture forbidden actions changed")
+    return dict(value)
+
+
+def create_fixture(
+    root: Path, *, run_id: str, session: str, target: str
+) -> Dict[str, Any]:
     validate_identifier(run_id, "run id")
     validate_identifier(session, "session")
     if target not in {"agy", "cursor", "claude", "codex", "grok"}:
@@ -21,7 +99,7 @@ def create_fixture(root: Path, *, run_id: str, session: str, target: str) -> Dic
     handoffs.mkdir(mode=0o700)
     nonce = secrets.token_hex(16)
     contract = {
-        "schema_version": 1,
+        "schema_version": CONFORMANCE_CONTRACT_SCHEMA_VERSION,
         "checkpoint_kind": "conformance",
         "run_id": run_id,
         "session": session,
@@ -29,17 +107,16 @@ def create_fixture(root: Path, *, run_id: str, session: str, target: str) -> Dic
         "target": target,
         "protocol_fingerprint": PROTOCOL_FINGERPRINT,
         "allowed_fixture_root": str(root.resolve(strict=True)),
-        "allowed_actions": ["read_contract", "write_bounded_handoffs", "wait_for_halt"],
-        "forbidden_actions": [
-            "source_mutation",
-            "repository_mutation",
-            "account_change",
-            "external_send",
-            "system_change",
-        ],
+        "allowed_actions": list(ALLOWED_FIXTURE_ACTIONS),
+        "forbidden_actions": list(FORBIDDEN_FIXTURE_ACTIONS),
     }
     atomic_write_json(root / "contract.json", contract)
-    return contract
+    return validate_fixture_contract(
+        contract,
+        root=root,
+        session=session,
+        target=target,
+    )
 
 
 def tree_fingerprint(root: Path, excluded_prefix: str = "handoffs") -> str:

@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.session as puppet_session  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
+    ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     direct_execution_bundle,
 )
@@ -30,9 +31,19 @@ from puppet_lib.campaign import (  # noqa: E402
     ALLOWED_ACTIONS as CAMPAIGN_ALLOWED_ACTIONS,
     HARD_GATES as CAMPAIGN_HARD_GATES,
 )
-from puppet_lib.conformance import create_fixture  # noqa: E402
+from puppet_lib.conformance import (  # noqa: E402
+    CONFORMANCE_CONTRACT_SCHEMA_VERSION,
+    create_fixture,
+    validate_fixture_contract,
+)
 from puppet_lib.contracts import Contract  # noqa: E402
-from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
+from puppet_lib.errors import (  # noqa: E402
+    ConflictError,
+    IdentityError,
+    UnsupportedError,
+    ValidationError,
+)
+from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION  # noqa: E402
 from puppet_lib.registry import SessionRegistry, send_exact_sigint  # noqa: E402
 from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
@@ -197,7 +208,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         ],
     )
     raw = {
-        "schema_version": 1,
+        "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
         "target": target,
         "generated_at": "2026-07-22T03:00:00Z",
         "platform": platform_value,
@@ -369,6 +380,85 @@ class SessionIntegrationTests(unittest.TestCase):
         )
         authority_patcher.start()
         self.addCleanup(authority_patcher.stop)
+
+    def test_conformance_contract_v2_rejects_legacy_future_and_mixed_protocol(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary).resolve() / "fixture"
+            session = "agy-conformance-schema"
+            current = create_fixture(
+                fixture,
+                run_id="run-conformance-schema",
+                session=session,
+                target="agy",
+            )
+            controller_contract = Contract.from_dict(
+                {
+                    "schema_version": 1,
+                    "objective": "Validate conformance schema",
+                    "campaign_authorization_id": "campaign-schema",
+                    "controller": "codex",
+                    "target": "agy",
+                    "task_profile": "conformance",
+                    "harness_trust": "unrestricted_required",
+                    "mutation_owner": "none",
+                    "repo": str(fixture),
+                    "branch": "codex/conformance-schema",
+                    "allowed_modes": ["read", "test"],
+                    "terminal_criteria": [
+                        {"id": "proof_green", "evidence": "validated_handoff"}
+                    ],
+                    "hard_gates": HARD_GATES,
+                }
+            )
+            self.assertEqual(
+                current["schema_version"], CONFORMANCE_CONTRACT_SCHEMA_VERSION
+            )
+            self.assertEqual(
+                validate_fixture_contract(
+                    current,
+                    root=fixture,
+                    session=session,
+                    target="agy",
+                ),
+                current,
+            )
+            self.assertEqual(
+                puppet_session._fixture_contract(controller_contract, session), current
+            )
+            self.assertTrue(
+                puppet_session._initial_envelope(
+                    controller_contract,
+                    current,
+                    session,
+                    "Perform the bounded task.",
+                ).startswith("PUPPET_SESSION_V2\n")
+            )
+            self.assertTrue(
+                puppet_session._followup_envelope(
+                    dict(current, ready_artifact_sha256="a" * 64),
+                    "message-schema",
+                    "Continue the bounded task.",
+                ).startswith("PUPPET_FOLLOWUP_V2\n")
+            )
+
+            contract_path = fixture / "contract.json"
+            legacy = dict(current, schema_version=1)
+            write_json(contract_path, legacy)
+            with self.assertRaisesRegex(UnsupportedError, "legacy conformance"):
+                puppet_session._fixture_contract(controller_contract, session)
+
+            future = dict(
+                current,
+                schema_version=CONFORMANCE_CONTRACT_SCHEMA_VERSION + 1,
+            )
+            write_json(contract_path, future)
+            with self.assertRaisesRegex(ValidationError, "unsupported conformance"):
+                puppet_session._fixture_contract(controller_contract, session)
+
+            mixed = dict(current, protocol_fingerprint="0" * 64)
+            write_json(contract_path, mixed)
+            with self.assertRaisesRegex(ValidationError, "protocol version is mixed"):
+                puppet_session._fixture_contract(controller_contract, session)
 
     def test_delivery_deduplication_is_scoped_to_the_exact_session(self):
         class RecordingTmux:
@@ -745,7 +835,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     status(state_root=files["state"], session=session)
                 write_json(bound_contract_path, bound_contract)
                 ready = {
-                    "schema_version": 1,
+                    "schema_version": HANDOFF_SCHEMA_VERSION,
                     "checkpoint_kind": "conformance",
                     "session": session,
                     "run_id": fixture_contract["run_id"],
@@ -1593,7 +1683,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     write_json(
                         path,
                         {
-                            "schema_version": 1,
+                            "schema_version": HANDOFF_SCHEMA_VERSION,
                             "checkpoint_kind": "source",
                             "session": session,
                             "run_id": "source-run",

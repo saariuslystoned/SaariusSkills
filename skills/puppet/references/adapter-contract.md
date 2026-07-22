@@ -40,11 +40,15 @@ receipt or reconciles and gracefully halts only the exact persisted target.
 During a live probe, the target-population guard admits only the exact
 authorized pre-existing population, the exact registered pane process, and
 bounded same-executable processes whose freshly sampled kernel-revalidated
-parent edges and v2 birth identity reach that registered process. One bounded
-discovery pass uses `ps` only to find target `pid`/`comm` rows; per-node parent
-edges and birth identity come from Darwin `proc_pidinfo` `(sec,usec)` or Linux
-`(kernel.boot_id,/proc/<pid>/stat_starttime_ticks)`. It never reads argv or
-terminal content. Missing ancestry, protected-process ancestry, PID reuse,
+parent edges and v2 birth identity reach that registered process. On Darwin,
+bounded current-UID discovery uses `proc_listpids` plus `PROC_PIDTBSDINFO`;
+other supported platforms may use `ps` only to find target `pid`/`comm` rows.
+Candidate names are prefiltered against every declared launcher, transient
+executable, and final runtime basename before the controller binds the exact
+process-owned mapped-vnode identity. Per-node parent edges and birth identity
+come from Darwin `proc_pidinfo` `(sec,usec)` or Linux
+`(kernel.boot_id,/proc/<pid>/stat_starttime_ticks)`. Discovery never reads argv
+or terminal content. Missing ancestry, protected-process ancestry, PID reuse,
 executable drift, cycles, or unrelated same-name processes fail closed. Keep
 full historical ancestry evidence for transient descendants until verdict.
 Descendants are evidence, never signaling authority:
@@ -55,7 +59,7 @@ population to equal the exact protected baseline.
 The operational sequence is:
 
 ```text
-adapter_lab.py probe --profile source-free-pass-b-v1 \
+adapter_lab.py probe --profile source-free-pass-b-v2 \
   --target TARGET --session-profile SESSION_PROFILE \
   --proof-root ROOT --manifest MANIFEST --mapping MAPPING \
   --authorization AUTH --controller CONTROLLER --campaign-id CAMPAIGN \

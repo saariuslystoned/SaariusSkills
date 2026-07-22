@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import math
 import os
 import signal
@@ -17,7 +18,7 @@ from .adapter_manifest import AdapterManifest
 from .authority import validate_lease_owner
 from .beacons import PREFIXES
 from .contracts import Contract, PROCESS_IDENTITY_FIELDS
-from .errors import ConflictError, IdentityError, ValidationError
+from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
 from .safety import (
     absolute_root,
@@ -102,6 +103,8 @@ TMUX_BINARY_FIELDS = {
     "sha256",
     "version",
 }
+SESSION_REGISTRY_SCHEMA_VERSION = 2
+LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS = frozenset({1})
 
 
 def validate_process_identity_shape(
@@ -169,6 +172,96 @@ class _DarwinProcBSDInfo(ctypes.Structure):
     ]
 
 
+class _DarwinProcRegionInfo(ctypes.Structure):
+    _fields_ = [
+        ("pri_protection", ctypes.c_uint32),
+        ("pri_max_protection", ctypes.c_uint32),
+        ("pri_inheritance", ctypes.c_uint32),
+        ("pri_flags", ctypes.c_uint32),
+        ("pri_offset", ctypes.c_uint64),
+        ("pri_behavior", ctypes.c_uint32),
+        ("pri_user_wired_count", ctypes.c_uint32),
+        ("pri_user_tag", ctypes.c_uint32),
+        ("pri_pages_resident", ctypes.c_uint32),
+        ("pri_pages_shared_now_private", ctypes.c_uint32),
+        ("pri_pages_swapped_out", ctypes.c_uint32),
+        ("pri_pages_dirtied", ctypes.c_uint32),
+        ("pri_ref_count", ctypes.c_uint32),
+        ("pri_shadow_depth", ctypes.c_uint32),
+        ("pri_share_mode", ctypes.c_uint32),
+        ("pri_private_pages_resident", ctypes.c_uint32),
+        ("pri_shared_pages_resident", ctypes.c_uint32),
+        ("pri_obj_id", ctypes.c_uint32),
+        ("pri_depth", ctypes.c_uint32),
+        ("pri_address", ctypes.c_uint64),
+        ("pri_size", ctypes.c_uint64),
+    ]
+
+
+class _DarwinVinfoStat(ctypes.Structure):
+    _fields_ = [
+        ("vst_dev", ctypes.c_uint32),
+        ("vst_mode", ctypes.c_uint16),
+        ("vst_nlink", ctypes.c_uint16),
+        ("vst_ino", ctypes.c_uint64),
+        ("vst_uid", ctypes.c_uint32),
+        ("vst_gid", ctypes.c_uint32),
+        ("vst_atime", ctypes.c_int64),
+        ("vst_atimensec", ctypes.c_int64),
+        ("vst_mtime", ctypes.c_int64),
+        ("vst_mtimensec", ctypes.c_int64),
+        ("vst_ctime", ctypes.c_int64),
+        ("vst_ctimensec", ctypes.c_int64),
+        ("vst_birthtime", ctypes.c_int64),
+        ("vst_birthtimensec", ctypes.c_int64),
+        ("vst_size", ctypes.c_int64),
+        ("vst_blocks", ctypes.c_int64),
+        ("vst_blksize", ctypes.c_int32),
+        ("vst_flags", ctypes.c_uint32),
+        ("vst_gen", ctypes.c_uint32),
+        ("vst_rdev", ctypes.c_uint32),
+        ("vst_qspare", ctypes.c_int64 * 2),
+    ]
+
+
+class _DarwinFsid(ctypes.Structure):
+    _fields_ = [("val", ctypes.c_int32 * 2)]
+
+
+class _DarwinVnodeInfo(ctypes.Structure):
+    _fields_ = [
+        ("vi_stat", _DarwinVinfoStat),
+        ("vi_type", ctypes.c_int),
+        ("vi_pad", ctypes.c_int),
+        ("vi_fsid", _DarwinFsid),
+    ]
+
+
+class _DarwinVnodeInfoPath(ctypes.Structure):
+    _fields_ = [
+        ("vip_vi", _DarwinVnodeInfo),
+        ("vip_path", ctypes.c_char * 1024),
+    ]
+
+
+class _DarwinProcRegionWithPathInfo(ctypes.Structure):
+    _fields_ = [
+        ("prp_prinfo", _DarwinProcRegionInfo),
+        ("prp_vip", _DarwinVnodeInfoPath),
+    ]
+
+
+_DARWIN_PROC_PIDREGIONPATHINFO = 8
+_DARWIN_VM_PROT_EXECUTE = 4
+_DARWIN_MAX_REGIONS = 4096
+_DARWIN_UINT64_MAX = (1 << 64) - 1
+_DARWIN_PROC_PIDTBSDINFO = 3
+_DARWIN_PROC_UID_ONLY = 4
+_DARWIN_PID_LIST_RETRIES = 3
+_DARWIN_PID_LIST_SLACK = 64
+_DARWIN_MAX_PROCESS_IDS = 32768
+
+
 class ExecTransitionSamplingError(IdentityError):
     """A sample crossed a same-PID exec while kernel birth stayed stable."""
 
@@ -192,9 +285,18 @@ class ProcessExecutableUnavailable(IdentityError):
     """A census entry cannot expose a bindable executable identity."""
 
 
-def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:
+class ProcessVanished(IdentityError):
+    """The kernel proved that a snapshotted PID no longer exists."""
+
+
+def _darwin_process_bsd_record(pid: int, libproc: Any = None) -> Dict[str, Any]:
+    """Return exact-size BSD identity for one PID through libproc."""
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        raise ValidationError("invalid process id")
     try:
-        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        if libproc is None:
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
         libproc.proc_pidinfo.argtypes = [
             ctypes.c_int,
             ctypes.c_int,
@@ -205,22 +307,193 @@ def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:
         libproc.proc_pidinfo.restype = ctypes.c_int
         info = _DarwinProcBSDInfo()
         size = ctypes.sizeof(info)
-        length = libproc.proc_pidinfo(pid, 3, 0, ctypes.byref(info), size)
+        ctypes.set_errno(0)
+        length = libproc.proc_pidinfo(
+            pid,
+            _DARWIN_PROC_PIDTBSDINFO,
+            0,
+            ctypes.byref(info),
+            size,
+        )
     except (OSError, AttributeError) as exc:
-        raise IdentityError("kernel process identity is unavailable") from exc
+        raise IdentityError("Darwin BSD process identity is unavailable") from exc
+    call_errno = ctypes.get_errno()
+    if length == 0 and call_errno == errno.ESRCH:
+        raise ProcessVanished("snapshotted PID vanished before BSD identity sampling")
     if (
         length != size
+        or call_errno != 0
         or info.pbi_pid != pid
         or not 1 <= info.pbi_ppid <= 2**31 - 1
+        or info.pbi_uid > 2**32 - 1
         or info.pbi_start_tvsec <= 0
         or info.pbi_start_tvusec >= 1_000_000
     ):
-        raise IdentityError("kernel process identity is unavailable")
+        raise IdentityError("Darwin BSD process identity is unavailable")
+
+    def decoded_name(raw: bytes) -> str:
+        try:
+            value = raw.split(b"\x00", 1)[0].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise IdentityError("Darwin BSD process command is invalid") from exc
+        if len(value) > 1000 or any(character in value for character in "\x00\n\r"):
+            raise IdentityError("Darwin BSD process command is invalid")
+        return value
+
+    name = decoded_name(bytes(info.pbi_name))
+    comm = decoded_name(bytes(info.pbi_comm))
+    command = name or comm
+    if not command:
+        raise IdentityError("Darwin BSD process command is invalid")
+    birth = "darwin:%d:%06d" % (
+        info.pbi_start_tvsec,
+        info.pbi_start_tvusec,
+    )
     return {
         "pid": pid,
         "parent_pid": int(info.pbi_ppid),
-        "kernel_birth_id": "darwin:%d:%06d"
-        % (info.pbi_start_tvsec, info.pbi_start_tvusec),
+        "uid": int(info.pbi_uid),
+        "kernel_birth_id": birth,
+        "start": birth,
+        "command": command,
+        "name": name,
+        "comm": comm,
+    }
+
+
+def _darwin_uid_process_ids(
+    libproc: Any = None,
+    *,
+    max_processes: int = _DARWIN_MAX_PROCESS_IDS,
+) -> list[int]:
+    """Take a bounded current-UID PID snapshot with truncation retries."""
+
+    if (
+        isinstance(max_processes, bool)
+        or not isinstance(max_processes, int)
+        or max_processes <= 0
+        or max_processes > _DARWIN_MAX_PROCESS_IDS
+    ):
+        raise ValidationError("Darwin process inventory cap is invalid")
+    try:
+        if libproc is None:
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_listpids.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_listpids.restype = ctypes.c_int
+    except (OSError, AttributeError) as exc:
+        raise IdentityError("Darwin process inventory is unavailable") from exc
+    integer_size = ctypes.sizeof(ctypes.c_int)
+    maximum_bytes = max_processes * integer_size
+    uid = os.getuid()
+
+    def required_bytes() -> int:
+        ctypes.set_errno(0)
+        result = libproc.proc_listpids(_DARWIN_PROC_UID_ONLY, uid, None, 0)
+        call_errno = ctypes.get_errno()
+        if (
+            result <= 0
+            or call_errno != 0
+            or result % integer_size
+            or result > maximum_bytes
+        ):
+            raise IdentityError("Darwin process inventory size is invalid")
+        return result
+
+    for _ in range(_DARWIN_PID_LIST_RETRIES):
+        initial_required_bytes = required_bytes()
+        initial_required = initial_required_bytes // integer_size
+        capacity = min(max_processes, initial_required + _DARWIN_PID_LIST_SLACK)
+        if capacity <= initial_required:
+            raise IdentityError("Darwin process inventory has no bounded slack")
+        capacity_bytes = capacity * integer_size
+        buffer = (ctypes.c_int * capacity)()
+        ctypes.set_errno(0)
+        used_bytes = libproc.proc_listpids(
+            _DARWIN_PROC_UID_ONLY,
+            uid,
+            ctypes.byref(buffer),
+            capacity_bytes,
+        )
+        call_errno = ctypes.get_errno()
+        if (
+            used_bytes <= 0
+            or call_errno != 0
+            or used_bytes % integer_size
+            or used_bytes > capacity_bytes
+        ):
+            raise IdentityError("Darwin process inventory payload is invalid")
+        post_required_bytes = required_bytes()
+        if used_bytes == capacity_bytes or post_required_bytes > initial_required_bytes:
+            continue
+        pids = [int(buffer[index]) for index in range(used_bytes // integer_size)]
+        if (
+            not pids
+            or len(pids) > max_processes
+            or any(pid <= 0 for pid in pids)
+            or len(pids) != len(set(pids))
+        ):
+            raise IdentityError("Darwin process inventory contains invalid PIDs")
+        if os.getpid() not in pids:
+            continue
+        return pids
+    raise IdentityError("Darwin process inventory remained truncated or unstable")
+
+
+def darwin_process_inventory(
+    *, max_processes: int = _DARWIN_MAX_PROCESS_IDS
+) -> list[Dict[str, Any]]:
+    """Return current-UID Darwin PID/UID/start/name rows from one libproc lane."""
+
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    except OSError as exc:
+        raise IdentityError("Darwin process inventory is unavailable") from exc
+    pids = _darwin_uid_process_ids(libproc, max_processes=max_processes)
+    records = []
+    for pid in pids:
+        if pid == 1:
+            continue
+        try:
+            record = _darwin_process_bsd_record(pid, libproc)
+        except IdentityError as exc:
+            rechecked_pids = _darwin_uid_process_ids(
+                libproc, max_processes=max_processes
+            )
+            if pid not in rechecked_pids:
+                continue
+            try:
+                _darwin_process_bsd_record(pid, libproc)
+            except IdentityError as rebound_exc:
+                final_pids = _darwin_uid_process_ids(
+                    libproc, max_processes=max_processes
+                )
+                if pid not in final_pids:
+                    continue
+                raise IdentityError(
+                    "Darwin process inventory row remained unavailable"
+                ) from rebound_exc
+            raise IdentityError(
+                "Darwin process inventory PID reappeared with ambiguous identity"
+            ) from exc
+        if record["uid"] != os.getuid():
+            raise IdentityError("Darwin UID-scoped process inventory changed identity")
+        records.append(record)
+    if not any(record["pid"] == os.getpid() for record in records):
+        raise IdentityError("Darwin process inventory lost the controller process")
+    return records
+
+
+def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:
+    record = _darwin_process_bsd_record(pid)
+    return {
+        "pid": record["pid"],
+        "parent_pid": record["parent_pid"],
+        "kernel_birth_id": record["kernel_birth_id"],
     }
 
 
@@ -284,38 +557,218 @@ def _kernel_process_record(pid: int) -> Dict[str, Any]:
     raise IdentityError("kernel process identity is unsupported on this platform")
 
 
-def _process_executable_path(pid: int) -> Path:
+def _validated_process_executable_path(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 4096
+        or "\x00" in value
+        or not Path(value).is_absolute()
+        or value.endswith(" (deleted)")
+    ):
+        raise ProcessExecutableUnavailable("process executable path is invalid")
+    return value
+
+
+def _darwin_process_executable_path(pid: int, libproc: Any) -> str:
+    try:
+        libproc.proc_pidpath.argtypes = [
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+        ]
+        libproc.proc_pidpath.restype = ctypes.c_int
+        buffer = ctypes.create_string_buffer(4096)
+        length = libproc.proc_pidpath(pid, buffer, len(buffer))
+    except (OSError, AttributeError) as exc:
+        raise ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        ) from exc
+    if length <= 0 or length >= len(buffer):
+        raise ProcessExecutableUnavailable("process executable identity is unavailable")
+    return _validated_process_executable_path(os.fsdecode(buffer.value))
+
+
+def _process_executable_path(pid: int) -> str:
+    """Return only a kernel-reported display path; never stat this path for authority."""
+
     if sys.platform == "darwin":
         try:
             libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
-            buffer = ctypes.create_string_buffer(4096)
-            length = libproc.proc_pidpath(pid, buffer, len(buffer))
-        except (OSError, AttributeError) as exc:
-            raise ProcessExecutableUnavailable(
-                "process executable identity is unavailable"
-            ) from exc
-        if length <= 0:
-            raise ProcessExecutableUnavailable(
-                "process executable identity is unavailable"
-            )
-        path = Path(os.fsdecode(buffer.value))
-    elif sys.platform.startswith("linux"):
-        try:
-            path = Path(os.readlink("/proc/%d/exe" % pid))
         except OSError as exc:
             raise ProcessExecutableUnavailable(
                 "process executable identity is unavailable"
             ) from exc
-    else:
+        return _darwin_process_executable_path(pid, libproc)
+    if sys.platform.startswith("linux"):
+        try:
+            value = os.readlink("/proc/%d/exe" % pid)
+        except OSError as exc:
+            raise ProcessExecutableUnavailable(
+                "process executable identity is unavailable"
+            ) from exc
+        return _validated_process_executable_path(value)
+    raise ProcessExecutableUnavailable(
+        "process executable identity is unsupported on this platform"
+    )
+
+
+def _darwin_process_executable_record(pid: int) -> Dict[str, Any]:
+    """Read the mapped executable vnode identity, not a loaded-byte hash.
+
+    The manifest separately re-hashes the current path through an fd-stable
+    snapshot. This sampler proves which vnode is mapped by the process; macOS
+    does not expose a process-owned executable descriptor or loaded-page hash
+    through this interface.
+    """
+
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+    except (OSError, AttributeError) as exc:
         raise ProcessExecutableUnavailable(
-            "process executable identity is unsupported on this platform"
+            "process executable identity is unavailable"
+        ) from exc
+    path_before = _darwin_process_executable_path(pid, libproc)
+    address = 0
+    identities: set[tuple[int, int]] = set()
+    completed = False
+    for _ in range(_DARWIN_MAX_REGIONS):
+        info = _DarwinProcRegionWithPathInfo()
+        size = ctypes.sizeof(info)
+        ctypes.set_errno(0)
+        try:
+            length = libproc.proc_pidinfo(
+                pid,
+                _DARWIN_PROC_PIDREGIONPATHINFO,
+                address,
+                ctypes.byref(info),
+                size,
+            )
+        except (OSError, AttributeError) as exc:
+            raise ProcessExecutableUnavailable(
+                "process executable mapped inventory is unavailable"
+            ) from exc
+        call_errno = ctypes.get_errno()
+        if length == 0:
+            if call_errno != errno.EINVAL:
+                raise ProcessExecutableUnavailable(
+                    "process executable mapped inventory ended with an error"
+                )
+            completed = True
+            break
+        if length != size or call_errno != 0:
+            raise ProcessExecutableUnavailable(
+                "process executable mapped identity is unavailable"
+            )
+        region = info.prp_prinfo
+        region_address = int(region.pri_address)
+        region_size = int(region.pri_size)
+        if (
+            region_address < address
+            or region_size <= 0
+            or region_address > _DARWIN_UINT64_MAX
+            or region_size > _DARWIN_UINT64_MAX - region_address
+        ):
+            raise ProcessExecutableUnavailable(
+                "process executable mapped identity is ambiguous"
+            )
+        next_address = region_address + region_size
+        if next_address <= address:
+            raise ProcessExecutableUnavailable(
+                "process executable mapped identity is ambiguous"
+            )
+        raw_path = bytes(info.prp_vip.vip_path).split(b"\x00", 1)[0]
+        try:
+            region_path = os.fsdecode(raw_path)
+        except UnicodeError as exc:
+            raise ProcessExecutableUnavailable(
+                "process executable mapped path is invalid"
+            ) from exc
+        vnode = info.prp_vip.vip_vi.vi_stat
+        if (
+            region_path == path_before
+            and region.pri_protection & _DARWIN_VM_PROT_EXECUTE
+        ):
+            if (
+                not stat.S_ISREG(vnode.vst_mode)
+                or vnode.vst_dev <= 0
+                or vnode.vst_ino <= 0
+            ):
+                raise ProcessExecutableUnavailable(
+                    "process executable mapped identity is invalid"
+                )
+            identities.add((int(vnode.vst_dev), int(vnode.vst_ino)))
+        address = next_address
+    if not completed:
+        raise ProcessExecutableUnavailable(
+            "process executable region inventory exceeds its bound"
         )
-    if path.is_symlink() or not path.is_file():
-        raise ProcessExecutableUnavailable("process executable path is invalid")
-    return path.resolve(strict=True)
+    path_after = _darwin_process_executable_path(pid, libproc)
+    if path_after != path_before or len(identities) != 1:
+        raise ProcessExecutableUnavailable(
+            "process executable mapped identity is ambiguous"
+        )
+    device, inode = identities.pop()
+    return {
+        "executable_path": path_before,
+        "device": device,
+        "inode": inode,
+    }
+
+
+def _linux_process_executable_record(pid: int) -> Dict[str, Any]:
+    """Open Linux's process-owned executable link and fstat that exact object."""
+
+    proc_path = "/proc/%d/exe" % pid
+    path_before = _process_executable_path(pid)
+    flags = getattr(os, "O_PATH", os.O_RDONLY) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(proc_path, flags)
+    except OSError as exc:
+        raise ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        ) from exc
+    try:
+        before = os.fstat(descriptor)
+        path_after = _process_executable_path(pid)
+        after = os.fstat(descriptor)
+    except OSError as exc:
+        raise ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        ) from exc
+    finally:
+        os.close(descriptor)
+    if (
+        path_after != path_before
+        or not stat.S_ISREG(before.st_mode)
+        or not stat.S_ISREG(after.st_mode)
+        or (before.st_dev, before.st_ino, before.st_mode)
+        != (after.st_dev, after.st_ino, after.st_mode)
+        or after.st_dev <= 0
+        or after.st_ino <= 0
+    ):
+        raise ProcessExecutableUnavailable(
+            "process executable identity changed during sampling"
+        )
+    return {
+        "executable_path": path_before,
+        "device": after.st_dev,
+        "inode": after.st_ino,
+    }
 
 
 def _process_display_record(pid: int) -> Dict[str, str]:
+    if sys.platform == "darwin":
+        record = _darwin_process_bsd_record(pid)
+        return {"start": record["start"], "command": record["command"]}
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart=,comm="],
         stdin=subprocess.DEVNULL,
@@ -334,13 +787,13 @@ def _process_display_record(pid: int) -> Dict[str, str]:
 
 
 def _process_executable_record(pid: int) -> Dict[str, Any]:
-    executable = _process_executable_path(pid)
-    details = executable.stat()
-    return {
-        "executable_path": str(executable),
-        "device": details.st_dev,
-        "inode": details.st_ino,
-    }
+    if sys.platform == "darwin":
+        return _darwin_process_executable_record(pid)
+    if sys.platform.startswith("linux"):
+        return _linux_process_executable_record(pid)
+    raise ProcessExecutableUnavailable(
+        "process executable identity is unsupported on this platform"
+    )
 
 
 def _sample_process_binding(
@@ -598,7 +1051,16 @@ class SessionRegistry:
         return self.reservations / (session + ".json")
 
     def validate(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        if set(value) != REQUIRED_FIELDS or value.get("schema_version") != 1:
+        if not isinstance(value, dict):
+            raise ValidationError("session registry root must be an object")
+        schema_version = value.get("schema_version")
+        if schema_version in LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS:
+            raise UnsupportedError(
+                "legacy session registry lacks authoritative runtime execution identity"
+            )
+        if schema_version != SESSION_REGISTRY_SCHEMA_VERSION:
+            raise ValidationError("unsupported session registry schema")
+        if set(value) != REQUIRED_FIELDS:
             raise ValidationError("session registry fields do not match schema")
         validate_identifier(value.get("session"), "session")
         validate_identifier(value.get("controller"), "controller")

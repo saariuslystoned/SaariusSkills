@@ -11,9 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
-from puppet_lib.errors import ValidationError  # noqa: E402
+from puppet_lib.errors import UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import (  # noqa: E402
     CONFORMANCE_PROTOCOL_DESCRIPTOR,
+    HANDOFF_SCHEMA_VERSION,
     PROTOCOL_FINGERPRINT,
     validate_handoff,
 )
@@ -25,7 +26,7 @@ FP = "a" * 64
 
 def base_handoff():
     return {
-        "schema_version": 1,
+        "schema_version": HANDOFF_SCHEMA_VERSION,
         "checkpoint_kind": "conformance",
         "session": "agy-proof",
         "run_id": "run-1",
@@ -35,7 +36,7 @@ def base_handoff():
         "executable_fingerprint": FP,
         "execution_fingerprint": "d" * 64,
         "adapter_fingerprint": "b" * 64,
-        "protocol_fingerprint": "c" * 64,
+        "protocol_fingerprint": PROTOCOL_FINGERPRINT,
         "timestamp": "2026-07-22T02:00:00Z",
         "claims": [],
         "evidence_refs": ["evidence/identity.json"],
@@ -60,6 +61,41 @@ class HandoffTests(unittest.TestCase):
             PROTOCOL_FINGERPRINT,
             hashlib.sha256(b"PUPPET_CONFORMANCE_V1").hexdigest(),
         )
+        self.assertEqual(
+            CONFORMANCE_PROTOCOL_DESCRIPTOR["name"], "PUPPET_CONFORMANCE_V2"
+        )
+
+    def test_handoff_schema_versions_and_mixed_protocol_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "handoff.json"
+            legacy = base_handoff()
+            legacy["schema_version"] = 1
+            write_json(path, legacy)
+            with self.assertRaisesRegex(UnsupportedError, "legacy handoff"):
+                validate_handoff(path, allowed_roots=[root])
+
+            future = base_handoff()
+            future["schema_version"] = HANDOFF_SCHEMA_VERSION + 1
+            write_json(path, future)
+            with self.assertRaisesRegex(ValidationError, "unsupported handoff"):
+                validate_handoff(path, allowed_roots=[root])
+
+            incomplete = base_handoff()
+            incomplete.pop("execution_fingerprint")
+            write_json(path, incomplete)
+            with self.assertRaisesRegex(ValidationError, "fields"):
+                validate_handoff(path, allowed_roots=[root])
+
+            mixed = base_handoff()
+            mixed["protocol_fingerprint"] = "c" * 64
+            write_json(path, mixed)
+            with self.assertRaisesRegex(ValidationError, "protocol_fingerprint"):
+                validate_handoff(
+                    path,
+                    allowed_roots=[root],
+                    expected={"protocol_fingerprint": PROTOCOL_FINGERPRINT},
+                )
 
     def test_ready_conformance_is_source_free(self):
         with tempfile.TemporaryDirectory() as temporary:

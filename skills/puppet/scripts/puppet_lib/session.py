@@ -23,7 +23,7 @@ from .campaign import (
     parallel_target_override,
     validate_campaign_authorization,
 )
-from .conformance import tree_fingerprint
+from .conformance import tree_fingerprint, validate_fixture_contract
 from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import ValidatedHandoff, validate_handoff
@@ -36,6 +36,7 @@ from .journal import Journal
 from .launch import build_launch_identity
 from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
 from .registry import (
+    SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     bind_runtime_process,
     process_alive,
@@ -441,35 +442,12 @@ def _runtime(
 def _fixture_contract(contract: Contract, session: str) -> Dict[str, Any]:
     path = contract.repo / "contract.json"
     fixture = read_json(path, max_bytes=32768, reject_sensitive_fields=True)
-    required = {
-        "schema_version",
-        "checkpoint_kind",
-        "run_id",
-        "session",
-        "nonce",
-        "target",
-        "protocol_fingerprint",
-        "allowed_fixture_root",
-        "allowed_actions",
-        "forbidden_actions",
-    }
-    if set(fixture) != required or fixture.get("schema_version") != 1:
-        raise ValidationError("conformance fixture contract fields do not match schema")
-    if fixture.get("checkpoint_kind") != "conformance":
-        raise ValidationError("fixture is not a conformance contract")
-    if fixture.get("session") != session or fixture.get("target") != contract.target:
-        raise ValidationError("fixture session or target identity mismatch")
-    validate_identifier(fixture.get("run_id"), "run id")
-    validate_identifier(fixture.get("nonce"), "nonce")
-    if fixture.get("allowed_fixture_root") != str(contract.repo):
-        raise ValidationError("fixture root identity mismatch")
-    if fixture.get("allowed_actions") != [
-        "read_contract",
-        "write_bounded_handoffs",
-        "wait_for_halt",
-    ]:
-        raise ValidationError("fixture allowed actions changed")
-    return fixture
+    return validate_fixture_contract(
+        fixture,
+        root=contract.repo,
+        session=session,
+        target=contract.target,
+    )
 
 
 def _protocol_state(
@@ -528,7 +506,7 @@ def _initial_envelope(
     gates = ",".join(sorted(contract.hard_gates))
     modes = ",".join(sorted(contract.allowed_modes))
     return (
-        "PUPPET_SESSION_V1\n"
+        "PUPPET_SESSION_V2\n"
         "session=%s\ncontroller=%s\ntarget=%s\nrun_id=%s\nnonce=%s\n"
         "mutation_owner=%s\nallowed_modes=%s\nhard_gates=%s\n"
         "Controller acceptance is authoritative; target claims are nonterminal.\n\n%s"
@@ -548,7 +526,7 @@ def _initial_envelope(
 
 def _followup_envelope(protocol: Dict[str, Any], message_id: str, message: str) -> str:
     return (
-        "PUPPET_FOLLOWUP_V1\nrun_id=%s\nnonce=%s\nmessage_id=%s\nsequence=1\n"
+        "PUPPET_FOLLOWUP_V2\nrun_id=%s\nnonce=%s\nmessage_id=%s\nsequence=1\n"
         "prior_checkpoint_sha256=%s\n\n%s"
         % (
             protocol["run_id"],
@@ -920,7 +898,7 @@ def launch(
         )
         lease_active = True
         record = {
-            "schema_version": 1,
+            "schema_version": SESSION_REGISTRY_SCHEMA_VERSION,
             "session": session,
             "controller": contract.controller,
             "target": contract.target,

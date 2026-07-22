@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Optional
 
-from .errors import ValidationError
+from .errors import UnsupportedError, ValidationError
 from .safety import (
     canonical_json_bytes,
     ensure_within,
@@ -20,6 +20,8 @@ from .safety import (
 
 
 MAX_HANDOFF_BYTES = 65536
+HANDOFF_SCHEMA_VERSION = 2
+LEGACY_HANDOFF_SCHEMA_VERSIONS = frozenset({1})
 COMMON_FIELDS = {
     "schema_version",
     "checkpoint_kind",
@@ -48,8 +50,8 @@ CONFORMANCE_FIELDS = COMMON_FIELDS | {
     "prior_checkpoint_sha256",
 }
 CONFORMANCE_PROTOCOL_DESCRIPTOR = {
-    "schema_version": 1,
-    "name": "PUPPET_CONFORMANCE_V1",
+    "schema_version": HANDOFF_SCHEMA_VERSION,
+    "name": "PUPPET_CONFORMANCE_V2",
     "checkpoint_kind": "conformance",
     "fields": sorted(CONFORMANCE_FIELDS),
     "phases": {
@@ -157,7 +159,12 @@ def validate_handoff(
     expected: Optional[Dict[str, Any]] = None,
 ) -> ValidatedHandoff:
     matched, raw, data = _read_handoff(path, allowed_roots)
-    if data.get("schema_version") != 1:
+    schema_version = data.get("schema_version")
+    if schema_version in LEGACY_HANDOFF_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy handoff schema lacks authoritative runtime execution identity"
+        )
+    if schema_version != HANDOFF_SCHEMA_VERSION:
         raise ValidationError("unsupported handoff schema")
     kind = data.get("checkpoint_kind")
     if kind not in {"source", "conformance"}:
