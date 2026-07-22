@@ -173,6 +173,13 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - `skills/puppet/scripts/puppet_lib/probe.py`
   - add model/effort capture for default model observation and tie it to probe evidence.
   - expand resume/handoff assertions for Codex-specific resume path and no-bleed gates.
+- `skills/puppet/scripts/puppet_lib/codex_launch.py`
+  - add a source-only Codex launch-context gate:
+    - manifest target/fingerprint/version/path binding against exact `/opt/homebrew/bin/codex`,
+    - doctor-only manifest enforcement for source-only regular sessions,
+    - 0700 private lane/workspace/CODEX_HOME checks and non-overlap,
+    - closed launch environment built from empty ambient state, and
+    - candidate-process evidence collection with malformed evidence fail-closed.
 - `tests/test_puppet_adapters.py` and `tests/test_puppet_probe.py`
   - codex-specific test cases for all three planes, no-bleed and resume ambiguity,
     plus one test for isolated `CODEX_HOME` noninterference.
@@ -180,6 +187,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   - add allowlisted environment and exact absolute `-C`/profile bindings
     without a shell wrapper or instruction/credential body in argv, state, or
     proof.
+
+- `tests/test_puppet_codex_launch.py`
+  - source-only Codex launch gate tests covering manifest binding, path/version checks,
+    candidate-process call shape, no-ambient env, and auth token non-leak behavior.
 
 ## 7) Blockers and stop criteria
 
