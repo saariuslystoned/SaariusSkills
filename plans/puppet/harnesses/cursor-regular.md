@@ -14,8 +14,8 @@
 ### Facts observed
 
 - Executable discovery by command census:
-  - `command -v cursor-agent` -> `/Users/bobbybones/.local/bin/cursor-agent`
-  - resolved executable path: `/Users/bobbybones/.local/share/cursor-agent/versions/2026.07.17-3e2a980/cursor-agent`
+  - `cursor-agent` resolves through an operator-local symlink to the versioned
+    2026.07.17-3e2a980 binary; the exact absolute path remains machine-private.
 - Version / help hashes:
   - `cursor-agent --version` -> `2026.07.17-3e2a980`
   - executable SHA-256: `eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831`
@@ -29,7 +29,7 @@
   - `session_profiles`: `{"regular": ""}`
   - `startup_settle_seconds`: `8.0`
   - `submit_settle_seconds`: `1.0`
-  - `launch_argv`: `["/Users/bobbybones/.local/share/cursor-agent/versions/2026.07.17-3e2a980/cursor-agent","--yolo","--sandbox","disabled"]`
+  - `launch_argv`: exact resolved executable plus `--yolo --sandbox disabled`
   - capabilities declared: `launch/send/status/wait/checkpoint/resume/halt` = `declared`
   - manifest state: `doctor_only = true` until qualified
   - `adapter_fingerprint` matches other lanes:
@@ -55,21 +55,29 @@
 
 The lane maps three candidate planes to minimize prompt-in-argv risk:
 
-- **Plane 1: session profile plane (declared highest priority candidate)**
-  - Activation: `session_profile=regular` in contract; applied via `adapter.envelope(..., initial=True)` as first
-    message prefix.
-  - Scope: first message only; follow-up send uses unprefixed body.
-  - Cleanup: only session/process lease controls; no global file mutation expected when launched with fixture root.
+`session_profile=regular` is the active unprefixed lifecycle selection, not an
+instruction plane.
 
-- **Plane 2: workspace/repository addendum plane (hypothesized)**
-  - Activation candidates: `--workspace`, `--add-dir`, `-w/--worktree`, `--worktree-base` and/or run-path.
-  - Unknowns: precedence and inheritance between worktree setup and workspace roots.
-  - Cleanup: lane-owned fixture directories and worktree path only.
+- **Plane 1: session-selected harness-global Puppet addendum**
+  - Cursor User Rules are the supported all-project surface, but the current CLI
+    exposes no public per-run User Rules profile selector.
+  - Keep this candidate unsupported until an isolated, reversible activation
+    path is proved. Never mutate live User Rules during launch.
+
+- **Plane 2: workspace/repository addendum plane (supported, unqualified)**
+  - Candidate surfaces are `.cursor/rules/*.mdc`, `AGENTS.md`, and documented
+    compatibility rules. Workspace/worktree flags choose scope but are not
+    themselves instruction injection.
+  - Prove precedence and preserve existing repo rules in the isolated worktree.
 
 - **Plane 3: additive per-run system-instruction plane**
-  - Candidate: non-argv alternatives only (no proven equivalent found in current help other than `generate-rule`
-    command flow).
-  - Current status: unresolved; do not claim until fixture proof exists.
+  - No supported public primary-agent system-prompt append/file flag was found.
+    The installed internal-only flag is not a product contract.
+  - Keep this plane unsupported; `generate-rule` is an authoring command, not a
+    run-scoped instruction transport.
+
+Official surface references: `https://docs.cursor.com/context/rules-for-ai`
+and `https://docs.cursor.com/en/cli/using`.
 
 ## 3) Default-model observation plan
 
@@ -94,8 +102,9 @@ The lane maps three candidate planes to minimize prompt-in-argv risk:
   `runs/puppet-v01-regular-qualification-20260722/lanes/cursor/` with dedicated
   temporary directories for workspace/worktree experiments.
 - Keep all evidence under lane-owned fixture and run roots.
-- Avoid touching `~/.cursor`, `~/.local/share/cursor-agent` user-default config outside fixture scope unless
-  explicitly approved.
+- Do not read or modify live Cursor User Rules or config contents. The installed
+  executable may be fingerprinted read-only; configuration proof stays inside
+  lane-owned fixture/worktree surfaces.
 - Re-run all cursors probes when executable, manifest hash, or help hash changes.
 
 ## 6) Required Puppet source deltas for this lane

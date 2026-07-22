@@ -31,6 +31,8 @@ conversation.
 - [`instruction-qualification.md`](instruction-qualification.md) records the
   post-closeout decisions on instruction composition, workspace ownership,
   regular-session scope, concurrency, models, and deferred native commands.
+- [`harnesses/`](harnesses/) contains exact-version static maps and live-test
+  deltas for the five independent regular-session lanes.
 - [`codex-goal.md`](codex-goal.md) is the historical bootstrap goal packet. Its
   unchanged safety, evidence, and controller-authority clauses still apply,
   but its serial/profile-specific requirements are superseded by the active

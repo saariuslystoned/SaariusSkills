@@ -9,7 +9,8 @@ fixture/test design only. No live target launch in this lane.
 ### Facts (from read-only census + source/tests)
 
 - Executable discovered by `census_target`/command checks:
-  - Requested path: `agy` (resolved `/Users/bobbybones/.local/bin/agy`)
+  - Requested path: `agy` (the exact operator-local absolute path is retained
+    in the machine-private lane proof)
   - SHA-256: `6509d6ca54a66e3eaf61dfe35308ba1dfa1e6b552ef5c4f5f861562c6811ecaf`
   - `--version` output: `1.1.5`
   - `version_sha256`: `1c60df040a80b6d2e3f56442b17d127d8620cd773873e6e1353362f989b1deca`
@@ -31,12 +32,14 @@ fixture/test design only. No live target launch in this lane.
   - `session_profiles`: `regular=""`, `goal="/goal"`, `teamwork-preview="/teamwork-preview"`
   - `startup_settle_seconds`: `8.0`
   - `submit_settle_seconds`: `1.0`
-  - `launch_argv`: `["/Users/bobbybones/.local/bin/agy","--dangerously-skip-permissions","--new-project"]`
+  - `launch_argv`: exact resolved executable plus
+    `--dangerously-skip-permissions --new-project`
   - declared capabilities map currently `declared` for launch/send/status/wait/checkpoint/resume/halt
     but manifest is `doctor_only: true` until qualification/receipt.
-- Source evidence:
-  - `profiles.default_session_profile("agy")` currently returns `"teamwork-preview"` (and this
-    is used when contract omits `session_profile`).
+- Source evidence at the admitted lane base:
+  - `profiles.default_session_profile("agy")` returned `"teamwork-preview"`.
+    Integration commit `45f728f` changed the default to `regular` and made the
+    resolved profile part of canonical contract identity.
   - `Adapter.envelope()` allows exactly one native profile prefix on initial send,
     rejects caller-supplied slash-prefixes (`/goal`, `/teamwork-preview`, `/btw`, `/side`) on follow-ups.
   - AGY graceful halt action is `tmux_pane_eof` (twice if still alive).
@@ -59,25 +62,29 @@ fixture/test design only. No live target launch in this lane.
 
 ## 2) Instruction planes for AGY regular lane
 
-### Plane 1: session-selected profile (known; this is the only active adapter-native plane today)
-- Precedence hypothesis: this is AGY’s primary selector for how initial message is delivered.
-- Activation: set `session_profile` in contract; at launch only.
-- Cleanup: session profile belongs to session lifecycle (`contract_fingerprint` + session lease).
-- AGY-specific constraints:
-  - `regular` => initial message must remain unprefixed.
-  - `goal`/`teamwork-preview` should be deferred in this lane and preserved only as deferred evidence.
+`session_profile=regular` is Puppet's lifecycle selection and produces an
+unprefixed message. It is not one of the three instruction planes.
 
-### Plane 2: workspace/repository addendum plane (unknown / likely unsupported)
-- Precedence hypothesis: likely fallback behavior if any exists through repo context (`tmux -c <repo>`).
-- Activation: unresolved from static contract/tests for AGY-specific instruction overlays.
-- Cleanup: no dedicated cleanup proven.
-- Current status: does not appear as explicit command-plane override; needs proof or deliberate disablement.
+### Plane 1: session-selected harness-global Puppet addendum (unknown)
+- No supported AGY profile/catalog or isolated global instruction root was
+  established by the exact-version help/census.
+- Do not infer one from another harness or write the operator's global files.
+- This plane remains hard-disabled until native activation, precedence,
+  isolation, and rollback are controller-proved.
 
-### Plane 3: per-run system instruction / native equivalent (unknown)
-- Precedence hypothesis: only possible through message envelope/prompt body, not CLI flag.
-- Activation: unresolved (no declared `--append-system-prompt`/global instruction flag in AGY help).
-- Cleanup: none proven.
-- Current status: no proven additive instruction-plane override; must treat as hypothesis.
+### Plane 2: workspace/repository addendum plane (observed, unqualified)
+- Operator field work indicates worktree `AGENTS.md` wording materially affects
+  AGY/Gemini behavior, but its discovery order and interaction with existing
+  repository instructions are not controller-proved for this executable.
+- A fixture must add only scoped orchestration guidance without replacing the
+  repository contract, then prove exact discovery and cleanup.
+
+### Plane 3: additive per-run system instruction / native equivalent (unknown)
+- No supported additive system-instruction flag or file transport was found in
+  exact-version help.
+- The ordinary task prompt is not sufficient to claim a native instruction
+  plane. Keep this candidate unsupported unless a native additive path is
+  proved without putting instruction bodies in argv.
 
 ## 3) Default-model observation plan
 
@@ -93,7 +100,7 @@ fixture/test design only. No live target launch in this lane.
 | Surface | Planned action | Expected evidence | Stop criteria |
 |---|---|---|---|
 | Launch | `regular` profile, one isolated fixture root, pre-verified manifest | launch intent, activation, startup settle (8.0s), target identity stable after settle, registered pane | Pass to `ACTIVE` with exact manifest/process/tmux identity |
-| Launch | any launch with omitted/implicit `session_profile` | contract default resolution currently maps to `teamwork-preview` | Block as lane-level design mismatch unless lane chooses explicit regular profile |
+| Launch | omitted or explicit `session_profile` | canonical contract resolves both to `regular` | Pass only when both forms bind the same effective contract identity |
 | Resume | `resume` API invocation under regular profile | explicit refusal unless capability is requalified | Block and record as `unsupported` unless runtime contract changes |
 | Steer | follow-up via `send` with ordinary text (`initial=False`) | one `send` delivery, no extra prefix injection | Pass if plain message accepted; no profile-prefix in follow-up |
 | Halt | graceful stop with EOF behavior | one EOF when target transitions to stopped, exactly once on already-complete target | Pass if no false repeated halt attempts and no target overrun |
@@ -105,15 +112,15 @@ fixture/test design only. No live target launch in this lane.
 - No fixture may read or mutate live `agy` global config/home artifacts.
 - During this lane’s static work, AGY config isolation remains a required TODO because no explicit
   `agy` config-root CLI control is proven from current `--help`.
-- Source delta required before live execution:
-  - deterministic `HOME`/fixture root injection at launch path (or equivalent launcher profile),
-    plus explicit cleanup of fixture artifacts.
+- Source delta required before live execution: a proved native isolated config
+  mechanism or a fail-closed unsupported verdict. Do not assume overriding
+  `HOME` is safe because it may also change authentication and unrelated state.
 - Any config-root override must remain per-lane and never cross-target.
 
 ## 6) Required Puppet source deltas for this lane
 
-- Change AGY defaulting (`profiles.default_session_profile`) or contract binding so this regular lane cannot
-  accidentally run with `teamwork-preview`.
+- Preserve and test integration commit `45f728f`, which makes `regular` the
+  canonical default and prevents implicit `teamwork-preview` selection.
 - Add explicit regular-plane fixture proving steps for `session_profile=regular` in source.
 - Add explicit model-observation handling (or explicit-block strategy) for omitted `--model`.
 - Make resume outcome explicit in capability proof (currently not promoted by resume contract).
@@ -127,6 +134,6 @@ fixture/test design only. No live target launch in this lane.
   - No launch/modify path may touch live AGY configs/home.
   - Default model/effect remains unresolved without live default-observation evidence.
 - Stop criteria:
-  - `agy` regular profile must be bound as the selected plane for regular lane,
-    with clean `launch -> steer -> halt` and no-bleed control captured by fixture,
-    plus explicit blocker handling for unsupported resume.
+  - one native instruction plane must win or the harness must fail closed;
+    regular lifecycle must show clean `launch -> steer -> halt` and a no-bleed
+    control, plus explicit handling for unsupported resume.

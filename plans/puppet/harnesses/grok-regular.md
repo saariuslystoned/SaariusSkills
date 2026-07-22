@@ -13,7 +13,8 @@
 
 ### Facts observed
 
-- Executable resolution: `command -v grok` -> `/Users/bobbybones/.local/bin/grok`.
+- Executable resolution is an operator-local `grok` binary; the exact absolute
+  path remains in the machine-private lane proof.
 - Version:
   - `grok --version` -> `grok 0.2.106 (bde89716f679)`.
   - `grok version --json` -> `{"currentVersion":"0.2.106 (bde89716f679)","channel":"unknown"}`.
@@ -25,8 +26,8 @@
     `--model`, `--reasoning-effort`, `--always-approve`, and `--sandbox`.
   - command surface includes `agent`, `sessions`, `inspect`, `worktree`, `models`, and `trace`.
 - `grok --help` does **not** display `--append-system-prompt`.
-- `grok inspect` (default environment) reports:
-  - config source user layer `/Users/bobbybones/.grok/config.toml`, project layer `(none)`;
+- `grok inspect` (default environment) reports a user config layer under the
+  operator's Grok home and no project layer; contents were not read.
   - environment version `0.2.106`, project root and trust true;
   - external-compat surfaces enabled for cursor/claude/codex session integration.
 - `grok models` output:
@@ -48,7 +49,7 @@
 
 ## 2) Instruction plane mapping: precedence, activation, cleanup
 
-### Plane A: home/profile plane
+### Plane A: session-selected harness-global Puppet addendum
 
 - Candidate: isolated harness-global plane via dedicated Grok profile/agent settings and global config
   under isolated `GROK_HOME`.
@@ -57,7 +58,8 @@
     (exact file path and schema verified during implementation, not here).
   - launch argument should avoid prompt text in argv.
 - Cleanup candidate:
-  - delete/replace only fixture-owned `GROK_HOME` tree.
+  - preserve fixture-owned `GROK_HOME` as evidence until exact rollback and
+    cleanup are separately authorized;
   - preserve non-owned live directories untouched.
 - Unknowns:
   - exact precedence between `--agent` and additive per-run instruction input.
@@ -73,25 +75,28 @@
   - ensure project/root discovery remains visible in `grok inspect`.
 - Cleanup candidate:
   - remove fixture-only repository artifacts and confirm no root or sibling repo files are modified.
-- Unknowns:
-  - exact project instruction filename/acceptance order for Grok Build in this version.
-  - precedence with global `GROK_HOME` layer and live user files.
+- Grok documents named `AGENTS.md`/Claude-compatible files and `.grok/rules`
+  from repo root toward cwd; exact conflict behavior still needs live proof.
 
-### Plane C: additive per-run plane (`--rules` / `--append-system-prompt`)
+### Plane C: additive per-run plane (`--rules`)
 
 - Candidate: one-shot runtime transport in launch argv:
   - mandatory candidate from observed help is `--rules <RULES>` (append behavior in help text).
-  - potential compatibility plane from historical alias `--append-system-prompt` to be confirmed by
-    docs/flag probing before live claim.
-  - also evaluate `--system-prompt-override` compat flag interactions.
+  - `--append-system-prompt` is not exposed by this exact help surface, though
+    current official CLI documentation lists it as a Claude-compatible alias;
+  - `--system-prompt-override` is replacement behavior and forbidden.
 - Activation candidate:
   - pass non-empty additive rule payload and capture that launch remains non-interactive and argv-safe.
 - Cleanup candidate:
   - no config writes expected if true runtime-only additive plane; if serialized, ensure lane-local and
     immediate cleanup.
-- Unknowns:
-  - whether payload is accepted as additive instruction vs hard replacement.
-  - whether this plane bleeds into ordinary sessions under `GROK_HOME` isolation.
+- A literal `--rules` payload appears in argv and therefore fails Puppet's
+  prompt-body transport gate. Keep this plane unsupported unless a native file
+  or stdin form is proved.
+
+Official surface references:
+`https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/12-project-rules.md`
+and `https://docs.x.ai/build/cli/reference`.
 
 ## 3) Current-default model observation
 
@@ -175,7 +180,8 @@
   - `--append-system-prompt` not surfaced in current help; needs external-source confirmation.
   - sandbox-off semantics are not currently proven for regular exact-YOLO; `--sandbox` behavior must be
     confirmed in harness context.
-  - no-bleed proof cannot be accepted without ordinary-session control in same repository family.
+  - no-bleed proof cannot be accepted without an ordinary-session control in
+    the same repository family.
 - Stop condition:
   - If any one of: launch, follow-up, resume, halt, or no-bleed cannot be proven exact against the
     current executable/version tuple, mark Grok lane as `experimental`/`unsupported` by gate for this tuple and

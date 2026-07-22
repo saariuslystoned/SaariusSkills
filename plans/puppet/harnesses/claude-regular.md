@@ -42,35 +42,47 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 
 - Default model/effort identity is unresolved unless explicitly passed with
   `--model` / `--effort`; static census can confirm flag names only.
-- `/loop` runtime semantics are unproven in a real harness fixture.
+- `/loop` runtime semantics are unproven and deferred from this regular lane.
 - Workspace / project addendum behavior is not proven from `--help` (`--settings`,
   `--setting-sources`, and `--session-id` are declared, but bleed boundaries are not proved).
-- Per-run additive system layer is available via CLI flags (`--append-system-prompt`,
-  `--system-prompt`) yet not used in source to avoid prompt-in-argv transport and requires explicit
-  conformance proof before selection.
+- A per-run additive layer is declared by `--append-system-prompt`;
+  `--system-prompt` is replacement behavior and forbidden. Literal prompt
+  flags still fail Puppet's no-prompt-in-argv gate.
 - Live default-model observation command was not discovered from static help; a prior direct
   `claude models` probe did not produce output before being interrupted.
 
 ## 2) Instruction plane map for this version
 
-### Plane 1: session-selected profile plane (candidate winner)
-- Activation: `session_profile` in the contract; only prefixed on initial message.
-- Known selectors: `regular`, `loop`, `goal`.
-- Cleanup: session-local process/lease cleanup only; no global config touch expected from source.
-- Risk: `/loop` runtime behavior is unproven; must be validated in a separate conformance
-  row before promotion.
+`session_profile=regular` is the active unprefixed lifecycle selection. `/loop`
+and `/goal` remain deferred commands, not instruction planes.
 
-### Plane 2: workspace/repository addendum plane (unproven)
-- Activation candidates: launcher/config source path (`--settings`, `--setting-sources`) plus local repo.
-- Cleansheet requirement: keep generated settings under lane-owned fixture and verify ordinary
-  sessions remain unchanged.
-- Current status: hypothesis only; no direct proof in this static lane.
+### Plane 1: session-selected harness-global Puppet addendum
+- Claude supports user `CLAUDE.md`/rules and selectable setting sources. Test a
+  Puppet-namespaced user layer only inside an isolated home/config root.
+- Do not use `--agent` as the default route: it replaces the main-session system
+  prompt. Prove exact activation, built-in retention, and no bleed before
+  selecting this plane.
 
-### Plane 3: additive per-run system-instruction plane (deferred)
-- Candidates from docs: `--append-system-prompt` and `--system-prompt`.
-- Hard constraint from source: all launch messaging must stay out of argv; this plane likely
-  violates no-prompt-in-argv constraints unless implemented via non-argv transport.
-- Current status: unsupported for this lane's regular baseline until source proof exists.
+### Plane 2: workspace/repository addendum plane (supported, unqualified)
+- Claude discovers project/local `CLAUDE.md` and `.claude/rules` surfaces.
+- Add only scoped orchestration guidance in an isolated worktree, preserving
+  existing repository authority, then prove discovery order and cleanup.
+
+### Plane 3: additive per-run system-instruction plane (candidate)
+- `--append-system-prompt` is additive, while `--system-prompt` is replacement
+  and forbidden. A file variant is mentioned by exact-version help but still
+  is not listed as its own help row.
+- Current official CLI documentation explicitly defines
+  `--append-system-prompt-file <path>` for interactive and non-interactive
+  sessions and says it preserves default tools, safety, and coding guidance.
+  The instruction body therefore need not enter argv. Exact-binary parsing,
+  additive behavior, and no-bleed still require isolated live proof.
+- Literal prompt flags expose instruction text in argv and fail closed; the
+  lane-owned file form is the viable candidate.
+
+Official surface references: `https://code.claude.com/docs/en/memory`,
+`https://code.claude.com/docs/en/cli-usage`, and the installed exact-version
+`claude --help` output.
 
 ## 3) Default-model observation plan
 
@@ -88,7 +100,7 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 | Surface | Planned action | Exact expected evidence | Stop criteria |
 | --- | --- | --- | --- |
 | Launch | `session_profile=regular`, contract-bound fixture, no `--model`/`--effort` | `launch` transitions active, startup settle succeeds, manifest/process/socket/lease identities remain exact | blocked if manifest drift or post-launch process mismatch |
-| Launch | `session_profile=loop` / `goal` | initial envelope prefix only on first input; same stability checks as regular | block and downgrade to hypothesis if `/loop` or `/goal` does not create exact, bounded initial handshake |
+| Plane control | selected instruction plane plus ordinary control | marker appears only in Puppet checkpoint; built-ins and repo rules remain active | blocked on bleed, replacement, or precedence ambiguity |
 | Resume | reuse any resume API during same session profile | no supported capability in current contract; resume is treated as unsupported | hard stop; must be supported by explicit resume contract before lane promotion |
 | Steer | ordinary follow-up via `send` with initial=False | no slash prefix injected, one delivery event, fixture handoff advances once | blocked if prefix appears in argv or message body |
 | Halt | exact process shutdown via adapter halt action | exact pid `SIGINT` sequence, `HALTED`, no process bleed | blocked if process does not stop or registry/tmux evidence changes |
@@ -112,17 +124,18 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 - Extend `skills/puppet/scripts/puppet_lib/census.py` / `adapter_manifest.py` tests if
   future evidence is added for isolated settings sources so source-free mapping can prove real
   bleed boundaries for `/settings`-based addendum experiments.
-- Add explicit probe fixtures/tests for Claude `loop` profile precedence and resume unsupported.
+- Keep Claude `/loop` and `/goal` evidence in the deferred command map; do not
+  make either a regular-baseline gate.
 - Add no-bleed regression assertions for fixture-root-only settings handling.
 
 ## 7) Blockers and stop criteria
 
 - Hard blockers:
   - No live default-model proof yet; cannot declare `model_default` exact.
-  - `/loop` behavior unproven.
   - Resume is unsupported under current source for this lane.
   - Any static path or launch command that injects prompt text in argv.
 - Stop criteria:
   - Do not move past static mapping until `session_profile=regular` is proven in fixture with
     launch/steer/halt sequence and explicit no-bleed gate.
-  - Keep lane at `mapping` if default model, loop, or addendum control remains unresolved.
+  - Keep lane at `mapping` if the default model or every safe instruction-plane
+    candidate remains unresolved.

@@ -18,8 +18,8 @@
 - Binary hash (SHA-256): `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
 - `codex --help` declares `--model`, `--sandbox`, `--profile`, `--c` overrides,
   `resume`, and an `--json`/`--summary` style diagnosis path via `doctor`.
-- `codex --help` help output includes `--goal` equivalent via profile routing:
-  `session_profile` options for Codex are `regular` and `goal`.
+- Puppet source declares `session_profile` values `regular` and `goal`; this is
+  not a claim from `codex --help`, and `goal` is deferred from the active baseline.
 - `codex doctor --json` reports loaded config model as `gpt-5.6-sol` (model provider
   `openai`) in the current environment.
 - `codex doctor --json` in isolation (`CODEX_HOME=<temp>`) loads defaulted config,
@@ -27,8 +27,8 @@
 
 ### Hypotheses requiring proof
 
-- `codex --help` output alone is insufficient for instruction-plane precedence:
-  session-prefix `/goal` vs config-level profile vs fixture/runtime instructions.
+- `codex --help` output alone is insufficient for instruction-plane precedence
+  among global profiles, project guidance, and per-run instructions.
 - `codex resume` may rebind the registered session in ways that differ from non-AGY
   harnesses; resume behavior is not equivalent across harnesses.
 - Default model reporting from `doctor` may differ by authenticated vs unauthenticated
@@ -36,33 +36,33 @@
 
 ## 2) Instruction planes: precedence, activation, cleanup unknowns
 
-The lane uses the exact `session_profile` contract values for `regular` and `goal`.
+`session_profile=regular` is the active unprefixed lifecycle selection, not an
+instruction plane.
 
-- **Plane 1: session-selected harness-native profile (highest priority candidate)**
-  - Activation: `session_profile` from contract, transformed via
-    `adapter.envelope(..., initial=True)` and injected as initial message prefix.
-  - Precedence candidate: highest for this exact version because it uses first-prompt
-    command routing and keeps prompt body out of argv.
-  - Cleanup: no config writes outside fixture; only contract-scoped process
-    ownership and session lease cleanup.
-  - Unknowns: whether `/goal` requires one specific trust gate in the fixture
-    before `ready.json` is written, and whether `/goal` remains required after the first
-    fixture message.
+- **Plane 1: session-selected harness-global Puppet profile**
+  - Official Codex configuration supports `--profile <name>`, which layers
+    `$CODEX_HOME/<name>.config.toml` over the base user config.
+  - Candidate Puppet profiles may use additive `developer_instructions`; never
+    use `model_instructions_file`, which replaces built-in base instructions.
+  - Qualification must use an isolated `CODEX_HOME`, prove auth still works
+    without copying credentials, and show that a control session without the
+    selected profile receives no Puppet instruction.
 
-- **Plane 2: repository/workspace addendum / local config-plane**
-  - Activation candidate: `-p <CONFIG_PROFILE_V2>` and/or `-c` overrides to
-    `$CODEX_HOME/<name>.config.toml`.
-  - Unknowns: exact effective precedence between `-p` profile, `-c` overrides,
-    session prefix (`/goal`), and workspace working-dir (`-C`) in this exact build.
-  - Cleanup unknowns: whether profile artifacts remain under `CODEX_HOME` and whether
-    stale profile files can bleed into ordinary sessions.
+- **Plane 2: repository/workspace addendum**
+  - Codex discovers root-to-cwd `AGENTS.md` guidance and trusted project
+    `.codex/config.toml` layers; closer guidance/config wins conflicts.
+  - The fixture must preserve existing repository instructions. Prefer a scoped
+    additive project layer or nested fixture over overwriting an existing file.
+  - Exact discovery, trust behavior, and cleanup remain live proof requirements.
 
-- **Plane 3: additive per-run system instruction-equivalent input**
-  - Activation candidate: prompt body as stdin plus profile/`--config` overrides.
-  - Unknowns: whether this can be modeled as a persistent contract without global
-    writes and without any `/goal` profile at all.
-  - Cleanup unknowns: whether per-run input gets memoized in any durable Codex rollout
-    artifacts even under isolate roots.
+- **Plane 3: additive per-run system instruction**
+  - `-c developer_instructions=...` is additive, but a literal instruction body
+    would be exposed in argv and therefore fails Puppet's transport gate.
+  - Keep this plane unsupported unless a current native file/stdin/app-server
+    path is proved additive and transcript-blind.
+
+Official surface references: Codex manual sections “Custom instructions with
+AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Overrides.”
 
 ## 3) Current-default model observation plan
 
@@ -86,10 +86,10 @@ The lane uses the exact `session_profile` contract values for `regular` and `goa
    - Expected: accepted launch with no prompt in argv, one PID-bound process snapshot,
      and fixture `ready.json` ready-phase acknowledgment.
 
-2. **Launch regular with `/goal` prefix**
-   - Input: `session_profile=goal`, initial envelope prefixed.
-   - Expected: same process identity contract as regular launch plus deterministic
-     ready/follow-up sequence and zero ordinary-session pollution.
+2. **Instruction-plane control**
+   - Input: selected candidate plane plus a matched ordinary control without it.
+   - Expected: exact contract marker only in the Puppet-owned checkpoint and no
+     activation in the control session.
 
 3. **Follow-up steering**
    - Input: second message via controller send (non-prefix) on same session.
@@ -120,8 +120,8 @@ The lane uses the exact `session_profile` contract values for `regular` and `goa
   `~/.codex/config.toml` during this lane.
 - Launch commands with explicit `-C <fixture-repo>` and no `ChatGPT.app`-specific
   project assumptions.
-- Cleanup boundary: delete/replace only lane-owned `CODEX_HOME` and fixture roots after
-  proving completion, never global user paths.
+- Cleanup boundary: preserve lane-owned roots as evidence until exact rollback
+  and cleanup are separately authorized; never target global user paths.
 - Verification precondition: any evidence that references config/profile paths must
   resolve under the lane-owned fixture root only.
 
