@@ -9,14 +9,16 @@ import shutil
 import stat
 import subprocess
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from .errors import ConflictError, IdentityError, ValidationError
 from .launch import (
     control_environment,
     public_launch_identity,
     validate_launch_environment,
+    validate_public_launch_identity,
     validate_subprocess_environment,
     validate_tmux_launch_argv,
 )
@@ -34,6 +36,15 @@ _PANE_FORMAT = (
     "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
 )
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
+
+
+@dataclass(frozen=True)
+class TargetLaunch:
+    """Fresh private target values and their exact value-free identity."""
+
+    argv: Sequence[str] = field(repr=False)
+    environment: Mapping[str, str] = field(repr=False)
+    launch_identity: Mapping[str, Any] = field(repr=False)
 
 
 class TmuxController:
@@ -391,6 +402,7 @@ class TmuxController:
         environment: Mapping[str, str],
         admitted_lane_root: Path | None = None,
         before_start: Optional[Callable[[], None]] = None,
+        before_target_start: Optional[Callable[[], TargetLaunch]] = None,
     ) -> Dict[str, Any]:
         validate_identifier(session, "session")
         repo = absolute_root(str(repo), "repo")
@@ -430,6 +442,44 @@ class TmuxController:
                 socket,
                 ["set-option", "-t", session, "remain-on-exit", "on"],
             )
+            target_argv = argv
+            if before_target_start is not None:
+                refreshed = before_target_start()
+                try:
+                    refreshed_argv = refreshed.argv
+                    refreshed_environment = refreshed.environment
+                    refreshed_identity = refreshed.launch_identity
+                except AttributeError as exc:
+                    raise ValidationError(
+                        "before target start result is invalid"
+                    ) from exc
+                target_argv = validate_tmux_launch_argv(refreshed_argv)
+                target_environment = validate_launch_environment(
+                    target=target,
+                    environment=refreshed_environment,
+                    admitted_lane_root=admitted_lane_root,
+                )
+                # Environment values stay out of tmux client argv.  The
+                # placeholder server already owns this exact closed mapping,
+                # so only a byte-for-byte equivalent refresh may be consumed.
+                if target_environment != launch_environment:
+                    raise IdentityError(
+                        "before target start environment changed after server start"
+                    )
+                launch_identity = public_launch_identity(
+                    repo=repo,
+                    argv=target_argv,
+                    environment=target_environment,
+                    admitted_lane_root=admitted_lane_root,
+                )
+                claimed_identity = validate_public_launch_identity(
+                    refreshed_identity,
+                    target=target,
+                )
+                if claimed_identity != launch_identity:
+                    raise IdentityError(
+                        "before target start public launch identity changed"
+                    )
             self._run(
                 socket,
                 [
@@ -440,7 +490,7 @@ class TmuxController:
                     "-c",
                     str(repo),
                     "--",
-                    *argv,
+                    *target_argv,
                 ],
             )
             server_identity = self.server_identity(socket)

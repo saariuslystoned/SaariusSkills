@@ -22,11 +22,12 @@ from puppet_lib.launch import (  # noqa: E402
     build_admitted_launch_plan,
     build_launch_identity,
     control_environment,
+    public_launch_identity,
     select_launch_environment,
     validate_admitted_launch_plan,
 )
 from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
-from puppet_lib.tmux import TmuxController  # noqa: E402
+from puppet_lib.tmux import TargetLaunch, TmuxController  # noqa: E402
 
 
 class TmuxTransportTests(unittest.TestCase):
@@ -66,6 +67,58 @@ class TmuxTransportTests(unittest.TestCase):
         if result.returncode != 0:
             return []
         return [line for line in result.stdout.splitlines() if line.strip()]
+
+    def _assert_target_start_failure_cleans_up(
+        self,
+        *,
+        controller,
+        session,
+        repo,
+        argv,
+        environment,
+        before_target_start,
+        exception,
+        message,
+    ):
+        socket = controller.socket_path(session)
+        socket_identity = {
+            "device": 1,
+            "inode": 2,
+            "uid": os.getuid(),
+            "mode": 0o600,
+        }
+        with (
+            patch.object(controller, "exists", return_value=False),
+            patch.object(controller, "_start_server") as start_server,
+            patch.object(controller, "socket_identity", return_value=socket_identity),
+            patch.object(
+                controller,
+                "_run",
+                return_value=SimpleNamespace(
+                    args=[], returncode=0, stdout="", stderr=""
+                ),
+            ) as run,
+            patch.object(controller, "_kill_session") as kill_session,
+        ):
+            with self.assertRaisesRegex(exception, message):
+                controller.launch(
+                    session=session,
+                    target="codex",
+                    repo=repo,
+                    argv=argv,
+                    environment=environment,
+                    before_target_start=before_target_start,
+                )
+        start_server.assert_called_once()
+        self.assertFalse(
+            any("respawn-pane" in call.args[1] for call in run.call_args_list)
+        )
+        kill_session.assert_called_once_with(
+            socket=socket,
+            session=session,
+            socket_identity=socket_identity,
+            created_by_launch=True,
+        )
 
     def test_launch_records_single_initial_pane(self):
         if not TmuxController.available():
@@ -811,6 +864,223 @@ class TmuxTransportTests(unittest.TestCase):
             ):
                 with self.assertRaises(IdentityError):
                     controller.assert_tmux_binary_identity(expected=original)
+
+    def test_before_target_start_orders_after_options_and_consumes_returned_launch(
+        self,
+    ):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            config_root = root / "private-codex-home"
+            config_root.mkdir()
+            environment = self._launch_environment(
+                admitted_lane_root=root,
+                CODEX_HOME=str(config_root.resolve()),
+            )
+            original_argv = ["/bin/sleep", "600"]
+            refreshed_argv = ["/bin/echo", "refreshed-target"]
+            refreshed_identity = public_launch_identity(
+                repo=repo,
+                argv=refreshed_argv,
+                environment=environment,
+                admitted_lane_root=root,
+            )
+            controller = TmuxController(root)
+            session = "tmux-target-start-order"
+            events: list[str] = []
+            calls: list[tuple[list[str], dict[str, str]]] = []
+
+            def fake_run_raw(
+                command,
+                *,
+                check=True,
+                input_data=None,
+                env,
+                admitted_lane_root=None,
+                before_run=None,
+            ):
+                if before_run is not None:
+                    before_run()
+                operation = command[5]
+                if operation == "set-option":
+                    operation += ":" + command[-2]
+                events.append(operation)
+                calls.append((list(command), dict(env)))
+                return SimpleNamespace(
+                    args=command,
+                    returncode=1 if command[5] == "has-session" else 0,
+                    stdout="",
+                    stderr="",
+                )
+
+            def refresh_target() -> TargetLaunch:
+                events.append("before_target_start")
+                return TargetLaunch(
+                    argv=list(refreshed_argv),
+                    environment=dict(environment),
+                    launch_identity=dict(refreshed_identity),
+                )
+
+            with (
+                patch.object(controller, "assert_tmux_binary_identity"),
+                patch.object(controller, "_run_raw", side_effect=fake_run_raw),
+                patch.object(
+                    controller,
+                    "socket_identity",
+                    return_value={
+                        "device": 1,
+                        "inode": 2,
+                        "uid": os.getuid(),
+                        "mode": 0o600,
+                    },
+                ),
+                patch.object(controller, "server_identity", return_value={"pid": 10}),
+                patch.object(
+                    controller,
+                    "metadata_for_session",
+                    return_value={
+                        "session": session,
+                        "pane": "%1",
+                        "pane_pid": 42,
+                        "current_command": "echo",
+                        "pane_dead": False,
+                    },
+                ),
+            ):
+                metadata = controller.launch(
+                    session=session,
+                    target="codex",
+                    repo=repo,
+                    argv=original_argv,
+                    environment=environment,
+                    admitted_lane_root=root,
+                    before_start=lambda: events.append("before_start"),
+                    before_target_start=refresh_target,
+                )
+
+            self.assertEqual(
+                events,
+                [
+                    "has-session",
+                    "before_start",
+                    "new-session",
+                    "set-option:update-environment",
+                    "set-option:remain-on-exit",
+                    "before_target_start",
+                    "respawn-pane",
+                ],
+            )
+            respawn = next(
+                command for command, _environment in calls if "respawn-pane" in command
+            )
+            self.assertEqual(respawn[-len(refreshed_argv) :], refreshed_argv)
+            self.assertNotEqual(respawn[-len(original_argv) :], original_argv)
+            self.assertEqual(metadata["launch_identity"], refreshed_identity)
+            self.assertEqual(
+                next(env for command, env in calls if "new-session" in command),
+                environment,
+            )
+            self.assertEqual(
+                next(env for command, env in calls if "respawn-pane" in command),
+                control_environment(),
+            )
+            flattened = "\x00".join(item for command, _env in calls for item in command)
+            self.assertNotIn(str(config_root.resolve()), flattened)
+
+    def test_before_target_start_rejects_environment_drift_and_cleans_up(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            initial_home = root / "initial-home"
+            initial_home.mkdir()
+            changed_home = root / "changed-home"
+            changed_home.mkdir()
+            environment = {"HOME": str(initial_home.resolve())}
+            changed_environment = {"HOME": str(changed_home.resolve())}
+            argv = ["/bin/sleep", "600"]
+            changed_identity = public_launch_identity(
+                repo=repo,
+                argv=argv,
+                environment=changed_environment,
+            )
+            controller = TmuxController(root)
+            session = "tmux-target-environment-drift"
+            self._assert_target_start_failure_cleans_up(
+                controller=controller,
+                session=session,
+                repo=repo,
+                argv=argv,
+                environment=environment,
+                before_target_start=lambda: TargetLaunch(
+                    argv=list(argv),
+                    environment=changed_environment,
+                    launch_identity=changed_identity,
+                ),
+                exception=IdentityError,
+                message="environment changed after server start",
+            )
+
+    def test_before_target_start_rejects_claimed_identity_drift_and_cleans_up(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            environment = self._launch_environment()
+            refreshed_argv = ["/bin/echo", "refreshed-target"]
+            drifted_identity = public_launch_identity(
+                repo=repo,
+                argv=refreshed_argv,
+                environment=environment,
+            )
+            drifted_identity["argv_sha256"] = "0" * 64
+            controller = TmuxController(root)
+            session = "tmux-target-identity-drift"
+            self._assert_target_start_failure_cleans_up(
+                controller=controller,
+                session=session,
+                repo=repo,
+                argv=["/bin/sleep", "600"],
+                environment=environment,
+                before_target_start=lambda: TargetLaunch(
+                    argv=list(refreshed_argv),
+                    environment=dict(environment),
+                    launch_identity=drifted_identity,
+                ),
+                exception=IdentityError,
+                message="public launch identity changed",
+            )
+
+    def test_before_target_start_callback_failure_cleans_up_placeholder(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            session = "tmux-target-callback-failure"
+
+            def fail_target_start() -> TargetLaunch:
+                raise RuntimeError("injected target-start failure")
+
+            self._assert_target_start_failure_cleans_up(
+                controller=controller,
+                session=session,
+                repo=repo,
+                argv=["/bin/sleep", "600"],
+                environment=self._launch_environment(),
+                before_target_start=fail_target_start,
+                exception=RuntimeError,
+                message="injected target-start failure",
+            )
 
     def test_before_start_waits_for_nested_binary_and_environment_validation(self):
         if not TmuxController.available():
