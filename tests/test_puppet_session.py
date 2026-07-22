@@ -578,17 +578,25 @@ class SessionIntegrationTests(unittest.TestCase):
             )
             socket = None
             task_marker = "PUPPET_TASK_MARKER_42"
+            private_launch_value = "session-launch-value-that-must-remain-private"
             try:
-                launched = launch(
-                    session=session,
-                    contract_path=files["contract"],
-                    manifest_path=files["manifest"],
-                    authorization_path=files["authorization"],
-                    proof_root=files["proof"],
-                    state_root=files["state"],
-                    supervisor_executable=files["supervisor_executable"],
-                    prompt=("Write the bounded ready handoff and wait. " + task_marker),
-                )
+                with patch.dict(
+                    "os.environ",
+                    {"CODEX_HOME": private_launch_value},
+                    clear=False,
+                ):
+                    launched = launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt=(
+                            "Write the bounded ready handoff and wait. " + task_marker
+                        ),
+                    )
                 self.assertEqual(launched["state"], "ACTIVE")
                 self.assertFalse(
                     wait_for(
@@ -636,7 +644,21 @@ class SessionIntegrationTests(unittest.TestCase):
                     launch_intent["content_sha256"],
                     instruction_manifest["rendered_sha256"],
                 )
+                launch_started = next(
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                    if row["event"].get("kind") == "launch"
+                    and row["event"].get("phase") == "target_started"
+                )
+                self.assertEqual(
+                    set(launch_started["launch_identity"]),
+                    {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
+                )
+                self.assertIn(
+                    "CODEX_HOME", launch_started["launch_identity"]["env_names"]
+                )
                 marker_bytes = task_marker.encode("utf-8")
+                private_launch_bytes = private_launch_value.encode("utf-8")
                 persisted = [
                     path
                     for root_path in (files["proof"], files["state"])
@@ -647,6 +669,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 for path in persisted:
                     with self.subTest(no_raw_task=path):
                         self.assertNotIn(marker_bytes, path.read_bytes())
+                        self.assertNotIn(private_launch_bytes, path.read_bytes())
 
                 tampered_instructions = dict(
                     instruction_manifest,

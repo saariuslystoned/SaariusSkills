@@ -32,6 +32,7 @@ from puppet_lib.authority import (  # noqa: E402
 )
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
+from puppet_lib.launch import public_launch_identity  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
     _acquire_campaign_probe_lock,
     _release_campaign_probe_lock,
@@ -271,6 +272,7 @@ class FakeTmux:
         self.alive = True
         self.preserved = True
         self.launch_argv = None
+        self.launch_environment = None
         self.repo = None
         self.payloads = []
         self.interrupts = []
@@ -316,10 +318,11 @@ class FakeTmux:
             "mode": stat.S_IMODE(details.st_mode),
         }
 
-    def launch(self, *, session, repo, argv):
+    def launch(self, *, session, target, repo, argv, environment):
         self.session = session
         self.repo = Path(repo)
         self.launch_argv = list(argv)
+        self.launch_environment = dict(environment)
         socket_path = self.socket_path(session)
         socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.server = socket_module.socket(
@@ -337,6 +340,11 @@ class FakeTmux:
             "pane_dead": False,
             "server_identity": self.server_process,
             "tmux_binary_identity": self.tmux_identity,
+            "launch_identity": public_launch_identity(
+                repo=self.repo,
+                argv=self.launch_argv,
+                environment=self.launch_environment,
+            ),
         }
 
     def assert_tmux_binary_identity(self, expected):
@@ -435,7 +443,11 @@ class FakeTmux:
         return self.preserved
 
     def attach_command(self, *, socket, session, pane=None, server_identity=None):
-        return "tmux -S %s attach-session -r -t %s" % (socket, session)
+        return "tmux -f %s -S %s attach-session -r -E -t %s" % (
+            os.devnull,
+            socket,
+            session,
+        )
 
 
 def process_identity(fake: FakeTmux):
@@ -883,6 +895,45 @@ class ProbeTests(unittest.TestCase):
             self.assertFalse(fake.alive)
             self.assertTrue(fake.preserved)
             self.assertEqual(len(fake.interrupts), 1)
+
+    def test_launch_environment_values_are_hash_only_in_probe_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            private_value = "launch-value-that-must-remain-private"
+            with patch.dict(
+                os.environ,
+                {
+                    "CODEX_HOME": private_value,
+                    "PUPPET_PARENT_CANARY": "ambient-value-that-must-not-cross",
+                },
+                clear=False,
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    run_id="probe-private-launch-environment",
+                )
+            self.assertEqual(fake.launch_environment["CODEX_HOME"], private_value)
+            self.assertNotIn("PUPPET_PARENT_CANARY", fake.launch_environment)
+            run_root = Path(result["run_root"])
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            identity = evidence["launch_identity"]
+            self.assertEqual(
+                set(identity),
+                {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
+            )
+            self.assertIn("CODEX_HOME", identity["env_names"])
+            self.assertNotIn("launch_environment", evidence)
+            for path in run_root.rglob("*"):
+                if path.is_file():
+                    with self.subTest(no_launch_environment_value=path):
+                        content = path.read_bytes()
+                        self.assertNotIn(private_value.encode(), content)
+                        self.assertNotIn(b"ambient-value-that-must-not-cross", content)
 
     def test_probe_accepts_same_binary_descendant_and_records_ancestry(self):
         with tempfile.TemporaryDirectory() as temporary:

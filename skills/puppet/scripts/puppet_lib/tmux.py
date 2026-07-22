@@ -10,9 +10,15 @@ import stat
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from .errors import ConflictError, IdentityError, ValidationError
+from .launch import (
+    control_environment,
+    public_launch_identity,
+    validate_launch_environment,
+    validate_subprocess_environment,
+)
 from .profiles import SUBMIT_SETTLE_SECONDS
 from .registry import process_birth_identity
 from .safety import (
@@ -23,7 +29,9 @@ from .safety import (
 )
 
 
-_PANE_FORMAT = "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
+_PANE_FORMAT = (
+    "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
+)
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
 
 
@@ -80,6 +88,7 @@ class TmuxController:
             stderr=subprocess.PIPE,
             check=False,
             text=True,
+            env=control_environment(),
         )
         if version_result.returncode != 0:
             raise IdentityError("unable to collect tmux executable version")
@@ -117,7 +126,9 @@ class TmuxController:
 
     def server_identity(self, socket: Path) -> Dict[str, Any]:
         try:
-            server_pid = self._run(socket, ["display-message", "-p", "#{pid}"]).stdout.strip()
+            server_pid = self._run(
+                socket, ["display-message", "-p", "#{pid}"]
+            ).stdout.strip()
         except subprocess.CalledProcessError as exc:
             raise IdentityError("tmux process identity is unavailable") from exc
         try:
@@ -210,9 +221,20 @@ class TmuxController:
         ):
             return
         self._run_raw(
-            [self.tmux_binary.as_posix(), "-S", str(socket), "kill-session", "-t", session],
+            self._tmux_command(socket, ["kill-session", "-t", session]),
             check=False,
+            env=control_environment(),
         )
+
+    def _tmux_command(self, socket: Path, arguments: List[str]) -> List[str]:
+        return [
+            self.tmux_binary.as_posix(),
+            "-f",
+            os.devnull,
+            "-S",
+            str(socket),
+            *arguments,
+        ]
 
     def _run(
         self,
@@ -223,9 +245,37 @@ class TmuxController:
     ) -> subprocess.CompletedProcess:
         self.assert_tmux_binary_identity(self.bound_tmux_binary_identity)
         return self._run_raw(
-            [self.tmux_binary.as_posix(), "-S", str(socket)] + arguments,
+            self._tmux_command(socket, arguments),
             check=check,
             input_data=input_data,
+            env=control_environment(),
+        )
+
+    def _start_server(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        repo: Path,
+        environment: Mapping[str, str],
+    ) -> subprocess.CompletedProcess:
+        self.assert_tmux_binary_identity(self.bound_tmux_binary_identity)
+        return self._run_raw(
+            self._tmux_command(
+                socket,
+                [
+                    "new-session",
+                    "-d",
+                    "-E",
+                    "-s",
+                    session,
+                    "-c",
+                    str(repo),
+                    "--",
+                    *_PLACEHOLDER_COMMAND,
+                ],
+            ),
+            env=environment,
         )
 
     @staticmethod
@@ -234,11 +284,14 @@ class TmuxController:
         *,
         check: bool = True,
         input_data: Optional[bytes] = None,
+        env: Mapping[str, str],
     ) -> subprocess.CompletedProcess:
+        closed_environment = validate_subprocess_environment(env)
         run_options = {
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "check": False,
+            "env": closed_environment,
         }
         if input_data is None:
             run_options["stdin"] = subprocess.DEVNULL
@@ -259,8 +312,8 @@ class TmuxController:
             raise subprocess.CalledProcessError(
                 returncode=result.returncode,
                 cmd=result.args,
-                output=stdout,
-                stderr=stderr,
+                output="",
+                stderr="tmux client command failed",
             )
         return subprocess.CompletedProcess(
             args=result.args, returncode=result.returncode, stdout=stdout, stderr=stderr
@@ -312,7 +365,15 @@ class TmuxController:
         result = self._run(socket, ["has-session", "-t", session], check=False)
         return result.returncode == 0
 
-    def launch(self, *, session: str, repo: Path, argv: List[str]) -> Dict[str, Any]:
+    def launch(
+        self,
+        *,
+        session: str,
+        target: str,
+        repo: Path,
+        argv: List[str],
+        environment: Mapping[str, str],
+    ) -> Dict[str, Any]:
         validate_identifier(session, "session")
         repo = absolute_root(str(repo), "repo")
         if not argv or not all(isinstance(item, str) and item for item in argv):
@@ -320,26 +381,35 @@ class TmuxController:
         socket = self.socket_path(session)
         if socket.exists() or self.exists(socket, session):
             raise ConflictError("tmux socket or session already exists")
+        launch_environment = validate_launch_environment(
+            target=target,
+            environment=environment,
+        )
+        launch_identity = public_launch_identity(
+            repo=repo,
+            argv=argv,
+            environment=launch_environment,
+        )
 
         socket_identity: Optional[Dict[str, int]] = None
         server_identity: Optional[Dict[str, Any]] = None
 
         try:
-            self._run(
-                socket,
-                [
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session,
-                    "-c",
-                    str(repo),
-                    "--",
-                    *_PLACEHOLDER_COMMAND,
-                ],
+            self._start_server(
+                socket=socket,
+                session=session,
+                repo=repo,
+                environment=launch_environment,
             )
             socket_identity = self.socket_identity(socket)
-            self._run(socket, ["set-option", "-t", session, "remain-on-exit", "on"])
+            self._run(
+                socket,
+                ["set-option", "-t", session, "update-environment", ""],
+            )
+            self._run(
+                socket,
+                ["set-option", "-t", session, "remain-on-exit", "on"],
+            )
             self._run(
                 socket,
                 [
@@ -384,6 +454,7 @@ class TmuxController:
         metadata["socket_identity"] = socket_identity
         metadata["server_identity"] = server_identity
         metadata["tmux_binary_identity"] = self.tmux_binary_identity()
+        metadata["launch_identity"] = launch_identity
         return metadata
 
     def metadata(
@@ -446,7 +517,10 @@ class TmuxController:
             input_data=payload,
         )
         try:
-            self._run(socket, ["paste-buffer", "-d", "-b", buffer_name, "-t", metadata["pane"]])
+            self._run(
+                socket,
+                ["paste-buffer", "-d", "-b", buffer_name, "-t", metadata["pane"]],
+            )
             self._sleep_fn(SUBMIT_SETTLE_SECONDS)
             settled = self.metadata(
                 socket=socket,
@@ -533,14 +607,19 @@ class TmuxController:
         pane: Optional[str] = None,
         server_identity: Optional[Dict[str, Any]] = None,
     ) -> str:
-        self.metadata(socket=socket, session=session, pane=pane, server_identity=server_identity)
+        self.metadata(
+            socket=socket, session=session, pane=pane, server_identity=server_identity
+        )
         return shlex.join(
             [
                 self.tmux_binary.as_posix(),
+                "-f",
+                os.devnull,
                 "-S",
                 str(socket),
                 "attach-session",
                 "-r",
+                "-E",
                 "-t",
                 session,
             ]

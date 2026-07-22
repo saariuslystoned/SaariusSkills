@@ -51,6 +51,7 @@ from .handoffs import ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .journal import Journal
+from .launch import build_launch_identity
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -1066,7 +1067,20 @@ def run_probe(
         socket = tmux.socket_path(session)
         _write_state(state_path, state, "launching")
         launch_attempted = True
-        metadata = tmux.launch(session=session, repo=fixture, argv=argv)
+        launch_environment, launch_identity = build_launch_identity(
+            target=target,
+            repo=fixture,
+            argv=argv,
+        )
+        metadata = tmux.launch(
+            session=session,
+            target=target,
+            repo=fixture,
+            argv=argv,
+            environment=launch_environment,
+        )
+        if metadata.get("launch_identity") != launch_identity:
+            raise IdentityError("probe launch context identity is invalid")
         if metadata.get("socket") != str(socket):
             raise IdentityError("probe launched on an unexpected tmux socket")
         socket_identity = tmux.socket_identity(socket)
@@ -1101,6 +1115,7 @@ def run_probe(
             "server_identity": server_identity,
             "tmux_binary_identity": tmux_binary_identity,
         }
+        evidence["launch_identity"] = metadata["launch_identity"]
         evidence["process"] = process
         atomic_write_json(evidence_path, evidence)
         transition_session_lease(

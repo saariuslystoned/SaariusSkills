@@ -33,6 +33,7 @@ from .instructions import (
     instruction_policy_fingerprint,
 )
 from .journal import Journal
+from .launch import build_launch_identity
 from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
 from .registry import (
     SessionRegistry,
@@ -876,7 +877,20 @@ def launch(
         if current_workspace["dirty"]:
             raise IdentityError("candidate worktree is not clean before launch")
         launch_attempted = True
-        metadata = tmux.launch(session=session, repo=contract.repo, argv=argv)
+        launch_environment, launch_identity = build_launch_identity(
+            target=contract.target,
+            repo=contract.repo,
+            argv=argv,
+        )
+        metadata = tmux.launch(
+            session=session,
+            target=contract.target,
+            repo=contract.repo,
+            argv=argv,
+            environment=launch_environment,
+        )
+        if metadata.get("launch_identity") != launch_identity:
+            raise IdentityError("tmux launch context identity is invalid")
         process = process_birth_identity(metadata["pane_pid"])
         manifest.verify_process_executable(process)
         process_verified = True
@@ -954,6 +968,7 @@ def launch(
                 "phase": "target_started",
                 "target_pid": process["pid"],
                 "tmux_target_id": metadata["pane"],
+                "launch_identity": metadata["launch_identity"],
             },
         )
         settle_seconds = startup_settle_seconds_for(contract.target)

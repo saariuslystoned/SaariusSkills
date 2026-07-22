@@ -267,6 +267,12 @@ def write_qualification_receipt(
             "protocol_fingerprint": protocol_fingerprint,
             "yolo_mapping_sha256": yolo_mapping_sha256,
             "launch_argv_sha256": "8" * 64,
+            "launch_identity": {
+                "cwd": str(proof_root),
+                "argv_sha256": "8" * 64,
+                "env_names": [],
+                "env_fingerprint": sha256_bytes(canonical_json_bytes([])),
+            },
             "input_transport": OBSERVED_INPUT_TRANSPORT,
             "input_readiness_strategy": INPUT_READINESS_STRATEGY,
             "session_profile": session_profile,

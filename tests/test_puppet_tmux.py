@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import socket as socket_module
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,14 +18,25 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
+from puppet_lib.launch import (  # noqa: E402
+    build_launch_identity,
+    control_environment,
+    select_launch_environment,
+)
 from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
 from puppet_lib.tmux import TmuxController  # noqa: E402
 
 
 class TmuxTransportTests(unittest.TestCase):
-    def _tmux_run(self, *, socket: Path, arguments: list[str]) -> subprocess.CompletedProcess:
+    @staticmethod
+    def _launch_environment(target: str = "codex", **bindings: str) -> dict[str, str]:
+        return select_launch_environment(target=target, bindings=bindings)
+
+    def _tmux_run(
+        self, *, socket: Path, arguments: list[str]
+    ) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["tmux", "-S", str(socket)] + arguments,
+            ["tmux", "-f", os.devnull, "-S", str(socket)] + arguments,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -55,8 +68,10 @@ class TmuxTransportTests(unittest.TestCase):
             session = "tmux-single-pane"
             metadata = controller.launch(
                 session=session,
+                target="codex",
                 repo=repo,
                 argv=["/bin/sleep", "600"],
+                environment=self._launch_environment(),
             )
             socket = Path(metadata["socket"])
             try:
@@ -92,10 +107,333 @@ class TmuxTransportTests(unittest.TestCase):
                 )
                 parts = shlex.split(command)
                 self.assertEqual(parts[0], metadata["tmux_binary_identity"]["path"])
-                self.assertEqual(parts[2], str(socket))
+                self.assertEqual(parts[1:5], ["-f", os.devnull, "-S", str(socket)])
+                self.assertIn("-r", parts)
+                self.assertIn("-E", parts)
                 self.assertEqual(parts[-1], session)
+                update_environment = self._tmux_run(
+                    socket=socket,
+                    arguments=[
+                        "show-options",
+                        "-v",
+                        "-t",
+                        session,
+                        "update-environment",
+                    ],
+                )
+                self.assertEqual(update_environment.returncode, 0)
+                self.assertEqual(update_environment.stdout, "")
             finally:
                 self._kill(socket=socket, session=session)
+
+    def test_launch_delivers_only_explicit_environment_and_exact_cwd(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            home = root / "home"
+            home.mkdir()
+            (home / ".tmux.conf").write_text(
+                "set-environment -g PUPPET_TMUX_CONFIG_LOADED 1\n",
+                encoding="utf-8",
+            )
+            codex_home = root / "private-codex-home"
+            output = root / "target.json"
+            source = dict(os.environ)
+            source["PUPPET_PARENT_CANARY"] = "parent-canary-value"
+            argv = [
+                sys.executable,
+                "-c",
+                (
+                    "import json, os, pathlib, sys; "
+                    "pathlib.Path(sys.argv[1]).write_text(json.dumps({"
+                    "'cwd': os.getcwd(), 'home': os.environ.get('HOME'), "
+                    "'codex_home': os.environ.get('CODEX_HOME'), "
+                    "'parent_canary': os.environ.get('PUPPET_PARENT_CANARY'), "
+                    "'tmux_config': os.environ.get('PUPPET_TMUX_CONFIG_LOADED')}))"
+                ),
+                str(output),
+            ]
+            environment, expected_identity = build_launch_identity(
+                target="codex",
+                repo=repo,
+                argv=argv,
+                source_environment=source,
+                bindings={"HOME": str(home), "CODEX_HOME": str(codex_home)},
+            )
+            controller = TmuxController(root)
+            metadata = controller.launch(
+                session="tmux-closed-environment",
+                target="codex",
+                repo=repo,
+                argv=argv,
+                environment=environment,
+            )
+            socket = Path(metadata["socket"])
+            try:
+                deadline = time.monotonic() + 2
+                while not output.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(output.is_file())
+                observed = json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(observed["cwd"], str(repo.resolve()))
+                self.assertEqual(observed["home"], str(home))
+                self.assertEqual(observed["codex_home"], str(codex_home))
+                self.assertIsNone(observed["parent_canary"])
+                self.assertIsNone(observed["tmux_config"])
+                self.assertEqual(metadata["launch_identity"], expected_identity)
+                self.assertEqual(
+                    set(metadata["launch_identity"]),
+                    {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
+                )
+                serialized = json.dumps(metadata, sort_keys=True)
+                self.assertNotIn(str(codex_home), serialized)
+                self.assertNotIn("parent-canary-value", serialized)
+                self.assertNotIn("launch_environment", metadata)
+            finally:
+                self._kill(socket=socket, session="tmux-closed-environment")
+
+    def test_closed_environment_rejects_arbitrary_sensitive_and_control_bindings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            source = {
+                "HOME": "/safe/home",
+                "PATH": "/usr/bin:/bin",
+                "PUPPET_PARENT_CANARY": "must-not-cross",
+                "PWD": "/must/not/cross",
+                "TERM": "must-not-cross",
+            }
+            environment, identity = build_launch_identity(
+                target="codex",
+                repo=repo,
+                argv=["/bin/true"],
+                source_environment=source,
+                bindings={"CODEX_HOME": "/safe/codex"},
+            )
+            self.assertEqual(
+                environment,
+                {
+                    "CODEX_HOME": "/safe/codex",
+                    "HOME": "/safe/home",
+                    "PATH": "/usr/bin:/bin",
+                },
+            )
+            self.assertNotIn("must-not-cross", json.dumps(identity, sort_keys=True))
+            for name in (
+                "FOO",
+                "PWD",
+                "OLDPWD",
+                "TMUX",
+                "TERM",
+                "API_TOKEN",
+                "PUPPET_SECRET",
+                "PRIVATE_KEY_PATH",
+                "HARNESS_PASSWORD",
+                "GROK_HOME",
+            ):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ValidationError, "allowlisted"):
+                        select_launch_environment(
+                            target="codex",
+                            source_environment=source,
+                            bindings={name: "value"},
+                        )
+            for value in (
+                "bad\x00value",
+                "bad\nvalue",
+                "bad\rvalue",
+                "bad\tvalue",
+                "bad\x1bvalue",
+            ):
+                with self.subTest(value=repr(value)):
+                    with self.assertRaisesRegex(ValidationError, "value is invalid"):
+                        select_launch_environment(
+                            target="codex",
+                            source_environment=source,
+                            bindings={"CODEX_HOME": value},
+                        )
+
+    def test_launch_command_shape_is_direct_value_private_and_same_cwd(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            secret_value = str(root / "private-codex-home")
+            environment = self._launch_environment(CODEX_HOME=secret_value)
+            controller = TmuxController(root)
+            session = "tmux-command-shape"
+            socket = controller.socket_path(session)
+            argv = ["/bin/echo", "argument with spaces", "--literal"]
+            calls = []
+
+            def fake_run_raw(command, *, check=True, input_data=None, env):
+                calls.append((list(command), dict(env)))
+                return SimpleNamespace(
+                    args=command,
+                    returncode=1 if "has-session" in command else 0,
+                    stdout="",
+                    stderr="",
+                )
+
+            with (
+                patch.object(controller, "assert_tmux_binary_identity"),
+                patch.object(controller, "_run_raw", side_effect=fake_run_raw),
+                patch.object(
+                    controller,
+                    "socket_identity",
+                    return_value={
+                        "device": 1,
+                        "inode": 2,
+                        "uid": os.getuid(),
+                        "mode": 0o600,
+                    },
+                ),
+                patch.object(controller, "server_identity", return_value={"pid": 10}),
+                patch.object(
+                    controller,
+                    "metadata_for_session",
+                    return_value={
+                        "session": session,
+                        "pane": "%1",
+                        "pane_pid": 42,
+                        "current_command": "echo",
+                        "pane_dead": False,
+                    },
+                ),
+            ):
+                metadata = controller.launch(
+                    session=session,
+                    target="codex",
+                    repo=repo,
+                    argv=argv,
+                    environment=environment,
+                )
+
+            commands = [command for command, _environment in calls]
+            self.assertTrue(commands)
+            self.assertTrue(
+                all(
+                    command[:5]
+                    == [
+                        controller.tmux_binary.as_posix(),
+                        "-f",
+                        os.devnull,
+                        "-S",
+                        str(socket),
+                    ]
+                    for command in commands
+                )
+            )
+            new_session = next(
+                command for command in commands if "new-session" in command
+            )
+            respawn = next(command for command in commands if "respawn-pane" in command)
+            self.assertEqual(new_session[5:8], ["new-session", "-d", "-E"])
+            self.assertNotIn("-f", new_session[5:])
+            self.assertEqual(
+                new_session[new_session.index("-c") + 1], str(repo.resolve())
+            )
+            self.assertEqual(respawn[respawn.index("-c") + 1], str(repo.resolve()))
+            self.assertEqual(respawn[-len(argv) :], argv)
+            update = next(
+                command
+                for command in commands
+                if "set-option" in command and "update-environment" in command
+            )
+            self.assertEqual(update[-2:], ["update-environment", ""])
+            self.assertEqual(
+                next(env for command, env in calls if "new-session" in command),
+                environment,
+            )
+            self.assertTrue(
+                all(
+                    env == control_environment()
+                    for command, env in calls
+                    if "new-session" not in command
+                )
+            )
+            flattened = "\x00".join(item for command in commands for item in command)
+            self.assertNotIn(secret_value, flattened)
+            self.assertNotIn(secret_value, json.dumps(metadata, sort_keys=True))
+
+    def test_tmux_client_subprocess_and_error_surfaces_do_not_inherit_canaries(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = TmuxController(Path(temporary))
+            calls = []
+            canary_value = "private-environment-canary"
+
+            def fake_run(command, **kwargs):
+                calls.append((command, kwargs))
+                if command[-1] == "-V":
+                    return SimpleNamespace(
+                        args=command,
+                        returncode=0,
+                        stdout=controller.bound_tmux_binary_identity["version"],
+                        stderr="",
+                    )
+                return SimpleNamespace(
+                    args=command,
+                    returncode=1,
+                    stdout=b"",
+                    stderr=canary_value.encode(),
+                )
+
+            with patch.dict(
+                os.environ,
+                {"PUPPET_PARENT_CANARY": canary_value},
+                clear=False,
+            ):
+                with patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run):
+                    result = controller._run(
+                        Path(temporary) / "missing.sock",
+                        ["has-session", "-t", "missing"],
+                        check=False,
+                    )
+            self.assertEqual(result.returncode, 1)
+            self.assertGreaterEqual(len(calls), 2)
+            for _command, kwargs in calls:
+                self.assertIn("env", kwargs)
+                self.assertNotIn("PUPPET_PARENT_CANARY", kwargs["env"])
+
+            with patch(
+                "puppet_lib.tmux.subprocess.run",
+                return_value=SimpleNamespace(
+                    args=["tmux", "synthetic"],
+                    returncode=1,
+                    stdout=b"",
+                    stderr=canary_value.encode(),
+                ),
+            ):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    controller._run_raw(
+                        ["tmux", "synthetic"],
+                        env={"HOME": canary_value},
+                    )
+            self.assertNotIn(canary_value, str(raised.exception))
+            self.assertNotIn(canary_value, raised.exception.stderr)
+            self.assertNotIn(canary_value, raised.exception.output)
+
+    def test_launch_requires_an_explicit_complete_environment(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            with self.assertRaises(TypeError):
+                controller.launch(  # type: ignore[call-arg]
+                    session="tmux-environment-required",
+                    target="codex",
+                    repo=repo,
+                    argv=["/bin/true"],
+                )
 
     def test_control_requires_exact_pane_and_rejects_sigint_key(self):
         if not TmuxController.available():
@@ -108,8 +446,10 @@ class TmuxTransportTests(unittest.TestCase):
             session = "tmux-panes"
             metadata = controller.launch(
                 session=session,
+                target="codex",
                 repo=repo,
                 argv=["/bin/sleep", "600"],
+                environment=self._launch_environment(),
             )
             socket = Path(metadata["socket"])
             try:
@@ -168,8 +508,10 @@ class TmuxTransportTests(unittest.TestCase):
             session = "tmux-immediate-exit"
             metadata = controller.launch(
                 session=session,
+                target="codex",
                 repo=repo,
                 argv=["/bin/true"],
+                environment=self._launch_environment(),
             )
             socket = Path(metadata["socket"])
             try:
@@ -196,7 +538,9 @@ class TmuxTransportTests(unittest.TestCase):
 
             def fake_run(command, **kwargs):
                 calls.append((command, kwargs.get("input")))
-                return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                return SimpleNamespace(
+                    args=command, returncode=0, stdout=b"", stderr=b""
+                )
 
             with patch.object(
                 controller,
@@ -214,7 +558,7 @@ class TmuxTransportTests(unittest.TestCase):
                         )
 
             load_buffer_calls = [
-                call for call in calls if call[0][3] == "load-buffer" and call[0][4] == "-b"
+                call for call in calls if "load-buffer" in call[0] and "-b" in call[0]
             ]
             self.assertEqual(len(load_buffer_calls), 1)
             self.assertEqual(load_buffer_calls[0][1], payload)
@@ -239,7 +583,9 @@ class TmuxTransportTests(unittest.TestCase):
 
             def fake_run(command, **kwargs):
                 calls.append(command)
-                return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                return SimpleNamespace(
+                    args=command, returncode=0, stdout=b"", stderr=b""
+                )
 
             with patch.object(
                 controller,
@@ -301,33 +647,46 @@ class TmuxTransportTests(unittest.TestCase):
             calls: list[tuple[list[str], bool, bytes | None]] = []
             cleanup_server = None
 
-            def fake_run_raw(command, *, check=True, input_data=None):
+            def fake_run_raw(command, *, check=True, input_data=None, env):
                 nonlocal cleanup_server
                 calls.append((command, check, input_data))
-                if command[3] == "has-session":
-                    return SimpleNamespace(args=command, returncode=1, stdout=b"", stderr=b"")
-                if command[3] == "new-session":
+                operation = command[5]
+                if operation == "has-session":
+                    return SimpleNamespace(
+                        args=command, returncode=1, stdout=b"", stderr=b""
+                    )
+                if operation == "new-session":
                     cleanup_server = socket_module.socket(
                         socket_module.AF_UNIX, socket_module.SOCK_STREAM
                     )
-                    cleanup_server.bind(command[2])
-                    os.chmod(command[2], 0o600)
-                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
-                if command[3] == "set-option":
-                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
-                if command[3] == "respawn-pane":
+                    cleanup_server.bind(command[4])
+                    os.chmod(command[4], 0o600)
+                    return SimpleNamespace(
+                        args=command, returncode=0, stdout=b"", stderr=b""
+                    )
+                if operation == "set-option":
+                    return SimpleNamespace(
+                        args=command, returncode=0, stdout=b"", stderr=b""
+                    )
+                if operation == "respawn-pane":
                     raise KeyboardInterrupt
-                if command[3] == "kill-session":
-                    return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
-                return SimpleNamespace(args=command, returncode=0, stdout=b"", stderr=b"")
+                if operation == "kill-session":
+                    return SimpleNamespace(
+                        args=command, returncode=0, stdout=b"", stderr=b""
+                    )
+                return SimpleNamespace(
+                    args=command, returncode=0, stdout=b"", stderr=b""
+                )
 
             try:
                 with patch.object(controller, "_run_raw", side_effect=fake_run_raw):
                     with self.assertRaises(KeyboardInterrupt):
                         controller.launch(
                             session=session,
+                            target="codex",
                             repo=repo,
                             argv=["/bin/true"],
+                            environment=self._launch_environment(),
                         )
             finally:
                 if cleanup_server is not None:
@@ -335,7 +694,10 @@ class TmuxTransportTests(unittest.TestCase):
                 controller.socket_path(session).unlink(missing_ok=True)
 
             self.assertTrue(
-                any(call[0][3] == "kill-session" and call[0][5] == session for call in calls),
+                any(
+                    "kill-session" in call[0] and call[0][-1] == session
+                    for call in calls
+                ),
                 calls,
             )
 
@@ -357,8 +719,10 @@ class TmuxTransportTests(unittest.TestCase):
                 with self.assertRaisesRegex(IdentityError, "injected"):
                     controller.launch(
                         session=session,
+                        target="codex",
                         repo=repo,
                         argv=["/bin/sleep", "600"],
+                        environment=self._launch_environment(),
                     )
             result = self._tmux_run(
                 socket=socket,

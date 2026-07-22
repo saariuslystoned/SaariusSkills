@@ -20,6 +20,7 @@ from .contracts import (
 )
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
+from .launch import validate_public_launch_identity
 from .profiles import (
     INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
@@ -124,6 +125,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "protocol_fingerprint",
     "yolo_mapping_sha256",
     "launch_argv_sha256",
+    "launch_identity",
     "input_transport",
     "input_readiness_strategy",
     "startup_settle_seconds",
@@ -484,6 +486,12 @@ def verify_qualification_receipt(
         or evidence.get("payload_argv_absent") is not True
     ):
         raise ValidationError("qualification evidence transport contract is invalid")
+    launch_identity = validate_public_launch_identity(
+        evidence.get("launch_identity"),
+        target=receipt["target"],
+    )
+    if launch_identity["argv_sha256"] != evidence.get("launch_argv_sha256"):
+        raise ValidationError("qualification launch identity is inconsistent")
     wrapper = evidence.get("instruction_wrapper")
     if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
         raise ValidationError("qualification instruction wrapper fields are invalid")
