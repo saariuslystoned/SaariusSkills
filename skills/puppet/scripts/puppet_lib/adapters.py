@@ -72,6 +72,8 @@ class AdapterSpec:
             if not isinstance(effort_flag, str):
                 raise UnsupportedError("requested effort selection is not proved")
             argv.extend([effort_flag, requested_effort])
+        if self.name == "agy" and argv.count("--new-project") != 1:
+            raise ValidationError("AGY launch argv must contain exactly one project flag")
         return argv
 
 

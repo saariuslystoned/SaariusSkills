@@ -334,6 +334,26 @@ class AdapterTests(unittest.TestCase):
                     ValidationError, "overlap another semantic bucket"
                 ):
                     AdapterManifest.from_dict(duplicate)
+        for selector in ("model_flag", "effort_flag"):
+            with self.subTest("selector_duplicate", selector=selector):
+                duplicate = dict(raw)
+                duplicate["yolo_mapping"] = dict(raw["yolo_mapping"])
+                duplicate["yolo_mapping"][selector] = "--new-project"
+                with self.assertRaisesRegex(
+                    ValidationError, "selector flags overlap another semantic bucket"
+                ):
+                    AdapterManifest.from_dict(duplicate)
+
+    def test_model_and_effort_selector_flags_must_be_distinct(self):
+        raw = manifest_raw()
+        raw["yolo_mapping"].update(
+            model_flag="--selector",
+            effort_flag="--selector",
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "model and effort selector flags overlap"
+        ):
+            AdapterManifest.from_dict(raw)
 
     def test_live_manifest_cannot_claim_unproved_resume(self):
         raw = manifest_raw()

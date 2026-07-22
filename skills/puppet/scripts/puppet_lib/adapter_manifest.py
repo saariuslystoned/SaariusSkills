@@ -1097,6 +1097,28 @@ class AdapterManifest:
             raise ValidationError(
                 "project isolation flags overlap another semantic bucket"
             )
+        selector_flags = []
+        for name in ("model_flag", "effort_flag"):
+            if name not in mapping:
+                continue
+            flag = mapping[name]
+            if (
+                not isinstance(flag, str)
+                or not flag.startswith("--")
+                or len(flag) > 80
+                or any(character.isspace() for character in flag)
+                or any(character in flag for character in "\x00\n\r")
+            ):
+                raise ValidationError("%s is invalid" % name)
+            selector_flags.append(flag)
+        if len(selector_flags) != len(set(selector_flags)):
+            raise ValidationError("model and effort selector flags overlap")
+        if set(selector_flags) & set(
+            mapping["permission_flags"]
+            + mapping["sandbox_flags"]
+            + mapping["project_isolation_flags"]
+        ):
+            raise ValidationError("selector flags overlap another semantic bucket")
 
         if value["target"] == "agy":
             if mapping["project_isolation_flags"] != ["--new-project"]:
