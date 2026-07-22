@@ -1091,6 +1091,12 @@ class AdapterManifest:
                 raise ValidationError("%s must be a string list" % name)
             if len(flags) != len(set(flags)):
                 raise ValidationError("%s contains duplicate entries" % name)
+        if set(mapping["project_isolation_flags"]) & set(
+            mapping["permission_flags"] + mapping["sandbox_flags"]
+        ):
+            raise ValidationError(
+                "project isolation flags overlap another semantic bucket"
+            )
 
         if value["target"] == "agy":
             if mapping["project_isolation_flags"] != ["--new-project"]:

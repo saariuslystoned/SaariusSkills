@@ -287,6 +287,17 @@ class AdapterTests(unittest.TestCase):
             ]
             with self.assertRaises(ValidationError):
                 AdapterManifest.from_dict(duplicate)
+        for bucket in ("permission_flags", "sandbox_flags"):
+            with self.subTest("cross_bucket_duplicate", bucket=bucket):
+                duplicate = dict(raw)
+                duplicate["yolo_mapping"] = dict(raw["yolo_mapping"])
+                duplicate["yolo_mapping"][bucket] = list(
+                    raw["yolo_mapping"][bucket]
+                ) + ["--new-project"]
+                with self.assertRaisesRegex(
+                    ValidationError, "overlap another semantic bucket"
+                ):
+                    AdapterManifest.from_dict(duplicate)
 
     def test_live_manifest_cannot_claim_unproved_resume(self):
         raw = manifest_raw()
