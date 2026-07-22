@@ -49,20 +49,13 @@ _ROLLBACK_KEYS = {"owned_artifacts", "preimage_sha256", "retain_hash_only_proof"
 _PREIMAGE_KEYS = {"artifact_id", "sha256"}
 
 _SUPPORTED_TARGETS = TARGETS
-_SUPPORTED_TARGET_VERSIONS = {
-    "agy": "1.1.5",
-    "claude": "2.1.215",
-    "codex": "0.145.0",
-    "cursor": "2026.07.17-3e2a980",
-    "grok": "0.2.106",
-}
 _SUPPORTED_PLAN_TYPES = {
     "harness_global",
     "workspace_addendum",
     "per_run_additive",
 }
 _SUPPORTED_SURFACES = {"factual", "hypothesis", "unsupported"}
-_SUPPORTED_ACTIVATIONS = {"qualification_only", "disabled", "qualified"}
+_SUPPORTED_ACTIVATIONS = {"qualification_only", "disabled"}
 _SUPPORTED_ROOT_REFS = {"config_root", "workspace_root", "ephemeral_root"}
 _SUPPORTED_CWD_REFS = {"workspace_root"}
 _SUPPORTED_WRITE_MODES = {"create_only", "patch_if_base_sha256"}
@@ -83,6 +76,7 @@ _SUPPORTED_NAME_REFS = {
     "puppet_profile_name",
 }
 _SUPPORTED_ENV_REFS = {
+    ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "true_literal"),
     ("CLAUDE_CONFIG_DIR", "config_root_path"),
     ("CODEX_HOME", "config_root_path"),
     ("GROK_DISABLE_AUTOUPDATER", "true_literal"),
@@ -208,10 +202,6 @@ def _validate_target(value: Any) -> Dict[str, Any]:
         raise ValidationError("unsupported target")
 
     version = _validate_target_version(value.get("version"), label="target version")
-    if version != _SUPPORTED_TARGET_VERSIONS[harness]:
-        raise ValidationError(
-            "target version is not the exact supported census version"
-        )
     adapter_manifest_sha256 = validate_sha256(
         value.get("adapter_manifest_sha256"),
         "target adapter_manifest_sha256",
@@ -272,8 +262,6 @@ def _validate_status(value: Any) -> Dict[str, str]:
         raise ValidationError("status surface is unsupported")
     if activation not in _SUPPORTED_ACTIVATIONS:
         raise ValidationError("status activation is unsupported")
-    if activation == "qualified" and surface != "factual":
-        raise ValidationError("only factual descriptors can be qualified")
     if surface in {"unsupported", "hypothesis"} and activation != "disabled":
         raise ValidationError(
             "unsupported or hypothesis descriptors cannot be activatable"
@@ -549,13 +537,22 @@ def _validate_qualification_launch_grammar(
     cwd_ref = launch_delta["cwd_ref"]
 
     if (harness, plane) == ("claude", "per_run_additive"):
+        expected_env = [
+            {
+                "name": "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                "value_ref": "true_literal",
+            },
+            {"name": "CLAUDE_CONFIG_DIR", "value_ref": "config_root_path"},
+        ]
         if (
             len(materialize) != 1
+            or materialize[0]["artifact_id"] != "effective_contract_file"
             or materialize[0]["root_ref"] != "ephemeral_root"
+            or materialize[0]["relative_path"] != "puppet-instructions.md"
             or materialize[0]["content_ref"] != "effective_contract"
             or materialize[0]["write_mode"] != "create_only"
             or cwd_ref != "workspace_root"
-            or env
+            or env != expected_env
             or argv
             != [
                 {"literal": "--append-system-prompt-file"},
@@ -564,67 +561,6 @@ def _validate_qualification_launch_grammar(
         ):
             raise ValidationError(
                 "Claude per-run qualification descriptor has an invalid closed launch grammar"
-            )
-        return
-
-    if (harness, plane) in {
-        ("codex", "workspace_addendum"),
-        ("claude", "workspace_addendum"),
-    }:
-        expected = all(
-            entry["root_ref"] == "workspace_root"
-            and entry["content_ref"] == "effective_contract"
-            and entry["write_mode"] == "create_only"
-            for entry in materialize
-        )
-        if not expected or cwd_ref != "workspace_root" or env or argv:
-            raise ValidationError(
-                "workspace qualification descriptor has an invalid closed launch grammar"
-            )
-        return
-
-    if (harness, plane) in {
-        ("cursor", "workspace_addendum"),
-        ("grok", "workspace_addendum"),
-    }:
-        flag = "--workspace" if harness == "cursor" else "--cwd"
-        expected = all(
-            entry["root_ref"] == "workspace_root"
-            and entry["content_ref"] == "effective_contract"
-            and entry["write_mode"] == "create_only"
-            for entry in materialize
-        )
-        if (
-            not expected
-            or cwd_ref != "workspace_root"
-            or env
-            or argv != [{"literal": flag}, {"root_ref": "workspace_root"}]
-        ):
-            raise ValidationError(
-                "%s workspace qualification descriptor has an invalid closed launch grammar"
-                % harness
-            )
-        return
-
-    if (harness, plane) == ("agy", "workspace_addendum"):
-        expected = all(
-            entry["root_ref"] == "workspace_root"
-            and entry["content_ref"] == "effective_contract"
-            and entry["write_mode"] == "create_only"
-            for entry in materialize
-        )
-        if (
-            not expected
-            or cwd_ref != "workspace_root"
-            or env
-            or argv
-            != [
-                {"literal": "--agent"},
-                {"name_ref": "puppet_agent_name"},
-            ]
-        ):
-            raise ValidationError(
-                "AGY workspace qualification descriptor has an invalid closed launch grammar"
             )
         return
 
@@ -669,10 +605,6 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
 
     target = _validate_target(normalized.get("target"))
     status = _validate_status(normalized.get("status"))
-    if status["activation"] == "qualified":
-        raise ValidationError(
-            "qualified status requires a separate controller evidence binding"
-        )
     allow_empty_activation_artifacts = (
         status["surface"] in {"unsupported", "hypothesis"}
         and status["activation"] == "disabled"
@@ -761,7 +693,7 @@ def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str
             parsed = _parse_json_no_duplicates(raw)
         except ValidationError:
             raise
-        except (TypeError, json.JSONDecodeError) as exc:
+        except (TypeError, json.JSONDecodeError, RecursionError) as exc:
             raise ValidationError("descriptor text must be valid JSON") from exc
         if not isinstance(parsed, Mapping):
             raise ValidationError("descriptor text must be an object")

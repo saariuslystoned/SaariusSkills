@@ -26,7 +26,7 @@ target:
 plane: <harness_global|workspace_addendum|per_run_additive>
 status:
   surface: <factual|hypothesis|unsupported>
-  activation: <qualification_only|disabled|qualified>
+  activation: <qualification_only|disabled>
 materialize:
   - artifact_id: <stable id>
     root_ref: <config_root|workspace_root|ephemeral_root>
@@ -36,7 +36,7 @@ materialize:
 launch_delta:
   cwd_ref: <workspace_root|null>
   env: [{name: <allowlisted name>, value_ref: <non-secret lane binding>}]
-  argv: [{literal: <flag>} | {path_ref: <artifact>} | {name_ref: <profile>}]
+  argv: [{literal: <allowlisted flag>} | {path_ref: <artifact>} | {name_ref: <closed name>} | {root_ref: <typed root>}]
 rollback:
   owned_artifacts: [<artifact refs>]
   preimage_sha256: [<required for patched artifacts>]
@@ -62,6 +62,28 @@ The compiler manifest remains immutable. A separate
 plane-descriptor SHA-256, and exact adapter-manifest SHA-256. The activation
 receipt then adds rendered-artifact and launch-plan hashes. This avoids circular
 hashes while making drift fail closed.
+
+The descriptor is intentionally not promotion authority. Version 1 has no
+`qualified` descriptor state: `qualification_only` means the exact closed tuple
+may be staged inside an isolated qualification lane, while a separate
+controller-attested plane binding and receipt own any later qualified verdict.
+Historical descriptors therefore remain structurally parseable when a new
+harness version is censused; exact version support is checked by the activation
+and evidence registry, not changed retroactively in this parser.
+
+The first activation grammar is deliberately partial: Claude's additive file
+surface uses one fixed `effective_contract_file` at
+`ephemeral_root/puppet-instructions.md`, a lane `CLAUDE_CONFIG_DIR`, disabled
+auto-memory, and the closed `--append-system-prompt-file <artifact>` vector.
+Other matrix rows remain disabled records until their exact namespaced path,
+technical-settings/template renderers, isolation bindings, and rollback
+transactions are implemented. A structurally valid descriptor is never by
+itself launch authority.
+
+Materialization list order is part of descriptor identity because future
+multi-artifact transactions execute and roll back in a declared order. Lists
+that are semantically sets—assertions, blockers, ownership, preimages, and
+environment bindings—are normalized before fingerprinting.
 
 ## Current exact-version discovery matrix
 
