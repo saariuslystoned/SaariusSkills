@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath
 from typing import Any, Dict, List, Mapping, Sequence
 
 from .contracts import TARGETS
@@ -85,10 +84,21 @@ def _validate_target_version(value: str, *, label: str) -> str:
     version = _validate_text(value, label=label, max_length=100)
     if not version or version.startswith(".") or version.endswith("."):
         raise ValidationError("%s is not a valid version" % label)
-    if "." in version:
-        if not all(part.isdigit() for part in version.split(".")):
+
+    if version.count("-") > 1:
+        raise ValidationError("%s is not a valid version" % label)
+
+    if "-" in version:
+        base_version, revision = version.split("-", 1)
+        if not revision or not revision.isalnum() or len(revision) < 6:
             raise ValidationError("%s is not a valid version" % label)
-    elif not version.replace("-", "").replace("_", "").isalnum():
+    else:
+        base_version = version
+
+    if "." in base_version:
+        if not all(part.isdigit() for part in base_version.split(".")):
+            raise ValidationError("%s is not a valid version" % label)
+    elif not base_version.replace("-", "").replace("_", "").isalnum():
         raise ValidationError("%s is not a valid version" % label)
     return version
 
@@ -112,9 +122,23 @@ def _validate_reference_path(value: Any, *, label: str) -> str:
         raise ValidationError("%s must be non-empty" % label)
     if path.startswith("/") or "\\" in path:
         raise ValidationError("%s must be relative and slash-style" % label)
-    if any(part in {"", ".", ".."} for part in PurePosixPath(path).parts):
+    if any(part in {"", ".", ".."} for part in path.split("/")):
         raise ValidationError("%s must not contain absolute or traversal components" % label)
     return path
+
+
+def _parse_json_no_duplicates(raw: str) -> dict[str, Any]:
+    def dedupe_checker(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+        obj = {}
+        seen = set()
+        for key, value in pairs:
+            if key in seen:
+                raise ValidationError("duplicate JSON key %s" % key)
+            seen.add(key)
+            obj[key] = value
+        return obj
+
+    return json.loads(raw, object_pairs_hook=dedupe_checker)
 
 
 def _validate_env_name(value: Any, *, label: str) -> str:
@@ -215,11 +239,20 @@ def _validate_status(value: Any) -> Dict[str, str]:
     return {"surface": surface, "activation": activation}
 
 
-def _validate_materialize(value: Any) -> List[Dict[str, Any]]:
-    if not isinstance(value, list) or not value or len(value) > 64:
+def _validate_materialize(
+    value: Any,
+    *,
+    allow_empty: bool,
+) -> List[Dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > 64:
+        raise ValidationError("materialize must be a bounded list")
+    if not value and not allow_empty:
         raise ValidationError("materialize must be a non-empty bounded list")
 
     materialize: List[Dict[str, Any]] = []
+    if not value:
+        return materialize
+
     artifact_ids = set()
     for entry in value:
         if not isinstance(entry, Mapping):
@@ -351,6 +384,7 @@ def _validate_rollback(
     *,
     materialize: Sequence[Mapping[str, Any]],
     materialize_keys: Sequence[str],
+    allow_empty: bool = False,
 ) -> Dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValidationError("rollback must be an object")
@@ -358,8 +392,14 @@ def _validate_rollback(
         raise ValidationError("rollback fields are invalid")
 
     owned_artifacts = _validate_ids(value.get("owned_artifacts"), label="rollback owned_artifacts")
-    if not owned_artifacts:
+    if allow_empty and not materialize_keys and not owned_artifacts:
+        pass
+    elif not materialize_keys and owned_artifacts:
+        raise ValidationError("rollback owned_artifacts must be empty for empty materialize")
+    elif not owned_artifacts:
         raise ValidationError("rollback must own at least one artifact")
+    if materialize_keys and set(owned_artifacts) != set(materialize_keys):
+        raise ValidationError("rollback owned_artifacts must exactly match materialize artifacts")
     for artifact_id in owned_artifacts:
         if artifact_id not in materialize_keys:
             raise ValidationError("rollback references unknown artifact")
@@ -380,6 +420,9 @@ def _validate_rollback(
         preimage_artifacts.add(artifact_id)
         sha = validate_sha256(entry["sha256"], "rollback preimage sha256")
         normalized_preimage.append({"artifact_id": artifact_id, "sha256": sha})
+
+    if not materialize_keys and preimage_artifacts:
+        raise ValidationError("rollback preimage_sha256 must be empty for empty materialize")
 
     for entry in materialize:
         if entry["write_mode"] == "patch_if_base_sha256":
@@ -437,7 +480,14 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
 
     target = _validate_target(normalized.get("target"))
     status = _validate_status(normalized.get("status"))
-    materialize = _validate_materialize(normalized.get("materialize"))
+    allow_empty_activation_artifacts = (
+        status["surface"] in {"unsupported", "hypothesis"}
+        and status["activation"] == "disabled"
+    )
+    materialize = _validate_materialize(
+        normalized.get("materialize"),
+        allow_empty=allow_empty_activation_artifacts,
+    )
     materialize_keys = [entry["artifact_id"] for entry in materialize]
     launch_delta = _validate_launch_delta(
         normalized.get("launch_delta"),
@@ -447,9 +497,34 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
         normalized.get("rollback"),
         materialize=materialize,
         materialize_keys=materialize_keys,
+        allow_empty=allow_empty_activation_artifacts,
     )
     assertions = _validate_ids(normalized.get("assertions"), label="assertions")
     blockers = _validate_ids(normalized.get("blockers"), label="blockers")
+
+    if status["surface"] == "factual" and status["activation"] != "disabled":
+        if not materialize_keys:
+            raise ValidationError("factual activatable descriptors must materialize artifacts")
+    if status["surface"] in {"unsupported", "hypothesis"} and status["activation"] == "disabled":
+        if not blockers:
+            raise ValidationError("unsupported or hypothesis disabled descriptors require blockers")
+        if materialize_keys:
+            raise ValidationError(
+                "unsupported or hypothesis disabled descriptors cannot include materialize artifacts"
+            )
+        if launch_delta["cwd_ref"] is not None or launch_delta["env"] or launch_delta["argv"]:
+            raise ValidationError(
+                "unsupported or hypothesis disabled descriptors cannot include activation deltas"
+            )
+        if rollback["owned_artifacts"] or rollback["preimage_sha256"]:
+            raise ValidationError(
+                "unsupported or hypothesis disabled descriptors cannot include rollback data"
+            )
+    if status["activation"] == "qualified":
+        if not assertions:
+            raise ValidationError("qualified descriptors must include assertions")
+        if blockers:
+            raise ValidationError("qualified descriptors must not include blockers")
 
     return {
         "schema": _SCHEMA_NAME,
@@ -469,7 +544,9 @@ def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str
     """Parse JSON descriptor text or validate a descriptor mapping."""
     if isinstance(raw, str):
         try:
-            parsed = json.loads(raw)
+            parsed = _parse_json_no_duplicates(raw)
+        except ValidationError:
+            raise
         except (TypeError, json.JSONDecodeError) as exc:
             raise ValidationError("descriptor text must be valid JSON") from exc
         if not isinstance(parsed, Mapping):

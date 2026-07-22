@@ -105,6 +105,47 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
         self.assertEqual(parsed["plane"], "harness_global")
         self.assertEqual(parsed["status"]["surface"], "factual")
 
+    def test_parse_rejects_duplicate_json_key(self):
+        payload = (
+            '{"schema":"puppet.instruction-plane/v1","schema":"puppet.instruction-plane/v1",'
+            '"descriptor_id":"fixture-duplicate-key","target":{"harness":"codex",'
+            '"version":"0.145.0","version":"0.145.0","adapter_manifest_sha256":"'
+            + ("0" * 64)
+            + '","requested_model":"default","observed_model":"unavailable",'
+            '"config_fingerprint":"unavailable"},"plane":"harness_global",'
+            '"status":{"surface":"factual","activation":"qualification_only"},'
+            '"materialize":[{"artifact_id":"instruction_contract","root_ref":"config_root",'
+            '"relative_path":"workspace/.puppet/contracts/instruction_contract.md",'
+            '"content_ref":"effective_contract","write_mode":"create_only"}],'
+            '"launch_delta":{"cwd_ref":"workspace_root","env":[],"argv":[]},'
+            '"rollback":{"owned_artifacts":["instruction_contract"],"preimage_sha256":[],'
+            '"retain_hash_only_proof":true},"assertions":[],"blockers":["blocker"]}'
+        )
+        with self.assertRaisesRegex(ValidationError, "duplicate JSON key"):
+            parse_instruction_plane_descriptor(payload)
+
+    def test_target_version_with_revision_suffix_is_accepted(self):
+        candidate = _fixture()
+        candidate["target"]["version"] = "2026.07.17-3e2a980"
+        self.assertEqual(
+            validate_instruction_plane_descriptor(candidate)["target"]["version"],
+            "2026.07.17-3e2a980",
+        )
+
+    def test_unsupported_or_hypothesis_disabled_can_be_empty_and_is_blocker_required(self):
+        candidate = _fixture()
+        candidate["status"] = {"surface": "hypothesis", "activation": "disabled"}
+        candidate["materialize"] = []
+        candidate["launch_delta"] = {"cwd_ref": None, "env": [], "argv": []}
+        candidate["rollback"] = {
+            "owned_artifacts": [],
+            "preimage_sha256": [],
+            "retain_hash_only_proof": True,
+        }
+        candidate["assertions"] = []
+        candidate["blockers"] = ["blocker_coverage_001"]
+        self.assertEqual(validate_instruction_plane_descriptor(candidate)["materialize"], [])
+
     def test_adversarial_cases(self):
         base = _fixture()
         invalid_cases = [
@@ -143,6 +184,62 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                 "unsupported or hypothesis descriptors cannot be activatable",
             ),
             (
+                "unsupported_requires_blockers_when_disabled",
+                lambda value: value.update(
+                    {
+                        "status": {"surface": "unsupported", "activation": "disabled"},
+                        "materialize": [],
+                        "launch_delta": {"cwd_ref": None, "env": [], "argv": []},
+                        "rollback": {
+                            "owned_artifacts": [],
+                            "preimage_sha256": [],
+                            "retain_hash_only_proof": True,
+                        },
+                        "blockers": [],
+                    }
+                ),
+                "unsupported or hypothesis disabled descriptors require blockers",
+            ),
+            (
+                "unsupported_disabled_cannot_include_activation_delta",
+                lambda value: value.update(
+                    {
+                        "status": {"surface": "unsupported", "activation": "disabled"},
+                        "materialize": [],
+                        "rollback": {
+                            "owned_artifacts": [],
+                            "preimage_sha256": [],
+                            "retain_hash_only_proof": True,
+                        },
+                        "blockers": ["blocked_coverage"],
+                        "launch_delta": {
+                            "cwd_ref": "workspace_root",
+                            "env": [],
+                            "argv": [],
+                        },
+                    }
+                ),
+                "unsupported or hypothesis disabled descriptors cannot include activation deltas",
+            ),
+            (
+                "qualified_requires_assertions",
+                lambda value: value["status"].update({"activation": "qualified"})
+                or value.update({"assertions": []}),
+                "qualified descriptors must include assertions",
+            ),
+            (
+                "qualified_requires_no_blockers",
+                lambda value: value["status"].update({"activation": "qualified"}),
+                "qualified descriptors must not include blockers",
+            ),
+            (
+                "factual_activation_requires_materialize",
+                lambda value: value.update(
+                    {"status": {"surface": "factual", "activation": "qualification_only"}, "materialize": []}
+                ),
+                "factual activatable descriptors must materialize artifacts",
+            ),
+            (
                 "patch_mode_missing_preimage",
                 lambda value: value["materialize"].append(
                     {
@@ -173,6 +270,20 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                 "traversal_artifact_path",
                 lambda value: value["materialize"][0].update(
                     {"relative_path": "workspace/../danger.md"}
+                ),
+                "must not contain absolute or traversal components",
+            ),
+            (
+                "duplicate_slash_artifact_path",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": "workspace//contracts/instruction_contract.md"}
+                ),
+                "must not contain absolute or traversal components",
+            ),
+            (
+                "trailing_slash_artifact_path",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": "workspace/.puppet/contracts/instruction_contract.md/"}
                 ),
                 "must not contain absolute or traversal components",
             ),
@@ -216,6 +327,13 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                 "rollback_unknown_artifact",
                 lambda value: value["rollback"]["owned_artifacts"].append("missing_artifact"),
                 "references unknown artifact",
+            ),
+            (
+                "rollback_ownership_must_cover_all_artifacts",
+                lambda value: value["rollback"].update(
+                    {"owned_artifacts": ["instruction_contract"]}
+                ),
+                "must exactly match materialize artifacts",
             ),
             (
                 "preimage_not_sha256",
