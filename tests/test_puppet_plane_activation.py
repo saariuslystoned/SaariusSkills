@@ -31,7 +31,10 @@ from puppet_lib.errors import (  # noqa: E402
 from puppet_lib.instruction_planes import descriptor_fingerprint  # noqa: E402
 from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.plane_activation import (  # noqa: E402
+    ACTIVATION_LIFECYCLE_SCOPE,
+    CLAUDE_NATIVE_TRIGGER_SHA256,
     INTENT_FILENAME,
+    PROBE_PLANE_ACTIVATION_SCHEMA,
     RECEIPT_FILENAME,
     build_activation_launch_context,
     load_activation_plan,
@@ -40,6 +43,7 @@ from puppet_lib.plane_activation import (  # noqa: E402
     recover_activation,
     revalidate_activation_launch_context,
     rollback_activation,
+    validate_terminal_activation_evidence,
     verify_activation,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
@@ -272,6 +276,50 @@ class PlaneActivationTests(unittest.TestCase):
             self.plan,
             **arguments,
         )
+
+    @staticmethod
+    def _json_file(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _terminal_activation_family(self):
+        self._activate()
+        context = self._launch_context()
+        rollback_activation(self.plan)
+        intent = self._json_file(self.plan.intent_path)
+        receipt = self._json_file(self.plan.receipt_path)
+        rollback_intent = self._json_file(self.plan.rollback_intent_path)
+        rollback_receipt = self._json_file(self.plan.rollback_receipt_path)
+        public_context = context.to_public_dict()
+        activation = {
+            "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+            "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+            "terminal_state": "rolled_back",
+            "descriptor_sha256": descriptor_fingerprint(self.descriptor),
+            "plan_sha256": self.plan.plan_sha256,
+            "intent_sha256": sha256_bytes(canonical_json_bytes(intent)),
+            "materialization_receipt_sha256": sha256_bytes(
+                canonical_json_bytes(receipt)
+            ),
+            "launch_context_sha256": sha256_bytes(canonical_json_bytes(public_context)),
+            "artifact_sha256": self.plan.raw["effective_contract_sha256"],
+            "initial_trigger_sha256": CLAUDE_NATIVE_TRIGGER_SHA256,
+            "rollback_intent_sha256": sha256_bytes(
+                canonical_json_bytes(rollback_intent)
+            ),
+            "rollback_receipt_sha256": sha256_bytes(
+                canonical_json_bytes(rollback_receipt)
+            ),
+        }
+        return {
+            "activation": activation,
+            "descriptor": copy.deepcopy(self.descriptor),
+            "intent": intent,
+            "materialization_receipt": receipt,
+            "public_context": public_context,
+            "admitted_launch_plan": context.admitted_launch_plan,
+            "rollback_intent": rollback_intent,
+            "rollback_receipt": rollback_receipt,
+        }
 
     def assert_artifact_preserved(self):
         self.assertTrue(
@@ -660,6 +708,58 @@ class PlaneActivationTests(unittest.TestCase):
                     "only the missing project-isolation dimension",
                 ):
                     activation_module._context_manifest(manifest, plan)
+
+    def test_terminal_activation_evidence_proves_exact_rolled_back_family(self):
+        family = self._terminal_activation_family()
+        normalized = validate_terminal_activation_evidence(**family)
+        self.assertEqual(normalized, family["activation"])
+        self.assertFalse(self.plan.artifact_path.exists())
+        self.assertEqual(list(self.ephemeral.iterdir()), [])
+        serialized = canonical_json_bytes(normalized)
+        self.assertNotIn(self.compiled.rendered, serialized)
+        self.assertNotIn(self.body_marker.encode(), serialized)
+
+    def test_terminal_activation_evidence_rejects_hash_and_trigger_forgery(self):
+        family = self._terminal_activation_family()
+        for name in (
+            "descriptor_sha256",
+            "plan_sha256",
+            "intent_sha256",
+            "materialization_receipt_sha256",
+            "launch_context_sha256",
+            "artifact_sha256",
+            "rollback_intent_sha256",
+            "rollback_receipt_sha256",
+        ):
+            with self.subTest(name=name):
+                candidate = copy.deepcopy(family)
+                candidate["activation"][name] = "f" * 64
+                with self.assertRaises((IdentityError, ValidationError)):
+                    validate_terminal_activation_evidence(**candidate)
+
+        duplicate = copy.deepcopy(family)
+        duplicate["activation"]["initial_trigger_sha256"] = self.plan.raw[
+            "effective_contract_sha256"
+        ]
+        with self.assertRaises((IdentityError, ValidationError)):
+            validate_terminal_activation_evidence(**duplicate)
+
+    def test_terminal_activation_evidence_rejects_incomplete_or_resurrected_state(self):
+        family = self._terminal_activation_family()
+        incomplete = copy.deepcopy(family)
+        incomplete["rollback_receipt"].pop("artifact_state")
+        with self.assertRaisesRegex(ValidationError, "rollback receipt fields"):
+            validate_terminal_activation_evidence(**incomplete)
+
+        context_drift = copy.deepcopy(family)
+        context_drift["public_context"].pop("activation_receipt_sha256")
+        with self.assertRaisesRegex(ValidationError, "public context fields"):
+            validate_terminal_activation_evidence(**context_drift)
+
+        self.plan.artifact_path.write_bytes(self.compiled.rendered)
+        self.plan.artifact_path.chmod(0o600)
+        with self.assertRaises((ConflictError, IdentityError)):
+            validate_terminal_activation_evidence(**family)
 
     def test_v2_load_and_recovery_reject_legacy_future_and_mixed_families(self):
         current_plan = self.plan.to_dict()

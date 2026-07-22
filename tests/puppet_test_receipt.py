@@ -317,6 +317,7 @@ def write_qualification_receipt(
                 "session_profile": compiled.manifest["session_profile"],
                 "delivery_transport": compiled.manifest["delivery_transport"],
             },
+            "plane_activation": None,
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
             "target_population_policy": "protected-plus-root-plus-birth-bound-descendants-v2",
@@ -338,6 +339,7 @@ def write_qualification_receipt(
                 "mode": stat.S_IMODE(lock_details.st_mode),
             },
             "result": "accepted",
+            "failure": None,
             "halt_sha256": sha256_file(halt_path),
             "acceptance_sha256": sha256_file(acceptance_path),
             "review_sha256": sha256_file(review_path),
@@ -398,6 +400,7 @@ def write_qualification_receipt(
         "accepted_checkpoint_id": followup.checkpoint_id,
         "acceptance_sha256": sha256_file(acceptance_path),
         "halt_receipt_sha256": sha256_file(halt_path),
+        "plane_activation": None,
         "proof_refs": [
             reference("authorization", authorization_path),
             reference("evidence", evidence_path),

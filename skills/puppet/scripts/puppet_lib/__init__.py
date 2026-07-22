@@ -12,6 +12,7 @@ from .plane_activation import (
     recover_activation,
     revalidate_activation_launch_context,
     rollback_activation,
+    validate_terminal_activation_evidence,
     verify_activation,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "recover_activation",
     "revalidate_activation_launch_context",
     "rollback_activation",
+    "validate_terminal_activation_evidence",
     "verify_activation",
 ]
 

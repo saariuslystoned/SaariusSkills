@@ -31,6 +31,7 @@ from .launch import (
     build_launch_identity,
     public_launch_identity,
     validate_admitted_launch_plan,
+    validate_public_launch_identity,
 )
 from .profiles import (
     PROMPT_TRANSPORT,
@@ -55,6 +56,17 @@ RECEIPT_SCHEMA = "puppet.plane-activation-receipt/v2"
 ROLLBACK_SCHEMA = "puppet.plane-activation-rollback/v2"
 ROLLBACK_INTENT_SCHEMA = "puppet.plane-activation-rollback-intent/v2"
 LAUNCH_CONTEXT_SCHEMA = "puppet.plane-activation-launch-context/v1"
+PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
+ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
+
+# This trigger deliberately carries no task, run, fixture, nonce, or contract
+# body.  The native additive instruction artifact must supply all qualification
+# authority; re-sending the rendered contract as the first user message would
+# make a native-plane result a false positive.
+CLAUDE_NATIVE_TRIGGER = "Proceed using the active Puppet qualification contract."
+CLAUDE_NATIVE_TRIGGER_SHA256 = sha256_bytes(
+    (CLAUDE_NATIVE_TRIGGER + "\n").encode("utf-8")
+)
 
 INTENT_FILENAME = "activation-intent.json"
 RECEIPT_FILENAME = "activation-receipt.json"
@@ -2437,6 +2449,217 @@ def _prove_rolled_back(
     return normalized
 
 
+def validate_terminal_activation_evidence(
+    activation: Mapping[str, Any],
+    *,
+    descriptor: Mapping[str, Any],
+    intent: Mapping[str, Any],
+    materialization_receipt: Mapping[str, Any],
+    public_context: Mapping[str, Any],
+    admitted_launch_plan: Mapping[str, Any],
+    rollback_intent: Mapping[str, Any],
+    rollback_receipt: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate one body-free, post-rollback activation proof family.
+
+    Unlike :func:`verify_activation`, this validator intentionally runs after
+    the native instruction artifact has been removed.  It joins the immutable
+    descriptor, intent-embedded plan, materialization receipt, public launch
+    context, admitted launch plan, rollback intent, rollback receipt, and the
+    live empty activation root.  It never needs instruction bytes or private
+    environment values.
+    """
+
+    activation_keys = {
+        "schema",
+        "qualification_scope",
+        "terminal_state",
+        "descriptor_sha256",
+        "plan_sha256",
+        "intent_sha256",
+        "materialization_receipt_sha256",
+        "launch_context_sha256",
+        "artifact_sha256",
+        "initial_trigger_sha256",
+        "rollback_intent_sha256",
+        "rollback_receipt_sha256",
+    }
+    if not isinstance(activation, Mapping) or set(activation) != activation_keys:
+        raise ValidationError("probe plane activation fields are invalid")
+    if (
+        activation.get("schema") != PROBE_PLANE_ACTIVATION_SCHEMA
+        or activation.get("qualification_scope") != ACTIVATION_LIFECYCLE_SCOPE
+        or activation.get("terminal_state") != "rolled_back"
+    ):
+        raise ValidationError("probe plane activation state is invalid")
+    validate_bounded_json(
+        dict(activation),
+        max_depth=3,
+        max_items=32,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+
+    normalized_descriptor = validate_instruction_plane_descriptor(descriptor)
+    if (
+        normalized_descriptor["target"]["harness"] != "claude"
+        or normalized_descriptor["plane"] != "per_run_additive"
+        or normalized_descriptor["status"]
+        != {"surface": "factual", "activation": "qualification_only"}
+    ):
+        raise IdentityError("terminal activation descriptor is not the Claude plane")
+
+    plan = _validate_intent(intent)
+    normalized_receipt = _validate_receipt(materialization_receipt, plan)
+    normalized_rollback_intent = _validate_rollback_intent(
+        rollback_intent,
+        plan,
+        normalized_receipt,
+    )
+    normalized_rollback = _prove_rolled_back(
+        plan,
+        normalized_receipt,
+        rollback_receipt,
+    )
+    if descriptor_fingerprint(normalized_descriptor) != plan.raw["descriptor_sha256"]:
+        raise IdentityError("terminal activation descriptor binding changed")
+
+    launch_plan = validate_admitted_launch_plan(
+        admitted_launch_plan,
+        expected_target="claude",
+        expected_session=(
+            public_context.get("session")
+            if isinstance(public_context, Mapping)
+            else None
+        ),
+        expected_run_id=(
+            public_context.get("run_id")
+            if isinstance(public_context, Mapping)
+            else None
+        ),
+    )
+    context_keys = {
+        "schema",
+        "target",
+        "session",
+        "run_id",
+        "session_profile",
+        "adapter_manifest_sha256",
+        "adapter_implementation_sha256",
+        "activation_plan_sha256",
+        "activation_receipt_sha256",
+        "activation_delta_sha256",
+        "artifact_sha256",
+        "workspace_root_sha256",
+        "config_root_sha256",
+        "admitted_lane_root_sha256",
+        "project_isolation",
+        "launch_identity",
+        "admitted_launch_plan_sha256",
+    }
+    if not isinstance(public_context, Mapping) or set(public_context) != context_keys:
+        raise ValidationError("activation public context fields are invalid")
+    if (
+        public_context.get("schema") != LAUNCH_CONTEXT_SCHEMA
+        or public_context.get("target") != "claude"
+        or public_context.get("session_profile") != "regular"
+        or public_context.get("project_isolation")
+        != "activation_bound_workspace_config_lane_roots"
+    ):
+        raise ValidationError("activation public context is invalid")
+    validate_identifier(public_context.get("session"), "activation context session")
+    validate_identifier(public_context.get("run_id"), "activation context run id")
+    launch_identity = validate_public_launch_identity(
+        public_context.get("launch_identity"),
+        target="claude",
+    )
+    if launch_identity != launch_plan["launch_identity"]:
+        raise IdentityError("terminal activation launch identity changed")
+
+    lane_path = Path(
+        os.path.commonpath(
+            [
+                plan.raw[name]["path"]
+                for name in (
+                    "workspace_root",
+                    "config_root",
+                    "ephemeral_root",
+                    "transaction_root",
+                )
+            ]
+        )
+    )
+    lane_descriptor, lane_identity = _open_root(
+        lane_path,
+        label="admitted lane root",
+        private=True,
+    )
+    os.close(lane_descriptor)
+    expected_context = {
+        "adapter_manifest_sha256": plan.raw["adapter_manifest_sha256"],
+        "adapter_implementation_sha256": plan.raw["adapter_implementation_sha256"],
+        "activation_plan_sha256": plan.plan_sha256,
+        "activation_receipt_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_receipt)
+        ),
+        "activation_delta_sha256": plan.raw["launch_plan_sha256"],
+        "artifact_sha256": plan.raw["effective_contract_sha256"],
+        "workspace_root_sha256": sha256_bytes(
+            canonical_json_bytes(plan.raw["workspace_root"])
+        ),
+        "config_root_sha256": sha256_bytes(
+            canonical_json_bytes(plan.raw["config_root"])
+        ),
+        "admitted_lane_root_sha256": sha256_bytes(canonical_json_bytes(lane_identity)),
+        "admitted_launch_plan_sha256": sha256_bytes(
+            canonical_json_bytes(dict(admitted_launch_plan))
+        ),
+    }
+    for name, expected in expected_context.items():
+        if (
+            validate_sha256(public_context.get(name), name.replace("_", " "))
+            != expected
+        ):
+            raise IdentityError("activation public context binding changed: %s" % name)
+
+    expected_activation = {
+        "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+        "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+        "terminal_state": "rolled_back",
+        "descriptor_sha256": descriptor_fingerprint(normalized_descriptor),
+        "plan_sha256": plan.plan_sha256,
+        "intent_sha256": sha256_bytes(canonical_json_bytes(dict(intent))),
+        "materialization_receipt_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_receipt)
+        ),
+        "launch_context_sha256": sha256_bytes(
+            canonical_json_bytes(dict(public_context))
+        ),
+        "artifact_sha256": plan.raw["effective_contract_sha256"],
+        "initial_trigger_sha256": CLAUDE_NATIVE_TRIGGER_SHA256,
+        "rollback_intent_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_rollback_intent)
+        ),
+        "rollback_receipt_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_rollback)
+        ),
+    }
+    for name in activation_keys - {
+        "schema",
+        "qualification_scope",
+        "terminal_state",
+    }:
+        supplied = validate_sha256(activation.get(name), name.replace("_", " "))
+        if supplied != expected_activation[name]:
+            raise IdentityError("probe plane activation binding changed: %s" % name)
+    if (
+        expected_activation["initial_trigger_sha256"]
+        == expected_activation["artifact_sha256"]
+    ):
+        raise IdentityError("native trigger duplicates the rendered contract")
+    return expected_activation
+
+
 def rollback_activation(plan: ActivationPlan) -> Dict[str, Any]:
     """Delete only the exact received artifact and transaction-created parents."""
     plan = ActivationPlan.from_dict(plan.to_dict())
@@ -2675,9 +2898,13 @@ def recover_activation(transaction_root: Path | str) -> ActivationRecovery:
 
 
 __all__ = [
+    "ACTIVATION_LIFECYCLE_SCOPE",
     "ActivationLaunchContext",
     "ActivationPlan",
     "ActivationRecovery",
+    "CLAUDE_NATIVE_TRIGGER",
+    "CLAUDE_NATIVE_TRIGGER_SHA256",
+    "PROBE_PLANE_ACTIVATION_SCHEMA",
     "build_activation_launch_context",
     "load_activation_plan",
     "materialize_activation",
@@ -2685,5 +2912,6 @@ __all__ = [
     "recover_activation",
     "revalidate_activation_launch_context",
     "rollback_activation",
+    "validate_terminal_activation_evidence",
     "verify_activation",
 ]

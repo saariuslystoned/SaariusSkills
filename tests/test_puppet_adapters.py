@@ -21,19 +21,25 @@ sys.path.insert(0, str(SCRIPTS))
 import adapter_lab as puppet_adapter_lab  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
+    ACTIVATION_QUALIFICATION_PROOF_KINDS,
+    ACTIVATION_LIFECYCLE_SCOPE,
     AdapterManifest,
     CURSOR_REQUIRED_PATH_TOOLS,
     QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
     QUALIFICATION_PROFILE,
+    QUALIFICATION_PROOF_KINDS,
     QUALIFICATION_STATE_SCHEMA_VERSION,
+    PROBE_PLANE_ACTIVATION_SCHEMA,
     _RECEIPT_FIELDS,
     _ACCEPTED_EVIDENCE_FIELDS,
+    _qualification_artifacts,
     _verify_qualification_instruction_authority,
     direct_execution_bundle,
     execution_file_identity,
     QUALIFICATION_RECEIPT_SCHEMA_VERSION,
     validate_qualification_evidence_schema,
     validate_qualification_state_schema,
+    validate_probe_plane_activation,
     verify_qualification_receipt,
 )
 from puppet_lib.adapters import adapter_for  # noqa: E402
@@ -209,6 +215,68 @@ class AdapterTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
                 verify_qualification_receipt(receipt_path)
+
+    def test_native_activation_authority_requires_distinct_bound_trigger(self):
+        activation = {
+            "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+            "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+            "terminal_state": "rolled_back",
+            "descriptor_sha256": "1" * 64,
+            "plan_sha256": "2" * 64,
+            "intent_sha256": "3" * 64,
+            "materialization_receipt_sha256": "4" * 64,
+            "launch_context_sha256": "5" * 64,
+            "artifact_sha256": "6" * 64,
+            "initial_trigger_sha256": "7" * 64,
+            "rollback_intent_sha256": "8" * 64,
+            "rollback_receipt_sha256": "9" * 64,
+        }
+        manifest = {
+            "contract_identity": {
+                "fingerprint": "a" * 64,
+                "controller": "tester",
+                "target": "claude",
+                "task_profile": "source-free-pass-b-v2",
+            },
+            "workspace_identity": {
+                "fixture_fingerprint": "b" * 64,
+                "workspace": "isolated_conformance_fixture",
+            },
+            "run_identity": {
+                "session": "session-1",
+                "run_id": "run-1",
+                "nonce": "nonce-1",
+            },
+            "orchestration_contract": {
+                "mutation_owner": "none",
+                "allowed_modes": ["read", "test"],
+                "hard_gates": sorted(MANDATORY_HARD_GATES),
+            },
+            "runtime_binding": {"model": "default", "effort": "default"},
+            "rendered_sha256": activation["artifact_sha256"],
+        }
+        kwargs = {
+            "instruction_manifest": manifest,
+            "receipt": {
+                "controller": "tester",
+                "target": "claude",
+                "run_id": "run-1",
+                "plane_activation": activation,
+            },
+            "evidence": {"fixture_fingerprint_before": "b" * 64},
+            "ready_identity": {"session": "session-1", "nonce": "nonce-1"},
+            "review": {"contract_fingerprint": "a" * 64},
+            "review_summary": {
+                "initial_payload_sha256": activation["initial_trigger_sha256"]
+            },
+        }
+        _verify_qualification_instruction_authority(**kwargs)
+        duplicated = copy.deepcopy(kwargs)
+        duplicated["review_summary"]["initial_payload_sha256"] = activation[
+            "artifact_sha256"
+        ]
+        with self.assertRaisesRegex(ValidationError, "native instruction delivery"):
+            _verify_qualification_instruction_authority(**duplicated)
 
     def test_combined_permission_and_sandbox_switch_is_emitted_once(self):
         self.assertEqual(
@@ -687,6 +755,86 @@ class AdapterTests(unittest.TestCase):
         mixed.pop("execution_fingerprint")
         with self.assertRaisesRegex(ValidationError, "fields do not match"):
             validate_qualification_evidence_schema(mixed)
+
+    def test_probe_plane_activation_shape_is_exact_and_nonduplicative(self):
+        activation = {
+            "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+            "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+            "terminal_state": "rolled_back",
+            "descriptor_sha256": "1" * 64,
+            "plan_sha256": "2" * 64,
+            "intent_sha256": "3" * 64,
+            "materialization_receipt_sha256": "4" * 64,
+            "launch_context_sha256": "5" * 64,
+            "artifact_sha256": "6" * 64,
+            "initial_trigger_sha256": "7" * 64,
+            "rollback_intent_sha256": "8" * 64,
+            "rollback_receipt_sha256": "9" * 64,
+        }
+        self.assertIsNone(validate_probe_plane_activation(None))
+        self.assertEqual(validate_probe_plane_activation(activation), activation)
+        for mutation in (
+            {**activation, "unexpected": True},
+            {
+                name: value
+                for name, value in activation.items()
+                if name != "plan_sha256"
+            },
+            {**activation, "terminal_state": "active"},
+            {
+                **activation,
+                "initial_trigger_sha256": activation["artifact_sha256"],
+            },
+        ):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(ValidationError):
+                    validate_probe_plane_activation(mutation)
+
+    def test_activation_receipts_require_the_exact_additional_proof_kinds(self):
+        activation = {
+            "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+            "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+            "terminal_state": "rolled_back",
+            "descriptor_sha256": "1" * 64,
+            "plan_sha256": "2" * 64,
+            "intent_sha256": "3" * 64,
+            "materialization_receipt_sha256": "4" * 64,
+            "launch_context_sha256": "5" * 64,
+            "artifact_sha256": "6" * 64,
+            "initial_trigger_sha256": "7" * 64,
+            "rollback_intent_sha256": "8" * 64,
+            "rollback_receipt_sha256": "9" * 64,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            receipt_path = root / "receipt.json"
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            kinds = QUALIFICATION_PROOF_KINDS + ACTIVATION_QUALIFICATION_PROOF_KINDS
+            refs = []
+            for kind in kinds:
+                artifact = root / (kind + ".json")
+                artifact.write_text("{}\n", encoding="utf-8")
+                refs.append(
+                    {
+                        "kind": kind,
+                        "path": artifact.name,
+                        "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                    }
+                )
+            receipt = {"plane_activation": activation, "proof_refs": refs}
+            self.assertEqual(
+                set(_qualification_artifacts(receipt_path, receipt)), set(kinds)
+            )
+
+            missing = copy.deepcopy(receipt)
+            missing["proof_refs"].pop()
+            with self.assertRaisesRegex(ValidationError, "references are incomplete"):
+                _qualification_artifacts(receipt_path, missing)
+
+            nonactivated = copy.deepcopy(receipt)
+            nonactivated["plane_activation"] = None
+            with self.assertRaisesRegex(ValidationError, "references are incomplete"):
+                _qualification_artifacts(receipt_path, nonactivated)
 
     def test_qualification_state_schema_versions_and_profile_fail_closed(self):
         current = {

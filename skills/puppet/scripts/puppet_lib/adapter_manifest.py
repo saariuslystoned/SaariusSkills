@@ -329,6 +329,30 @@ QUALIFICATION_PROOF_KINDS = (
     "review",
     "acceptance",
 )
+ACTIVATION_QUALIFICATION_PROOF_KINDS = (
+    "plane_descriptor",
+    "activation_intent",
+    "activation_receipt",
+    "activation_context",
+    "activation_rollback_intent",
+    "activation_rollback",
+)
+PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
+ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
+_PROBE_PLANE_ACTIVATION_FIELDS = {
+    "schema",
+    "qualification_scope",
+    "terminal_state",
+    "descriptor_sha256",
+    "plan_sha256",
+    "intent_sha256",
+    "materialization_receipt_sha256",
+    "launch_context_sha256",
+    "artifact_sha256",
+    "initial_trigger_sha256",
+    "rollback_intent_sha256",
+    "rollback_receipt_sha256",
+}
 
 _RECEIPT_FIELDS = {
     "schema_version",
@@ -353,6 +377,7 @@ _RECEIPT_FIELDS = {
     "accepted_checkpoint_id",
     "acceptance_sha256",
     "halt_receipt_sha256",
+    "plane_activation",
     "proof_refs",
     "controller_attestation",
 }
@@ -384,6 +409,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "submit_settle_seconds",
     "payload_argv_absent",
     "instruction_wrapper",
+    "plane_activation",
     "active_target_processes_before_launch",
     "active_target_processes_after_halt",
     "target_population_policy",
@@ -407,6 +433,30 @@ _ACCEPTED_EVIDENCE_FIELDS = {
 }
 
 
+def validate_probe_plane_activation(value: Any) -> Optional[Dict[str, Any]]:
+    """Validate the body-free activation summary shared by evidence/receipt."""
+
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != _PROBE_PLANE_ACTIVATION_FIELDS:
+        raise ValidationError("probe plane activation fields do not match schema")
+    if (
+        value.get("schema") != PROBE_PLANE_ACTIVATION_SCHEMA
+        or value.get("qualification_scope") != ACTIVATION_LIFECYCLE_SCOPE
+        or value.get("terminal_state") != "rolled_back"
+    ):
+        raise ValidationError("probe plane activation state is invalid")
+    for name in _PROBE_PLANE_ACTIVATION_FIELDS - {
+        "schema",
+        "qualification_scope",
+        "terminal_state",
+    }:
+        validate_sha256(value.get(name), name.replace("_", " "))
+    if value["initial_trigger_sha256"] == value["artifact_sha256"]:
+        raise ValidationError("native activation trigger duplicates rendered contract")
+    return dict(value)
+
+
 def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
     """Reject legacy, future, and mixed-shape qualification evidence."""
 
@@ -425,6 +475,7 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
         value.get("execution_fingerprint"),
         "qualification evidence execution fingerprint",
     )
+    validate_probe_plane_activation(value.get("plane_activation"))
     return dict(value)
 
 
@@ -492,17 +543,30 @@ def _verify_qualification_instruction_authority(
     }
     if any(instruction_manifest.get(name) != value for name, value in expected.items()):
         raise ValidationError("qualification instruction authority is incomplete")
-    if review_summary.get("initial_payload_sha256") != instruction_manifest.get(
-        "rendered_sha256"
+    activation = validate_probe_plane_activation(receipt.get("plane_activation"))
+    initial_payload_sha256 = review_summary.get("initial_payload_sha256")
+    if activation is None:
+        if initial_payload_sha256 != instruction_manifest.get("rendered_sha256"):
+            raise ValidationError(
+                "qualification delivered payload does not match instruction manifest"
+            )
+    elif (
+        initial_payload_sha256 != activation["initial_trigger_sha256"]
+        or initial_payload_sha256 == instruction_manifest.get("rendered_sha256")
+        or activation["artifact_sha256"] != instruction_manifest.get("rendered_sha256")
     ):
-        raise ValidationError(
-            "qualification delivered payload does not match instruction manifest"
-        )
+        raise ValidationError("qualification native instruction delivery is invalid")
 
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
+    activation = validate_probe_plane_activation(receipt.get("plane_activation"))
+    expected_kinds = (
+        QUALIFICATION_PROOF_KINDS
+        if activation is None
+        else QUALIFICATION_PROOF_KINDS + ACTIVATION_QUALIFICATION_PROOF_KINDS
+    )
     refs = receipt.get("proof_refs")
-    if not isinstance(refs, list) or len(refs) != len(QUALIFICATION_PROOF_KINDS):
+    if not isinstance(refs, list) or len(refs) != len(expected_kinds):
         raise ValidationError("qualification proof references are incomplete")
     root = path.resolve(strict=True).parent
     artifacts: Dict[str, Path] = {}
@@ -517,7 +581,7 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
             )
         kind = reference.get("kind")
         relative_text = reference.get("path")
-        if kind not in QUALIFICATION_PROOF_KINDS or kind in artifacts:
+        if kind not in expected_kinds or kind in artifacts:
             raise ValidationError("qualification proof reference kind is invalid")
         if (
             not isinstance(relative_text, str)
@@ -537,7 +601,7 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
         if sha256_file(artifact, max_bytes=131072) != reference["sha256"]:
             raise ValidationError("qualification proof artifact fingerprint changed")
         artifacts[kind] = artifact
-    if set(artifacts) != set(QUALIFICATION_PROOF_KINDS):
+    if set(artifacts) != set(expected_kinds):
         raise ValidationError("qualification proof reference kinds are incomplete")
     return artifacts
 
@@ -670,6 +734,9 @@ def verify_qualification_receipt(
         )
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
+    plane_activation = validate_probe_plane_activation(receipt.get("plane_activation"))
+    if plane_activation is not None and receipt.get("target") != "claude":
+        raise ValidationError("plane activation is supported only for Claude")
     validate_session_profile(receipt["target"], receipt.get("session_profile"))
     validate_identifier(receipt.get("run_id"), "qualification run id")
     validate_identifier(receipt.get("controller"), "qualification controller")
@@ -759,12 +826,13 @@ def verify_qualification_receipt(
     evidence = read_json(
         artifacts["evidence"], max_bytes=131072, reject_sensitive_fields=True
     )
+    launch_plan_raw = read_json(
+        artifacts["launch_plan"],
+        max_bytes=131072,
+        reject_sensitive_fields=True,
+    )
     launch_plan = validate_admitted_launch_plan(
-        read_json(
-            artifacts["launch_plan"],
-            max_bytes=131072,
-            reject_sensitive_fields=True,
-        ),
+        launch_plan_raw,
         expected_target=receipt["target"],
         expected_session=terminal_state.get("session"),
         expected_run_id=receipt["run_id"],
@@ -785,6 +853,51 @@ def verify_qualification_receipt(
         artifacts["acceptance"], max_bytes=131072, reject_sensitive_fields=True
     )
     evidence = validate_qualification_evidence_schema(evidence)
+    if evidence.get("plane_activation") != plane_activation:
+        raise ValidationError("qualification plane activation identity mismatch")
+    terminal_activation = None
+    activation_intent = None
+    if plane_activation is not None:
+        from .plane_activation import validate_terminal_activation_evidence
+
+        plane_descriptor = read_json(
+            artifacts["plane_descriptor"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        activation_intent = read_json(
+            artifacts["activation_intent"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        terminal_activation = validate_terminal_activation_evidence(
+            plane_activation,
+            descriptor=plane_descriptor,
+            intent=activation_intent,
+            materialization_receipt=read_json(
+                artifacts["activation_receipt"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            ),
+            public_context=read_json(
+                artifacts["activation_context"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            ),
+            admitted_launch_plan=launch_plan_raw,
+            rollback_intent=read_json(
+                artifacts["activation_rollback_intent"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            ),
+            rollback_receipt=read_json(
+                artifacts["activation_rollback"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            ),
+        )
+        if terminal_activation != plane_activation:
+            raise ValidationError("terminal plane activation binding changed")
     if (
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
@@ -822,10 +935,24 @@ def verify_qualification_receipt(
         raise ValidationError(
             "qualification launch cwd differs from its admitted fixture"
         )
-    if launch_plan["argv"] != current["yolo_mapping"]["launch_argv"]:
-        raise ValidationError(
-            "qualification launch argv differs from the current mapping"
+    expected_launch_argv = list(current["yolo_mapping"]["launch_argv"])
+    if plane_activation is not None:
+        if not isinstance(activation_intent, dict):
+            raise ValidationError("qualification activation intent is unavailable")
+        activation_plan = activation_intent.get("plan")
+        activation_launch = (
+            activation_plan.get("launch") if isinstance(activation_plan, dict) else None
         )
+        activation_argv = (
+            activation_launch.get("argv")
+            if isinstance(activation_launch, dict)
+            else None
+        )
+        if not isinstance(activation_argv, list):
+            raise ValidationError("qualification activation argv is invalid")
+        expected_launch_argv.extend(activation_argv)
+    if launch_plan["argv"] != expected_launch_argv:
+        raise ValidationError("qualification launch argv differs from its authority")
     wrapper = evidence.get("instruction_wrapper")
     if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
         raise ValidationError("qualification instruction wrapper fields are invalid")
@@ -1252,7 +1379,7 @@ def verify_qualification_receipt(
     ):
         if evidence.get(name) != receipt.get(name):
             raise ValidationError("qualification evidence identity mismatch: %s" % name)
-    if evidence.get("result") != "accepted":
+    if evidence.get("result") != "accepted" or evidence.get("failure") is not None:
         raise ValidationError("qualification evidence is not accepted")
     if evidence.get("halt_sha256") != receipt["halt_receipt_sha256"]:
         raise ValidationError("qualification halt cross-reference mismatch")
@@ -1967,6 +2094,10 @@ class AdapterManifest:
             _server_process_fn=_server_process_fn,
             _tmux_factory=_tmux_factory,
         )
+        if receipt.get("plane_activation") is not None:
+            raise UnsupportedError(
+                "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
+            )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
         if receipt.get("session_profile") != qualification["session_profile"]:
