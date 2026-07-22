@@ -67,6 +67,39 @@ commands are versioned lifecycle state machines, not universally initial-only
 selectors: later command work must prove activation, continuation, steering,
 resume, and termination behavior separately.
 
+### Repository entry and instruction planes
+
+Support both entry shapes without assuming an operator-specific cockpit. When
+the controller starts outside the target repository, require its explicit path.
+When it starts inside the target, infer the current Git root unless the user
+supplies another target. A mutating target always receives an isolated
+worktree, branch, owner, and proof trail. Keep controller code, state, native
+instruction artifacts, and proof outside the candidate worktree.
+
+Compose the regular effective contract from the shipped universal, harness,
+current-default-model, and lifecycle templates plus the runtime contract, task,
+and optional user addendum. Treat every different composition as a different
+fingerprint. Normal customization uses the addendum; a changed baseline or
+template root must requalify.
+
+Test harness-global/profile, workspace/repository, and additive per-run planes
+as separate exact-version candidates. A fallback initial-message wrapper cannot
+stand in for one. Activate a factual candidate only inside lane-owned roots and
+only for a Puppet-owned qualification session. Never edit the operator's live
+global harness files during launch.
+
+For a native activation, persist and verify create-only intent before the
+artifact, combine its closed environment and argv delta with the exact adapter
+launch mapping, and build the value-private admitted launch plan before lease
+admission. Revalidate the activation receipt, artifact, roots, executable, and
+final launch identity immediately before starting the pane. After exact halt,
+roll back only the receipt-bound artifact and transaction-created directories;
+preserve ambiguity instead of deleting by path.
+
+The current product baseline is `regular` only. `/goal`, `/loop`,
+`/teamwork-preview`, alternate models, and automatic routing remain separate,
+versioned lifecycle qualifications and must not be silently injected.
+
 The source-free conformance branch is:
 
 ```text

@@ -17,20 +17,24 @@ security, secrets, spending, and destructive actions separately gated.
 
 ## Before a live session
 
-1. Read the target repository instructions and the task contract.
-2. Read [yolo-contract.md](references/yolo-contract.md) and require a local,
+1. Resolve the target repository explicitly. From a cockpit or another repo,
+   require an explicit target path. From inside the target, use its Git root
+   unless the user overrides it. Give every mutating target a fresh worktree;
+   keep the immutable controller, state, and proof outside that worktree.
+2. Read the target repository instructions and the task contract.
+3. Read [yolo-contract.md](references/yolo-contract.md) and require a local,
    uncommitted acknowledgement for this exact campaign.
-3. Run `adapter_lab.py census` without launching an agent. Treat every generated
+4. Run `adapter_lab.py census` without launching an agent. Treat every generated
    capability as doctor-only until a real conformance probe qualifies the exact
    executable, adapter, platform, and protocol fingerprints. Enable it only
    with `adapter_lab.py qualify` and the accepted receipt from that probe. A
    probe also requires the separately supplied campaign ID, canonical goal
    repository root, and exact repository/commit/path/SHA-256 goal tuple.
-4. Run `puppet.py doctor`. Stop on an active target/store lock, ambiguous
+5. Run `puppet.py doctor`. Stop on an active target/store lock, ambiguous
    executable identity, incomplete unrestricted mapping, missing sandbox-off
    control, prompt-in-argv transport, dirty or overlapping worktree, or missing
    proof-root writability.
-5. Run at most one live lane per harness target and one mutation owner per
+6. Run at most one live lane per harness target and one mutation owner per
    source slice. Different harness targets may proceed independently only with
    their own leases, isolated worktrees, state, sessions, and proof roots.
 
@@ -42,6 +46,12 @@ from the authorization file.
 Never kill, rename, attach to, reuse, or repurpose a pre-existing process or
 tmux session. Never inspect `.env`, credentials, auth logs, session stores,
 conversation stores, terminal scrollback, or transcripts.
+
+Puppet ships editable baseline layers under `templates/instructions/`. Prefer a
+bounded per-run user addendum for customization; changing a shipped layer or
+template root creates a new instruction-policy fingerprint and requires fresh
+qualification. The initial-message wrapper is a safe composition transport,
+not proof that a harness-native global, workspace, or additive plane works.
 
 ## Operate a session
 
