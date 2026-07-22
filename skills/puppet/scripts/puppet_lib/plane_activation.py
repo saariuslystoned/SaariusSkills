@@ -2,8 +2,9 @@
 
 This module intentionally supports one narrow qualification surface: Claude
 2.1.215's per-run ``--append-system-prompt-file`` additive instruction plane.
-It never launches a process.  Durable records contain identities and hashes,
-never instruction bytes.
+It never launches an agent session. Planning may run the bounded executable
+census needed to refresh version and file identity. Durable records contain
+identities and hashes, never instruction bytes.
 """
 
 from __future__ import annotations
@@ -458,6 +459,58 @@ def _unlink_open_leaf(
         raise IdentityError("owned leaf removal could not be proven")
 
 
+def _unlink_new_leaf(
+    parent_descriptor: int,
+    name: str,
+    open_descriptor: int,
+    *,
+    expected_device: int,
+    expected_inode: int,
+) -> None:
+    """Remove a just-created leaf when final mode setup did not complete."""
+
+    opened = os.fstat(open_descriptor)
+    live = _safe_stat_at(parent_descriptor, name)
+    if (
+        live is None
+        or stat.S_ISLNK(live.st_mode)
+        or not stat.S_ISREG(live.st_mode)
+        or not stat.S_ISREG(opened.st_mode)
+        or opened.st_uid != os.getuid()
+        or live.st_uid != os.getuid()
+        or opened.st_nlink != 1
+        or live.st_nlink != 1
+        or (stat.S_IMODE(opened.st_mode) | _FILE_MODE) != _FILE_MODE
+        or (stat.S_IMODE(live.st_mode) | _FILE_MODE) != _FILE_MODE
+        or (
+            opened.st_dev,
+            opened.st_ino,
+            live.st_dev,
+            live.st_ino,
+        )
+        != (expected_device, expected_inode, expected_device, expected_inode)
+    ):
+        raise IdentityError("new activation leaf changed before cleanup")
+    os.unlink(name, dir_fd=parent_descriptor)
+    os.fsync(parent_descriptor)
+    if _safe_stat_at(parent_descriptor, name) is not None:
+        raise IdentityError("new activation leaf removal could not be proven")
+
+
+def _new_leaf_identity(open_descriptor: int) -> Tuple[int, int]:
+    """Capture the minimum authority needed to clean a new private leaf."""
+
+    details = os.fstat(open_descriptor)
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.getuid()
+        or details.st_nlink != 1
+        or (stat.S_IMODE(details.st_mode) | _FILE_MODE) != _FILE_MODE
+    ):
+        raise IdentityError("artifact creation identity is unsafe")
+    return details.st_dev, details.st_ino
+
+
 def _decode_json(raw: bytes, *, label: str) -> Dict[str, Any]:
     def object_pairs(pairs: Sequence[Tuple[str, Any]]) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
@@ -890,7 +943,9 @@ def plan_activation(
     template_root: Optional[Path | str] = None,
     _current_manifest: Optional[AdapterManifest | Mapping[str, Any]] = None,
 ) -> ActivationPlan:
-    """Create a pure, body-free plan without changing the filesystem."""
+    """Create a body-free plan; the exact bounded census may run."""
+    if config_root is None:
+        raise ValidationError("config root is required")
     normalized_descriptor = validate_instruction_plane_descriptor(descriptor)
     _unsupported_descriptor(normalized_descriptor)
     if isinstance(adapter_manifest, AdapterManifest):
@@ -918,9 +973,6 @@ def plan_activation(
         raise IdentityError(
             "effective contract does not match its instruction manifest"
         )
-
-    if config_root is None:
-        raise ValidationError("config root is required")
 
     opened: list[int] = []
     try:
@@ -1541,9 +1593,13 @@ def materialize_activation(
                     )
                 except FileExistsError as exc:
                     raise ConflictError("activation artifact path collided") from exc
+                created_leaf: Optional[Tuple[int, int]] = None
                 try:
+                    created_leaf = _new_leaf_identity(artifact_descriptor)
                     os.fchmod(artifact_descriptor, _FILE_MODE)
                     initial = os.fstat(artifact_descriptor)
+                    if (initial.st_dev, initial.st_ino) != created_leaf:
+                        raise IdentityError("artifact changed during mode setup")
                     artifact = {
                         "artifact_id": plan.raw["artifact_id"],
                         "relative_path": plan.raw["artifact_relative_path"],
@@ -1576,14 +1632,19 @@ def materialize_activation(
                     ):
                         raise IdentityError("materialized artifact hash changed")
                 except Exception:
-                    if artifact is not None:
+                    if created_leaf is None:
                         try:
-                            _unlink_open_leaf(
+                            created_leaf = _new_leaf_identity(artifact_descriptor)
+                        except Exception:
+                            pass
+                    if created_leaf is not None:
+                        try:
+                            _unlink_new_leaf(
                                 parent,
                                 leaf,
                                 artifact_descriptor,
-                                expected_device=artifact["device"],
-                                expected_inode=artifact["inode"],
+                                expected_device=created_leaf[0],
+                                expected_inode=created_leaf[1],
                             )
                             artifact = None
                         except Exception:

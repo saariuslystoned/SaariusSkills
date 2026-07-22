@@ -425,8 +425,10 @@ class PlaneActivationTests(unittest.TestCase):
                         )
 
     def test_config_root_is_required_and_revalidated_at_use_time(self):
-        with self.assertRaisesRegex(ValidationError, "config root is required"):
-            self._plan(config_root=None)
+        with mock.patch.object(activation_module, "census_target") as census:
+            with self.assertRaisesRegex(ValidationError, "config root is required"):
+                self._plan(config_root=None, _current_manifest=None)
+        census.assert_not_called()
 
         original_config = self.base / "original-config"
         self.config.rename(original_config)
@@ -651,6 +653,52 @@ class PlaneActivationTests(unittest.TestCase):
         self.assertEqual(recover_activation(self.transaction).state, "prepared")
         receipt = self._activate()
         self.assertEqual(verify_activation(self.plan), receipt)
+
+    @unittest.skipUnless(Path("/dev/fd").is_dir(), "/dev/fd is unavailable")
+    def test_artifact_mode_setup_failure_cleans_exact_leaf_and_can_retry(self):
+        before = len(os.listdir("/dev/fd"))
+        original = activation_module.os.fchmod
+        calls = 0
+
+        def fail_artifact_mode(descriptor, mode):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected artifact mode failure")
+            return original(descriptor, mode)
+
+        with mock.patch.object(
+            activation_module.os, "fchmod", side_effect=fail_artifact_mode
+        ):
+            with self.assertRaises(OSError):
+                self._activate()
+        self.assertEqual(list(self.ephemeral.iterdir()), [])
+        self.assertEqual(len(os.listdir("/dev/fd")), before)
+        self.assertEqual(self._activate(), verify_activation(self.plan))
+
+    @unittest.skipUnless(Path("/dev/fd").is_dir(), "/dev/fd is unavailable")
+    def test_artifact_first_identity_failure_recovers_cleanup_and_retry(self):
+        before = len(os.listdir("/dev/fd"))
+        original = activation_module._new_leaf_identity
+        calls = 0
+
+        def fail_first_capture(descriptor):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("injected first identity failure")
+            return original(descriptor)
+
+        with mock.patch.object(
+            activation_module,
+            "_new_leaf_identity",
+            side_effect=fail_first_capture,
+        ):
+            with self.assertRaises(OSError):
+                self._activate()
+        self.assertEqual(list(self.ephemeral.iterdir()), [])
+        self.assertEqual(len(os.listdir("/dev/fd")), before)
+        self.assertEqual(self._activate(), verify_activation(self.plan))
 
     def test_receipt_failure_cleans_artifact_and_can_retry_from_intent(self):
         original = activation_module._persist_immutable_json
@@ -926,7 +974,7 @@ class PlaneActivationTests(unittest.TestCase):
         finally:
             os.close(root_descriptor)
 
-    def test_module_has_no_subprocess_or_recursive_path_cleanup(self):
+    def test_module_has_no_direct_subprocess_or_recursive_path_cleanup(self):
         source = (SCRIPTS / "puppet_lib" / "plane_activation.py").read_text(
             encoding="utf-8"
         )
