@@ -60,6 +60,7 @@ from .profiles import (
     validate_session_profile,
 )
 from .registry import (
+    bind_runtime_process,
     process_alive,
     process_birth_identity,
     process_tree_alive,
@@ -267,6 +268,7 @@ def _validated_mapping(
     for name in (
         "platform",
         "executable",
+        "execution",
         "adapter_fingerprint",
         "protocol_fingerprint",
     ):
@@ -284,22 +286,20 @@ def _validated_mapping(
     return candidate, mapping, argv
 
 
+def _active_population(
+    selector_fn: Callable[..., list[Dict[str, Any]]],
+    target: str,
+    manifest: AdapterManifest,
+) -> list[Dict[str, Any]]:
+    if selector_fn is active_target_processes:
+        return selector_fn(
+            target, execution_files=manifest.process_execution_selectors()
+        )
+    return selector_fn(target)
+
+
 def _assert_executable_identity(manifest: AdapterManifest) -> None:
-    executable = Path(manifest.raw["executable"]["resolved_path"])
-    if executable.is_symlink() or not executable.is_file():
-        raise IdentityError("fingerprinted executable is unavailable or a symlink")
-    details = executable.stat()
-    expected = manifest.raw["executable"]
-    observed = {
-        "device": details.st_dev,
-        "inode": details.st_ino,
-        "size": details.st_size,
-        "mtime_ns": details.st_mtime_ns,
-    }
-    if any(observed[name] != expected[name] for name in observed):
-        raise IdentityError("fingerprinted executable file identity changed")
-    if sha256_file(executable) != expected["sha256"]:
-        raise IdentityError("fingerprinted executable content changed")
+    manifest.verify_execution_files()
 
 
 def _assert_adapter_identity(
@@ -400,6 +400,7 @@ def _handoff_value(
         "phase": phase,
         "sequence": 0 if phase == "ready" else 1,
         "executable_fingerprint": manifest.raw["executable"]["sha256"],
+        "execution_fingerprint": manifest.execution_fingerprint,
         "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
         "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
         "timestamp": _utc_now(),
@@ -713,32 +714,9 @@ def _halt_provisional_exact(
             "cleanup_scope": "exact_new_target_only",
             "identity_binding": "new_private_dead_tmux_pane",
         }
-    try:
-        process = process_birth_fn(metadata["pane_pid"])
-        manifest.verify_process_executable(process)
-    except (IdentityError, ValidationError) as exc:
-        raise IdentityError(
-            "provisional probe process remains unbound; no halt action was attempted"
-        ) from exc
-    cleanup = _halt_exact(
-        target=target,
-        tmux=tmux,
-        socket=socket,
-        session=session,
-        pane=metadata["pane"],
-        socket_identity=socket_identity,
-        server_identity=server_identity,
-        tmux_binary_identity=tmux_binary_identity,
-        process=process,
-        process_alive_fn=process_alive_fn,
-        timeout=timeout,
-        sleep_fn=sleep_fn,
-        reason="failed_probe_provisional_cleanup",
-        journal=journal,
-        require_live=False,
-        exact_sigint_fn=exact_sigint_fn,
+    raise IdentityError(
+        "provisional probe runtime remains unbound; no halt action was attempted"
     )
-    return dict(cleanup, identity_binding="rebound_exact_process_birth")
 
 
 def _write_state(path: Path, state: Dict[str, Any], phase: str, **changes: Any) -> None:
@@ -778,6 +756,8 @@ def run_probe(
     _adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     _census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
     _sleep_fn: Callable[[float], None] = time.sleep,
+    _execution_sleep_fn: Callable[[float], None] = time.sleep,
+    _execution_monotonic_fn: Callable[[], float] = time.monotonic,
     _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Run one isolated source-free qualification probe.
@@ -882,6 +862,7 @@ def run_probe(
         "authorization_sha256": None,
         "manifest_fingerprint": manifest.fingerprint,
         "executable_fingerprint": manifest.raw["executable"]["sha256"],
+        "execution_fingerprint": manifest.execution_fingerprint,
         "version_fingerprint": manifest.raw["executable"]["version_sha256"],
         "platform_fingerprint": sha256_bytes(
             canonical_json_bytes(manifest.raw["platform"])
@@ -1009,7 +990,7 @@ def run_probe(
         )
         evidence["campaign_probe_lock"] = lock_identity
         atomic_write_json(evidence_path, evidence)
-        active = _active_processes_fn(target)
+        active = _active_population(_active_processes_fn, target, manifest)
         override = parallel_target_override(authorization, target, active)
         protected_session = (
             authorization.get("authorization", {})
@@ -1054,9 +1035,10 @@ def run_probe(
             states={"launching"},
             authority_root=_authority_root,
         )
-        if sorted(_active_processes_fn(target), key=lambda item: item["pid"]) != sorted(
-            active, key=lambda item: item["pid"]
-        ):
+        if sorted(
+            _active_population(_active_processes_fn, target, manifest),
+            key=lambda item: item["pid"],
+        ) != sorted(active, key=lambda item: item["pid"]):
             raise IdentityError(
                 "same-target process population changed before probe launch"
             )
@@ -1066,12 +1048,13 @@ def run_probe(
         tmux = _tmux_factory(tmux_authority)
         socket = tmux.socket_path(session)
         _write_state(state_path, state, "launching")
-        launch_attempted = True
         launch_environment, launch_identity = build_launch_identity(
             target=target,
             repo=fixture,
             argv=argv,
         )
+        manifest.verify_launch_execution_environment(launch_environment)
+        launch_attempted = True
         metadata = tmux.launch(
             session=session,
             target=target,
@@ -1102,11 +1085,32 @@ def run_probe(
             )
         tmux.assert_tmux_binary_identity(tmux_binary_identity)
         tmux.assert_tmux_server_identity(socket, server_identity)
-        candidate_process = _process_birth_fn(metadata["pane_pid"])
-        if candidate_process.get("pid") != metadata["pane_pid"]:
-            raise IdentityError("probe process and tmux pane identities differ")
-        manifest.verify_process_executable(candidate_process)
-        process = candidate_process
+
+        def assert_pane_owner(expected_pid: int) -> None:
+            current = tmux.metadata(
+                socket=socket,
+                session=session,
+                pane=metadata["pane"],
+                server_identity=server_identity,
+            )
+            if (
+                current.get("session") != session
+                or current.get("pane") != metadata["pane"]
+                or current.get("pane_pid") != expected_pid
+                or current.get("pane_dead") is True
+            ):
+                raise IdentityError(
+                    "probe tmux pane no longer owns the provisional runtime process"
+                )
+
+        process = bind_runtime_process(
+            metadata["pane_pid"],
+            manifest,
+            assert_pane_owner,
+            process_sample_fn=_process_birth_fn,
+            monotonic_fn=_execution_monotonic_fn,
+            sleep_fn=_execution_sleep_fn,
+        )
         evidence["tmux"] = {
             "socket": str(socket),
             "session": session,
@@ -1143,7 +1147,9 @@ def run_probe(
                     ],
                 }
             else:
-                snapshot = target_process_snapshot(target)
+                snapshot = target_process_snapshot(
+                    target, execution_files=manifest.process_execution_selectors()
+                )
             try:
                 observation = _validated_target_population(
                     snapshot=snapshot,
@@ -1289,6 +1295,7 @@ def run_probe(
             "run_id": run_id,
             "nonce": fixture_contract["nonce"],
             "executable_fingerprint": manifest.raw["executable"]["sha256"],
+            "execution_fingerprint": manifest.execution_fingerprint,
             "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
             "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
             "phase": "ready",
@@ -1470,7 +1477,7 @@ def run_probe(
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
-        active_after_halt = _active_processes_fn(target)
+        active_after_halt = _active_population(_active_processes_fn, target, manifest)
         if sorted(active_after_halt, key=lambda item: item["pid"]) != sorted(
             active, key=lambda item: item["pid"]
         ):
@@ -1498,6 +1505,7 @@ def run_probe(
             "campaign_id": authorization["campaign_id"],
             "goal_fingerprint": goal_verification["goal_fingerprint"],
             "executable_fingerprint": manifest.raw["executable"]["sha256"],
+            "execution_fingerprint": manifest.execution_fingerprint,
             "version_fingerprint": manifest.raw["executable"]["version_sha256"],
             "platform_fingerprint": evidence["platform_fingerprint"],
             "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
@@ -1553,7 +1561,9 @@ def run_probe(
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
-        active_before_terminal = _active_processes_fn(target)
+        active_before_terminal = _active_population(
+            _active_processes_fn, target, manifest
+        )
         if sorted(active_before_terminal, key=lambda item: item["pid"]) != sorted(
             active, key=lambda item: item["pid"]
         ):
@@ -1658,7 +1668,9 @@ def run_probe(
             safe_terminal = False
             if active is not None:
                 try:
-                    active_after_cleanup = _active_processes_fn(target)
+                    active_after_cleanup = _active_population(
+                        _active_processes_fn, target, manifest
+                    )
                     evidence["active_target_processes_after_halt"] = (
                         active_after_cleanup
                     )
@@ -1836,6 +1848,12 @@ def recover_probe(
         or evidence.get("run_id") != run_id
         or evidence.get("target") != target
         or evidence.get("controller") != controller
+        or evidence.get("manifest_fingerprint") != manifest.fingerprint
+        or evidence.get("executable_fingerprint")
+        != manifest.raw["executable"]["sha256"]
+        or evidence.get("execution_fingerprint") != manifest.execution_fingerprint
+        or evidence.get("adapter_fingerprint") != manifest.raw["adapter_fingerprint"]
+        or evidence.get("protocol_fingerprint") != manifest.raw["protocol_fingerprint"]
         or state_session_profile != evidence_session_profile
         or instruction_manifest["target"] != target
         or instruction_manifest["session_profile"] != state_session_profile
@@ -1889,7 +1907,7 @@ def recover_probe(
                         "accepted probe still has a live registered target"
                     )
                 baseline = evidence.get("active_target_processes_before_launch")
-                observed = _active_processes_fn(target)
+                observed = _active_population(_active_processes_fn, target, manifest)
                 if not isinstance(baseline, list) or sorted(
                     baseline, key=lambda item: item["pid"]
                 ) != sorted(observed, key=lambda item: item["pid"]):
@@ -1939,7 +1957,7 @@ def recover_probe(
                     "missing private launch root still has a live persisted target"
                 )
             baseline = evidence.get("active_target_processes_before_launch")
-            observed = _active_processes_fn(target)
+            observed = _active_population(_active_processes_fn, target, manifest)
             if not isinstance(baseline, list) or sorted(
                 baseline, key=lambda item: item["pid"]
             ) != sorted(observed, key=lambda item: item["pid"]):
@@ -2007,7 +2025,7 @@ def recover_probe(
                     "absent private probe socket still has a live persisted target"
                 )
             baseline = evidence.get("active_target_processes_before_launch")
-            observed = _active_processes_fn(target)
+            observed = _active_population(_active_processes_fn, target, manifest)
             if not isinstance(baseline, list) or sorted(
                 baseline, key=lambda item: item["pid"]
             ) != sorted(observed, key=lambda item: item["pid"]):
@@ -2142,7 +2160,7 @@ def recover_probe(
                 exact_sigint_fn=_exact_sigint_fn,
             )
         baseline = evidence.get("active_target_processes_before_launch")
-        observed = _active_processes_fn(target)
+        observed = _active_population(_active_processes_fn, target, manifest)
         if not isinstance(baseline, list) or sorted(
             baseline, key=lambda item: item["pid"]
         ) != sorted(observed, key=lambda item: item["pid"]):

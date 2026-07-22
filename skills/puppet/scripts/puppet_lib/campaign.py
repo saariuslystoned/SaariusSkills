@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
@@ -9,7 +10,10 @@ from typing import Any, Dict, Optional
 from .contracts import PROCESS_IDENTITY_FIELDS, TARGETS
 from .errors import IdentityError, ValidationError
 from .registry import (
+    ExecTransitionSamplingError,
+    ProcessExecutableUnavailable,
     process_birth_identity,
+    process_executable_identity,
     process_tree_alive,
     process_tree_identity,
 )
@@ -56,6 +60,7 @@ HARD_GATES = [
     "secret_or_auth_data_access",
     "interference_with_preexisting_processes_or_sessions",
 ]
+
 
 def _assert_non_secret_shape(value: Any, path: str = "authorization") -> None:
     if isinstance(value, dict):
@@ -169,7 +174,9 @@ def validate_campaign_authorization(
         required_authorization,
         required_authorization | {"parallel_target_override"},
     ):
-        raise ValidationError("campaign execution authorization fields do not match schema")
+        raise ValidationError(
+            "campaign execution authorization fields do not match schema"
+        )
     if (
         authorization.get("trust_profile") != "unrestricted_required"
         or authorization.get("disable_harness_sandbox_where_exposed") is not True
@@ -276,9 +283,11 @@ def verify_campaign_goal(
     if commit != expected_goal["commit"]:
         raise IdentityError("campaign goal commit identity mismatch")
     object_name = "%s:%s" % (commit, expected_goal["path"])
-    size_text = _git(repo, ["cat-file", "-s", object_name]).stdout.decode(
-        "ascii", errors="strict"
-    ).strip()
+    size_text = (
+        _git(repo, ["cat-file", "-s", object_name])
+        .stdout.decode("ascii", errors="strict")
+        .strip()
+    )
     try:
         size = int(size_text)
     except ValueError as exc:
@@ -301,7 +310,9 @@ def verify_campaign_goal(
     }
 
 
-def active_target_processes(target: str) -> list[Dict[str, Any]]:
+def _target_process_selectors(
+    target: str, execution_files: Optional[list[Dict[str, Any]]]
+) -> tuple[set[str], set[tuple[str, int, int]]]:
     expected = {
         "agy": {"agy"},
         # ``cursor agent`` retains the lowercase ``cursor`` executable name.
@@ -312,8 +323,61 @@ def active_target_processes(target: str) -> list[Dict[str, Any]]:
         "codex": {"codex"},
         "grok": {"grok"},
     }[target]
+    if execution_files is None:
+        return expected, set()
+    if not isinstance(execution_files, list) or not 1 <= len(execution_files) <= 9:
+        raise ValidationError("target execution selectors are invalid")
+    identities: set[tuple[str, int, int]] = set()
+    for item in execution_files:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path", "device", "inode"}
+            or not isinstance(item.get("path"), str)
+            or not Path(item["path"]).is_absolute()
+            or isinstance(item.get("device"), bool)
+            or not isinstance(item.get("device"), int)
+            or item["device"] <= 0
+            or isinstance(item.get("inode"), bool)
+            or not isinstance(item.get("inode"), int)
+            or item["inode"] <= 0
+        ):
+            raise ValidationError("target execution selector is invalid")
+        identity = (item["path"], item["device"], item["inode"])
+        if identity in identities:
+            raise ValidationError("target execution selectors contain duplicates")
+        identities.add(identity)
+        expected.add(Path(item["path"]).name)
+    return expected, identities
+
+
+def _matches_execution_selector(
+    process: Dict[str, Any], selectors: set[tuple[str, int, int]]
+) -> bool:
+    return (
+        not selectors
+        or (process["executable_path"], process["device"], process["inode"])
+        in selectors
+    )
+
+
+def _pid_still_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _target_process_rows(
+    expected: set[str],
+    selectors: set[tuple[str, int, int]],
+    *,
+    error_prefix: str,
+) -> list[tuple[int, Optional[str]]]:
     result = subprocess.run(
-        ["ps", "-axo", "pid=,comm="],
+        ["ps", "-axo", "pid=,uid=,comm="],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -321,66 +385,113 @@ def active_target_processes(target: str) -> list[Dict[str, Any]]:
         check=False,
     )
     if result.returncode != 0:
-        raise IdentityError("same-target process inventory is unavailable")
-    found = []
-    for line in result.stdout.splitlines():
-        fields = line.strip().split(None, 1)
-        if len(fields) != 2:
-            continue
-        if Path(fields[1]).name in expected:
-            try:
-                found.append(int(fields[0]))
-            except ValueError as exc:
-                raise IdentityError("same-target process inventory is ambiguous") from exc
-    return [process_birth_identity(pid) for pid in sorted(set(found))]
-
-
-def target_process_snapshot(target: str) -> Dict[str, Any]:
-    """Return a bounded argv-free, kernel-bound target ancestry snapshot."""
-
-    expected = {
-        "agy": {"agy"},
-        "cursor": {"cursor-agent", "cursor"},
-        "claude": {"claude"},
-        "codex": {"codex"},
-        "grok": {"grok"},
-    }[target]
-    result = subprocess.run(
-        ["ps", "-axo", "pid=,comm="],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise IdentityError("process-tree snapshot is unavailable")
+        raise IdentityError("%s is unavailable" % error_prefix)
     if len(result.stdout.encode("utf-8")) > MAX_PROCESS_SNAPSHOT_BYTES:
-        raise IdentityError("process-tree snapshot exceeds the byte bound")
+        raise IdentityError("%s exceeds the byte bound" % error_prefix)
     lines = result.stdout.splitlines()
     if len(lines) > MAX_PROCESS_SNAPSHOT_ROWS:
-        raise IdentityError("process-tree snapshot exceeds the row bound")
+        raise IdentityError("%s exceeds the row bound" % error_prefix)
     observed_pids = set()
-    target_rows: list[tuple[int, str]] = []
+    rows: list[tuple[int, Optional[str]]] = []
     for line in lines:
-        fields = line.strip().split(maxsplit=1)
-        if len(fields) != 2:
+        fields = line.strip().split(maxsplit=2)
+        if len(fields) < 2:
             continue
         try:
             pid = int(fields[0])
+            uid = int(fields[1])
         except ValueError as exc:
-            raise IdentityError("process-tree snapshot is ambiguous") from exc
-        if pid <= 0 or pid in observed_pids:
-            raise IdentityError("process-tree snapshot contains an invalid PID")
+            raise IdentityError("%s is ambiguous" % error_prefix) from exc
+        if pid <= 0 or pid in observed_pids or uid < 0:
+            raise IdentityError("%s contains an invalid PID" % error_prefix)
         observed_pids.add(pid)
-        command = fields[1]
-        if Path(command).name in expected:
-            target_rows.append((pid, command))
+        if pid == 1:
+            continue
+        command = fields[2] if len(fields) == 3 else None
+        if selectors:
+            if uid == os.getuid():
+                rows.append((pid, None))
+        elif command is not None and Path(command).name in expected:
+            rows.append((pid, command))
+    return rows
+
+
+def _selected_process_identity(
+    pid: int, selectors: set[tuple[str, int, int]]
+) -> Optional[Dict[str, Any]]:
+    try:
+        executable = process_executable_identity(pid)
+    except ExecTransitionSamplingError:
+        raise
+    except ProcessExecutableUnavailable:
+        return None
+    except IdentityError:
+        if not _pid_still_exists(pid):
+            return None
+        raise
+    observed = (
+        executable["executable_path"],
+        executable["device"],
+        executable["inode"],
+    )
+    if observed not in selectors:
+        return None
+    try:
+        process = process_birth_identity(pid)
+    except IdentityError:
+        if not _pid_still_exists(pid):
+            return None
+        raise
+    if process["kernel_birth_id"] != executable[
+        "kernel_birth_id"
+    ] or not _matches_execution_selector(process, selectors):
+        raise IdentityError("same-target process changed during exact selection")
+    return process
+
+
+def active_target_processes(
+    target: str, execution_files: Optional[list[Dict[str, Any]]] = None
+) -> list[Dict[str, Any]]:
+    expected, selectors = _target_process_selectors(target, execution_files)
+    rows = _target_process_rows(
+        expected,
+        selectors,
+        error_prefix="same-target process inventory",
+    )
+    processes = []
+    for pid, _ in sorted(rows):
+        if selectors:
+            process = _selected_process_identity(pid, selectors)
+            if process is not None:
+                processes.append(process)
+        else:
+            processes.append(process_birth_identity(pid))
+    return processes
+
+
+def target_process_snapshot(
+    target: str, execution_files: Optional[list[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """Return a bounded argv-free, kernel-bound target ancestry snapshot."""
+
+    expected, selectors = _target_process_selectors(target, execution_files)
+    target_rows = _target_process_rows(
+        expected,
+        selectors,
+        error_prefix="process-tree snapshot",
+    )
     processes = []
     ancestry_nodes: Dict[int, Dict[str, Any]] = {}
     for pid, command in sorted(target_rows):
+        selected = None
+        if selectors:
+            selected = _selected_process_identity(pid, selectors)
+            if selected is None:
+                continue
         node = process_tree_identity(pid)
-        if node["process"]["command"] != command:
+        if selectors and node["process"] != selected:
+            raise IdentityError("same-target process changed during exact snapshot")
+        if not selectors and node["process"]["command"] != command:
             raise IdentityError("same-target process changed during the snapshot")
         processes.append(node["process"])
         for _ in range(MAX_PROCESS_ANCESTRY_DEPTH):

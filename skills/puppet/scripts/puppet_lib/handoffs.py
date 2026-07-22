@@ -27,6 +27,7 @@ COMMON_FIELDS = {
     "run_id",
     "nonce",
     "executable_fingerprint",
+    "execution_fingerprint",
     "adapter_fingerprint",
     "protocol_fingerprint",
     "timestamp",
@@ -169,7 +170,12 @@ def validate_handoff(
     session = validate_identifier(data.get("session"), "session")
     run_id = validate_identifier(data.get("run_id"), "run id")
     nonce = validate_identifier(data.get("nonce"), "nonce")
-    executable = validate_sha256(data.get("executable_fingerprint"), "executable fingerprint")
+    executable = validate_sha256(
+        data.get("executable_fingerprint"), "executable fingerprint"
+    )
+    execution = validate_sha256(
+        data.get("execution_fingerprint"), "execution fingerprint"
+    )
     adapter = validate_sha256(data.get("adapter_fingerprint"), "adapter fingerprint")
     protocol = validate_sha256(data.get("protocol_fingerprint"), "protocol fingerprint")
     _timestamp(data.get("timestamp"))
@@ -185,6 +191,7 @@ def validate_handoff(
         "run_id": run_id,
         "nonce": nonce,
         "executable_fingerprint": executable,
+        "execution_fingerprint": execution,
         "adapter_fingerprint": adapter,
         "protocol_fingerprint": protocol,
     }
@@ -204,12 +211,18 @@ def validate_handoff(
         phase = data.get("phase")
         sequence = data.get("sequence")
         if phase == "ready":
-            if sequence != 0 or "message_id" in data or "prior_checkpoint_sha256" in data:
+            if (
+                sequence != 0
+                or "message_id" in data
+                or "prior_checkpoint_sha256" in data
+            ):
                 raise ValidationError("invalid ready checkpoint identity")
         elif phase == "followup":
             if sequence != 1:
                 raise ValidationError("followup sequence must be one")
-            identity["message_id"] = validate_identifier(data.get("message_id"), "message id")
+            identity["message_id"] = validate_identifier(
+                data.get("message_id"), "message id"
+            )
             identity["prior_checkpoint_sha256"] = validate_sha256(
                 data.get("prior_checkpoint_sha256"), "prior checkpoint fingerprint"
             )

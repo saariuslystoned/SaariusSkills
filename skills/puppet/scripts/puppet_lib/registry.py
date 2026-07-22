@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import signal
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -72,6 +74,7 @@ ADAPTER_FIELDS = {
     "manifest_path",
     "manifest_fingerprint",
     "executable_fingerprint",
+    "execution_fingerprint",
     "adapter_fingerprint",
     "protocol_fingerprint",
     "qualification_controller",
@@ -164,6 +167,29 @@ class _DarwinProcBSDInfo(ctypes.Structure):
         ("pbi_start_tvsec", ctypes.c_uint64),
         ("pbi_start_tvusec", ctypes.c_uint64),
     ]
+
+
+class ExecTransitionSamplingError(IdentityError):
+    """A sample crossed a same-PID exec while kernel birth stayed stable."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        pid: int,
+        kernel_birth_id: str,
+        executable_before: Dict[str, Any],
+        executable_after: Dict[str, Any],
+    ):
+        super().__init__(message)
+        self.pid = pid
+        self.kernel_birth_id = kernel_birth_id
+        self.executable_before = dict(executable_before)
+        self.executable_after = dict(executable_after)
+
+
+class ProcessExecutableUnavailable(IdentityError):
+    """A census entry cannot expose a bindable executable identity."""
 
 
 def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:
@@ -265,21 +291,27 @@ def _process_executable_path(pid: int) -> Path:
             buffer = ctypes.create_string_buffer(4096)
             length = libproc.proc_pidpath(pid, buffer, len(buffer))
         except (OSError, AttributeError) as exc:
-            raise IdentityError("process executable identity is unavailable") from exc
+            raise ProcessExecutableUnavailable(
+                "process executable identity is unavailable"
+            ) from exc
         if length <= 0:
-            raise IdentityError("process executable identity is unavailable")
+            raise ProcessExecutableUnavailable(
+                "process executable identity is unavailable"
+            )
         path = Path(os.fsdecode(buffer.value))
     elif sys.platform.startswith("linux"):
         try:
             path = Path(os.readlink("/proc/%d/exe" % pid))
         except OSError as exc:
-            raise IdentityError("process executable identity is unavailable") from exc
+            raise ProcessExecutableUnavailable(
+                "process executable identity is unavailable"
+            ) from exc
     else:
-        raise IdentityError(
+        raise ProcessExecutableUnavailable(
             "process executable identity is unsupported on this platform"
         )
     if path.is_symlink() or not path.is_file():
-        raise IdentityError("process executable path is invalid")
+        raise ProcessExecutableUnavailable("process executable path is invalid")
     return path.resolve(strict=True)
 
 
@@ -325,7 +357,13 @@ def _sample_process_binding(
     ):
         raise IdentityError("process identity changed during kernel binding")
     if display_after != display_before or executable_after != executable_before:
-        raise IdentityError("process changed during display or executable binding")
+        raise ExecTransitionSamplingError(
+            "process crossed an exec transition during sampling",
+            pid=pid,
+            kernel_birth_id=kernel_before["kernel_birth_id"],
+            executable_before=executable_before,
+            executable_after=executable_after,
+        )
     process = {
         "identity_version": 2,
         "pid": pid,
@@ -348,6 +386,141 @@ def process_tree_identity(pid: int) -> Dict[str, Any]:
 def process_birth_identity(pid: int) -> Dict[str, Any]:
     process, _, _ = _sample_process_binding(pid)
     return process
+
+
+def process_executable_identity(pid: int) -> Dict[str, Any]:
+    """Bind a lightweight executable selector to one stable kernel birth."""
+
+    kernel_before = _kernel_process_record(pid)
+    executable_before = _process_executable_record(pid)
+    executable_after = _process_executable_record(pid)
+    kernel_after = _kernel_process_record(pid)
+    if any(
+        kernel_after[name] != kernel_before[name] for name in ("pid", "kernel_birth_id")
+    ):
+        raise IdentityError("process identity changed during executable census")
+    if executable_after != executable_before:
+        raise ExecTransitionSamplingError(
+            "process crossed an exec transition during executable census",
+            pid=pid,
+            kernel_birth_id=kernel_before["kernel_birth_id"],
+            executable_before=executable_before,
+            executable_after=executable_after,
+        )
+    return {
+        "pid": pid,
+        "kernel_birth_id": kernel_before["kernel_birth_id"],
+        **executable_before,
+    }
+
+
+def bind_runtime_process(
+    pid: int,
+    manifest: AdapterManifest,
+    assert_pane_owner,
+    timeout: float | None = None,
+    *,
+    process_sample_fn=None,
+    monotonic_fn=time.monotonic,
+    sleep_fn=time.sleep,
+    sample_interval: float = 0.05,
+) -> Dict[str, Any]:
+    """Bind one stable final runtime without following a child or replacement PID."""
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        raise ValidationError("runtime process id is invalid")
+    if not isinstance(manifest, AdapterManifest) or not callable(assert_pane_owner):
+        raise ValidationError("runtime binding inputs are invalid")
+    if process_sample_fn is None:
+        process_sample_fn = process_birth_identity
+    if (
+        not callable(process_sample_fn)
+        or not callable(monotonic_fn)
+        or not callable(sleep_fn)
+    ):
+        raise ValidationError("runtime binding callbacks are invalid")
+    selected_timeout = manifest.execution_settle_timeout if timeout is None else timeout
+    if (
+        isinstance(selected_timeout, bool)
+        or not isinstance(selected_timeout, (int, float))
+        or not math.isfinite(float(selected_timeout))
+        or selected_timeout <= 0
+        or selected_timeout > manifest.execution_settle_timeout
+        or isinstance(sample_interval, bool)
+        or not isinstance(sample_interval, (int, float))
+        or not math.isfinite(float(sample_interval))
+        or sample_interval < 0
+        or sample_interval > 1
+    ):
+        raise ValidationError("runtime binding timing is invalid")
+    manifest.verify_execution_files()
+    deadline = monotonic_fn() + float(selected_timeout)
+    pinned_birth = None
+    stable_final = None
+
+    def require_pane_owner() -> None:
+        if assert_pane_owner(pid) is False:
+            raise IdentityError("tmux pane no longer owns the runtime process")
+
+    while True:
+        if monotonic_fn() > deadline:
+            raise IdentityError("runtime exec transition did not settle before timeout")
+        require_pane_owner()
+        try:
+            process = process_sample_fn(pid)
+        except ExecTransitionSamplingError as exc:
+            if exc.pid != pid or not exc.kernel_birth_id:
+                raise IdentityError(
+                    "runtime exec transition identity is ambiguous"
+                ) from exc
+            if pinned_birth is None:
+                pinned_birth = exc.kernel_birth_id
+            elif pinned_birth != exc.kernel_birth_id:
+                raise IdentityError("runtime process birth identity changed") from exc
+            if manifest.raw["execution"]["transition"] != "same_pid_exec":
+                raise IdentityError(
+                    "direct runtime crossed an undeclared exec transition"
+                ) from exc
+            try:
+                before_class = manifest.classify_executable_identity(
+                    exc.executable_before
+                )
+                after_class = manifest.classify_executable_identity(
+                    exc.executable_after
+                )
+            except (IdentityError, ValidationError) as identity_exc:
+                raise IdentityError(
+                    "runtime exec transition crossed an undeclared executable"
+                ) from identity_exc
+            if stable_final is not None or (
+                before_class == "runtime" and after_class != "runtime"
+            ):
+                raise IdentityError("final runtime identity was not stable") from exc
+            require_pane_owner()
+            sleep_fn(min(float(sample_interval), max(0.0, deadline - monotonic_fn())))
+            continue
+        require_pane_owner()
+        validate_process_identity_shape(process, "runtime process")
+        if process["pid"] != pid:
+            raise IdentityError("runtime binding cannot follow a forked child")
+        birth = process["kernel_birth_id"]
+        if pinned_birth is None:
+            pinned_birth = birth
+        elif birth != pinned_birth:
+            raise IdentityError("runtime process birth identity changed")
+        classification = manifest.classify_process_executable(process)
+        if classification == "transient":
+            if stable_final is not None:
+                raise IdentityError("final runtime reverted to a transient executable")
+        elif stable_final is None:
+            stable_final = process
+        elif process == stable_final:
+            manifest.verify_process_executable(process)
+            require_pane_owner()
+            return process
+        else:
+            raise IdentityError("final runtime identity was not stable")
+        sleep_fn(min(float(sample_interval), max(0.0, deadline - monotonic_fn())))
 
 
 def process_alive(identity: Dict[str, Any]) -> bool:
@@ -469,6 +642,7 @@ class SessionRegistry:
             raise ValidationError("invalid bound adapter manifest path")
         validate_sha256(adapter.get("manifest_fingerprint"), "manifest fingerprint")
         validate_sha256(adapter.get("executable_fingerprint"), "executable fingerprint")
+        validate_sha256(adapter.get("execution_fingerprint"), "execution fingerprint")
         validate_sha256(adapter.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(adapter.get("protocol_fingerprint"), "protocol fingerprint")
         validate_identifier(
@@ -874,27 +1048,12 @@ class SessionRegistry:
             raise IdentityError("adapter manifest fingerprint changed")
         if not manifest.identity_matches(
             executable=adapter["executable_fingerprint"],
+            execution=adapter["execution_fingerprint"],
             adapter=adapter["adapter_fingerprint"],
             protocol=adapter["protocol_fingerprint"],
         ):
             raise IdentityError("adapter identity changed")
-        executable = Path(manifest.raw["executable"]["resolved_path"])
-        if executable.is_symlink() or not executable.is_file():
-            raise IdentityError("adapter executable is unavailable")
-        executable_stat = executable.stat()
-        expected_executable = manifest.raw["executable"]
-        if any(
-            executable_stat_value != expected_executable[name]
-            for name, executable_stat_value in (
-                ("device", executable_stat.st_dev),
-                ("inode", executable_stat.st_ino),
-                ("size", executable_stat.st_size),
-                ("mtime_ns", executable_stat.st_mtime_ns),
-            )
-        ):
-            raise IdentityError("adapter executable file identity changed")
-        if sha256_file(executable) != adapter["executable_fingerprint"]:
-            raise IdentityError("adapter executable fingerprint changed")
+        manifest.verify_execution_files()
         contract = Contract.from_path(Path(record["contract_path"]))
         if (
             contract.fingerprint != record["contract_fingerprint"]
@@ -980,3 +1139,11 @@ class SessionRegistry:
     def verify_process(self, record: Dict[str, Any]) -> None:
         if not process_alive(record["process"]):
             raise IdentityError("registered process birth identity changed")
+        proof_root = absolute_root(record["proof_root"], "proof root")
+        path = ensure_within(
+            Path(record["adapter"]["manifest_path"]), proof_root, must_exist=True
+        )
+        manifest = AdapterManifest.from_path(path)
+        if manifest.execution_fingerprint != record["adapter"]["execution_fingerprint"]:
+            raise IdentityError("registered runtime execution identity changed")
+        manifest.verify_process_executable(record["process"])

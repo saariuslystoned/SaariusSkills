@@ -1002,6 +1002,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
     for name in (
         "goal_fingerprint",
         "executable_fingerprint",
+        "execution_fingerprint",
         "platform_fingerprint",
         "adapter_fingerprint",
         "protocol_fingerprint",
@@ -1024,6 +1025,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         "target": receipt_core.get("target"),
         "controller": validate_identifier(receipt_core.get("controller"), "controller"),
         "executable_fingerprint": receipt_core["executable_fingerprint"],
+        "execution_fingerprint": receipt_core["execution_fingerprint"],
         "platform_fingerprint": receipt_core["platform_fingerprint"],
         "adapter_fingerprint": receipt_core["adapter_fingerprint"],
         "protocol_fingerprint": receipt_core["protocol_fingerprint"],

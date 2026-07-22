@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import os
+import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -41,6 +43,162 @@ from .safety import (
     validate_pane_id,
     validate_sha256,
 )
+
+
+EXECUTION_FILE_FIELDS = {
+    "path",
+    "device",
+    "inode",
+    "size",
+    "mtime_ns",
+    "sha256",
+}
+EXECUTION_FIELDS = {
+    "transition",
+    "runtime_executable",
+    "transient_executables",
+    "support_files",
+    "settle_timeout_seconds",
+    "execution_fingerprint",
+}
+EXECUTION_TRANSITIONS = frozenset({"direct", "same_pid_exec"})
+MAX_TRANSIENT_EXECUTABLES = 8
+MAX_EXECUTION_SUPPORT_FILES = 16
+
+
+def execution_file_identity(path: Path) -> Dict[str, Any]:
+    """Return one exact regular-file identity for a launch execution bundle."""
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise ValidationError("execution file path must be absolute")
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValidationError("execution file must be a regular non-symlink file")
+    resolved = candidate.resolve(strict=True)
+    details = resolved.stat()
+    return {
+        "path": str(resolved),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "size": details.st_size,
+        "mtime_ns": details.st_mtime_ns,
+        "sha256": sha256_file(resolved),
+    }
+
+
+def validate_execution_file_identity(
+    value: Any,
+    label: str,
+    *,
+    verify_current: bool = False,
+) -> Dict[str, Any]:
+    """Validate one exact execution file, optionally rechecking live bytes."""
+
+    if not isinstance(value, dict) or set(value) != EXECUTION_FILE_FIELDS:
+        raise ValidationError("%s execution file fields do not match schema" % label)
+    path_text = value.get("path")
+    if (
+        not isinstance(path_text, str)
+        or not path_text
+        or len(path_text) > 4096
+        or "\x00" in path_text
+        or not Path(path_text).is_absolute()
+    ):
+        raise ValidationError("%s execution file path is invalid" % label)
+    for name in ("device", "inode", "size", "mtime_ns"):
+        observed = value.get(name)
+        if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+            raise ValidationError("%s execution file %s is invalid" % (label, name))
+    if value["device"] == 0 or value["inode"] == 0:
+        raise ValidationError("%s execution file identity is invalid" % label)
+    validate_sha256(value.get("sha256"), "%s execution file" % label)
+    validated = dict(value)
+    if verify_current:
+        path = Path(path_text)
+        if path.is_symlink() or not path.is_file():
+            raise IdentityError("%s execution file is unavailable" % label)
+        resolved = path.resolve(strict=True)
+        if str(resolved) != path_text:
+            raise IdentityError("%s execution file path changed" % label)
+        details = resolved.stat()
+        current = {
+            "path": str(resolved),
+            "device": details.st_dev,
+            "inode": details.st_ino,
+            "size": details.st_size,
+            "mtime_ns": details.st_mtime_ns,
+            "sha256": sha256_file(resolved),
+        }
+        if current != validated:
+            raise IdentityError("%s execution file identity changed" % label)
+    return validated
+
+
+def launcher_execution_identity(executable: Dict[str, Any]) -> Dict[str, Any]:
+    """Project the top-level launch file into the shared file schema."""
+
+    return {
+        "path": executable["resolved_path"],
+        "device": executable["device"],
+        "inode": executable["inode"],
+        "size": executable["size"],
+        "mtime_ns": executable["mtime_ns"],
+        "sha256": executable["sha256"],
+    }
+
+
+def build_execution_bundle(
+    *,
+    launcher: Dict[str, Any],
+    transition: str,
+    runtime_executable: Dict[str, Any],
+    transient_executables: list[Dict[str, Any]],
+    support_files: list[Dict[str, Any]],
+    settle_timeout_seconds: float,
+) -> Dict[str, Any]:
+    """Build the canonical launcher-to-runtime identity bundle."""
+
+    core = {
+        "transition": transition,
+        "launcher": validate_execution_file_identity(launcher, "launcher"),
+        "runtime_executable": validate_execution_file_identity(
+            runtime_executable, "runtime"
+        ),
+        "transient_executables": [
+            validate_execution_file_identity(item, "transient")
+            for item in transient_executables
+        ],
+        "support_files": [
+            validate_execution_file_identity(item, "support") for item in support_files
+        ],
+        "settle_timeout_seconds": settle_timeout_seconds,
+    }
+    bundle = {
+        name: core[name]
+        for name in (
+            "transition",
+            "runtime_executable",
+            "transient_executables",
+            "support_files",
+            "settle_timeout_seconds",
+        )
+    }
+    bundle["execution_fingerprint"] = sha256_bytes(canonical_json_bytes(core))
+    return bundle
+
+
+def direct_execution_bundle(
+    executable: Dict[str, Any], *, settle_timeout_seconds: float = 2.0
+) -> Dict[str, Any]:
+    launcher = launcher_execution_identity(executable)
+    return build_execution_bundle(
+        launcher=launcher,
+        transition="direct",
+        runtime_executable=launcher,
+        transient_executables=[],
+        support_files=[],
+        settle_timeout_seconds=settle_timeout_seconds,
+    )
 
 
 CAPABILITY_STATES = frozenset(
@@ -93,6 +251,7 @@ _RECEIPT_FIELDS = {
     "campaign_id",
     "goal_fingerprint",
     "executable_fingerprint",
+    "execution_fingerprint",
     "version_fingerprint",
     "platform_fingerprint",
     "adapter_fingerprint",
@@ -119,6 +278,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "authorization_sha256",
     "manifest_fingerprint",
     "executable_fingerprint",
+    "execution_fingerprint",
     "version_fingerprint",
     "platform_fingerprint",
     "adapter_fingerprint",
@@ -375,6 +535,7 @@ def verify_qualification_receipt(
     validate_identifier(receipt.get("campaign_id"), "qualification campaign id")
     for name in (
         "executable_fingerprint",
+        "execution_fingerprint",
         "version_fingerprint",
         "platform_fingerprint",
         "adapter_fingerprint",
@@ -412,6 +573,7 @@ def verify_qualification_receipt(
     current = current_manifest.raw
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
+        "execution_fingerprint": current["execution"]["execution_fingerprint"],
         "version_fingerprint": current["executable"]["version_sha256"],
         "platform_fingerprint": sha256_bytes(canonical_json_bytes(current["platform"])),
         "adapter_fingerprint": current["adapter_fingerprint"],
@@ -541,6 +703,7 @@ def verify_qualification_receipt(
     for name in (
         "authorization_sha256",
         "manifest_fingerprint",
+        "execution_fingerprint",
         "launch_argv_sha256",
         "fixture_fingerprint_before",
         "fixture_fingerprint_after",
@@ -651,17 +814,11 @@ def verify_qualification_receipt(
     ):
         raise ValidationError("qualification unapproved parallel target evidence")
 
+    if evidence["execution_fingerprint"] != receipt["execution_fingerprint"]:
+        raise ValidationError("qualification execution fingerprint mismatch")
+    current_manifest.verify_execution_files()
     process = _validated_process_record(evidence.get("process"), "target")
-    executable_path = Path(process["executable_path"])
-    if executable_path.is_symlink() or not executable_path.is_file():
-        raise ValidationError("qualification process executable is unavailable")
-    executable_details = executable_path.stat()
-    if (
-        executable_details.st_dev != process["device"]
-        or executable_details.st_ino != process["inode"]
-        or sha256_file(executable_path) != receipt["executable_fingerprint"]
-    ):
-        raise ValidationError("qualification process executable identity mismatch")
+    current_manifest.verify_process_executable(process)
     raw_descendants = evidence.get("observed_target_descendants")
     if not isinstance(raw_descendants, list) or len(raw_descendants) > 32:
         raise ValidationError("observed target descendants are invalid")
@@ -912,6 +1069,7 @@ def verify_qualification_receipt(
         "campaign_id",
         "goal_fingerprint",
         "executable_fingerprint",
+        "execution_fingerprint",
         "version_fingerprint",
         "platform_fingerprint",
         "adapter_fingerprint",
@@ -946,6 +1104,7 @@ def verify_qualification_receipt(
             "session": evidence.get("tmux", {}).get("session"),
             "run_id": receipt["run_id"],
             "executable_fingerprint": receipt["executable_fingerprint"],
+            "execution_fingerprint": receipt["execution_fingerprint"],
             "adapter_fingerprint": receipt["adapter_fingerprint"],
             "protocol_fingerprint": receipt["protocol_fingerprint"],
             "phase": "ready",
@@ -960,6 +1119,7 @@ def verify_qualification_receipt(
             "run_id": receipt["run_id"],
             "nonce": ready.identity["nonce"],
             "executable_fingerprint": receipt["executable_fingerprint"],
+            "execution_fingerprint": receipt["execution_fingerprint"],
             "adapter_fingerprint": receipt["adapter_fingerprint"],
             "protocol_fingerprint": receipt["protocol_fingerprint"],
             "phase": "followup",
@@ -1127,6 +1287,7 @@ class AdapterManifest:
             "generated_at",
             "platform",
             "executable",
+            "execution",
             "adapter_fingerprint",
             "protocol_fingerprint",
             "yolo_mapping",
@@ -1141,10 +1302,33 @@ class AdapterManifest:
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
             raise ValidationError("unsupported adapter target")
         executable = value.get("executable")
-        if not isinstance(executable, dict):
+        executable_fields = {
+            "requested_path",
+            "resolved_path",
+            "device",
+            "inode",
+            "size",
+            "mtime_ns",
+            "sha256",
+            "version_sha256",
+            "help_sha256",
+        }
+        if not isinstance(executable, dict) or set(executable) != executable_fields:
             raise ValidationError("invalid executable manifest")
+        requested_path = executable.get("requested_path")
         resolved_path = executable.get("resolved_path")
-        if not isinstance(resolved_path, str) or not Path(resolved_path).is_absolute():
+        if (
+            not isinstance(requested_path, str)
+            or not requested_path
+            or len(requested_path) > 4096
+            or "\x00" in requested_path
+            or not Path(requested_path).is_absolute()
+            or not isinstance(resolved_path, str)
+            or not resolved_path
+            or len(resolved_path) > 4096
+            or "\x00" in resolved_path
+            or not Path(resolved_path).is_absolute()
+        ):
             raise ValidationError("resolved executable path must be absolute")
         validate_sha256(executable.get("sha256"), "executable fingerprint")
         validate_sha256(executable.get("version_sha256"), "version fingerprint")
@@ -1156,6 +1340,86 @@ class AdapterManifest:
                 raise ValidationError("executable %s identity is missing" % name)
             if executable[name] < 0:
                 raise ValidationError("executable %s identity is invalid" % name)
+        launcher = validate_execution_file_identity(
+            launcher_execution_identity(executable), "launcher"
+        )
+        execution = value.get("execution")
+        if not isinstance(execution, dict) or set(execution) != EXECUTION_FIELDS:
+            raise ValidationError("runtime execution fields do not match schema")
+        transition = execution.get("transition")
+        if transition not in EXECUTION_TRANSITIONS:
+            raise ValidationError("runtime execution transition is invalid")
+        runtime = validate_execution_file_identity(
+            execution.get("runtime_executable"), "runtime"
+        )
+        transient_values = execution.get("transient_executables")
+        support_values = execution.get("support_files")
+        if (
+            not isinstance(transient_values, list)
+            or len(transient_values) > MAX_TRANSIENT_EXECUTABLES
+            or not isinstance(support_values, list)
+            or len(support_values) > MAX_EXECUTION_SUPPORT_FILES
+        ):
+            raise ValidationError("runtime execution file lists exceed their bounds")
+        transients = [
+            validate_execution_file_identity(item, "transient")
+            for item in transient_values
+        ]
+        support = [
+            validate_execution_file_identity(item, "support") for item in support_values
+        ]
+        for label, files in (("transient", transients), ("support", support)):
+            paths = [item["path"] for item in files]
+            if paths != sorted(paths) or len(paths) != len(set(paths)):
+                raise ValidationError(
+                    "runtime execution %s files are not canonical" % label
+                )
+        all_paths = [
+            runtime["path"],
+            *[item["path"] for item in transients],
+            *[item["path"] for item in support],
+        ]
+        all_file_ids = [
+            (item["device"], item["inode"]) for item in [runtime, *transients, *support]
+        ]
+        if len(all_paths) != len(set(all_paths)) or len(all_file_ids) != len(
+            set(all_file_ids)
+        ):
+            raise ValidationError("runtime execution file roles overlap")
+        launcher_file_id = (launcher["device"], launcher["inode"])
+        if any((item["device"], item["inode"]) == launcher_file_id for item in support):
+            raise ValidationError("runtime execution file roles overlap")
+        settle = execution.get("settle_timeout_seconds")
+        if (
+            isinstance(settle, bool)
+            or not isinstance(settle, (int, float))
+            or not math.isfinite(float(settle))
+            or settle <= 0
+            or settle > 30
+        ):
+            raise ValidationError("runtime execution settle timeout is invalid")
+        if transition == "direct":
+            if runtime != launcher or transients or support:
+                raise ValidationError(
+                    "direct runtime execution must equal the launch file"
+                )
+        elif (
+            runtime["device"],
+            runtime["inode"],
+        ) == launcher_file_id or not transients:
+            raise ValidationError(
+                "same-pid exec requires a distinct runtime and declared transients"
+            )
+        expected_execution = build_execution_bundle(
+            launcher=launcher,
+            transition=transition,
+            runtime_executable=runtime,
+            transient_executables=transients,
+            support_files=support,
+            settle_timeout_seconds=settle,
+        )
+        if execution != expected_execution:
+            raise ValidationError("runtime execution fingerprint is invalid")
         validate_sha256(value.get("adapter_fingerprint"), "adapter fingerprint")
         validate_sha256(value.get("protocol_fingerprint"), "protocol fingerprint")
         capabilities = value.get("capabilities")
@@ -1385,19 +1649,126 @@ class AdapterManifest:
 
     def verify_process_executable(self, process: Dict[str, Any]) -> None:
         process = _validated_process_record(process, "target")
-        expected = self.raw["executable"]
-        executable = Path(process["executable_path"])
-        if executable.is_symlink() or not executable.is_file():
-            raise IdentityError("target process executable is unavailable")
-        if (
-            executable.resolve(strict=True) != Path(expected["resolved_path"])
-            or process["device"] != expected["device"]
-            or process["inode"] != expected["inode"]
-            or sha256_file(executable) != expected["sha256"]
-        ):
+        self.verify_execution_files()
+        if self.classify_process_executable(process) != "runtime":
             raise IdentityError(
-                "target process does not execute the fingerprinted launcher"
+                "target process does not execute the fingerprinted final runtime"
             )
+
+    @property
+    def execution_fingerprint(self) -> str:
+        return self.raw["execution"]["execution_fingerprint"]
+
+    @property
+    def execution_settle_timeout(self) -> float:
+        return float(self.raw["execution"]["settle_timeout_seconds"])
+
+    def process_execution_selectors(self) -> list[Dict[str, Any]]:
+        """Return the exact final-runtime selector for global process census."""
+
+        execution = self.raw["execution"]
+        return [
+            {
+                "path": execution["runtime_executable"]["path"],
+                "device": execution["runtime_executable"]["device"],
+                "inode": execution["runtime_executable"]["inode"],
+            }
+        ]
+
+    def verify_execution_files(self) -> None:
+        """Recheck every launcher, runtime, transient, and support file."""
+
+        validate_execution_file_identity(
+            launcher_execution_identity(self.raw["executable"]),
+            "launcher",
+            verify_current=True,
+        )
+        execution = self.raw["execution"]
+        validate_execution_file_identity(
+            execution["runtime_executable"], "runtime", verify_current=True
+        )
+        for index, identity in enumerate(execution["transient_executables"]):
+            validate_execution_file_identity(
+                identity, "transient %d" % index, verify_current=True
+            )
+        for index, identity in enumerate(execution["support_files"]):
+            validate_execution_file_identity(
+                identity, "support %d" % index, verify_current=True
+            )
+
+    def classify_process_executable(self, process: Dict[str, Any]) -> str:
+        """Classify one process as the declared final runtime or transient."""
+
+        process = _validated_process_record(process, "target")
+        return self.classify_executable_identity(
+            {
+                "executable_path": process["executable_path"],
+                "device": process["device"],
+                "inode": process["inode"],
+            }
+        )
+
+    def classify_executable_identity(self, value: Dict[str, Any]) -> str:
+        """Classify one exact executable selector without trusting argv or comm."""
+
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"executable_path", "device", "inode"}
+            or not isinstance(value.get("executable_path"), str)
+            or not Path(value["executable_path"]).is_absolute()
+            or isinstance(value.get("device"), bool)
+            or not isinstance(value.get("device"), int)
+            or value["device"] <= 0
+            or isinstance(value.get("inode"), bool)
+            or not isinstance(value.get("inode"), int)
+            or value["inode"] <= 0
+        ):
+            raise IdentityError("target process executable identity is invalid")
+        observed = {
+            "path": value["executable_path"],
+            "device": value["device"],
+            "inode": value["inode"],
+        }
+
+        def matches(identity: Dict[str, Any]) -> bool:
+            return observed == {
+                "path": identity["path"],
+                "device": identity["device"],
+                "inode": identity["inode"],
+            }
+
+        execution = self.raw["execution"]
+        if matches(execution["runtime_executable"]):
+            return "runtime"
+        if any(matches(item) for item in execution["transient_executables"]):
+            return "transient"
+        raise IdentityError("target process executable is not declared")
+
+    def verify_launch_execution_environment(self, environment: Dict[str, str]) -> None:
+        """Bind cwd-sensitive interpreter lookup to the exact launch environment."""
+
+        execution = self.raw["execution"]
+        if self.target != "cursor" or execution["transition"] != "same_pid_exec":
+            return
+        if not isinstance(environment, dict):
+            raise ValidationError("runtime launch environment is invalid")
+        path_value = environment.get("PATH")
+        if not isinstance(path_value, str) or not path_value:
+            raise IdentityError("cursor runtime PATH is unavailable")
+        path_entries = path_value.split(os.pathsep)
+        if any(not item or not Path(item).is_absolute() for item in path_entries):
+            raise IdentityError("cursor runtime PATH is cwd-dependent")
+        discovered = shutil.which("bash", path=path_value)
+        if not discovered:
+            raise IdentityError("cursor runtime bash interpreter is unavailable")
+        bash = execution_file_identity(Path(discovered).resolve(strict=True))
+        observed = {
+            "executable_path": bash["path"],
+            "device": bash["device"],
+            "inode": bash["inode"],
+        }
+        if self.classify_executable_identity(observed) != "transient":
+            raise IdentityError("cursor runtime bash interpreter is not declared")
 
     def verify_qualification(
         self,
@@ -1456,6 +1827,7 @@ class AdapterManifest:
                 )
         if not self.identity_matches(
             executable=receipt.get("executable_fingerprint"),
+            execution=receipt.get("execution_fingerprint"),
             adapter=receipt.get("adapter_fingerprint"),
             protocol=receipt.get("protocol_fingerprint"),
         ):
@@ -1466,9 +1838,9 @@ class AdapterManifest:
             reject_sensitive_fields=True,
         )
         process = _validated_process_record(evidence.get("process"), "target")
-        expected_executable = self.raw["executable"]
+        expected_executable = self.raw["execution"]["runtime_executable"]
         if (
-            process["executable_path"] != expected_executable["resolved_path"]
+            process["executable_path"] != expected_executable["path"]
             or process["device"] != expected_executable["device"]
             or process["inode"] != expected_executable["inode"]
         ):
@@ -1502,9 +1874,12 @@ class AdapterManifest:
             )
         return receipt
 
-    def identity_matches(self, *, executable: str, adapter: str, protocol: str) -> bool:
+    def identity_matches(
+        self, *, executable: str, execution: str, adapter: str, protocol: str
+    ) -> bool:
         return (
             self.raw["executable"]["sha256"] == executable
+            and self.execution_fingerprint == execution
             and self.raw["adapter_fingerprint"] == adapter
             and self.raw["protocol_fingerprint"] == protocol
         )

@@ -37,6 +37,7 @@ from .launch import build_launch_identity
 from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
 from .registry import (
     SessionRegistry,
+    bind_runtime_process,
     process_alive,
     process_birth_identity,
     send_exact_sigint,
@@ -92,8 +93,10 @@ def _git(repo: Path, arguments: List[str], *, identity_error: bool = False) -> s
     return result.stdout.strip()
 
 
-def _active_processes(target: str) -> List[Dict[str, Any]]:
-    return active_target_processes(target)
+def _active_processes(target: str, manifest: AdapterManifest) -> List[Dict[str, Any]]:
+    return active_target_processes(
+        target, execution_files=manifest.process_execution_selectors()
+    )
 
 
 def _authorization(path: Path, contract: Contract) -> Dict[str, Any]:
@@ -611,7 +614,7 @@ def doctor(
         blockers.append(
             "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete"
         )
-    active = _active_processes(contract.target)
+    active = _active_processes(contract.target, manifest)
     parallel_override = _parallel_target_override(
         authorization, contract.target, active
     )
@@ -680,6 +683,9 @@ def launch(
     requested_model: Optional[str] = None,
     requested_effort: Optional[str] = None,
     _sleep_fn: Any = time.sleep,
+    _execution_sleep_fn: Any = time.sleep,
+    _execution_monotonic_fn: Any = time.monotonic,
+    _process_birth_fn: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     report = doctor(
@@ -876,12 +882,13 @@ def launch(
             raise IdentityError("candidate workspace changed after preflight")
         if current_workspace["dirty"]:
             raise IdentityError("candidate worktree is not clean before launch")
-        launch_attempted = True
         launch_environment, launch_identity = build_launch_identity(
             target=contract.target,
             repo=contract.repo,
             argv=argv,
         )
+        manifest.verify_launch_execution_environment(launch_environment)
+        launch_attempted = True
         metadata = tmux.launch(
             session=session,
             target=contract.target,
@@ -891,8 +898,35 @@ def launch(
         )
         if metadata.get("launch_identity") != launch_identity:
             raise IdentityError("tmux launch context identity is invalid")
-        process = process_birth_identity(metadata["pane_pid"])
-        manifest.verify_process_executable(process)
+
+        def assert_pane_owner(expected_pid: int) -> None:
+            current = tmux.metadata(
+                socket=Path(metadata["socket"]),
+                session=session,
+                pane=metadata["pane"],
+                server_identity=metadata["server_identity"],
+            )
+            if (
+                current.get("session") != session
+                or current.get("pane") != metadata["pane"]
+                or current.get("pane_pid") != expected_pid
+                or current.get("pane_dead") is True
+            ):
+                raise IdentityError(
+                    "tmux pane no longer owns the provisional runtime process"
+                )
+
+        sample_process = _process_birth_fn or (
+            lambda selected_pid: process_birth_identity(selected_pid)
+        )
+        process = bind_runtime_process(
+            metadata["pane_pid"],
+            manifest,
+            assert_pane_owner,
+            process_sample_fn=sample_process,
+            monotonic_fn=_execution_monotonic_fn,
+            sleep_fn=_execution_sleep_fn,
+        )
         process_verified = True
         transition_session_lease(
             session=session,
@@ -931,6 +965,7 @@ def launch(
                 "manifest_path": str(manifest_copy),
                 "manifest_fingerprint": manifest.fingerprint,
                 "executable_fingerprint": manifest.raw["executable"]["sha256"],
+                "execution_fingerprint": manifest.execution_fingerprint,
                 "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
                 "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
                 "qualification_controller": qualification_authority["controller"],
@@ -1245,6 +1280,7 @@ def _checkpoint_expected(record: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         "run_id": protocol["run_id"],
         "nonce": protocol["nonce"],
         "executable_fingerprint": record["adapter"]["executable_fingerprint"],
+        "execution_fingerprint": record["adapter"]["execution_fingerprint"],
         "adapter_fingerprint": record["adapter"]["adapter_fingerprint"],
         "protocol_fingerprint": record["adapter"]["protocol_fingerprint"],
     }

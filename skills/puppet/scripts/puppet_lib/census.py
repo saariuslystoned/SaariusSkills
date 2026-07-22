@@ -11,7 +11,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .adapter_manifest import AdapterManifest, BEHAVIOR_CAPABILITIES
+from .adapter_manifest import (
+    AdapterManifest,
+    BEHAVIOR_CAPABILITIES,
+    build_execution_bundle,
+    direct_execution_bundle,
+    execution_file_identity,
+    launcher_execution_identity,
+)
 from .errors import ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .profiles import (
@@ -26,6 +33,8 @@ from .safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 MAX_OUTPUT_BYTES = 65536
 TIMEOUT_SECONDS = 10
+CURSOR_EXECUTION_SETTLE_SECONDS = 5.0
+DIRECT_EXECUTION_SETTLE_SECONDS = 2.0
 COMMANDS: Dict[str, Tuple[str, ...]] = {
     "agy": ("agy",),
     "cursor": ("cursor-agent",),
@@ -166,6 +175,8 @@ def _sandbox_disable_declared(
 
 
 def _project_isolation_declared(mapping: Dict[str, Any], help_text: str) -> bool:
+    if not mapping["project_isolation_flags"]:
+        return False
     return all(
         re.search(r"(?m)^\s*" + re.escape(flag) + r"(?:[=,\s]|$)", help_text)
         is not None
@@ -184,6 +195,105 @@ def _launch_flags(mapping: Dict[str, Any]) -> List[str]:
         if flag not in combined:
             combined.append(flag)
     return combined
+
+
+def _cursor_execution_bundle(
+    launcher_path: Path, launcher: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Resolve only Cursor's exact observed shell-launcher execution layout."""
+
+    raw = launcher_path.read_bytes()
+    if len(raw) > 8192:
+        raise ValidationError("cursor launcher exceeds the static layout bound")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationError(
+            "cursor launcher is not the recognized shell layout"
+        ) from exc
+    required_lines = {
+        "#!/usr/bin/env bash",
+        'SCRIPT_DIR="$(dirname "$(realpath "$0")")"',
+        'SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"',
+        'NODE_BIN="$SCRIPT_DIR/node"',
+        'exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"',
+        'exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"',
+    }
+    stripped_lines = [line.strip() for line in text.splitlines()]
+    exec_lines = [line for line in stripped_lines if line.startswith("exec ")]
+    expected_exec_lines = sorted(
+        line for line in required_lines if line.startswith("exec ")
+    )
+    execution_variable_lines = [
+        line
+        for line in stripped_lines
+        if line
+        and not line.startswith("#")
+        and ("SCRIPT_DIR" in line or "NODE_BIN" in line)
+    ]
+    expected_execution_variable_lines = [
+        line for line in required_lines if "SCRIPT_DIR" in line or "NODE_BIN" in line
+    ]
+    undeclared_exec_lines = [
+        line
+        for line in stripped_lines
+        if line
+        and not line.startswith("#")
+        and re.search(r"\bexec\b", line)
+        and line not in expected_exec_lines
+    ]
+    if (
+        not text.startswith("#!/usr/bin/env bash\n")
+        or not required_lines <= set(stripped_lines)
+        or sorted(exec_lines) != expected_exec_lines
+        or sorted(execution_variable_lines) != sorted(expected_execution_variable_lines)
+        or undeclared_exec_lines
+    ):
+        raise ValidationError("cursor launcher is not the recognized shell layout")
+    directory = launcher_path.parent
+    runtime = execution_file_identity(directory / "node")
+    entrypoint = execution_file_identity(directory / "index.js")
+    env_path = Path("/usr/bin/env")
+    path_value = os.environ.get("PATH")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValidationError("cursor launcher PATH is unavailable")
+    path_entries = path_value.split(os.pathsep)
+    if any(not item or not Path(item).is_absolute() for item in path_entries):
+        raise ValidationError("cursor launcher PATH is cwd-dependent")
+    bash_discovered = shutil.which("bash", path=path_value)
+    if not bash_discovered:
+        raise ValidationError("cursor launcher bash interpreter is unavailable")
+    transients = sorted(
+        [
+            execution_file_identity(env_path),
+            execution_file_identity(Path(bash_discovered).resolve(strict=True)),
+        ],
+        key=lambda item: item["path"],
+    )
+    return build_execution_bundle(
+        launcher=launcher_execution_identity(launcher),
+        transition="same_pid_exec",
+        runtime_executable=runtime,
+        transient_executables=transients,
+        support_files=[entrypoint],
+        settle_timeout_seconds=CURSOR_EXECUTION_SETTLE_SECONDS,
+    )
+
+
+def _execution_bundle(
+    target: str, launcher_path: Path, launcher: Dict[str, Any]
+) -> Dict[str, Any]:
+    with launcher_path.open("rb") as handle:
+        prefix = handle.read(2)
+    if target == "cursor":
+        return _cursor_execution_bundle(launcher_path, launcher)
+    if prefix == b"#!":
+        raise ValidationError(
+            "%s shell or script launcher has no exact runtime resolver" % target
+        )
+    return direct_execution_bundle(
+        launcher, settle_timeout_seconds=DIRECT_EXECUTION_SETTLE_SECONDS
+    )
 
 
 def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
@@ -232,6 +342,17 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
         }
     )
     stat_result = resolved_path.stat()
+    executable = {
+        "requested_path": str(requested_path),
+        "resolved_path": str(resolved_path),
+        "device": stat_result.st_dev,
+        "inode": stat_result.st_ino,
+        "size": stat_result.st_size,
+        "mtime_ns": stat_result.st_mtime_ns,
+        "sha256": sha256_file(resolved_path),
+        "version_sha256": sha256_bytes(version),
+        "help_sha256": sha256_bytes(help_output),
+    }
     raw = {
         "schema_version": 1,
         "target": target,
@@ -241,17 +362,8 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "release": platform.release(),
             "machine": platform.machine(),
         },
-        "executable": {
-            "requested_path": str(requested_path),
-            "resolved_path": str(resolved_path),
-            "device": stat_result.st_dev,
-            "inode": stat_result.st_ino,
-            "size": stat_result.st_size,
-            "mtime_ns": stat_result.st_mtime_ns,
-            "sha256": sha256_file(resolved_path),
-            "version_sha256": sha256_bytes(version),
-            "help_sha256": sha256_bytes(help_output),
-        },
+        "executable": executable,
+        "execution": _execution_bundle(target, resolved_path, executable),
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": PROTOCOL_FINGERPRINT,
         "yolo_mapping": mapping,
