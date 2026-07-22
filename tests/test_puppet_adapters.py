@@ -120,6 +120,17 @@ class AdapterTests(unittest.TestCase):
                 {"project_isolation_flags": ["--new-project"]}, ""
             )
         )
+        for false_positive in (
+            "  --new-projectish  Not the requested flag",
+            "This prose mentions --new-project but does not declare it.",
+        ):
+            with self.subTest(false_positive=false_positive):
+                self.assertFalse(
+                    _project_isolation_declared(
+                        {"project_isolation_flags": ["--new-project"]},
+                        false_positive,
+                    )
+                )
 
     def test_agy_prefix_is_exactly_once(self):
         adapter = adapter_for("agy")
@@ -159,6 +170,31 @@ class AdapterTests(unittest.TestCase):
             raw["yolo_mapping"]["launch_argv"],
             ["/bin/echo", "--dangerously-skip-permissions", "--new-project"],
         )
+
+    def test_option_shaped_model_and_effort_values_cannot_inject_launch_flags(self):
+        raw = manifest_raw()
+        raw["doctor_only"] = False
+        raw["capabilities"] = {
+            name: "controller_verified" if name != "resume" else "unsupported"
+            for name in raw["capabilities"]
+        }
+        raw["qualification"] = {
+            "receipt_path": "/tmp/puppet-test-qualification.json",
+            "receipt_sha256": "f" * 64,
+        }
+        raw["yolo_mapping"].update(
+            model_flag="--model",
+            effort_flag="--effort",
+        )
+        manifest = AdapterManifest.from_dict(raw)
+        with self.assertRaisesRegex(ValidationError, "requested model is invalid"):
+            adapter_for("agy").build_launch_argv(
+                manifest, requested_model="--new-project"
+            )
+        with self.assertRaisesRegex(ValidationError, "requested effort is invalid"):
+            adapter_for("agy").build_launch_argv(
+                manifest, requested_effort="--new-project"
+            )
 
     def test_manifest_cannot_fingerprint_one_executable_and_launch_another(self):
         raw = manifest_raw()

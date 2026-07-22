@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -134,7 +135,13 @@ def _sandbox_disable_declared(
 
 
 def _project_isolation_declared(mapping: Dict[str, Any], help_text: str) -> bool:
-    return all(flag in help_text for flag in mapping["project_isolation_flags"])
+    return all(
+        re.search(
+            r"(?m)^\s*" + re.escape(flag) + r"(?:[=,\s]|$)", help_text
+        )
+        is not None
+        for flag in mapping["project_isolation_flags"]
+    )
 
 
 def _launch_flags(mapping: Dict[str, Any]) -> List[str]:

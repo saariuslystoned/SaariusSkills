@@ -51,6 +51,7 @@ class AdapterSpec:
                 not isinstance(requested_model, str)
                 or not requested_model
                 or len(requested_model) > 200
+                or requested_model.startswith("-")
                 or any(char in requested_model for char in "\x00\n\r")
             ):
                 raise ValidationError("requested model is invalid")
@@ -63,6 +64,7 @@ class AdapterSpec:
                 not isinstance(requested_effort, str)
                 or not requested_effort
                 or len(requested_effort) > 80
+                or requested_effort.startswith("-")
                 or any(char in requested_effort for char in "\x00\n\r")
             ):
                 raise ValidationError("requested effort is invalid")
