@@ -364,6 +364,27 @@ class LedgerCliTests(unittest.TestCase):
         self.assertIn("already archived", result.stderr)
         self.assertEqual(self.read_ledger()["track_id"], "fixture-track-2")
 
+    def test_new_rejects_non_directory_archive_entry_name(self) -> None:
+        self.init()
+        self.close_track()
+        archive_root = self.project / ".grilltrack" / "archive"
+        archive_root.mkdir(parents=True, exist_ok=True)
+        (archive_root / "fixture-dir-trap").mkdir()
+        (archive_root / "fixture-file-trap").write_text("trap", encoding="utf-8")
+        symlink_target = self.project / ".grilltrack" / "proof" / "fixture.txt"
+        symlink_target.write_text("target", encoding="utf-8")
+        (archive_root / "fixture-link-trap").symlink_to(symlink_target)
+        result = self.run_cli(
+            "new",
+            "--title",
+            "Bad fixture track",
+            "--track-id",
+            "fixture-link-trap",
+            ok=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("new track id already archived", result.stderr)
+
     def test_new_recoverable_after_archive_failure(self) -> None:
         self.init()
         self.close_track()
@@ -398,6 +419,9 @@ class LedgerCliTests(unittest.TestCase):
     def test_new_recoverable_after_ledger_failure(self) -> None:
         self.init()
         self.close_track()
+        rollover = (
+            self.project / ".grilltrack" / "work" / "new_track_rollover.json"
+        )
         fail = self.run_cli(
             "new",
             "--title",
@@ -412,6 +436,55 @@ class LedgerCliTests(unittest.TestCase):
         ledger = self.read_ledger()
         self.assertEqual(ledger["status"], "active")
         self.assertEqual(ledger["track_id"], "fixture-track-2")
+        rollover_data = json.loads(
+            rollover.read_text(encoding="utf-8")
+        )
+        self.assertEqual(rollover_data["stage"], "archived")
+        self.assertEqual(
+            (self.project / ".grilltrack" / "work" / "new_track_rollover.json").is_file(),
+            True,
+        )
+        self.run_cli(
+            "new",
+            "--title",
+            "Second fixture track",
+            "--track-id",
+            "fixture-track-2",
+        )
+        events = [
+            json.loads(line)
+            for line in (
+                self.project / ".grilltrack" / "events.jsonl"
+            ).read_text(encoding="utf-8")
+            .strip()
+            .splitlines()
+        ]
+        self.assertEqual([event["action"] for event in events], ["track_initialized"])
+
+    def test_new_recoverable_after_rollover_stage_failure(self) -> None:
+        self.init()
+        self.close_track()
+        rollover = (
+            self.project / ".grilltrack" / "work" / "new_track_rollover.json"
+        )
+        fail = self.run_cli(
+            "new",
+            "--title",
+            "Second fixture track",
+            "--track-id",
+            "fixture-track-2",
+            failpoint="after_rollover_stage",
+            ok=False,
+        )
+        self.assertEqual(fail.returncode, 2)
+        self.assertIn("simulated failure at after_rollover_stage", fail.stderr)
+        ledger = self.read_ledger()
+        self.assertEqual(ledger["status"], "active")
+        self.assertEqual(ledger["track_id"], "fixture-track-2")
+        rollover_data = json.loads(
+            rollover.read_text(encoding="utf-8")
+        )
+        self.assertEqual(rollover_data["stage"], "ledger_written")
         self.assertEqual(
             (self.project / ".grilltrack" / "work" / "new_track_rollover.json").is_file(),
             True,
