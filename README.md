@@ -16,7 +16,15 @@ grill -> confirm shared understanding -> implement -> verify -> inspect -> repea
 Accepted choices stay present while later choices are judged, so the product
 converges as a whole rather than becoming a pile of disconnected preferences.
 The first domain pack supports frontend work with exactly five live variants
-inside the accepted layout.
+inside the accepted layout. For greenfield whole-product frontend builds,
+verified design choices also accumulate in a canonical `design.md` contract so
+future cycles inherit the real design language rather than reconstructing it
+from screenshots or chat history.
+
+The frontend pack includes a complete font-system grill: compare five role-based
+systems on the accepted product canvas, then verify the winner's real weights,
+delivery path, responsive fit, and motion behavior before promoting it into
+`design.md`.
 
 > **Experimental:** the portable skill, durable ledger tools, frontend
 > reference pack, packaging checks, and unit tests are available. Real-project
@@ -63,20 +71,20 @@ codex plugin add saarius-skills@saarius-skills
 Restart Codex if the newly installed skill does not appear. The commands follow
 the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
 
-Then start a track by explicitly invoking:
+Then start a track naturally:
 
 ```text
-$grilltrack Help me decide and implement the next high-leverage product slice.
+Help me decide and implement the next high-leverage product slice with GrillTrack.
 ```
 
-Merely mentioning “GrillTrack” must not create or change project state. The
-explicit `$grilltrack` invocation is required when starting, resuming, or
-reopening a track.
+Natural requests such as “continue to the next grill” or “reopen the layout
+decision” work too. `$grilltrack` remains available as a concise explicit
+invocation, but it is never required when the user's intent is already clear.
 
 ## What ships
 
 - [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,
-  explicit-only core workflow.
+  intent-aware core workflow.
 - `skills/grilltrack/scripts/grilltrack_ledger.py`: a standard-library CLI for
   validated, resumable, non-destructive project ledgers.
 - `skills/grilltrack/scripts/validate_picker.py`: a validator for the
