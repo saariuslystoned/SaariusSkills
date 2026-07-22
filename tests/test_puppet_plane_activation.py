@@ -16,7 +16,10 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.plane_activation as activation_module  # noqa: E402
-from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.adapter_manifest import (  # noqa: E402
+    AdapterManifest,
+    direct_execution_bundle,
+)
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
@@ -128,6 +131,19 @@ def _adapter_manifest() -> dict:
             "size": executable_details.st_size,
             "mtime_ns": executable_details.st_mtime_ns,
         },
+        "execution": direct_execution_bundle(
+            {
+                "requested_path": str(executable),
+                "resolved_path": str(executable),
+                "sha256": executable_hash,
+                "version_sha256": VERSION_OBSERVATION_SHA256,
+                "help_sha256": "c" * 64,
+                "device": executable_details.st_dev,
+                "inode": executable_details.st_ino,
+                "size": executable_details.st_size,
+                "mtime_ns": executable_details.st_mtime_ns,
+            }
+        ),
         "adapter_fingerprint": ADAPTER_SHA256,
         "protocol_fingerprint": "d" * 64,
         "yolo_mapping": {
