@@ -748,7 +748,7 @@ class PlaneActivationTests(unittest.TestCase):
         family = self._terminal_activation_family()
         incomplete = copy.deepcopy(family)
         incomplete["rollback_receipt"].pop("artifact_state")
-        with self.assertRaisesRegex(ValidationError, "rollback receipt fields"):
+        with self.assertRaisesRegex(IdentityError, "transaction evidence changed"):
             validate_terminal_activation_evidence(**incomplete)
 
         context_drift = copy.deepcopy(family)
@@ -760,6 +760,32 @@ class PlaneActivationTests(unittest.TestCase):
         self.plan.artifact_path.chmod(0o600)
         with self.assertRaises((ConflictError, IdentityError)):
             validate_terminal_activation_evidence(**family)
+
+    def test_terminal_activation_evidence_reopens_roots_and_transaction_files(self):
+        family = self._terminal_activation_family()
+        retired_config = self.base / "terminal-retired-config"
+        self.config.rename(retired_config)
+        self.config.mkdir(mode=0o700)
+        try:
+            with self.assertRaisesRegex(IdentityError, "config root identity changed"):
+                validate_terminal_activation_evidence(**family)
+        finally:
+            self.config.rmdir()
+            retired_config.rename(self.config)
+
+        original = self.plan.rollback_receipt_path.read_bytes()
+        changed = self._json_file(self.plan.rollback_receipt_path)
+        changed["artifact_state"] = "present"
+        self.plan.rollback_receipt_path.write_bytes(
+            canonical_json_bytes(changed) + b"\n"
+        )
+        self.plan.rollback_receipt_path.chmod(0o600)
+        try:
+            with self.assertRaisesRegex(IdentityError, "transaction evidence changed"):
+                validate_terminal_activation_evidence(**family)
+        finally:
+            self.plan.rollback_receipt_path.write_bytes(original)
+            self.plan.rollback_receipt_path.chmod(0o600)
 
     def test_v2_load_and_recovery_reject_legacy_future_and_mixed_families(self):
         current_plan = self.plan.to_dict()

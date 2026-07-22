@@ -2511,6 +2511,15 @@ def validate_terminal_activation_evidence(
     _unsupported_descriptor(normalized_descriptor)
 
     plan = _validate_intent(intent)
+    if any(
+        not isinstance(value, Mapping)
+        for value in (
+            materialization_receipt,
+            rollback_intent,
+            rollback_receipt,
+        )
+    ):
+        raise ValidationError("terminal activation transaction fields are invalid")
     descriptor_target = normalized_descriptor["target"]
     descriptor_artifact = normalized_descriptor["materialize"][0]
     version_hash = _SUPPORTED_VERSION_OBSERVATIONS.get(
@@ -2525,6 +2534,67 @@ def validate_terminal_activation_evidence(
         or plan.raw["artifact_relative_path"] != descriptor_artifact["relative_path"]
     ):
         raise IdentityError("terminal activation descriptor authority changed")
+
+    workspace_descriptor = _open_bound_root(
+        plan.raw["workspace_root"],
+        label="workspace root",
+        private=False,
+        compare_nlink=False,
+    )
+    os.close(workspace_descriptor)
+    config_descriptor = _open_bound_root(
+        plan.raw["config_root"],
+        label="config root",
+        private=True,
+        compare_nlink=False,
+    )
+    os.close(config_descriptor)
+    transaction_descriptor = _open_bound_root(
+        plan.raw["transaction_root"],
+        label="transaction root",
+        private=True,
+        compare_nlink=False,
+    )
+    try:
+        if _transaction_entries(transaction_descriptor) != {
+            INTENT_FILENAME,
+            RECEIPT_FILENAME,
+            ROLLBACK_INTENT_FILENAME,
+            ROLLBACK_FILENAME,
+        }:
+            raise IdentityError("terminal activation transaction is incomplete")
+        persisted_family = {
+            "intent": _read_named_json(
+                transaction_descriptor,
+                INTENT_FILENAME,
+                label="activation intent",
+            ),
+            "materialization_receipt": _read_named_json(
+                transaction_descriptor,
+                RECEIPT_FILENAME,
+                label="activation receipt",
+            ),
+            "rollback_intent": _read_named_json(
+                transaction_descriptor,
+                ROLLBACK_INTENT_FILENAME,
+                label="rollback intent",
+            ),
+            "rollback_receipt": _read_named_json(
+                transaction_descriptor,
+                ROLLBACK_FILENAME,
+                label="rollback receipt",
+            ),
+        }
+    finally:
+        os.close(transaction_descriptor)
+    supplied_family = {
+        "intent": dict(intent),
+        "materialization_receipt": dict(materialization_receipt),
+        "rollback_intent": dict(rollback_intent),
+        "rollback_receipt": dict(rollback_receipt),
+    }
+    if canonical_json_bytes(persisted_family) != canonical_json_bytes(supplied_family):
+        raise IdentityError("terminal activation transaction evidence changed")
     normalized_receipt = _validate_receipt(materialization_receipt, plan)
     normalized_rollback_intent = _validate_rollback_intent(
         rollback_intent,
