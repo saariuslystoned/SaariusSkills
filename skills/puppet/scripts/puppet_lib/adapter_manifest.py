@@ -1055,6 +1055,8 @@ class AdapterManifest:
             "prompt_transport_declared",
             "sandbox_disable_declared",
             "sandbox_flags",
+            "project_isolation_declared",
+            "project_isolation_flags",
         }
         allowed_mapping = required_mapping | {"model_flag", "effort_flag"}
         if not required_mapping <= set(mapping) or set(mapping) - allowed_mapping:
@@ -1077,10 +1079,11 @@ class AdapterManifest:
             "permission_declared",
             "prompt_transport_declared",
             "sandbox_disable_declared",
+            "project_isolation_declared",
         ):
             if not isinstance(mapping[name], bool):
                 raise ValidationError("%s must be boolean" % name)
-        for name in ("permission_flags", "sandbox_flags"):
+        for name in ("permission_flags", "sandbox_flags", "project_isolation_flags"):
             flags = mapping[name]
             if not isinstance(flags, list) or not all(
                 isinstance(item, str) and item for item in flags
@@ -1095,6 +1098,7 @@ class AdapterManifest:
                 "permission_declared",
                 "prompt_transport_declared",
                 "sandbox_disable_declared",
+                "project_isolation_declared",
             )
         ):
             raise ValidationError("complete YOLO mapping lacks a proved component")

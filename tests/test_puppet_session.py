@@ -119,6 +119,8 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "prompt_transport_declared": True,
         "sandbox_disable_declared": True,
         "sandbox_flags": ["test-owned-process"],
+        "project_isolation_declared": True,
+        "project_isolation_flags": [],
     }
     platform_value = {"system": "Darwin", "release": "test", "machine": "test"}
     platform_fingerprint = hashlib.sha256(

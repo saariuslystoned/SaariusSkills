@@ -17,6 +17,7 @@ from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     DECLARED_MAPPINGS,
+    _project_isolation_declared,
     _launch_flags,
     adapter_implementation_fingerprint,
     _sandbox_disable_declared,
@@ -56,6 +57,8 @@ def manifest_raw():
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": ["--safe-test-flag"],
+            "project_isolation_declared": True,
+            "project_isolation_flags": [],
         },
         "capabilities": {
             "launch": "declared",
@@ -76,6 +79,10 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(
             _launch_flags(DECLARED_MAPPINGS["codex"]),
             ["--dangerously-bypass-approvals-and-sandbox"],
+        )
+        self.assertEqual(
+            _launch_flags(DECLARED_MAPPINGS["agy"]),
+            ["--dangerously-skip-permissions", "--new-project"],
         )
 
     def test_adapter_fingerprint_binds_the_runtime_module_closure(self):
@@ -101,6 +108,16 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(
             _sandbox_disable_declared(
                 "grok", DECLARED_MAPPINGS["grok"], "  --sandbox <PROFILE>"
+            )
+        )
+        self.assertTrue(
+            _project_isolation_declared(
+                DECLARED_MAPPINGS["agy"], "  --new-project"
+            )
+        )
+        self.assertFalse(
+            _project_isolation_declared(
+                {"project_isolation_flags": ["--new-project"]}, ""
             )
         )
 

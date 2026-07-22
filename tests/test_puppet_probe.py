@@ -54,15 +54,24 @@ def write_json(path: Path, value) -> None:
 def manifest_value(target: str = "codex"):
     executable = Path("/bin/cat").resolve(strict=True)
     details = executable.stat()
+    permission_flags = []
+    project_isolation_flags = []
+    if target == "agy":
+        permission_flags = ["--dangerously-skip-permissions"]
+        project_isolation_flags = ["--new-project"]
     mapping = {
         "complete": True,
-        "launch_argv": [str(executable)],
+        "launch_argv": [str(executable)]
+        + permission_flags
+        + project_isolation_flags,
         "permission_declared": True,
-        "permission_flags": [],
+        "permission_flags": permission_flags,
         "prompt_transport": "interactive_tmux_buffer_declared",
         "prompt_transport_declared": True,
         "sandbox_disable_declared": True,
         "sandbox_flags": [],
+        "project_isolation_declared": True,
+        "project_isolation_flags": project_isolation_flags,
     }
     raw = {
         "schema_version": 1,

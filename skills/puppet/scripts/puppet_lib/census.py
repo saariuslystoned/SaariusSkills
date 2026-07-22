@@ -29,6 +29,7 @@ COMMANDS: Dict[str, Tuple[str, ...]] = {
 DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "agy": {
         "permission_flags": ["--dangerously-skip-permissions"],
+        "project_isolation_flags": ["--new-project"],
         "sandbox_flags": [],
         "prompt_transport": "interactive_tmux_buffer_declared",
         "model_flag": "--model",
@@ -36,12 +37,14 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     },
     "cursor": {
         "permission_flags": ["--yolo"],
+        "project_isolation_flags": [],
         "sandbox_flags": ["--sandbox", "disabled"],
         "prompt_transport": "interactive_tmux_buffer_declared",
         "model_flag": "--model",
     },
     "claude": {
         "permission_flags": ["--dangerously-skip-permissions"],
+        "project_isolation_flags": [],
         "sandbox_flags": [],
         "prompt_transport": "interactive_tmux_buffer_declared",
         "model_flag": "--model",
@@ -49,12 +52,14 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     },
     "codex": {
         "permission_flags": ["--dangerously-bypass-approvals-and-sandbox"],
+        "project_isolation_flags": [],
         "sandbox_flags": ["--dangerously-bypass-approvals-and-sandbox"],
         "prompt_transport": "interactive_tmux_buffer_declared",
         "model_flag": "--model",
     },
     "grok": {
         "permission_flags": ["--always-approve"],
+        "project_isolation_flags": [],
         "sandbox_flags": [],
         "prompt_transport": "interactive_tmux_buffer_declared",
         "model_flag": "--model",
@@ -128,10 +133,18 @@ def _sandbox_disable_declared(
     return False
 
 
+def _project_isolation_declared(mapping: Dict[str, Any], help_text: str) -> bool:
+    return all(flag in help_text for flag in mapping["project_isolation_flags"])
+
+
 def _launch_flags(mapping: Dict[str, Any]) -> List[str]:
     """Combine declared flag groups without repeating an identical switch."""
     combined: List[str] = []
-    for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
+    for flag in (
+        mapping["permission_flags"]
+        + mapping["sandbox_flags"]
+        + mapping["project_isolation_flags"]
+    ):
         if flag not in combined:
             combined.append(flag)
     return combined
@@ -155,13 +168,20 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
     sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
+    isolation_declared = _project_isolation_declared(mapping, help_text)
     prompt_declared = mapping["prompt_transport"].endswith("_declared")
-    complete = permission_declared and sandbox_declared and prompt_declared
+    complete = (
+        permission_declared
+        and sandbox_declared
+        and isolation_declared
+        and prompt_declared
+    )
     mapping.update(
         {
             "complete": complete,
             "permission_declared": permission_declared,
             "sandbox_disable_declared": sandbox_declared,
+            "project_isolation_declared": isolation_declared,
             "prompt_transport_declared": prompt_declared,
             "launch_argv": [str(resolved_path)] + _launch_flags(mapping),
         }
