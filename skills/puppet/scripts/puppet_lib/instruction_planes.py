@@ -49,6 +49,13 @@ _ROLLBACK_KEYS = {"owned_artifacts", "preimage_sha256", "retain_hash_only_proof"
 _PREIMAGE_KEYS = {"artifact_id", "sha256"}
 
 _SUPPORTED_TARGETS = TARGETS
+_SUPPORTED_TARGET_VERSIONS = {
+    "agy": "1.1.5",
+    "claude": "2.1.215",
+    "codex": "0.145.0",
+    "cursor": "2026.07.17-3e2a980",
+    "grok": "0.2.106",
+}
 _SUPPORTED_PLAN_TYPES = {
     "harness_global",
     "workspace_addendum",
@@ -60,6 +67,27 @@ _SUPPORTED_ROOT_REFS = {"config_root", "workspace_root", "ephemeral_root"}
 _SUPPORTED_CWD_REFS = {"workspace_root"}
 _SUPPORTED_WRITE_MODES = {"create_only", "patch_if_base_sha256"}
 _SUPPORTED_CONTENT_REFS = {"effective_contract"}
+_SUPPORTED_LITERAL_FLAGS = {
+    "--agent",
+    "--append-system-prompt-file",
+    "--cwd",
+    "--output-style",
+    "--profile",
+    "--setting-sources",
+    "--workspace",
+}
+_SUPPORTED_NAME_REFS = {
+    "project_setting_sources",
+    "puppet_agent_name",
+    "puppet_output_style_name",
+    "puppet_profile_name",
+}
+_SUPPORTED_ENV_REFS = {
+    ("CLAUDE_CONFIG_DIR", "config_root_path"),
+    ("CODEX_HOME", "config_root_path"),
+    ("GROK_DISABLE_AUTOUPDATER", "true_literal"),
+    ("GROK_HOME", "config_root_path"),
+}
 
 
 def _validate_text(
@@ -73,8 +101,8 @@ def _validate_text(
         raise ValidationError("%s must be text" % label)
     if not allow_empty and not value.strip():
         raise ValidationError("%s must not be empty" % label)
-    if any(ch in value for ch in ("\x00", "\n", "\r")):
-        raise ValidationError("%s must not contain control characters" % label)
+    if not all(ch.isprintable() for ch in value):
+        raise ValidationError("%s must contain only printable Unicode" % label)
     if len(value) > max_length:
         raise ValidationError("%s exceeds the allowed size" % label)
     return value
@@ -164,6 +192,8 @@ def _validate_flag(value: Any, *, label: str) -> str:
         raise ValidationError("%s is not a literal flag" % label)
     if flag == "-" or flag == "--":
         raise ValidationError("%s is not a literal flag" % label)
+    if flag not in _SUPPORTED_LITERAL_FLAGS:
+        raise ValidationError("%s is not an allowlisted instruction-plane flag" % label)
     return flag
 
 
@@ -178,6 +208,10 @@ def _validate_target(value: Any) -> Dict[str, Any]:
         raise ValidationError("unsupported target")
 
     version = _validate_target_version(value.get("version"), label="target version")
+    if version != _SUPPORTED_TARGET_VERSIONS[harness]:
+        raise ValidationError(
+            "target version is not the exact supported census version"
+        )
     adapter_manifest_sha256 = validate_sha256(
         value.get("adapter_manifest_sha256"),
         "target adapter_manifest_sha256",
@@ -263,6 +297,7 @@ def _validate_materialize(
         return materialize
 
     artifact_ids = set()
+    destinations: List[tuple[str, tuple[str, ...]]] = []
     for entry in value:
         if not isinstance(entry, Mapping):
             raise ValidationError("materialize entry must be an object")
@@ -284,6 +319,19 @@ def _validate_materialize(
             entry["relative_path"],
             label="materialize relative_path",
         )
+        destination = (root_ref, tuple(relative_path.split("/")))
+        for existing_root, existing_parts in destinations:
+            if existing_root != root_ref:
+                continue
+            if (
+                destination[1] == existing_parts
+                or destination[1][: len(existing_parts)] == existing_parts
+                or existing_parts[: len(destination[1])] == destination[1]
+            ):
+                raise ValidationError(
+                    "materialize destinations must be unique and non-overlapping"
+                )
+        destinations.append(destination)
         content_ref = _validate_text(
             entry["content_ref"],
             label="materialize content_ref",
@@ -323,7 +371,7 @@ def _validate_ids(value: Any, *, label: str) -> List[str]:
             raise ValidationError("%s ids must be unique" % label)
         seen.add(identifier)
         normalized.append(identifier)
-    return normalized
+    return sorted(normalized)
 
 
 def _validate_launch_delta(
@@ -354,6 +402,8 @@ def _validate_launch_delta(
             raise ValidationError("launch env entry fields are invalid")
         name = _validate_env_name(entry["name"], label="launch env name")
         value_ref = _validate_symbolic(entry["value_ref"], label="launch env value_ref")
+        if (name, value_ref) not in _SUPPORTED_ENV_REFS:
+            raise ValidationError("launch env binding is not allowlisted")
         if name in env_names:
             raise ValidationError("launch env names must be unique")
         env_names.add(name)
@@ -383,19 +433,23 @@ def _validate_launch_delta(
                 )
             normalized_argv.append({"path_ref": path_ref})
         elif keys == {"name_ref"}:
-            normalized_argv.append(
-                {
-                    "name_ref": _validate_symbolic(
-                        entry["name_ref"], label="argv name_ref"
-                    )
-                }
+            name_ref = _validate_symbolic(entry["name_ref"], label="argv name_ref")
+            if name_ref not in _SUPPORTED_NAME_REFS:
+                raise ValidationError("argv name_ref is not allowlisted")
+            normalized_argv.append({"name_ref": name_ref})
+        elif keys == {"root_ref"}:
+            root_ref = _validate_text(
+                entry["root_ref"], label="argv root_ref", max_length=32
             )
+            if root_ref not in _SUPPORTED_ROOT_REFS:
+                raise ValidationError("argv root_ref is unsupported")
+            normalized_argv.append({"root_ref": root_ref})
         else:
             raise ValidationError("launch argv entry fields are invalid")
 
     return {
         "cwd_ref": cwd_ref,
-        "env": normalized_env,
+        "env": sorted(normalized_env, key=lambda item: item["name"]),
         "argv": normalized_argv,
     }
 
@@ -473,9 +527,110 @@ def _validate_rollback(
 
     return {
         "owned_artifacts": owned_artifacts,
-        "preimage_sha256": normalized_preimage,
+        "preimage_sha256": sorted(
+            normalized_preimage, key=lambda item: item["artifact_id"]
+        ),
         "retain_hash_only_proof": retain_hash_only_proof,
     }
+
+
+def _validate_qualification_launch_grammar(
+    *,
+    target: Mapping[str, Any],
+    plane: str,
+    materialize: Sequence[Mapping[str, Any]],
+    launch_delta: Mapping[str, Any],
+) -> None:
+    """Keep v1 activation authority to exact, closed native tuples."""
+    harness = target["harness"]
+    artifact_ids = [entry["artifact_id"] for entry in materialize]
+    argv = launch_delta["argv"]
+    env = launch_delta["env"]
+    cwd_ref = launch_delta["cwd_ref"]
+
+    if (harness, plane) == ("claude", "per_run_additive"):
+        if (
+            len(materialize) != 1
+            or materialize[0]["root_ref"] != "ephemeral_root"
+            or materialize[0]["content_ref"] != "effective_contract"
+            or materialize[0]["write_mode"] != "create_only"
+            or cwd_ref != "workspace_root"
+            or env
+            or argv
+            != [
+                {"literal": "--append-system-prompt-file"},
+                {"path_ref": artifact_ids[0]},
+            ]
+        ):
+            raise ValidationError(
+                "Claude per-run qualification descriptor has an invalid closed launch grammar"
+            )
+        return
+
+    if (harness, plane) in {
+        ("codex", "workspace_addendum"),
+        ("claude", "workspace_addendum"),
+    }:
+        expected = all(
+            entry["root_ref"] == "workspace_root"
+            and entry["content_ref"] == "effective_contract"
+            and entry["write_mode"] == "create_only"
+            for entry in materialize
+        )
+        if not expected or cwd_ref != "workspace_root" or env or argv:
+            raise ValidationError(
+                "workspace qualification descriptor has an invalid closed launch grammar"
+            )
+        return
+
+    if (harness, plane) in {
+        ("cursor", "workspace_addendum"),
+        ("grok", "workspace_addendum"),
+    }:
+        flag = "--workspace" if harness == "cursor" else "--cwd"
+        expected = all(
+            entry["root_ref"] == "workspace_root"
+            and entry["content_ref"] == "effective_contract"
+            and entry["write_mode"] == "create_only"
+            for entry in materialize
+        )
+        if (
+            not expected
+            or cwd_ref != "workspace_root"
+            or env
+            or argv != [{"literal": flag}, {"root_ref": "workspace_root"}]
+        ):
+            raise ValidationError(
+                "%s workspace qualification descriptor has an invalid closed launch grammar"
+                % harness
+            )
+        return
+
+    if (harness, plane) == ("agy", "workspace_addendum"):
+        expected = all(
+            entry["root_ref"] == "workspace_root"
+            and entry["content_ref"] == "effective_contract"
+            and entry["write_mode"] == "create_only"
+            for entry in materialize
+        )
+        if (
+            not expected
+            or cwd_ref != "workspace_root"
+            or env
+            or argv
+            != [
+                {"literal": "--agent"},
+                {"name_ref": "puppet_agent_name"},
+            ]
+        ):
+            raise ValidationError(
+                "AGY workspace qualification descriptor has an invalid closed launch grammar"
+            )
+        return
+
+    raise ValidationError(
+        "instruction-plane tuple is not enabled for qualification in descriptor v1"
+    )
 
 
 def descriptor_fingerprint(descriptor: Mapping[str, Any]) -> str:
@@ -514,6 +669,10 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
 
     target = _validate_target(normalized.get("target"))
     status = _validate_status(normalized.get("status"))
+    if status["activation"] == "qualified":
+        raise ValidationError(
+            "qualified status requires a separate controller evidence binding"
+        )
     allow_empty_activation_artifacts = (
         status["surface"] in {"unsupported", "hypothesis"}
         and status["activation"] == "disabled"
@@ -535,6 +694,14 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
     )
     assertions = _validate_ids(normalized.get("assertions"), label="assertions")
     blockers = _validate_ids(normalized.get("blockers"), label="blockers")
+
+    if status["activation"] == "qualification_only":
+        _validate_qualification_launch_grammar(
+            target=target,
+            plane=plane,
+            materialize=materialize,
+            launch_delta=launch_delta,
+        )
 
     if status["surface"] == "factual" and status["activation"] != "disabled":
         if not materialize_keys:
@@ -565,12 +732,6 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
             raise ValidationError(
                 "unsupported or hypothesis disabled descriptors cannot include rollback data"
             )
-    if status["activation"] == "qualified":
-        if not assertions:
-            raise ValidationError("qualified descriptors must include assertions")
-        if blockers:
-            raise ValidationError("qualified descriptors must not include blockers")
-
     return {
         "schema": _SCHEMA_NAME,
         "descriptor_id": descriptor_id,
@@ -588,6 +749,14 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
 def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str, Any]:
     """Parse JSON descriptor text or validate a descriptor mapping."""
     if isinstance(raw, str):
+        try:
+            encoded = raw.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValidationError(
+                "descriptor text must contain valid printable Unicode"
+            ) from exc
+        if len(encoded) > 131072:
+            raise ValidationError("descriptor text exceeds the size limit")
         try:
             parsed = _parse_json_no_duplicates(raw)
         except ValidationError:
