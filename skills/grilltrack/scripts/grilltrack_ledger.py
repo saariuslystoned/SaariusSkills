@@ -18,6 +18,8 @@ from typing import Any
 
 
 SCHEMA_VERSION = "grilltrack/v0.1"
+NEW_TRACK_ROLLOVER_FILE = "new_track_rollover.json"
+NEW_TRACK_ROLLOVER_SCHEMA = "grilltrack/new-track-rollover/v1"
 ACTIVATIONS = {"implicit", "$grilltrack"}
 DECISION_STATES = {
     "proposed",
@@ -39,6 +41,7 @@ BLOCKING_CLOSE_STATES = {
     "needs_reverification",
 }
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+NEW_TRACK_FAILPOINTS = {"after_archive", "after_ledger"}
 
 
 class LedgerError(RuntimeError):
@@ -82,6 +85,7 @@ class Store:
         self.ledger_path = self.state_dir / "ledger.json"
         self.events_path = self.state_dir / "events.jsonl"
         self.archive_root = self.state_dir / "archive"
+        self.rollover_state_path = self.state_dir / "work" / NEW_TRACK_ROLLOVER_FILE
 
     def guard_state_dir(self) -> None:
         if self.state_dir.is_symlink():
@@ -155,6 +159,56 @@ class Store:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
+    def write_rollover_state(self, data: dict[str, Any]) -> None:
+        self.rollover_state_path.parent.mkdir(mode=0o755, exist_ok=True)
+        payload = json.dumps(data, sort_keys=True, indent=2) + "\n"
+        fd, temporary = tempfile.mkstemp(
+            prefix=".rollover-", suffix=".json", dir=self.rollover_state_path.parent
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.rollover_state_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def read_rollover_state(self) -> dict[str, Any] | None:
+        if not self.rollover_state_path.is_file():
+            return None
+        try:
+            data = json.loads(self.rollover_state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LedgerError(f"cannot read rollback state: {exc}") from exc
+        if not isinstance(data, dict):
+            raise LedgerError("rollback state must be an object")
+        expected = {
+            "schema_version",
+            "predecessor_track_id",
+            "successor_track_id",
+            "title",
+            "mechanism",
+            "stage",
+        }
+        if not expected.issubset(data):
+            raise LedgerError("rollback state missing required fields")
+        if data["schema_version"] != NEW_TRACK_ROLLOVER_SCHEMA:
+            raise LedgerError("unsupported rollback state schema")
+        if data["stage"] not in {"started", "archived", "ledger_written"}:
+            raise LedgerError(f"unknown rollback state stage: {data['stage']}")
+        validate_id(data["predecessor_track_id"], "predecessor_track_id")
+        validate_id(data["successor_track_id"], "successor_track_id")
+        data["title"] = require_text(data["title"], "rollback title")
+        if data["mechanism"] not in ACTIVATIONS:
+            raise LedgerError("rollback mechanism must be implicit or $grilltrack")
+        return data
+
+    def clear_rollover_state(self) -> None:
+        if self.rollover_state_path.exists():
+            self.rollover_state_path.unlink()
+
     def archive_closed(self, ledger: dict[str, Any]) -> str:
         if ledger["status"] != "closed":
             raise LedgerError("only a closed track can be archived")
@@ -190,6 +244,17 @@ class Store:
             if temporary.exists():
                 shutil.rmtree(temporary)
         return archive_ref
+
+    def archived_track_ids(self) -> set[str]:
+        if not self.archive_root.is_dir():
+            return set()
+        ids: set[str] = set()
+        for item in self.archive_root.iterdir():
+            if item.is_symlink():
+                continue
+            if item.is_dir():
+                ids.add(item.name)
+        return ids
 
     def persist(
         self, ledger: dict[str, Any], action: str, data: dict[str, Any]
@@ -393,6 +458,16 @@ def validate_ledger(ledger: Any) -> None:
             )
 
 
+def fail_if_requested(point: str) -> None:
+    requested = os.environ.get("GRILLTRACK_TEST_FAILPOINT")
+    if requested is None:
+        return
+    if requested == point:
+        raise LedgerError(f"simulated failure at {point}")
+    if requested not in NEW_TRACK_FAILPOINTS:
+        raise LedgerError(f"unknown failure point: {requested}")
+
+
 def require_mutable(ledger: dict[str, Any]) -> None:
     if ledger["status"] == "closed":
         raise LedgerError("closed tracks are immutable")
@@ -459,19 +534,100 @@ def command_init(store: Store, args: argparse.Namespace) -> None:
 def command_new(store: Store, args: argparse.Namespace) -> None:
     mechanism = normalize_activation(args.activation)
     previous = store.load()
-    if previous["status"] != "closed":
-        raise LedgerError("start a next track only after the current track is closed")
-    archive_ref = store.archive_closed(previous)
-    ledger = new_ledger(args, mechanism, previous["track_id"])
-    store.write_projection(ledger)
+    rollover = store.read_rollover_state()
+    if rollover is not None:
+        if previous["status"] == "active":
+            if previous["track_id"] != rollover["successor_track_id"]:
+                raise LedgerError(
+                    "track rollover recovery is in progress for "
+                    f'{rollover["predecessor_track_id"]}'
+                )
+            if rollover["stage"] != "ledger_written":
+                raise LedgerError(
+                    "cannot recover a new track rollover from this stage"
+                )
+        elif previous["status"] != "closed":
+            raise LedgerError("start a next track only after the current track is closed")
+        elif previous["track_id"] != rollover["predecessor_track_id"]:
+            raise LedgerError(
+                "unmatched rollover state for current track"
+            )
+        mechanism = rollover["mechanism"]
+        predecessor_track_id = rollover["predecessor_track_id"]
+        successor_track_id = rollover["successor_track_id"]
+    else:
+        if previous["status"] != "closed":
+            raise LedgerError("start a next track only after the current track is closed")
+        predecessor_track_id = previous["track_id"]
+        if args.track_id:
+            successor_track_id = validate_id(args.track_id, "track_id")
+            if successor_track_id == predecessor_track_id:
+                raise LedgerError("new track id must not equal predecessor track id")
+            if successor_track_id in store.archived_track_ids():
+                raise LedgerError(
+                    f"new track id already archived: {successor_track_id}"
+                )
+        else:
+            archived_ids = store.archived_track_ids()
+            while True:
+                successor_track_id = (
+                    f"gt-{dt.datetime.now(dt.timezone.utc):%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6]}"
+                )
+                if (
+                    successor_track_id != predecessor_track_id
+                    and successor_track_id not in archived_ids
+                ):
+                    break
+        rollover = {
+            "schema_version": NEW_TRACK_ROLLOVER_SCHEMA,
+            "predecessor_track_id": predecessor_track_id,
+            "successor_track_id": successor_track_id,
+            "title": require_text(args.title, "title"),
+            "mechanism": mechanism,
+            "stage": "started",
+        }
+        store.write_rollover_state(rollover)
+
+    if rollover["stage"] == "started":
+        archive_ref = store.archive_closed(previous)
+        rollover["archive_ref"] = archive_ref
+        rollover["stage"] = "archived"
+        store.write_rollover_state(rollover)
+        fail_if_requested("after_archive")
+
+    if rollover["stage"] == "archived":
+        ledger = new_ledger(
+            argparse.Namespace(
+                track_id=successor_track_id,
+                title=rollover["title"],
+            ),
+            mechanism,
+            predecessor_track_id,
+        )
+        store.write_projection(ledger)
+        rollover["stage"] = "ledger_written"
+        store.write_rollover_state(rollover)
+        fail_if_requested("after_ledger")
+    else:
+        ledger = store.load()
+        if ledger["track_id"] != successor_track_id:
+            raise LedgerError(
+                "in-progress track rollover has mismatched successor track id"
+            )
+        if ledger["status"] != "active":
+            raise LedgerError(
+                "in-progress track rollover expects an active successor ledger"
+            )
+
     store.replace_events(
         "track_initialized",
         {
-            "track_id": ledger["track_id"],
-            "predecessor_track_id": previous["track_id"],
-            "archive_ref": archive_ref,
+            "track_id": successor_track_id,
+            "predecessor_track_id": predecessor_track_id,
+            "archive_ref": rollover["archive_ref"],
         },
     )
+    store.clear_rollover_state()
     output(ledger)
 
 
