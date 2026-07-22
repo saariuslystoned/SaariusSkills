@@ -3,6 +3,21 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
+## Puppet design bundle
+
+The repository now carries the closed pre-implementation design packet for
+[Puppet](plans/puppet/README.md), a proposed skill and CLI for supervising real
+agent harnesses through durable, transcript-blind checkpoints.
+
+> Puppet uses agents like puppets to build Puppet—the skill that uses agents
+> like puppets.
+
+Puppet is not implemented or runtime-proved yet. The bundle includes the future
+Codex orchestration goal, complete implementation seed, curated prior-proof
+provenance, full public decision record, and closeout proof. Its proposed live
+runtime is deliberately YOLO-only and prominently preserves separate human
+gates for delivery, external effects, accounts, security, and secrets.
+
 ## GrillTrack
 
 GrillTrack helps a user and an agent build a complicated thing without

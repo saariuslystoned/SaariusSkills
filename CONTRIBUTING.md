@@ -1,7 +1,7 @@
 # Contributing
 
-GrillTrack is experimental. Keep `main` honest about what is available, tested,
-and proven.
+SaariusSkills is experimental. Keep `main` honest about what is available,
+tested, planned, and proven.
 
 Contributions should:
 
@@ -13,6 +13,10 @@ Contributions should:
 - preserve pinned provenance and applicable notices;
 - avoid committing generated picker work, credentials, private project data, or
   misleading proof.
+
+Pre-implementation design bundles must say plainly that runtime behavior is
+unproved, publish curated decisions instead of raw operator event history, and
+remove private-repository paths, revisions, topology, and checkout state.
 
 Develop changes on a branch and open a pull request. Do not add a case-study
 claim until the linked run and inspectable evidence exist.
