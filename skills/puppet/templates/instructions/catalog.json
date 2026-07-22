@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "compiler_version": "puppet-instruction-compiler-core",
+  "shipped_layers": {
+    "universal": {
+      "path": "universal.md"
+    },
+    "model": {
+      "path": "model/default-unresolved.md"
+    },
+    "lifecycle": {
+      "regular": "lifecycle/regular.md"
+    },
+    "harnesses": {
+      "agy": "harness/agy.md",
+      "codex": "harness/codex.md",
+      "claude": "harness/claude.md",
+      "cursor": "harness/cursor.md",
+      "grok": "harness/grok.md"
+    }
+  }
+}
+

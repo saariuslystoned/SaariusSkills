@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,31 @@ class PuppetPackagingTests(unittest.TestCase):
         forbidden = ["capture-" + "pane", "pipe-" + "pane", "git " + "push", "gh " + "pr"]
         for marker in forbidden:
             self.assertNotIn(marker, sources)
+
+    def test_package_template_layer_shapes_are_declared(self):
+        catalog = json.loads(
+            (SKILL / "templates" / "instructions" / "catalog.json").read_text(
+                encoding="utf-8",
+            )
+        )
+        shipped = catalog.get("shipped_layers")
+        self.assertIsInstance(shipped, dict)
+
+        declared = {"catalog.json"}
+        declared.add(str(shipped["universal"]["path"]))
+        declared.add(str(shipped["model"]["path"]))
+        declared.add(str(shipped["lifecycle"]["regular"]))
+        declared.update(str(path) for path in shipped["harnesses"].values())
+
+        declared = {str(Path("instructions") / item) for item in declared}
+        declared.add("instructions/catalog.json")
+
+        actual = {
+            str(Path(path.relative_to(SKILL / "templates")).as_posix())
+            for path in (SKILL / "templates" / "instructions").rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(declared, actual)
 
 
 if __name__ == "__main__":
