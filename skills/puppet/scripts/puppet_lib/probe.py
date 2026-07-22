@@ -101,11 +101,13 @@ def _new_run_id(target: str) -> str:
 def _acquire_campaign_probe_lock(
     authority_root: Optional[Path] = None,
     *,
+    target: str,
     reject_active_lease: bool = True,
 ) -> tuple[int, Dict[str, Any]]:
-    """Compatibility wrapper around the fixed controller authority lock."""
+    """Compatibility wrapper around one target-specific authority lock."""
     return acquire_real_harness_lock(
         authority_root,
+        target=target,
         reject_active_lease=reject_active_lease,
     )
 
@@ -908,6 +910,7 @@ def run_probe(
     try:
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
+            target=target,
             reject_active_lease=False,
         )
         evidence["campaign_probe_lock"] = lock_identity
@@ -1705,6 +1708,7 @@ def recover_probe(
         complete = state.get("phase") == "complete" and state.get("result") == "accepted"
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
+            target=target,
             reject_active_lease=False,
         )
         if complete:

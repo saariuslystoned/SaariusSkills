@@ -763,10 +763,13 @@ def verify_qualification_receipt(
         raise ValidationError("qualification campaign lock identity is invalid")
     lock_path = Path(lock.get("path", ""))
     authority_root = controller_authority_root(_authority_root)
-    expected_lock_path = authority_root / "real-harness.lock"
+    expected_lock_paths = {
+        authority_root / "real-harness.lock",
+        authority_root / ("real-harness.%s.lock" % receipt["target"]),
+    }
     if (
         lock.get("authority_id") != AUTHORITY_ID
-        or lock_path != expected_lock_path
+        or lock_path not in expected_lock_paths
         or not lock_path.is_absolute()
         or lock_path.is_symlink()
         or not lock_path.is_file()

@@ -26,12 +26,14 @@ artifacts.
 Use `adapter_lab.py qualify` to bind that receipt; never toggle capability
 states by hand. Any relevant drift disables the capability.
 
-Pass B and normal live sessions share one checkout-independent controller lock
-and durable session lease, so changing a proof or state root cannot admit a
-parallel target. If a probe is interrupted, run `adapter_lab.py recover` with
-the same exact run and identity inputs. Recovery never launches a target: it
-verifies an already complete receipt or reconciles and gracefully halts only
-the exact persisted target.
+Pass B and normal live sessions share one checkout-independent lock and durable
+lease per harness target, so changing a proof or state root cannot admit a
+second same-target lane. Different targets can proceed independently. A legacy
+global projection remains active while any per-target lane is active so an
+older controller cannot overlap the new lease regime. If a probe is
+interrupted, run `adapter_lab.py recover` with the same exact run and identity
+inputs. Recovery never launches a target: it verifies an already complete
+receipt or reconciles and gracefully halts only the exact persisted target.
 
 During a live probe, the target-population guard admits only the exact
 authorized pre-existing population, the exact registered pane process, and
@@ -87,16 +89,19 @@ The current major long-running session profiles are deliberately small:
 `session_profile` is Puppet's native session-mode selector; it is distinct from
 the task profile, the probe contract's `--profile`, and provider config profiles.
 
-| Target | Qualified profiles | Initial native command |
+| Target | Mapped profiles | Initial native command |
 | --- | --- | --- |
-| AGY | `regular`, `goal`, `teamwork-preview` | none, `/goal`, `/teamwork-preview` |
-| Codex | `regular`, `goal` | none, `/goal` |
-| Claude | `regular`, `loop`, `goal` | none, `/loop`, `/goal` |
+| AGY | `regular`; deferred: `goal`, `teamwork-preview` | none; deferred: `/goal`, `/teamwork-preview` |
+| Codex | `regular`; deferred: `goal` | none; deferred: `/goal` |
+| Claude | `regular`; deferred: `loop`, `goal` | none; deferred: `/loop`, `/goal` |
 | Cursor | `regular` | none |
 | Grok | `regular` | none |
 
-The contract pins one `session_profile`, and each target/profile pair requires
-its own Pass B receipt. Launch the bare YOLO CLI with no prompt body in argv,
+The regular baseline is the only profile enabled by the current campaign.
+Native-command mappings remain preserved but unqualified and must not be used
+without a later profile-specific Pass B receipt. The contract pins one
+`session_profile`, and each target/profile pair requires its own Pass B receipt.
+Launch the bare YOLO CLI with no prompt body in argv,
 wait through the declared bounded structural settle, revalidate the exact pane
 and process, then prepend the selected native command to the initial message
 only. Literal paste and Enter are separated by their own bounded settle and pane

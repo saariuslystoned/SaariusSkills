@@ -30,7 +30,9 @@ security, secrets, spending, and destructive actions separately gated.
    executable identity, incomplete unrestricted mapping, missing sandbox-off
    control, prompt-in-argv transport, dirty or overlapping worktree, or missing
    proof-root writability.
-5. Run only one target and one mutation owner at a time.
+5. Run at most one live lane per harness target and one mutation owner per
+   source slice. Different harness targets may proceed independently only with
+   their own leases, isolated worktrees, state, sessions, and proof roots.
 
 `--goal-repo` names the canonical local Git root. `--goal-repository`,
 `--goal-commit`, `--goal-path`, and `--goal-sha256` must exactly match the
@@ -74,11 +76,14 @@ Use this sequence:
 8. Use `halt` only for the exact registered target. Preserve tmux and proof.
 
 Pass B probes and normal live sessions share one fixed, checkout-independent
-controller admission lock and durable current-session lease. A caller-selected
-proof or state root cannot create a second live lane. If a probe is interrupted,
-use `adapter_lab.py recover` with the same target, run ID, controller, campaign,
-goal, manifest, mapping, authorization, and proof root. Recovery reconciles the
-persisted exact identities and may halt that exact target; it never relaunches.
+authority root with one lock, projection, and durable lease history per target.
+Different harness targets may run independently; a caller-selected proof or
+state root cannot create a second lane for the same target. A lossy legacy
+global projection keeps older controllers fenced while any per-target lane is
+active. If a probe is interrupted, use `adapter_lab.py recover` with the same
+target, run ID, controller, campaign, goal, manifest, mapping, authorization,
+and proof root. Recovery reconciles the persisted exact identities and may halt
+that exact target; it never relaunches.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

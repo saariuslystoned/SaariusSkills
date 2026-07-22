@@ -12,6 +12,7 @@ import fcntl
 import os
 import pwd
 import stat
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -31,7 +32,9 @@ from .safety import (
 
 
 AUTHORITY_ID = "puppet-local-controller-v1"
+LEASE_TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 ACTIVE_LEASE_STATES = {"launching", "active", "halting"}
+LEGACY_FENCE_CONTROLLER = "per-target-lease-fence-v1"
 LEASE_TRANSITIONS = {
     "launching": {"active", "failed"},
     "active": {"halting", "failed"},
@@ -115,14 +118,35 @@ def controller_authority_root(override: Optional[Path] = None) -> Path:
     return root
 
 
+def _validated_lease_target(target: str) -> str:
+    if target not in LEASE_TARGETS:
+        raise ValidationError("controller session lease target is invalid")
+    return target
+
+
+def _lock_path(root: Path, target: Optional[str] = None) -> Path:
+    if target is None:
+        return root / "real-harness.lock"
+    return root / ("real-harness.%s.lock" % _validated_lease_target(target))
+
+
 def acquire_real_harness_lock(
     authority_root: Optional[Path] = None,
     *,
+    target: Optional[str] = None,
     reject_active_lease: bool = True,
+    wait_seconds: float = 0.0,
 ) -> tuple[int, Dict[str, Any]]:
-    """Acquire the one fixed per-account real-harness admission lock."""
+    """Acquire the legacy fence lock or one target-specific admission lock."""
+    if (
+        isinstance(wait_seconds, bool)
+        or not isinstance(wait_seconds, (int, float))
+        or wait_seconds < 0
+        or wait_seconds > 5.0
+    ):
+        raise ValidationError("real-harness lock wait is invalid")
     root = controller_authority_root(authority_root)
-    lock_path = root / "real-harness.lock"
+    lock_path = _lock_path(root, target)
     flags = os.O_CREAT | os.O_RDWR
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -135,10 +159,18 @@ def acquire_real_harness_lock(
             or stat.S_IMODE(details.st_mode) & 0o077
         ):
             raise IdentityError("real-harness authority lock is not user-private")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise ConflictError("another real-harness probe owns the campaign lock") from exc
+        deadline = time.monotonic() + float(wait_seconds)
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ConflictError(
+                        "another real-harness probe owns the campaign lock"
+                    ) from exc
+                time.sleep(min(0.01, remaining))
         identity = {
             "authority_id": AUTHORITY_ID,
             "path": str(lock_path.resolve(strict=True)),
@@ -148,11 +180,21 @@ def acquire_real_harness_lock(
             "mode": stat.S_IMODE(details.st_mode),
         }
         if reject_active_lease:
-            lease = current_session_lease(root)
+            lease = current_session_lease(root, target=target)
             if lease is not None and lease["state"] in ACTIVE_LEASE_STATES:
                 raise ConflictError(
                     "an admitted real-harness session owns the controller lease"
                 )
+            if target is not None:
+                legacy = current_session_lease(root)
+                if (
+                    legacy is not None
+                    and legacy["state"] in ACTIVE_LEASE_STATES
+                    and not _is_backed_legacy_fence(root, legacy)
+                ):
+                    raise ConflictError(
+                        "a legacy real-harness session owns the controller lease"
+                    )
         return descriptor, identity
     except BaseException:
         os.close(descriptor)
@@ -168,8 +210,18 @@ def release_real_harness_lock(descriptor: Optional[int]) -> None:
         os.close(descriptor)
 
 
-def _lease_path(root: Path) -> Path:
-    return root / "current-session-lease.json"
+def _lease_path(root: Path, target: Optional[str] = None) -> Path:
+    if target is None:
+        return root / "current-session-lease.json"
+    return root / (
+        "current-session-lease.%s.json" % _validated_lease_target(target)
+    )
+
+
+def _lease_history_path(root: Path, target: Optional[str] = None) -> Path:
+    if target is None:
+        return root / "session-lease-history"
+    return root / ("session-lease-history.%s" % _validated_lease_target(target))
 
 
 def lease_owner(
@@ -217,10 +269,15 @@ def validate_lease_owner(value: Any) -> Dict[str, str]:
 
 def current_session_lease(
     authority_root: Optional[Path] = None,
+    *,
+    target: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     root = controller_authority_root(authority_root)
-    path = _lease_path(root)
-    rows = Journal(root / "session-lease-history").snapshot()
+    if target is not None:
+        target = _validated_lease_target(target)
+    path = _lease_path(root, target)
+    history_path = _lease_history_path(root, target)
+    rows = Journal(history_path).snapshot()
     latest = rows[-1]["event"].get("lease") if rows else None
     if not path.exists() and latest is None:
         return None
@@ -257,8 +314,10 @@ def current_session_lease(
     validate_identifier(lease.get("controller"), "lease controller")
     if validate_lease_owner(lease.get("owner")) != lease["owner"]:
         raise IdentityError("controller session lease owner changed")
-    if lease.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
+    if lease.get("target") not in LEASE_TARGETS:
         raise ValidationError("controller session lease target is invalid")
+    if target is not None and lease.get("target") != target:
+        raise IdentityError("target lease projection is misrouted")
     for name in ("created_at", "updated_at"):
         if (
             not isinstance(lease.get(name), str)
@@ -312,8 +371,10 @@ def current_session_lease(
             raise IdentityError("recovered controller lease is invalid")
         validate_identifier(lease.get("session"), "lease session")
         validate_identifier(lease.get("controller"), "lease controller")
-        if lease.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
+        if lease.get("target") not in LEASE_TARGETS:
             raise IdentityError("recovered controller lease target is invalid")
+        if target is not None and lease.get("target") != target:
+            raise IdentityError("recovered target lease projection is misrouted")
         if lease["state"] == "launching" and lease.get("process") is not None:
             raise IdentityError("recovered launching lease has a process identity")
         if lease["state"] in {"active", "halting"} and not _is_v2_process_identity(
@@ -336,7 +397,7 @@ def current_session_lease(
         raise ValidationError("controller lease lacks its v2 process identity")
     elif lease["state"] == "halted" and not isinstance(lease.get("process"), dict):
         raise ValidationError("controller lease lacks its process identity")
-    row = Journal(root / "session-lease-history").lookup(
+    row = Journal(history_path).lookup(
         "lease-%d-%s" % (lease["generation"], lease["state"])
     )
     if row is None or row.get("event") != {
@@ -365,8 +426,19 @@ def require_session_lease(
         "failed",
     }:
         raise ValidationError("required controller lease states are invalid")
-    lease = current_session_lease(authority_root)
+    root = controller_authority_root(authority_root)
+    lease = current_session_lease(root, target=target)
     expected_owner = validate_lease_owner(owner)
+    if lease is None:
+        legacy = current_session_lease(root)
+        if _lease_identity_matches(
+            legacy,
+            session=session,
+            target=target,
+            controller=controller,
+            owner=expected_owner,
+        ):
+            lease = legacy
     if (
         lease is None
         or lease["session"] != validate_identifier(session, "lease session")
@@ -380,14 +452,212 @@ def require_session_lease(
     return lease
 
 
-def _append_lease(root: Path, lease: Dict[str, Any]) -> Dict[str, Any]:
-    row = Journal(root / "session-lease-history").append(
+def _lease_identity_matches(
+    lease: Any,
+    *,
+    session: str,
+    target: str,
+    controller: str,
+    owner: Dict[str, str],
+) -> bool:
+    return (
+        isinstance(lease, dict)
+        and lease.get("session") == validate_identifier(session, "lease session")
+        and lease.get("target") == _validated_lease_target(target)
+        and lease.get("controller")
+        == validate_identifier(controller, "lease controller")
+        and lease.get("owner") == owner
+    )
+
+
+def _append_lease(
+    root: Path,
+    lease: Dict[str, Any],
+    *,
+    target: Optional[str] = None,
+) -> Dict[str, Any]:
+    row = Journal(_lease_history_path(root, target)).append(
         request_id="lease-%d-%s" % (lease["generation"], lease["state"]),
         event={"kind": "session_lease", "lease": lease},
     )
     recorded = row["event"]["lease"]
-    atomic_write_json(_lease_path(root), recorded)
+    atomic_write_json(_lease_path(root, target), recorded)
     return recorded
+
+
+def _legacy_fence_session(target: str, target_generation: int) -> str:
+    return validate_identifier(
+        "target-fence-%s-%d" % (
+            _validated_lease_target(target),
+            target_generation,
+        ),
+        "legacy fence session",
+    )
+
+
+def _legacy_fence_anchor(value: Any) -> Optional[tuple[str, int]]:
+    if not isinstance(value, dict) or value.get("controller") != LEGACY_FENCE_CONTROLLER:
+        return None
+    session = value.get("session")
+    target = value.get("target")
+    if not isinstance(session, str) or target not in LEASE_TARGETS:
+        return None
+    prefix = "target-fence-%s-" % target
+    if not session.startswith(prefix):
+        return None
+    generation_text = session[len(prefix) :]
+    if not generation_text.isdigit() or int(generation_text) <= 0:
+        return None
+    return target, int(generation_text)
+
+
+def _is_backed_legacy_fence(root: Path, lease: Dict[str, Any]) -> bool:
+    anchor = _legacy_fence_anchor(lease)
+    if anchor is None:
+        return False
+    target, generation = anchor
+    target_lease = current_session_lease(root, target=target)
+    return (
+        target_lease is not None
+        and target_lease["generation"] == generation
+        and target_lease["owner"] == lease["owner"]
+    )
+
+
+def _target_leases(root: Path) -> Dict[str, Dict[str, Any]]:
+    leases: Dict[str, Dict[str, Any]] = {}
+    for target in sorted(LEASE_TARGETS):
+        lease = current_session_lease(root, target=target)
+        if lease is not None:
+            leases[target] = lease
+    return leases
+
+
+def _advance_legacy_fence(
+    root: Path,
+    fence: Dict[str, Any],
+    anchor: Dict[str, Any],
+) -> Dict[str, Any]:
+    if _legacy_fence_anchor(fence) != (
+        anchor["target"],
+        anchor["generation"],
+    ):
+        raise IdentityError("legacy compatibility fence anchor changed")
+    if fence["owner"] != anchor["owner"]:
+        raise IdentityError("legacy compatibility fence owner changed")
+    desired = anchor["state"]
+    if fence["state"] == desired:
+        if desired in {"active", "halting", "halted"} and fence.get(
+            "process"
+        ) != anchor.get("process"):
+            raise IdentityError("legacy compatibility fence process changed")
+        return fence
+    if desired == "failed":
+        states = ["failed"]
+    else:
+        order = ["launching", "active", "halting", "halted"]
+        try:
+            start = order.index(fence["state"])
+            finish = order.index(desired)
+        except ValueError as exc:
+            raise IdentityError("legacy compatibility fence state is invalid") from exc
+        if finish < start:
+            raise IdentityError("legacy compatibility fence state regressed")
+        states = order[start + 1 : finish + 1]
+    current = fence
+    for state in states:
+        if state not in LEASE_TRANSITIONS[current["state"]]:
+            raise IdentityError("legacy compatibility fence transition is invalid")
+        process = anchor.get("process")
+        if state in {"active", "halting", "halted"} and not _is_v2_process_identity(
+            process
+        ):
+            raise IdentityError("legacy compatibility fence lacks process identity")
+        current = dict(
+            current,
+            state=state,
+            updated_at=_utc_now(),
+            process=process if process is not None else current.get("process"),
+        )
+        current = _append_lease(root, current)
+    return current
+
+
+def _start_legacy_fence(
+    root: Path,
+    anchor: Dict[str, Any],
+    previous: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if anchor["state"] not in ACTIVE_LEASE_STATES:
+        raise IdentityError("cannot fence a terminal target lease")
+    now = _utc_now()
+    fence = {
+        "schema_version": 1,
+        "authority_id": AUTHORITY_ID,
+        "generation": 1 if previous is None else previous["generation"] + 1,
+        "session": _legacy_fence_session(
+            anchor["target"], anchor["generation"]
+        ),
+        "target": anchor["target"],
+        "controller": LEGACY_FENCE_CONTROLLER,
+        "owner": anchor["owner"],
+        "state": "launching",
+        "created_at": now,
+        "updated_at": now,
+        "process": None,
+    }
+    fence = _append_lease(root, fence)
+    return _advance_legacy_fence(root, fence, anchor)
+
+
+def _sync_legacy_fence(root: Path) -> Optional[Dict[str, Any]]:
+    """Project per-target truth into the v1 lease so old controllers fail closed.
+
+    The caller holds one target lock and then the legacy global lock. Per-target
+    projections remain authoritative; this projection is intentionally lossy
+    and anchors one active target at a time for v1 compatibility.
+    """
+
+    leases = _target_leases(root)
+    active = {
+        target: lease
+        for target, lease in leases.items()
+        if lease["state"] in ACTIVE_LEASE_STATES
+    }
+    legacy = current_session_lease(root)
+    anchor_key = _legacy_fence_anchor(legacy)
+    if legacy is not None and legacy["state"] in ACTIVE_LEASE_STATES:
+        if anchor_key is None or not _is_backed_legacy_fence(root, legacy):
+            raise ConflictError("a legacy real-harness session owns the controller lease")
+        anchor_target, anchor_generation = anchor_key
+        anchor = leases[anchor_target]
+        if anchor["generation"] != anchor_generation:
+            raise IdentityError("legacy compatibility fence generation changed")
+        legacy = _advance_legacy_fence(root, legacy, anchor)
+        if legacy["state"] in ACTIVE_LEASE_STATES:
+            return legacy
+    if not active:
+        return legacy
+    selected = active[sorted(active)[0]]
+    return _start_legacy_fence(root, selected, legacy)
+
+
+def _validate_lock_descriptor(root: Path, target: str, descriptor: int) -> None:
+    details = os.fstat(descriptor)
+    lock_path = _lock_path(root, target)
+    if not lock_path.exists() or lock_path.is_symlink():
+        raise IdentityError("controller lease lock descriptor changed")
+    lock_details = lock_path.stat()
+    if (
+        details.st_dev != lock_details.st_dev
+        or details.st_ino != lock_details.st_ino
+        or not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.getuid()
+        or lock_details.st_uid != os.getuid()
+        or stat.S_IMODE(details.st_mode) & 0o077
+        or stat.S_IMODE(lock_details.st_mode) & 0o077
+    ):
+        raise IdentityError("controller lease lock descriptor changed")
 
 
 def admit_session_lease(
@@ -401,28 +671,29 @@ def admit_session_lease(
 ) -> Dict[str, Any]:
     validate_identifier(session, "lease session")
     validate_identifier(controller, "lease controller")
-    if target not in {"agy", "cursor", "claude", "codex", "grok"}:
-        raise ValidationError("controller session lease target is invalid")
+    target = _validated_lease_target(target)
     owner = validate_lease_owner(owner)
     descriptor: Optional[int] = None
+    legacy_descriptor: Optional[int] = None
     owns_descriptor = _lock_descriptor is None
     try:
         root = controller_authority_root(authority_root)
         if _lock_descriptor is None:
             descriptor, _ = acquire_real_harness_lock(
-                authority_root, reject_active_lease=False
+                authority_root,
+                target=target,
+                reject_active_lease=False,
             )
         else:
             descriptor = _lock_descriptor
-            details = os.fstat(descriptor)
-            lock_details = (root / "real-harness.lock").stat()
-            if (
-                details.st_dev != lock_details.st_dev
-                or details.st_ino != lock_details.st_ino
-                or not stat.S_ISREG(details.st_mode)
-            ):
-                raise IdentityError("controller lease lock descriptor changed")
-        current = current_session_lease(root)
+            _validate_lock_descriptor(root, target, descriptor)
+        legacy_descriptor, _ = acquire_real_harness_lock(
+            authority_root,
+            reject_active_lease=False,
+            wait_seconds=1.0,
+        )
+        _sync_legacy_fence(root)
+        current = current_session_lease(root, target=target)
         if current is not None and current["state"] in ACTIVE_LEASE_STATES:
             if (
                 current["state"] == "launching"
@@ -431,6 +702,7 @@ def admit_session_lease(
                 and current["controller"] == controller
                 and current["owner"] == owner
             ):
+                _sync_legacy_fence(root)
                 return current
             raise ConflictError("another real-harness session owns the controller lease")
         now = _utc_now()
@@ -447,8 +719,11 @@ def admit_session_lease(
             "updated_at": now,
             "process": None,
         }
-        return _append_lease(root, lease)
+        recorded = _append_lease(root, lease, target=target)
+        _sync_legacy_fence(root)
+        return recorded
     finally:
+        release_real_harness_lock(legacy_descriptor)
         if owns_descriptor:
             release_real_harness_lock(descriptor)
 
@@ -467,25 +742,37 @@ def transition_session_lease(
     if state not in {"active", "halting", "halted", "failed"}:
         raise ValidationError("unsupported controller lease transition")
     owner = validate_lease_owner(owner)
+    target = _validated_lease_target(target)
     descriptor: Optional[int] = None
+    legacy_descriptor: Optional[int] = None
     owns_descriptor = _lock_descriptor is None
     try:
         root = controller_authority_root(authority_root)
         if _lock_descriptor is None:
             descriptor, _ = acquire_real_harness_lock(
-                authority_root, reject_active_lease=False
+                authority_root,
+                target=target,
+                reject_active_lease=False,
             )
         else:
             descriptor = _lock_descriptor
-            details = os.fstat(descriptor)
-            lock_details = (root / "real-harness.lock").stat()
-            if (
-                details.st_dev != lock_details.st_dev
-                or details.st_ino != lock_details.st_ino
-                or not stat.S_ISREG(details.st_mode)
-            ):
-                raise IdentityError("controller lease lock descriptor changed")
-        current = current_session_lease(root)
+            _validate_lock_descriptor(root, target, descriptor)
+        legacy_descriptor, _ = acquire_real_harness_lock(
+            authority_root,
+            reject_active_lease=False,
+            wait_seconds=1.0,
+        )
+        current = current_session_lease(root, target=target)
+        legacy_current = current_session_lease(root)
+        legacy_transition = current is None and _lease_identity_matches(
+            legacy_current,
+            session=session,
+            target=target,
+            controller=controller,
+            owner=owner,
+        )
+        if legacy_transition:
+            current = legacy_current
         if (
             current is None
             or current["session"] != session
@@ -513,6 +800,8 @@ def transition_session_lease(
                 raise IdentityError(
                     "%s controller lease process identity changed" % state
                 )
+            if not legacy_transition:
+                _sync_legacy_fence(root)
             return current
         if state in {"active", "halting", "halted"} and not _is_v2_process_identity(
             process
@@ -533,8 +822,16 @@ def transition_session_lease(
         validate_bounded_json(
             updated, max_items=64, max_string=1000, reject_sensitive_fields=True
         )
-        return _append_lease(root, updated)
+        recorded = _append_lease(
+            root,
+            updated,
+            target=None if legacy_transition else target,
+        )
+        if not legacy_transition:
+            _sync_legacy_fence(root)
+        return recorded
     finally:
+        release_real_harness_lock(legacy_descriptor)
         if owns_descriptor:
             release_real_harness_lock(descriptor)
 
@@ -553,7 +850,7 @@ def reconcile_halted_session_lease(
     The session registry and the fixed authority ledger are separate durable
     records.  A controller can therefore stop after committing ``HALTED`` to
     the registry while its exact authority lease is still ``halting``.  This
-    helper reconciles only that same lease under the global authority lock.  A
+    helper reconciles only that same lease under its target authority lock.  A
     newer or unrelated lease is deliberately left unchanged.
     """
 
@@ -562,9 +859,21 @@ def reconcile_halted_session_lease(
     try:
         root = controller_authority_root(authority_root)
         descriptor, _ = acquire_real_harness_lock(
-            authority_root, reject_active_lease=False
+            authority_root,
+            target=target,
+            reject_active_lease=False,
         )
-        current = current_session_lease(root)
+        current = current_session_lease(root, target=target)
+        if current is None:
+            legacy = current_session_lease(root)
+            if _lease_identity_matches(
+                legacy,
+                session=session,
+                target=target,
+                controller=controller,
+                owner=expected_owner,
+            ):
+                current = legacy
         if current is None or (
             current["session"] != validate_identifier(session, "lease session")
             or current["target"] != target

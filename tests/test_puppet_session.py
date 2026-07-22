@@ -637,14 +637,14 @@ class SessionIntegrationTests(unittest.TestCase):
                         halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(registry.load(session)["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "halting"
+                    current_session_lease(self.authority_root, target="codex")["state"], "halting"
                 )
                 replay = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(replay["state"], "HALTED")
                 self.assertFalse(replay["signal_sent"])
                 self.assertTrue(replay["tmux_preserved"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "halted"
+                    current_session_lease(self.authority_root, target="codex")["state"], "halted"
                 )
                 later_owner = lease_owner(
                     activity="session",
@@ -665,7 +665,10 @@ class SessionIntegrationTests(unittest.TestCase):
                     state_root=files["state"], session=session, timeout=1
                 )
                 self.assertEqual(replay["state"], "HALTED")
-                self.assertEqual(current_session_lease(self.authority_root), later)
+                self.assertEqual(
+                    current_session_lease(self.authority_root, target="claude"),
+                    later,
+                )
             finally:
                 kill_test_server(socket)
 
@@ -707,12 +710,12 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertEqual(record["state"], "BLOCKED")
                 self.assertTrue(record["blocker"]["cleanup_stopped"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "halting"
+                    current_session_lease(self.authority_root, target="codex")["state"], "halting"
                 )
                 result = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(result["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "halted"
+                    current_session_lease(self.authority_root, target="codex")["state"], "halted"
                 )
             finally:
                 kill_test_server(socket)
@@ -791,7 +794,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "active"
+                    current_session_lease(self.authority_root, target="codex")["state"], "active"
                 )
                 self.assertEqual(
                     halt(state_root=files["state"], session=session, timeout=5)["state"],
@@ -838,7 +841,7 @@ class SessionIntegrationTests(unittest.TestCase):
                         )
                 self.assertTrue(SessionRegistry(files["state"]).exists(session))
                 self.assertEqual(
-                    current_session_lease(self.authority_root)["state"], "launching"
+                    current_session_lease(self.authority_root, target="codex")["state"], "launching"
                 )
                 metadata = TmuxController(files["state"]).metadata_for_session(
                     socket=Path(socket),

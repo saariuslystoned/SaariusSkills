@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -18,12 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "puppet" / "scripts"))
 
 from puppet_lib.beacons import parse_beacon  # noqa: E402
+import puppet_lib.authority as puppet_authority  # noqa: E402
 import puppet_lib.campaign as puppet_campaign  # noqa: E402
 import puppet_lib.registry as puppet_registry  # noqa: E402
 from puppet_lib.authority import (  # noqa: E402
+    acquire_real_harness_lock,
     admit_session_lease,
     current_session_lease,
     lease_owner,
+    release_real_harness_lock,
     transition_session_lease,
 )
 from puppet_lib.contracts import Contract  # noqa: E402
@@ -190,7 +194,354 @@ class AuthorityTests(unittest.TestCase):
                     owner=second_owner,
                     authority_root=authority,
                 )
-            self.assertEqual(current_session_lease(authority)["owner"], first_owner)
+            self.assertEqual(
+                current_session_lease(authority, target="codex")["owner"],
+                first_owner,
+            )
+
+    def test_different_targets_have_independent_leases_and_generations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            codex_state = root / "codex-state"
+            claude_state = root / "claude-state"
+            for path in (authority, proof, codex_state, claude_state):
+                path.mkdir(mode=0o700)
+            codex_owner = lease_owner(
+                activity="session",
+                run_id="codex-lane",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=codex_state,
+            )
+            claude_owner = lease_owner(
+                activity="session",
+                run_id="claude-lane",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=claude_state,
+            )
+            codex = admit_session_lease(
+                session="codex-lane",
+                target="codex",
+                controller="tester",
+                owner=codex_owner,
+                authority_root=authority,
+            )
+            claude = admit_session_lease(
+                session="claude-lane",
+                target="claude",
+                controller="tester",
+                owner=claude_owner,
+                authority_root=authority,
+            )
+            self.assertEqual(codex["generation"], 1)
+            self.assertEqual(claude["generation"], 1)
+            self.assertEqual(
+                current_session_lease(authority, target="codex"), codex
+            )
+            self.assertEqual(
+                current_session_lease(authority, target="claude"), claude
+            )
+            with self.assertRaisesRegex(ConflictError, "controller lease"):
+                admit_session_lease(
+                    session="codex-collision",
+                    target="codex",
+                    controller="tester",
+                    owner=codex_owner,
+                    authority_root=authority,
+                )
+
+            transition_session_lease(
+                session="codex-lane",
+                target="codex",
+                controller="tester",
+                owner=codex_owner,
+                state="failed",
+                process=None,
+                authority_root=authority,
+            )
+            self.assertEqual(
+                current_session_lease(authority, target="claude")["state"],
+                "launching",
+            )
+            legacy_fence = current_session_lease(authority)
+            self.assertEqual(legacy_fence["target"], "claude")
+            self.assertEqual(legacy_fence["state"], "launching")
+            self.assertTrue(
+                (authority / "session-lease-history.codex").exists()
+            )
+            self.assertTrue(
+                (authority / "session-lease-history.claude").exists()
+            )
+
+    def test_concurrent_different_target_admissions_serialize_only_the_fence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            codex_state = root / "codex-state"
+            claude_state = root / "claude-state"
+            for path in (authority, proof, codex_state, claude_state):
+                path.mkdir(mode=0o700)
+            owners = {
+                "codex": lease_owner(
+                    activity="session",
+                    run_id="concurrent-codex",
+                    campaign_id="campaign-test",
+                    goal_fingerprint="a" * 64,
+                    proof_root=proof,
+                    state_root=codex_state,
+                ),
+                "claude": lease_owner(
+                    activity="session",
+                    run_id="concurrent-claude",
+                    campaign_id="campaign-test",
+                    goal_fingerprint="a" * 64,
+                    proof_root=proof,
+                    state_root=claude_state,
+                ),
+            }
+            results = {}
+            errors = []
+
+            def admit(target):
+                try:
+                    results[target] = admit_session_lease(
+                        session="concurrent-%s" % target,
+                        target=target,
+                        controller="tester",
+                        owner=owners[target],
+                        authority_root=authority,
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            legacy_descriptor, _ = acquire_real_harness_lock(
+                authority, reject_active_lease=False
+            )
+            threads = [
+                threading.Thread(target=admit, args=(target,))
+                for target in ("codex", "claude")
+            ]
+            try:
+                for thread in threads:
+                    thread.start()
+                deadline = time.monotonic() + 0.5
+                while time.monotonic() < deadline and not all(
+                    (authority / ("real-harness.%s.lock" % target)).exists()
+                    for target in ("codex", "claude")
+                ):
+                    time.sleep(0.005)
+            finally:
+                release_real_harness_lock(legacy_descriptor)
+            for thread in threads:
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(set(results), {"codex", "claude"})
+            self.assertEqual(results["codex"]["generation"], 1)
+            self.assertEqual(results["claude"]["generation"], 1)
+
+    def test_partial_target_commit_replays_and_rotates_the_legacy_fence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            codex_state = root / "codex-state"
+            claude_state = root / "claude-state"
+            for path in (authority, proof, codex_state, claude_state):
+                path.mkdir(mode=0o700)
+            codex_owner = lease_owner(
+                activity="session",
+                run_id="partial-codex",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=codex_state,
+            )
+            claude_owner = lease_owner(
+                activity="session",
+                run_id="partial-claude",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=claude_state,
+            )
+            admit_session_lease(
+                session="partial-codex",
+                target="codex",
+                controller="tester",
+                owner=codex_owner,
+                authority_root=authority,
+            )
+            claude = admit_session_lease(
+                session="partial-claude",
+                target="claude",
+                controller="tester",
+                owner=claude_owner,
+                authority_root=authority,
+            )
+            with patch.object(
+                puppet_authority,
+                "_sync_legacy_fence",
+                side_effect=KeyboardInterrupt(),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    transition_session_lease(
+                        session="partial-codex",
+                        target="codex",
+                        controller="tester",
+                        owner=codex_owner,
+                        state="failed",
+                        process=None,
+                        authority_root=authority,
+                    )
+            self.assertEqual(
+                current_session_lease(authority, target="codex")["state"],
+                "failed",
+            )
+            self.assertEqual(current_session_lease(authority)["target"], "codex")
+
+            replayed = admit_session_lease(
+                session="partial-claude",
+                target="claude",
+                controller="tester",
+                owner=claude_owner,
+                authority_root=authority,
+            )
+            self.assertEqual(replayed, claude)
+            legacy = current_session_lease(authority)
+            self.assertEqual(legacy["target"], "claude")
+            self.assertEqual(legacy["state"], "launching")
+            self.assertEqual(legacy["generation"], 2)
+
+    def test_target_lock_descriptor_cannot_cross_harnesses(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir(mode=0o700)
+            owner = lease_owner(
+                activity="probe",
+                run_id="descriptor-scope",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            descriptor, _ = acquire_real_harness_lock(
+                authority,
+                target="codex",
+                reject_active_lease=False,
+            )
+            try:
+                with self.assertRaisesRegex(IdentityError, "descriptor changed"):
+                    admit_session_lease(
+                        session="wrong-target-lock",
+                        target="claude",
+                        controller="tester",
+                        owner=owner,
+                        authority_root=authority,
+                        _lock_descriptor=descriptor,
+                    )
+                with self.assertRaisesRegex(IdentityError, "descriptor changed"):
+                    transition_session_lease(
+                        session="wrong-target-lock",
+                        target="claude",
+                        controller="tester",
+                        owner=owner,
+                        state="failed",
+                        process=None,
+                        authority_root=authority,
+                        _lock_descriptor=descriptor,
+                    )
+            finally:
+                release_real_harness_lock(descriptor)
+
+    def test_legacy_controller_lock_sees_the_per_target_fence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir(mode=0o700)
+            owner = lease_owner(
+                activity="session",
+                run_id="new-controller-lane",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            admit_session_lease(
+                session="new-controller-lane",
+                target="codex",
+                controller="tester",
+                owner=owner,
+                authority_root=authority,
+            )
+            with self.assertRaisesRegex(ConflictError, "controller lease"):
+                acquire_real_harness_lock(authority)
+
+    def test_foreign_active_legacy_lease_blocks_per_target_admission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            authority = root / "authority"
+            proof = root / "proof"
+            authority.mkdir(mode=0o700)
+            proof.mkdir(mode=0o700)
+            owner = lease_owner(
+                activity="session",
+                run_id="legacy-active",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            legacy = {
+                "schema_version": 1,
+                "authority_id": "puppet-local-controller-v1",
+                "generation": 1,
+                "session": "legacy-active",
+                "target": "codex",
+                "controller": "old-controller",
+                "owner": owner,
+                "state": "launching",
+                "created_at": "2026-07-22T05:00:00Z",
+                "updated_at": "2026-07-22T05:00:00Z",
+                "process": None,
+            }
+            Journal(authority / "session-lease-history").append(
+                request_id="lease-1-launching",
+                event={"kind": "session_lease", "lease": legacy},
+            )
+            (authority / "current-session-lease.json").write_text(
+                json.dumps(legacy) + "\n", encoding="utf-8"
+            )
+            next_owner = lease_owner(
+                activity="session",
+                run_id="claude-after-legacy",
+                campaign_id="campaign-test",
+                goal_fingerprint="a" * 64,
+                proof_root=proof,
+                state_root=proof,
+            )
+            with self.assertRaisesRegex(ConflictError, "legacy real-harness"):
+                admit_session_lease(
+                    session="claude-after-legacy",
+                    target="claude",
+                    controller="tester",
+                    owner=next_owner,
+                    authority_root=authority,
+                )
+            self.assertIsNone(
+                current_session_lease(authority, target="claude")
+            )
 
     def test_session_lease_projection_recovers_each_committed_transition(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -214,9 +565,11 @@ class AuthorityTests(unittest.TestCase):
                 owner=owner,
                 authority_root=authority,
             )
-            projection = authority / "current-session-lease.json"
+            projection = authority / "current-session-lease.codex.json"
             projection.unlink()
-            self.assertEqual(current_session_lease(authority), launching)
+            self.assertEqual(
+                current_session_lease(authority, target="codex"), launching
+            )
 
             process = {
                 "identity_version": 2,
@@ -228,10 +581,10 @@ class AuthorityTests(unittest.TestCase):
                 "device": 1,
                 "inode": 2,
             }
-            history = Journal(authority / "session-lease-history")
+            history = Journal(authority / "session-lease-history.codex")
 
             def append_without_projection(state: str, number: int):
-                current = current_session_lease(authority)
+                current = current_session_lease(authority, target="codex")
                 committed = dict(
                     current,
                     state=state,
@@ -242,7 +595,9 @@ class AuthorityTests(unittest.TestCase):
                     request_id="lease-%d-%s" % (committed["generation"], state),
                     event={"kind": "session_lease", "lease": committed},
                 )
-                self.assertEqual(current_session_lease(authority), committed)
+                self.assertEqual(
+                    current_session_lease(authority, target="codex"), committed
+                )
                 return committed
 
             append_without_projection("active", 1)
@@ -269,11 +624,14 @@ class AuthorityTests(unittest.TestCase):
                 state="failed",
                 updated_at="2026-07-22T05:00:04Z",
             )
-            history.append(
+            claude_history = Journal(authority / "session-lease-history.claude")
+            claude_history.append(
                 request_id="lease-%d-failed" % failed["generation"],
                 event={"kind": "session_lease", "lease": failed},
             )
-            self.assertEqual(current_session_lease(authority), failed)
+            self.assertEqual(
+                current_session_lease(authority, target="claude"), failed
+            )
 
     def test_legacy_halted_lease_is_idempotent_and_can_be_superseded(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -341,8 +699,9 @@ class AuthorityTests(unittest.TestCase):
                 owner=next_owner,
                 authority_root=authority,
             )
-            self.assertEqual(next_lease["generation"], 2)
+            self.assertEqual(next_lease["generation"], 1)
             self.assertEqual(next_lease["state"], "launching")
+            self.assertEqual(current_session_lease(authority)["generation"], 2)
             v2_process = {
                 "identity_version": 2,
                 "pid": 5252,
@@ -416,8 +775,9 @@ class AuthorityTests(unittest.TestCase):
                 owner=next_owner,
                 authority_root=authority,
             )
-            self.assertEqual(admitted["generation"], 2)
+            self.assertEqual(admitted["generation"], 1)
             self.assertEqual(admitted["state"], "launching")
+            self.assertEqual(current_session_lease(authority)["generation"], 2)
 
     def test_legacy_live_projection_recovers_an_appended_terminal_successor(self):
         for live_state, terminal_state in (
@@ -535,7 +895,10 @@ class AuthorityTests(unittest.TestCase):
                         process=dict(valid, **{name: invalid}),
                         authority_root=authority,
                     )
-            self.assertEqual(current_session_lease(authority)["state"], "launching")
+            self.assertEqual(
+                current_session_lease(authority, target="codex")["state"],
+                "launching",
+            )
 
     def test_process_identity_binds_full_executable_file_identity(self):
         identity = process_birth_identity(os.getpid())

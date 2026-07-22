@@ -6,27 +6,34 @@ The controller owns the contract, gates, lifecycle ledger, independent review,
 verdicts, acceptance, and exact halt. The target owns only the task modes and
 candidate worktree named by the contract. One target cannot accept itself.
 
-Run one target and one mutation owner at a time. Bind every session to one
-controller, target, repository, branch, proof root, private tmux socket, exact
-process birth identity, and immutable supervising Puppet executable. Refuse
-overlapping supervisor and candidate roots.
+Run at most one live lane per harness target and one mutation owner per source
+slice. Different harness targets may run independently after each owns a
+separate lease. Bind every session to one controller, target, repository,
+branch, proof root, private tmux socket, exact process birth identity, and
+immutable supervising Puppet executable. Refuse overlapping supervisor and
+candidate roots.
 
-All real-harness probes and normal sessions serialize through the fixed
-per-account controller lock at
-`~/.local/state/saarius-puppet-controller-v1`. A normal session holds a durable lease from
-launch admission through exact halt; changing a checkout, state root, or proof
-root cannot bypass it. The controller attestation ledger is likewise fixed and
-checkout-independent. Both mechanisms assume cooperative same-UID execution
-and do not turn YOLO targets into hostile-code containment.
+Real-harness probes and normal sessions serialize per target through the fixed
+per-account authority root at
+`~/.local/state/saarius-puppet-controller-v1`. Each target has its own lock,
+atomic current projection, and append-only history. A normal session holds its
+target lease from launch admission through exact halt; changing a checkout,
+state root, or proof root cannot bypass it. Every per-target mutation takes the
+target lock before the short-lived legacy global lock. The legacy projection
+anchors one active target at a time so older controllers still observe an
+active claim and fail closed; per-target histories remain authoritative. The
+controller attestation ledger is likewise fixed and checkout-independent.
+These mechanisms assume cooperative same-UID execution and do not turn YOLO
+targets into hostile-code containment.
 
-The durable lease binds activity kind, run, campaign, goal fingerprint, proof
+Each durable target lease binds activity kind, run, campaign, goal fingerprint, proof
 root, state root, session, target, controller, process, and lifecycle state.
 Normal launch, follow-up delivery, cleanup, and halt serialize through one
 per-session operation lock. Graceful halt intent/submission entries bind the
 target PID, v2 identity digest, action index, and action; an interrupted intent
 is ambiguous and must never be resent. The explicit parallel-target override
 accounts only for the named pre-existing process set; it does not bypass the
-controller lease.
+same-target controller lease.
 
 Halt action is target-aware: non-AGY uses exact positive-PID `SIGINT`; AGY uses
 private-pane EOF. Never send tmux `C-c` or process-group signals.

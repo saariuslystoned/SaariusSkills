@@ -757,6 +757,15 @@ class ProbeTests(unittest.TestCase):
             receipt = json.loads(Path(result["receipt"]).read_text(encoding="utf-8"))
             self.assertEqual(receipt["capabilities"], list(PROBE_CAPABILITIES))
             self.assertNotIn("resume", receipt["capabilities"])
+            evidence = json.loads(
+                (Path(result["run_root"]) / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                Path(evidence["campaign_probe_lock"]["path"]).name,
+                "real-harness.codex.lock",
+            )
             halt = json.loads(
                 (Path(result["run_root"]) / "halt.json").read_text(encoding="utf-8")
             )
@@ -902,7 +911,7 @@ class ProbeTests(unittest.TestCase):
             self.assertFalse(fake.alive)
             self.assertEqual(len(fake.interrupts), 1)
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
 
     def test_late_proof_failure_keeps_lease_fenced_if_a_descendant_appears(self):
@@ -938,7 +947,7 @@ class ProbeTests(unittest.TestCase):
 
             self.assertFalse(fake.alive)
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
             with self.assertRaises(ConflictError):
                 admit_session_lease(
@@ -992,14 +1001,14 @@ class ProbeTests(unittest.TestCase):
             ):
                 recover()
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
 
             survivor_present["value"] = False
             recovered = recover()
             self.assertEqual(recovered["result"], "interrupted_probe_reconciled")
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "failed"
+                current_session_lease(files["authority"], target="codex")["state"], "failed"
             )
 
     def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
@@ -1172,7 +1181,7 @@ class ProbeTests(unittest.TestCase):
                 execute(files, fake, run_id="probe-terminal-pane-drift")
             self.assertFalse(fake.alive)
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
 
     def test_agy_uses_exact_double_eof_graceful_halt(self):
@@ -1247,7 +1256,7 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(fake.interrupts, [])
             self.assertEqual(fake.control_calls, [])
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "launching"
+                current_session_lease(files["authority"], target="codex")["state"], "launching"
             )
 
     def test_process_birth_failure_remains_fenced_without_any_halt_action(self):
@@ -1278,7 +1287,7 @@ class ProbeTests(unittest.TestCase):
             )
             self.assertIn("remains unbound", evidence["failure"]["cleanup_error"])
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "launching"
+                current_session_lease(files["authority"], target="codex")["state"], "launching"
             )
 
     def test_keyboard_interrupt_still_cleans_the_exact_new_target(self):
@@ -1295,7 +1304,9 @@ class ProbeTests(unittest.TestCase):
             root = Path(temporary).resolve()
             files = controller_inputs(root)
             fake = FakeTmux(root / "fake-tmux")
-            descriptor, _ = _acquire_campaign_probe_lock(files["authority"])
+            descriptor, _ = _acquire_campaign_probe_lock(
+                files["authority"], target="codex"
+            )
             try:
                 with self.assertRaisesRegex(ConflictError, "campaign lock"):
                     execute(files, fake, run_id="probe-lock-conflict")
@@ -1599,7 +1610,7 @@ class ProbeTests(unittest.TestCase):
 
             def defer_terminal_lease(**kwargs):
                 if kwargs["state"] == "halted":
-                    return current_session_lease(files["authority"])
+                    return current_session_lease(files["authority"], target="codex")
                 return original_transition(**kwargs)
 
             with patch(
@@ -1614,7 +1625,7 @@ class ProbeTests(unittest.TestCase):
 
             self.assertEqual(result["result"], "accepted")
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
             controls_before = list(fake.interrupts)
             survivor_present = {"value": True}
@@ -1656,7 +1667,7 @@ class ProbeTests(unittest.TestCase):
             ):
                 recover()
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halting"
+                current_session_lease(files["authority"], target="codex")["state"], "halting"
             )
             self.assertEqual(fake.interrupts, controls_before)
 
@@ -1665,7 +1676,7 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(recovered["recovered"])
             self.assertEqual(recovered["result"], "accepted")
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "halted"
+                current_session_lease(files["authority"], target="codex")["state"], "halted"
             )
             self.assertEqual(fake.interrupts, controls_before)
 
@@ -1685,10 +1696,12 @@ class ProbeTests(unittest.TestCase):
                 },
                 authority_root=files["authority"],
             )
-            unrelated = current_session_lease(files["authority"])
+            unrelated = current_session_lease(files["authority"], target="codex")
             with self.assertRaisesRegex(IdentityError, "controller session lease"):
                 recover()
-            self.assertEqual(current_session_lease(files["authority"]), unrelated)
+            self.assertEqual(
+                current_session_lease(files["authority"], target="codex"), unrelated
+            )
 
     def test_recovery_never_reconstructs_an_unpersisted_socket_occupant(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1704,7 +1717,7 @@ class ProbeTests(unittest.TestCase):
             run_root = files["proof"] / "probes" / "probe-unpersisted-recovery"
             evidence_path = run_root / "evidence.json"
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-            lease_before = current_session_lease(files["authority"])
+            lease_before = current_session_lease(files["authority"], target="codex")
             controls_before = list(fake.control_calls)
             signals_before = list(fake.interrupts)
 
@@ -1750,7 +1763,10 @@ class ProbeTests(unittest.TestCase):
             write_json(evidence_path, evidence)
             with self.assertRaisesRegex(IdentityError, "remains fenced"):
                 recover()
-            self.assertEqual(current_session_lease(files["authority"]), lease_before)
+            self.assertEqual(
+                current_session_lease(files["authority"], target="codex"),
+                lease_before,
+            )
             self.assertEqual(fake.control_calls, controls_before)
             self.assertEqual(fake.interrupts, signals_before)
             recovery = json.loads(
@@ -1794,7 +1810,7 @@ class ProbeTests(unittest.TestCase):
                 evidence["active_target_processes_before_launch"], protected
             )
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "launching"
+                current_session_lease(files["authority"], target="agy")["state"], "launching"
             )
             recovered = recover_probe(
                 target="agy",
@@ -1824,7 +1840,7 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(recovered["recovered"])
             self.assertFalse(recovered["tmux_preserved"])
             self.assertEqual(
-                current_session_lease(files["authority"])["state"], "failed"
+                current_session_lease(files["authority"], target="agy")["state"], "failed"
             )
             recovery = json.loads(
                 (run_root / "recovery.json").read_text(encoding="utf-8")
