@@ -4,10 +4,10 @@
 
 - File purpose: planning and static fixture design for Cursor Agent regular-session qualification under
   `codex-goal-regular-qualification.md`.
-- Branch in scope: `codex/puppet-regular-cursor-20260722`.
+- Branch in scope: `codex/puppet-cursor-workspace-plane`.
 - Objective: map exact Cursor Agent regular-session behavior for the three instruction planes for this
-  installed tuple, and define deterministic isolated evidence and source deltas so the lane can later be
-  qualified with no transcript bleed.
+  installed tuple, and provide a launch-disabled, source-only workspace-plane substrate that can later be
+  integrated and qualified with no transcript bleed.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -41,7 +41,8 @@
     process becomes bundled Node after `exec`.
   - capabilities declared: `launch/send/status/wait/checkpoint/resume/halt` = `declared`
   - manifest state: `doctor_only = true` until qualified
-  - `adapter_fingerprint` matches other lanes:
+  - adapter fingerprint at the recorded census snapshot (any Puppet source
+    change, including this substrate, requires a fresh doctor manifest):
     `dff76b92ab1ecea857a67118424fc9109b5ff2f7066e50f9595bc6c086076d6b`
 - `cursor-agent --help` confirms:
   - command format is `agent [options] [command] [prompt...]`
@@ -79,12 +80,19 @@ instruction plane.
   - Keep this candidate unsupported until an isolated, reversible activation
     path is proved. Never mutate live User Rules during launch.
 
-- **Plane 2: workspace/repository addendum plane (supported, unqualified)**
+- **Plane 2: workspace/repository addendum candidate (hypothesis, disabled)**
   - Candidate surfaces are `.cursor/rules/*.mdc`, `AGENTS.md`, and documented
     compatibility rules. Workspace/worktree flags choose scope but are not
     themselves instruction injection.
   - Select scope only through `--workspace <absolute-lane-path>`. Prove
     precedence and preserve existing repo rules in the isolated worktree.
+  - The source-only substrate chooses a deterministic
+    `.cursor/rules/puppet-<scope>.mdc` artifact rather than `AGENTS.md`. The
+    stored CLI/help and official-surface notes identify `.cursor/rules/*.mdc`
+    as the Cursor-native workspace candidate, while `AGENTS.md` is a broader
+    compatibility surface. This is not activation proof: the substrate records
+    the surface as `hypothesis`, activation as `disabled`, and launch as not
+    authorized.
 
 - **Plane 3: additive per-run system-instruction plane**
   - No supported public primary-agent system-prompt append/file flag was found.
@@ -131,6 +139,44 @@ and `https://docs.cursor.com/en/cli/using`.
 
 ## 6) Required Puppet source deltas for this lane
 
+### Implemented source-only substrate
+
+- `skills/puppet/scripts/puppet_lib/cursor_workspace_plane.py` is deliberately
+  standalone from the shared probe and launch lifecycle. It performs no
+  subprocess, tmux, census, network, Cursor config/auth, or process operation.
+- Planning accepts only exact version `2026.07.17-3e2a980` and its recorded
+  launcher, bundled Node, `index.js`, version-output, and help hashes. It joins
+  those facts to the caller-supplied canonical doctor-manifest hash, the
+  manifest's adapter implementation hash, protocol hash, and runtime execution
+  fingerprint. The manifest must remain doctor-only with declared-only
+  capabilities and the exact incomplete base argv
+  `cursor-agent --yolo --sandbox disabled`.
+- The caller supplies an existing current-UID `0700` admitted lane, an empty
+  current-UID `0700` workspace beneath that lane, and a distinct empty private
+  transaction root beneath the same lane. All traversal and mutation is
+  descriptor-relative with no-follow opens. The workspace is the empty,
+  Puppet-owned nested scope; within that workspace the module creates only
+  `.cursor`, `.cursor/rules`, and one namespaced create-only MDC guidance
+  artifact.
+- Plan, intent, materialization receipt, and rollback records contain only
+  paths, typed root/file identities, sizes, and hashes. They never contain the
+  guidance body. Planning represents the exact dynamic argv delta
+  `--workspace <absolute-workspace-root>` but hard-codes
+  `launch_authorized=false`.
+- Materialization never overwrites existing guidance or parents. Root,
+  preimage, symlink, collision, mode, inode, and content drift fail closed.
+  Exact successful replay is idempotent; partial intent/artifact/receipt states
+  are recovery ambiguity, never permission to recreate or adopt.
+- Rollback requires the exact persisted materialization receipt and a
+  caller-supplied, receipt-bound simulated exact-halt proof. It removes only
+  the receipted artifact and the two exact empty directories it created, then
+  retains a body-free hash-only terminal rollback record.
+- The substrate has no call site in `probe.py`, `launch.py`, or an adapter. It
+  cannot launch or qualify Cursor and must stay source-only until the remaining
+  blockers below are independently closed.
+
+### Remaining shared integration work
+
 - `skills/puppet/scripts/puppet_lib/census.py`
   - bind both launcher and bundled runtime/package identities; replace vacuous
     project isolation with a dynamic absolute `--workspace` selector.
@@ -153,10 +199,22 @@ and `https://docs.cursor.com/en/cli/using`.
   - Launcher/runtime identity mismatch until the shell launcher, bundled Node,
     and entrypoint are all bound and verified.
   - No safe isolated authentication/trust path for a disposable config home.
+    The source-only substrate names this
+    `cursor_auth_isolation_unproved` and never reads or changes auth/config.
+  - Default selector `auto` still has no resolved provider/model/effort proof;
+    the substrate names this `cursor_default_model_resolution_unavailable`.
   - `--yolo` remains subject to explicit permission denials; unknown user or
     project policy and MCP approval prompts can invalidate unrestricted mode.
+  - No exact pre-launch proof excludes pre-existing Cursor launcher/runtime
+    processes; the substrate names this
+    `cursor_live_process_population_unproved` and performs no process census.
   - No proven isolated resume behavior under this exact executable/version tuple.
   - No proven non-bleed enforcement across fixture vs ordinary sessions.
+    The substrate names this `cursor_workspace_plane_no_bleed_unproved`.
+  - Workspace-rule activation and precedence are still unqualified; the
+    substrate names this `cursor_workspace_rule_activation_unqualified` and
+    therefore records `hypothesis/disabled` even though `.cursor/rules/*.mdc`
+    is the selected candidate surface.
   - Any source command or fixture operation that writes prompt-bearing values into argv.
 - Stop criteria:
   - Keep this lane `mapping` until regular-profile launch/steer/halt and no-bleed are proven by fixture proof.
