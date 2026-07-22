@@ -420,26 +420,32 @@ This replaces fleets of duplicate scheduler cards. A controller that supports re
 puppet checkpoint --session agy-cu-build --handoff /abs/checkpoint.json
 puppet review \
   --session agy-cu-build \
-  --checkpoint <full-sha> \
+  --checkpoint <checkpoint-id> \
   --verdict repair \
   --evidence /abs/review.json
 puppet accept \
   --session agy-cu-build \
-  --checkpoint <full-sha> \
+  --checkpoint <checkpoint-id> \
   --evidence /abs/acceptance.json
 ```
 
 - `checkpoint` is invoked by the controller after a target advertises a
-  handoff. It validates and imports a bounded handoff artifact, binds it to the
-  exact candidate commit, records its hash, and moves the session to controller
-  review. Importing a target claim is not accepting it. After validation,
+  handoff. It validates and imports one of two explicitly tagged artifacts:
+  `conformance` binds run ID, nonce, phase/sequence, executable, adapter, and
+  protocol fingerprints and forbids a candidate commit; `source` binds the
+  same run identity plus the exact candidate commit. The checkpoint ID is the
+  hash of the canonical validated identity fields and artifact hash. Importing
+  a target claim is not accepting it. After validation,
   `checkpoint` and `status` expose only the sanitized handoff reference, SHA-256,
   exact checkpoint identity, and validation state; they do not inline the
   handoff body. Codex opens the bounded referenced artifact separately when it
   needs substantive learning.
-- `review` records a controller-only `repair`, `source_accept`, `block`, or
-  `fail` verdict against the exact checkpoint. A head change invalidates the
-  verdict. Evidence bodies travel through explicit files/stdin, not argv.
+- `review` records a controller-only `repair`, `conformance_accept`,
+  `source_accept`, `block`, or `fail` verdict against the exact checkpoint. A
+  source head change invalidates a source verdict; executable, adapter,
+  protocol, run-ID, nonce, sequence, or artifact drift invalidates a
+  conformance verdict. Evidence bodies travel through explicit files/stdin,
+  not argv.
 - `accept` is controller-only and succeeds only when every terminal criterion
   has verified evidence at the exact checkpoint. The target cannot invoke a
   beacon, handoff, or lifecycle transition that substitutes for this command.
@@ -447,7 +453,7 @@ puppet accept \
   hostile same-UID containment. Strong isolation requires a separately proved
   sandbox or account boundary.
 
-### Later command: `promote` (unsupported in Puppet N)
+### Later command: `promote` (unsupported in bootstrap Puppet N)
 
 ```bash
 puppet promote \
@@ -457,9 +463,11 @@ puppet promote \
   --campaign-authorization /abs/campaign.json
 ```
 
-The minimum manually trusted Puppet N must return `unsupported` for `promote`.
-The unattended campaign may add it only after the first real AGY conformance
-run passes. It is only for the Puppet self-hosting track and refuses unless:
+The minimum manually trusted bootstrap Puppet N must return `unsupported` for
+`promote`. Candidate Puppet N+1 may add it only after the first real AGY
+conformance run and independent-review bootstrap pass. The command may appear
+in the accepted v0.1 only after its own deterministic and real-harness gates
+pass. It is only for the Puppet self-hosting track and refuses unless:
 
 - the session is `ACCEPTED` at the same full candidate commit;
 - the candidate is distinct from the supervisor used for that session;
@@ -562,23 +570,33 @@ NEW
   → STARTING
   → ACTIVE
   ↔ WAITING_EXTERNAL
-  → SOURCE_CHECKPOINT_READY
-  → AWAITING_SOURCE_REVIEW
-  → ACTIVE          (repair requested)
-  → SOURCE_ACCEPTED
-  → PROOF_CHECKPOINT_READY
-  → TARGET_DONE
-  → AWAITING_CONTROLLER_REVIEW
-  → ACTIVE          (repair requested)
-  → ACCEPTED | BLOCKED | FAILED
+  ├→ CONFORMANCE_READY
+  │  → ACTIVE        (one sequenced follow-up)
+  │  → CONFORMANCE_CHECKPOINT_READY
+  │  → AWAITING_CONFORMANCE_REVIEW
+  │  → ACCEPTED | BLOCKED | FAILED
+  └→ SOURCE_CHECKPOINT_READY
+     → AWAITING_SOURCE_REVIEW
+     → ACTIVE        (repair requested)
+     → SOURCE_ACCEPTED
+     → PROOF_CHECKPOINT_READY
+     → TARGET_DONE
+     → AWAITING_CONTROLLER_REVIEW
+     → ACTIVE        (repair requested)
+     → ACCEPTED | BLOCKED | FAILED
   → HALTED
   → CLOSED          (explicit only)
 ```
 
-The target cannot mark itself `ACCEPTED`. `PUPPET_DONE` moves the session to
-`TARGET_DONE`, then a validated handoff moves it to
-`AWAITING_CONTROLLER_REVIEW`. Only the controller can bind a review or
-acceptance verdict to an exact checkpoint through the CLI.
+The conformance branch is source-free: `ready` is a validated nonterminal
+checkpoint, the controller sends exactly one follow-up, and the validated
+follow-up handoff becomes the reviewable conformance checkpoint. It is keyed by
+run ID, nonce, phase/sequence, exact executable/adapter/protocol fingerprints,
+and artifact hashes; `candidate_commit` is forbidden. The source branch requires
+a full candidate commit and retains exact-head invalidation. The target cannot
+mark itself `ACCEPTED`. `PUPPET_DONE` is valid only for the source branch and
+moves that session to `TARGET_DONE`; only the controller can bind a review or
+acceptance verdict to either exact checkpoint kind through the CLI.
 
 ## Self-hosting ratchet
 
@@ -706,6 +724,13 @@ doctor-verified unrestricted mapping. The target must:
 4. publish a second checkpoint acknowledging that exact sequence; and
 5. wait for the controller's exact graceful halt.
 
+Both artifacts use `checkpoint_kind: "conformance"`. Their identity contains
+the run ID, nonce, phase, sequence, message ID when applicable, prior-checkpoint
+hash when applicable, executable fingerprint, adapter fingerprint, protocol
+fingerprint, and artifact hash. They must omit `candidate_commit`. The ready
+checkpoint is nonterminal; only the follow-up checkpoint may enter controller
+conformance review and acceptance.
+
 The controller verifies the executable/process/session identity, target birth
 identity where the platform exposes it, prompt transport outside argv, bounded
 sanitized artifacts, legal lifecycle transitions, no protected-source drift,
@@ -747,9 +772,12 @@ Remain active until all target-owned criteria are evidenced or a concrete blocke
 Publish only sanitized PUPPET_* beacons through the adapter's explicit
 hook/event channel for the controller. Terminal display is for the human
 observer and must not be the controller's monitoring transport.
-At a checkpoint, write one bounded structured handoff with the exact candidate
-commit, claims, evidence references, decisions requested, limitations, and
-suggested next assignment. Do not write a transcript or terminal summary.
+At a source checkpoint, write one bounded structured handoff with the exact
+candidate commit. At a conformance checkpoint, write the source-free run/nonce/
+sequence and executable/adapter/protocol identity required by that schema.
+Include only bounded claims, evidence references, decisions requested,
+limitations, and a suggested next assignment. Do not write a transcript or
+terminal summary.
 ```
 
 The adapter may prepend a required native command such as AGY's `/teamwork-preview`, but it must not change the contract's authority.
@@ -762,6 +790,8 @@ channel:
 ```text
 PUPPET_STATUS {"phase":"implementation","active":3,"done":0,"blocked":0,"head":"abc123","next":"run native tests"}
 PUPPET_ACTION_REQUIRED {"type":"human_gate","detail":"production deploy requested"}
+PUPPET_CONFORMANCE_READY {"run_id":"<run-id>","phase":"ready","sequence":0,"ref":"handoffs/ready.json","sha256":"<64-char-hash>"}
+PUPPET_CONFORMANCE_READY {"run_id":"<run-id>","phase":"followup","sequence":1,"ref":"handoffs/followup.json","sha256":"<64-char-hash>"}
 PUPPET_CHECKPOINT {"source":"<40-char-sha>","proof":null,"ci":"pending"}
 PUPPET_HANDOFF_READY {"checkpoint":"<40-char-sha>","ref":"handoffs/checkpoint.json","sha256":"<64-char-hash>"}
 PUPPET_DONE {"outcome":"success","criteria":["source_pushed","source_ci_green"],"checkpoint":"<40-char-sha>"}
@@ -775,13 +805,21 @@ authoritative.
 ## Structured checkpoint handoff
 
 The target-to-controller learning channel is a bounded JSON handoff, not the
-target's pane, transcript, chat store, or raw logs. Require at least:
+target's pane, transcript, chat store, or raw logs. It is a discriminated union.
+A source handoff requires at least:
 
 ```json
 {
   "schema_version": 1,
+  "checkpoint_kind": "source",
   "session": "agy-cu-build",
+  "run_id": "<run-id>",
+  "nonce": "<controller-nonce>",
   "candidate_commit": "<40-char-sha>",
+  "executable_fingerprint": "<sha256>",
+  "adapter_fingerprint": "<sha256>",
+  "protocol_fingerprint": "<sha256>",
+  "timestamp": "<RFC3339>",
   "summary": "What changed and why",
   "claims": [],
   "evidence_refs": [],
@@ -791,14 +829,42 @@ target's pane, transcript, chat store, or raw logs. Require at least:
 }
 ```
 
+A conformance handoff requires at least:
+
+```json
+{
+  "schema_version": 1,
+  "checkpoint_kind": "conformance",
+  "session": "agy-conformance",
+  "run_id": "<run-id>",
+  "nonce": "<controller-nonce>",
+  "phase": "followup",
+  "sequence": 1,
+  "message_id": "<controller-message-id>",
+  "prior_checkpoint_sha256": "<ready-artifact-sha256>",
+  "executable_fingerprint": "<sha256>",
+  "adapter_fingerprint": "<sha256>",
+  "protocol_fingerprint": "<sha256>",
+  "timestamp": "<RFC3339>",
+  "claims": [],
+  "evidence_refs": [],
+  "decisions_requested": [],
+  "limitations": []
+}
+```
+
 Bound field sizes and item counts. Reject absolute references outside the
 declared repo/proof roots, mutable commit abbreviations, embedded logs,
-transcripts, secrets, and credential-shaped content. The controller validates
-and hashes the handoff, independently inspects the candidate commit and
-evidence, then records a verdict or sends a bounded follow-up through
-`puppet send`. Interactive campaigns may discuss material findings with the
-user; an unattended campaign records them and continues within its envelope,
-waking the user only for a hard gate or terminal blocker.
+transcripts, secrets, and credential-shaped content. Reject `candidate_commit`
+on conformance handoffs and require it on source handoffs. The controller
+validates and hashes the handoff; for source checkpoints it independently
+inspects the candidate commit and evidence, while for conformance checkpoints
+it independently verifies the run/nonce/sequence and executable/adapter/
+protocol identities plus zero protected-source drift. It then records a verdict
+or sends a bounded follow-up through `puppet send`. Interactive campaigns may
+discuss material findings with the user; an unattended campaign records them
+and continues within its envelope, waking the user only for a hard gate or
+terminal blocker.
 
 ## Proof and review discipline
 
@@ -974,6 +1040,11 @@ campaign boundary is recorded, and no live target has launched.
   distinct-candidate identity, a tamper-evident/atomic journal, exact process
   and tmux identity, literal protected prompt transport, checkpoint
   containment, and preserved read-only human attach.
+- Implement and deterministically test both checkpoint branches: source
+  checkpoints require an exact candidate commit and stale-head invalidation;
+  conformance checkpoints forbid a candidate commit and bind run ID, nonce,
+  phase/sequence, executable/adapter/protocol fingerprints, artifact hashes,
+  controller verdict, and fingerprint-drift invalidation.
 - Make the YOLO-only warning, local standing authorization, exact
   current-version permission mapping, and fail-closed behavior unavoidable.
 - Test pure kernel functions directly with deterministic unit, property, and
@@ -991,6 +1062,9 @@ manifests are fingerprinted and doctor-only; no real agent has launched.
   target availability, exactly one acknowledged follow-up, transcript-free
   status/wait, controller review/acceptance, protected-source no-drift, exact
   graceful halt, and preserved tmux evidence.
+- Import the ready and follow-up artifacts through the source-free conformance
+  checkpoint branch. Reject any candidate commit, identity drift, missing
+  sequence/prior hash, or attempt to enter the source lifecycle.
 
 Stop condition: exactly one AGY conformance session is accepted, blocked, or
 failed with complete proof. Do not mutate Puppet, promote, close, or launch a
@@ -1020,16 +1094,21 @@ review. No Puppet source mutation or promotion occurred during qualification.
 
 ### Phase 3: unattended self-hosting ratchet
 
-- Use stable Puppet N to supervise one real target implementing candidate N+1
-  in a separate worktree. Start with a separable slice such as campaign
-  promotion support or the next adapter.
+- Use stable bootstrap Puppet N to supervise one real target implementing
+  candidate N+1 in a separate worktree. The first slice is the bounded
+  promotion command and its qualification machinery; later slices may add the
+  next adapter.
 - Refuse to start that mutation unless the Phase 2.5 reviewer qualification is
   current and materially different from the selected implementation target.
 - Require committed checkpoints and structured handoffs. The immutable Codex
   campaign controller independently inspects exact commits and evidence.
-- Add `promote` only after the AGY conformance gate. Automatically promote an
-  accepted exact candidate between sessions when the campaign gate passes;
-  retain every prior stable version and rollback record.
+- Make `promote` the first candidate N+1 slice after the AGY conformance and
+  independent-review gates. Bootstrap N must continue returning `unsupported`
+  while it supervises that mutation. Graduate the N+1 command only after its
+  deterministic, exact-head, real-harness, independent-review, and controller-
+  acceptance gates pass; then use the qualified N+1 release to promote later
+  accepted candidates between sessions. Retain every prior stable version and
+  rollback record.
 - Continue one target at a time through real Cursor, Claude, Codex, and Grok
   conformance and disposable implementation rungs. Use current census results,
   not the design-session version table.
@@ -1152,9 +1231,14 @@ substitute for these real behaviors.
 - Codex learns from exact commits, validated checkpoint handoffs, and evidence,
   never target terminals or transcript stores.
 - Controller-only review and acceptance commands bind verdicts to exact
-  checkpoints and invalidate them when the head changes.
+  checkpoints. Source-head drift invalidates source verdicts; run, nonce,
+  sequence, artifact, executable, adapter, or protocol drift invalidates
+  conformance verdicts.
 - Prompts and steering content do not appear in process arguments or state files.
 - Source/proof checkpoint identity can be bound to exact heads.
+- The first source-free AGY ready/follow-up pair is accepted through the
+  conformance lifecycle without inventing a candidate commit, and a
+  deterministic test proves conformance checkpoints reject candidate commits.
 - The controller can reject a checkpoint and send one bounded repair packet through the same session.
 - A rejected published checkpoint is repaired only with additive commits;
   committed history is never amended or rewritten.
@@ -1167,6 +1251,11 @@ substitute for these real behaviors.
 - A candidate cannot become the next stable supervisor without independent
   exact-head verification, required real-harness proof, controller acceptance,
   and a matching bounded campaign authorization.
+- Bootstrap Puppet N exposes only the minimum command surface and returns
+  `unsupported` for `promote`; accepted v0.1 Puppet N+1 additionally exposes
+  `promote` only after that command's full campaign qualification. `close`,
+  controller-side source editing, delivery commands, and unproved adapters
+  remain unsupported.
 - At least one unattended N → N+1 internal promotion preserves the prior stable
   version and its append-only promotion/rollback record without per-rung user
   input.

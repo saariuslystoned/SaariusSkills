@@ -250,7 +250,8 @@ adapter skip its real-harness probe.
 ## Required public deliverable
 
 Build the canonical package under `skills/puppet/` using the repository's
-current skill-creator conventions. The minimum Puppet N CLI surface is:
+current skill-creator conventions. The minimum bootstrap Puppet N CLI surface
+is:
 
 ```text
 doctor
@@ -265,13 +266,15 @@ attach-command
 halt
 ```
 
-Puppet N must make `promote`, `close`, controller-side source-editing or
-delivery commands, and unproved adapter behavior explicitly unsupported. Its
-existing `launch` command may supervise a target contract that permits
+Bootstrap Puppet N must make `promote`, `close`, controller-side source-editing
+or delivery commands, and unproved adapter behavior explicitly unsupported.
+Its existing `launch` command may supervise a target contract that permits
 `mutate` and `local_commit` only after the read-only AGY and independent-review
 bootstrap gates pass, and only in the target's distinct candidate worktree.
-Promotion during the self-hosting campaign is controller-owned campaign
-machinery until a later proved Puppet command graduates.
+The first candidate N+1 slice adds `promote`; bootstrap N supervises that slice
+while campaign-owned machinery performs its one qualifying promotion. The
+command enters the accepted v0.1 only after its deterministic, exact-head,
+real-harness, independent-review, and controller-acceptance gates pass.
 
 The public package must include:
 
@@ -285,6 +288,9 @@ The public package must include:
   controller-only verdicts, exact-head invalidation, supervisor/candidate
   separation, halt targeting, promotion records, and non-terminal diagnostic
   advisories that cannot independently produce a stop verdict;
+- deterministic checkpoint-kind tests proving conformance handoffs reject a
+  candidate commit, source handoffs require one, and drift in either identity
+  invalidates its controller verdict;
 - adapter manifests and implementation for AGY, Cursor, Claude, Codex, and
   Grok, initially hard-disabled beyond `doctor` until their real probe passes;
 - a prominent YOLO-only warning in `SKILL.md`, the root README summary, doctor
@@ -408,6 +414,14 @@ checkpoint hash when applicable, timestamp, claims, evidence references,
 limitations, and requested controller decisions. Reject unknown, oversized,
 out-of-root, transcript-bearing, log-bearing, or secret-shaped content.
 
+These are explicitly source-free `conformance` checkpoints. Their canonical
+identity binds the run ID, nonce, phase/sequence, executable, adapter, protocol,
+and artifact fingerprints. They must omit `candidate_commit`; the ready
+checkpoint is nonterminal, and only the follow-up checkpoint may receive a
+controller `conformance_accept`, `block`, or `fail` verdict. Source checkpoints
+used in later mutation rungs are a separate schema kind and require a full
+candidate commit. Never invent a commit to reuse the source path.
+
 The controller, not the target, must verify:
 
 - exact executable, process, session, pane, adapter, and protocol identity;
@@ -489,9 +503,11 @@ interaction:
    different identity or review behavior cannot be proved, qualify another
    distinct review rail through an already-proved real adapter, serially, or
    stop before mutation.
-4. **Run the first self-hosting rung.** Use stable Puppet N to supervise real
-   AGY implementing one bounded candidate N+1 slice, preferably promotion
-   machinery or the next doctor-only adapter. The immutable Codex campaign
+4. **Run the first self-hosting rung.** Use stable bootstrap Puppet N to
+   supervise real AGY implementing candidate N+1 promotion machinery as the
+   first bounded mutation slice. Bootstrap N continues returning `unsupported`
+   for `promote` while campaign-owned machinery qualifies this first
+   transition. The immutable Codex campaign
    controller independently reviews the exact AGY commit and evidence only if
    its step 3 qualification remains current; AGY may not review or accept its
    own work. After the mutation session ends, seal the exact candidate head as
@@ -619,9 +635,11 @@ The campaign is complete only when all of these are true:
   was pushed, merged, deployed, published, or globally installed.
 - `skills/puppet/` validates under current skill-creator and repository
   packaging rules, and the full relevant SaariusSkills test suite passes.
-- Puppet N exposes exactly the required minimum commands. `promote`, `close`,
+- Bootstrap Puppet N exposes exactly the required minimum commands and returns
+  `unsupported` for `promote`. Accepted v0.1 Puppet N+1 additionally exposes
+  `promote` only after the command's full campaign qualification; `close`,
   controller-side source-editing or delivery commands, and unproved adapter
-  behavior fail clearly rather than pretending to work.
+  behavior continue failing clearly rather than pretending to work.
 - The CLI is the authoritative lifecycle and acceptance recorder. A target
   cannot accept itself or advance a controller verdict.
 - All state changes are atomic or append-only as specified; exact identity,
@@ -636,7 +654,10 @@ The campaign is complete only when all of these are true:
   sequentially in its proved unrestricted mode. No fake harness, terminal
   transcript, target claim, or stale proof substituted for a live result.
 - The first AGY run stopped at the read-only control-loop boundary with no
-  candidate mutation or promotion.
+  candidate mutation or promotion. Its ready and follow-up checkpoints used
+  the source-free conformance lifecycle, were bound to exact run/nonce/
+  executable/adapter/protocol identities, and did not invent a candidate
+  commit.
 - Before the first AGY mutation, a materially different review rail passed its
   bounded read-only exact-head fixture; that qualification is bound to later
   review records and did not qualify the Codex target adapter.

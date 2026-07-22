@@ -33,10 +33,10 @@ gates.
 
 | Artifact | Role | SHA-256 |
 |---|---|---|
-| `codex-goal.md` | Self-contained future primary Codex campaign packet | `3215011e9e1df22b07d7b32ad2dc9c806164a4e3b34160e3a00e22b5e9f138b2` |
-| `implementation-seed.md` | Product, CLI, adapter, trust, lifecycle, test, and acceptance contract | `459182862326033e2cfd9dc02d17713ee70e676f919ecea4644d8045fbf144c6` |
+| `codex-goal.md` | Self-contained future primary Codex campaign packet | `c5c59bb576fcc42deb2e7a306b1947449ce4cfed2b694bc3e87f863629b51d26` |
+| `implementation-seed.md` | Product, CLI, adapter, trust, lifecycle, test, and acceptance contract | `62aa026cf5d0b6f17eb480879282dedcd6f4b748a880c2044396d908a31ed5c2` |
 | `prior-proof-provenance.md` | Public-safe evidence families, limitations, license rules, and fresh deltas | `78651f33d05aa9155026fdeac243efc13f4640a6c993429c10760312a329ba8a` |
-| `DECISIONS.md` | All verified, superseded, and deferred GrillTrack decisions | `c682923e85ea86c0a3eae36fa9d6437987983565eea5516febbbd18b41f41077` |
+| `DECISIONS.md` | All verified, superseded, and deferred GrillTrack decisions | `13a83260ee4e27ac9c6e8b15ba9159a2bd37468b2f27fb2fb957ce7d230dd822` |
 
 These hashes bind the public, operator-neutral forms rather than the local
 working copies used during the private GrillTrack conversation.
@@ -81,7 +81,7 @@ Observed on 2026-07-21 from the branch base named below:
   command surface;
 - the public five-candidate picker fixture returned `valid`; and
 - the document checks below passed across all eight modified or added Markdown
-  files, including two valid fenced JSON examples.
+  files, including three valid fenced JSON examples.
 
 Document checks cover:
 

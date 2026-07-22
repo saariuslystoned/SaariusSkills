@@ -28,10 +28,13 @@ from the mutable candidate controlling that same session.
 ### `authority-002` — transcript-blind learning
 
 Targets publish bounded structured handoffs containing claims, evidence
-references, requested decisions, limitations, and exact candidate commit
-identity. Puppet exposes only the validated reference and hash. The main
-controller separately opens the artifact and inspects commits/evidence; it does
-not learn from panes, transcripts, prompts, tool arguments, or chat stores.
+references, requested decisions, and limitations. Source handoffs bind an exact
+candidate commit; source-free conformance handoffs instead bind run ID, nonce,
+phase/sequence, executable, adapter, protocol, and artifact fingerprints and
+forbid a candidate commit. Puppet exposes only the validated reference and
+hash. The main controller separately opens the artifact and inspects the
+applicable commit/evidence; it does not learn from panes, transcripts, prompts,
+tool arguments, or chat stores.
 
 ### `kernel-001` — first live AGY stop condition
 
@@ -39,11 +42,13 @@ The first real AGY run proves only the read-only control loop: doctor, exact
 launch identity, non-argv prompt delivery, nonce-bound ready checkpoint, one
 sequenced follow-up acknowledgement, transcript-free status/wait, controller
 verdict, zero protected-source drift, and exact graceful halt. It preserves the
-tmux evidence session and performs no Puppet mutation, promotion, or close.
+tmux evidence session and performs no Puppet mutation, promotion, or close. Its
+ready and follow-up handoffs use the source-free conformance lifecycle and
+cannot invent a candidate commit to enter the source-checkpoint path.
 
 ### `kernel-002` — minimum trusted Puppet N surface
 
-Puppet N implements only:
+Bootstrap Puppet N implements only:
 
 ```text
 doctor
@@ -62,7 +67,9 @@ halt
 unproved adapters return explicit `unsupported` results until later rungs
 qualify them. After the read-only AGY and independent-review bootstrap gates
 pass, `launch` may supervise a target contract that permits mutation and a
-local commit only in that target's distinct candidate worktree.
+local commit only in that target's distinct candidate worktree. The first
+candidate N+1 slice may add `promote`, which enters accepted v0.1 only after its
+full campaign qualification.
 
 ### `evidence-001` — provenance-and-delta admission
 
@@ -91,9 +98,10 @@ disposable fixture. The target publishes a nonce-bound ready checkpoint,
 remains available, acknowledges exactly one sequenced follow-up, and waits for
 halt. The controller independently verifies executable/process/session
 identity, non-argv transport, bounded artifacts, lifecycle legality, no source
-drift, and exact graceful halt preserving tmux evidence. Only transport,
-current YOLO flags, selected harness/model fields, and a required native
-envelope may differ.
+drift, and exact graceful halt preserving tmux evidence. The conformance
+checkpoint kind is bound to run/nonce/sequence and executable/adapter/protocol
+fingerprints and forbids a candidate commit. Only transport, current YOLO
+flags, selected harness/model fields, and a required native envelope may differ.
 
 ### `trust-001` — YOLO-only live execution
 
@@ -116,6 +124,9 @@ recording controller acceptance; and preserving the prior stable release plus
 append-only promotion/rollback history. Ambiguous identity/proof, human gates,
 unproved behavior, repeated repair failure, or scope expansion stops the
 campaign. Internal promotion grants no external delivery authority.
+Bootstrap Puppet N returns `unsupported` for `promote`; campaign-owned
+machinery qualifies the first N+1 implementation of that command before it may
+enter the accepted v0.1 surface.
 
 ### `bootstrap-003` — serial real-harness self-hosting ratchet
 
@@ -185,11 +196,11 @@ hard-code permanent brand roles, and must never silently override the user.
 
 ## Closeout understanding
 
-Puppet N must become a transcript-blind, YOLO-only controller kernel qualified
-against real harnesses and built from admitted prior evidence through a
-two-pass adapter factory. One bounded unattended orchestration campaign may
-scaffold, test, real-probe, review, repair, and internally promote
-immutable-between-session Puppet versions without per-rung operator approval,
-while external gated actions stay excluded. The required terminal result is
-either a locally committed, fully proved candidate or one precise
-evidence-backed blocker.
+Bootstrap Puppet N and accepted Puppet N+1 must form a transcript-blind,
+YOLO-only controller kernel qualified against real harnesses and built from
+admitted prior evidence through a two-pass adapter factory. One bounded
+unattended orchestration campaign may scaffold, test, real-probe, review,
+repair, and internally promote immutable-between-session Puppet versions
+without per-rung operator approval, while external gated actions stay excluded.
+The required terminal result is either a locally committed, fully proved
+candidate or one precise evidence-backed blocker.
