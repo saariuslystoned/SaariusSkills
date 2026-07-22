@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,11 +20,15 @@ sys.path.insert(0, str(SCRIPTS))
 from puppet_lib.adapter_manifest import (  # noqa: E402
     AdapterManifest,
     _verify_qualification_instruction_authority,
+    direct_execution_bundle,
+    execution_file_identity,
 )
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     DECLARED_MAPPINGS,
+    _cursor_execution_bundle,
+    _execution_bundle,
     _project_isolation_declared,
     _launch_flags,
     adapter_implementation_fingerprint,
@@ -37,7 +43,7 @@ from puppet_lib.profiles import (  # noqa: E402
     session_profiles_for,
     startup_settle_seconds_for,
 )
-from puppet_lib.errors import UnsupportedError, ValidationError  # noqa: E402
+from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.provenance import admission_fingerprint, validate_admission_rows  # noqa: E402
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
@@ -45,22 +51,24 @@ from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 def manifest_raw():
     executable = Path("/bin/echo").resolve(strict=True)
     executable_details = executable.stat()
+    executable_identity = {
+        "requested_path": str(executable),
+        "resolved_path": str(executable),
+        "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "version_sha256": "b" * 64,
+        "help_sha256": "c" * 64,
+        "device": executable_details.st_dev,
+        "inode": executable_details.st_ino,
+        "size": executable_details.st_size,
+        "mtime_ns": executable_details.st_mtime_ns,
+    }
     return {
         "schema_version": 1,
         "target": "agy",
         "generated_at": "2026-07-22T02:00:00Z",
         "platform": {"system": "Darwin", "release": "25", "machine": "arm64"},
-        "executable": {
-            "requested_path": str(executable),
-            "resolved_path": str(executable),
-            "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
-            "version_sha256": "b" * 64,
-            "help_sha256": "c" * 64,
-            "device": executable_details.st_dev,
-            "inode": executable_details.st_ino,
-            "size": executable_details.st_size,
-            "mtime_ns": executable_details.st_mtime_ns,
-        },
+        "executable": executable_identity,
+        "execution": direct_execution_bundle(executable_identity),
         "adapter_fingerprint": "d" * 64,
         "protocol_fingerprint": "e" * 64,
         "yolo_mapping": {
@@ -240,6 +248,140 @@ class AdapterTests(unittest.TestCase):
                         false_positive,
                     )
                 )
+
+    def test_empty_project_flags_never_prove_isolation(self):
+        self.assertFalse(
+            _project_isolation_declared({"project_isolation_flags": []}, "")
+        )
+
+    def test_cursor_exact_shell_layout_binds_bundled_runtime_and_entrypoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            launcher = root / "cursor-agent"
+            node = root / "node"
+            entrypoint = root / "index.js"
+            launcher.write_text(
+                """#!/usr/bin/env bash
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"
+NODE_BIN="$SCRIPT_DIR/node"
+exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"
+exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
+""",
+                encoding="utf-8",
+            )
+            node.write_bytes(b"synthetic bundled node")
+            entrypoint.write_bytes(b"synthetic cursor entrypoint")
+            launcher_file = execution_file_identity(launcher)
+            executable = {
+                "requested_path": launcher_file["path"],
+                "resolved_path": launcher_file["path"],
+                "device": launcher_file["device"],
+                "inode": launcher_file["inode"],
+                "size": launcher_file["size"],
+                "mtime_ns": launcher_file["mtime_ns"],
+                "sha256": launcher_file["sha256"],
+                "version_sha256": "b" * 64,
+                "help_sha256": "c" * 64,
+            }
+            execution = _cursor_execution_bundle(launcher, executable)
+            self.assertEqual(execution["transition"], "same_pid_exec")
+            self.assertEqual(
+                execution["runtime_executable"]["path"], str(node.resolve())
+            )
+            self.assertEqual(
+                [item["path"] for item in execution["support_files"]],
+                [str(entrypoint.resolve())],
+            )
+            self.assertEqual(
+                {
+                    Path(item["path"]).name
+                    for item in execution["transient_executables"]
+                },
+                {"bash", "env"},
+            )
+            cursor_manifest = AdapterManifest(
+                {"target": "cursor", "execution": execution}
+            )
+            bash_path = next(
+                Path(item["path"])
+                for item in execution["transient_executables"]
+                if Path(item["path"]).name == "bash"
+            )
+            cursor_manifest.verify_launch_execution_environment(
+                {"PATH": str(bash_path.parent)}
+            )
+            with self.assertRaisesRegex(IdentityError, "cwd-dependent"):
+                cursor_manifest.verify_launch_execution_environment(
+                    {"PATH": "bin" + os.pathsep + str(bash_path.parent)}
+                )
+            wrong_bin = root / "wrong-bin"
+            wrong_bin.mkdir()
+            wrong_bash = wrong_bin / "bash"
+            wrong_bash.write_bytes(b"not the declared interpreter")
+            wrong_bash.chmod(0o700)
+            with self.assertRaisesRegex(IdentityError, "not declared"):
+                cursor_manifest.verify_launch_execution_environment(
+                    {"PATH": str(wrong_bin)}
+                )
+            with (
+                patch.dict(
+                    os.environ,
+                    {"PATH": "bin" + os.pathsep + str(bash_path.parent)},
+                ),
+                self.assertRaisesRegex(ValidationError, "cwd-dependent"),
+            ):
+                _cursor_execution_bundle(launcher, executable)
+
+    def test_unknown_cursor_and_grok_shell_wrappers_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            launcher = root / "wrapper"
+            launcher.write_text(
+                '#!/usr/bin/env bash\nexec /usr/bin/false "$@"\n',
+                encoding="utf-8",
+            )
+            launcher_file = execution_file_identity(launcher)
+            executable = {
+                "requested_path": launcher_file["path"],
+                "resolved_path": launcher_file["path"],
+                "device": launcher_file["device"],
+                "inode": launcher_file["inode"],
+                "size": launcher_file["size"],
+                "mtime_ns": launcher_file["mtime_ns"],
+                "sha256": launcher_file["sha256"],
+                "version_sha256": "b" * 64,
+                "help_sha256": "c" * 64,
+            }
+            with self.assertRaisesRegex(ValidationError, "recognized shell layout"):
+                _cursor_execution_bundle(launcher, executable)
+            with self.assertRaisesRegex(ValidationError, "no exact runtime resolver"):
+                _execution_bundle("grok", launcher, executable)
+
+            launcher.write_text(
+                """#!/usr/bin/env bash
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+SCRIPT_DIR="$(dirname "$(readlink "$0" || echo "$0")")"
+NODE_BIN="$SCRIPT_DIR/node"
+NODE_BIN=/usr/bin/false
+exec -a "$0" "$NODE_BIN" --use-system-ca "$SCRIPT_DIR/index.js" "$@"
+exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
+""",
+                encoding="utf-8",
+            )
+            changed_launcher_file = execution_file_identity(launcher)
+            changed_executable = dict(executable)
+            changed_executable.update(
+                requested_path=changed_launcher_file["path"],
+                resolved_path=changed_launcher_file["path"],
+                device=changed_launcher_file["device"],
+                inode=changed_launcher_file["inode"],
+                size=changed_launcher_file["size"],
+                mtime_ns=changed_launcher_file["mtime_ns"],
+                sha256=changed_launcher_file["sha256"],
+            )
+            with self.assertRaisesRegex(ValidationError, "recognized shell layout"):
+                _cursor_execution_bundle(launcher, changed_executable)
 
     def test_agy_prefix_is_explicit_and_closed(self):
         adapter = adapter_for("agy")
@@ -447,6 +589,7 @@ class AdapterTests(unittest.TestCase):
                 controller="codex",
                 executable_path=Path(raw["executable"]["resolved_path"]),
                 executable_fingerprint=raw["executable"]["sha256"],
+                execution_fingerprint=raw["execution"]["execution_fingerprint"],
                 version_fingerprint="b" * 64,
                 platform_fingerprint=hashlib.sha256(
                     json.dumps(

@@ -33,6 +33,7 @@ def base_handoff():
         "phase": "ready",
         "sequence": 0,
         "executable_fingerprint": FP,
+        "execution_fingerprint": "d" * 64,
         "adapter_fingerprint": "b" * 64,
         "protocol_fingerprint": "c" * 64,
         "timestamp": "2026-07-22T02:00:00Z",
@@ -129,7 +130,10 @@ class HandoffTests(unittest.TestCase):
                 )
 
     def test_out_of_root_and_transcript_fields_are_rejected(self):
-        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+        with (
+            tempfile.TemporaryDirectory() as first,
+            tempfile.TemporaryDirectory() as second,
+        ):
             allowed = Path(first)
             path = Path(second) / "ready.json"
             write_json(path, base_handoff())

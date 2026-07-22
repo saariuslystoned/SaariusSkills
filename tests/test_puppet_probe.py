@@ -23,6 +23,9 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     PROBE_CAPABILITIES,
     _validate_ancestry_node_coherence,
     _validated_ancestry_chain,
+    build_execution_bundle,
+    direct_execution_bundle,
+    execution_file_identity,
     verify_qualification_receipt,
 )
 from puppet_lib.authority import (  # noqa: E402
@@ -84,6 +87,17 @@ def manifest_value(target: str = "codex"):
         "startup_settle_seconds": startup_settle_seconds_for(target),
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
     }
+    executable_identity = {
+        "requested_path": str(executable),
+        "resolved_path": str(executable),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "size": details.st_size,
+        "mtime_ns": details.st_mtime_ns,
+        "sha256": sha256_file(executable),
+        "version_sha256": "b" * 64,
+        "help_sha256": "c" * 64,
+    }
     raw = {
         "schema_version": 1,
         "target": target,
@@ -93,17 +107,8 @@ def manifest_value(target: str = "codex"):
             "release": platform.release(),
             "machine": platform.machine(),
         },
-        "executable": {
-            "requested_path": str(executable),
-            "resolved_path": str(executable),
-            "device": details.st_dev,
-            "inode": details.st_ino,
-            "size": details.st_size,
-            "mtime_ns": details.st_mtime_ns,
-            "sha256": sha256_file(executable),
-            "version_sha256": "b" * 64,
-            "help_sha256": "c" * 64,
-        },
+        "executable": executable_identity,
+        "execution": direct_execution_bundle(executable_identity),
         "adapter_fingerprint": "d" * 64,
         "protocol_fingerprint": PROTOCOL_FINGERPRINT,
         "yolo_mapping": mapping,
@@ -511,6 +516,7 @@ def execute(
             observed_manifest or files["raw"]
         ),
         _sleep_fn=sleep_fn or (lambda interval: None),
+        _execution_sleep_fn=lambda interval: None,
         _authority_root=files["authority"],
     )
 
@@ -862,6 +868,10 @@ class ProbeTests(unittest.TestCase):
             )
             receipt = json.loads(Path(result["receipt"]).read_text(encoding="utf-8"))
             self.assertEqual(receipt["capabilities"], list(PROBE_CAPABILITIES))
+            self.assertEqual(
+                receipt["execution_fingerprint"],
+                files["raw"]["execution"]["execution_fingerprint"],
+            )
             self.assertNotIn("resume", receipt["capabilities"])
             evidence = json.loads(
                 (Path(result["run_root"]) / "evidence.json").read_text(encoding="utf-8")
@@ -869,6 +879,9 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(
                 Path(evidence["campaign_probe_lock"]["path"]).name,
                 "real-harness.codex.lock",
+            )
+            self.assertEqual(
+                evidence["execution_fingerprint"], receipt["execution_fingerprint"]
             )
             wrapper = evidence["instruction_wrapper"]
             self.assertEqual(
@@ -896,6 +909,66 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(fake.preserved)
             self.assertEqual(len(fake.interrupts), 1)
 
+    def test_probe_evidence_binds_the_stable_final_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            runtime = root / "synthetic-runtime"
+            transient = root / "synthetic-transient"
+            support = root / "synthetic-index.js"
+            runtime.write_bytes(b"runtime")
+            transient.write_bytes(b"transient")
+            support.write_bytes(b"support")
+            raw = json.loads(json.dumps(files["raw"]))
+            launcher = raw["executable"]
+            raw["execution"] = build_execution_bundle(
+                launcher={
+                    "path": launcher["resolved_path"],
+                    "device": launcher["device"],
+                    "inode": launcher["inode"],
+                    "size": launcher["size"],
+                    "mtime_ns": launcher["mtime_ns"],
+                    "sha256": launcher["sha256"],
+                },
+                transition="same_pid_exec",
+                runtime_executable=execution_file_identity(runtime),
+                transient_executables=[execution_file_identity(transient)],
+                support_files=[execution_file_identity(support)],
+                settle_timeout_seconds=1.0,
+            )
+            files["raw"] = AdapterManifest.from_dict(raw).raw
+            write_json(files["manifest"], files["raw"])
+            runtime_file = execution_file_identity(runtime)
+            runtime_process = dict(
+                static_process_identity(fake.pid),
+                command=runtime.name,
+                executable_path=runtime_file["path"],
+                device=runtime_file["device"],
+                inode=runtime_file["inode"],
+            )
+            result = execute(
+                files,
+                fake,
+                run_id="probe-final-runtime-evidence",
+                process_birth_fn=lambda pid: runtime_process,
+                continuous_population_fn=lambda target: (
+                    [runtime_process] if fake.alive else []
+                ),
+            )
+            evidence = json.loads(
+                (Path(result["run_root"]) / "evidence.json").read_text(encoding="utf-8")
+            )
+            receipt = json.loads(Path(result["receipt"]).read_text(encoding="utf-8"))
+            self.assertEqual(evidence["process"], runtime_process)
+            self.assertEqual(
+                evidence["execution_fingerprint"],
+                files["raw"]["execution"]["execution_fingerprint"],
+            )
+            self.assertEqual(
+                receipt["execution_fingerprint"], evidence["execution_fingerprint"]
+            )
+
     def test_launch_environment_values_are_hash_only_in_probe_proof(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -915,7 +988,7 @@ class ProbeTests(unittest.TestCase):
                     fake,
                     run_id="probe-private-launch-environment",
                 )
-            self.assertEqual(fake.launch_environment["CODEX_HOME"], private_value)
+            self.assertNotIn("CODEX_HOME", fake.launch_environment)
             self.assertNotIn("PUPPET_PARENT_CANARY", fake.launch_environment)
             run_root = Path(result["run_root"])
             evidence = json.loads(
@@ -926,7 +999,7 @@ class ProbeTests(unittest.TestCase):
                 set(identity),
                 {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
             )
-            self.assertIn("CODEX_HOME", identity["env_names"])
+            self.assertNotIn("CODEX_HOME", identity["env_names"])
             self.assertNotIn("launch_environment", evidence)
             for path in run_root.rglob("*"):
                 if path.is_file():
@@ -1405,7 +1478,7 @@ class ProbeTests(unittest.TestCase):
                 device=details.st_dev,
                 inode=details.st_ino,
             )
-            with self.assertRaisesRegex(IdentityError, "fingerprinted launcher"):
+            with self.assertRaisesRegex(IdentityError, "not declared"):
                 execute(
                     files,
                     fake,
@@ -1413,6 +1486,7 @@ class ProbeTests(unittest.TestCase):
                     process_birth_fn=lambda pid: wrong_process,
                 )
             self.assertTrue(fake.alive)
+            self.assertEqual(fake.payloads, [])
             self.assertEqual(fake.interrupts, [])
             self.assertEqual(fake.control_calls, [])
             self.assertEqual(
@@ -1437,6 +1511,7 @@ class ProbeTests(unittest.TestCase):
                     process_birth_fn=unavailable,
                 )
             self.assertTrue(fake.alive)
+            self.assertEqual(fake.payloads, [])
             self.assertEqual(fake.interrupts, [])
             self.assertEqual(fake.control_calls, [])
             run_root = files["proof"] / "probes" / "probe-process-birth-failure"
@@ -1603,6 +1678,25 @@ class ProbeTests(unittest.TestCase):
             drifted = json.loads(json.dumps(files["raw"]))
             drifted["adapter_fingerprint"] = "f" * 64
             with self.assertRaisesRegex(IdentityError, "current controller"):
+                verify_qualification_receipt(
+                    Path(result["receipt"]),
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(drifted),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+
+    def test_current_execution_identity_drift_invalidates_qualification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            result = execute(files, fake, run_id="probe-current-execution-drift")
+            drifted = json.loads(json.dumps(files["raw"]))
+            drifted["execution"] = direct_execution_bundle(
+                drifted["executable"], settle_timeout_seconds=3.0
+            )
+            with self.assertRaisesRegex(IdentityError, "execution_fingerprint"):
                 verify_qualification_receipt(
                     Path(result["receipt"]),
                     _authority_root=files["authority"],

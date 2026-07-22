@@ -34,6 +34,7 @@ def write_qualification_receipt(
     controller: str,
     executable_path: Path,
     executable_fingerprint: str,
+    execution_fingerprint: str,
     version_fingerprint: str,
     platform_fingerprint: str,
     adapter_fingerprint: str,
@@ -41,6 +42,7 @@ def write_qualification_receipt(
     yolo_mapping_sha256: str,
     capabilities: list[str],
     session_profile: str | None = None,
+    runtime_executable_path: Path | None = None,
 ) -> dict:
     receipt_path = Path(receipt_path)
     run_root = receipt_path.parent
@@ -59,6 +61,7 @@ def write_qualification_receipt(
         "run_id": run_id,
         "nonce": nonce,
         "executable_fingerprint": executable_fingerprint,
+        "execution_fingerprint": execution_fingerprint,
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol_fingerprint,
         "timestamp": timestamp,
@@ -225,14 +228,15 @@ def write_qualification_receipt(
         },
     )
     executable_path = Path(executable_path).resolve(strict=True)
-    executable_details = executable_path.stat()
+    runtime_path = Path(runtime_executable_path or executable_path).resolve(strict=True)
+    executable_details = runtime_path.stat()
     target_process = {
         "identity_version": 2,
         "pid": 4242,
         "start": "Wed Jul 22 04:00:00 2026",
         "kernel_birth_id": "test:4242",
-        "command": executable_path.name,
-        "executable_path": str(executable_path),
+        "command": runtime_path.name,
+        "executable_path": str(runtime_path),
         "device": executable_details.st_dev,
         "inode": executable_details.st_ino,
     }
@@ -261,6 +265,7 @@ def write_qualification_receipt(
             "authorization_sha256": sha256_file(authorization_path),
             "manifest_fingerprint": "7" * 64,
             "executable_fingerprint": executable_fingerprint,
+            "execution_fingerprint": execution_fingerprint,
             "version_fingerprint": version_fingerprint,
             "platform_fingerprint": platform_fingerprint,
             "adapter_fingerprint": adapter_fingerprint,
@@ -359,6 +364,7 @@ def write_qualification_receipt(
         "campaign_id": "test-campaign",
         "goal_fingerprint": sha256_bytes(canonical_json_bytes(goal)),
         "executable_fingerprint": executable_fingerprint,
+        "execution_fingerprint": execution_fingerprint,
         "version_fingerprint": version_fingerprint,
         "platform_fingerprint": platform_fingerprint,
         "adapter_fingerprint": adapter_fingerprint,

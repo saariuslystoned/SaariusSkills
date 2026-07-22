@@ -17,7 +17,10 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.session as puppet_session  # noqa: E402
-from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.adapter_manifest import (  # noqa: E402
+    AdapterManifest,
+    direct_execution_bundle,
+)
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
     current_session_lease,
@@ -76,6 +79,7 @@ def write_json(path: Path, value):
 
 def launch(**kwargs):
     kwargs.setdefault("_sleep_fn", lambda _interval: None)
+    kwargs.setdefault("_execution_sleep_fn", lambda _interval: None)
     return _launch(**kwargs)
 
 
@@ -157,6 +161,18 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
+    executable_identity = {
+        "requested_path": str(executable),
+        "resolved_path": str(executable),
+        "sha256": executable_sha,
+        "version_sha256": "b" * 64,
+        "help_sha256": "c" * 64,
+        "device": executable_stat.st_dev,
+        "inode": executable_stat.st_ino,
+        "size": executable_stat.st_size,
+        "mtime_ns": executable_stat.st_mtime_ns,
+    }
+    execution = direct_execution_bundle(executable_identity)
     write_qualification_receipt(
         receipt_path,
         run_id="kernel-test-qualification",
@@ -164,6 +180,7 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         controller="tester",
         executable_path=executable,
         executable_fingerprint=executable_sha,
+        execution_fingerprint=execution["execution_fingerprint"],
         version_fingerprint="b" * 64,
         platform_fingerprint=platform_fingerprint,
         adapter_fingerprint=adapter_fingerprint,
@@ -183,17 +200,8 @@ def manifest(target: str, executable: Path, protocol: str, receipt_path: Path):
         "target": target,
         "generated_at": "2026-07-22T03:00:00Z",
         "platform": platform_value,
-        "executable": {
-            "requested_path": str(executable),
-            "resolved_path": str(executable),
-            "sha256": executable_sha,
-            "version_sha256": "b" * 64,
-            "help_sha256": "c" * 64,
-            "device": executable_stat.st_dev,
-            "inode": executable_stat.st_ino,
-            "size": executable_stat.st_size,
-            "mtime_ns": executable_stat.st_mtime_ns,
-        },
+        "executable": executable_identity,
+        "execution": execution,
         "adapter_fingerprint": adapter_fingerprint,
         "protocol_fingerprint": protocol,
         "yolo_mapping": yolo_mapping,
@@ -654,7 +662,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     set(launch_started["launch_identity"]),
                     {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
                 )
-                self.assertIn(
+                self.assertNotIn(
                     "CODEX_HOME", launch_started["launch_identity"]["env_names"]
                 )
                 marker_bytes = task_marker.encode("utf-8")
@@ -701,6 +709,7 @@ class SessionIntegrationTests(unittest.TestCase):
                     "executable_fingerprint": record["adapter"][
                         "executable_fingerprint"
                     ],
+                    "execution_fingerprint": record["adapter"]["execution_fingerprint"],
                     "adapter_fingerprint": record["adapter"]["adapter_fingerprint"],
                     "protocol_fingerprint": record["adapter"]["protocol_fingerprint"],
                     "timestamp": "2026-07-22T03:01:00Z",
@@ -1092,10 +1101,14 @@ class SessionIntegrationTests(unittest.TestCase):
             )
             socket = str(TmuxController(files["state"]).socket_path(session))
             try:
-                with patch.object(
-                    puppet_session,
-                    "process_birth_identity",
-                    side_effect=IdentityError("injected process binding failure"),
+                with (
+                    patch.object(
+                        puppet_session,
+                        "process_birth_identity",
+                        side_effect=IdentityError("injected process binding failure"),
+                    ),
+                    patch.object(puppet_session, "send_exact_sigint") as exact_sigint,
+                    patch.object(TmuxController, "send_control") as send_control,
                 ):
                     with self.assertRaisesRegex(
                         IdentityError, "injected process binding"
@@ -1110,7 +1123,15 @@ class SessionIntegrationTests(unittest.TestCase):
                             supervisor_executable=files["supervisor_executable"],
                             prompt="Remain available for provisional cleanup.",
                         )
+                    exact_sigint.assert_not_called()
+                    send_control.assert_not_called()
                 self.assertTrue(SessionRegistry(files["state"]).exists(session))
+                self.assertFalse(
+                    (files["state"] / "sessions" / (session + ".json")).exists()
+                )
+                self.assertTrue(
+                    (files["state"] / "reservations" / (session + ".json")).is_file()
+                )
                 self.assertEqual(
                     current_session_lease(self.authority_root, target="codex")["state"],
                     "launching",
@@ -1120,6 +1141,67 @@ class SessionIntegrationTests(unittest.TestCase):
                     session=session,
                 )
                 self.assertFalse(metadata["pane_dead"])
+                events = [
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                ]
+                self.assertFalse(
+                    any(event.get("kind") == "initial_message" for event in events)
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_final_runtime_drift_blocks_message_before_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/runtime-drift", "candidate"
+            )
+            session = "codex-runtime-drift"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/runtime-drift",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for runtime drift proof.",
+                )
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                with (
+                    patch.object(
+                        AdapterManifest,
+                        "verify_process_executable",
+                        side_effect=IdentityError("final runtime drift"),
+                    ),
+                    patch.object(puppet_session, "_deliver") as deliver,
+                ):
+                    with self.assertRaisesRegex(IdentityError, "final runtime drift"):
+                        send_message(
+                            state_root=files["state"],
+                            session=session,
+                            message="Never deliver after runtime drift.",
+                            request_id="runtime-drift-message",
+                        )
+                    deliver.assert_not_called()
+                self.assertEqual(
+                    halt(state_root=files["state"], session=session, timeout=2)[
+                        "state"
+                    ],
+                    "HALTED",
+                )
             finally:
                 kill_test_server(socket)
 
@@ -1466,6 +1548,9 @@ class SessionIntegrationTests(unittest.TestCase):
                             "candidate_commit": commit,
                             "executable_fingerprint": record["adapter"][
                                 "executable_fingerprint"
+                            ],
+                            "execution_fingerprint": record["adapter"][
+                                "execution_fingerprint"
                             ],
                             "adapter_fingerprint": record["adapter"][
                                 "adapter_fingerprint"

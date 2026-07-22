@@ -106,6 +106,7 @@ def followup():
         "message_id": "message-1",
         "prior_checkpoint_sha256": "d" * 64,
         "executable_fingerprint": "a" * 64,
+        "execution_fingerprint": "f" * 64,
         "adapter_fingerprint": "b" * 64,
         "protocol_fingerprint": "c" * 64,
         "timestamp": "2026-07-22T02:00:00Z",
@@ -117,6 +118,149 @@ def followup():
 
 
 class AuthorityTests(unittest.TestCase):
+    def test_cursor_runtime_selector_includes_bundled_node_only(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        identities = {
+            101: {
+                "identity_version": 2,
+                "pid": 101,
+                "start": "one",
+                "kernel_birth_id": "test:101",
+                "command": "/opt/cursor/node",
+                "executable_path": bundled["path"],
+                "device": bundled["device"],
+                "inode": bundled["inode"],
+            },
+            102: {
+                "identity_version": 2,
+                "pid": 102,
+                "start": "two",
+                "kernel_birth_id": "test:102",
+                "command": "/usr/local/bin/node",
+                "executable_path": "/usr/local/bin/node",
+                "device": 42,
+                "inode": 52,
+            },
+        }
+        output = "101 %d renamed-worker\n102 %d node\n" % (
+            os.getuid(),
+            os.getuid(),
+        )
+
+        def executable_identity(pid):
+            process = identities[pid]
+            return {
+                "pid": pid,
+                "kernel_birth_id": process["kernel_birth_id"],
+                "executable_path": process["executable_path"],
+                "device": process["device"],
+                "inode": process["inode"],
+            }
+
+        with (
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=output),
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=executable_identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                side_effect=lambda pid: identities[pid],
+            ),
+        ):
+            observed = puppet_campaign.active_target_processes(
+                "cursor", execution_files=[bundled]
+            )
+        self.assertEqual(observed, [identities[101]])
+
+    def test_cursor_runtime_snapshot_excludes_unrelated_node(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        identities = {
+            101: {
+                "identity_version": 2,
+                "pid": 101,
+                "start": "one",
+                "kernel_birth_id": "test:101",
+                "command": "/opt/cursor/node",
+                "executable_path": bundled["path"],
+                "device": bundled["device"],
+                "inode": bundled["inode"],
+            },
+            102: {
+                "identity_version": 2,
+                "pid": 102,
+                "start": "two",
+                "kernel_birth_id": "test:102",
+                "command": "/usr/local/bin/node",
+                "executable_path": "/usr/local/bin/node",
+                "device": 42,
+                "inode": 52,
+            },
+        }
+        output = "101 %d renamed-worker\n102 %d node\n" % (
+            os.getuid(),
+            os.getuid(),
+        )
+
+        def executable_identity(pid):
+            process = identities[pid]
+            return {
+                "pid": pid,
+                "kernel_birth_id": process["kernel_birth_id"],
+                "executable_path": process["executable_path"],
+                "device": process["device"],
+                "inode": process["inode"],
+            }
+
+        with (
+            patch.object(
+                puppet_campaign.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0, stdout=output),
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=executable_identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                side_effect=lambda pid: identities[pid],
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_identity",
+                side_effect=lambda pid: {
+                    "process": identities[pid],
+                    "parent_pid": 1,
+                },
+            ),
+            patch.object(puppet_campaign, "process_tree_alive", return_value=True),
+        ):
+            snapshot = puppet_campaign.target_process_snapshot(
+                "cursor", execution_files=[bundled]
+            )
+        self.assertEqual(snapshot["processes"], [identities[101]])
+        self.assertEqual(
+            snapshot["ancestry_nodes"],
+            [{"process": identities[101], "parent_pid": 1}],
+        )
+
     def test_cursor_census_includes_application_subcommand_executable(self):
         observed = []
 
@@ -125,7 +269,12 @@ class AuthorityTests(unittest.TestCase):
             return {"pid": pid}
 
         process_table = (
-            "101 /opt/bin/cursor\n102 /opt/bin/Cursor\n103 /opt/bin/cursor-agent\n"
+            "101 %d /opt/bin/cursor\n102 %d /opt/bin/Cursor\n103 %d /opt/bin/cursor-agent\n"
+            % (
+                os.getuid(),
+                os.getuid(),
+                os.getuid(),
+            )
         )
         with (
             patch.object(
@@ -154,7 +303,10 @@ class AuthorityTests(unittest.TestCase):
             "device": 1,
             "inode": 2,
         }
-        process_table = "4242 /opt/bin/codex\n5000 /opt/bin/helper\n"
+        process_table = "4242 %d /opt/bin/codex\n5000 %d /opt/bin/helper\n" % (
+            os.getuid(),
+            os.getuid(),
+        )
         node = {"process": identity, "parent_pid": 1}
         with (
             patch.object(
@@ -178,7 +330,7 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(snapshot["ancestry_nodes"], [node])
         self.assertEqual(
             run.call_args.args[0],
-            ["ps", "-axo", "pid=,comm="],
+            ["ps", "-axo", "pid=,uid=,comm="],
         )
 
     def test_duplicate_session_identity_cannot_change_state_root(self):
@@ -1292,7 +1444,7 @@ class AuthorityTests(unittest.TestCase):
                 ],
             ),
         ):
-            with self.assertRaisesRegex(IdentityError, "executable binding"):
+            with self.assertRaisesRegex(IdentityError, "exec transition"):
                 puppet_registry.process_tree_identity(4242)
 
     def test_process_birth_identity_tolerates_reparent_but_tree_identity_does_not(self):
@@ -1614,6 +1766,7 @@ class AuthorityTests(unittest.TestCase):
                     "manifest_path": str(manifest_path),
                     "manifest_fingerprint": "b" * 64,
                     "executable_fingerprint": "c" * 64,
+                    "execution_fingerprint": "a" * 64,
                     "adapter_fingerprint": "d" * 64,
                     "protocol_fingerprint": "e" * 64,
                     "qualification_controller": "tester",
