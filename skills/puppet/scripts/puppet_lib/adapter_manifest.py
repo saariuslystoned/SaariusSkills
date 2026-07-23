@@ -2156,14 +2156,11 @@ class AdapterManifest:
         _tmux_factory: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if self.target == "agy":
-            qualification_profile = (
-                self.raw.get("qualification", {}).get("session_profile")
-                if isinstance(self.raw.get("qualification"), dict)
-                else None
-            )
-            require_agy_regular_launch_authority(
-                expected_session_profile or qualification_profile
-            )
+            # The manifest is evidence, not an authority selector.  In
+            # particular, a caller that omits its independently bound profile
+            # must not inherit ``regular`` from untrusted qualification
+            # metadata if regular authority is enabled in a future release.
+            require_agy_regular_launch_authority(expected_session_profile)
         if self.raw["doctor_only"]:
             raise UnsupportedError(
                 "doctor-only manifest has no real-harness qualification"

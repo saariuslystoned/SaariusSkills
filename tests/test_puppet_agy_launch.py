@@ -16,6 +16,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab  # noqa: E402
+from puppet_lib import adapter_manifest as adapter_manifest_module  # noqa: E402
 from puppet_lib import agy_launch as agy_launch_module  # noqa: E402
 from puppet_lib import probe as puppet_probe  # noqa: E402
 from puppet_lib import session as puppet_session  # noqa: E402
@@ -354,6 +355,52 @@ class AgyRegularFenceTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedError, "planner-only"):
                 adapter_lab._qualify(args)
         verified.assert_not_called()
+
+    def test_manifest_authority_requires_explicit_regular_profile_before_receipt_io(
+        self,
+    ):
+        manifest = AdapterManifest(
+            raw={
+                "target": "agy",
+                "doctor_only": False,
+                "qualification": {
+                    "session_profile": "regular",
+                    "receipt_path": "/does/not/matter/receipt.json",
+                    "receipt_sha256": "a" * 64,
+                },
+            }
+        )
+        receipt_read = mock.Mock(
+            side_effect=AssertionError("explicit regular may reach receipt IO")
+        )
+
+        def future_authority(profile):
+            if profile != "regular":
+                raise UnsupportedError("non-regular profile stays fenced")
+
+        with (
+            mock.patch.object(
+                adapter_manifest_module,
+                "require_agy_regular_launch_authority",
+                side_effect=future_authority,
+            ) as authority,
+            mock.patch.object(adapter_manifest_module, "sha256_file", receipt_read),
+        ):
+            for profile in (None, "", "goal", "teamwork-preview", "caller-profile"):
+                with self.subTest(profile=profile):
+                    with self.assertRaisesRegex(UnsupportedError, "non-regular"):
+                        manifest.verify_qualification(expected_session_profile=profile)
+            receipt_read.assert_not_called()
+            self.assertEqual(
+                [call.args[0] for call in authority.call_args_list],
+                [None, "", "goal", "teamwork-preview", "caller-profile"],
+            )
+
+            with self.assertRaisesRegex(
+                AssertionError, "explicit regular may reach receipt IO"
+            ):
+                manifest.verify_qualification(expected_session_profile="regular")
+            receipt_read.assert_called_once()
 
 
 if __name__ == "__main__":
