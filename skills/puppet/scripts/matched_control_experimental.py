@@ -10,10 +10,8 @@ any promotion path may consume it.
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 from typing import Any, Dict
 
-from puppet_lib.contracts import PROCESS_IDENTITY_FIELDS
 from puppet_lib.errors import IdentityError, ValidationError
 from puppet_lib.safety import (
     validate_bounded_json,
@@ -28,6 +26,7 @@ EXPERIMENTAL_MATCHED_CONTROL_SCHEMA = (
 EXPERIMENTAL_MATCHED_CONTROL_SCOPE = "experimental_protocol_candidate_only"
 NON_AUTHORITATIVE = "non_authoritative_until_controller_journal_verification"
 PROMOTION_FORBIDDEN = "forbidden_missing_controller_producer_and_verifier"
+PROCESS_REFERENCE_SCHEMA = "puppet.experimental-process-identity-ref/v1"
 
 REQUIRED_CONTROLLER_EVIDENCE = (
     {
@@ -103,6 +102,13 @@ REQUIRED_CONTROLLER_EVIDENCE = (
 )
 
 _ROOT_FIELDS = {"path_sha256", "device", "inode", "uid", "mode"}
+_PROCESS_REFERENCE_FIELDS = {
+    "schema",
+    "pid",
+    "device",
+    "inode",
+    "process_identity_sha256",
+}
 _SESSION_FIELDS = {
     "authority",
     "role",
@@ -161,21 +167,13 @@ def _positive_int(value: Any, label: str) -> int:
 
 
 def _process(value: Any, role: str) -> Dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != PROCESS_IDENTITY_FIELDS:
-        raise ValidationError("%s process identity fields are invalid" % role)
+    if not isinstance(value, dict) or set(value) != _PROCESS_REFERENCE_FIELDS:
+        raise ValidationError("%s process reference fields are invalid" % role)
     if (
-        value.get("identity_version") != 2
+        value.get("schema") != PROCESS_REFERENCE_SCHEMA
         or isinstance(value.get("pid"), bool)
         or not isinstance(value.get("pid"), int)
         or value["pid"] <= 1
-        or not isinstance(value.get("start"), str)
-        or not value["start"]
-        or not isinstance(value.get("kernel_birth_id"), str)
-        or not value["kernel_birth_id"]
-        or not isinstance(value.get("command"), str)
-        or not value["command"]
-        or not isinstance(value.get("executable_path"), str)
-        or not value["executable_path"].startswith("/")
         or any(
             not isinstance(value.get(name), int)
             or isinstance(value.get(name), bool)
@@ -183,10 +181,8 @@ def _process(value: Any, role: str) -> Dict[str, Any]:
             for name in ("device", "inode")
         )
     ):
-        raise ValidationError("%s process identity is invalid" % role)
-    for name in ("start", "kernel_birth_id", "command", "executable_path"):
-        if len(value[name]) > 4096 or any(char in value[name] for char in "\x00\n\r"):
-            raise ValidationError("%s process identity is invalid" % role)
+        raise ValidationError("%s process reference is invalid" % role)
+    validate_sha256(value.get("process_identity_sha256"), "%s process identity" % role)
     return dict(value)
 
 
@@ -225,39 +221,33 @@ def _session(value: Any, role: str) -> Dict[str, Any]:
     }
 
 
-def _safe_relative_path(value: Any, label: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > 1000
-        or value.startswith(".")
-        or "\\" in value
-    ):
-        raise ValidationError("%s path is invalid" % label)
-    path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or not path.parts:
-        raise ValidationError("%s path escapes its candidate root" % label)
-    return path.as_posix()
+def _evidence_path(index: int, kind: str) -> str:
+    return "candidate/%02d-%s.json" % (index, kind)
 
 
 def _evidence_refs(value: Any) -> list[Dict[str, Any]]:
     if not isinstance(value, list) or len(value) != len(REQUIRED_CONTROLLER_EVIDENCE):
         raise ValidationError("experimental evidence reference set is incomplete")
     normalized = []
-    for expected, reference in zip(REQUIRED_CONTROLLER_EVIDENCE, value):
+    for index, (expected, reference) in enumerate(
+        zip(REQUIRED_CONTROLLER_EVIDENCE, value), start=1
+    ):
         if not isinstance(reference, dict) or set(reference) != _REFERENCE_FIELDS:
             raise ValidationError("experimental evidence reference fields are invalid")
-        if reference.get("authority") != NON_AUTHORITATIVE or any(
-            reference.get(name) != expected[name]
-            for name in ("kind", "producer_hook", "session_role")
+        expected_path = _evidence_path(index, expected["kind"])
+        if (
+            reference.get("authority") != NON_AUTHORITATIVE
+            or reference.get("path") != expected_path
+            or any(
+                reference.get(name) != expected[name]
+                for name in ("kind", "producer_hook", "session_role")
+            )
         ):
             raise ValidationError("experimental evidence reference order is invalid")
         normalized.append(
             {
                 **dict(reference),
-                "path": _safe_relative_path(
-                    reference.get("path"), "%s evidence" % expected["kind"]
-                ),
+                "path": expected_path,
                 "sha256": validate_sha256(
                     reference.get("sha256"), "%s evidence" % expected["kind"]
                 ),
@@ -347,6 +337,7 @@ __all__ = [
     "EXPERIMENTAL_MATCHED_CONTROL_SCHEMA",
     "EXPERIMENTAL_MATCHED_CONTROL_SCOPE",
     "NON_AUTHORITATIVE",
+    "PROCESS_REFERENCE_SCHEMA",
     "PROMOTION_FORBIDDEN",
     "REQUIRED_CONTROLLER_EVIDENCE",
     "validate_experimental_matched_control_candidate",

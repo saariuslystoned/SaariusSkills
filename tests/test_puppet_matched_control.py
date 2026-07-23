@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -23,6 +24,7 @@ from matched_control_experimental import (  # noqa: E402
     EXPERIMENTAL_MATCHED_CONTROL_SCHEMA,
     EXPERIMENTAL_MATCHED_CONTROL_SCOPE,
     NON_AUTHORITATIVE,
+    PROCESS_REFERENCE_SCHEMA,
     PROMOTION_FORBIDDEN,
     REQUIRED_CONTROLLER_EVIDENCE,
     validate_experimental_matched_control_candidate,
@@ -31,14 +33,11 @@ from matched_control_experimental import (  # noqa: E402
 
 def process(pid: int) -> dict:
     return {
-        "identity_version": 2,
+        "schema": PROCESS_REFERENCE_SCHEMA,
         "pid": pid,
-        "start": "Wed Jul 22 20:00:00 2026",
-        "kernel_birth_id": "fixture:%d" % pid,
-        "command": "claude",
-        "executable_path": "/opt/puppet-fixture/claude",
         "device": 100,
         "inode": pid,
+        "process_identity_sha256": "%064x" % pid,
     }
 
 
@@ -120,6 +119,16 @@ class ExperimentalMatchedControlTests(unittest.TestCase):
         self.assertNotIn("transcript", serialized)
         self.assertEqual(value["result"], "not_evaluated")
         self.assertEqual(value["promotion_status"], PROMOTION_FORBIDDEN)
+        self.assertEqual(
+            set(value["activated"]["process"]),
+            {
+                "schema",
+                "pid",
+                "device",
+                "inode",
+                "process_identity_sha256",
+            },
+        )
         self.assertTrue(
             all(
                 item["authority"] == NON_AUTHORITATIVE
@@ -137,6 +146,46 @@ class ExperimentalMatchedControlTests(unittest.TestCase):
         value["evidence_refs"][0]["raw_log"] = "marker body"
         with self.assertRaises(ValidationError):
             validate_experimental_matched_control_candidate(value)
+
+    def test_process_reference_rejects_instruction_bearing_identity_strings(self):
+        injected = "claude --prompt SECRET_INSTRUCTION_BODY"
+        for field in ("command", "executable_path", "start", "kernel_birth_id"):
+            with self.subTest(field=field):
+                value = candidate()
+                value["activated"]["process"][field] = injected
+                with self.assertRaisesRegex(
+                    ValidationError, "process reference fields"
+                ):
+                    validate_experimental_matched_control_candidate(value)
+
+        value = candidate()
+        value["activated"]["process"]["process_identity_sha256"] = injected
+        with self.assertRaises(ValidationError):
+            validate_experimental_matched_control_candidate(value)
+        serialized = json.dumps(
+            validate_experimental_matched_control_candidate(candidate()),
+            sort_keys=True,
+        )
+        self.assertNotIn("SECRET_INSTRUCTION_BODY", serialized)
+        self.assertNotIn("--prompt", serialized)
+
+    def test_evidence_paths_are_source_defined_and_reject_body_or_controls(self):
+        injected_paths = (
+            "candidate/claude --prompt SECRET_INSTRUCTION_BODY.json",
+            "candidate/01-compiled_marker_binding.json\nSECRET_INSTRUCTION_BODY",
+            "candidate/01-compiled_marker_binding.json\x00SECRET_INSTRUCTION_BODY",
+        )
+        for injected in injected_paths:
+            with self.subTest(path=repr(injected)):
+                value = candidate()
+                value["evidence_refs"][0]["path"] = injected
+                with self.assertRaisesRegex(ValidationError, "reference order"):
+                    validate_experimental_matched_control_candidate(value)
+        serialized = json.dumps(
+            validate_experimental_matched_control_candidate(candidate()),
+            sort_keys=True,
+        )
+        self.assertNotIn("SECRET_INSTRUCTION_BODY", serialized)
 
     def test_missing_reordered_or_authoritative_claims_fail_closed(self):
         value = candidate()
