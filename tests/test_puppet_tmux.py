@@ -325,9 +325,11 @@ class TmuxTransportTests(unittest.TestCase):
             for target, config_name in (
                 ("codex", "CODEX_HOME"),
                 ("claude", "CLAUDE_CONFIG_DIR"),
+                ("cursor", "CURSOR_CONFIG_DIR"),
+                ("cursor", "CURSOR_DATA_DIR"),
                 ("grok", "GROK_HOME"),
             ):
-                config_root = lane_root / (target + "-config")
+                config_root = lane_root / (target + "-" + config_name.lower())
                 config_root.mkdir()
                 config_root = config_root.resolve()
                 selected = select_launch_environment(
@@ -355,6 +357,17 @@ class TmuxTransportTests(unittest.TestCase):
                                 target=target,
                                 bindings={control_name: bad_control},
                             )
+            cursor_store = select_launch_environment(
+                target="cursor",
+                bindings={"AGENT_CLI_CREDENTIAL_STORE": "file"},
+            )
+            self.assertEqual(cursor_store["AGENT_CLI_CREDENTIAL_STORE"], "file")
+            for bad_store in ("keychain", "memory", ""):
+                with self.assertRaisesRegex(ValidationError, "exact file"):
+                    select_launch_environment(
+                        target="cursor",
+                        bindings={"AGENT_CLI_CREDENTIAL_STORE": bad_store},
+                    )
             for name in (
                 "FOO",
                 "PWD",

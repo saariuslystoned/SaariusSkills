@@ -30,10 +30,11 @@ security, secrets, spending, and destructive actions separately gated.
    with `adapter_lab.py qualify` and the accepted receipt from that probe. A
    probe also requires the separately supplied campaign ID, canonical goal
    repository root, and exact repository/commit/path/SHA-256 goal tuple.
-5. Run `puppet.py doctor`. Stop on an active target/store lock, ambiguous
-   executable identity, incomplete unrestricted mapping, missing sandbox-off
-   control, prompt-in-argv transport, dirty or overlapping worktree, or missing
-   proof-root writability.
+5. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
+   invalid, unauthenticated, or adapter-mismatched private profile; an active
+   target/store lock; ambiguous executable identity; incomplete unrestricted
+   mapping; missing sandbox-off control; prompt-in-argv transport; dirty or
+   overlapping worktree; or missing proof-root writability.
 6. Run at most one live lane per harness target and one mutation owner per
    source slice. Different harness targets may proceed independently only with
    their own leases, isolated worktrees, state, sessions, and proof roots.
@@ -60,6 +61,11 @@ After the operator completes that account action, use `profile-status` to retain
 only an allowlisted login state. Codex, Claude, Cursor, and Grok have current
 private-profile recipes. AGY stays unsupported here until its installed CLI
 exposes an authentication-preserving private config-root selector.
+`doctor` and `launch` require the selected profile explicitly. `launch` passes
+only that profile's closed home/config environment to the exact target and
+revalidates its manifest, executable, directory identities, login state, and
+environment fingerprint immediately before target start. It never falls back
+to an operator-global harness home.
 
 ## Operate a session
 

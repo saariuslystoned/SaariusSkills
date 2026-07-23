@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
 
@@ -37,6 +38,10 @@ PROFILE_SCHEMA = "puppet.subscription-profile/v1"
 STATUS_SCHEMA = "puppet.subscription-profile-status/v1"
 MAX_STATUS_OUTPUT_BYTES = 16384
 STATUS_TIMEOUT_SECONDS = 20
+LAUNCH_BINDING_SCHEMA = "puppet.subscription-launch-binding/v1"
+
+_BASE_LAUNCH_ENVIRONMENT_NAMES = frozenset({"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"})
+_LOGIN_ONLY_ENVIRONMENT_NAMES = frozenset({"NO_OPEN_BROWSER"})
 
 _PROFILE_LAYOUTS: Mapping[str, tuple[str, ...]] = {
     "codex": ("home", "config", "tmp"),
@@ -44,6 +49,20 @@ _PROFILE_LAYOUTS: Mapping[str, tuple[str, ...]] = {
     "cursor": ("home", "config", "data", "tmp"),
     "grok": ("home", "config", "tmp"),
 }
+
+
+@dataclass(frozen=True)
+class SubscriptionLaunchContext:
+    """Exact private profile values separated from body-free public binding."""
+
+    target: str
+    profile_root: Path
+    manifest_path: Path
+    manifest_sha256: str
+    executable: Mapping[str, Any]
+    source_environment: Mapping[str, str] = field(repr=False)
+    bindings: Mapping[str, str] = field(repr=False)
+    public_binding: Mapping[str, Any]
 
 
 def _private_directory(path: Path, *, label: str, create: bool) -> Dict[str, Any]:
@@ -588,6 +607,14 @@ def subscription_profile_status(*, profile_root: Path | str) -> Dict[str, Any]:
             environment=manifest["bindings"],
             cwd=Path(manifest["root"]["path"]),
         )
+    return _public_status(manifest, result)
+
+
+def _public_status(
+    manifest: Mapping[str, Any], result: subprocess.CompletedProcess[bytes]
+) -> Dict[str, Any]:
+    """Reduce native status output to the allowlisted body-free schema."""
+
     parsed = _parse_status(manifest["target"], result)
     return {
         "schema": STATUS_SCHEMA,
@@ -607,6 +634,117 @@ def subscription_profile_status(*, profile_root: Path | str) -> Dict[str, Any]:
         "login_performed": False,
         "model_launched": False,
     }
+
+
+def _launch_context_from_manifest(
+    *,
+    manifest: Dict[str, Any],
+    manifest_path: Path,
+    expected_target: str,
+    expected_executable_path: Path | str,
+) -> SubscriptionLaunchContext:
+    if manifest["target"] != expected_target:
+        raise IdentityError("subscription profile target does not match adapter")
+    try:
+        resolved_expected_executable = Path(expected_executable_path).resolve(
+            strict=True
+        )
+    except (OSError, RuntimeError) as exc:
+        raise ValidationError(
+            "expected subscription profile executable is unavailable"
+        ) from exc
+    expected_executable = execution_file_identity(resolved_expected_executable)
+    if manifest["executable"] != expected_executable:
+        raise IdentityError("subscription profile executable does not match adapter")
+    manifest_sha256 = sha256_bytes(canonical_json_bytes(manifest))
+    source_environment = {
+        name: manifest["bindings"][name]
+        for name in sorted(_BASE_LAUNCH_ENVIRONMENT_NAMES)
+    }
+    bindings = {
+        name: value
+        for name, value in manifest["bindings"].items()
+        if name not in _BASE_LAUNCH_ENVIRONMENT_NAMES
+        and name not in _LOGIN_ONLY_ENVIRONMENT_NAMES
+    }
+    public_binding = {
+        "schema": LAUNCH_BINDING_SCHEMA,
+        "target": manifest["target"],
+        "profile_root": manifest["root"]["path"],
+        "root_identity": manifest["root"],
+        "directory_identities": manifest["directories"],
+        "manifest_path": str(manifest_path.resolve(strict=True)),
+        "manifest_sha256": manifest_sha256,
+        "executable": manifest["executable"],
+        "launch_environment_names": sorted(
+            [*source_environment.keys(), *bindings.keys()]
+        ),
+        "login_only_environment_names": sorted(
+            name
+            for name in manifest["bindings"]
+            if name in _LOGIN_ONLY_ENVIRONMENT_NAMES
+        ),
+    }
+    return SubscriptionLaunchContext(
+        target=manifest["target"],
+        profile_root=Path(manifest["root"]["path"]),
+        manifest_path=manifest_path.resolve(strict=True),
+        manifest_sha256=manifest_sha256,
+        executable=manifest["executable"],
+        source_environment=source_environment,
+        bindings=bindings,
+        public_binding=public_binding,
+    )
+
+
+def subscription_profile_launch_context(
+    *,
+    profile_root: Path | str,
+    expected_target: str,
+    expected_executable_path: Path | str,
+) -> SubscriptionLaunchContext:
+    """Revalidate one profile and return its exact closed launch context."""
+
+    expected_target = validate_identifier(expected_target, "profile target")
+    root = _private_directory(Path(profile_root), label="profile root", create=False)
+    manifest_path = Path(root["path"]) / "profile.json"
+    lock_path = Path(root["path"]) / ".profile-init.lock"
+    with exclusive_lock(lock_path):
+        manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+        return _launch_context_from_manifest(
+            manifest=manifest,
+            manifest_path=manifest_path,
+            expected_target=expected_target,
+            expected_executable_path=expected_executable_path,
+        )
+
+
+def subscription_profile_preflight(
+    *,
+    profile_root: Path | str,
+    expected_target: str,
+    expected_executable_path: Path | str,
+) -> tuple[SubscriptionLaunchContext, Dict[str, Any]]:
+    """Atomically bind one launch context to its native auth status sample."""
+
+    expected_target = validate_identifier(expected_target, "profile target")
+    root = _private_directory(Path(profile_root), label="profile root", create=False)
+    manifest_path = Path(root["path"]) / "profile.json"
+    lock_path = Path(root["path"]) / ".profile-init.lock"
+    with exclusive_lock(lock_path):
+        manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+        context = _launch_context_from_manifest(
+            manifest=manifest,
+            manifest_path=manifest_path,
+            expected_target=expected_target,
+            expected_executable_path=expected_executable_path,
+        )
+        result = _bounded_status_run(
+            manifest["commands"]["status"],
+            environment=manifest["bindings"],
+            cwd=Path(manifest["root"]["path"]),
+        )
+        return context, _public_status(manifest, result)
 
 
 def execute_subscription_profile_login(
@@ -638,10 +776,14 @@ def execute_subscription_profile_login(
 
 
 __all__ = [
+    "LAUNCH_BINDING_SCHEMA",
     "MAX_STATUS_OUTPUT_BYTES",
     "PROFILE_SCHEMA",
     "STATUS_SCHEMA",
+    "SubscriptionLaunchContext",
     "execute_subscription_profile_login",
     "initialize_subscription_profile",
+    "subscription_profile_launch_context",
+    "subscription_profile_preflight",
     "subscription_profile_status",
 ]

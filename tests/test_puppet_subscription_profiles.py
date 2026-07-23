@@ -18,10 +18,12 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError  # noqa: E402
 from puppet_lib.subscription_profiles import (  # noqa: E402
+    LAUNCH_BINDING_SCHEMA,
     MAX_STATUS_OUTPUT_BYTES,
     PROFILE_SCHEMA,
     execute_subscription_profile_login,
     initialize_subscription_profile,
+    subscription_profile_launch_context,
     subscription_profile_status,
 )
 
@@ -245,6 +247,47 @@ class SubscriptionProfileTests(unittest.TestCase):
             os.chmod(profile / "config", 0o755)
             with self.assertRaisesRegex(Exception, "mode-0700"):
                 subscription_profile_status(profile_root=profile)
+
+    def test_launch_context_separates_login_only_values_and_binds_adapter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            other = Path(temporary) / "other harness"
+            other.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            other.chmod(0o700)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="cursor", profile_root=profile, executable_path=executable
+            )
+            context = subscription_profile_launch_context(
+                profile_root=profile,
+                expected_target="cursor",
+                expected_executable_path=executable,
+            )
+            self.assertEqual(context.public_binding["schema"], LAUNCH_BINDING_SCHEMA)
+            self.assertEqual(
+                set(context.source_environment),
+                {"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"},
+            )
+            self.assertEqual(context.bindings["AGENT_CLI_CREDENTIAL_STORE"], "file")
+            self.assertIn("CURSOR_CONFIG_DIR", context.bindings)
+            self.assertIn("CURSOR_DATA_DIR", context.bindings)
+            self.assertNotIn("NO_OPEN_BROWSER", context.bindings)
+            self.assertEqual(
+                context.public_binding["login_only_environment_names"],
+                ["NO_OPEN_BROWSER"],
+            )
+            with self.assertRaisesRegex(IdentityError, "target does not match"):
+                subscription_profile_launch_context(
+                    profile_root=profile,
+                    expected_target="codex",
+                    expected_executable_path=executable,
+                )
+            with self.assertRaisesRegex(IdentityError, "does not match adapter"):
+                subscription_profile_launch_context(
+                    profile_root=profile,
+                    expected_target="cursor",
+                    expected_executable_path=other,
+                )
 
 
 if __name__ == "__main__":

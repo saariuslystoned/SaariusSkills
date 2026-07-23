@@ -67,6 +67,9 @@ from puppet_lib.profiles import (  # noqa: E402
     startup_settle_seconds_for,
 )
 from puppet_lib.safety import sha256_file  # noqa: E402
+from puppet_lib.subscription_profiles import (  # noqa: E402
+    initialize_subscription_profile,
+)
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
@@ -91,6 +94,7 @@ def write_json(path: Path, value):
 def launch(**kwargs):
     kwargs.setdefault("_sleep_fn", lambda _interval: None)
     kwargs.setdefault("_execution_sleep_fn", lambda _interval: None)
+    kwargs.setdefault("require_subscription_profile", False)
     return _launch(**kwargs)
 
 
@@ -380,6 +384,100 @@ class SessionIntegrationTests(unittest.TestCase):
         )
         authority_patcher.start()
         self.addCleanup(authority_patcher.stop)
+
+    @staticmethod
+    def _logged_in_codex_status():
+        return subprocess.CompletedProcess(
+            [], 0, stdout=b"Logged in using ChatGPT\n", stderr=None
+        )
+
+    def test_production_profile_is_required_authenticated_and_proof_bound(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-private-profile"
+            candidate = initialize_repo(
+                root / "candidate", "codex/private-profile", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/private-profile",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            missing = puppet_session.doctor(
+                contract_path=files["contract"],
+                manifest_path=files["manifest"],
+                authorization_path=files["authorization"],
+                proof_root=files["proof"],
+                state_root=files["state"],
+                require_subscription_profile=True,
+            )
+            self.assertFalse(missing["launch_ready"])
+            self.assertIn(
+                "an explicit private subscription profile is required",
+                missing["blockers"],
+            )
+            profile = root / "private-profile"
+            initialize_subscription_profile(
+                target="codex",
+                profile_root=profile,
+                executable_path=Path("/bin/cat").resolve(strict=True),
+            )
+            socket = None
+            try:
+                with patch(
+                    "puppet_lib.subscription_profiles._bounded_status_run",
+                    return_value=self._logged_in_codex_status(),
+                ):
+                    ready = puppet_session.doctor(
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        profile_root=profile,
+                        require_subscription_profile=True,
+                    )
+                    self.assertTrue(ready["launch_ready"], ready["blockers"])
+                    self.assertEqual(
+                        ready["subscription_profile"]["status"]["login_state"],
+                        "logged_in",
+                    )
+                    launched = launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Exercise the exact private profile.",
+                        profile_root=profile,
+                        require_subscription_profile=True,
+                    )
+                self.assertEqual(launched["state"], "ACTIVE")
+                record = SessionRegistry(files["state"]).load(session)
+                socket = record["tmux"]["socket"]
+                binding = json.loads(
+                    (files["proof"] / "subscription-profile.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(binding["status"]["login_state"], "logged_in")
+                started = next(
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                    if row["event"].get("phase") == "target_started"
+                )
+                self.assertEqual(
+                    started["launch_identity"]["env_names"],
+                    ["CODEX_HOME", "HOME", "LANG", "LC_ALL", "PATH", "TMPDIR"],
+                )
+                self.assertIsNotNone(started["subscription_profile_sha256"])
+            finally:
+                kill_test_server(socket)
 
     def test_conformance_contract_v2_rejects_legacy_future_and_mixed_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -680,6 +778,7 @@ class SessionIntegrationTests(unittest.TestCase):
                         state_root=files["state"],
                         supervisor_executable=files["supervisor_executable"],
                         prompt="Never deliver this after instruction drift.",
+                        require_subscription_profile=False,
                         _sleep_fn=tamper,
                     )
                 record = SessionRegistry(files["state"]).load(session)

@@ -40,6 +40,8 @@ def _doctor(args):
         authorization_path=args.authorization,
         proof_root=args.proof_root,
         state_root=args.state_root,
+        profile_root=args.profile_root,
+        require_subscription_profile=True,
     )
 
 
@@ -58,6 +60,8 @@ def _launch(args):
         prompt=prompt,
         requested_model=args.model,
         requested_effort=args.effort,
+        profile_root=args.profile_root,
+        require_subscription_profile=True,
     )
 
 
@@ -180,6 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--authorization", required=True, type=_path)
     doctor_parser.add_argument("--proof-root", required=True, type=_path)
     doctor_parser.add_argument("--state-root", required=True, type=_path)
+    doctor_parser.add_argument(
+        "--profile-root",
+        required=True,
+        type=_path,
+        help="exact Puppet-owned private subscription profile",
+    )
     doctor_parser.set_defaults(handler=_doctor)
 
     launch_parser = commands.add_parser("launch", help="launch a verified target")
@@ -190,6 +200,12 @@ def build_parser() -> argparse.ArgumentParser:
     launch_parser.add_argument("--proof-root", required=True, type=_path)
     launch_parser.add_argument("--state-root", required=True, type=_path)
     launch_parser.add_argument("--prompt-file", required=True, type=_path)
+    launch_parser.add_argument(
+        "--profile-root",
+        required=True,
+        type=_path,
+        help="exact authenticated Puppet-owned private subscription profile",
+    )
     launch_parser.add_argument("--model")
     launch_parser.add_argument("--effort")
     launch_parser.set_defaults(handler=_launch)

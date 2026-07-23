@@ -56,7 +56,13 @@ TARGET_ENVIRONMENT_EXTENSIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         "agy": frozenset(),
         "codex": frozenset({"CODEX_HOME"}),
         "claude": frozenset({"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"}),
-        "cursor": frozenset(),
+        "cursor": frozenset(
+            {
+                "CURSOR_CONFIG_DIR",
+                "CURSOR_DATA_DIR",
+                "AGENT_CLI_CREDENTIAL_STORE",
+            }
+        ),
         "grok": frozenset({"GROK_HOME", "GROK_DISABLE_AUTOUPDATER"}),
     }
 )
@@ -65,11 +71,18 @@ _RESTRICTED_ENVIRONMENT_NAMES = frozenset({"PWD", "OLDPWD", "TMUX", "TERM"})
 _SENSITIVE_NAME_PARTS = ("SECRET", "TOKEN", "KEY", "PASSWORD")
 _MAX_ENVIRONMENT_VALUE = 32768
 _CONFIG_ROOT_ENVIRONMENT_NAMES = frozenset(
-    {"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME"}
+    {
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "CURSOR_CONFIG_DIR",
+        "CURSOR_DATA_DIR",
+        "GROK_HOME",
+    }
 )
 _TRUE_ENVIRONMENT_NAMES = frozenset(
     {"CLAUDE_CODE_DISABLE_AUTO_MEMORY", "GROK_DISABLE_AUTOUPDATER"}
 )
+_FILE_CREDENTIAL_STORE_ENVIRONMENT_NAMES = frozenset({"AGENT_CLI_CREDENTIAL_STORE"})
 _LAUNCH_PLAN_FIELDS = {
     "schema_version",
     "kind",
@@ -110,6 +123,10 @@ def _validate_environment_value(
         raise ValidationError("launch environment value is invalid")
     if name in _TRUE_ENVIRONMENT_NAMES and value != "true":
         raise ValidationError("launch control environment value must be exact true")
+    if name in _FILE_CREDENTIAL_STORE_ENVIRONMENT_NAMES and value != "file":
+        raise ValidationError(
+            "launch credential-store environment value must be exact file"
+        )
     if name in _CONFIG_ROOT_ENVIRONMENT_NAMES:
         if admitted_lane_root is None:
             raise ValidationError(

@@ -63,7 +63,11 @@ from .safety import (
     validate_identifier,
 )
 from .state import is_terminal, transition
-from .tmux import TmuxController
+from .subscription_profiles import (
+    SubscriptionLaunchContext,
+    subscription_profile_preflight,
+)
+from .tmux import TargetLaunch, TmuxController
 from .verdicts import (
     record_acceptance,
     record_review,
@@ -598,6 +602,69 @@ def _workspace_snapshot(contract: Contract) -> Dict[str, Any]:
     }
 
 
+def _profile_doctor_state(
+    *,
+    profile_root: Optional[Path],
+    contract: Contract,
+    manifest: AdapterManifest,
+    require_subscription_profile: bool,
+) -> Tuple[Optional[SubscriptionLaunchContext], Optional[Dict[str, Any]], List[str]]:
+    """Return body-free profile state and blockers without leaking status output."""
+
+    if profile_root is None:
+        return (
+            None,
+            None,
+            (
+                ["an explicit private subscription profile is required"]
+                if require_subscription_profile
+                else []
+            ),
+        )
+    if contract.target == "agy":
+        return (
+            None,
+            None,
+            [
+                "AGY has no proved authentication-preserving private "
+                "subscription profile"
+            ],
+        )
+    try:
+        context, status = subscription_profile_preflight(
+            profile_root=profile_root,
+            expected_target=contract.target,
+            expected_executable_path=manifest.raw["executable"]["resolved_path"],
+        )
+    except (ConflictError, IdentityError, UnsupportedError, ValidationError):
+        return (
+            None,
+            None,
+            ["private subscription profile is invalid or unavailable"],
+        )
+    blockers = []
+    if status["login_state"] != "logged_in":
+        blockers.append("private subscription profile is not authenticated")
+    public_status = {
+        name: status[name]
+        for name in (
+            "schema",
+            "target",
+            "profile_root",
+            "login_state",
+            "method",
+            "provider",
+            "default_model",
+            "status_exit",
+            "raw_output_retained",
+            "login_performed",
+            "model_launched",
+        )
+        if name in status
+    }
+    return context, public_status, blockers
+
+
 def doctor(
     *,
     contract_path: Path,
@@ -605,6 +672,8 @@ def doctor(
     authorization_path: Path,
     proof_root: Path,
     state_root: Path,
+    profile_root: Optional[Path] = None,
+    require_subscription_profile: bool = True,
 ) -> Dict[str, Any]:
     contract = Contract.from_path(contract_path)
     manifest = AdapterManifest.from_path(manifest_path)
@@ -621,6 +690,13 @@ def doctor(
         blockers.append("resolved executable is unavailable or a symlink")
     elif sha256_file(executable) != manifest.raw["executable"]["sha256"]:
         blockers.append("executable fingerprint drifted")
+    profile_context, profile_status, profile_blockers = _profile_doctor_state(
+        profile_root=profile_root,
+        contract=contract,
+        manifest=manifest,
+        require_subscription_profile=require_subscription_profile,
+    )
+    blockers.extend(profile_blockers)
     if not TmuxController.available():
         blockers.append("tmux is unavailable")
     workspace = _workspace_snapshot(contract)
@@ -699,6 +775,14 @@ def doctor(
         "session_profile": contract.session_profile,
         "contract_fingerprint": contract.fingerprint,
         "manifest_fingerprint": manifest.fingerprint,
+        "subscription_profile": (
+            {
+                **dict(profile_context.public_binding),
+                "status": profile_status,
+            }
+            if profile_context is not None and profile_status is not None
+            else None
+        ),
         "repo": str(contract.repo),
         "branch": branch,
         "head": head,
@@ -728,6 +812,8 @@ def launch(
     prompt: str,
     requested_model: Optional[str] = None,
     requested_effort: Optional[str] = None,
+    profile_root: Optional[Path] = None,
+    require_subscription_profile: bool = True,
     _sleep_fn: Any = time.sleep,
     _execution_sleep_fn: Any = time.sleep,
     _execution_monotonic_fn: Any = time.monotonic,
@@ -743,6 +829,8 @@ def launch(
         authorization_path=authorization_path,
         proof_root=proof_root,
         state_root=state_root,
+        profile_root=profile_root,
+        require_subscription_profile=require_subscription_profile,
     )
     if report["target"] == "grok":
         # Defense in depth: no generic launch path may inherit an operator HOME
@@ -781,6 +869,20 @@ def launch(
     effective_effort = contract.requested_effort
     adapter = adapter_for(contract.target)
     argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
+    profile_context: Optional[SubscriptionLaunchContext] = None
+    profile_status: Optional[Dict[str, Any]] = None
+    if profile_root is not None:
+        profile_context, profile_status = subscription_profile_preflight(
+            profile_root=profile_root,
+            expected_target=contract.target,
+            expected_executable_path=manifest.raw["executable"]["resolved_path"],
+        )
+        if profile_status["login_state"] != "logged_in":
+            raise IdentityError(
+                "private subscription profile authentication changed after preflight"
+            )
+    elif require_subscription_profile:
+        raise UnsupportedError("an explicit private subscription profile is required")
     proof_root = absolute_root(str(proof_root), "proof root")
     state_root = absolute_root(str(state_root), "state root")
     contract_copy = _bind_json(
@@ -790,6 +892,35 @@ def launch(
         proof_root / "adapter-manifest.json", manifest.raw, "adapter manifest"
     )
     manifest = AdapterManifest.from_path(manifest_copy)
+    profile_binding_sha: Optional[str] = None
+    if profile_context is not None and profile_status is not None:
+        public_status = {
+            name: profile_status[name]
+            for name in (
+                "schema",
+                "target",
+                "profile_root",
+                "login_state",
+                "method",
+                "provider",
+                "default_model",
+                "status_exit",
+                "raw_output_retained",
+                "login_performed",
+                "model_launched",
+            )
+            if name in profile_status
+        }
+        profile_binding = {
+            **dict(profile_context.public_binding),
+            "status": public_status,
+        }
+        profile_copy = _bind_json(
+            proof_root / "subscription-profile.json",
+            profile_binding,
+            "subscription profile binding",
+        )
+        profile_binding_sha = sha256_file(profile_copy, max_bytes=131072)
     supervisor = _supervisor_identity(supervisor_executable, contract.supervisor_root)
     protocol = _protocol_state(contract, manifest, session)
     compiled = compile_instruction_wrapper(
@@ -855,6 +986,13 @@ def launch(
         target=contract.target,
         repo=contract.repo,
         argv=argv,
+        source_environment=(
+            profile_context.source_environment if profile_context is not None else None
+        ),
+        bindings=(profile_context.bindings if profile_context is not None else None),
+        admitted_lane_root=(
+            profile_context.profile_root if profile_context is not None else None
+        ),
     )
     manifest.verify_launch_execution_environment(launch_environment)
     registry = SessionRegistry(state_root)
@@ -906,9 +1044,50 @@ def launch(
                 "effective_contract_fingerprint": compiled.manifest[
                     "effective_contract_fingerprint"
                 ],
+                "subscription_profile_sha256": profile_binding_sha,
             },
         )
         launch_attempted = True
+
+    def revalidate_before_target_start() -> TargetLaunch:
+        if profile_context is None:
+            return TargetLaunch(
+                argv=list(argv),
+                environment=dict(launch_environment),
+                launch_identity=dict(launch_identity),
+            )
+        refreshed, refreshed_status = subscription_profile_preflight(
+            profile_root=profile_context.profile_root,
+            expected_target=contract.target,
+            expected_executable_path=manifest.raw["executable"]["resolved_path"],
+        )
+        if refreshed_status["login_state"] != "logged_in":
+            raise IdentityError(
+                "private subscription profile authentication changed before target start"
+            )
+        refreshed_environment, refreshed_identity = build_launch_identity(
+            target=contract.target,
+            repo=contract.repo,
+            argv=argv,
+            source_environment=refreshed.source_environment,
+            bindings=refreshed.bindings,
+            admitted_lane_root=refreshed.profile_root,
+        )
+        manifest.verify_launch_execution_environment(refreshed_environment)
+        if (
+            refreshed.manifest_sha256 != profile_context.manifest_sha256
+            or refreshed.public_binding != profile_context.public_binding
+            or refreshed_environment != launch_environment
+            or refreshed_identity != launch_identity
+        ):
+            raise IdentityError(
+                "private subscription profile launch context changed before target start"
+            )
+        return TargetLaunch(
+            argv=list(argv),
+            environment=refreshed_environment,
+            launch_identity=refreshed_identity,
+        )
 
     operation_guard = exclusive_lock(registry.operation_lock(session))
     operation_guard.__enter__()
@@ -928,7 +1107,11 @@ def launch(
             repo=contract.repo,
             argv=argv,
             environment=launch_environment,
+            admitted_lane_root=(
+                profile_context.profile_root if profile_context is not None else None
+            ),
             before_start=admit_before_start,
+            before_target_start=revalidate_before_target_start,
         )
         if metadata.get("launch_identity") != launch_identity:
             raise IdentityError("tmux launch context identity is invalid")
@@ -1038,6 +1221,7 @@ def launch(
                 "target_pid": process["pid"],
                 "tmux_target_id": metadata["pane"],
                 "launch_identity": metadata["launch_identity"],
+                "subscription_profile_sha256": profile_binding_sha,
             },
         )
         settle_seconds = startup_settle_seconds_for(contract.target)

@@ -49,6 +49,10 @@ class PuppetCLITests(unittest.TestCase):
         result = self._run_cli(["profile-status", "--help"])
         self.assertEqual(result.returncode, 0)
         self.assertIn("--profile-root", result.stdout)
+        for command in ("doctor", "launch"):
+            result = self._run_cli([command, "--help"])
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("--profile-root", result.stdout)
 
     def test_promote_and_close_remain_unsupported(self):
         for command in ("promote", "close"):
