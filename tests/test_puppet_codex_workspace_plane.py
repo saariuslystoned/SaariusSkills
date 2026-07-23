@@ -226,6 +226,7 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
         )
         self.assertEqual(admitted["session"], self.expected_run_identity["session"])
         self.assertEqual(admitted["run_id"], self.expected_run_identity["run_id"])
+        self.assertEqual(raw["run_identity"], self.expected_run_identity)
         self.assertEqual(admitted["cwd"], workspace)
         self.assertEqual(admitted["env_names"], ["CODEX_HOME"])
         self.assertEqual(
@@ -437,6 +438,37 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                 )
                 with self.assertRaises((IdentityError, UnsupportedError)):
                     CodexWorkspacePlan.from_dict(changed)
+
+    def test_admitted_session_and_run_must_match_canonical_run_identity(self):
+        raw = self._plan().to_dict()
+        for name, value in (
+            ("session", "alternate-session"),
+            ("run_id", "alternate-run"),
+        ):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(raw)
+                changed["admitted_launch_plan"][name] = value
+                changed["plan_sha256"] = sha256_bytes(
+                    canonical_json_bytes(
+                        {
+                            key: item
+                            for key, item in changed.items()
+                            if key != "plan_sha256"
+                        }
+                    )
+                )
+                with self.assertRaises(IdentityError):
+                    CodexWorkspacePlan.from_dict(changed)
+
+        changed = copy.deepcopy(raw)
+        changed["run_identity"]["session"] = "alternate-session"
+        changed["plan_sha256"] = sha256_bytes(
+            canonical_json_bytes(
+                {key: item for key, item in changed.items() if key != "plan_sha256"}
+            )
+        )
+        with self.assertRaisesRegex(IdentityError, "run identity changed"):
+            CodexWorkspacePlan.from_dict(changed)
 
     def test_root_replacement_and_context_drift_fail_revalidation(self):
         plan = self._plan()

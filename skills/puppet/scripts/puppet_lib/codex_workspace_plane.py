@@ -90,6 +90,7 @@ _PLAN_FIELDS = {
     "instruction_manifest_sha256",
     "contract_identity_sha256",
     "workspace_identity_sha256",
+    "run_identity",
     "run_identity_sha256",
     "instruction_policy_fingerprint",
     "effective_contract_fingerprint",
@@ -361,10 +362,18 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
     expected_delta = {"argv": ["-C", workspace["path"]]}
     if value.get("launch_delta") != expected_delta:
         raise IdentityError("Codex workspace launch delta changed")
+    run_identity = _expected_run_identity(value.get("run_identity"))
+    run_identity_sha256 = validate_sha256(
+        value.get("run_identity_sha256"), "run identity sha256"
+    )
+    if run_identity_sha256 != sha256_bytes(canonical_json_bytes(run_identity)):
+        raise IdentityError("Codex workspace run identity changed")
     admitted_value = value.get("admitted_launch_plan")
     admitted = validate_admitted_launch_plan(
         admitted_value,
         expected_target="codex",
+        expected_session=run_identity["session"],
+        expected_run_id=run_identity["run_id"],
     )
     expected_admitted = _build_codex_admitted_plan(
         session=admitted["session"],
@@ -433,9 +442,8 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
             value.get("workspace_identity_sha256"),
             "workspace identity sha256",
         ),
-        "run_identity_sha256": validate_sha256(
-            value.get("run_identity_sha256"), "run identity sha256"
-        ),
+        "run_identity": run_identity,
+        "run_identity_sha256": run_identity_sha256,
         "instruction_policy_fingerprint": validate_sha256(
             value.get("instruction_policy_fingerprint"),
             "instruction policy fingerprint",
@@ -586,6 +594,7 @@ def plan_codex_workspace_plane(
         "workspace_identity_sha256": sha256_bytes(
             canonical_json_bytes(workspace_identity)
         ),
+        "run_identity": run_identity,
         "run_identity_sha256": sha256_bytes(canonical_json_bytes(run_identity)),
         "instruction_policy_fingerprint": manifest["instruction_policy_fingerprint"],
         "effective_contract_fingerprint": manifest["effective_contract_fingerprint"],
