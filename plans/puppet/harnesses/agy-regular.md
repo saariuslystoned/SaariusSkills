@@ -123,7 +123,15 @@ unprefixed message. It is not one of the three instruction planes.
   workspace root, with planned `--agent puppet-<rendered-sha>`. Its status is
   factual but `activation: disabled`; exact validation rejects global/config
   roots, unnamespaced paths, selector drift, activation changes, and blocker
-  removal. No launcher, materializer, or qualification consumer accepts it.
+  removal.
+- `puppet_lib.agy_workspace_plane` now supplies a source-only, body-free join
+  from that descriptor to the shipped compiler bytes/manifest, exact Pass-B
+  contract/run identities, a current-UID `0700` workspace root recaptured by
+  no-follow directory descriptors, the exact current doctor manifest and
+  adapter/protocol/execution tuple, and the immutable regular-session verdict.
+  Its public record fixes materialization, activation, launch, and
+  qualification authority to false. No launcher, materializer, probe, session,
+  or qualification consumer accepts it.
 - A fixture must use a Puppet-namespaced custom agent, add only scoped
   orchestration guidance without replacing repository authority, and prove
   selector behavior, discovery order, built-in retention, and cleanup.
@@ -177,6 +185,10 @@ The following is a future proof design, not an executable Puppet path:
 - Keep the pure AGY verdict and the unconditional doctor, launch, probe, and
   qualification fences in place until every blocker above is independently
   closed.
+- Preserve the source-only compiler/workspace binding as provenance only. It
+  must continue to rederive workspace inode identity and the regular verdict on
+  every record read, and must not become an admitted launch plan while config
+  isolation and a positive sandbox-off control remain absent.
 - Add explicit regular-plane fixture proving steps for
   `session_profile=regular` only after a separately reviewed source change
   makes the live proof lane eligible.
