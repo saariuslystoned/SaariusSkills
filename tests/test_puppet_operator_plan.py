@@ -361,6 +361,58 @@ class OperatorPlanTests(unittest.TestCase):
             with self.assertRaisesRegex(IdentityError, "clean linked Git worktree"):
                 compile_operator_plan(**unlinked.kwargs(), repo=unlinked.repo)
 
+    def test_mutating_plan_binds_candidate_to_named_supervisor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = OperatorPlanFixture(root, mutating=True)
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+            self.assertEqual(
+                plan["repository"]["git_common_dir"],
+                plan["supervisor_repository"]["git_common_dir"],
+            )
+            unrelated = _initialize_repo(root / "unrelated")
+            contract = json.loads(fixture.contract.read_text(encoding="utf-8"))
+            contract["supervisor_root"] = str(unrelated)
+            _write_json(fixture.contract, contract)
+            with self.assertRaisesRegex(
+                IdentityError,
+                "does not belong to the contract supervisor",
+            ):
+                compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+    def test_repository_fsmonitor_is_never_executed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = OperatorPlanFixture(root)
+            sentinel = root / "fsmonitor-ran"
+            hook = root / "fsmonitor-hook"
+            hook.write_text(
+                "#!/bin/sh\n"
+                + "touch '"
+                + str(sentinel)
+                + "'\n"
+                + "printf '2\\n'\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o700)
+            _git(fixture.repo, "config", "core.fsmonitor", str(hook))
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+            self.assertEqual(plan["repository"]["repo"], str(fixture.repo))
+            self.assertFalse(sentinel.exists())
+
+    def test_profile_root_cannot_overlap_run_state_or_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary))
+            for profile in (fixture.run, fixture.state, fixture.proof):
+                with self.subTest(profile=profile):
+                    kwargs = fixture.kwargs()
+                    kwargs["profile_root"] = profile
+                    with self.assertRaisesRegex(
+                        ValidationError,
+                        "ownership roots must not overlap",
+                    ):
+                        compile_operator_plan(**kwargs, repo=fixture.repo)
+
     def test_agy_plan_keeps_private_profile_setup_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="agy")

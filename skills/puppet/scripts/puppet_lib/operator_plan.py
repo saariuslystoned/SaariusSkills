@@ -121,7 +121,14 @@ def _git_executable() -> Path:
 def _git_output(git: Path, repo: Path, arguments: Sequence[str]) -> str:
     try:
         result = subprocess.run(
-            [str(git), "-C", str(repo), *arguments],
+            [
+                str(git),
+                "-c",
+                "core.fsmonitor=false",
+                "-C",
+                str(repo),
+                *arguments,
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -383,6 +390,19 @@ def compile_operator_plan(
     repo_identity = _repository_identity(selected, require_linked_clean=mutating)
     if repo_identity["branch"] != contract.branch:
         raise IdentityError("selected repository branch differs from the contract")
+    supervisor_identity = None
+    if mutating:
+        supervisor_identity = _repository_identity(
+            contract.supervisor_root,
+            require_linked_clean=False,
+        )
+        if (
+            repo_identity["git_common_dir"]
+            != supervisor_identity["git_common_dir"]
+        ):
+            raise IdentityError(
+                "candidate worktree does not belong to the contract supervisor"
+            )
 
     run = _private_root(run_root, label="run root")
     proof = _private_root(run / "proof", label="proof root")
@@ -390,6 +410,10 @@ def compile_operator_plan(
     profile = _future_profile_root(profile_root)
     if paths_overlap(selected, run) or paths_overlap(selected, profile):
         raise ValidationError("operator roots must remain outside the target repository")
+    if paths_overlap(profile, run) or paths_overlap(proof, state):
+        raise ValidationError(
+            "profile, proof, and state ownership roots must not overlap"
+        )
 
     cli = Path(__file__).resolve(strict=True).parents[1] / "puppet.py"
     cli = cli.resolve(strict=True)
@@ -437,6 +461,7 @@ def compile_operator_plan(
             "cli_sha256": sha256_file(cli),
         },
         "repository": repo_identity,
+        "supervisor_repository": supervisor_identity,
         "roots": {
             "run": str(run),
             "proof": str(proof),
