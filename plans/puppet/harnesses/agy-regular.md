@@ -1,4 +1,4 @@
-# AGY regular-session qualification lane (2026-07-22)
+# AGY regular-session qualification lane (updated 2026-07-23)
 
 Parent: regular-lane packet `plans/puppet/codex-goal-regular-qualification.md`.
 Scope: static census, authoritative documentation, source/tests inspection, and
@@ -49,7 +49,7 @@ intervene in an ordinary non-Puppet AGY session.
   - SHA-256: `6509d6ca54a66e3eaf61dfe35308ba1dfa1e6b552ef5c4f5f861562c6811ecaf`
   - `--version` output: `1.1.5`
   - `version_sha256`: `1c60df040a80b6d2e3f56442b17d127d8620cd773873e6e1353362f989b1deca`
-  - `--help` SHA-256: `61c94e66fc8e651d997c51989dfe411559ebff4630301daa20d41bf8b6d71d88`
+  - `--help` SHA-256: `b208f7290114292858a1944ac90349bcd1f75168eb85c76ac40c8208cea342f5`
   - `--help` reports:
     - `--dangerously-skip-permissions`
     - `--model`
@@ -63,9 +63,14 @@ intervene in an ordinary non-Puppet AGY session.
 - Manifest-derived control mapping (`census_target`):
   - `permission_flags`: [`--dangerously-skip-permissions`]
   - `project_isolation_flags`: [`--new-project`]
-  - `sandbox_disable_declared`: false. `--sandbox` enables terminal
-    restrictions, while a persistent `enableTerminalSandbox` setting can also
-    enable them; omission is not a controller proof of sandbox-off.
+  - `sandbox_flags`: [`--sandbox=false`]
+  - `sandbox_disable_declared`: true at the parser/declaration layer. The
+    zero-agent census requires exact `--sandbox=false help` acceptance and
+    rejects `--sandbox=puppet-invalid help`; Google documents that command-line
+    overrides supersede persistent preferences and that
+    `enableTerminalSandbox` is a boolean setting. Runtime semantics remain part
+    of the later conformance probe and do not remove the
+    `agy_sandbox_off_unproved` launch fence by themselves.
   - `project_isolation_declared`: true
   - `prompt_transport`: `interactive_tmux_load_buffer_stdin_declared`
   - `model_flag`: `--model`
@@ -74,7 +79,7 @@ intervene in an ordinary non-Puppet AGY session.
   - `startup_settle_seconds`: `8.0`
   - `submit_settle_seconds`: `1.0`
   - `launch_argv`: exact resolved executable plus
-    `--dangerously-skip-permissions --new-project`
+    `--dangerously-skip-permissions --sandbox=false --new-project`
   - declared capabilities map currently `declared` for launch/send/status/wait/checkpoint/resume/halt
     but manifest is `doctor_only: true` until qualification/receipt.
 - Source evidence at the admitted lane base:
@@ -97,6 +102,9 @@ intervene in an ordinary non-Puppet AGY session.
 ### Hypotheses / evidence gaps
 
 - Default model and default effort when `--model/--effort` are omitted are not proved by static census.
+- Exact parser acceptance and documented preference precedence make
+  `--sandbox=false` the current negative-override candidate, but no Puppet
+  conformance run has yet independently observed its runtime effect.
 - Real-world runtime effects of `goal` and `teamwork-preview` profile commands for this lane are deferred
   (must not be enabled/qualified here).
 - Runtime resume behavior remains unsupported for regular lane planning unless a dedicated resume contract is
@@ -173,14 +181,35 @@ The following is a future proof design, not an executable Puppet path:
 
 - Regular AGY lane must run in an isolated fixture candidate root (`worktree`, `proof_root`, `state_root`).
 - No fixture may read or mutate live `agy` global config/home artifacts.
-- During this lane’s static work, AGY config isolation remains a required TODO because no explicit
-  `agy` config-root CLI control is proven from current `--help`.
+- Google documents a useful native split: AGY stores subscription tokens in the
+  operating system's secure keyring and silently reuses a valid keyring profile,
+  while persistent preferences live at
+  `~/.gemini/antigravity-cli/settings.json`. This means Puppet should reuse the
+  operator's keyring rather than copy credentials or force a second login.
+- During this lane's static work, AGY config isolation remains a required TODO
+  because no explicit `agy` config-root CLI control is proven from current
+  `--help`. The compatible Gemini CLI's `GEMINI_CLI_HOME` is design input only:
+  that selector is absent from the exact AGY 1.1.5 binary surface and cannot be
+  borrowed by name.
 - Source delta required before live execution: a proved native isolated config
   mechanism or a fail-closed unsupported verdict. Do not assume overriding
   `HOME` is safe because it may also change authentication and unrelated state.
-- A native negative sandbox override is also required. `--new-project` proves
-  project selection only; it does not neutralize the persistent sandbox setting.
+- The parser-proved `--sandbox=false` candidate closes the static negative-form
+  discovery gap. It does not close config isolation or live semantic proof.
+  `--new-project` proves project selection only.
 - Any config-root override must remain per-lane and never cross-target.
+
+### Adjacent PR #6 evidence
+
+[SaariusSkills PR #6](https://github.com/saariuslystoned/SaariusSkills/pull/6)
+records fresh AGY 1.1.5 print sessions from a disposable workspace, including
+direct fanout, nested 2x2, and two nested 4x4 smoke passes, while unrelated
+operator AGY sessions remained untouched. Those successful model calls are
+operator-specific evidence that the already-authorized native subscription can
+serve fresh sessions without copying an auth profile. The packet does not bind
+auth status, global-config reads, sandbox-off semantics, or Puppet's private
+runtime tuple, so it is admitted here as route evidence rather than a launch or
+qualification receipt.
 
 ## 6) Implemented source fence and future deltas
 
@@ -192,7 +221,7 @@ The following is a future proof design, not an executable Puppet path:
 - Preserve the source-only compiler/workspace binding as provenance only. It
   must continue to rederive workspace inode identity and the regular verdict on
   every record read, and must not become an admitted launch plan while config
-  isolation and a positive sandbox-off control remain absent.
+  isolation and live sandbox-off semantics remain absent.
 - A detection-only population classifier now retains every current-UID process
   with the fixed `agy` basename before splitting candidates by the exact
   current-manifest runtime path/device/inode. A same-name different-version or
@@ -214,8 +243,8 @@ The following is a future proof design, not an executable Puppet path:
 - Hard blockers:
   - `/goal` and `/teamwork-preview` must remain deferred and not promoted by this lane.
   - No launch/modify path may touch live AGY configs/home.
-  - No launch may claim YOLO completeness until sandbox-off is positively
-    proved for the exact isolated run.
+  - No launch may claim YOLO completeness merely from parser acceptance;
+    sandbox-off still must be observed for the exact isolated run.
   - Default model/effect remains unresolved without live default-observation evidence.
 - Stop criteria:
   - the current lane stops at the planner-only unsupported verdict; it makes no

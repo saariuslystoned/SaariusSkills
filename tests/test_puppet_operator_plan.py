@@ -1184,7 +1184,7 @@ class OperatorPlanTests(unittest.TestCase):
             for blocker in (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER):
                 self.assertIn(blocker, plan["blockers"])
 
-    def test_agy_plan_keeps_private_profile_setup_unsupported(self):
+    def test_agy_plan_exposes_native_reuse_without_claiming_runtime_isolation(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="agy")
             with (
@@ -1214,12 +1214,23 @@ class OperatorPlanTests(unittest.TestCase):
                 plan["commands"]["profile"],
                 {
                     "supported": False,
-                    "reason": "agy_private_subscription_profile_unsupported",
+                    "state": "native_reuse_candidate",
+                    "reason": (
+                        "agy_native_keyring_reuse_discovered_"
+                        "runtime_isolation_unqualified"
+                    ),
+                    "authentication_mechanism": "operating_system_native_keyring",
+                    "current_operator_auth_state": "unobserved",
+                    "profile_material_copied": False,
+                    "human_action_required": False,
+                    "next_action": (
+                        "qualify_agy_runtime_isolation_without_credential_copy"
+                    ),
                 },
             )
             self.assertNotIn("target_gate", plan)
             self.assertIn(
-                "agy_private_subscription_profile_unsupported",
+                "agy_runtime_isolation_without_credential_copy_unqualified",
                 plan["blockers"],
             )
             for blocker in AGY_REGULAR_AUTHORITY_BLOCKERS:

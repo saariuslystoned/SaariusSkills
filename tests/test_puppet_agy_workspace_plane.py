@@ -82,18 +82,19 @@ def _adapter_manifest(
             "adapter_fingerprint": adapter_fingerprint,
             "protocol_fingerprint": protocol_fingerprint,
             "yolo_mapping": {
-                "complete": False,
+                "complete": True,
                 "launch_argv": [
                     path,
                     "--dangerously-skip-permissions",
+                    "--sandbox=false",
                     "--new-project",
                 ],
                 "permission_declared": True,
                 "permission_flags": ["--dangerously-skip-permissions"],
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
-                "sandbox_disable_declared": False,
-                "sandbox_flags": [],
+                "sandbox_disable_declared": True,
+                "sandbox_flags": ["--sandbox=false"],
                 "project_isolation_declared": True,
                 "project_isolation_flags": ["--new-project"],
                 "session_profiles": session_profiles_for("agy"),
@@ -357,7 +358,15 @@ class AgyWorkspacePlaneBindingTests(unittest.TestCase):
             (
                 "sandbox-claim",
                 lambda raw: raw["yolo_mapping"].update(
-                    {"sandbox_disable_declared": True}
+                    {
+                        "sandbox_flags": ["--sandbox=true"],
+                        "launch_argv": [
+                            raw["executable"]["resolved_path"],
+                            "--dangerously-skip-permissions",
+                            "--sandbox=true",
+                            "--new-project",
+                        ],
+                    }
                 ),
             ),
         )

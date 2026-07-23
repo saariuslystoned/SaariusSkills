@@ -50,7 +50,7 @@ AGY_EXECUTABLE_SHA256 = (
 AGY_VERSION_OBSERVATION_SHA256 = (
     "1c60df040a80b6d2e3f56442b17d127d8620cd773873e6e1353362f989b1deca"
 )
-AGY_HELP_SHA256 = "61c94e66fc8e651d997c51989dfe411559ebff4630301daa20d41bf8b6d71d88"
+AGY_HELP_SHA256 = "b208f7290114292858a1944ac90349bcd1f75168eb85c76ac40c8208cea342f5"
 
 BINDING_SCHEMA = "puppet.agy-workspace-plane-binding/v1"
 BINDING_STATE = "binding_only"
@@ -408,15 +408,16 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
     expected_argv = [
         executable["resolved_path"],
         "--dangerously-skip-permissions",
+        "--sandbox=false",
         "--new-project",
     ]
     if (
-        mapping["complete"] is not False
+        mapping["complete"] is not True
         or mapping["launch_argv"] != expected_argv
         or mapping["permission_declared"] is not True
         or mapping["permission_flags"] != ["--dangerously-skip-permissions"]
-        or mapping["sandbox_disable_declared"] is not False
-        or mapping["sandbox_flags"] != []
+        or mapping["sandbox_disable_declared"] is not True
+        or mapping["sandbox_flags"] != ["--sandbox=false"]
         or mapping["project_isolation_declared"] is not True
         or mapping["project_isolation_flags"] != ["--new-project"]
         or mapping["prompt_transport"] != PROMPT_TRANSPORT
@@ -428,7 +429,7 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
         or mapping.get("model_flag") != "--model"
         or mapping.get("effort_flag") != "--effort"
     ):
-        raise IdentityError("AGY doctor mapping is not the expected disabled base")
+        raise IdentityError("AGY doctor mapping is not the expected parser-proved base")
     return manifest
 
 

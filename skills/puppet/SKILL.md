@@ -90,18 +90,21 @@ template root creates a new instruction-policy fingerprint and requires fresh
 qualification. The initial-message wrapper is a safe composition transport,
 not proof that a harness-native global, workspace, or additive plane works.
 
-Subscription authentication is profile-scoped and durable across Puppet runs.
-Use one stable Puppet-owned mode-0700 home/config root per user, harness, and
-account selection; never put it inside a disposable run, proof, or campaign
-root. `profile-init` creates that root once and idempotently rejoins it on later
-runs. It may atomically refresh the profile's non-secret, exact launcher
-authority after a compatible harness or Puppet update without replacing the
-profile directories or their authentication state. Rejoining or refreshing a
-profile is not a request to log in. Puppet silently checks native status before
-each launch and reuses a logged-in profile without a human prompt. A human login
-handoff is allowed only for initial enrollment or after the provider reports
-that the session was invalidated, revoked, or logged out. Puppet does not copy
-an existing credential or perform login itself.
+Subscription authentication is isolation-scoped and durable across Puppet
+runs. For harnesses with a private-home selector, use one stable Puppet-owned
+mode-0700 home/config root per user, harness, and account selection; never put
+it inside a disposable run, proof, or campaign root. `profile-init` creates
+that root once and idempotently rejoins it on later runs. It may atomically
+refresh the profile's non-secret, exact launcher authority after a compatible
+harness or Puppet update without replacing the profile directories or their
+authentication state. Rejoining or refreshing a profile is not a request to
+log in. Puppet silently checks native status before each launch and reuses a
+logged-in profile without a human prompt. A human login handoff is allowed only
+for initial enrollment or after the provider reports that the session was
+invalidated, revoked, or logged out. Puppet does not copy an existing
+credential or perform login itself. A harness-native operating-system keyring
+may instead be reused only when its non-secret configuration and session state
+remain separately isolated and the exact adapter proves that boundary.
 
 Prefer safe adoption of an already-authorized operator subscription when the
 harness exposes a qualified auth-only selector or broker. Do not adopt an
@@ -114,9 +117,12 @@ one durable mode-0700 profile shelf. It prepares or rejoins supported profiles,
 runs body-free native status checks, silently marks logged-in profiles ready,
 and emits a login handoff only for a profile reported logged out. It never runs
 that handoff, launches a model, or changes an account. A status failure remains
-local to that harness so the other selected subscriptions still classify.
-AGY and Cursor remain explicit unsupported results until their isolated
-authentication routes qualify.
+local to that harness so the other selected subscriptions still classify. AGY
+reports `native_reuse_candidate`: its vendor route silently reuses a valid
+operating-system keyring profile, but Puppet does not probe the current account
+or emit a login action while AGY's separate configuration/no-bleed boundary is
+unqualified. Cursor remains explicitly unsupported until its isolated
+authentication route qualifies.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
 For an unqualified Claude regular plan, profile initialization is only
@@ -126,9 +132,11 @@ After the operator completes that account action, use `profile-status` to retain
 only an allowlisted login state. Codex, Claude, and Grok have public
 private-profile recipes. Cursor retains an internal source-only recipe for
 deterministic validation, but `profile-init` does not expose it because no
-authentication-preserving private config-root selector is qualified. AGY
-likewise stays unsupported here until its installed CLI exposes such a
-selector.
+authentication-preserving private config-root selector is qualified. AGY does
+not need credential copying or a second Puppet-owned login profile: its
+installed CLI can reuse the operator's native keyring. It remains
+non-launchable until Puppet can isolate AGY's global configuration,
+instructions, plugins, sessions, and logs independently of that keyring.
 `doctor` and `launch` require the selected profile explicitly. `launch` passes
 only that profile's closed home/config environment to the exact target and
 revalidates its manifest, executable, directory identities, login state, and
@@ -170,17 +178,22 @@ Use this sequence:
    ```bash
    python3 <skill-root>/scripts/puppet.py onboard \
      --profile-shelf <durable-private-shelf> \
+     --manifest agy=<current-agy-manifest> \
      --manifest codex=<current-codex-manifest> \
      --manifest claude=<current-claude-manifest> \
-     --manifest grok=<current-grok-manifest>
+     --manifest grok=<current-grok-manifest> \
+     --manifest cursor=<current-cursor-manifest>
    ```
 
    Reuse every `ready` profile without prompting. Present `login_command` only
    for an `enrollment_required` profile, then rerun `onboard` to verify it.
-   `status_unknown`, `status_unavailable`, and `unsupported` are blockers, not
-   reasons to guess or log in blindly. The login handoff is an explicit account
-   action and never runs unattended. `profile-init` and `profile-status` remain
-   the low-level single-target equivalents.
+   `status_unknown`, `status_unavailable`, `native_reuse_candidate`, and
+   `unsupported` are blockers, not reasons to guess or log in blindly.
+   `native_reuse_candidate` specifically means the subscription reuse mechanism
+   is known but the remaining runtime isolation is not qualified. The login
+   handoff is an explicit account action and never runs unattended.
+   `profile-init` and `profile-status` remain the low-level single-target
+   equivalents.
 2. `doctor` validates the current executable, YOLO mapping, repository,
    authorization, tmux, proof root, and collision state.
 3. `launch` creates one deterministic user-private tmux socket/session from a

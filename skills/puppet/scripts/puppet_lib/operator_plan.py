@@ -55,6 +55,12 @@ _GIT_OUTPUT_BYTES = 65536
 _PRIVATE_MODE = 0o700
 _WAIT_SECONDS = 60.0
 _AGY_LIFECYCLE_UNSUPPORTED_REASON = "agy_regular_session_unsupported_planner_only"
+_AGY_RUNTIME_ISOLATION_BLOCKER = (
+    "agy_runtime_isolation_without_credential_copy_unqualified"
+)
+_AGY_NATIVE_REUSE_REASON = (
+    "agy_native_keyring_reuse_discovered_runtime_isolation_unqualified"
+)
 _CODEX_LIFECYCLE_UNSUPPORTED_REASON = "codex_regular_session_source_only_unqualified"
 _CODEX_FAILED_INVARIANT = (
     "approved_authentication_preserving_private_codex_home_route_unavailable"
@@ -397,7 +403,13 @@ def _commands(
     if contract.target == "agy":
         result["profile"] = {
             "supported": False,
-            "reason": "agy_private_subscription_profile_unsupported",
+            "state": "native_reuse_candidate",
+            "reason": _AGY_NATIVE_REUSE_REASON,
+            "authentication_mechanism": "operating_system_native_keyring",
+            "current_operator_auth_state": "unobserved",
+            "profile_material_copied": False,
+            "human_action_required": False,
+            "next_action": "qualify_agy_runtime_isolation_without_credential_copy",
         }
     elif cursor_source_only:
         result["profile"] = {
@@ -722,7 +734,7 @@ def compile_operator_plan(
     adapter_sha256 = adapter_implementation_fingerprint()
     blockers = list(_LAUNCH_BLOCKERS)
     if contract.target == "agy":
-        blockers.append("agy_private_subscription_profile_unsupported")
+        blockers.append(_AGY_RUNTIME_ISOLATION_BLOCKER)
         blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
     if codex_source_only:
         blockers.extend(SOURCE_ONLY_BLOCKERS)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from .adapter_manifest import AdapterManifest
+from .agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS
 from .census import adapter_implementation_fingerprint
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
@@ -26,18 +27,32 @@ ONBOARDING_SCHEMA = "puppet.subscription-onboarding/v1"
 ONBOARDING_TARGETS = ("agy", "claude", "codex", "cursor", "grok")
 PUBLIC_PROFILE_TARGETS = frozenset({"claude", "codex", "grok"})
 UNSUPPORTED_PROFILE_REASONS = {
-    "agy": "agy_private_subscription_profile_unsupported",
     "cursor": "cursor_private_subscription_profile_unqualified",
 }
 UNSUPPORTED_PROFILE_ACTIONS = {
-    "agy": {
-        "human_action_required": False,
-        "next_action": "implement_qualified_private_profile_route",
-    },
     "cursor": {
         "human_action_required": True,
         "next_action": "human_approve_cursor_auth_isolation_probe",
     },
+}
+
+AGY_NATIVE_REUSE_RESULT = {
+    "supported": False,
+    "state": "native_reuse_candidate",
+    "reason": "agy_native_keyring_reuse_discovered_runtime_isolation_unqualified",
+    "authentication_mechanism": "operating_system_native_keyring",
+    "subscription_reuse": "silent_when_valid_native_profile_exists",
+    "current_operator_auth_state": "unobserved",
+    "first_use_fallback": "vendor_interactive_browser_auth",
+    "repeat_human_auth_policy": "provider_invalidated_revoked_or_logged_out_only",
+    "runtime_blockers": AGY_REGULAR_AUTHORITY_BLOCKERS,
+    "human_action_required": False,
+    "next_action": "qualify_agy_runtime_isolation_without_credential_copy",
+    "profile_material_copied": False,
+    "login_performed": False,
+    "account_change_performed": False,
+    "model_launched": False,
+    "raw_output_retained": False,
 }
 
 
@@ -194,6 +209,9 @@ def run_subscription_onboarding(
 
     results: Dict[str, Dict[str, Any]] = {}
     for target, manifest in sorted(manifests.items()):
+        if target == "agy":
+            results[target] = dict(AGY_NATIVE_REUSE_RESULT)
+            continue
         if target not in PUBLIC_PROFILE_TARGETS:
             action = UNSUPPORTED_PROFILE_ACTIONS[target]
             results[target] = {
@@ -224,6 +242,7 @@ def run_subscription_onboarding(
             "enrollment_required",
             "status_unknown",
             "status_unavailable",
+            "native_reuse_candidate",
             "unsupported",
         )
     }
@@ -244,6 +263,7 @@ def run_subscription_onboarding(
             *states["status_unknown"],
             *states["status_unavailable"],
         ],
+        "native_reuse_candidate_targets": states["native_reuse_candidate"],
         "unsupported_targets": states["unsupported"],
         "human_action_targets": human_action_targets,
         "human_action_required": bool(human_action_targets),
@@ -258,6 +278,7 @@ def run_subscription_onboarding(
 __all__ = [
     "ONBOARDING_SCHEMA",
     "ONBOARDING_TARGETS",
+    "AGY_NATIVE_REUSE_RESULT",
     "PUBLIC_PROFILE_TARGETS",
     "UNSUPPORTED_PROFILE_ACTIONS",
     "UNSUPPORTED_PROFILE_REASONS",

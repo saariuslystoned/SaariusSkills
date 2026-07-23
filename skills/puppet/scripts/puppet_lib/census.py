@@ -38,6 +38,7 @@ MAX_OUTPUT_BYTES = 65536
 TIMEOUT_SECONDS = 10
 CURSOR_EXECUTION_SETTLE_SECONDS = 5.0
 DIRECT_EXECUTION_SETTLE_SECONDS = 2.0
+AGY_SANDBOX_DISABLE_FLAG = "--sandbox=false"
 CENSUS_SCHEMA_VERSION = 2
 CURSOR_STATIC_LAUNCHER_LAYOUTS = (
     b"""#!/usr/bin/env bash
@@ -101,7 +102,7 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "agy": {
         "permission_flags": ["--dangerously-skip-permissions"],
         "project_isolation_flags": ["--new-project"],
-        "sandbox_flags": [],
+        "sandbox_flags": [AGY_SANDBOX_DISABLE_FLAG],
         "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--effort",
@@ -147,7 +148,7 @@ ZERO_AGENT_STARTUP_SETTLE_SECONDS = {
 }
 
 
-def _bounded_run(argv: List[str]) -> bytes:
+def _bounded_run_result(argv: List[str]) -> Tuple[int, bytes]:
     environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "LANG": "C",
@@ -172,7 +173,12 @@ def _bounded_run(argv: List[str]) -> bytes:
     output = result.stdout
     if len(output) > MAX_OUTPUT_BYTES:
         raise ValidationError("bounded census output exceeds the cap")
-    if result.returncode != 0:
+    return result.returncode, output
+
+
+def _bounded_run(argv: List[str]) -> bytes:
+    returncode, output = _bounded_run_result(argv)
+    if returncode != 0:
         raise ValidationError("bounded census command returned nonzero")
     return output
 
@@ -223,16 +229,28 @@ def _sandbox_disable_declared(
     target: str, mapping: Dict[str, Any], help_text: str
 ) -> bool:
     flags = mapping["sandbox_flags"]
+    if target == "agy":
+        return (
+            flags == [AGY_SANDBOX_DISABLE_FLAG]
+            and re.search(r"(?m)^\s*--sandbox(?:[=,\s]|$)", help_text) is not None
+        )
     if flags:
         return all(flag in help_text for flag in flags)
-    if target == "agy":
-        # `--sandbox` enables restrictions. Its omission cannot prove sandbox-off
-        # because AGY also has a persistent enableTerminalSandbox setting and
-        # exposes no exact negative override or isolated config-root selector.
-        return False
     if target == "claude":
         return "  --sandbox" not in help_text
     return False
+
+
+def _agy_sandbox_false_parser_proved(command_prefix: List[str]) -> bool:
+    """Prove the exact negative boolean form without launching a model."""
+
+    accepted, _accepted_output = _bounded_run_result(
+        command_prefix + [AGY_SANDBOX_DISABLE_FLAG, "help"]
+    )
+    rejected, _rejected_output = _bounded_run_result(
+        command_prefix + ["--sandbox=puppet-invalid", "help"]
+    )
+    return accepted == 0 and rejected != 0
 
 
 def _project_isolation_declared(mapping: Dict[str, Any], help_text: str) -> bool:
@@ -434,6 +452,11 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
     sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
+    if target == "agy":
+        sandbox_declared = (
+            sandbox_declared
+            and _agy_sandbox_false_parser_proved(command_prefix)
+        )
     isolation_declared = _project_isolation_declared(mapping, help_text)
     prompt_declared = mapping["prompt_transport"].endswith("_declared")
     session_profiles = session_profiles_for(target)

@@ -161,7 +161,8 @@ class SubscriptionOnboardingTests(unittest.TestCase):
             self.assertEqual(result["ready_targets"], ["codex"])
             self.assertEqual(result["enrollment_targets"], ["claude"])
             self.assertEqual(result["unknown_targets"], ["grok"])
-            self.assertEqual(result["unsupported_targets"], ["agy", "cursor"])
+            self.assertEqual(result["native_reuse_candidate_targets"], ["agy"])
+            self.assertEqual(result["unsupported_targets"], ["cursor"])
             self.assertEqual(result["human_action_targets"], ["claude", "cursor"])
             self.assertTrue(result["human_action_required"])
             self.assertFalse(result["login_performed"])
@@ -177,9 +178,22 @@ class SubscriptionOnboardingTests(unittest.TestCase):
             self.assertIn("login_command", result["results"]["claude"])
             self.assertEqual(result["results"]["grok"]["state"], "status_unknown")
             self.assertNotIn("login_command", result["results"]["grok"])
+            self.assertEqual(
+                result["results"]["agy"]["state"], "native_reuse_candidate"
+            )
+            self.assertEqual(
+                result["results"]["agy"]["authentication_mechanism"],
+                "operating_system_native_keyring",
+            )
+            self.assertEqual(
+                result["results"]["agy"]["current_operator_auth_state"],
+                "unobserved",
+            )
+            self.assertFalse(result["results"]["agy"]["profile_material_copied"])
+            self.assertNotIn("login_command", result["results"]["agy"])
             for target in ("agy", "cursor"):
-                self.assertEqual(result["results"][target]["state"], "unsupported")
                 self.assertFalse((shelf / target).exists())
+            self.assertEqual(result["results"]["cursor"]["state"], "unsupported")
             self.assertFalse(result["results"]["agy"]["human_action_required"])
             self.assertTrue(result["results"]["cursor"]["human_action_required"])
             self.assertEqual(

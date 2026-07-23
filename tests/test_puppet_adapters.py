@@ -45,6 +45,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
+    AGY_SANDBOX_DISABLE_FLAG,
     CENSUS_SCHEMA_VERSION,
     CODEX_NPM_NATIVE_RELATIVE_PARTS,
     CURSOR_STATIC_LAUNCHER_LAYOUTS,
@@ -54,6 +55,7 @@ from puppet_lib.census import (  # noqa: E402
     _execution_bundle,
     _project_isolation_declared,
     _launch_flags,
+    _agy_sandbox_false_parser_proved,
     adapter_implementation_fingerprint,
     census_target,
     _sandbox_disable_declared,
@@ -101,6 +103,7 @@ def manifest_raw(target="agy"):
                 [
                     str(executable),
                     "--dangerously-skip-permissions",
+                    AGY_SANDBOX_DISABLE_FLAG,
                     "--new-project",
                 ]
                 if target == "agy"
@@ -116,7 +119,7 @@ def manifest_raw(target="agy"):
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": (
-                []
+                [AGY_SANDBOX_DISABLE_FLAG]
                 if target == "agy"
                 else ["--dangerously-bypass-approvals-and-sandbox"]
             ),
@@ -299,7 +302,11 @@ class AdapterTests(unittest.TestCase):
         )
         self.assertEqual(
             _launch_flags(DECLARED_MAPPINGS["agy"]),
-            ["--dangerously-skip-permissions", "--new-project"],
+            [
+                "--dangerously-skip-permissions",
+                AGY_SANDBOX_DISABLE_FLAG,
+                "--new-project",
+            ],
         )
 
     def test_adapter_fingerprint_binds_the_runtime_module_closure(self):
@@ -351,8 +358,15 @@ class AdapterTests(unittest.TestCase):
 
     def test_sandbox_disable_mapping_distinguishes_omission_from_unknown(self):
         agy_help = "  --sandbox  Run in a sandbox with terminal restrictions enabled"
-        self.assertFalse(
+        self.assertTrue(
             _sandbox_disable_declared("agy", DECLARED_MAPPINGS["agy"], agy_help)
+        )
+        self.assertFalse(
+            _sandbox_disable_declared(
+                "agy",
+                dict(DECLARED_MAPPINGS["agy"], sandbox_flags=[]),
+                agy_help,
+            )
         )
         self.assertTrue(
             _sandbox_disable_declared(
@@ -385,6 +399,22 @@ class AdapterTests(unittest.TestCase):
                         false_positive,
                     )
                 )
+
+    def test_agy_negative_sandbox_parser_probe_requires_exact_boolean_value(self):
+        outcomes = {
+            AGY_SANDBOX_DISABLE_FLAG: 0,
+            "--sandbox=puppet-invalid": 2,
+        }
+
+        def bounded(argv):
+            return outcomes[argv[-2]], b""
+
+        with patch("puppet_lib.census._bounded_run_result", side_effect=bounded):
+            self.assertTrue(_agy_sandbox_false_parser_proved(["/opt/bin/agy"]))
+
+        outcomes["--sandbox=puppet-invalid"] = 0
+        with patch("puppet_lib.census._bounded_run_result", side_effect=bounded):
+            self.assertFalse(_agy_sandbox_false_parser_proved(["/opt/bin/agy"]))
 
     def test_empty_project_flags_never_prove_isolation(self):
         self.assertFalse(
@@ -1035,12 +1065,22 @@ class AdapterTests(unittest.TestCase):
         argv = adapter_for("agy").build_launch_argv(manifest)
         self.assertEqual(
             argv,
-            ["/bin/echo", "--dangerously-skip-permissions", "--new-project"],
+            [
+                "/bin/echo",
+                "--dangerously-skip-permissions",
+                AGY_SANDBOX_DISABLE_FLAG,
+                "--new-project",
+            ],
         )
         self.assertNotIn("Do the task", argv)
         self.assertEqual(
             raw["yolo_mapping"]["launch_argv"],
-            ["/bin/echo", "--dangerously-skip-permissions", "--new-project"],
+            [
+                "/bin/echo",
+                "--dangerously-skip-permissions",
+                AGY_SANDBOX_DISABLE_FLAG,
+                "--new-project",
+            ],
         )
 
     def test_option_shaped_model_and_effort_values_cannot_inject_launch_flags(self):
