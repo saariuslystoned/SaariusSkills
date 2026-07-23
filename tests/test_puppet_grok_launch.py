@@ -138,13 +138,13 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
         path.write_text(json.dumps(raw, sort_keys=True) + "\n", encoding="utf-8")
 
     @staticmethod
-    def _build_context(layout: dict[str, Path | str], **overrides):
+    def _build_context(layout: dict[str, object], **overrides):
         values = dict(layout)
         values.update(overrides)
         with patch.object(AdapterManifest, "verify_execution_files", return_value=None):
             return build_grok_launch_context(**values)
 
-    def _layout(self, root: Path) -> dict[str, Path | str]:
+    def _layout(self, root: Path) -> dict[str, object]:
         executable = root / "grok-macos-aarch64"
         executable.write_bytes(b"synthetic grok executable")
         executable.chmod(0o700)
@@ -167,8 +167,17 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             "grok_home": grok_home,
             "cwd": workspace,
             "leader_socket": control / "leader.sock",
-            "controller_session": "puppet-grok-source-only",
-            "run_id": "grok-source-only-run",
+            "contract_identity": {
+                "fingerprint": "c" * 64,
+                "controller": "codex",
+                "target": "grok",
+                "task_profile": "source-free-pass-b-v2",
+            },
+            "run_identity": {
+                "session": "puppet-grok-source-only",
+                "run_id": "grok-source-only-run",
+                "nonce": "grok-plane-binding-nonce-0123456789",
+            },
             "grok_session_id": "12345678-1234-4234-9234-123456789abc",
         }
 
@@ -236,6 +245,19 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             self.assertEqual(
                 context.adapter_fingerprint, adapter_implementation_fingerprint()
             )
+            for identity in (
+                context.admitted_lane_root_identity,
+                context.workspace_root_identity,
+                context.config_root_identity,
+            ):
+                self.assertEqual(
+                    set(identity),
+                    {"path", "device", "inode", "uid", "mode", "nlink"},
+                )
+            self.assertEqual(
+                dict(context.contract_identity), layout["contract_identity"]
+            )
+            self.assertEqual(dict(context.run_identity), layout["run_identity"])
             self.assertFalse(context.launch_authorized)
             self.assertTrue(context.blockers)
             with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
@@ -276,6 +298,22 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 self.assertRaisesRegex(ValidationError, "existing absolute"),
             ):
                 self._build_context(layout)
+
+    def test_launch_context_rejects_open_or_cross_target_authority_identities(self):
+        cases = (
+            ("target", "contract_identity", "target", "claude"),
+            ("profile", "contract_identity", "task_profile", "other-profile"),
+            ("contract-extra", "contract_identity", "extra", "open-schema"),
+            ("run-extra", "run_identity", "extra", "open-schema"),
+        )
+        for case, identity_name, field, changed in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                layout = self._layout(Path(temporary).resolve())
+                identity = dict(layout[identity_name])
+                identity[field] = changed
+                layout[identity_name] = identity
+                with self.assertRaises(ValidationError):
+                    self._build_context(layout)
 
     def test_workspace_socket_and_uuid_collisions_fail_closed(self):
         cases = ("workspace", "socket-home", "socket-exists", "uuid")
@@ -671,30 +709,12 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
         layout = self._layout(root)
         context = self._build_context(layout)
         manifest = AdapterManifest.from_path(Path(layout["manifest_path"]))
-        workspace_details = context.cwd.stat()
         compiled = compile_instruction_wrapper(
             target="grok",
             task="TASK_BODY_CANARY: write one bounded source-free handoff.",
-            contract_identity={
-                "fingerprint": "c" * 64,
-                "controller": "codex",
-                "target": "grok",
-                "task_profile": "source-free-pass-b-v2",
-            },
-            workspace_identity={
-                "path": str(context.cwd),
-                "device": workspace_details.st_dev,
-                "inode": workspace_details.st_ino,
-                "uid": workspace_details.st_uid,
-                "gid": workspace_details.st_gid,
-                "mode": workspace_details.st_mode & 0o7777,
-                "nlink": workspace_details.st_nlink,
-            },
-            run_identity={
-                "session": context.controller_session,
-                "run_id": context.run_id,
-                "nonce": "grok-plane-binding-nonce-0123456789",
-            },
+            contract_identity=context.contract_identity,
+            workspace_identity=context.workspace_root_identity,
+            run_identity=context.run_identity,
         )
         descriptor = build_grok_workspace_addendum_descriptor(
             adapter_manifest_sha256=manifest.fingerprint,
@@ -771,20 +791,86 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
             detached = first.record
             detached["state"] = "caller-green"
             self.assertEqual(first.record["state"], GROK_WORKSPACE_BINDING_STATE)
-            forged = first.record
-            forged["launch_authorized"] = True
-            forged_binding = replace(
-                first,
-                _record_json=json.dumps(
-                    forged,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8"),
-            )
-            with self.assertRaisesRegex(IdentityError, "authority state"):
-                _ = forged_binding.record
+            with self.assertRaisesRegex(TypeError, "dataclass instances"):
+                replace(first, context_sha256="f" * 64)
+            with self.assertRaisesRegex(TypeError, "source-owned"):
+                grok_launch.GrokWorkspacePlaneBinding(
+                    descriptor_json=b"{}",
+                    instruction_manifest_json=b"{}",
+                    effective_contract=b"forged",
+                    adapter_manifest_json=b"{}",
+                    launch_context=context,
+                    context_sha256="f" * 64,
+                    source_provenance=None,
+                )
             with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
                 require_live_grok_launch(context)
+
+    def test_binding_rejects_same_path_root_replacement_on_bind_and_record_read(self):
+        for case in ("lane", "workspace", "config"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                values = self._binding_fixture(root)
+                context = values["launch_context"]
+                binding = self._bind(values)
+                self.assertEqual(binding.record["state"], GROK_WORKSPACE_BINDING_STATE)
+
+                replaced = {
+                    "lane": context.admitted_lane_root,
+                    "workspace": context.cwd,
+                    "config": context.grok_home,
+                }[case]
+                replacement_source = root / (case + "-original")
+                replaced.rename(replacement_source)
+                replaced.mkdir(mode=0o700)
+
+                changed_identity = {
+                    "lane": "admitted Grok lane root identity changed",
+                    "workspace": "Grok workspace root identity changed",
+                    "config": "Grok config root identity changed",
+                }[case]
+                with self.assertRaisesRegex(IdentityError, changed_identity):
+                    self._bind(values)
+                with self.assertRaisesRegex(IdentityError, changed_identity):
+                    _ = binding.record
+
+    def test_binding_rejects_structurally_valid_contract_and_run_replays(self):
+        cases = (
+            ("target", "contract", "target", "claude"),
+            ("controller", "contract", "controller", "agy"),
+            ("fingerprint", "contract", "fingerprint", "d" * 64),
+            ("profile", "contract", "task_profile", "other-profile"),
+            ("nonce", "run", "nonce", "other-grok-nonce"),
+            ("session", "run", "session", "other-grok-session"),
+            ("run-id", "run", "run_id", "other-grok-run"),
+            ("contract-extra", "contract", "extra", "closed-schema"),
+            ("run-extra", "run", "extra", "closed-schema"),
+        )
+        for case, identity_name, field, changed in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                values = self._binding_fixture(Path(temporary).resolve())
+                context = values["launch_context"]
+                contract_identity = dict(context.contract_identity)
+                run_identity = dict(context.run_identity)
+                identity = (
+                    contract_identity if identity_name == "contract" else run_identity
+                )
+                identity[field] = changed
+                compiled = compile_instruction_wrapper(
+                    target="grok",
+                    task="TASK_BODY_CANARY: structurally valid replay.",
+                    contract_identity=contract_identity,
+                    workspace_identity=context.workspace_root_identity,
+                    run_identity=run_identity,
+                )
+                values["instruction_manifest"] = compiled.manifest
+                values["effective_contract"] = compiled.rendered
+                values["descriptor"] = build_grok_workspace_addendum_descriptor(
+                    adapter_manifest_sha256=values["adapter_manifest"].fingerprint,
+                    rendered_sha256=compiled.manifest["rendered_sha256"],
+                )
+                with self.assertRaises((IdentityError, ValidationError)):
+                    self._bind(values)
 
     def test_binding_rejects_manifest_bytes_hash_adapter_and_model_drift(self):
         cases = (
@@ -813,12 +899,13 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
                     raw["generated_at"] = "2026-07-22T02:00:01Z"
                     values["adapter_manifest"] = AdapterManifest.from_dict(raw)
                 else:
+                    context = values["launch_context"]
                     compiled = compile_instruction_wrapper(
                         target="grok",
                         task="TASK_BODY_CANARY: wrong selected model binding.",
-                        contract_identity={"fingerprint": "a" * 64},
-                        workspace_identity={"fingerprint": "b" * 64},
-                        run_identity={"run_id": "wrong-model"},
+                        contract_identity=context.contract_identity,
+                        workspace_identity=context.workspace_root_identity,
+                        run_identity=context.run_identity,
                         model_binding="default",
                     )
                     values["instruction_manifest"] = compiled.manifest
@@ -848,8 +935,8 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
                             "grok_home": context.grok_home,
                             "cwd": other,
                             "leader_socket": context.leader_socket,
-                            "controller_session": context.controller_session,
-                            "run_id": context.run_id,
+                            "contract_identity": context.contract_identity,
+                            "run_identity": context.run_identity,
                             "grok_session_id": context.grok_session_id,
                         }
                     )

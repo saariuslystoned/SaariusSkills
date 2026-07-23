@@ -199,10 +199,12 @@ authority rather than an unreachable launch hook.
 ## 6) Source status and remaining deltas
 
 - Implemented source-only: the exact 0.2.106 workspace-addendum descriptor and
-  a deterministic body-free `binding_only` join across its validated
-  instruction manifest, effective-contract hash/size, current adapter
-  fingerprint, and existing Grok launch context. The join does not materialize
-  `.grok/rules`, activate the plane, launch Grok, or authorize qualification.
+  a deterministic body-free `binding_only` join rederived from its validated
+  instruction manifest, effective contract, current adapter, and source-owned
+  Grok launch context. It binds closed contract/run identities and exact
+  lane/workspace/config directory identities, rejecting replay or same-path
+  root replacement. The join does not materialize `.grok/rules`, activate the
+  plane, launch Grok, or authorize qualification.
 - Implemented source-only: exact doctor-manifest/source/executable tuple,
   body-free argv/environment planning, private root and socket containment,
   UUID shape, a closed source-owned PATH/locale baseline with no ambient
