@@ -65,7 +65,8 @@ adapter_lab.py probe --profile source-free-pass-b-v2 \
   --authorization AUTH --controller CONTROLLER --campaign-id CAMPAIGN \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
   --goal-path PATH --goal-sha256 SHA256 \
-  --subscription-profile-root PRIVATE_PROFILE [--run-id RUN]
+  --subscription-profile-root PRIVATE_PROFILE \
+  [--plane-descriptor DESCRIPTOR] [--run-id RUN]
 adapter_lab.py verify --run ROOT/probes/RUN/receipt.json
 adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
@@ -86,9 +87,12 @@ real resume contract exists and passes for that exact harness identity.
 Regular qualification fails closed unless `PRIVATE_PROFILE` is the exact
 authenticated Puppet-owned profile bound to the adapter executable. The probe
 rechecks its body-free native auth status and closed launch environment
-immediately before target start. Claude activation-lifecycle experiments omit
-this flag because composition with the private subscription profile is not yet
-qualified; those experiments remain non-promotable.
+immediately before target start. Claude native-plane activation uses that same
+profile's exact config directory while keeping its create-only instruction
+artifact and transaction in separate FD-bound roots. The activation and
+profile identities are joined in the receipt and reverified together. These
+activation-lifecycle results remain non-promotable until matched no-bleed
+evidence is implemented and accepted.
 
 ## Interface
 

@@ -619,42 +619,39 @@ def execute(
     plane_descriptor=None,
     subscription_preflight_fn=None,
 ):
-    subscription_root = None
-    subscription_preflight = None
-    if plane_descriptor is None:
-        subscription_root = files["subscription_profile"]
-        context = subscription_profile_launch_context(
-            profile_root=subscription_root,
-            expected_target=target,
-            expected_executable_path=files["raw"]["executable"]["resolved_path"],
-        )
-        status = {
-            "schema": STATUS_SCHEMA,
-            "target": target,
-            "profile_root": str(context.profile_root),
-            "login_state": "logged_in",
-            "method": {
-                "codex": "chatgpt",
-                "claude": "claude.ai",
-                "cursor": "private_file_store",
-                "grok": "private_grok_home",
-            }[target],
-            "status_exit": 0,
-            "raw_output_retained": False,
-            "login_performed": False,
-            "model_launched": False,
-        }
-        if target == "claude":
-            status["provider"] = "firstParty"
-        if target == "grok":
-            status["default_model"] = "grok-4.5"
+    subscription_root = files["subscription_profile"]
+    context = subscription_profile_launch_context(
+        profile_root=subscription_root,
+        expected_target=target,
+        expected_executable_path=files["raw"]["executable"]["resolved_path"],
+    )
+    status = {
+        "schema": STATUS_SCHEMA,
+        "target": target,
+        "profile_root": str(context.profile_root),
+        "login_state": "logged_in",
+        "method": {
+            "codex": "chatgpt",
+            "claude": "claude.ai",
+            "cursor": "private_file_store",
+            "grok": "private_grok_home",
+        }[target],
+        "status_exit": 0,
+        "raw_output_retained": False,
+        "login_performed": False,
+        "model_launched": False,
+    }
+    if target == "claude":
+        status["provider"] = "firstParty"
+    if target == "grok":
+        status["default_model"] = "grok-4.5"
 
-        if subscription_preflight_fn is None:
+    if subscription_preflight_fn is None:
 
-            def subscription_preflight(**_kwargs):
-                return context, status
-        else:
-            subscription_preflight = subscription_preflight_fn
+        def subscription_preflight(**_kwargs):
+            return context, status
+    else:
+        subscription_preflight = subscription_preflight_fn
 
     return run_probe(
         target=target,
@@ -700,9 +697,7 @@ def execute(
         _sleep_fn=sleep_fn or (lambda interval: None),
         _execution_sleep_fn=lambda interval: None,
         _authority_root=files["authority"],
-        _subscription_profile_preflight_fn=(
-            subscription_preflight or puppet_probe.subscription_profile_preflight
-        ),
+        _subscription_profile_preflight_fn=(subscription_preflight),
     )
 
 
@@ -786,12 +781,36 @@ class ProbeTests(unittest.TestCase):
             receipt = json.loads(
                 (run_root / "receipt.json").read_text(encoding="utf-8")
             )
+            verified = verify_qualification_receipt(
+                run_root / "receipt.json",
+                _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                _authority_root=files["authority"],
+                _server_process_fn=lambda _pid: fake.server_process,
+                _tmux_factory=lambda _root: fake,
+            )
+            self.assertEqual(verified, receipt)
             activation = evidence["plane_activation"]
             self.assertIsNone(evidence["failure"])
             self.assertEqual(
                 activation["qualification_scope"], "activation_lifecycle_only"
             )
             self.assertEqual(activation, receipt["plane_activation"])
+            profile_context = subscription_profile_launch_context(
+                profile_root=files["subscription_profile"],
+                expected_target="claude",
+                expected_executable_path=files["raw"]["executable"]["resolved_path"],
+            )
+            self.assertEqual(
+                fake.launch_environment,
+                {
+                    **profile_context.source_environment,
+                    **profile_context.bindings,
+                },
+            )
+            self.assertEqual(
+                evidence["subscription_profile_sha256"],
+                receipt["subscription_profile_sha256"],
+            )
             self.assertNotEqual(
                 activation["initial_trigger_sha256"],
                 activation["artifact_sha256"],
@@ -800,6 +819,7 @@ class ProbeTests(unittest.TestCase):
                 {reference["kind"] for reference in receipt["proof_refs"]}
                 - {
                     "authorization",
+                    "subscription_profile",
                     "evidence",
                     "launch_plan",
                     "instructions",
@@ -845,6 +865,10 @@ class ProbeTests(unittest.TestCase):
                 Path(intent["plan"]["ephemeral_root"]["path"]).parent,
                 run_root / "activation-lane",
             )
+            self.assertEqual(
+                Path(intent["plan"]["config_root"]["path"]),
+                Path(profile_context.bindings["CLAUDE_CONFIG_DIR"]),
+            )
             with patch.object(
                 puppet_probe,
                 "verify_qualification_receipt",
@@ -857,6 +881,57 @@ class ProbeTests(unittest.TestCase):
                 verify_recovered_receipt.call_args.args,
                 (run_root / "receipt.json",),
             )
+
+    def test_claude_activation_rechecks_private_profile_before_target_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            context = subscription_profile_launch_context(
+                profile_root=files["subscription_profile"],
+                expected_target="claude",
+                expected_executable_path=files["raw"]["executable"]["resolved_path"],
+            )
+            logged_in = {
+                "schema": STATUS_SCHEMA,
+                "target": "claude",
+                "profile_root": str(context.profile_root),
+                "login_state": "logged_in",
+                "method": "claude.ai",
+                "provider": "firstParty",
+                "status_exit": 0,
+                "raw_output_retained": False,
+                "login_performed": False,
+                "model_launched": False,
+            }
+            logged_out = dict(
+                logged_in,
+                login_state="logged_out",
+                method="none",
+                status_exit=1,
+            )
+            statuses = iter((logged_in, logged_out))
+
+            def changing_preflight(**_kwargs):
+                return context, next(statuses)
+
+            run_id = "probe-claude-profile-revalidation"
+            with self.assertRaisesRegex(IdentityError, "not authenticated"):
+                execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                    subscription_preflight_fn=changing_preflight,
+                )
+            evidence = json.loads(
+                (files["proof"] / "probes" / run_id / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertFalse(evidence["failure"]["target_launch_attempted"])
+            self.assertEqual(fake.payloads, [])
 
     def test_activation_failure_distinguishes_server_and_target_attempts(self):
         with tempfile.TemporaryDirectory() as temporary:

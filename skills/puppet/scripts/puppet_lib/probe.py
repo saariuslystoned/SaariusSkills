@@ -58,7 +58,6 @@ from .errors import (
     ConflictError,
     IdentityError,
     PuppetError,
-    UnsupportedError,
     ValidationError,
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
@@ -112,7 +111,6 @@ from .safety import (
     validate_identifier,
 )
 from .subscription_profiles import (
-    SubscriptionLaunchContext,
     build_subscription_launch_binding,
     subscription_profile_preflight,
     validate_subscription_launch_binding,
@@ -909,36 +907,27 @@ def run_probe(
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
     )
-    subscription_context: Optional[SubscriptionLaunchContext] = None
-    subscription_status: Optional[Dict[str, Any]] = None
-    subscription_binding: Optional[Dict[str, Any]] = None
-    if plane_descriptor_value is not None:
-        if subscription_profile_root is not None:
-            raise UnsupportedError(
-                "profile-bound native instruction activation composition is not yet qualified"
-            )
-    else:
-        if subscription_profile_root is None:
-            raise ValidationError(
-                "regular qualification requires an explicit private subscription profile"
-            )
-        subscription_context, subscription_status = _subscription_profile_preflight_fn(
-            profile_root=subscription_profile_root,
-            expected_target=target,
-            expected_executable_path=manifest.raw["executable"]["resolved_path"],
+    if subscription_profile_root is None:
+        raise ValidationError(
+            "regular qualification requires an explicit private subscription profile"
         )
-        if subscription_status.get("login_state") != "logged_in":
-            raise IdentityError(
-                "private subscription profile is not authenticated for qualification"
-            )
-        subscription_binding = build_subscription_launch_binding(
-            subscription_context, subscription_status
+    subscription_context, subscription_status = _subscription_profile_preflight_fn(
+        profile_root=subscription_profile_root,
+        expected_target=target,
+        expected_executable_path=manifest.raw["executable"]["resolved_path"],
+    )
+    if subscription_status.get("login_state") != "logged_in":
+        raise IdentityError(
+            "private subscription profile is not authenticated for qualification"
         )
-        validate_subscription_launch_binding(
-            subscription_binding,
-            expected_target=target,
-            require_logged_in=True,
-        )
+    subscription_binding = build_subscription_launch_binding(
+        subscription_context, subscription_status
+    )
+    validate_subscription_launch_binding(
+        subscription_binding,
+        expected_target=target,
+        require_logged_in=True,
+    )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
     probes_root = proof_root / "probes"
@@ -962,7 +951,11 @@ def run_probe(
     activation_lane_root = run_root / "activation-lane"
     activation_ephemeral_root = activation_lane_root / "ephemeral"
     activation_transaction_root = activation_lane_root / "transaction"
-    activation_config_root = activation_lane_root / "config"
+    activation_config_root = (
+        Path(subscription_context.bindings["CLAUDE_CONFIG_DIR"])
+        if plane_descriptor_value is not None
+        else activation_lane_root / "unused-config"
+    )
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -1054,11 +1047,10 @@ def run_probe(
     try:
         atomic_write_json(state_path, state)
         atomic_write_json(authorization_snapshot_path, authorization)
-        if subscription_binding is not None:
-            atomic_write_json(subscription_profile_path, subscription_binding)
-            evidence["subscription_profile_sha256"] = sha256_file(
-                subscription_profile_path, max_bytes=131072
-            )
+        atomic_write_json(subscription_profile_path, subscription_binding)
+        evidence["subscription_profile_sha256"] = sha256_file(
+            subscription_profile_path, max_bytes=131072
+        )
         if plane_descriptor_value is not None:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
@@ -1173,7 +1165,6 @@ def run_probe(
             for activation_root in (
                 activation_ephemeral_root,
                 activation_transaction_root,
-                activation_config_root,
             ):
                 activation_root.mkdir(mode=0o700)
             activation_plan = plan_activation(
@@ -1199,7 +1190,8 @@ def run_probe(
                 session_profile=session_profile,
                 workspace_root=fixture,
                 config_root=activation_config_root,
-                admitted_lane_root=activation_lane_root,
+                admitted_lane_root=subscription_context.profile_root,
+                source_environment=subscription_context.source_environment,
             )
             activation_public_context = activation_context.to_public_dict()
             atomic_write_json(activation_context_path, activation_public_context)
@@ -1207,7 +1199,7 @@ def run_probe(
             launch_environment = activation_context.environment
             launch_identity = activation_context.launch_identity
             launch_plan = activation_context.admitted_launch_plan
-            admitted_lane_root = activation_lane_root
+            admitted_lane_root = subscription_context.profile_root
         atomic_write_json(launch_plan_path, launch_plan)
         evidence["launch_plan_sha256"] = sha256_file(launch_plan_path, max_bytes=131072)
         evidence["launch_identity"] = launch_identity
@@ -1297,13 +1289,34 @@ def run_probe(
                     raise IdentityError(
                         "activation launch context is unavailable before target start"
                     )
+                refreshed_context, refreshed_status = (
+                    _subscription_profile_preflight_fn(
+                        profile_root=subscription_context.profile_root,
+                        expected_target=target,
+                        expected_executable_path=manifest.raw["executable"][
+                            "resolved_path"
+                        ],
+                    )
+                )
+                refreshed_binding = build_subscription_launch_binding(
+                    refreshed_context, refreshed_status
+                )
+                validate_subscription_launch_binding(
+                    refreshed_binding,
+                    expected_target=target,
+                    require_logged_in=True,
+                )
+                if refreshed_binding != subscription_binding:
+                    raise IdentityError(
+                        "subscription profile authority changed before target start"
+                    )
                 activation_context = revalidate_activation_launch_context(
                     activation_context,
                     activation_plan,
                     adapter_manifest=manifest,
                     workspace_root=fixture,
                     config_root=activation_config_root,
-                    admitted_lane_root=activation_lane_root,
+                    admitted_lane_root=refreshed_context.profile_root,
                     argv=argv,
                     environment=launch_environment,
                     admitted_launch_plan=launch_plan,
@@ -1874,12 +1887,11 @@ def run_probe(
         proof_refs = [
             _proof_reference("authorization", authorization_snapshot_path, run_root),
         ]
-        if subscription_binding is not None:
-            proof_refs.append(
-                _proof_reference(
-                    "subscription_profile", subscription_profile_path, run_root
-                )
+        proof_refs.append(
+            _proof_reference(
+                "subscription_profile", subscription_profile_path, run_root
             )
+        )
         proof_refs.extend(
             [
                 _proof_reference("evidence", evidence_path, run_root),

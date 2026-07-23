@@ -33,7 +33,7 @@ from .safety import (
 
 AUTHORITY_ID = "puppet-local-controller-v1"
 LEASE_SCHEMA_VERSION = 2
-QUALIFICATION_ATTESTATION_SCHEMA_VERSION = 3
+QUALIFICATION_ATTESTATION_SCHEMA_VERSION = 4
 LEASE_TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 ACTIVE_LEASE_STATES = {"launching", "active", "halting"}
 LEGACY_FENCE_CONTROLLER = "per-target-lease-fence-v1"
@@ -1000,7 +1000,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         reject_sensitive_fields=True,
     )
     receipt_schema = receipt_core.get("schema_version")
-    if receipt_schema in {1, 2}:
+    if receipt_schema in {1, 2, 3}:
         raise UnsupportedError(
             "legacy qualification receipt cannot authorize a runtime attestation"
         )
@@ -1022,15 +1022,10 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         "halt_receipt_sha256",
     ):
         validate_sha256(receipt_core.get(name), name.replace("_", " "))
-    if receipt_core.get("plane_activation") is None:
-        validate_sha256(
-            receipt_core.get("subscription_profile_sha256"),
-            "subscription profile fingerprint",
-        )
-    elif receipt_core.get("subscription_profile_sha256") is not None:
-        raise ValidationError(
-            "activation-only receipt cannot attest a subscription profile"
-        )
+    validate_sha256(
+        receipt_core.get("subscription_profile_sha256"),
+        "subscription profile fingerprint",
+    )
     return {
         "schema_version": QUALIFICATION_ATTESTATION_SCHEMA_VERSION,
         "kind": "qualification_attestation",

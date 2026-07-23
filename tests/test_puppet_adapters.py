@@ -733,6 +733,7 @@ class AdapterTests(unittest.TestCase):
             for version, error, message in (
                 (1, UnsupportedError, "legacy qualification receipt"),
                 (2, UnsupportedError, "legacy qualification receipt"),
+                (3, UnsupportedError, "legacy qualification receipt"),
                 (
                     QUALIFICATION_RECEIPT_SCHEMA_VERSION + 1,
                     ValidationError,
@@ -792,7 +793,7 @@ class AdapterTests(unittest.TestCase):
         ):
             validate_qualification_evidence_schema(accepted_without_profile)
 
-        for legacy_version in (1, 2):
+        for legacy_version in (1, 2, 3):
             with self.subTest(legacy_version=legacy_version):
                 with self.assertRaisesRegex(
                     UnsupportedError, "legacy qualification evidence"
@@ -865,14 +866,7 @@ class AdapterTests(unittest.TestCase):
             root = Path(temporary).resolve()
             receipt_path = root / "receipt.json"
             receipt_path.write_text("{}\n", encoding="utf-8")
-            kinds = (
-                tuple(
-                    kind
-                    for kind in QUALIFICATION_PROOF_KINDS
-                    if kind != "subscription_profile"
-                )
-                + ACTIVATION_QUALIFICATION_PROOF_KINDS
-            )
+            kinds = QUALIFICATION_PROOF_KINDS + ACTIVATION_QUALIFICATION_PROOF_KINDS
             refs = []
             for kind in kinds:
                 artifact = root / (kind + ".json")
@@ -905,7 +899,7 @@ class AdapterTests(unittest.TestCase):
             "profile": QUALIFICATION_PROFILE,
         }
         self.assertEqual(validate_qualification_state_schema(current), current)
-        for legacy_version in (1, 2):
+        for legacy_version in (1, 2, 3):
             with self.subTest(legacy_version=legacy_version):
                 with self.assertRaisesRegex(
                     UnsupportedError, "legacy qualification state"

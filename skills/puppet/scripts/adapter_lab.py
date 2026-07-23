@@ -216,10 +216,10 @@ def build_parser():
     probe_parser.add_argument("--run-id")
     probe_parser.add_argument(
         "--subscription-profile-root",
+        required=True,
         type=Path,
         help=(
-            "exact authenticated Puppet-owned private profile; required for "
-            "promotable regular qualification"
+            "exact authenticated Puppet-owned private profile for every regular probe"
         ),
     )
     probe_parser.add_argument("--plane-descriptor", type=Path)

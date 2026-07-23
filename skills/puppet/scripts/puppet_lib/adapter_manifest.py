@@ -68,13 +68,13 @@ EXECUTION_TRANSITIONS = frozenset({"direct", "same_pid_exec"})
 MAX_TRANSIENT_EXECUTABLES = 8
 MAX_EXECUTION_SUPPORT_FILES = 16
 ADAPTER_MANIFEST_SCHEMA_VERSION = 2
-QUALIFICATION_RECEIPT_SCHEMA_VERSION = 3
-QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 3
-QUALIFICATION_STATE_SCHEMA_VERSION = 3
+QUALIFICATION_RECEIPT_SCHEMA_VERSION = 4
+QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 4
+QUALIFICATION_STATE_SCHEMA_VERSION = 4
 # The named Pass B procedure is stable across its versioned evidence envelopes.
 QUALIFICATION_PROFILE = "source-free-pass-b-v2"
 LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS = frozenset({1})
-LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2})
+LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 CURSOR_REQUIRED_PATH_TOOLS = ("bash", "basename", "dirname", "realpath", "readlink")
 _EXECUTION_FILE_CHUNK_BYTES = 1024 * 1024
 
@@ -481,17 +481,11 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
         value.get("execution_fingerprint"),
         "qualification evidence execution fingerprint",
     )
-    activation = validate_probe_plane_activation(value.get("plane_activation"))
-    if activation is None and value.get("result") == "accepted":
+    validate_probe_plane_activation(value.get("plane_activation"))
+    if value.get("result") == "accepted":
         validate_sha256(
             value.get("subscription_profile_sha256"),
             "qualification evidence subscription profile fingerprint",
-        )
-    elif (
-        activation is not None and value.get("subscription_profile_sha256") is not None
-    ):
-        raise ValidationError(
-            "activation-only qualification evidence cannot claim a subscription profile"
         )
     return dict(value)
 
@@ -577,13 +571,8 @@ def _verify_qualification_instruction_authority(
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
     activation = validate_probe_plane_activation(receipt.get("plane_activation"))
-    expected_kinds = (
-        QUALIFICATION_PROOF_KINDS
-        if activation is None
-        else tuple(
-            kind for kind in QUALIFICATION_PROOF_KINDS if kind != "subscription_profile"
-        )
-        + ACTIVATION_QUALIFICATION_PROOF_KINDS
+    expected_kinds = QUALIFICATION_PROOF_KINDS + (
+        ACTIVATION_QUALIFICATION_PROOF_KINDS if activation is not None else ()
     )
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
@@ -777,15 +766,10 @@ def verify_qualification_receipt(
     ):
         validate_sha256(receipt.get(name), name.replace("_", " "))
     validate_sha256(receipt.get("launch_plan_sha256"), "launch plan fingerprint")
-    if plane_activation is None:
-        validate_sha256(
-            receipt.get("subscription_profile_sha256"),
-            "subscription profile fingerprint",
-        )
-    elif receipt.get("subscription_profile_sha256") is not None:
-        raise ValidationError(
-            "activation-only qualification receipt cannot claim a subscription profile"
-        )
+    validate_sha256(
+        receipt.get("subscription_profile_sha256"),
+        "subscription profile fingerprint",
+    )
     capabilities = receipt.get("capabilities")
     if capabilities != list(PROBE_CAPABILITIES):
         raise ValidationError("qualification capability receipt is invalid")
@@ -884,35 +868,30 @@ def verify_qualification_receipt(
     evidence = validate_qualification_evidence_schema(evidence)
     if evidence.get("plane_activation") != plane_activation:
         raise ValidationError("qualification plane activation identity mismatch")
-    if plane_activation is None:
-        from .subscription_profiles import (
-            subscription_binding_environment,
-            validate_subscription_launch_binding,
-        )
+    from .subscription_profiles import (
+        subscription_binding_environment,
+        validate_subscription_launch_binding,
+    )
 
-        subscription_binding = validate_subscription_launch_binding(
-            read_json(
-                artifacts["subscription_profile"],
-                max_bytes=131072,
-                reject_sensitive_fields=True,
-            ),
-            expected_target=receipt["target"],
-            require_logged_in=True,
-        )
-        subscription_sha256 = sha256_file(
-            artifacts["subscription_profile"], max_bytes=131072
-        )
-        if (
-            evidence.get("subscription_profile_sha256") != subscription_sha256
-            or receipt.get("subscription_profile_sha256") != subscription_sha256
-            or subscription_binding["executable"]
-            != launcher_execution_identity(current["executable"])
-        ):
-            raise IdentityError("qualification subscription profile authority changed")
-    elif evidence.get("subscription_profile_sha256") is not None:
-        raise ValidationError(
-            "activation-only qualification evidence mixed profile authority"
-        )
+    subscription_binding = validate_subscription_launch_binding(
+        read_json(
+            artifacts["subscription_profile"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        ),
+        expected_target=receipt["target"],
+        require_logged_in=True,
+    )
+    subscription_sha256 = sha256_file(
+        artifacts["subscription_profile"], max_bytes=131072
+    )
+    if (
+        evidence.get("subscription_profile_sha256") != subscription_sha256
+        or receipt.get("subscription_profile_sha256") != subscription_sha256
+        or subscription_binding["executable"]
+        != launcher_execution_identity(current["executable"])
+    ):
+        raise IdentityError("qualification subscription profile authority changed")
     terminal_activation = None
     activation_intent = None
     if plane_activation is not None:
@@ -961,6 +940,21 @@ def verify_qualification_receipt(
             "manifest_fingerprint"
         ) != activation_plan.get("adapter_manifest_sha256"):
             raise ValidationError("qualification activation manifest binding changed")
+        profile_config = subscription_binding.get("directory_identities", {}).get(
+            "config"
+        )
+        activation_config = activation_plan.get("config_root")
+        if not isinstance(profile_config, dict) or not isinstance(
+            activation_config, dict
+        ):
+            raise ValidationError(
+                "qualification activation lacks private profile config authority"
+            )
+        for name in ("path", "device", "inode", "uid", "mode"):
+            if activation_config.get(name) != profile_config.get(name):
+                raise IdentityError(
+                    "qualification activation config is not the bound private profile"
+                )
     if (
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
@@ -980,29 +974,25 @@ def verify_qualification_receipt(
         raise ValidationError(
             "qualification launch identity differs from its admitted plan"
         )
-    if plane_activation is None:
-        source_environment, profile_bindings, _profile_root = (
-            subscription_binding_environment(
-                subscription_binding, expected_target=receipt["target"]
-            )
+    source_environment, profile_bindings, _profile_root = (
+        subscription_binding_environment(
+            subscription_binding, expected_target=receipt["target"]
         )
-        expected_environment = {**source_environment, **profile_bindings}
-        expected_environment_names = sorted(expected_environment)
-        expected_environment_fingerprint = sha256_bytes(
-            canonical_json_bytes(
-                [
-                    (name, expected_environment[name])
-                    for name in expected_environment_names
-                ]
-            )
+    )
+    expected_environment = {**source_environment, **profile_bindings}
+    expected_environment_names = sorted(expected_environment)
+    expected_environment_fingerprint = sha256_bytes(
+        canonical_json_bytes(
+            [(name, expected_environment[name]) for name in expected_environment_names]
         )
-        if (
-            launch_identity["env_names"] != expected_environment_names
-            or launch_identity["env_fingerprint"] != expected_environment_fingerprint
-        ):
-            raise IdentityError(
-                "qualification launch environment is not the bound subscription profile"
-            )
+    )
+    if (
+        launch_identity["env_names"] != expected_environment_names
+        or launch_identity["env_fingerprint"] != expected_environment_fingerprint
+    ):
+        raise IdentityError(
+            "qualification launch environment is not the bound subscription profile"
+        )
     observed_plan_sha = sha256_file(artifacts["launch_plan"], max_bytes=131072)
     if (
         evidence.get("launch_plan_sha256") != observed_plan_sha

@@ -91,10 +91,13 @@ global harness files during launch.
 For a native activation, persist and verify create-only intent before the
 artifact, combine its closed environment and argv delta with the exact adapter
 launch mapping, and build the value-private admitted launch plan before lease
-admission. Revalidate the activation receipt, artifact, roots, executable, and
-final launch identity immediately before starting the pane. After exact halt,
-roll back only the receipt-bound artifact and transaction-created directories;
-preserve ambiguity instead of deleting by path.
+admission. The native delta must compose with the exact authenticated private
+subscription profile; it may not substitute an activation-only config root.
+Revalidate the profile auth status, activation receipt, artifact, roots,
+executable, and final launch identity immediately before starting the pane.
+After exact halt, roll back only the receipt-bound artifact and
+transaction-created directories; preserve ambiguity instead of deleting by
+path.
 
 The current product baseline is `regular` only. `/goal`, `/loop`,
 `/teamwork-preview`, alternate models, and automatic routing remain separate,

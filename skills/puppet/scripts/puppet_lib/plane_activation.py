@@ -55,7 +55,7 @@ INTENT_SCHEMA = "puppet.plane-activation-intent/v2"
 RECEIPT_SCHEMA = "puppet.plane-activation-receipt/v2"
 ROLLBACK_SCHEMA = "puppet.plane-activation-rollback/v2"
 ROLLBACK_INTENT_SCHEMA = "puppet.plane-activation-rollback-intent/v2"
-LAUNCH_CONTEXT_SCHEMA = "puppet.plane-activation-launch-context/v1"
+LAUNCH_CONTEXT_SCHEMA = "puppet.plane-activation-launch-context/v2"
 PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
 ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
 
@@ -837,7 +837,9 @@ class ActivationLaunchContext:
             "workspace_root_sha256": self.workspace_root_sha256,
             "config_root_sha256": self.config_root_sha256,
             "admitted_lane_root_sha256": self.admitted_lane_root_sha256,
-            "project_isolation": "activation_bound_workspace_config_lane_roots",
+            "project_isolation": (
+                "subscription_profile_config_plus_isolated_activation_roots"
+            ),
             "launch_identity": self.launch_identity,
             "admitted_launch_plan_sha256": self.admitted_launch_plan_sha256,
         }
@@ -1317,34 +1319,17 @@ def build_activation_launch_context(
         private=True,
     )
     lane_root = _absolute_lexical(admitted_lane_root, label="admitted lane root")
-    expected_lane_root = Path(
-        os.path.commonpath(
-            [
-                plan.raw[name]["path"]
-                for name in (
-                    "workspace_root",
-                    "config_root",
-                    "ephemeral_root",
-                    "transaction_root",
-                )
-            ]
+    if config.parent != lane_root:
+        raise IdentityError(
+            "admitted lane root is not the exact subscription profile parent"
         )
-    )
-    if str(lane_root) != str(expected_lane_root):
-        raise IdentityError("admitted lane root is not the exact activation parent")
     lane_descriptor, lane_identity = _open_root(
         lane_root,
         label="admitted lane root",
         private=True,
     )
     os.close(lane_descriptor)
-    for bound_root in (
-        workspace,
-        config,
-        Path(plan.raw["ephemeral_root"]["path"]),
-        Path(plan.raw["transaction_root"]["path"]),
-    ):
-        ensure_within(bound_root, lane_root, must_exist=True)
+    ensure_within(config, lane_root, must_exist=True)
 
     if isinstance(adapter_manifest, AdapterManifest):
         manifest = adapter_manifest
@@ -2649,7 +2634,7 @@ def validate_terminal_activation_evidence(
         or public_context.get("target") != "claude"
         or public_context.get("session_profile") != "regular"
         or public_context.get("project_isolation")
-        != "activation_bound_workspace_config_lane_roots"
+        != "subscription_profile_config_plus_isolated_activation_roots"
     ):
         raise ValidationError("activation public context is invalid")
     validate_identifier(public_context.get("session"), "activation context session")
@@ -2661,19 +2646,7 @@ def validate_terminal_activation_evidence(
     if launch_identity != launch_plan["launch_identity"]:
         raise IdentityError("terminal activation launch identity changed")
 
-    lane_path = Path(
-        os.path.commonpath(
-            [
-                plan.raw[name]["path"]
-                for name in (
-                    "workspace_root",
-                    "config_root",
-                    "ephemeral_root",
-                    "transaction_root",
-                )
-            ]
-        )
-    )
+    lane_path = Path(plan.raw["config_root"]["path"]).parent
     lane_descriptor, lane_identity = _open_root(
         lane_path,
         label="admitted lane root",

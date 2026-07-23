@@ -123,20 +123,25 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
   - temporary fixture run tree under the lane workspace
   - temporary settings source file and explicit setting source constraints
   - no reads or writes against user global Claude config.
-- Set `CLAUDE_CONFIG_DIR` to the lane root and pass lane-owned `--settings` plus
+- Set `CLAUDE_CONFIG_DIR` to the exact Puppet-owned private subscription
+  profile's config directory and pass lane-owned `--settings` plus
   exact `--setting-sources user,project,local`. `--settings` merges; it is not
   itself an isolation boundary. Managed policy remains higher authority and an
   unexpected conflict blocks qualification.
-- Authentication remains macOS Keychain-backed with the relocated config root;
-  do not copy or inspect credentials. Do not use `--bare`, which prevents that
+- Authentication is established only by the human inside that private profile;
+  Puppet rechecks its body-free status immediately before target start and
+  never copies or inspects credentials. Do not use `--bare`, which prevents
   normal authentication behavior and disables hooks/customizations.
 - Do not keep any live command artifacts inside the default user home between runs.
 
 ## 6) Required Puppet deltas for this lane
 
-- Add allowlisted environment and immutable path-vector launch deltas for
-  `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, `--settings`,
-  `--setting-sources`, and the selected native plane.
+- Implemented source substrate: the additive plane now composes with the exact
+  private profile environment and config identity, with create-only artifact
+  materialization, immediate auth/identity revalidation, exact rollback, and a
+  joined body-free receipt. Activation-lifecycle proof remains non-promotable.
+- Still add and prove immutable `--settings` and `--setting-sources` launch
+  deltas when the selected plane requires them.
 - Replace help-absence sandbox inference with observed isolated settings/hook
   evidence. Record sanitized `SessionStart` and `InstructionsLoaded` events and
   bind the observed default model to the receipt.

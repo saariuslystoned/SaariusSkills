@@ -482,7 +482,7 @@ class PlaneActivationTests(unittest.TestCase):
         )
         self.assertEqual(
             public["project_isolation"],
-            "activation_bound_workspace_config_lane_roots",
+            "subscription_profile_config_plus_isolated_activation_roots",
         )
         persistable = canonical_json_bytes(public) + canonical_json_bytes(admitted)
         for forbidden in (
@@ -503,6 +503,45 @@ class PlaneActivationTests(unittest.TestCase):
             with self.assertRaisesRegex(ConflictError, "not in active state"):
                 self._launch_context()
         builder.assert_not_called()
+
+    def test_launch_context_joins_separate_profile_and_activation_roots(self):
+        profile_root = self.base / "subscription-profile"
+        profile_config = profile_root / "config"
+        activation_root = self.base / "activation-run"
+        activation_ephemeral = activation_root / "ephemeral"
+        activation_transaction = activation_root / "transaction"
+        for path in (
+            profile_root,
+            profile_config,
+            activation_root,
+            activation_ephemeral,
+            activation_transaction,
+        ):
+            path.mkdir(mode=0o700)
+            path.chmod(0o700)
+        plan = self._plan(
+            config_root=profile_config,
+            ephemeral_root=activation_ephemeral,
+            transaction_root=activation_transaction,
+        )
+        materialize_activation(plan, effective_contract=self.compiled.rendered)
+        context = build_activation_launch_context(
+            plan,
+            adapter_manifest=self.adapter_manifest,
+            session="claude-profile-joined-session",
+            run_id="claude-profile-joined-run",
+            session_profile="regular",
+            workspace_root=self.workspace,
+            config_root=profile_config,
+            admitted_lane_root=profile_root,
+            source_environment={"HOME": "/safe/home", "PATH": "/usr/bin:/bin"},
+        )
+        self.assertEqual(
+            context.environment["CLAUDE_CONFIG_DIR"],
+            str(profile_config.resolve(strict=True)),
+        )
+        self.assertTrue(plan.artifact_path.is_relative_to(activation_root))
+        self.assertFalse(plan.artifact_path.is_relative_to(profile_root))
 
     def test_launch_context_rejects_manifest_argv_and_environment_drift(self):
         self._activate()
@@ -558,7 +597,7 @@ class PlaneActivationTests(unittest.TestCase):
         ):
             self._launch_context(workspace_root=wrong_workspace)
 
-        with self.assertRaisesRegex(IdentityError, "exact activation parent"):
+        with self.assertRaisesRegex(IdentityError, "subscription profile parent"):
             self._launch_context(admitted_lane_root=self.base.parent)
         original_lane_mode = stat.S_IMODE(self.base.stat().st_mode)
         self.base.chmod(0o755)

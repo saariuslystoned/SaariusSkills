@@ -129,7 +129,7 @@ def followup():
     }
 
 
-def qualification_receipt_core(schema_version=3):
+def qualification_receipt_core(schema_version=4):
     return {
         "schema_version": schema_version,
         "campaign_id": "campaign-test",
@@ -153,7 +153,7 @@ def qualification_receipt_core(schema_version=3):
 
 
 class AuthorityTests(unittest.TestCase):
-    def test_qualification_attestation_v3_is_distinct_from_legacy_rows(self):
+    def test_qualification_attestation_v4_is_distinct_from_legacy_rows(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             current_core = qualification_receipt_core(
