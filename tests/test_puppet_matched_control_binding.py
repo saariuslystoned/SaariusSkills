@@ -14,13 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
+from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.matched_control import (  # noqa: E402
     COMPILED_MARKER_BINDING_SCHEMA,
     COMPILED_MARKER_RESULT,
     COMPILED_MARKER_SCOPE,
+    MARKER_SIGNAL_PROTOCOL_DESCRIPTOR,
+    MARKER_SIGNAL_PROTOCOL_SHA256,
+    MARKER_SIGNAL_RELATIVE_PATH,
     CompiledMarkerInstruction,
     compile_claude_marker_instruction,
     validate_compiled_marker_binding,
@@ -116,6 +119,10 @@ class CompiledMarkerBindingTests(unittest.TestCase):
         self.assertEqual(binding["result"], COMPILED_MARKER_RESULT)
         self.assertEqual(binding["marker_sha256"], sha256_bytes(matches[0]))
         self.assertEqual(
+            binding["marker_signal_protocol_sha256"],
+            MARKER_SIGNAL_PROTOCOL_SHA256,
+        )
+        self.assertEqual(
             binding["instruction_manifest_sha256"],
             sha256_bytes(canonical_json_bytes(result.manifest) + b"\n"),
         )
@@ -137,6 +144,84 @@ class CompiledMarkerBindingTests(unittest.TestCase):
         self.assertNotIn("PUPPET_CLAUDE_MATCHED_CONTROL_MARKER", durable)
         self.assertNotIn("TASK_BODY_CANARY", repr(result))
         self.assertNotIn("PUPPET_CLAUDE_MATCHED_CONTROL_MARKER", repr(result))
+
+    def test_signal_protocol_is_fixed_one_use_hash_only_and_handoffs_stay_marker_free(
+        self,
+    ):
+        result = compile_binding()
+        rendered = result.rendered.decode("utf-8")
+        marker = MARKER_PATTERN.search(result.rendered)
+        self.assertIsNotNone(marker)
+        self.assertEqual(
+            MARKER_SIGNAL_PROTOCOL_DESCRIPTOR,
+            {
+                "schema": "puppet.claude-marker-signal-protocol/v1",
+                "target": "claude",
+                "relative_path": MARKER_SIGNAL_RELATIVE_PATH,
+                "payload": "exact_marker_ascii_without_terminator",
+                "final_mode": 0o600,
+                "creation": "atomic_create_only_once",
+                "consumption": "controller_dirfd_nofollow_unlink_before_journal",
+                "handoff_marker_payload": "forbidden",
+                "durable_retention": "hash_only",
+            },
+        )
+        self.assertEqual(
+            MARKER_SIGNAL_PROTOCOL_SHA256,
+            sha256_bytes(canonical_json_bytes(MARKER_SIGNAL_PROTOCOL_DESCRIPTOR)),
+        )
+        self.assertEqual(rendered.count(MARKER_SIGNAL_RELATIVE_PATH), 1)
+        self.assertIn("Never place that marker in ready/follow-up JSON", rendered)
+        self.assertIn("without a newline or other terminator", rendered)
+        self.assertIn(marker.group(0).decode("ascii"), rendered)
+        self.assertNotIn(marker.group(0).decode("ascii"), json.dumps(result.binding))
+
+    def test_legacy_handoff_marker_binding_is_rejected(self):
+        result = compile_binding()
+        legacy = result.binding
+        legacy["schema"] = "puppet.claude-compiled-marker-binding/v1"
+        forged = CompiledMarkerInstruction(
+            _rendered=result.rendered,
+            _manifest_json=canonical_json_bytes(result.manifest),
+            _binding_json=canonical_json_bytes(legacy),
+        )
+        with self.assertRaisesRegex(UnsupportedError, "legacy compiled marker"):
+            validate_compiled_marker_binding(forged)
+
+        legacy.pop("marker_signal_protocol_sha256")
+        forged_without_v2_field = CompiledMarkerInstruction(
+            _rendered=result.rendered,
+            _manifest_json=canonical_json_bytes(result.manifest),
+            _binding_json=canonical_json_bytes(legacy),
+        )
+        with self.assertRaisesRegex(UnsupportedError, "legacy compiled marker"):
+            validate_compiled_marker_binding(forged_without_v2_field)
+
+    def test_validator_requires_the_exact_source_owned_signal_directive(self):
+        result = compile_binding()
+        rendered = result.rendered.replace(
+            b"Never place that marker in ready/follow-up JSON",
+            b"Place that marker in ready/follow-up JSON only",
+        )
+        manifest = result.manifest
+        manifest["rendered_sha256"] = sha256_bytes(rendered)
+        manifest["byte_count"] = len(rendered)
+        forged_binding = result.binding
+        forged_binding["rendered_sha256"] = sha256_bytes(rendered)
+        forged_binding["instruction_manifest_sha256"] = sha256_bytes(
+            canonical_json_bytes(manifest) + b"\n"
+        )
+        forged = CompiledMarkerInstruction(
+            _rendered=rendered,
+            _manifest_json=canonical_json_bytes(manifest),
+            _binding_json=canonical_json_bytes(forged_binding),
+        )
+        with mock.patch(
+            "puppet_lib.matched_control.validate_instruction_manifest",
+            return_value=manifest,
+        ):
+            with self.assertRaisesRegex(IdentityError, "signal directive"):
+                validate_compiled_marker_binding(forged)
 
     def test_public_api_has_no_marker_digest_hook_or_runtime_authority_input(self):
         parameters = inspect.signature(compile_claude_marker_instruction).parameters

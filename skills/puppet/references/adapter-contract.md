@@ -122,6 +122,15 @@ public producer accepts no caller event, marker, digest, or journal. This
 attestation still fixes delivery, runtime scan, qualification, and promotion to
 false and is not a live-probe or matched-control receipt.
 
+Claude's compile-only marker binding uses a fixed one-use ephemeral sidecar,
+not a durable handoff claim. Its v2 binding commits the exact sidecar protocol:
+exact marker bytes without a terminator, create-only mode 0600, controller
+directory-FD/no-follow consumption, unlink before journaling, and hash-only
+retention. The existing probe does not consume this sidecar, and the current
+conformance handoffs remain exact marker-free acknowledgements. Signal
+consumption and paired ordinary-session no-bleed verification remain separate
+non-authorizing work.
+
 ## Interface
 
 An adapter must provide detection and fingerprinting, current unrestricted and

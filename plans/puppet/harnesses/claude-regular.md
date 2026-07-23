@@ -238,3 +238,13 @@ activation receipt.
     launch/steer/halt sequence and explicit no-bleed gate.
   - Keep lane at `mapping` if the default model or every safe instruction-plane
     candidate remains unresolved.
+
+The source-owned marker compiler now uses a fixed one-use sidecar at
+`handoffs/.puppet-claude-marker-signal-v1`; marker bytes are forbidden from the
+durable ready/follow-up JSON. The binding commits the exact signal protocol and
+the controller must later open it relative to a retained workspace directory
+descriptor, validate exact bytes and file identity, unlink it before journaling,
+and retain hashes only. This compile protocol is not wired into the probe and
+does not yet authorize delivery, scanning, checkpoint claims, no-bleed,
+qualification, or promotion. A later conformance-contract version must allow
+the one-use signal explicitly and consume it before the exact handoff-set check.

@@ -9,7 +9,7 @@ from typing import Any, Dict, Mapping
 
 from .adapter_manifest import AdapterManifest, QUALIFICATION_PROFILE
 from .contracts import MANDATORY_HARD_GATES
-from .errors import IdentityError, ValidationError
+from .errors import IdentityError, UnsupportedError, ValidationError
 from .instruction_planes import (
     descriptor_fingerprint,
     validate_instruction_plane_descriptor,
@@ -24,7 +24,10 @@ from .safety import (
 from .plane_activation import ActivationPlan, validate_activation_plan_manifest
 
 
-COMPILED_MARKER_BINDING_SCHEMA = "puppet.claude-compiled-marker-binding/v1"
+COMPILED_MARKER_BINDING_SCHEMA = "puppet.claude-compiled-marker-binding/v2"
+LEGACY_COMPILED_MARKER_BINDING_SCHEMAS = frozenset(
+    {"puppet.claude-compiled-marker-binding/v1"}
+)
 COMPILED_MARKER_SCOPE = "compiled_binding_only"
 COMPILED_MARKER_RESULT = "not_evaluated"
 ACTIVATION_MARKER_JOIN_SCHEMA = "puppet.claude-activation-marker-join/v2"
@@ -34,6 +37,21 @@ ACTIVATION_MARKER_JOIN_RESULT = "not_evaluated"
 _MARKER_DOMAIN = "puppet.claude-matched-control-marker/v1"
 _MARKER_PREFIX = "PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1="
 _MARKER_PATTERN = re.compile(rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}")
+MARKER_SIGNAL_RELATIVE_PATH = "handoffs/.puppet-claude-marker-signal-v1"
+MARKER_SIGNAL_PROTOCOL_DESCRIPTOR = {
+    "schema": "puppet.claude-marker-signal-protocol/v1",
+    "target": "claude",
+    "relative_path": MARKER_SIGNAL_RELATIVE_PATH,
+    "payload": "exact_marker_ascii_without_terminator",
+    "final_mode": 0o600,
+    "creation": "atomic_create_only_once",
+    "consumption": "controller_dirfd_nofollow_unlink_before_journal",
+    "handoff_marker_payload": "forbidden",
+    "durable_retention": "hash_only",
+}
+MARKER_SIGNAL_PROTOCOL_SHA256 = sha256_bytes(
+    canonical_json_bytes(MARKER_SIGNAL_PROTOCOL_DESCRIPTOR)
+)
 _BINDING_FIELDS = {
     "schema",
     "scope",
@@ -46,6 +64,7 @@ _BINDING_FIELDS = {
     "instruction_manifest_sha256",
     "rendered_sha256",
     "marker_sha256",
+    "marker_signal_protocol_sha256",
     "instruction_policy_fingerprint",
     "effective_contract_fingerprint",
     "contract_identity_sha256",
@@ -197,10 +216,15 @@ def _marker_token(
 
 def _marker_directive(token: bytes) -> str:
     return (
-        "Controller matched-control checkpoint requirement: in each requested "
-        "conformance handoff, include exactly one claim whose marker value is `"
+        "Controller matched-control signal requirement: after writing the first "
+        "requested conformance handoff, atomically create exactly one mode-0600 "
+        "file at `"
+        + MARKER_SIGNAL_RELATIVE_PATH
+        + "` whose complete bytes, without a newline or other terminator, are `"
         + token.decode("ascii")
-        + "`. Do not copy that value anywhere else."
+        + "`. Never place that marker in ready/follow-up JSON, claims, evidence, "
+        "output, logs, source, or another file, and never recreate the one-use "
+        "signal after the controller consumes it."
     )
 
 
@@ -217,7 +241,13 @@ def validate_compiled_marker_binding(
         raise ValidationError("compiled marker instruction type is invalid")
     manifest = validate_instruction_manifest(compiled.manifest, target="claude")
     binding = compiled.binding
-    if not isinstance(binding, dict) or set(binding) != _BINDING_FIELDS:
+    if not isinstance(binding, dict):
+        raise ValidationError("compiled marker binding fields changed")
+    if binding.get("schema") in LEGACY_COMPILED_MARKER_BINDING_SCHEMAS:
+        raise UnsupportedError(
+            "legacy compiled marker binding persists its signal through handoffs"
+        )
+    if set(binding) != _BINDING_FIELDS:
         raise ValidationError("compiled marker binding fields changed")
     if (
         binding.get("schema") != COMPILED_MARKER_BINDING_SCHEMA
@@ -236,6 +266,7 @@ def validate_compiled_marker_binding(
         "instruction_manifest_sha256",
         "rendered_sha256",
         "marker_sha256",
+        "marker_signal_protocol_sha256",
         "instruction_policy_fingerprint",
         "effective_contract_fingerprint",
         "contract_identity_sha256",
@@ -264,12 +295,14 @@ def validate_compiled_marker_binding(
         descriptor_sha256=binding["descriptor_sha256"], **run_identity
     )
     markers = _MARKER_PATTERN.findall(rendered)
+    expected_directive = _marker_directive(expected_marker).encode("ascii")
     if (
         len(markers) != 1
         or markers[0] != expected_marker
         or rendered.count(expected_marker) != 1
+        or rendered.count(expected_directive) != 1
     ):
-        raise IdentityError("compiled marker must occur exactly once")
+        raise IdentityError("compiled marker signal directive must occur exactly once")
     manifest_sha = sha256_bytes(canonical_json_bytes(manifest) + b"\n")
     if (
         binding["session"] != run_identity["session"]
@@ -280,6 +313,7 @@ def validate_compiled_marker_binding(
         or binding["rendered_sha256"] != sha256_bytes(rendered)
         or binding["rendered_sha256"] != manifest.get("rendered_sha256")
         or binding["marker_sha256"] != sha256_bytes(expected_marker)
+        or binding["marker_signal_protocol_sha256"] != MARKER_SIGNAL_PROTOCOL_SHA256
         or binding["instruction_policy_fingerprint"]
         != manifest.get("instruction_policy_fingerprint")
         or binding["effective_contract_fingerprint"]
@@ -474,6 +508,7 @@ def compile_claude_marker_instruction(
         "instruction_manifest_sha256": sha256_bytes(manifest_json + b"\n"),
         "rendered_sha256": manifest["rendered_sha256"],
         "marker_sha256": sha256_bytes(token),
+        "marker_signal_protocol_sha256": MARKER_SIGNAL_PROTOCOL_SHA256,
         "instruction_policy_fingerprint": manifest["instruction_policy_fingerprint"],
         "effective_contract_fingerprint": manifest["effective_contract_fingerprint"],
         "contract_identity_sha256": _identity_sha256(manifest["contract_identity"]),
@@ -512,6 +547,10 @@ __all__ = [
     "COMPILED_MARKER_BINDING_SCHEMA",
     "COMPILED_MARKER_SCOPE",
     "COMPILED_MARKER_RESULT",
+    "LEGACY_COMPILED_MARKER_BINDING_SCHEMAS",
+    "MARKER_SIGNAL_PROTOCOL_DESCRIPTOR",
+    "MARKER_SIGNAL_PROTOCOL_SHA256",
+    "MARKER_SIGNAL_RELATIVE_PATH",
     "CompiledMarkerInstruction",
     "bind_claude_marker_activation_plan",
     "compile_claude_marker_instruction",
