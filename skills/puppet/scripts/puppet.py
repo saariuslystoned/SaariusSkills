@@ -23,6 +23,10 @@ from puppet_lib.session import (
     status,
     wait_for,
 )
+from puppet_lib.subscription_profiles import (
+    initialize_subscription_profile,
+    subscription_profile_status,
+)
 
 
 def _path(value: str) -> Path:
@@ -131,6 +135,18 @@ def _halt(args):
         session=args.session,
         timeout=args.timeout,
     )
+
+
+def _profile_init(args):
+    return initialize_subscription_profile(
+        target=args.target,
+        profile_root=args.profile_root,
+        executable_path=args.executable,
+    )
+
+
+def _profile_status(args):
+    return subscription_profile_status(profile_root=args.profile_root)
 
 
 def _promote(args):
@@ -256,6 +272,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     view_parser.add_argument("--dry-run", action="store_true")
     view_parser.set_defaults(handler=_open_view)
+
+    profile_init_parser = commands.add_parser(
+        "profile-init",
+        help="create a private subscription profile and print its human login handoff",
+    )
+    profile_init_parser.add_argument(
+        "--target",
+        required=True,
+        choices=["agy", "codex", "claude", "cursor", "grok"],
+    )
+    profile_init_parser.add_argument("--profile-root", required=True, type=_path)
+    profile_init_parser.add_argument("--executable", required=True, type=_path)
+    profile_init_parser.set_defaults(handler=_profile_init)
+
+    profile_status_parser = commands.add_parser(
+        "profile-status",
+        help="report body-free auth state for one private subscription profile",
+    )
+    profile_status_parser.add_argument("--profile-root", required=True, type=_path)
+    profile_status_parser.set_defaults(handler=_profile_status)
 
     halt_parser = commands.add_parser(
         "halt", help="gracefully halt only the registered target"

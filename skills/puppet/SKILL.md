@@ -53,6 +53,14 @@ template root creates a new instruction-policy fingerprint and requires fresh
 qualification. The initial-message wrapper is a safe composition transport,
 not proof that a harness-native global, workspace, or additive plane works.
 
+Subscription authentication is profile-scoped. Use `profile-init` to create a
+Puppet-owned mode-0700 home/config root and obtain an exact human-run login
+handoff; Puppet does not copy an existing credential or perform login itself.
+After the operator completes that account action, use `profile-status` to retain
+only an allowlisted login state. Codex, Claude, Cursor, and Grok have current
+private-profile recipes. AGY stays unsupported here until its installed CLI
+exposes an authentication-preserving private config-root selector.
+
 ## Operate a session
 
 Invoke the skill-local CLI:
@@ -63,15 +71,18 @@ python3 <skill-root>/scripts/puppet.py <command> ...
 
 Use this sequence:
 
-1. `doctor` validates the current executable, YOLO mapping, repository,
+1. If the selected private profile is not authenticated, run `profile-init`,
+   give its `login_command` to the human, and verify it with `profile-status`.
+   The login handoff is an explicit account action and never runs unattended.
+2. `doctor` validates the current executable, YOLO mapping, repository,
    authorization, tmux, proof root, and collision state.
-2. `launch` creates one deterministic user-private tmux socket/session from a
+3. `launch` creates one deterministic user-private tmux socket/session from a
    controller-verified manifest, waits through the adapter's bounded structural
    startup settle, rechecks process/pane identity, and then delivers the initial
    prompt through a protected file or literal tmux buffer, never as a process
    argument. The settle reduces startup races; only a validated handoff proves
    the harness consumed the prompt.
-3. Give the human the exact command from `attach-command`. When the operator
+4. Give the human the exact command from `attach-command`. When the operator
    opts in and the local surface supports visible macOS terminal launch, use
    `open-view` to open that command in a separate iTerm or Terminal window. It
    uses a short-lived one-use ticket and reports success only after a new
@@ -82,17 +93,17 @@ Use this sequence:
    renderer, summary, or controller mediation. The human may attach and detach
    without changing the target. Do not have the controller attach or read the
    pane.
-4. Use `status` and bounded `wait` calls for structural state and validated
+5. Use `status` and bounded `wait` calls for structural state and validated
    checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text.
-5. Pin one adapter-qualified `session_profile` in the contract. Puppet applies
+6. Pin one adapter-qualified `session_profile` in the contract. Puppet applies
    that profile's native command only to the initial launch message; later
    `send` calls are ordinary steering messages. For AGY, Puppet also rejects
    `/btw`, `/side`, and caller-supplied profile prefixes.
-6. Import handoffs with `checkpoint`, inspect the bounded referenced artifact,
+7. Import handoffs with `checkpoint`, inspect the bounded referenced artifact,
    and record controller findings with `review`.
-7. Use `accept` only after independently verifying the exact checkpoint and
+8. Use `accept` only after independently verifying the exact checkpoint and
    terminal criteria. A target cannot review or accept itself.
-8. Use `halt` only for the exact registered target. Preserve tmux and proof.
+9. Use `halt` only for the exact registered target. Preserve tmux and proof.
 
 Pass B probes and normal live sessions share one fixed, checkout-independent
 authority root with one lock, projection, and durable lease history per target.

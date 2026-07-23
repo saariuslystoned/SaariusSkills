@@ -334,6 +334,19 @@ class AdapterTests(unittest.TestCase):
             after = adapter_implementation_fingerprint(copied)
             self.assertNotEqual(before, after)
 
+    def test_adapter_fingerprint_binds_subscription_login_helper(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "puppet"
+            shutil.copytree(ROOT / "skills" / "puppet", copied)
+            before = adapter_implementation_fingerprint(copied)
+            helper = copied / "scripts" / "profile_login.py"
+            helper.write_text(
+                helper.read_text(encoding="utf-8") + "\n# profile helper drift\n",
+                encoding="utf-8",
+            )
+            after = adapter_implementation_fingerprint(copied)
+            self.assertNotEqual(before, after)
+
     def test_sandbox_disable_mapping_distinguishes_omission_from_unknown(self):
         agy_help = "  --sandbox  Run in a sandbox with terminal restrictions enabled"
         self.assertFalse(

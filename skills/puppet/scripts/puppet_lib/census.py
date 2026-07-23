@@ -189,6 +189,7 @@ def adapter_implementation_fingerprint(
         [
             scripts_root / "adapter_lab.py",
             scripts_root / "puppet.py",
+            scripts_root / "profile_login.py",
             scripts_root / "viewer_attach.py",
         ]
     )

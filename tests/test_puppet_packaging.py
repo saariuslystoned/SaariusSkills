@@ -16,6 +16,7 @@ class PuppetPackagingTests(unittest.TestCase):
             "agents/openai.yaml",
             "scripts/puppet.py",
             "scripts/viewer_attach.py",
+            "scripts/profile_login.py",
             "scripts/adapter_lab.py",
             "references/operating-contract.md",
             "references/adapter-contract.md",

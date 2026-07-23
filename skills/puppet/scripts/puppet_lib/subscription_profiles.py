@@ -1,0 +1,647 @@
+"""Private subscription-profile bootstrap and body-free auth census.
+
+Puppet never copies an existing credential or performs login on behalf of the
+operator. It creates a namespaced profile and emits an execution-time-validated
+helper command that the human may choose to run.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import selectors
+import shlex
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any, Dict, Mapping, Sequence
+
+from .adapter_manifest import (
+    execution_file_identity,
+    validate_execution_file_identity,
+)
+from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
+from .safety import (
+    canonical_json_bytes,
+    exclusive_lock,
+    read_json,
+    sha256_bytes,
+    validate_identifier,
+)
+
+
+PROFILE_SCHEMA = "puppet.subscription-profile/v1"
+STATUS_SCHEMA = "puppet.subscription-profile-status/v1"
+MAX_STATUS_OUTPUT_BYTES = 16384
+STATUS_TIMEOUT_SECONDS = 20
+
+_PROFILE_LAYOUTS: Mapping[str, tuple[str, ...]] = {
+    "codex": ("home", "config", "tmp"),
+    "claude": ("home", "config", "tmp"),
+    "cursor": ("home", "config", "data", "tmp"),
+    "grok": ("home", "config", "tmp"),
+}
+
+
+def _private_directory(path: Path, *, label: str, create: bool) -> Dict[str, Any]:
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValidationError("%s must be absolute" % label)
+    if path.exists() and path.is_symlink():
+        raise ValidationError("%s must not be a symlink" % label)
+    if not path.exists():
+        if not create:
+            raise ValidationError("%s does not exist" % label)
+        try:
+            path.mkdir(mode=0o700)
+            os.chmod(path, 0o700)
+        except FileExistsError as exc:
+            raise ConflictError("%s creation raced" % label) from exc
+        except OSError as exc:
+            raise ValidationError("unable to create %s" % label) from exc
+    try:
+        resolved = path.resolve(strict=True)
+        details = resolved.stat()
+    except OSError as exc:
+        raise ValidationError("unable to inspect %s" % label) from exc
+    if (
+        not stat.S_ISDIR(details.st_mode)
+        or details.st_uid != os.getuid()
+        or stat.S_IMODE(details.st_mode) != 0o700
+    ):
+        raise ValidationError("%s is not a user-owned mode-0700 directory" % label)
+    return {
+        "path": str(resolved),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "uid": details.st_uid,
+        "mode": stat.S_IMODE(details.st_mode),
+    }
+
+
+def _resolve_executable(path: Path) -> tuple[str, Dict[str, Any]]:
+    requested = Path(path)
+    if not requested.is_absolute():
+        raise ValidationError("profile executable must be absolute")
+    try:
+        resolved = requested.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValidationError("profile executable is unavailable") from exc
+    return str(requested), execution_file_identity(resolved)
+
+
+def _profile_environment(
+    target: str, directories: Mapping[str, Dict[str, Any]]
+) -> Dict[str, str]:
+    values = {
+        "HOME": directories["home"]["path"],
+        "TMPDIR": directories["tmp"]["path"],
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+    if target == "codex":
+        values["CODEX_HOME"] = directories["config"]["path"]
+    elif target == "claude":
+        values["CLAUDE_CONFIG_DIR"] = directories["config"]["path"]
+        values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "true"
+    elif target == "cursor":
+        values["CURSOR_CONFIG_DIR"] = directories["config"]["path"]
+        values["CURSOR_DATA_DIR"] = directories["data"]["path"]
+        values["AGENT_CLI_CREDENTIAL_STORE"] = "file"
+        values["NO_OPEN_BROWSER"] = "1"
+    elif target == "grok":
+        values["GROK_HOME"] = directories["config"]["path"]
+        values["GROK_DISABLE_AUTOUPDATER"] = "true"
+    else:  # pragma: no cover - target validation owns this branch
+        raise UnsupportedError("subscription profile target is unsupported")
+    return values
+
+
+def _profile_commands(target: str, executable: str) -> Dict[str, list[str]]:
+    if target == "codex":
+        return {
+            "login": [executable, "login", "--device-auth"],
+            "status": [executable, "login", "status"],
+        }
+    if target == "claude":
+        return {
+            "login": [executable, "auth", "login"],
+            "status": [executable, "auth", "status"],
+        }
+    if target == "cursor":
+        return {
+            "login": [executable, "login"],
+            "status": [executable, "status", "--format", "json"],
+        }
+    if target == "grok":
+        return {
+            "login": [executable, "login", "--device-auth"],
+            "status": [executable, "models"],
+        }
+    raise UnsupportedError("subscription profile target is unsupported")
+
+
+def _default_login_helper() -> Path:
+    return Path(__file__).resolve(strict=True).parents[1] / "profile_login.py"
+
+
+def _manifest_public(value: Mapping[str, Any]) -> Dict[str, Any]:
+    clean_helper_environment = [
+        "HOME=" + value["bindings"]["HOME"],
+        "TMPDIR=" + value["bindings"]["TMPDIR"],
+        "PATH=/usr/bin:/bin",
+        "LANG=C",
+        "LC_ALL=C",
+    ]
+    return {
+        **dict(value),
+        "login_command": shlex.join(
+            [
+                value["env_executable"]["path"],
+                "-i",
+                *clean_helper_environment,
+                value["interpreter"]["path"],
+                "-E",
+                "-s",
+                "-S",
+                "-B",
+                value["helper"]["path"],
+                "--profile-root",
+                value["root"]["path"],
+            ]
+        ),
+        "manifest_sha256": sha256_bytes(canonical_json_bytes(value)),
+        "login_performed": False,
+        "account_change_authorized": False,
+    }
+
+
+def _validate_manifest(value: Any, *, verify_current: bool = True) -> Dict[str, Any]:
+    fields = {
+        "schema",
+        "target",
+        "root",
+        "directories",
+        "requested_executable",
+        "executable",
+        "helper",
+        "interpreter",
+        "library",
+        "env_executable",
+        "bindings",
+        "commands",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValidationError("subscription profile manifest fields are invalid")
+    if value.get("schema") != PROFILE_SCHEMA:
+        raise ValidationError("subscription profile schema is unsupported")
+    target = validate_identifier(value.get("target"), "profile target")
+    if target not in _PROFILE_LAYOUTS:
+        raise UnsupportedError("subscription profile target is unsupported")
+
+    recorded_root = value.get("root")
+    if not isinstance(recorded_root, dict):
+        raise ValidationError("subscription profile root identity is invalid")
+    root = _private_directory(
+        Path(recorded_root.get("path", "")), label="profile root", create=False
+    )
+    if root != recorded_root:
+        raise IdentityError("subscription profile root identity changed")
+
+    directories = value.get("directories")
+    if not isinstance(directories, dict) or set(directories) != set(
+        _PROFILE_LAYOUTS[target]
+    ):
+        raise ValidationError("subscription profile directory map is invalid")
+    checked_directories: Dict[str, Dict[str, Any]] = {}
+    for name in _PROFILE_LAYOUTS[target]:
+        recorded = directories.get(name)
+        if not isinstance(recorded, dict):
+            raise ValidationError("subscription profile directory identity is invalid")
+        current = _private_directory(
+            Path(recorded.get("path", "")),
+            label="profile %s directory" % name,
+            create=False,
+        )
+        if current != recorded:
+            raise IdentityError("subscription profile directory identity changed")
+        if Path(current["path"]) != Path(root["path"]) / name:
+            raise IdentityError("subscription profile directory path changed")
+        checked_directories[name] = current
+
+    executable = validate_execution_file_identity(
+        value.get("executable"), "profile executable", verify_current=verify_current
+    )
+    requested = value.get("requested_executable")
+    if (
+        not isinstance(requested, str)
+        or not requested
+        or not Path(requested).is_absolute()
+    ):
+        raise ValidationError("subscription profile requested executable is invalid")
+    try:
+        if Path(requested).resolve(strict=True) != Path(executable["path"]):
+            raise IdentityError("subscription profile executable path changed")
+    except (OSError, RuntimeError) as exc:
+        raise IdentityError("subscription profile executable is unavailable") from exc
+
+    helper = validate_execution_file_identity(
+        value.get("helper"), "profile login helper", verify_current=verify_current
+    )
+    interpreter = validate_execution_file_identity(
+        value.get("interpreter"),
+        "profile login interpreter",
+        verify_current=verify_current,
+    )
+    library = validate_execution_file_identity(
+        value.get("library"), "profile login library", verify_current=verify_current
+    )
+    env_executable = validate_execution_file_identity(
+        value.get("env_executable"),
+        "profile login environment executable",
+        verify_current=verify_current,
+    )
+    bindings = _profile_environment(target, checked_directories)
+    if value.get("bindings") != bindings:
+        raise IdentityError("subscription profile bindings changed")
+    commands = _profile_commands(target, executable["path"])
+    if value.get("commands") != commands:
+        raise IdentityError("subscription profile commands changed")
+    return {
+        **dict(value),
+        "root": root,
+        "directories": checked_directories,
+        "executable": executable,
+        "helper": helper,
+        "interpreter": interpreter,
+        "library": library,
+        "env_executable": env_executable,
+    }
+
+
+def _write_create_only(path: Path, value: Dict[str, Any]) -> None:
+    """Publish a fully durable manifest atomically without overwriting."""
+
+    payload = canonical_json_bytes(value) + b"\n"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".%s." % path.name, dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        try:
+            os.fchmod(descriptor, 0o600)
+            offset = 0
+            while offset < len(payload):
+                written = os.write(descriptor, payload[offset:])
+                if written <= 0:
+                    raise OSError("short subscription profile manifest write")
+                offset += written
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        details = temporary.stat()
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or stat.S_IMODE(details.st_mode) != 0o600
+            or details.st_nlink != 1
+        ):
+            raise IdentityError("subscription profile temporary manifest is invalid")
+        try:
+            os.link(str(temporary), str(path), follow_symlinks=False)
+        except FileExistsError as exc:
+            raise ConflictError("subscription profile manifest already exists") from exc
+        parent_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _new_profile_root(path: Path) -> Dict[str, Any]:
+    if not path.is_absolute():
+        raise ValidationError("profile root must be absolute")
+    if not path.parent.is_dir():
+        raise ValidationError("profile root parent must exist")
+    if path.exists() or path.is_symlink():
+        raise ConflictError("subscription profile root already exists")
+    return _private_directory(path, label="profile root", create=True)
+
+
+def initialize_subscription_profile(
+    *,
+    target: str,
+    profile_root: Path | str,
+    executable_path: Path | str,
+    helper_path: Path | str | None = None,
+    interpreter_path: Path | str | None = None,
+) -> Dict[str, Any]:
+    """Create or rejoin one private profile without performing login."""
+
+    target = validate_identifier(target, "profile target")
+    if target == "agy":
+        raise UnsupportedError(
+            "AGY exposes no proved authentication-preserving private config-root selector"
+        )
+    if target not in _PROFILE_LAYOUTS:
+        raise UnsupportedError("subscription profile target is unsupported")
+    root_path = Path(profile_root)
+    if not root_path.is_absolute() or not root_path.parent.is_dir():
+        raise ValidationError("profile root must be absolute with an existing parent")
+
+    requested, executable = _resolve_executable(Path(executable_path))
+    helper = execution_file_identity(
+        Path(_default_login_helper() if helper_path is None else helper_path).resolve(
+            strict=True
+        )
+    )
+    interpreter = execution_file_identity(
+        Path(sys.executable if interpreter_path is None else interpreter_path).resolve(
+            strict=True
+        )
+    )
+    library = execution_file_identity(Path(__file__).resolve(strict=True))
+    env_executable = execution_file_identity(Path("/usr/bin/env"))
+    manifest_path = root_path / "profile.json"
+    if root_path.exists():
+        # Validate ownership before creating even a lock file. Empty or
+        # malformed pre-existing roots are never implicitly adopted.
+        if root_path.is_symlink() or not manifest_path.is_file():
+            raise ConflictError("pre-existing subscription profile is not owned")
+        preflight = _validate_manifest(read_json(manifest_path), verify_current=True)
+        root_path = Path(preflight["root"]["path"])
+        manifest_path = root_path / "profile.json"
+    else:
+        root = _new_profile_root(root_path)
+        root_path = Path(root["path"])
+        manifest_path = root_path / "profile.json"
+
+    lock_path = root_path / ".profile-init.lock"
+    with exclusive_lock(lock_path):
+        if manifest_path.exists():
+            manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+            if manifest["target"] != target:
+                raise ConflictError("subscription profile belongs to another target")
+            if (
+                manifest["requested_executable"] != requested
+                or manifest["executable"] != executable
+                or manifest["helper"] != helper
+                or manifest["interpreter"] != interpreter
+                or manifest["library"] != library
+                or manifest["env_executable"] != env_executable
+            ):
+                raise IdentityError("subscription profile launch authority changed")
+            return _manifest_public(manifest)
+
+        if any(entry.name != lock_path.name for entry in root_path.iterdir()):
+            raise ConflictError("unowned content exists in subscription profile root")
+        directories = {
+            name: _private_directory(
+                root_path / name,
+                label="profile %s directory" % name,
+                create=True,
+            )
+            for name in _PROFILE_LAYOUTS[target]
+        }
+        bindings = _profile_environment(target, directories)
+        manifest = {
+            "schema": PROFILE_SCHEMA,
+            "target": target,
+            "root": root,
+            "directories": directories,
+            "requested_executable": requested,
+            "executable": executable,
+            "helper": helper,
+            "interpreter": interpreter,
+            "library": library,
+            "env_executable": env_executable,
+            "bindings": bindings,
+            "commands": _profile_commands(target, executable["path"]),
+        }
+        _write_create_only(manifest_path, manifest)
+        manifest = _validate_manifest(manifest, verify_current=True)
+        return _manifest_public(manifest)
+
+
+def _bounded_status_run(
+    argv: Sequence[str], *, environment: Mapping[str, str], cwd: Path
+) -> subprocess.CompletedProcess[bytes]:
+    process: subprocess.Popen[bytes] | None = None
+    selector: selectors.BaseSelector | None = None
+    output = bytearray()
+    try:
+        process = subprocess.Popen(
+            list(argv),
+            cwd=str(cwd),
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if process.stdout is None:  # pragma: no cover - PIPE guarantees this
+            raise ValidationError("subscription profile status pipe is unavailable")
+        os.set_blocking(process.stdout.fileno(), False)
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + STATUS_TIMEOUT_SECONDS
+        eof = False
+        while not eof:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(list(argv), STATUS_TIMEOUT_SECONDS)
+            ready = selector.select(min(remaining, 0.25))
+            if not ready and process.poll() is not None:
+                ready = selector.select(0)
+                if not ready:
+                    break
+            for key, _mask in ready:
+                try:
+                    block = os.read(key.fileobj.fileno(), 4096)
+                except BlockingIOError:
+                    continue
+                if not block:
+                    eof = True
+                    break
+                output.extend(block)
+                if len(output) > MAX_STATUS_OUTPUT_BYTES:
+                    raise ValidationError(
+                        "subscription profile status output exceeds the cap"
+                    )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(list(argv), STATUS_TIMEOUT_SECONDS)
+        returncode = process.wait(timeout=remaining)
+        return subprocess.CompletedProcess(
+            list(argv), returncode, stdout=bytes(output), stderr=None
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationError("subscription profile status command failed") from exc
+    finally:
+        if selector is not None:
+            selector.close()
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+
+
+def _parse_status(
+    target: str, result: subprocess.CompletedProcess[bytes]
+) -> Dict[str, Any]:
+    try:
+        text = result.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationError(
+            "subscription profile status output is not UTF-8"
+        ) from exc
+    normalized = text.strip()
+    if target == "codex":
+        lines = {line.strip() for line in normalized.splitlines()}
+        if result.returncode == 0 and "Logged in using ChatGPT" in lines:
+            return {"login_state": "logged_in", "method": "chatgpt"}
+        if "Not logged in" in lines:
+            return {"login_state": "logged_out", "method": "none"}
+    elif target == "claude":
+        try:
+            value = json.loads(normalized)
+        except json.JSONDecodeError:
+            value = None
+        if (
+            isinstance(value, dict)
+            and set(value) == {"loggedIn", "authMethod", "apiProvider"}
+            and isinstance(value.get("loggedIn"), bool)
+        ):
+            method = value.get("authMethod")
+            provider = value.get("apiProvider")
+            return {
+                "login_state": (
+                    "logged_in"
+                    if value["loggedIn"] and result.returncode == 0
+                    else "logged_out"
+                    if not value["loggedIn"]
+                    else "unknown"
+                ),
+                "method": method if method in {"claude.ai", "none"} else "other",
+                "provider": provider if provider in {"firstParty"} else "other",
+            }
+    elif target == "cursor":
+        try:
+            value = json.loads(normalized)
+        except json.JSONDecodeError:
+            value = None
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("isAuthenticated"), bool)
+            and value.get("status") in {"authenticated", "unauthenticated"}
+        ):
+            return {
+                "login_state": (
+                    "logged_in"
+                    if value["isAuthenticated"] and result.returncode == 0
+                    else "logged_out"
+                    if not value["isAuthenticated"]
+                    else "unknown"
+                ),
+                "method": "private_file_store",
+            }
+    elif target == "grok":
+        state = (
+            "logged_out"
+            if "You are not authenticated" in normalized
+            or "No auth credentials" in normalized
+            else "logged_in"
+            if result.returncode == 0 and "Available models:" in normalized
+            else "unknown"
+        )
+        default_model = (
+            "grok-4.5" if "Default model: grok-4.5" in normalized else "unknown"
+        )
+        return {
+            "login_state": state,
+            "method": "private_grok_home",
+            "default_model": default_model,
+        }
+    return {"login_state": "unknown", "method": "unknown"}
+
+
+def subscription_profile_status(*, profile_root: Path | str) -> Dict[str, Any]:
+    """Run one target-native status command and discard its raw output."""
+
+    root = _private_directory(Path(profile_root), label="profile root", create=False)
+    manifest_path = Path(root["path"]) / "profile.json"
+    manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+    lock_path = Path(manifest["root"]["path"]) / ".profile-init.lock"
+    with exclusive_lock(lock_path):
+        manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+        result = _bounded_status_run(
+            manifest["commands"]["status"],
+            environment=manifest["bindings"],
+            cwd=Path(manifest["root"]["path"]),
+        )
+    parsed = _parse_status(manifest["target"], result)
+    return {
+        "schema": STATUS_SCHEMA,
+        "target": manifest["target"],
+        "profile_root": manifest["root"]["path"],
+        "executable": manifest["executable"],
+        "login_state": parsed["login_state"],
+        "method": parsed["method"],
+        **({"provider": parsed["provider"]} if "provider" in parsed else {}),
+        **(
+            {"default_model": parsed["default_model"]}
+            if "default_model" in parsed
+            else {}
+        ),
+        "status_exit": result.returncode,
+        "raw_output_retained": False,
+        "login_performed": False,
+        "model_launched": False,
+    }
+
+
+def execute_subscription_profile_login(
+    *,
+    profile_root: Path | str,
+    helper_path: Path | str,
+    interpreter_path: Path | str,
+    _execve: Any = os.execve,
+) -> None:
+    """Revalidate a human handoff and replace this helper with native login."""
+
+    root = _private_directory(Path(profile_root), label="profile root", create=False)
+    manifest_path = Path(root["path"]) / "profile.json"
+    manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+    lock_path = Path(manifest["root"]["path"]) / ".profile-init.lock"
+    with exclusive_lock(lock_path):
+        manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
+        helper = execution_file_identity(Path(helper_path).resolve(strict=True))
+        interpreter = execution_file_identity(
+            Path(interpreter_path).resolve(strict=True)
+        )
+        if helper != manifest["helper"] or interpreter != manifest["interpreter"]:
+            raise IdentityError("subscription profile login helper identity changed")
+        _execve(
+            manifest["executable"]["path"],
+            manifest["commands"]["login"],
+            manifest["bindings"],
+        )
+
+
+__all__ = [
+    "MAX_STATUS_OUTPUT_BYTES",
+    "PROFILE_SCHEMA",
+    "STATUS_SCHEMA",
+    "execute_subscription_profile_login",
+    "initialize_subscription_profile",
+    "subscription_profile_status",
+]
