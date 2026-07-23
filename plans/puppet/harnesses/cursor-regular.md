@@ -182,6 +182,12 @@ and `https://docs.cursor.com/en/cli/using`.
   `qualification_authorized=false`; the underlying plan keeps
   `materialization_supported=false`, `rollback_supported=false`, and
   `recovery_supported=false`.
+- The same source-only join now derives the exact complete disabled vector
+  `cursor-agent --yolo --sandbox disabled --workspace <absolute-bound-root>`
+  from the exact manifest base plus the workspace delta and stores only its
+  SHA-256. Missing, duplicate, saved-name, worktree, added-directory, auth,
+  model, profile, config, and prompt selectors fail closed. This is reusable
+  argv provenance, not launch authority or shared-adapter wiring.
 - Python/macOS pathname deletion has a check-then-remove race: a verified file
   or directory can be replaced before `unlink` or `rmdir`, causing an
   unreceipted vnode to be removed. The substrate therefore contains no create,
@@ -199,9 +205,9 @@ and `https://docs.cursor.com/en/cli/using`.
   - bind both launcher and bundled runtime/package identities; replace vacuous
     project isolation with a dynamic absolute `--workspace` selector.
 - `skills/puppet/scripts/puppet_lib/adapters.py`
-  - construct and validate `launcher --yolo --sandbox disabled --workspace
-    <absolute-lane-path>`; reject saved names, expanded directories,
-    Cursor-managed worktrees, auth flags, and undocumented prompt/config flags.
+  - consume the source-only exact vector only after the native plane,
+    authentication, process population, and lifecycle gates qualify; do not
+    rebuild a parallel caller-shaped workspace argv path.
 - `skills/puppet/scripts/puppet_lib/probe.py`
   - record selector `auto`, model-list hash, and literal `unavailable` resolved
     model/effort for the current default tuple.

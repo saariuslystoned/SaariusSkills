@@ -34,6 +34,7 @@ from puppet_lib.cursor_workspace_plane import (  # noqa: E402
     CURSOR_VERSION_OBSERVATION_SHA256,
     CursorWorkspacePlan,
     bind_cursor_workspace_plane,
+    derive_cursor_workspace_launch_argv,
     materialize_cursor_workspace_plane,
     plan_cursor_workspace_plane,
     recover_cursor_workspace_plane,
@@ -57,6 +58,7 @@ from puppet_lib.profiles import (  # noqa: E402
     session_profiles_for,
     startup_settle_seconds_for,
 )
+from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
 
 ADAPTER_IMPLEMENTATION_SHA256 = "a" * 64
@@ -298,6 +300,13 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
         with self._current_authority():
             return binding.record
 
+    def _launch_argv(self, plan, *, manifest=None):
+        with self._current_authority():
+            return derive_cursor_workspace_launch_argv(
+                plan,
+                adapter_manifest=self.manifest if manifest is None else manifest,
+            )
+
     def test_compiler_binding_is_deterministic_body_free_and_authority_disabled(self):
         values = self._binding_arguments()
         first = self._bind(values)
@@ -313,8 +322,24 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
         self.assertEqual(record["config_fingerprint"], "unavailable")
         self.assertEqual(
             record["artifact"]["relative_path"],
-            ".cursor/rules/puppet-%s.mdc"
-            % record["effective_contract_sha256"],
+            ".cursor/rules/puppet-%s.mdc" % record["effective_contract_sha256"],
+        )
+        plan = self._plan()
+        launch_argv = self._launch_argv(plan)
+        self.assertEqual(
+            launch_argv,
+            (
+                self.manifest["executable"]["resolved_path"],
+                "--yolo",
+                "--sandbox",
+                "disabled",
+                "--workspace",
+                str(self.workspace),
+            ),
+        )
+        self.assertEqual(
+            record["launch_argv_sha256"],
+            sha256_bytes(canonical_json_bytes(list(launch_argv))),
         )
         for name in (
             "activation_authorized",
@@ -331,6 +356,57 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
         self.assertNotIn("--profile", encoded)
         self.assertNotIn("CURSOR_BINDING_BODY_CANARY", repr(first))
         self.assertFalse(hasattr(first, "from_dict"))
+
+    def test_exact_launch_vector_rejects_selector_and_forbidden_flag_drift(self):
+        plan = self._plan()
+        cases = (
+            ("missing-workspace", []),
+            (
+                "duplicate-workspace",
+                [
+                    "--workspace",
+                    str(self.workspace),
+                    "--workspace",
+                    str(self.workspace),
+                ],
+            ),
+            ("saved-workspace", ["--workspace", "saved-workspace"]),
+            ("worktree", ["--worktree", str(self.workspace)]),
+            ("worktree-base", ["--worktree-base", "main"]),
+            ("add-dir", ["--add-dir", str(self.workspace)]),
+            ("api-key", ["--api-key", "opaque"]),
+            ("model", ["--model", "auto"]),
+            ("profile", ["--profile", "puppet"]),
+            ("config", ["--config", "puppet"]),
+            ("system-prompt", ["--system-prompt", "body"]),
+        )
+        for case_id, delta in cases:
+            raw = plan.to_dict()
+            raw["launch_delta"] = {"argv": delta}
+            forged = CursorWorkspacePlan(raw=raw)
+            with (
+                self.subTest(case_id=case_id),
+                self.assertRaises((IdentityError, ValidationError)),
+            ):
+                self._launch_argv(forged)
+
+    def test_launch_vector_rejects_self_consistent_base_argv_drift(self):
+        plan = self._plan()
+        forbidden_flags = (
+            ["--model", "auto"],
+            ["--api-key", "opaque"],
+            ["--profile", "puppet"],
+            ["--config", "puppet"],
+            ["--system-prompt", "body"],
+            ["--add-dir", str(self.workspace)],
+            ["--worktree", str(self.workspace)],
+        )
+        for extra in forbidden_flags:
+            changed = copy.deepcopy(self.manifest)
+            changed["yolo_mapping"]["launch_argv"].extend(extra)
+            changed = AdapterManifest.from_dict(changed).raw
+            with self.subTest(extra=extra), self.assertRaises(IdentityError):
+                self._launch_argv(plan, manifest=changed)
 
     def test_binding_rejects_contract_run_workspace_and_descriptor_replay(self):
         cases = ("contract", "run", "workspace", "descriptor", "bytes", "model")

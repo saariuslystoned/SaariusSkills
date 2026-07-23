@@ -143,6 +143,7 @@ _BINDING_KEYS = {
     "adapter_execution_sha256",
     "workspace_plan_sha256",
     "launch_delta_sha256",
+    "launch_argv_sha256",
     "requested_model",
     "observed_model",
     "config_fingerprint",
@@ -155,10 +156,7 @@ _BINDING_HASH_KEYS = {
     name
     for name in _BINDING_KEYS
     if name.endswith("_sha256")
-    or (
-        name.endswith("_fingerprint")
-        and name != "config_fingerprint"
-    )
+    or (name.endswith("_fingerprint") and name != "config_fingerprint")
 }
 
 
@@ -755,6 +753,58 @@ def revalidate_cursor_workspace_plan(
     return plan
 
 
+def derive_cursor_workspace_launch_argv(
+    plan: CursorWorkspacePlan,
+    *,
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+) -> Tuple[str, ...]:
+    """Derive the exact disabled Cursor vector without granting launch authority."""
+
+    plan = revalidate_cursor_workspace_plan(
+        plan,
+        adapter_manifest=adapter_manifest,
+    )
+    manifest = _exact_cursor_manifest(
+        adapter_manifest,
+        observed_version=plan.raw["cursor_version"],
+    )
+    base = list(manifest.raw["yolo_mapping"]["launch_argv"])
+    delta = list(plan.raw["launch_delta"]["argv"])
+    argv = tuple(base + delta)
+    workspace = plan.raw["workspace_root"]["path"]
+    expected = (
+        manifest.raw["executable"]["resolved_path"],
+        "--yolo",
+        "--sandbox",
+        "disabled",
+        "--workspace",
+        workspace,
+    )
+    if argv != expected or argv.count("--workspace") != 1:
+        raise IdentityError("Cursor workspace launch vector changed")
+    if not Path(workspace).is_absolute() or workspace != str(
+        Path(workspace).absolute()
+    ):
+        raise IdentityError("Cursor workspace launch vector is not absolute")
+    forbidden = {
+        "--add-dir",
+        "--api-key",
+        "--append-system-prompt",
+        "--config",
+        "--continue",
+        "--model",
+        "--profile",
+        "--rules",
+        "--system-prompt",
+        "--system-prompt-file",
+        "--worktree",
+        "--worktree-base",
+    }
+    if any(item in forbidden for item in argv):
+        raise IdentityError("Cursor workspace launch vector gained a forbidden flag")
+    return argv
+
+
 def _validate_binding_record(value: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != _BINDING_KEYS:
         raise IdentityError("Cursor workspace binding fields changed")
@@ -790,8 +840,7 @@ def _validate_binding_record(value: Mapping[str, Any]) -> Dict[str, Any]:
         "artifact_id": "cursor_workspace_rule",
         "root_ref": "workspace_root",
         "relative_path": (
-            ".cursor/rules/puppet-%s.mdc"
-            % result["effective_contract_sha256"]
+            ".cursor/rules/puppet-%s.mdc" % result["effective_contract_sha256"]
         ),
         "content_ref": "effective_contract",
         "write_mode": "create_only",
@@ -840,10 +889,9 @@ def _derive_cursor_workspace_binding_record(
     )
     contract_bytes = _validate_guidance(effective_contract)
     rendered_sha = sha256_bytes(contract_bytes)
-    if (
-        normalized_instruction["rendered_sha256"] != rendered_sha
-        or normalized_instruction["byte_count"] != len(contract_bytes)
-    ):
+    if normalized_instruction[
+        "rendered_sha256"
+    ] != rendered_sha or normalized_instruction["byte_count"] != len(contract_bytes):
         raise IdentityError(
             "Cursor effective contract does not match its instruction manifest"
         )
@@ -899,9 +947,7 @@ def _derive_cursor_workspace_binding_record(
     plan = plan_cursor_workspace_plane(
         adapter_manifest=manifest,
         expected_manifest_sha256=manifest.fingerprint,
-        expected_adapter_implementation_sha256=manifest.raw[
-            "adapter_fingerprint"
-        ],
+        expected_adapter_implementation_sha256=manifest.raw["adapter_fingerprint"],
         observed_version=CURSOR_VERSION,
         admitted_lane_root=admitted_lane_root,
         workspace_root=workspace_root,
@@ -918,6 +964,10 @@ def _derive_cursor_workspace_binding_record(
         != {"argv": ["--workspace", workspace_identity["path"]]}
     ):
         raise IdentityError("Cursor workspace plan join changed")
+    launch_argv = derive_cursor_workspace_launch_argv(
+        plan,
+        adapter_manifest=manifest,
+    )
 
     record: Dict[str, Any] = {
         "schema": BINDING_SCHEMA,
@@ -942,15 +992,14 @@ def _derive_cursor_workspace_binding_record(
         "workspace_identity_sha256": _identity_sha256(workspace_identity),
         "run_identity_sha256": _identity_sha256(run_identity),
         "adapter_manifest_sha256": manifest.fingerprint,
-        "adapter_implementation_sha256": plan.raw[
-            "adapter_implementation_sha256"
-        ],
+        "adapter_implementation_sha256": plan.raw["adapter_implementation_sha256"],
         "adapter_protocol_sha256": plan.raw["adapter_protocol_sha256"],
         "adapter_execution_sha256": plan.raw["execution_fingerprint"],
         "workspace_plan_sha256": plan.plan_sha256,
         "launch_delta_sha256": sha256_bytes(
             canonical_json_bytes(normalized_descriptor["launch_delta"])
         ),
+        "launch_argv_sha256": sha256_bytes(canonical_json_bytes(list(launch_argv))),
         "requested_model": "default",
         "observed_model": "unavailable",
         "config_fingerprint": "unavailable",
