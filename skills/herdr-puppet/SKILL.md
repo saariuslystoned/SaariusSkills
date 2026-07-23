@@ -39,16 +39,22 @@ hand-composed Herdr mutations when the script owns the operation.
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. Never adopt an existing tab or process.
-7. Drive only that leased pane through `qualification-send`. Serialize sends
+7. Send ordinary AGY steering as a plain message with no slash-command prefix.
+   Never inject `/teamwork-preview` automatically. Use it only when the
+   operator explicitly requests a separately bounded 4-20-helper fan-out; one
+   AGY root remains the integration writer, and that experimental hierarchy
+   requires its own topology, accounting, timeout, and cleanup proof.
+8. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
-8. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
+9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
    only the checkpoint class and hashes, never pane text. Use
    `qualification-token-probe` only for lower-level transport diagnosis.
-9. Preserve the owned tab when the user requests persistence. Do not close it
-   merely because the controller session ends.
-10. Review the journal after each useful checkpoint. Promote only repeatable
+10. Preserve the owned tab with `lease-preserve` at a human gate, superseded
+    route, completed milestone, or operator stop. Preservation changes only
+    the controller lease and rejects further input; it does not close the tab.
+11. Review the journal after each useful checkpoint. Promote only repeatable
     lessons into this skill; keep transient incident detail in the run packet.
 
 ## Commands
@@ -83,6 +89,10 @@ python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --nonce <unique-checkpoint-nonce> \
   --run-root <run-root> \
   --allow-live-qualification
+
+python3 scripts/herdr_puppet.py lease-preserve \
+  --lease-json <lease.json> \
+  --reason <human_gate|route_superseded|milestone_complete|operator_stop>
 ```
 
 Live qualification commands additionally require

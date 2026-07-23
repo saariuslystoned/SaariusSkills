@@ -41,6 +41,10 @@ supplies the expected sequence; equality with `next_seq` is mandatory.
 `pane run` submits text plus Enter through one Herdr API request. This proves
 input acceptance only, not shell or harness execution.
 
+`lease-preserve` atomically changes an active lease to `preserved`, records one
+bounded reason, and performs no Herdr mutation. A preserved tab remains visible
+but cannot receive controller input.
+
 Do not infer a missing ID or repair a mismatch by searching labels. Recovery
 remains disabled until remote-process adoption and crash behavior are
 qualified.

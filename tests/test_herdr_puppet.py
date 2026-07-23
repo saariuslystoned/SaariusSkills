@@ -19,6 +19,7 @@ from herdr_puppet_lib.core import (  # noqa: E402
     create_qualification_tab,
     doctor,
     plan,
+    preserve_lease,
     qualification_beacon_wait,
     qualification_reconcile_send,
     qualification_send,
@@ -519,6 +520,49 @@ class QualificationTests(unittest.TestCase):
             with self.assertRaisesRegex(HerdrPuppetError, "not active"):
                 operation()
         self.assertEqual(self.client.sent, [])
+
+    def test_preserve_lease_is_local_idempotent_and_journaled(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = preserve_lease(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            reason="human_gate",
+            run_root=run_root,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(result["state"], "preserved")
+        self.assertFalse(result["herdr_mutated"])
+        self.assertEqual(updated["state"], "preserved")
+        self.assertEqual(updated["preserved_reason"], "human_gate")
+        self.assertIn('"kind":"lease.preserved"', events)
+        self.assertEqual(self.client.sent, [])
+        repeated = preserve_lease(
+            lease_payload=updated,
+            lease_path=self.lease_path,
+            reason="human_gate",
+            run_root=run_root,
+        )
+        self.assertTrue(repeated["already_preserved"])
+        self.assertEqual(
+            events,
+            (run_root / "events.jsonl").read_text(encoding="utf-8"),
+        )
+
+    def test_preserve_lease_rejects_unbounded_reason(self) -> None:
+        lease = self.create_lease()
+        with self.assertRaisesRegex(HerdrPuppetError, "supported bounded reason"):
+            preserve_lease(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                reason="because I felt like it",
+            )
+        self.assertEqual(
+            json.loads(self.lease_path.read_text(encoding="utf-8"))["state"],
+            "active",
+        )
 
     def test_beacon_wait_classifies_strict_line_without_emitting_text(self) -> None:
         lease = self.create_lease()

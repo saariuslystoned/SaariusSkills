@@ -25,6 +25,10 @@ binds an explicit operator capability to one newly created Herdr tab, exact
 tab/pane/terminal/SSH identity, a sequence-checked lease, and a transcript-blind
 controller journal.
 
+Ordinary AGY turns use plain messages. `/teamwork-preview` is reserved for an
+explicitly requested, separately qualified 4-20-helper fan-out; it is not the
+default steering prefix.
+
 The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
 append-only dogfood journals, gated qualification tab creation,
 sequence-checked input, partial-send reconciliation, and a bounded exact-nonce

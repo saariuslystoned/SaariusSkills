@@ -9,12 +9,19 @@ from typing import Any
 
 from .errors import HerdrPuppetError
 from .herdr_client import HerdrClient
-from .journal import append_event, atomic_json, make_event, sha256_text
+from .journal import append_event, atomic_json, make_event, now, sha256_text
 
 
 SUPPORTED_HERDR_VERSION = "0.7.3"
 SUPPORTED_HERDR_PROTOCOL = 16
 CHECKPOINT_KINDS = ("STATUS", "ACTION_REQUIRED", "DONE")
+PRESERVE_REASONS = {
+    "checkpoint_failed",
+    "human_gate",
+    "milestone_complete",
+    "operator_stop",
+    "route_superseded",
+}
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -843,4 +850,54 @@ def qualification_beacon_wait(
         "bounded_lines": lines,
         "timeout_ms": timeout_ms,
         "revision": revision,
+    }
+
+
+def preserve_lease(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    reason: str,
+    run_root: Path | None = None,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    if reason not in PRESERVE_REASONS:
+        raise HerdrPuppetError(
+            "invalid_preserve_reason",
+            "Lease preservation requires a supported bounded reason.",
+            details={"supported": sorted(PRESERVE_REASONS)},
+        )
+    if lease_payload["state"] == "preserved":
+        return {
+            "schema": "herdr-puppet.lease-preserve.v1",
+            "result": "ok",
+            "run_id": lease_payload["run_id"],
+            "state": "preserved",
+            "reason": lease_payload.get("preserved_reason", reason),
+            "already_preserved": True,
+            "herdr_mutated": False,
+        }
+    updated = json.loads(json.dumps(lease_payload))
+    updated["state"] = "preserved"
+    updated["preserved_reason"] = reason
+    updated["preserved_at"] = now()
+    atomic_json(lease_path, updated)
+    if run_root is not None:
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "lease.preserved",
+                "human_gate" if reason == "human_gate" else "observed",
+                data={"reason": reason, "herdr_mutated": False},
+            ),
+        )
+    return {
+        "schema": "herdr-puppet.lease-preserve.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "state": "preserved",
+        "reason": reason,
+        "already_preserved": False,
+        "herdr_mutated": False,
     }

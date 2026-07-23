@@ -124,6 +124,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("$herdr-puppet", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("transcript-blind", skill)
+        self.assertIn("Never inject `/teamwork-preview` automatically", skill)
+        self.assertIn("lease-preserve", skill)
         self.assertIn('"pane", "run"', compact_client)
         self.assertIn('"wait", "output"', compact_client)
         self.assertIn('"api", "snapshot"', compact_client)

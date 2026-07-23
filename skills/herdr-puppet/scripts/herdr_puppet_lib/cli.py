@@ -10,6 +10,7 @@ from .core import (
     create_qualification_tab,
     doctor,
     plan,
+    preserve_lease,
     qualification_beacon_wait,
     qualification_reconcile_send,
     qualification_send,
@@ -156,6 +157,21 @@ def build_parser() -> argparse.ArgumentParser:
     beacon.add_argument("--allow-live-qualification", action="store_true")
     _common_live(beacon)
 
+    preserve = subparsers.add_parser("lease-preserve")
+    preserve.add_argument("--lease-json", required=True)
+    preserve.add_argument(
+        "--reason",
+        choices=[
+            "checkpoint_failed",
+            "human_gate",
+            "milestone_complete",
+            "operator_stop",
+            "route_superseded",
+        ],
+        required=True,
+    )
+    preserve.add_argument("--run-root")
+
     return parser
 
 
@@ -281,6 +297,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             timeout_ms=args.timeout_ms,
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
+        )
+    if args.command == "lease-preserve":
+        return preserve_lease(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            reason=args.reason,
+            run_root=Path(args.run_root) if args.run_root else None,
         )
     raise HerdrPuppetError("unknown_command", "Unknown command.")
 

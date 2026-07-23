@@ -18,6 +18,18 @@ The first useful dogfood run should:
 9. preserve the tab when persistence is requested;
 10. record gaps and improvement candidates without copying transcript text.
 
+## Prompt mode
+
+Ordinary AGY turns are plain messages. Herdr-Puppet must not add a slash command
+unless the operator chose that command for the specific turn.
+
+`/teamwork-preview` is not a stronger form of an ordinary prompt. It is a
+separate high-fan-out profile for an intentional hierarchy of roughly 4-20
+helpers. Use it only with an explicit helper cap, one AGY root/integration
+writer, disjoint helper contracts, terminal/accounted joins, timeouts, and
+exact cleanup proof. Never use it for a single-owner preflight, routine
+follow-up, status request, or gate acknowledgement.
+
 ## Checkpoint and token waits
 
 `qualification-beacon-wait` and `qualification-token-probe` are the only
@@ -63,3 +75,7 @@ Classify observations as:
 Do not treat an AGY response or a clean visual tab as sufficient proof. Join
 behavior to the exact lease, sequence, nonce checkpoint, source commit, and
 redacted run packet.
+
+At a human gate or other terminal controller stop, run `lease-preserve`.
+Preservation is local and non-destructive: it keeps the Herdr tab visible while
+making all later send, reconcile, probe, and beacon operations fail closed.

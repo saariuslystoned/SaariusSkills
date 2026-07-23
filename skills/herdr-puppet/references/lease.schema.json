@@ -62,7 +62,17 @@
       },
       "additionalProperties": false
     },
-    "proof_root": {"type": "string", "minLength": 1}
+    "proof_root": {"type": "string", "minLength": 1},
+    "preserved_reason": {
+      "enum": [
+        "checkpoint_failed",
+        "human_gate",
+        "milestone_complete",
+        "operator_stop",
+        "route_superseded"
+      ]
+    },
+    "preserved_at": {"type": "string", "format": "date-time"}
   },
   "$defs": {
     "session": {
