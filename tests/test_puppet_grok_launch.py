@@ -42,6 +42,7 @@ from puppet_lib.grok_launch import (  # noqa: E402
     GROK_EXECUTABLE_SHA256,
     GROK_LAUNCH_AUTHORITY_BLOCKER,
     GROK_MAIN_HELP_SHA256,
+    GROK_RUNTIME_BASENAME,
     GROK_SAFE_PATH_COMPONENTS,
     GROK_VERSION_OUTPUT_SHA256,
     GROK_WORKSPACE_BINDING_SCHEMA,
@@ -85,6 +86,21 @@ def process_identity(
 
 
 class GrokLaunchAuthorityTests(unittest.TestCase):
+    def test_current_source_tuple_is_exact_grok_0_2_111_census(self):
+        self.assertEqual(
+            GROK_EXECUTABLE_SHA256,
+            "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe",
+        )
+        self.assertEqual(
+            GROK_VERSION_OUTPUT_SHA256,
+            "580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d",
+        )
+        self.assertEqual(
+            GROK_MAIN_HELP_SHA256,
+            "d11f1815c770a69d87a05f394c6f7759562738c7de4e29a043f9f06c0aeba1c1",
+        )
+        self.assertEqual(GROK_RUNTIME_BASENAME, "grok-0.2.111-macos-aarch64")
+
     def _manifest_raw(self, executable: Path) -> dict:
         details = executable.stat()
         executable_identity = {
@@ -146,7 +162,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             return build_grok_launch_context(**values)
 
     def _layout(self, root: Path) -> dict[str, object]:
-        executable = root / "grok-macos-aarch64"
+        executable = root / "grok-0.2.111-macos-aarch64"
         executable.write_bytes(b"synthetic grok executable")
         executable.chmod(0o700)
         manifest = root / "grok-doctor-manifest.json"
@@ -203,7 +219,9 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             with patch.dict(os.environ, ambient, clear=True):
                 context = self._build_context(layout)
             expected_argv = (
-                str(Path(layout["manifest_path"]).parent / "grok-macos-aarch64"),
+                str(
+                    Path(layout["manifest_path"]).parent / "grok-0.2.111-macos-aarch64"
+                ),
                 "--always-approve",
                 "--sandbox",
                 "off",
@@ -396,7 +414,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
 
     def test_census_help_does_not_promote_grok_parser_facts_to_live_authority(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary).resolve() / "grok-macos-aarch64"
+            executable = Path(temporary).resolve() / "grok-0.2.111-macos-aarch64"
             executable.write_bytes(b"synthetic grok executable")
             executable.chmod(0o700)
             with (
@@ -404,7 +422,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 patch(
                     "puppet_lib.census._bounded_run",
                     side_effect=[
-                        b"grok 0.2.106\n",
+                        b"grok 0.2.111\n",
                         (
                             b"--always-approve --sandbox off --cwd "
                             b"--leader-socket --session-id\n"
@@ -659,7 +677,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
     def test_doctor_and_launch_keep_grok_fenced(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            executable = root / "grok-macos-aarch64"
+            executable = root / "grok-0.2.111-macos-aarch64"
             executable.write_bytes(b"synthetic grok executable")
             candidate = root / "candidate"
             candidate.mkdir()
@@ -828,7 +846,7 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
             self.assertEqual(record["schema"], GROK_WORKSPACE_BINDING_SCHEMA)
             self.assertEqual(record["state"], GROK_WORKSPACE_BINDING_STATE)
             self.assertEqual(record["target"], "grok")
-            self.assertEqual(record["target_version"], "0.2.106")
+            self.assertEqual(record["target_version"], "0.2.111")
             self.assertEqual(record["plane"], "workspace_addendum")
             self.assertEqual(
                 record["adapter_manifest_sha256"],

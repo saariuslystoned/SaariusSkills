@@ -4,8 +4,9 @@ Status: exact-version mapping only; no live Grok session is qualified.
 
 ## Scope and lane contract
 
-- Target: Grok Build 0.2.106 regular TUI with its current default model.
-- Parser-evidence source head inspected:
+- Current source-only target: Grok Build 0.2.111 regular TUI with its current
+  default model.
+- Historical 0.2.106 parser-evidence source head inspected:
   `b8cce94bf2a4a62f974207a95abcfe1668412b90`.
 - Source-only launch-authority implementation base:
   `e18dc4509644eaf069f3e9ce41ab3db081f01dbd`.
@@ -18,28 +19,35 @@ Status: exact-version mapping only; no live Grok session is qualified.
 
 ## 1) Exact executable and parser evidence
 
-The PATH winner is an operator-local symlink chain to the final Mach-O binary:
+The current PATH winner is an operator-local symlink chain to the final Mach-O
+binary:
 
 ```text
-~/.local/bin/grok -> ~/.grok/bin/grok -> ~/.grok/downloads/grok-macos-aarch64
+~/.local/bin/grok -> ~/.grok/bin/grok ->
+~/.grok/downloads/grok-0.2.111-macos-aarch64
 ```
 
-- Version: `grok 0.2.106 (bde89716f679)`.
+- Isolated-home version: `grok 0.2.111 (94172f2aa4e5)`.
 - Final binary SHA-256:
-  `7229f5e2a69b05832c86db82bebda541e92b5c24958fbfacf5c8f463394d3027`.
-- Version-output SHA-256:
-  `9bd542d793801415b20fcd8165e714196c3d7ae6f927782a2b41c6a0e939118e`.
+  `e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe`.
+- Isolated-home version-output SHA-256:
+  `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d`.
+- Ordinary-home channel-labeled output:
+  `grok 0.2.111 (94172f2aa4e5) [stable]`, SHA-256
+  `056584a715a3f6cdb882797e20c49495c1dc8874d83eb4c62d474a1fb188f15d`.
+  It is safe-field census evidence, not private-profile launch authority.
 - Main-help SHA-256:
-  `17211afac01a2f089f47a0c6f0e9ec0ff38c0bc86a977c2da713e16c63e25fe2`.
+  `d11f1815c770a69d87a05f394c6f7759562738c7de4e29a043f9f06c0aeba1c1`.
 - `help agent` SHA-256:
   `80eca1cc827e677c5d4310fe60ccaa941627cc688189405742e69e4f4ec734d3`.
 
-The canonical machine-readable prior-evidence admission input for Pass A is
-`grok-build-0.2.106-pass-a-evidence.json`, with record SHA-256
+The canonical machine-readable prior-evidence admission input remains the dated
+0.2.106 packet `grok-build-0.2.106-pass-a-evidence.json`, with record SHA-256
 `219f5e5b20a7ea4de65b35c098eeb2a31f287a6e44d8c389857863554b1f6ef4`.
 `puppet_lib/grok_evidence.py` rederives every admitted field from source-owned
-constants and rejects altered hashes, parser classifications, limitations, or
-authority bits. It distinguishes the parser lane's observation-source revision
+historical constants independently of the current 0.2.111 launch tuple, and
+rejects altered hashes, parser classifications, limitations, or authority
+bits. It distinguishes the parser lane's observation-source revision
 `b8cce94bf2a4a62f974207a95abcfe1668412b90` from evidence-artifact revision
 `c711c6b11ef529e1ff7860bef4232ad03c83e6ef`, which first records the detailed
 facts. The packet also binds both dates, lane owner, artifact blob and SHA-256,
@@ -57,6 +65,36 @@ Relevant parser-visible flags include `--agent`, `--rules`,
 `--system-prompt-override`, `--prompt-file`, `--cwd`, `--worktree`,
 `--session-id`, `--resume`, `--continue`, `--leader-socket`, `--model`,
 `--reasoning-effort`, `--always-approve`, and `--sandbox`.
+
+The 0.2.111 help re-census still exposes those candidates. Help presence is
+parser evidence only and does not prove live semantics.
+
+Closed-root `--version` parser probes on 2026-07-23 produced:
+
+| Probe | Exit | Bounded output SHA-256 |
+|---|---:|---|
+| `--append-system-prompt <sentinel>` | 0 | `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d` |
+| `--append-system-prompt-file /dev/null` | 2 | `bbeae0499314fa15011986eda0bd674a765c47df9a58aee6b4055445acc174ee` |
+| `--rules-file /dev/null` | 2 | `97d14caf487b18ca0fb0a6013efb50d1eaae46565c2f38d5bae2f71c349ca673` |
+| `--system-prompt <sentinel>` | 0 | `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d` |
+| `--prompt-file /dev/null` | 0 | `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d` |
+| `--agent <sentinel>` | 0 | `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d` |
+| `--always-approve --sandbox off --cwd ... --leader-socket ...` | 0 | `580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d` |
+
+These were zero-agent parser probes. They neither prove alias semantics beyond
+parser acceptance nor authorize launch.
+
+An isolated 0.2.111 `inspect --json` fixture with its own Git root discovered
+both exact create-only candidates:
+
+- `.grok/rules/puppet-<64-hex>.md`; and
+- compatibility `.claude/rules/puppet-<64-hex>.md`.
+
+The bounded inspection output was not retained; its SHA-256 was
+`fca38ce36511ff04bf3d5dc5f9d4eae570d2a84adc48735ade1e11f866ae9d14`.
+The native `.grok/rules` candidate remains the source-only workspace
+descriptor. Discovery proves a current surface, not precedence, activation,
+no-bleed, instruction consumption, or qualification.
 
 Parser-only controls prove:
 
@@ -103,9 +141,11 @@ argv. File variants are rejected. Replacement system-prompt flags are
 forbidden, and `--agent <file>` is a whole-agent definition. No native
 invocation-scoped additive file plane exists for this tuple.
 
-Official surface references: `https://docs.x.ai/build/features/project-rules`,
-`https://docs.x.ai/build/cli/reference`, and
-`https://docs.x.ai/build/settings/reference`.
+Current first-party surface references:
+`https://docs.x.ai/build/cli/reference`,
+`https://docs.x.ai/build/settings`,
+`https://docs.x.ai/build/features/skills-plugins-marketplaces`, and
+`https://docs.x.ai/build/features/permissions`.
 
 ## 3) Default-model observation
 
@@ -129,7 +169,7 @@ Available models:
 
 `puppet_lib/grok_launch.py` now builds a typed, body-free candidate only from a
 schema-valid doctor manifest bound to the current adapter/protocol source and
-the exact 0.2.106 binary, version-output, and main-help hashes. It rechecks the
+the exact 0.2.111 binary, version-output, and main-help hashes. It rechecks the
 manifest's current execution-file identity, then binds the following exact
 values without granting launch authority:
 
@@ -183,12 +223,13 @@ the current single pane-process identity is insufficient for a shared leader.
 
 Normal-session preflight now retains every current-UID `grok`,
 `grok-macos-aarch64`, or `grok-0.2.111-macos-aarch64` candidate found by the
-repository-native argv-free census. The versioned name is detection-only and
-does not admit 0.2.111 launch or parser semantics. Execution selectors cannot
-broaden those fixed candidate basenames, so a declared transient such as `bash`
-does not become a Grok candidate. A same-name launcher/transient vnode is
-retained as a candidate but cannot match: only the validated final-runtime
-selector carries matching authority.
+repository-native argv-free census. The versioned name and exact 0.2.111
+doctor/workspace tuple remain source-only and do not admit live launch or
+parser semantics. Execution selectors cannot broaden those fixed candidate
+basenames, so a declared transient such as `bash` does not become a Grok
+candidate. A same-name launcher/transient vnode is retained as a candidate but
+cannot match: only the validated final-runtime selector carries matching
+authority.
 An exact current-manifest population still requires the existing exact V2
 parallel override. A same-name different-vnode candidate is a hard blocker and
 cannot be hidden by that override. Because all live Grok launch remains fenced,
@@ -214,7 +255,7 @@ authority rather than an unreachable launch hook.
 
 ## 6) Source status and remaining deltas
 
-- Implemented source-only: the exact 0.2.106 workspace-addendum descriptor and
+- Implemented source-only: the exact 0.2.111 workspace-addendum descriptor and
   a deterministic body-free `binding_only` join rederived from its validated
   instruction manifest, effective contract, current adapter/doctor manifest,
   and current filesystem sources. The binder rebuilds the Grok launch context;
@@ -231,11 +272,14 @@ authority rather than an unreachable launch hook.
   Grok candidates, requires the existing exact override for a matching active
   population, and fails closed on different executable identity.
 - Implemented source-only: a canonical schema-v1 prior-evidence admission input
-  for Pass A binds exact executable/version/help/catalog hashes, parser
+  for historical 0.2.106 Pass A binds exact executable/version/help/catalog
+  hashes, parser
   classifications, model/effort/session control candidates, unavailable status
   and authenticated-effort facts, public provenance, three claim-level
-  decisions/deltas, and eleven remaining live limitations. Every runtime and
-  promotion authority bit is false, and no runtime module consumes the packet.
+  decisions/deltas, and eleven remaining live limitations. Its constants are
+  intentionally decoupled from the current 0.2.111 launch tuple. Every runtime
+  and promotion authority bit is false, and no runtime module consumes the
+  packet.
 - Implemented source-only: for the doctor-only/unqualified tuple, the operator
   plan now rederives the expected Pass-A source schema/state/record identity and
   all eleven limitations without loading or claiming to preserve an evidence

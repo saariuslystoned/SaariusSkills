@@ -11,12 +11,6 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from .errors import IdentityError, ValidationError
-from .grok_launch import (
-    GROK_EXECUTABLE_SHA256,
-    GROK_MAIN_HELP_SHA256,
-    GROK_VERSION_OUTPUT_SHA256,
-)
-from .instruction_planes import GROK_BUILD_VERSION
 from .safety import (
     canonical_json_bytes,
     read_json,
@@ -36,6 +30,16 @@ GROK_PASS_A_EVIDENCE_DATE = "2026-07-22T12:12:31-04:00"
 GROK_PASS_A_EVIDENCE_BLOB_SHA1 = "0e28e5d75f91f7415b619eaa27a6ce7b549750cc"
 GROK_PASS_A_EVIDENCE_ARTIFACT_SHA256 = (
     "d765826af6a19b741119fee4f3d40e5e62d2b28d44bcbbe6d0ccf727addd039c"
+)
+GROK_PASS_A_TARGET_VERSION = "0.2.106"
+GROK_PASS_A_EXECUTABLE_SHA256 = (
+    "7229f5e2a69b05832c86db82bebda541e92b5c24958fbfacf5c8f463394d3027"
+)
+GROK_PASS_A_VERSION_OUTPUT_SHA256 = (
+    "9bd542d793801415b20fcd8165e714196c3d7ae6f927782a2b41c6a0e939118e"
+)
+GROK_PASS_A_MAIN_HELP_SHA256 = (
+    "17211afac01a2f089f47a0c6f0e9ec0ff38c0bc86a977c2da713e16c63e25fe2"
 )
 GROK_VERSION_TEXT = "grok 0.2.106 (bde89716f679)"
 GROK_AGENT_HELP_SHA256 = (
@@ -90,7 +94,7 @@ def _expected_core() -> Dict[str, Any]:
         "schema": GROK_PASS_A_EVIDENCE_SCHEMA,
         "state": GROK_PASS_A_EVIDENCE_STATE,
         "target": "grok",
-        "target_version": GROK_BUILD_VERSION,
+        "target_version": GROK_PASS_A_TARGET_VERSION,
         "version_text": GROK_VERSION_TEXT,
         "provenance": {
             "source_kind": "public_repository_commit",
@@ -110,9 +114,9 @@ def _expected_core() -> Dict[str, Any]:
             "attribution_path": "LICENSE",
         },
         "artifact_hashes": {
-            "executable_sha256": GROK_EXECUTABLE_SHA256,
-            "version_output_sha256": GROK_VERSION_OUTPUT_SHA256,
-            "main_help_sha256": GROK_MAIN_HELP_SHA256,
+            "executable_sha256": GROK_PASS_A_EXECUTABLE_SHA256,
+            "version_output_sha256": GROK_PASS_A_VERSION_OUTPUT_SHA256,
+            "main_help_sha256": GROK_PASS_A_MAIN_HELP_SHA256,
             "agent_help_sha256": GROK_AGENT_HELP_SHA256,
             "clean_root_model_output_sha256": GROK_CLEAN_ROOT_MODEL_OUTPUT_SHA256,
         },
@@ -330,8 +334,12 @@ __all__ = [
     "GROK_PASS_A_EVIDENCE_BLOB_SHA1",
     "GROK_PASS_A_EVIDENCE_DATE",
     "GROK_PASS_A_EVIDENCE_REVISION",
+    "GROK_PASS_A_EXECUTABLE_SHA256",
+    "GROK_PASS_A_MAIN_HELP_SHA256",
     "GROK_PASS_A_OBSERVATION_SOURCE_DATE",
     "GROK_PASS_A_OBSERVATION_SOURCE_HEAD",
+    "GROK_PASS_A_TARGET_VERSION",
+    "GROK_PASS_A_VERSION_OUTPUT_SHA256",
     "GROK_VERSION_TEXT",
     "expected_grok_pass_a_evidence",
     "load_grok_pass_a_evidence",

@@ -43,15 +43,15 @@ from .safety import (
 
 GROK_DISABLE_AUTOUPDATER_VALUE = "true"
 GROK_EXECUTABLE_SHA256 = (
-    "7229f5e2a69b05832c86db82bebda541e92b5c24958fbfacf5c8f463394d3027"
+    "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe"
 )
 GROK_VERSION_OUTPUT_SHA256 = (
-    "9bd542d793801415b20fcd8165e714196c3d7ae6f927782a2b41c6a0e939118e"
+    "580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d"
 )
 GROK_MAIN_HELP_SHA256 = (
-    "17211afac01a2f089f47a0c6f0e9ec0ff38c0bc86a977c2da713e16c63e25fe2"
+    "d11f1815c770a69d87a05f394c6f7759562738c7de4e29a043f9f06c0aeba1c1"
 )
-GROK_RUNTIME_BASENAME = "grok-macos-aarch64"
+GROK_RUNTIME_BASENAME = "grok-0.2.111-macos-aarch64"
 GROK_SAFE_PATH_COMPONENTS: Tuple[str, ...] = ("/usr/bin", "/bin")
 GROK_REQUIRED_PATH_TOOLS: Tuple[str, ...] = ("git", "sh")
 GROK_LAUNCH_AUTHORITY_BLOCKERS: Tuple[str, ...] = (
@@ -396,11 +396,11 @@ def _validated_grok_doctor_manifest(
         "help_sha256": GROK_MAIN_HELP_SHA256,
     }
     if any(executable[name] != digest for name, digest in expected_hashes.items()):
-        raise IdentityError("Grok doctor manifest does not match Build 0.2.106")
+        raise IdentityError("Grok doctor manifest does not match Build 0.2.111")
     if Path(executable["resolved_path"]).name != GROK_RUNTIME_BASENAME:
         raise IdentityError("Grok doctor manifest runtime basename is invalid")
     if manifest.raw["execution"]["transition"] != "direct":
-        raise IdentityError("Grok Build 0.2.106 requires direct execution identity")
+        raise IdentityError("Grok Build 0.2.111 requires direct execution identity")
     manifest.verify_execution_files()
     binary = _regular_file(Path(executable["resolved_path"]), "Grok executable")
     return bound_path, manifest, binary

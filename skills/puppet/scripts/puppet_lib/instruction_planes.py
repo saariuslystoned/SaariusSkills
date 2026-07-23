@@ -104,9 +104,7 @@ _AGY_WORKSPACE_AGENT_RE = re.compile(
 )
 
 CURSOR_AGENT_VERSION = "2026.07.17-3e2a980"
-CURSOR_WORKSPACE_DESCRIPTOR_ID = (
-    "cursor-2026.07.17-3e2a980-workspace-addendum-disabled"
-)
+CURSOR_WORKSPACE_DESCRIPTOR_ID = "cursor-2026.07.17-3e2a980-workspace-addendum-disabled"
 CURSOR_WORKSPACE_ARTIFACT_ID = "cursor_workspace_rule"
 CURSOR_WORKSPACE_ASSERTIONS = (
     "cursor_workspace_context_delta_exact",
@@ -121,12 +119,10 @@ CURSOR_WORKSPACE_BLOCKERS = (
     "cursor_workspace_plane_no_bleed_unproved",
     "cursor_workspace_rule_activation_unqualified",
 )
-_CURSOR_WORKSPACE_RULE_RE = re.compile(
-    r"^\.cursor/rules/puppet-([0-9a-f]{64})\.mdc$"
-)
+_CURSOR_WORKSPACE_RULE_RE = re.compile(r"^\.cursor/rules/puppet-([0-9a-f]{64})\.mdc$")
 
-GROK_BUILD_VERSION = "0.2.106"
-GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.106-workspace-addendum"
+GROK_BUILD_VERSION = "0.2.111"
+GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.111-workspace-addendum"
 GROK_WORKSPACE_ARTIFACT_ID = "grok_workspace_rule"
 GROK_WORKSPACE_ASSERTIONS = (
     "grok_workspace_context_delta_exact",
@@ -789,9 +785,7 @@ def _cursor_workspace_descriptor_payload(
             {
                 "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
                 "root_ref": "workspace_root",
-                "relative_path": (
-                    ".cursor/rules/puppet-%s.mdc" % rendered_hash
-                ),
+                "relative_path": (".cursor/rules/puppet-%s.mdc" % rendered_hash),
                 "content_ref": "effective_contract",
                 "write_mode": "create_only",
             }
@@ -836,7 +830,9 @@ def validate_cursor_workspace_addendum_descriptor(
 
     normalized = validate_instruction_plane_descriptor(raw)
     if normalized["descriptor_id"] != CURSOR_WORKSPACE_DESCRIPTOR_ID:
-        raise ValidationError("descriptor is not the source-owned Cursor workspace rule")
+        raise ValidationError(
+            "descriptor is not the source-owned Cursor workspace rule"
+        )
     return _validate_cursor_workspace_addendum_shape(normalized)
 
 
@@ -920,7 +916,7 @@ def build_grok_workspace_addendum_descriptor(
     adapter_manifest_sha256: str,
     rendered_sha256: str,
 ) -> Dict[str, Any]:
-    """Build the one exact Grok 0.2.106 workspace descriptor.
+    """Build the one exact Grok 0.2.111 workspace descriptor.
 
     The contract body is represented only by its SHA-256 in the namespaced
     relative filename.  This helper has no filesystem or launch behavior.
@@ -954,7 +950,7 @@ def validate_grok_workspace_addendum_descriptor(
     )
     if canonical_json_bytes(normalized) != canonical_json_bytes(expected):
         raise ValidationError(
-            "descriptor is not the exact Grok 0.2.106 workspace addendum"
+            "descriptor is not the exact Grok 0.2.111 workspace addendum"
         )
     return normalized
 

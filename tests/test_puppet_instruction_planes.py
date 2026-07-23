@@ -754,9 +754,7 @@ class CursorWorkspaceDescriptorTests(unittest.TestCase):
         self.assertEqual(self.descriptor["target"]["version"], CURSOR_AGENT_VERSION)
         self.assertEqual(self.descriptor["target"]["requested_model"], "default")
         self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
-        self.assertEqual(
-            self.descriptor["target"]["config_fingerprint"], "unavailable"
-        )
+        self.assertEqual(self.descriptor["target"]["config_fingerprint"], "unavailable")
         self.assertEqual(
             self.descriptor["status"],
             {"surface": "factual", "activation": "disabled"},
@@ -788,8 +786,18 @@ class CursorWorkspaceDescriptorTests(unittest.TestCase):
     def test_reserved_cursor_id_rejects_shape_drift_through_both_parsers(self):
         cases = (
             ("version", lambda value: value["target"].update({"version": "3.12.17"})),
-            ("activation", lambda value: value["status"].update({"activation": "qualification_only"})),
-            ("path", lambda value: value["materialize"][0].update({"relative_path": ".cursor/rules/puppet.mdc"})),
+            (
+                "activation",
+                lambda value: value["status"].update(
+                    {"activation": "qualification_only"}
+                ),
+            ),
+            (
+                "path",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": ".cursor/rules/puppet.mdc"}
+                ),
+            ),
             ("selector", lambda value: value["launch_delta"].update({"argv": []})),
             ("blockers", lambda value: value.update({"blockers": ["caller_green"]})),
         )
@@ -830,6 +838,11 @@ class GrokWorkspaceDescriptorTests(unittest.TestCase):
         artifact = self.descriptor["materialize"][0]
         self.assertEqual(self.descriptor["descriptor_id"], GROK_WORKSPACE_DESCRIPTOR_ID)
         self.assertEqual(self.descriptor["target"]["version"], GROK_BUILD_VERSION)
+        self.assertEqual(
+            self.descriptor["descriptor_id"],
+            "grok-build-0.2.111-workspace-addendum",
+        )
+        self.assertEqual(self.descriptor["target"]["version"], "0.2.111")
         self.assertEqual(self.descriptor["target"]["requested_model"], "default")
         self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
         self.assertEqual(

@@ -15,11 +15,21 @@ sys.path.insert(0, str(SCRIPTS))
 from puppet_lib import adapter_manifest, probe, session  # noqa: E402
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.grok_evidence import (  # noqa: E402
+    GROK_PASS_A_EXECUTABLE_SHA256,
     GROK_PASS_A_EVIDENCE_SCHEMA,
+    GROK_PASS_A_MAIN_HELP_SHA256,
+    GROK_PASS_A_TARGET_VERSION,
+    GROK_PASS_A_VERSION_OUTPUT_SHA256,
     expected_grok_pass_a_evidence,
     load_grok_pass_a_evidence,
     validate_grok_pass_a_evidence,
 )
+from puppet_lib.grok_launch import (  # noqa: E402
+    GROK_EXECUTABLE_SHA256,
+    GROK_MAIN_HELP_SHA256,
+    GROK_VERSION_OUTPUT_SHA256,
+)
+from puppet_lib.instruction_planes import GROK_BUILD_VERSION  # noqa: E402
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
 
@@ -96,6 +106,19 @@ class GrokPassAEvidenceTests(unittest.TestCase):
             "promotion_authorized",
         ):
             self.assertFalse(value[name])
+
+    def test_historical_pass_a_tuple_is_decoupled_from_current_launch_tuple(self):
+        self.assertEqual(GROK_PASS_A_TARGET_VERSION, "0.2.106")
+        self.assertEqual(GROK_BUILD_VERSION, "0.2.111")
+        self.assertNotEqual(GROK_PASS_A_EXECUTABLE_SHA256, GROK_EXECUTABLE_SHA256)
+        self.assertNotEqual(
+            GROK_PASS_A_VERSION_OUTPUT_SHA256,
+            GROK_VERSION_OUTPUT_SHA256,
+        )
+        self.assertNotEqual(
+            GROK_PASS_A_MAIN_HELP_SHA256,
+            GROK_MAIN_HELP_SHA256,
+        )
 
     def test_hash_and_semantic_tampering_fail_even_when_digest_is_recomputed(self):
         original = expected_grok_pass_a_evidence()
