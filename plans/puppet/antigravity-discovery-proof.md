@@ -115,10 +115,117 @@ capability, per the calibration profile.
 - Credit accounting, timeout behavior under contention, and cleanup
   verification were not exercised beyond normal session completion.
 
+## Second probe campaign (2026-07-23, session 2)
+
+A follow-up campaign targeted the smoke-grade limitations, using the same
+disposable workspace and isolation posture, with per-session `--log-file`
+harness logs retained in the disposable workspace (event kinds, boolean
+outcomes, and opaque conversation IDs only are quoted here).
+
+### Harness-log and permission findings
+
+- Default CLI permission mode is `request-review`, and headless print mode
+  **soft-denies every tool confirmation** (`Print mode: soft-denying tool
+  confirmation`). Leaf tasks that need tools therefore silently no-op in
+  print mode unless permissions are pre-authorized for the session. A
+  real-work 4x4 (leaves reading seeded nonce files) failed closed on exactly
+  this before any model output.
+- Subagent conversations surface in the harness log as **distinct
+  conversation IDs on tool-confirmation events**; tool-less token-relay runs
+  log only the root conversation. Independent actor-count observation is
+  therefore possible, but only for tool-using hierarchies.
+
+### Capability-enforcement probe (leaf write and spawn attempts)
+
+One leader, two leaves, on `claude-opus-4-6-thinking`, default permissions.
+Filesystem ground truth: the attempted `seed/violation.txt` was never
+created. The harness log shows why, and the why matters:
+
+- a leaf defined "without write capability" **still held a run-command
+  (shell) tool**; the write attempt was stopped by the permission layer
+  (`approved=false`), not by the capability declaration; and
+- the leaf's dedicated file-write surface is an artifact store confined to
+  the conversation's own private directory; a workspace-relative write was
+  rejected as an invalid artifact path.
+
+Consequence adopted into the plan: dynamic capability booleans do not remove
+shell access, so under skip-permissions (YOLO) a nominally read-only leaf
+could write via shell. Calibration read-only guarantees must come from
+disposable-workspace/worktree isolation and post-run no-bleed checks, never
+from capability declarations alone.
+
+### Model-diversity 4x4
+
+The identical 4x4 token-relay probe on `claude-sonnet-4-6` passed cleanly —
+all 16 tokens in order, correct actor audit, `anomaly-audit: none` — with
+per-leader message IDs and idle lifecycle notifications visible. Combined
+with the two Gemini flash passes, hierarchical fanout is demonstrated on two
+distinct model families through the same harness, so the capability is
+attributable to the harness rather than one model.
+
+### Stage-1 static contract harness
+
+`puppet_lib/teamwork.py` and `tests/test_teamwork.py` implement the plan's
+stage-1 deterministic contract: the exact leaf-ledger field set; the three
+independent state dimensions with enforced transitions; the logical dedupe
+key excluding physical attempts; single-retry and single-accepted-attempt
+rules; aggregate `max_helpers` with only the canonical 3/6/20 values and
+subordinate cap/telemetry checks; the seven-condition completion barrier
+returning machine-readable unmet-condition enums; and an
+allowlist-sanitized summary that provably rejects free-text payloads. The
+full repository suite passes (80 tests: 30 pre-existing, 50 new), and
+hostile paths were independently re-verified outside the test suite.
+
+### Real-work 4x4 (ground-truth nonce harvest)
+
+With the operator's explicit standing authorization for per-session
+auto-approval, the real-work 4x4 ran once: sixteen seeded files, each
+holding a controller-generated nonce recorded before any AGY session
+existed; each leaf assigned exactly one file to read; the root instructed
+never to read seed files itself. Outcome — the single most informative run
+of the campaign:
+
+| Leader | Result against controller ground truth |
+|---|---|
+| proof | 3 of 4 nonces exact matches; one leaf reported `NOT_FOUND` for a file that exists |
+| implementation | 3 of 4 exact matches; one `NOT_FOUND` |
+| verification | **all four returned values fabricated** — well-formed, wrong length, matching nothing |
+| recon | never reported; the root hit the external print timeout and the session exited nonzero with an incomplete hierarchy join |
+
+Harness-log corroboration for the same run: **12 distinct conversation IDs**
+performed approved tool calls (9 file views, 3 searches, 1 directory
+listing). Six leaf results matching pre-recorded nonces plus
+harness-approved read events across 12 conversations establishes that real
+distributed file work occurred — the fabrication caveat no longer applies to
+the demonstration of genuine hierarchical delegation.
+
+Findings this run adds:
+
+1. **Fabrication is a live failure mode, not a theoretical one.** One leader
+   returned four plausible, correctly-formatted, entirely invented values.
+   Aggregate output that "looks right" is worthless without controller-held
+   ground truth or result-digest validation; the plan's ledger validation
+   and acceptance rules are confirmed necessary by direct observation.
+2. **Leaf file resolution is unreliable.** Two leaves reported `NOT_FOUND`
+   for existing workspace files, consistent with the enforcement probe's
+   observation that subagent relative paths can resolve against a
+   CLI-private directory rather than the workspace. Leaf task contracts
+   must carry absolute-within-workspace path anchoring.
+3. **Incomplete joins happen.** A leader can hang past the deadline; the
+   external wall-clock timeout fired exactly as the plan requires, and the
+   session's own exit did not represent a completed hierarchy — validating
+   the plan's rule that a target-side exit never proves a complete join.
+4. **Reliable 4x4 under real tool load is NOT yet demonstrated.** Token
+   relay passed 4x4 three times across two model families, but the first
+   tool-using 4x4 delivered 6 verified results out of 16. Real-workload
+   capacity claims remain unearned pending repeat runs under the
+   contract-grade harness.
+
 ## Next proof
 
-The open work is the contract-grade harness around the demonstrated
-capability: stage-1 static ledger, dedupe, barrier, and timeout tests; a
-guarded runner binding a full capability fingerprint with sanitized telemetry
-and independent actor observation; an in-session identity-echo check for any
-leader-selection claim; and independent app-surface qualification.
+Remaining open work: repeat real-work 4x4 runs under the stage-1 ledger with
+result-digest validation and per-leaf path anchoring, to separate transient
+failures from structural limits; a guarded runner binding a full capability
+fingerprint with sanitized telemetry and log-derived actor observation; an
+in-session identity-echo check for any leader-selection claim; and
+independent app-surface qualification.

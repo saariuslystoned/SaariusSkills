@@ -122,6 +122,24 @@ The current accepted claims are therefore:
 - those smoke probes rely on root-reported relay output and are not yet
   contract-grade: no external ledger, capability fingerprint, sanitized
   telemetry, or independent actor-count observation bound them;
+- the same 4x4 also passed on `claude-sonnet-4-6`, so the capability is
+  harness-level rather than specific to one model family;
+- dynamic capability booleans do not strip shell tools from leaves: a
+  no-write leaf's write attempt was stopped by the permission layer and the
+  conversation-private artifact store, not the capability declaration, so
+  read-only guarantees require workspace isolation (see the proof packet's
+  second campaign);
+- headless print mode soft-denies all tool confirmations under the default
+  `request-review` permission mode, and subagent conversations are
+  log-observable only on tool-confirmation events;
+- the stage-1 static contract is implemented and passing
+  (`puppet_lib/teamwork.py`, `tests/test_teamwork.py`);
+- one authorized real-work 4x4 proved genuine distributed file reads (six
+  leaf results matched controller-held ground truth, with 12 log-observed
+  tool-using conversations) while also observing live fabrication by one
+  leader, two false `NOT_FOUND` results, and one leader hang ending in an
+  incomplete join — so real-workload 4x4 reliability remains unearned even
+  though token-relay 4x4 passed three times;
 - workspace-profile discovery and `--agent` selection remain unproved, and the
   CLI silently falls back to the default agent on an unknown `--agent` name;
 - app direct and nested fanout remain independently live-unverified; and
