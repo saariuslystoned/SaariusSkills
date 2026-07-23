@@ -71,8 +71,17 @@ Use this sequence:
    prompt through a protected file or literal tmux buffer, never as a process
    argument. The settle reduces startup races; only a validated handoff proves
    the harness consumed the prompt.
-3. Give the human the exact command from `attach-command`; do not have the
-   controller attach or read the pane.
+3. Give the human the exact command from `attach-command`. When the operator
+   opts in and the local surface supports visible macOS terminal launch, use
+   `open-view` to open that command in a separate iTerm or Terminal window. It
+   uses a short-lived one-use ticket and reports success only after a new
+   read-only tmux client is structurally observed; an app-launch return code is
+   not viewer proof. Request a fresh command after expiry or any failed check. It
+   must open the harness's native, unfiltered live TUI on the exact Puppet-owned
+   private socket/session in read-only mode: no capture, transcript, log mirror,
+   renderer, summary, or controller mediation. The human may attach and detach
+   without changing the target. Do not have the controller attach or read the
+   pane.
 4. Use `status` and bounded `wait` calls for structural state and validated
    checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text.
 5. Pin one adapter-qualified `session_profile` in the contract. Puppet applies

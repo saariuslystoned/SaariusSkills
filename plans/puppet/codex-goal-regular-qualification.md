@@ -157,6 +157,9 @@ Using each selected winning plane, prove against the real CLI:
 - ordinary unprefixed steering;
 - exact resume behavior where the harness exposes it;
 - transcript-blind status/wait/checkpoint processing;
+- a functioning human-only read-only attach command that renders the exact
+  Puppet-owned harness's native live TUI directly, without capture, mirroring,
+  summarization, or controller mediation;
 - direct and cockpit workspace entry;
 - zero protected-source drift in conformance fixtures;
 - exact halt of only the Puppet-owned target; and
@@ -222,6 +225,9 @@ The goal is complete only when:
   serialized;
 - real regular-session launch, checkpoint, follow-up, resume/steer, and exact
   halt proof exists for every current installed CLI;
+- every harness row proves that a human can attach to and detach from the exact
+  Puppet-owned native live TUI in read-only mode without affecting the target,
+  while the controller remains transcript-blind;
 - every claim binds exact harness, adapter, protocol, contract, workspace, and
   model/default observations and fails closed on relevant drift;
 - controller-only verdict, independent review, and exact-head invalidation

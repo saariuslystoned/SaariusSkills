@@ -185,7 +185,13 @@ def adapter_implementation_fingerprint(
     )
     scripts_root = skill_root / "scripts"
     sources = sorted((scripts_root / "puppet_lib").glob("*.py"))
-    sources.extend([scripts_root / "adapter_lab.py", scripts_root / "puppet.py"])
+    sources.extend(
+        [
+            scripts_root / "adapter_lab.py",
+            scripts_root / "puppet.py",
+            scripts_root / "viewer_attach.py",
+        ]
+    )
     instruction_root = skill_root / "templates" / "instructions"
     sources.extend(
         path for path in sorted(instruction_root.rglob("*")) if path.is_file()

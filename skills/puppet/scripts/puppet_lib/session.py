@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -67,6 +68,17 @@ from .verdicts import (
     record_acceptance,
     record_review,
     verify_current_identity,
+)
+from .viewer import (
+    TICKET_TTL_SECONDS,
+    build_view_ticket,
+    dispatch_operator_view,
+    load_and_claim_ticket,
+    prepare_operator_view,
+    prepare_view_ticket,
+    revoke_ticket,
+    ticket_claim_identity,
+    ticket_is_revoked,
 )
 
 
@@ -1071,6 +1083,7 @@ def launch(
             request_id=_delivery_request_id(session, session, "active"),
             event={"kind": "launch", "phase": "active", **delivery},
         )
+        viewer = attach_command(state_root=state_root, session=session)
         return {
             "ok": True,
             "session": session,
@@ -1081,11 +1094,8 @@ def launch(
             "effective_contract_fingerprint": compiled.manifest[
                 "effective_contract_fingerprint"
             ],
-            "attach_command": tmux.attach_command(
-                socket=Path(metadata["socket"]),
-                session=session,
-                pane=metadata["pane"],
-            ),
+            "attach_command": viewer["attach_command"],
+            "attach_ticket_ttl_seconds": viewer["ticket_ttl_seconds"],
         }
     except BaseException:
         cleanup_stopped = False
@@ -1576,21 +1586,255 @@ def accept_checkpoint(
 
 
 def attach_command(*, state_root: Path, session: str) -> Dict[str, Any]:
-    registry = SessionRegistry(Path(state_root))
+    state_root = Path(state_root).resolve(strict=True)
+    registry = SessionRegistry(state_root)
     record = registry.load(session)
     _bound_contract(record)
-    tmux, _ = _runtime(registry, record, "status", require_process=False)
-    command = tmux.attach_command(
+    tmux, metadata = _runtime(registry, record, "status", require_process=True)
+    attach_argv = tmux.attach_argv(
         socket=Path(record["tmux"]["socket"]),
         session=session,
         pane=record["tmux"]["pane"],
+        server_identity=record["tmux"]["server_identity"],
+    )
+    helper_path = Path(__file__).resolve(strict=True).parents[1] / "viewer_attach.py"
+    interpreter_path = Path(sys.executable).resolve(strict=True)
+    ticket = build_view_ticket(
+        session=session,
+        state_root=state_root,
+        expected_identity=_viewer_identity(record, metadata, attach_argv),
+        helper_path=helper_path,
+        interpreter_path=interpreter_path,
+    )
+    ticket_path = state_root / "views" / (session + "-" + ticket["nonce"] + ".json")
+    prepared = prepare_view_ticket(
+        helper_argv=[
+            str(interpreter_path),
+            str(helper_path),
+            "--state-root",
+            str(state_root),
+            "--session",
+            session,
+            "--ticket",
+            str(ticket_path),
+        ],
+        ticket=ticket,
+        state_root=state_root,
+        session=session,
     )
     return {
         "ok": True,
         "session": session,
-        "attach_command": command,
+        "attach_command": prepared["attach_command"],
+        "ticket_path": prepared["ticket_path"],
+        "ticket_ttl_seconds": TICKET_TTL_SECONDS,
         "read_only": True,
+        "execution_time_identity_check": True,
     }
+
+
+def _viewer_identity(
+    record: Dict[str, Any],
+    metadata: Dict[str, Any],
+    attach_argv: List[str],
+) -> Dict[str, Any]:
+    return {
+        "socket_identity_sha256": sha256_bytes(
+            canonical_json_bytes(record["tmux"]["socket_identity"])
+        ),
+        "server_identity_sha256": sha256_bytes(
+            canonical_json_bytes(record["tmux"]["server_identity"])
+        ),
+        "tmux_binary_identity_sha256": sha256_bytes(
+            canonical_json_bytes(record["tmux"]["tmux_binary_identity"])
+        ),
+        "process_identity_sha256": sha256_bytes(
+            canonical_json_bytes(record["process"])
+        ),
+        "pane": metadata["pane"],
+        "pane_pid": metadata["pane_pid"],
+        "attach_argv_sha256": sha256_bytes(canonical_json_bytes(attach_argv)),
+    }
+
+
+def open_view(
+    *,
+    state_root: Path,
+    session: str,
+    terminal: str = "auto",
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Open an optional separate human terminal on the exact native TUI."""
+    state_root = Path(state_root).resolve(strict=True)
+    registry = SessionRegistry(state_root)
+    record = registry.load(session)
+    _bound_contract(record)
+    tmux, metadata = _runtime(registry, record, "status", require_process=True)
+    socket = Path(record["tmux"]["socket"])
+    server_identity = record["tmux"]["server_identity"]
+    attach_argv = tmux.attach_argv(
+        socket=socket,
+        session=session,
+        pane=record["tmux"]["pane"],
+        server_identity=server_identity,
+    )
+    helper_path = Path(__file__).resolve(strict=True).parents[1] / "viewer_attach.py"
+    ticket = build_view_ticket(
+        session=session,
+        state_root=state_root,
+        expected_identity=_viewer_identity(record, metadata, attach_argv),
+        helper_path=helper_path,
+        interpreter_path=Path(sys.executable).resolve(strict=True),
+    )
+    ticket_path = state_root / "views" / (session + "-" + ticket["nonce"] + ".json")
+    helper_argv = [
+        str(Path(sys.executable).resolve(strict=True)),
+        str(helper_path),
+        "--state-root",
+        str(state_root.resolve(strict=True)),
+        "--session",
+        session,
+        "--ticket",
+        str(ticket_path),
+    ]
+    before_clients = {
+        (client["pid"], client["tty"])
+        for client in tmux.viewer_clients(
+            socket=socket,
+            session=session,
+            server_identity=server_identity,
+        )
+    }
+    prepared = prepare_operator_view(
+        helper_argv=helper_argv,
+        ticket=ticket,
+        state_root=state_root,
+        session=session,
+        terminal=terminal,
+    )
+    if dry_run:
+        revoke_ticket(Path(prepared["ticket_path"]))
+        return {
+            "ok": True,
+            "session": session,
+            "read_only": True,
+            "native_tui": False,
+            "native_tui_requested": True,
+            "controller_attached": False,
+            "terminal_app": prepared["terminal_app"],
+            "terminal_app_path": prepared["terminal_app_path"],
+            "viewer_command": prepared["viewer_command"],
+            "open_request_submitted": False,
+            "viewer_attached": False,
+            "ticket_revoked": True,
+        }
+
+    ticket_path = Path(prepared["ticket_path"])
+    try:
+        dispatch_operator_view(prepared)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            current_record = registry.load(session)
+            current_tmux, _ = _runtime(
+                registry,
+                current_record,
+                "status",
+                require_process=True,
+            )
+            clients = current_tmux.viewer_clients(
+                socket=socket,
+                session=session,
+                server_identity=server_identity,
+            )
+            new_clients = [
+                client
+                for client in clients
+                if (client["pid"], client["tty"]) not in before_clients
+            ]
+            if any(not client["read_only"] for client in new_clients):
+                raise IdentityError("new native viewer client is not read-only")
+            claim = ticket_claim_identity(ticket_path) if new_clients else None
+            matching_clients = []
+            if claim is not None:
+                for client in new_clients:
+                    if client["pid"] != claim["pid"]:
+                        continue
+                    client_process = process_birth_identity(client["pid"])
+                    if client_process["kernel_birth_id"] == claim["kernel_birth_id"]:
+                        matching_clients.append(client)
+            if matching_clients:
+                revoke_ticket(ticket_path)
+                return {
+                    "ok": True,
+                    "session": session,
+                    "read_only": True,
+                    "native_tui": True,
+                    "controller_attached": False,
+                    "terminal_app": prepared["terminal_app"],
+                    "terminal_app_path": prepared["terminal_app_path"],
+                    "viewer_command": prepared["viewer_command"],
+                    "open_request_submitted": True,
+                    "viewer_attached": True,
+                    "new_read_only_clients": len(matching_clients),
+                    "ticket_revoked": True,
+                }
+            time.sleep(0.1)
+        raise UnsupportedError("native viewer attachment was not structurally observed")
+    except BaseException:
+        revoke_ticket(ticket_path)
+        raise
+
+
+def attach_viewer(*, state_root: Path, session: str, ticket_path: Path) -> None:
+    """Execution-time ticket claim, identity revalidation, then exact tmux exec."""
+    state_root = Path(state_root).resolve(strict=True)
+    helper_path = Path(__file__).resolve(strict=True).parents[1] / "viewer_attach.py"
+    helper_process = process_birth_identity(os.getpid())
+    ticket = load_and_claim_ticket(
+        ticket_path=Path(ticket_path),
+        state_root=state_root,
+        session=session,
+        helper_path=helper_path,
+        interpreter_path=Path(sys.executable).resolve(strict=True),
+        claimant_pid=helper_process["pid"],
+        claimant_kernel_birth_id=helper_process["kernel_birth_id"],
+    )
+    registry = SessionRegistry(state_root)
+    record = registry.load(session)
+    _bound_contract(record)
+    tmux, metadata = _runtime(registry, record, "status", require_process=True)
+    attach_argv = tmux.attach_argv(
+        socket=Path(record["tmux"]["socket"]),
+        session=session,
+        pane=record["tmux"]["pane"],
+        server_identity=record["tmux"]["server_identity"],
+    )
+    if ticket.get("expected_identity") != _viewer_identity(
+        record,
+        metadata,
+        attach_argv,
+    ):
+        raise IdentityError("viewer runtime identity changed after ticket issue")
+    if ticket_is_revoked(Path(ticket_path)):
+        raise ConflictError("viewer ticket was revoked before attach")
+    term = os.environ.get("TERM", "xterm-256color")
+    if (
+        not term
+        or len(term) > 64
+        or any(
+            character
+            not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+            for character in term
+        )
+    ):
+        raise ValidationError("viewer terminal type is invalid")
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": term,
+    }
+    os.execve(attach_argv[0], attach_argv, environment)
 
 
 def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, Any]:

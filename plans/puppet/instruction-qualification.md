@@ -210,7 +210,9 @@ Avoid a blind Cartesian product. Qualify in stages:
    harness's current default model;
 3. select the safe winner for that exact harness/version;
 4. prove the winner through launch, checkpoint, follow-up, resume, steering,
-   exact halt, rollback/cleanup, and an ordinary-session no-bleed control;
+   exact halt, rollback/cleanup, an ordinary-session no-bleed control, and a
+   human-only read-only attach/detach of the exact native live TUI without any
+   capture, mirror, renderer, summary, or controller pane access;
 5. repeat both cockpit and direct repository entry paths; and
 6. qualify alternative models and native commands only as separate tuples.
 

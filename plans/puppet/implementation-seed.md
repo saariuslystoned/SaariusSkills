@@ -1138,11 +1138,23 @@ interaction.
 ### Phase 5: separately gated migration
 
 - Keep `teamwork-preview` installed during development and while any active lane references it.
+- Treat the existing skill, runner, scripts, and dependencies as migration
+  inputs rather than a permanent sibling runtime. Puppet must own replacement
+  implementations; accepted Puppet operation cannot retain a runtime dependency
+  on the legacy skill.
+- Inventory and separately qualify every useful behavior before switching any
+  caller: auth-preserving interactive AGY birth, exact model/effort and quota
+  binding, literal initial native-command delivery, protected prompt-file
+  transport, fresh process/window-per-milestone behavior, phase/window labels,
+  preserved audit windows, active-window selection, and authentic read-only
+  tmux viewing.
 - Run one complete `agy-computer-use`-style milestone through `puppet`.
 - Search known skill, automation, launcher, and repo references for `teamwork-preview`.
 - Switch those references deliberately.
 - Halt or preserve every old managed session.
-- Remove the old skill recoverably only after the new path passes acceptance.
+- Remove the old skill, its scripts, and now-unused dependencies recoverably
+  only after the Puppet-owned replacements pass acceptance and the reference
+  inventory reaches zero.
 
 Do not delete or rewrite the active `teamwork-preview` skill as part of early implementation.
 

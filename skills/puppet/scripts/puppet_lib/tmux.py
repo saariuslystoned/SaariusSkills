@@ -35,6 +35,7 @@ from .safety import (
 _PANE_FORMAT = (
     "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
 )
+_CLIENT_FORMAT = "#{client_pid}\t#{client_tty}\t#{client_readonly}\t#{session_name}"
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
 
 
@@ -669,6 +670,79 @@ class TmuxController:
             raise IdentityError("tmux pane process identity changed")
         self._run(socket, ["send-keys", "-t", metadata["pane"], key])
 
+    def viewer_clients(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        server_identity: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return structural client identity only; never pane content."""
+        validate_identifier(session, "session")
+        self._verify_server_identity(socket, expected=server_identity)
+        if not self.exists(socket, session, server_identity=server_identity):
+            raise IdentityError("registered tmux session is unavailable")
+        result = self._run(
+            socket,
+            ["list-clients", "-t", session, "-F", _CLIENT_FORMAT],
+            check=False,
+        )
+        text = result.stdout.rstrip("\n")
+        if result.returncode != 0:
+            if not text:
+                return []
+            raise IdentityError("tmux client inventory failed")
+        if not text:
+            return []
+        clients = []
+        for line in text.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 4 or parts[2] not in {"0", "1"}:
+                raise IdentityError("tmux client identity is ambiguous")
+            try:
+                client_pid = int(parts[0])
+            except ValueError as exc:
+                raise IdentityError("tmux client process identity is invalid") from exc
+            if (
+                client_pid <= 1
+                or not parts[1].startswith("/dev/")
+                or parts[3] != session
+            ):
+                raise IdentityError("tmux client identity is invalid")
+            clients.append(
+                {
+                    "pid": client_pid,
+                    "tty": parts[1],
+                    "read_only": parts[2] == "1",
+                    "session": parts[3],
+                }
+            )
+        return clients
+
+    def attach_argv(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        pane: Optional[str] = None,
+        server_identity: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        self.metadata(
+            socket=socket, session=session, pane=pane, server_identity=server_identity
+        )
+        return [
+            self.tmux_binary.as_posix(),
+            "-f",
+            os.devnull,
+            "-S",
+            str(socket),
+            "attach-session",
+            "-r",
+            "-E",
+            "-t",
+            session,
+        ]
+
     def attach_command(
         self,
         *,
@@ -677,20 +751,11 @@ class TmuxController:
         pane: Optional[str] = None,
         server_identity: Optional[Dict[str, Any]] = None,
     ) -> str:
-        self.metadata(
-            socket=socket, session=session, pane=pane, server_identity=server_identity
-        )
         return shlex.join(
-            [
-                self.tmux_binary.as_posix(),
-                "-f",
-                os.devnull,
-                "-S",
-                str(socket),
-                "attach-session",
-                "-r",
-                "-E",
-                "-t",
-                session,
-            ]
+            self.attach_argv(
+                socket=socket,
+                session=session,
+                pane=pane,
+                server_identity=server_identity,
+            )
         )

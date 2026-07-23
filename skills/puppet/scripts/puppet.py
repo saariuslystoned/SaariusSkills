@@ -17,6 +17,7 @@ from puppet_lib.session import (
     halt,
     import_checkpoint,
     launch,
+    open_view,
     review_checkpoint,
     send_message,
     status,
@@ -115,6 +116,15 @@ def _attach(args):
     return attach_command(state_root=args.state_root, session=args.session)
 
 
+def _open_view(args):
+    return open_view(
+        state_root=args.state_root,
+        session=args.session,
+        terminal=args.terminal,
+        dry_run=args.dry_run,
+    )
+
+
 def _halt(args):
     return halt(
         state_root=args.state_root,
@@ -174,10 +184,14 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--request-id", required=True)
     send_input = send_parser.add_mutually_exclusive_group(required=True)
     send_input.add_argument("--message-file", type=_path)
-    send_input.add_argument("--stdin", action="store_true", help="read message body from stdin")
+    send_input.add_argument(
+        "--stdin", action="store_true", help="read message body from stdin"
+    )
     send_parser.set_defaults(handler=_send)
 
-    status_parser = commands.add_parser("status", help="show sanitized structural state")
+    status_parser = commands.add_parser(
+        "status", help="show sanitized structural state"
+    )
     status_parser.add_argument("--state-root", required=True, type=_path)
     status_parser.add_argument("--session", required=True)
     status_parser.set_defaults(handler=_status)
@@ -212,7 +226,9 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--evidence", required=True, type=_path)
     review_parser.set_defaults(handler=_review)
 
-    accept_parser = commands.add_parser("accept", help="record terminal controller acceptance")
+    accept_parser = commands.add_parser(
+        "accept", help="record terminal controller acceptance"
+    )
     accept_parser.add_argument("--state-root", required=True, type=_path)
     accept_parser.add_argument("--session", required=True)
     accept_parser.add_argument("--actor", required=True)
@@ -220,20 +236,42 @@ def build_parser() -> argparse.ArgumentParser:
     accept_parser.add_argument("--evidence", required=True, type=_path)
     accept_parser.set_defaults(handler=_accept)
 
-    attach_parser = commands.add_parser("attach-command", help="print a read-only viewer command")
+    attach_parser = commands.add_parser(
+        "attach-command", help="print a read-only viewer command"
+    )
     attach_parser.add_argument("--state-root", required=True, type=_path)
     attach_parser.add_argument("--session", required=True)
     attach_parser.set_defaults(handler=_attach)
 
-    halt_parser = commands.add_parser("halt", help="gracefully halt only the registered target")
+    view_parser = commands.add_parser(
+        "open-view",
+        help="optionally open the exact native TUI in a separate read-only terminal",
+    )
+    view_parser.add_argument("--state-root", required=True, type=_path)
+    view_parser.add_argument("--session", required=True)
+    view_parser.add_argument(
+        "--terminal",
+        choices=["auto", "iterm", "terminal"],
+        default="auto",
+    )
+    view_parser.add_argument("--dry-run", action="store_true")
+    view_parser.set_defaults(handler=_open_view)
+
+    halt_parser = commands.add_parser(
+        "halt", help="gracefully halt only the registered target"
+    )
     halt_parser.add_argument("--state-root", required=True, type=_path)
     halt_parser.add_argument("--session", required=True)
     halt_parser.add_argument("--timeout", type=float, default=10.0)
     halt_parser.set_defaults(handler=_halt)
 
-    promote_parser = commands.add_parser("promote", help="unsupported in bootstrap Puppet N")
+    promote_parser = commands.add_parser(
+        "promote", help="unsupported in bootstrap Puppet N"
+    )
     promote_parser.set_defaults(handler=_promote)
-    close_parser = commands.add_parser("close", help="unsupported in bootstrap Puppet N")
+    close_parser = commands.add_parser(
+        "close", help="unsupported in bootstrap Puppet N"
+    )
     close_parser.set_defaults(handler=_close)
     return parser
 

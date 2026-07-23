@@ -38,6 +38,10 @@ class PuppetCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("--until", result.stdout)
         self.assertIn("beacon", result.stdout)
+        result = self._run_cli(["open-view", "--help"])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--terminal", result.stdout)
+        self.assertIn("--dry-run", result.stdout)
 
     def test_promote_and_close_remain_unsupported(self):
         for command in ("promote", "close"):
@@ -48,7 +52,15 @@ class PuppetCLITests(unittest.TestCase):
     def test_send_requires_exactly_one_message_input(self):
         with self.assertRaises(SystemExit):
             self.parser.parse_args(
-                ["send", "--state-root", "state", "--session", "session", "--request-id", "request"]
+                [
+                    "send",
+                    "--state-root",
+                    "state",
+                    "--session",
+                    "session",
+                    "--request-id",
+                    "request",
+                ]
             )
         with self.assertRaises(SystemExit):
             self.parser.parse_args(
@@ -124,7 +136,9 @@ class PuppetCLITests(unittest.TestCase):
         ]
         with self.assertRaises(SystemExit):
             self.parser.parse_args(review_base)
-        review_args = self.parser.parse_args([*review_base, "--checkpoint", "checkpoint-id"])
+        review_args = self.parser.parse_args(
+            [*review_base, "--checkpoint", "checkpoint-id"]
+        )
         self.assertEqual(review_args.checkpoint, "checkpoint-id")
 
         accept_base = [
@@ -140,7 +154,9 @@ class PuppetCLITests(unittest.TestCase):
         ]
         with self.assertRaises(SystemExit):
             self.parser.parse_args(accept_base)
-        accept_args = self.parser.parse_args([*accept_base, "--checkpoint", "checkpoint-id"])
+        accept_args = self.parser.parse_args(
+            [*accept_base, "--checkpoint", "checkpoint-id"]
+        )
         self.assertEqual(accept_args.checkpoint, "checkpoint-id")
 
     def test_global_json_flag_is_accepted(self):

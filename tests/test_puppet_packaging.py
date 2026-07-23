@@ -15,6 +15,7 @@ class PuppetPackagingTests(unittest.TestCase):
             "SKILL.md",
             "agents/openai.yaml",
             "scripts/puppet.py",
+            "scripts/viewer_attach.py",
             "scripts/adapter_lab.py",
             "references/operating-contract.md",
             "references/adapter-contract.md",
@@ -65,6 +66,24 @@ class PuppetPackagingTests(unittest.TestCase):
         ]
         for marker in forbidden:
             self.assertNotIn(marker, sources)
+
+    def test_human_native_live_view_is_an_explicit_baseline_gate(self):
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        campaign = (
+            ROOT / "plans" / "puppet" / "codex-goal-regular-qualification.md"
+        ).read_text(encoding="utf-8")
+        amendment = (
+            ROOT / "plans" / "puppet" / "instruction-qualification.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("native, unfiltered live TUI", skill)
+        self.assertIn("human may attach and detach", skill)
+        self.assertIn("human-only read-only attach command", campaign)
+        self.assertIn("controller remains transcript-blind", campaign)
+        self.assertIn("human-only read-only attach/detach", amendment)
+        for text in (skill, campaign, amendment):
+            self.assertIn("capture", text)
+            self.assertIn("controller", text)
 
     def test_package_template_layer_shapes_are_declared(self):
         catalog = json.loads(
