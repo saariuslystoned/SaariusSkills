@@ -152,6 +152,14 @@ target, run ID, controller, campaign, goal, manifest, mapping, authorization,
 and proof root. Recovery reconciles the persisted exact identities and may halt
 that exact target; it never relaunches.
 
+Claude matched-control probe reservations are one-use. Never retry or relaunch
+the same run after reservation; use exact `adapter_lab.py recover`. Stop and
+preserve the run when its attestation, reservation, ready checkpoint, or
+hash-only signal observation is missing or drifted. Also stop on a non-source,
+ambiguous, or post-observation recreated signal leaf; do not manually delete or
+recreate it. An accepted activation lifecycle remains non-qualifying until a
+separate ordinary control and paired no-bleed proof are accepted.
+
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before
 changing adapters, and [prompt-patterns.md](references/prompt-patterns.md) when

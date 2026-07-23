@@ -75,9 +75,12 @@ adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
 On interruption, replace `probe --profile ...` with `recover`, retain the
 shared identity arguments, omit `--subscription-profile-root`, and supply the
 original required `--run-id`. Recovery never relaunches a target. There is no
-`puppet.py recover`. A complete run is reverified without mutation; an
-incomplete run is either exactly halted and permanently marked non-qualifying,
-or remains fenced when control delivery or identity is ambiguous.
+`puppet.py recover`. A complete run is reverified without target mutation. For
+Claude matched activation, recovery may reconstruct a missing body-free signal
+observation receipt and refresh its state hash from the canonical controller
+journal. An incomplete run is either exactly halted and permanently marked
+non-qualifying, or remains fenced when control delivery or identity is
+ambiguous.
 
 Qualification is capability-granular. The shared two-turn probe verifies
 `launch`, `send`, `status`, `wait`, `checkpoint`, and `halt`. It does not prove
@@ -115,35 +118,35 @@ descriptor, and current doctor-only, unqualified adapter
 manifest/implementation/execution-file/mapping tuple. That schema-v2
 `activation_plan_join_only` record identifies the fenced activation-lifecycle
 delivery scope but explicitly leaves delivery unauthorized. Schema v1 is
-rejected. The record makes no
-controller, campaign, goal, checkpoint, runtime-scan, no-bleed, qualification,
-or promotion claim and is not yet consumed by the live probe.
+rejected. The record makes no controller, campaign, goal, checkpoint,
+runtime-scan, no-bleed, qualification, or promotion claim. The Claude activated
+Pass-B probe consumes it only through fixed controller attestation and one-use
+signal reservation.
 
 The controller can now rebuild that join and append one idempotent pre-delivery
 attestation to its fixed private authority journal. The event retains only the
 join and plan/descriptor/adapter identity hashes plus session/run identifiers;
 it contains no marker digest, instruction body, or transcript content. The
-public producer accepts no caller event, marker, digest, or journal. This
-attestation still fixes delivery, runtime scan, qualification, and promotion to
-false and is not a live-probe or matched-control receipt.
+public producer accepts no caller event, marker, digest, or journal. The
+activated probe requires this attestation before reservation and
+materialization. It still fixes delivery, runtime scan, qualification, and
+promotion to false and is not a matched no-bleed or qualification receipt.
 
 Claude's compile-only marker binding uses a fixed one-use ephemeral sidecar,
 not a durable handoff claim. Its v2 binding commits the exact sidecar protocol:
 exact marker bytes without a terminator, create-only mode 0600, controller
 directory-FD/no-follow consumption, unlink before journaling, and hash-only
-retention. The existing probe does not consume this sidecar, and the current
-conformance handoffs remain exact marker-free acknowledgements. Signal
-consumption now has a source-only FD-bound guard that proves the leaf absent,
-pins the plan's workspace and private handoff-directory identities, consumes
-exact source-derived bytes, and writes a body-free one-use reservation for the
-activation join before exposing the guard. The fixed controller lock and
-reservation prevent an abandoned guard or post-unlink journal failure from
-authorizing a second attempt. Consumption unlinks before observation
-journaling, proves through the still-open descriptor that the exact signal
-inode has no retained link, and binds the verified hash-only event to the
-reservation. It is not imported by the probe, handoff, adapter, or
-qualification paths and expressly proves neither delivery, target authorship,
-checkpoint observation, lease ownership, nor no-bleed.
+retention. Ready and follow-up JSON remain exact marker-free acknowledgements.
+The activated probe orders exact matched-ready compilation, activation plan,
+fixed-authority attestation, one-use reservation, materialization/launch,
+validated ready plus sidecar, unlink/hash-only observation, follow-up, exact
+halt, terminal no-recreation check, and rollback. The FD-bound guard pins the
+workspace and private handoff directory, validates exact source-derived bytes,
+and unlinks before observation journaling. Recovery rederives the source,
+rejoins the spent reservation, and may consume an exact stranded signal only
+after target death; a recreated or ambiguous leaf fails closed. The signal
+event expressly proves neither delivery, target authorship, checkpoint
+observation, lease ownership, nor no-bleed.
 Paired ordinary-session no-bleed verification remains separate work.
 
 ## Interface

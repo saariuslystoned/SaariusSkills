@@ -99,6 +99,16 @@ After exact halt, roll back only the receipt-bound artifact and
 transaction-created directories; preserve ambiguity instead of deleting by
 path.
 
+Claude matched-control activation adds a source-bound pre-delivery gate:
+compile the exact ready request, plan, attest through fixed controller
+authority, and spend a one-use signal reservation before materialization or
+launch. The ready checkpoint is valid only with the exact transient sidecar;
+the controller consumes and unlinks it before follow-up, then rechecks absence
+after exact target halt before rollback or receipt. Interrupted recovery never
+relaunches or reuses the reservation. It reconciles an exact stranded signal
+only after target death and rejects any missing, drifted, non-source, or
+post-observation recreated leaf.
+
 The current product baseline is `regular` only. `/goal`, `/loop`,
 `/teamwork-preview`, alternate models, and automatic routing remain separate,
 versioned lifecycle qualifications and must not be silently injected.

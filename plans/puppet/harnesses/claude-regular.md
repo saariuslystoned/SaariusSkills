@@ -162,8 +162,8 @@ observation is labeled non-authoritative, and its fixed status is
 candidate produces no pass/no-bleed verdict. Existing activation-lifecycle
 receipts remain non-promotable.
 
-The next implementation must add one controller-owned producer/verifier route,
-not widen this candidate validator:
+The production Pass-B activation path now consumes a controller-owned
+producer/recovery route without widening this candidate validator:
 
 `puppet_lib/matched_control.py` now supplies a narrower compile-only substrate.
 It validates the exact Claude additive descriptor, derives an opaque marker from
@@ -172,9 +172,9 @@ compiled bytes, and returns only a hash-bound `compiled_binding_only` record.
 The record fixes `delivered`, `checkpoint_observed`, `lease_bound`,
 `no_bleed_evaluated`, `no_bleed_verified`, `runtime_scan_authorized`,
 `promotion_authorized`, and `qualification_authorized` to false, with
-`result: not_evaluated`. It writes no journal, touches no runtime, and is not
-wired into probe or qualification. This closes only the source-owned marker
-compilation/body-retention gap; every runtime join below remains required.
+`result: not_evaluated`. Its public compiler writes no journal and touches no
+runtime. A private probe-owned compiler binds the exact ready request to the
+same source-owned marker; qualification still has no consumer.
 
 The same module now revalidates the compiled object from its exact in-memory
 bytes and can derive an `activation_plan_join_only` record from the exact
@@ -184,29 +184,32 @@ record is verified only by rebuilding it from those inputs; schema v1 is
 rejected, and callers cannot supply a marker or marker digest. It remains
 body-free and fixes delivery, runtime scan, checkpoint observation, no-bleed, qualification, and
 promotion to false. It intentionally carries no controller, campaign, goal, or
-authority claim. This is a source substrate only and the live probe does not
-consume it.
+authority claim. The activated live probe consumes this join only through the
+fixed controller attestation and one-use reservation path.
 
 `puppet_lib/matched_control_authority.py` provides the source-only pre-delivery
 authority stage: it rebuilds the join internally and appends an
 idempotent body-free event to a fixed controller-authority journal. The event
 contains no marker digest, instruction body, or transcript data, and its public
-surface accepts no caller marker, digest, event, or journal. It explicitly
-leaves delivery, runtime scan, qualification, and promotion unauthorized. The
-live probe still does not consume the attestation.
+surface accepts no caller marker, digest, event, or journal. The live probe
+requires it before reservation and materialization, while the event still
+leaves delivery, runtime scan, qualification, and promotion unauthorized.
 
-1. Wire the controller-owned pre-delivery attestation into the probe's ordering
-   before materialization/delivery. Do not accept an arbitrary marker, digest,
-   binding row, or journal from a caller.
+1. **Implemented source ordering:** the controller-owned attestation and
+   one-use reservation precede materialization, launch, and delivery. No caller
+   can supply a marker, digest, binding row, event, or journal.
 2. Run two sequential, controller-created Claude fixture sessions under exact
    leases: an activated lane and a distinct ordinary control with the same
    default-model selection and no native plane. Bind full session, target,
    process-birth, lease, workspace, config, and tmux-server identities.
-3. Prepare the fixed one-use signal leaf through a retained workspace directory
-   descriptor before delivery. After the ready handoff, open the exact sidecar
-   with no-follow semantics, validate the internally rederived marker bytes,
-   unlink it before journaling, and persist hashes only. Never put marker bytes
-   in a handoff, proof reference, transcript, or durable event.
+3. **Implemented activated-lane signal lifecycle:** reserve the fixed leaf
+   through retained workspace/handoff directory descriptors before delivery;
+   after exact ready, validate the internally rederived bytes, unlink before
+   journaling, and retain hashes only. After exact halt, rejoin the observation
+   and reject any recreated leaf before rollback or receipt. Recovery never
+   reuses a reservation and consumes an exact stranded signal only after target
+   death. Marker bytes never enter handoff JSON, proof references, transcripts,
+   or durable events.
 4. Produce exact pre-launch and post-halt target census rows for both sessions.
    Derive protected-population equality and exact control target absence in the
    verifier; do not serialize caller-authored before/after verdicts.
@@ -225,9 +228,10 @@ live probe still does not consume the attestation.
    sanitized controller hook is journal-joined. Never select a model to make the
    proof easier.
 
-Only after that producer and verifier exist may a new receipt scope be proposed
-for `adapter_lab qualify`; the current command must continue rejecting every
-activation receipt.
+Only after the distinct ordinary control, paired no-bleed verifier, census/halt
+joins, observed model facts, and both entry-mode proofs exist may a new receipt
+scope be proposed for `adapter_lab qualify`; the current command must continue
+rejecting every activation receipt.
 
 - Hard blockers:
   - No live hook proof yet; the default model remains unqualified.
@@ -244,10 +248,11 @@ activation receipt.
 The source-owned marker compiler now uses a fixed one-use sidecar at
 `handoffs/.puppet-claude-marker-signal-v1`; marker bytes are forbidden from the
 durable ready/follow-up JSON. The binding commits the exact signal protocol and
-a source-only controller guard now opens it relative to retained workspace and
+the activated probe guard opens it relative to retained workspace and
 handoff-directory descriptors, validates exact bytes and file identity, unlinks
-it before journaling, and retains hashes only. This guard is not wired into the
-probe and does not authorize delivery, target authorship, scanning, checkpoint
-claims, lease ownership, no-bleed, qualification, or promotion. A later
-conformance-contract version must allow the one-use signal explicitly and
-consume it before the exact handoff-set check.
+before journaling, and retains hashes only. The matched-ready contract permits
+exactly ready JSON plus this transient leaf, then consumes the leaf before the
+follow-up set check. A terminal post-halt recheck and interrupted recovery both
+fail closed on missing, drifted, non-source, or recreated signal evidence. This
+still authorizes neither delivery, target authorship, scanning, checkpoint
+claims, lease ownership, no-bleed, qualification, nor promotion.
