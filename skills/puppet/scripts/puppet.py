@@ -28,6 +28,10 @@ from puppet_lib.subscription_profiles import (
     initialize_subscription_profile,
     subscription_profile_status,
 )
+from puppet_lib.subscription_onboarding import (
+    ONBOARDING_TARGETS,
+    run_subscription_onboarding,
+)
 
 
 def _path(value: str) -> Path:
@@ -165,6 +169,34 @@ def _profile_init(args):
 
 def _profile_status(args):
     return subscription_profile_status(profile_root=args.profile_root)
+
+
+def _target_manifest(value: str) -> tuple[str, Path]:
+    target, separator, raw_path = value.partition("=")
+    if (
+        separator != "="
+        or target not in ONBOARDING_TARGETS
+        or not raw_path
+    ):
+        raise argparse.ArgumentTypeError(
+            "manifest must be one allowlisted TARGET=/absolute/path"
+        )
+    path = Path(raw_path)
+    if not path.is_absolute():
+        raise argparse.ArgumentTypeError("onboarding manifest path must be absolute")
+    return target, path
+
+
+def _onboard(args):
+    manifests = {}
+    for target, path in args.manifest:
+        if target in manifests:
+            raise ConflictError("duplicate onboarding target")
+        manifests[target] = path
+    return run_subscription_onboarding(
+        profile_shelf=args.profile_shelf,
+        manifest_paths=manifests,
+    )
 
 
 def _promote(args):
@@ -323,7 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile_init_parser = commands.add_parser(
         "profile-init",
-        help="create a private subscription profile and print its human login handoff",
+        help="prepare one private subscription profile without performing login",
     )
     profile_init_parser.add_argument(
         "--target",
@@ -340,6 +372,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     profile_status_parser.add_argument("--profile-root", required=True, type=_path)
     profile_status_parser.set_defaults(handler=_profile_status)
+
+    onboard_parser = commands.add_parser(
+        "onboard",
+        help="prepare selected durable profiles and report one-time login actions",
+    )
+    onboard_parser.add_argument(
+        "--profile-shelf",
+        required=True,
+        type=_path,
+        help="existing current-user mode-0700 durable profile shelf",
+    )
+    onboard_parser.add_argument(
+        "--manifest",
+        required=True,
+        action="append",
+        type=_target_manifest,
+        metavar="TARGET=/ABSOLUTE/PATH",
+        help="current adapter manifest; repeat once per selected harness",
+    )
+    onboard_parser.set_defaults(handler=_onboard)
 
     halt_parser = commands.add_parser(
         "halt", help="gracefully halt only the registered target"

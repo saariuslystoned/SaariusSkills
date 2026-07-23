@@ -282,6 +282,7 @@ current skill-creator conventions. The minimum bootstrap Puppet N CLI surface
 is:
 
 ```text
+onboard
 doctor
 launch
 send

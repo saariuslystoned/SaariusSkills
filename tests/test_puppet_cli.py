@@ -49,6 +49,10 @@ class PuppetCLITests(unittest.TestCase):
         result = self._run_cli(["profile-status", "--help"])
         self.assertEqual(result.returncode, 0)
         self.assertIn("--profile-root", result.stdout)
+        result = self._run_cli(["onboard", "--help"])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--profile-shelf", result.stdout)
+        self.assertIn("TARGET=/ABSOLUTE/PATH", result.stdout)
         for command in ("doctor", "launch"):
             result = self._run_cli([command, "--help"])
             self.assertEqual(result.returncode, 0)
@@ -189,6 +193,32 @@ class PuppetCLITests(unittest.TestCase):
             with self.subTest(target=target):
                 args = self.parser.parse_args([*common, "--target", target])
                 self.assertEqual(args.target, target)
+
+    def test_onboard_requires_absolute_unique_allowlisted_manifests(self):
+        common = ["onboard", "--profile-shelf", "/tmp/profiles"]
+        args = self.parser.parse_args(
+            [
+                *common,
+                "--manifest",
+                "grok=/tmp/grok.json",
+                "--manifest",
+                "codex=/tmp/codex.json",
+            ]
+        )
+        self.assertEqual(
+            args.manifest,
+            [
+                ("grok", Path("/tmp/grok.json")),
+                ("codex", Path("/tmp/codex.json")),
+            ],
+        )
+        for invalid in (
+            "other=/tmp/other.json",
+            "grok=relative.json",
+            "grok",
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                self.parser.parse_args([*common, "--manifest", invalid])
 
     def test_message_and_evidence_bodies_are_not_command_argv(self):
         with self.assertRaises(SystemExit):

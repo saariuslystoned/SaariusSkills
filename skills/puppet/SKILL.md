@@ -109,6 +109,14 @@ operator-global home merely because it is logged in: that can also import
 unrelated instructions, configuration, plugins, sessions, and logs. When safe
 adoption is unavailable, group the one-time profile enrollments into first-use
 Puppet onboarding instead of interrupting later runs with repeated prompts.
+Use `onboard` with the current adapter manifest for every selected harness and
+one durable mode-0700 profile shelf. It prepares or rejoins supported profiles,
+runs body-free native status checks, silently marks logged-in profiles ready,
+and emits a login handoff only for a profile reported logged out. It never runs
+that handoff, launches a model, or changes an account. A status failure remains
+local to that harness so the other selected subscriptions still classify.
+AGY and Cursor remain explicit unsupported results until their isolated
+authentication routes qualify.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
 For an unqualified Claude regular plan, profile initialization is only
@@ -157,14 +165,22 @@ choice before any live launch.
 
 Use this sequence:
 
-1. Select the durable profile for this user, harness, and account. Run
-   `profile-init` as an automatic, non-account preparation step; it creates the
-   missing profile or rejoins it and refreshes only non-secret launcher
-   authority. Then run `profile-status`. Continue without prompting when it is
-   logged in. Present `login_command` to the human only for a newly created
-   profile or when native status reports a real logged-out or invalidated
-   session, then verify again with `profile-status`. The login handoff is an
-   explicit account action and never runs unattended.
+1. Run first-use or recovery onboarding for the selected harnesses:
+
+   ```bash
+   python3 <skill-root>/scripts/puppet.py onboard \
+     --profile-shelf <durable-private-shelf> \
+     --manifest codex=<current-codex-manifest> \
+     --manifest claude=<current-claude-manifest> \
+     --manifest grok=<current-grok-manifest>
+   ```
+
+   Reuse every `ready` profile without prompting. Present `login_command` only
+   for an `enrollment_required` profile, then rerun `onboard` to verify it.
+   `status_unknown`, `status_unavailable`, and `unsupported` are blockers, not
+   reasons to guess or log in blindly. The login handoff is an explicit account
+   action and never runs unattended. `profile-init` and `profile-status` remain
+   the low-level single-target equivalents.
 2. `doctor` validates the current executable, YOLO mapping, repository,
    authorization, tmux, proof root, and collision state.
 3. `launch` creates one deterministic user-private tmux socket/session from a
