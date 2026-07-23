@@ -262,8 +262,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
     manifest with state `waiting_for_human`, failed invariant
     `approved_authentication_preserving_private_codex_home_route_unavailable`,
     rung `codex_regular_pass_b`, the exact manifest/executable/version/adapter/
-    protocol identity, every source-only blocker, and the preserved launch,
-    workspace-plan, doctor, and zero-agent observation kinds;
+    protocol identity, every source-only blocker, and the expected launch,
+    workspace-plan, doctor, and zero-agent observation kinds. Because planning
+    supplies and validates none of those artifacts, preserved evidence kinds
+    remain empty;
   - keeps only `doctor` as a proposed Codex diagnostic and marks launch,
     status, waits, attach, open-view, and halt unsupported with reason
     `codex_regular_session_source_only_unqualified`;

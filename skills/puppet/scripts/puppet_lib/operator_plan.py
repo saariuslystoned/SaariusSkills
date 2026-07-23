@@ -57,7 +57,7 @@ _CODEX_AUTH_ROUTES = (
     "process_local_broker",
     "human_present_lane_owned_home_login",
 )
-_CODEX_PRESERVED_EVIDENCE_KINDS = (
+_CODEX_EXPECTED_EVIDENCE_KINDS = (
     "puppet.codex-launch-context/v1",
     "puppet.codex-workspace-plane-plan/v2",
     "puppet.codex-doctor-observation/v1",
@@ -448,7 +448,8 @@ def _codex_target_gate(
                 MAPPING_INCOMPLETE_BLOCKER,
             ],
         },
-        "preserved_evidence_kinds": list(_CODEX_PRESERVED_EVIDENCE_KINDS),
+        "expected_evidence_kinds": list(_CODEX_EXPECTED_EVIDENCE_KINDS),
+        "preserved_evidence_kinds": [],
         "next_safe_action": _CODEX_NEXT_SAFE_ACTION,
         "available_routes": list(_CODEX_AUTH_ROUTES),
     }

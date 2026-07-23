@@ -882,7 +882,7 @@ class OperatorPlanTests(unittest.TestCase):
                 },
             )
             self.assertEqual(
-                gate["preserved_evidence_kinds"],
+                gate["expected_evidence_kinds"],
                 [
                     "puppet.codex-launch-context/v1",
                     "puppet.codex-workspace-plane-plan/v2",
@@ -890,6 +890,7 @@ class OperatorPlanTests(unittest.TestCase):
                     "puppet.run-observation/v1",
                 ],
             )
+            self.assertEqual(gate["preserved_evidence_kinds"], [])
             for blocker in (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER):
                 self.assertIn(blocker, plan["blockers"])
             self.assertEqual(plan["commands"]["doctor"][3], "doctor")

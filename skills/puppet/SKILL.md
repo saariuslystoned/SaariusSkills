@@ -27,13 +27,14 @@ security, secrets, spending, and destructive actions separately gated.
    profile, tmux server, session, or harness process.
    A doctor-only, unqualified Codex manifest also yields a
    `target_gate.state=waiting_for_human` packet for the exact
-   `codex_regular_pass_b` identity. It preserves the source-only evidence
-   kinds and proposes `doctor`, but marks launch, status, waits, attach,
-   open-view, and halt unsupported. Its `profile-init` command is a
-   human-gated proposal: the human must choose either the named process-local
-   broker route or a human-present login into the lane-owned home before any
-   account action. The plan carries route names only, never values or
-   credential selectors.
+   `codex_regular_pass_b` identity. It names the expected source-only evidence
+   kinds but reports preserved evidence kinds as empty because planning
+   supplies and validates no such artifacts. It proposes `doctor`, but marks
+   launch, status, waits, attach, open-view, and halt unsupported. Its
+   `profile-init` command is a human-gated proposal: the human must choose
+   either the named process-local broker route or a human-present login into
+   the lane-owned home before any account action. The plan carries route names
+   only, never values or credential selectors.
    A doctor-only, unqualified Cursor manifest yields the same body-free
    `waiting_for_human` boundary for `cursor_regular_pass_b`, but it names no
    available authentication route. Only `doctor` remains proposed; profile
