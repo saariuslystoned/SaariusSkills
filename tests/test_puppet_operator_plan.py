@@ -705,6 +705,17 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(
                 profile["operator_global_adoption"], "not_yet_qualified"
             )
+            adoption = profile["operator_subscription_adoption"]
+            self.assertEqual(
+                adoption["preferred_candidate"],
+                "process_local_shared_leader",
+            )
+            self.assertEqual(
+                adoption["routes"]["external_auth_provider"]["status"],
+                "not_a_native_cache_bridge",
+            )
+            self.assertFalse(adoption["private_store_accessed"])
+            self.assertFalse(adoption["private_material_projected"])
             self.assertEqual(profile["init"][3], "profile-init")
             encoded = json.dumps(plan, sort_keys=True)
             self.assertNotIn(fixture.prompt_body.strip(), encoded)

@@ -135,6 +135,38 @@ operator subscription remains the preferred but unqualified route because
 inheriting the complete ordinary `GROK_HOME` would also inherit unrelated
 configuration, instructions, plugins, sessions, and logs.
 
+#### No-copy adoption candidates
+
+The installed 0.2.111 binary exposes a more promising native boundary than
+copying `auth.json` or inheriting the operator's whole `GROK_HOME`:
+
+- `grok agent leader` runs a shared leader process;
+- `grok agent --leader` connects a client to a shared leader; and
+- `--leader-socket` selects the exact Unix socket.
+
+Puppet therefore prefers a future process-local shared-leader broker: an
+attended operator-owned process keeps the ordinary native authentication, while
+a private Puppet client connects only through a controller-bound socket. This
+is source-candidate status, not authority. Qualification must prove that
+operator instructions, configuration, plugins, sessions, logs, and tools do
+not bleed across the leader/client boundary; bind exact socket ownership and
+process lifecycle; and show that stopping the Puppet client never stops or
+mutates unrelated operator sessions.
+
+The documented `auth_provider_command` is not an automatic bridge for an
+already-authorized consumer subscription. It requires a separately provisioned
+command that can already emit a token, so using it without such a provider
+would merely move credential enrollment and storage elsewhere. Puppet will not
+extract, copy, link, or print the native cached session to manufacture that
+provider.
+
+Zero-agent hashes for the exact installed surface:
+
+- `grok agent --help`:
+  `80eca1cc827e677c5d4310fe60ccaa941627cc688189405742e69e4f4ec734d3`
+- `grok agent leader --help`:
+  `5d0199eb0b874a66a899c34e305719e3f52eb816d3799f9b3510301fdf0455d7`
+
 ### Plane 2: workspace addendum (strongest candidate, unqualified)
 
 Create a unique deepest-scope

@@ -11,6 +11,7 @@ from .adapter_manifest import AdapterManifest
 from .agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS
 from .census import adapter_implementation_fingerprint
 from .errors import ConflictError, IdentityError, PuppetError, ValidationError
+from .grok_subscription_adoption import grok_subscription_adoption_plan
 from .handoffs import PROTOCOL_FINGERPRINT
 from .safety import validate_identifier
 from .subscription_profiles import (
@@ -138,6 +139,10 @@ def _supported_result(
         "model_launched": False,
         "raw_output_retained": False,
     }
+    if target == "grok":
+        base["operator_subscription_adoption"] = (
+            grok_subscription_adoption_plan()
+        )
     try:
         status = subscription_profile_status(profile_root=profile_root)
     except PuppetError as exc:

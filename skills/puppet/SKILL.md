@@ -112,6 +112,10 @@ operator-global home merely because it is logged in: that can also import
 unrelated instructions, configuration, plugins, sessions, and logs. When safe
 adoption is unavailable, group the one-time profile enrollments into first-use
 Puppet onboarding instead of interrupting later runs with repeated prompts.
+For Grok 0.2.111, prefer qualification of its native shared-leader/exact-socket
+surface as the no-copy operator-subscription candidate. Its external auth
+provider is not a cached-session export and is not a generic consumer bridge
+without a separately provisioned token provider.
 Use `onboard` with the current adapter manifest for every selected harness and
 one durable mode-0700 profile shelf. It prepares or rejoins supported profiles,
 runs body-free native status checks, silently marks logged-in profiles ready,

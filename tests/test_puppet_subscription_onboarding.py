@@ -178,6 +178,15 @@ class SubscriptionOnboardingTests(unittest.TestCase):
             self.assertIn("login_command", result["results"]["claude"])
             self.assertEqual(result["results"]["grok"]["state"], "status_unknown")
             self.assertNotIn("login_command", result["results"]["grok"])
+            adoption = result["results"]["grok"][
+                "operator_subscription_adoption"
+            ]
+            self.assertEqual(
+                adoption["preferred_candidate"],
+                "process_local_shared_leader",
+            )
+            self.assertFalse(adoption["private_store_accessed"])
+            self.assertFalse(adoption["private_material_projected"])
             self.assertEqual(
                 result["results"]["agy"]["state"], "native_reuse_candidate"
             )

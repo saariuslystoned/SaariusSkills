@@ -24,6 +24,7 @@ from .cursor_workspace_plane import (
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .grok_evidence import expected_grok_pass_a_evidence
 from .grok_halt import GROK_CURRENT_SOURCE_BLOCKERS
+from .grok_subscription_adoption import grok_subscription_adoption_plan
 from .handoffs import PROTOCOL_FINGERPRINT
 from .run_observations import (
     CLAUDE_MATCHED_CONTROL_BLOCKERS,
@@ -449,6 +450,9 @@ def _commands(
         elif grok_source_only:
             result["profile"]["state"] = "human_gated_proposal"
             result["profile"]["required_gate"] = _GROK_PROFILE_GATE
+            result["profile"]["operator_subscription_adoption"] = (
+                grok_subscription_adoption_plan()
+            )
     return result
 
 
