@@ -11,7 +11,7 @@ import os
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Sequence, Tuple
 
 from .adapter_manifest import AdapterManifest, _validated_process_record
 from .campaign import active_target_processes
@@ -144,6 +144,10 @@ def _validate_codex_mapping(
         raise ValidationError("Codex sandbox mapping is unexpected")
     if mapping.get("project_isolation_flags") != []:
         raise ValidationError("Codex project isolation mapping is unexpected")
+    if mapping.get("complete") is not False:
+        raise ValidationError("Codex mapping completeness is unexpected")
+    if mapping.get("project_isolation_declared") is not False:
+        raise ValidationError("Codex project isolation declaration is unexpected")
     if mapping.get("model_flag") != EXPECTED_MODEL_FLAG:
         raise ValidationError("Codex model capability mapping is unexpected")
     if "effort_flag" in mapping:
@@ -278,9 +282,6 @@ def build_codex_launch_context(
     lane_root: Path | str,
     workspace_root: Path | str,
     codex_home: Path | str,
-    candidate_fn: Callable[
-        [str, list[Dict[str, Any]]], list[Dict[str, Any]]
-    ] = active_target_processes,
 ) -> CodexLaunchContext:
     """Build a source-only Codex launch context without starting anything."""
 
@@ -289,7 +290,7 @@ def build_codex_launch_context(
     if manifest.target != "codex":
         raise ValidationError("launch context requires target codex")
 
-    blockers = list(SOURCE_ONLY_BLOCKERS)
+    blockers = [*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER]
     lane = _validate_root(Path(lane_root), label="lane root")
     lane_root_path = Path(lane["path"])
     workspace = _contained_private_root(
@@ -331,8 +332,6 @@ def build_codex_launch_context(
         mapping=mapping,
         executable_path=executable["resolved_path"],
     )
-    if not mapping["complete"] or not mapping["project_isolation_declared"]:
-        blockers.append(MAPPING_INCOMPLETE_BLOCKER)
     if not manifest.raw["doctor_only"]:
         raise ValidationError("source-only Codex launch requires doctor-only manifest")
     if manifest.raw["qualification"] is not None:
@@ -350,7 +349,7 @@ def build_codex_launch_context(
             )
             for selector in selectors
         )
-        candidate_processes = candidate_fn(manifest.target, selectors)
+        candidate_processes = active_target_processes(manifest.target, selectors)
     except (TypeError, ValueError, IdentityError, ValidationError, AttributeError):
         raise ValidationError("candidate process lookup is malformed")
     except Exception as exc:  # pragma: no cover - defensive guardrail

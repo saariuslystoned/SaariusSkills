@@ -179,18 +179,25 @@ class CodexLaunchContextTests(unittest.TestCase):
     def _write_manifest(self, manifest_raw: dict[str, Any]) -> None:
         self.manifest_path.write_text(json.dumps(manifest_raw) + "\n", encoding="utf-8")
 
-    def _build(self, manifest_raw=None, **kwargs):
+    def _build(self, manifest_raw=None, *, candidate_lookup=None, **kwargs):
         if manifest_raw is not None:
             self._write_manifest(manifest_raw)
         workspace_root = kwargs.pop("workspace_root", self.workspace)
         codex_home = kwargs.pop("codex_home", self.codex_home)
-        return build_codex_launch_context(
-            manifest_path=self.manifest_path,
-            lane_root=self.lane_root,
-            workspace_root=workspace_root,
-            codex_home=codex_home,
-            **kwargs,
-        )
+        if candidate_lookup is None:
+            candidate_lookup = mock.Mock(return_value=[])
+        with mock.patch.object(
+            codex_launch_module,
+            "active_target_processes",
+            side_effect=candidate_lookup,
+        ):
+            return build_codex_launch_context(
+                manifest_path=self.manifest_path,
+                lane_root=self.lane_root,
+                workspace_root=workspace_root,
+                codex_home=codex_home,
+                **kwargs,
+            )
 
     def test_build_context_binds_requested_and_resolved_identity(self):
         manifest = AdapterManifest.from_dict(self.manifest_raw)
@@ -202,7 +209,7 @@ class CodexLaunchContextTests(unittest.TestCase):
             called["selectors"] = observed
             return []
 
-        context = self._build(candidate_fn=selector)
+        context = self._build(candidate_lookup=selector)
         self.assertEqual(context.target, "codex")
         self.assertEqual(context.session_profile, "regular")
         self.assertEqual(
@@ -235,7 +242,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         self.assertEqual(called["selectors"], selectors)
 
     def test_public_context_is_value_free_and_never_authorizes_launch(self):
-        context = self._build(candidate_fn=lambda _target, _selectors: [])
+        context = self._build(candidate_lookup=lambda _target, _selectors: [])
         public = context.to_public_dict()
         self.assertFalse(context.launch_authorized)
         self.assertFalse(public["launch_authorized"])
@@ -265,8 +272,16 @@ class CodexLaunchContextTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypeError, "unexpected keyword argument"):
                     self._build(**{name: value})
 
+    def test_public_api_has_no_candidate_lookup_input(self):
+        parameters = inspect.signature(build_codex_launch_context).parameters
+        self.assertEqual(
+            set(parameters),
+            {"manifest_path", "lane_root", "workspace_root", "codex_home"},
+        )
+        self.assertNotIn("candidate_fn", parameters)
+
     def test_declared_model_flag_is_capability_not_selection(self):
-        context = self._build(candidate_fn=lambda _target, _selectors: [])
+        context = self._build(candidate_lookup=lambda _target, _selectors: [])
         self.assertEqual(self.manifest_raw["yolo_mapping"]["model_flag"], "--model")
         self.assertNotIn("--model", context.argv)
         self.assertEqual(context.model_selection, "current_default")
@@ -289,7 +304,7 @@ class CodexLaunchContextTests(unittest.TestCase):
                     ValidationError,
                     "exact Codex regular unrestricted mapping",
                 ):
-                    self._build(raw, candidate_fn=lambda _target, _selectors: [])
+                    self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
     def test_permission_and_sandbox_mapping_are_exact(self):
         mutations = (
@@ -305,23 +320,27 @@ class CodexLaunchContextTests(unittest.TestCase):
                 raw = copy.deepcopy(self.manifest_raw)
                 raw["yolo_mapping"][name] = value
                 with self.assertRaises(ValidationError):
-                    self._build(raw, candidate_fn=lambda _target, _selectors: [])
+                    self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
-    def test_source_only_blockers_are_unconditional_for_complete_mapping(self):
+    def test_complete_mapping_claim_is_rejected(self):
         raw = copy.deepcopy(self.manifest_raw)
         raw["yolo_mapping"]["complete"] = True
         raw["yolo_mapping"]["project_isolation_declared"] = True
-        context = self._build(raw, candidate_fn=lambda _target, _selectors: [])
-        self.assertEqual(
-            set(context.blockers), set(codex_launch_module.SOURCE_ONLY_BLOCKERS)
-        )
-        self.assertNotIn(
-            codex_launch_module.MAPPING_INCOMPLETE_BLOCKER, context.blockers
-        )
-        self.assertFalse(context.launch_authorized)
+        with self.assertRaisesRegex(
+            ValidationError, "mapping completeness is unexpected"
+        ):
+            self._build(raw)
+
+    def test_project_isolation_declaration_is_rejected(self):
+        raw = copy.deepcopy(self.manifest_raw)
+        raw["yolo_mapping"]["project_isolation_declared"] = True
+        with self.assertRaisesRegex(
+            ValidationError, "project isolation declaration is unexpected"
+        ):
+            self._build(raw)
 
     def test_incomplete_mapping_blocker_is_preserved(self):
-        context = self._build(candidate_fn=lambda _target, _selectors: [])
+        context = self._build(candidate_lookup=lambda _target, _selectors: [])
         self.assertIn(codex_launch_module.MAPPING_INCOMPLETE_BLOCKER, context.blockers)
         self.assertTrue(
             set(codex_launch_module.SOURCE_ONLY_BLOCKERS) <= set(context.blockers)
@@ -337,7 +356,7 @@ class CodexLaunchContextTests(unittest.TestCase):
             },
             clear=False,
         ):
-            context = self._build(candidate_fn=lambda _target, _selectors: [])
+            context = self._build(candidate_lookup=lambda _target, _selectors: [])
         public = context.to_public_dict()
         self.assertEqual(public["launch_identity"]["env_names"], ["CODEX_HOME"])
         self.assertNotIn("environment", public["launch_identity"])
@@ -346,19 +365,19 @@ class CodexLaunchContextTests(unittest.TestCase):
         def candidates(_target, selectors):
             return [_candidate(202, selectors[0]), _candidate(101, selectors[0])]
 
-        context = self._build(candidate_fn=candidates)
+        context = self._build(candidate_lookup=candidates)
         self.assertEqual(context.candidate_process_count, 2)
         self.assertEqual(context.candidate_process_pids, (101, 202))
         self.assertIn("existing target candidate processes detected", context.blockers)
 
     def test_candidate_fingerprint_binds_every_complete_identity_field(self):
         first = self._build(
-            candidate_fn=lambda _target, selectors: [
+            candidate_lookup=lambda _target, selectors: [
                 _candidate(101, selectors[0], command="codex first")
             ]
         )
         second = self._build(
-            candidate_fn=lambda _target, selectors: [
+            candidate_lookup=lambda _target, selectors: [
                 _candidate(101, selectors[0], command="codex second")
             ]
         )
@@ -368,7 +387,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         )
 
     def test_empty_candidate_population_is_not_a_candidate_blocker(self):
-        context = self._build(candidate_fn=lambda _target, _selectors: [])
+        context = self._build(candidate_lookup=lambda _target, _selectors: [])
         self.assertEqual(context.candidate_process_count, 0)
         self.assertNotIn(
             "existing target candidate processes detected", context.blockers
@@ -379,8 +398,19 @@ class CodexLaunchContextTests(unittest.TestCase):
             ValidationError, "candidate process lookup is malformed"
         ):
             self._build(
-                candidate_fn=lambda _target, _selectors: [{"bad": "shape", "pid": 123}]
+                candidate_lookup=lambda _target, _selectors: [
+                    {"bad": "shape", "pid": 123}
+                ]
             )
+
+    def test_candidate_census_exceptions_fail_closed(self):
+        for failure, message in (
+            (ValueError("bad census"), "candidate process lookup is malformed"),
+            (RuntimeError("failed census"), "candidate process lookup failed"),
+        ):
+            with self.subTest(failure=type(failure).__name__):
+                with self.assertRaisesRegex(ValidationError, message):
+                    self._build(candidate_lookup=mock.Mock(side_effect=failure))
 
     def test_candidate_selector_mismatch_is_rejected(self):
         def mismatched(_target, selectors):
@@ -391,7 +421,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValidationError, "candidate process lookup is malformed"
         ):
-            self._build(candidate_fn=mismatched)
+            self._build(candidate_lookup=mismatched)
 
     def test_duplicate_candidate_pid_is_rejected(self):
         def duplicated(_target, selectors):
@@ -403,7 +433,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValidationError, "candidate process lookup is malformed"
         ):
-            self._build(candidate_fn=duplicated)
+            self._build(candidate_lookup=duplicated)
 
     def test_duplicate_candidate_birth_identity_is_rejected(self):
         def duplicated(_target, selectors):
@@ -425,12 +455,12 @@ class CodexLaunchContextTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValidationError, "candidate process lookup is malformed"
         ):
-            self._build(candidate_fn=duplicated)
+            self._build(candidate_lookup=duplicated)
 
     def test_current_resolved_execution_drift_is_rejected(self):
         self.resolved_executable.write_bytes(b"#!/bin/sh\nexit 9\n")
         with self.assertRaises(IdentityError):
-            self._build(candidate_fn=lambda _target, _selectors: [])
+            self._build(candidate_lookup=lambda _target, _selectors: [])
 
     def test_self_consistent_forged_manifest_execution_is_rejected(self):
         self.resolved_executable.write_bytes(b"#!/bin/sh\nexit 8\n")
@@ -440,7 +470,7 @@ class CodexLaunchContextTests(unittest.TestCase):
             resolved_identity=forged_identity,
         )
         with self.assertRaisesRegex(ValidationError, "executable hash is unexpected"):
-            self._build(raw, candidate_fn=lambda _target, _selectors: [])
+            self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
     def test_requested_symlink_target_drift_is_rejected(self):
         replacement = self.base / "replacement-codex"
@@ -449,7 +479,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         self.requested_executable.unlink()
         self.requested_executable.symlink_to(replacement)
         with self.assertRaisesRegex(IdentityError, "symlink target changed"):
-            self._build(candidate_fn=lambda _target, _selectors: [])
+            self._build(candidate_lookup=lambda _target, _selectors: [])
 
     def test_forged_requested_or_resolved_manifest_path_is_rejected(self):
         mutations = (
@@ -466,7 +496,7 @@ class CodexLaunchContextTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     ValidationError, "executable path is unexpected"
                 ):
-                    self._build(raw, candidate_fn=lambda _target, _selectors: [])
+                    self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
     def test_non_codex_target_is_rejected(self):
         raw = copy.deepcopy(self.manifest_raw)
@@ -514,7 +544,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         ):
             self._build(
                 workspace_root=self.lane_root,
-                candidate_fn=lambda _target, _selectors: [],
+                candidate_lookup=lambda _target, _selectors: [],
             )
 
     def test_version_hash_is_revalidated(self):
@@ -523,7 +553,7 @@ class CodexLaunchContextTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValidationError, "manifest executable version hash is unexpected"
         ):
-            self._build(raw, candidate_fn=lambda _target, _selectors: [])
+            self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
     def test_adapter_and_protocol_fingerprints_are_revalidated(self):
         for name in ("adapter_fingerprint", "protocol_fingerprint"):
@@ -533,4 +563,4 @@ class CodexLaunchContextTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     ValidationError, "fingerprint is unexpected"
                 ):
-                    self._build(raw, candidate_fn=lambda _target, _selectors: [])
+                    self._build(raw, candidate_lookup=lambda _target, _selectors: [])
