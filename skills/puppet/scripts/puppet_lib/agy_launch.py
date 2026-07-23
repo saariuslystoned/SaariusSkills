@@ -1,0 +1,46 @@
+"""Pure, body-free qualification fence for AGY regular sessions.
+
+This module records only the static controller verdict.  It deliberately has
+no target discovery, filesystem, launch, or operator-state surface.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
+
+from .errors import UnsupportedError
+
+
+AGY_REGULAR_VERDICT_SCHEMA = "puppet.agy-regular-verdict/v1"
+AGY_REGULAR_AUTHORITY_BLOCKERS: Tuple[str, ...] = (
+    "agy_config_root_isolation_unproved",
+    "agy_sandbox_off_unproved",
+    "agy_native_instruction_plane_unqualified",
+    "agy_default_model_unobserved",
+    "agy_ordinary_session_no_bleed_unproved",
+)
+AGY_REGULAR_AUTHORITY_BLOCKER = (
+    "AGY regular sessions remain planner-only until config-root isolation, "
+    "sandbox-off behavior, a native instruction plane, the default model, and "
+    "ordinary-session no-bleed are controller-qualified"
+)
+
+
+def agy_regular_verdict() -> Dict[str, Any]:
+    """Return the immutable source-only AGY regular-session decision."""
+
+    return {
+        "schema": AGY_REGULAR_VERDICT_SCHEMA,
+        "target": "agy",
+        "session_profile": "regular",
+        "status": "unsupported_planner_only",
+        "launch_authorized": False,
+        "qualification_authorized": False,
+        "blockers": AGY_REGULAR_AUTHORITY_BLOCKERS,
+    }
+
+
+def require_agy_regular_launch_authority() -> None:
+    """Fail closed without consulting any live AGY or operator state."""
+
+    raise UnsupportedError(AGY_REGULAR_AUTHORITY_BLOCKER)

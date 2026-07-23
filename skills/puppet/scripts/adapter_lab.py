@@ -15,6 +15,7 @@ from puppet_lib.adapter_manifest import (
     PROBE_CAPABILITIES,
     verify_qualification_receipt,
 )
+from puppet_lib.agy_launch import require_agy_regular_launch_authority
 from puppet_lib.census import (
     CENSUS_SCHEMA_VERSION,
     adapter_implementation_fingerprint,
@@ -144,6 +145,8 @@ def _verify(args):
 
 def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
+    if base.target == "agy":
+        require_agy_regular_launch_authority()
     if not base.raw["doctor_only"]:
         raise ValidationError("qualification input must be a doctor-only manifest")
     mapping = read_json(args.mapping, max_bytes=65536)

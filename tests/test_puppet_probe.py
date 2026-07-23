@@ -18,6 +18,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
+from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
@@ -35,7 +36,9 @@ from puppet_lib.authority import (  # noqa: E402
     transition_session_lease,
 )
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
+from puppet_lib.halt_control import deliver_halt_actions  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
+from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.launch import public_launch_identity  # noqa: E402
 from puppet_lib.plane_activation import CLAUDE_NATIVE_TRIGGER  # noqa: E402
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
@@ -1990,32 +1993,45 @@ class ProbeTests(unittest.TestCase):
     def test_agy_uses_exact_double_eof_graceful_halt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            files = controller_inputs(root, target="agy")
-            fake = FakeTmux(root / "fake-tmux")
-            result = execute(files, fake, target="agy", run_id="probe-agy-double-eof")
-            self.assertEqual(result["result"], "accepted")
-            self.assertEqual(fake.interrupts, [])
-            self.assertEqual(len(fake.control_calls), 2)
-            self.assertEqual([item[3] for item in fake.control_calls], ["C-d", "C-d"])
-            halt = json.loads(
-                (Path(result["run_root"]) / "halt.json").read_text(encoding="utf-8")
+            alive = {"value": True}
+            sent = []
+
+            def deliver(action):
+                sent.append(action)
+                if len(sent) == 2:
+                    alive["value"] = False
+
+            submitted = deliver_halt_actions(
+                journal=Journal(root / "halt-journal"),
+                session="probe-agy-double-eof",
+                target_identity=static_process_identity(991),
+                actions=list(adapter_for("agy").graceful_halt_actions),
+                process_alive=lambda: alive["value"],
+                deliver_action=deliver,
             )
-            self.assertEqual(halt["signal"], "tmux_exact_pane_ctrl_d_twice")
+            self.assertEqual(submitted, ["tmux_pane_eof", "tmux_pane_eof"])
+            self.assertEqual(sent, ["tmux_pane_eof", "tmux_pane_eof"])
 
     def test_agy_does_not_send_second_eof_after_exact_target_stops(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            files = controller_inputs(root, target="agy")
-            fake = FakeTmux(root / "fake-tmux", exit_after_first_control=True)
-            result = execute(files, fake, target="agy", run_id="probe-agy-one-eof")
-            self.assertEqual(result["result"], "accepted")
-            self.assertEqual(len(fake.control_calls), 1)
-            halt = json.loads(
-                (Path(result["run_root"]) / "halt.json").read_text(encoding="utf-8")
+            alive = {"value": True}
+            sent = []
+
+            def deliver(action):
+                sent.append(action)
+                alive["value"] = False
+
+            submitted = deliver_halt_actions(
+                journal=Journal(root / "halt-journal"),
+                session="probe-agy-one-eof",
+                target_identity=static_process_identity(991),
+                actions=list(adapter_for("agy").graceful_halt_actions),
+                process_alive=lambda: alive["value"],
+                deliver_action=deliver,
             )
-            self.assertEqual(
-                halt["signal"], "tmux_exact_pane_ctrl_d_once_target_stopped"
-            )
+            self.assertEqual(submitted, ["tmux_pane_eof"])
+            self.assertEqual(sent, ["tmux_pane_eof"])
 
     def test_unexpected_handoff_artifact_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2661,7 +2677,7 @@ class ProbeTests(unittest.TestCase):
     def test_prelaunch_recovery_preserves_authorized_parallel_population(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            files = controller_inputs(root, target="agy", override=True)
+            files = controller_inputs(root, override=True)
             fake = FakeTmux(root / "fake-tmux")
             protected = [static_process_identity(991)]
 
@@ -2677,7 +2693,6 @@ class ProbeTests(unittest.TestCase):
                     execute(
                         files,
                         fake,
-                        target="agy",
                         run_id="probe-protected-prelaunch-crash",
                         active=protected,
                     )
@@ -2690,11 +2705,11 @@ class ProbeTests(unittest.TestCase):
                 evidence["active_target_processes_before_launch"], protected
             )
             self.assertEqual(
-                current_session_lease(files["authority"], target="agy")["state"],
+                current_session_lease(files["authority"], target="codex")["state"],
                 "launching",
             )
             recovered = recover_probe(
-                target="agy",
+                target="codex",
                 proof_root=files["proof"],
                 manifest_path=files["manifest"],
                 mapping_path=files["mapping"],
@@ -2721,7 +2736,7 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(recovered["recovered"])
             self.assertFalse(recovered["tmux_preserved"])
             self.assertEqual(
-                current_session_lease(files["authority"], target="agy")["state"],
+                current_session_lease(files["authority"], target="codex")["state"],
                 "failed",
             )
             recovery = json.loads(
@@ -2732,39 +2747,33 @@ class ProbeTests(unittest.TestCase):
     def test_interrupted_agy_eof_is_ambiguous_and_never_resent(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            files = controller_inputs(root, target="agy")
-            fake = FakeTmux(root / "fake-tmux", interrupt_after_control=True)
+            sent = []
+
+            def interrupt(action):
+                sent.append(action)
+                raise KeyboardInterrupt()
+
+            journal = Journal(root / "halt-journal")
+            identity = static_process_identity(991)
             with self.assertRaises(KeyboardInterrupt):
-                execute(files, fake, target="agy", run_id="probe-agy-ambiguous")
-            self.assertEqual(len(fake.control_calls), 1)
-            fake.interrupt_after_control = False
-            with self.assertRaisesRegex(IdentityError, "ambiguous"):
-                recover_probe(
-                    target="agy",
-                    proof_root=files["proof"],
-                    manifest_path=files["manifest"],
-                    mapping_path=files["mapping"],
-                    authorization_path=files["authorization"],
-                    controller="tester",
-                    goal_repo=files["goal_repo"],
-                    expected_campaign_id=files["campaign_id"],
-                    expected_goal=files["expected_goal"],
-                    run_id="probe-agy-ambiguous",
-                    halt_timeout=0.1,
-                    _tmux_factory=lambda selected: fake,
-                    _process_birth_fn=lambda pid: process_identity(fake),
-                    _process_alive_fn=lambda identity: fake.alive,
-                    _exact_sigint_fn=fake.exact_sigint,
-                    _server_process_birth_fn=lambda pid: fake.server_process,
-                    _active_processes_fn=lambda selected: [process_identity(fake)],
-                    _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
-                    _census_target_fn=lambda selected, fingerprint: (
-                        AdapterManifest.from_dict(files["raw"])
-                    ),
-                    _sleep_fn=lambda interval: None,
-                    _authority_root=files["authority"],
+                deliver_halt_actions(
+                    journal=journal,
+                    session="probe-agy-ambiguous",
+                    target_identity=identity,
+                    actions=list(adapter_for("agy").graceful_halt_actions),
+                    process_alive=lambda: True,
+                    deliver_action=interrupt,
                 )
-            self.assertEqual(len(fake.control_calls), 1)
+            with self.assertRaisesRegex(IdentityError, "ambiguous"):
+                deliver_halt_actions(
+                    journal=journal,
+                    session="probe-agy-ambiguous",
+                    target_identity=identity,
+                    actions=list(adapter_for("agy").graceful_halt_actions),
+                    process_alive=lambda: True,
+                    deliver_action=lambda action: sent.append(action),
+                )
+            self.assertEqual(sent, ["tmux_pane_eof"])
 
     def test_probe_profile_is_fixed_before_launch(self):
         with tempfile.TemporaryDirectory() as temporary:

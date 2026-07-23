@@ -70,7 +70,7 @@ from puppet_lib.provenance import admission_fingerprint, validate_admission_rows
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
 
 
-def manifest_raw():
+def manifest_raw(target="agy"):
     executable = Path("/bin/echo").resolve(strict=True)
     executable_details = executable.stat()
     executable_identity = {
@@ -86,7 +86,7 @@ def manifest_raw():
     }
     return {
         "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
-        "target": "agy",
+        "target": target,
         "generated_at": "2026-07-22T02:00:00Z",
         "platform": {"system": "Darwin", "release": "25", "machine": "arm64"},
         "executable": executable_identity,
@@ -95,22 +95,34 @@ def manifest_raw():
         "protocol_fingerprint": "e" * 64,
         "yolo_mapping": {
             "complete": True,
-            "launch_argv": [
-                str(executable),
-                "--dangerously-skip-permissions",
-                "--new-project",
-            ],
+            "launch_argv": (
+                [
+                    str(executable),
+                    "--dangerously-skip-permissions",
+                    "--new-project",
+                ]
+                if target == "agy"
+                else [str(executable), "--dangerously-bypass-approvals-and-sandbox"]
+            ),
             "permission_declared": True,
-            "permission_flags": ["--dangerously-skip-permissions"],
+            "permission_flags": (
+                ["--dangerously-skip-permissions"]
+                if target == "agy"
+                else ["--dangerously-bypass-approvals-and-sandbox"]
+            ),
             "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
-            "sandbox_flags": [],
+            "sandbox_flags": (
+                []
+                if target == "agy"
+                else ["--dangerously-bypass-approvals-and-sandbox"]
+            ),
             "project_isolation_declared": True,
-            "project_isolation_flags": ["--new-project"],
-            "session_profiles": session_profiles_for("agy"),
+            "project_isolation_flags": ["--new-project"] if target == "agy" else [],
+            "session_profiles": session_profiles_for(target),
             "session_profiles_declared": True,
-            "startup_settle_seconds": startup_settle_seconds_for("agy"),
+            "startup_settle_seconds": startup_settle_seconds_for(target),
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         },
         "capabilities": {
@@ -928,7 +940,7 @@ class AdapterTests(unittest.TestCase):
     def test_synthetic_structural_receipt_cannot_qualify_a_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            raw = manifest_raw()
+            raw = manifest_raw(target="codex")
             manifest_path = root / "doctor.json"
             mapping_path = root / "mapping.json"
             receipt_path = root / "receipt.json"
@@ -948,8 +960,8 @@ class AdapterTests(unittest.TestCase):
             write_qualification_receipt(
                 receipt_path,
                 run_id="run-1",
-                target="agy",
-                controller="codex",
+                target="codex",
+                controller="agy",
                 executable_path=Path(raw["executable"]["resolved_path"]),
                 executable_fingerprint=raw["executable"]["sha256"],
                 execution_fingerprint=raw["execution"]["execution_fingerprint"],
@@ -1001,7 +1013,7 @@ class AdapterTests(unittest.TestCase):
     def test_adapter_lab_refuses_activation_lifecycle_only_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            raw = manifest_raw()
+            raw = manifest_raw(target="codex")
             manifest_path = root / "doctor.json"
             mapping_path = root / "mapping.json"
             receipt_path = root / "receipt.json"

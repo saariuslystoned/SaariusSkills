@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
+from .agy_launch import (
+    AGY_REGULAR_AUTHORITY_BLOCKERS,
+    require_agy_regular_launch_authority,
+)
 from .authority import (
     admit_session_lease,
     lease_owner as build_lease_owner,
@@ -598,6 +602,8 @@ def doctor(
     proof_root = absolute_root(str(proof_root), "proof root")
     state_root = absolute_root(str(state_root), "state root")
     blockers = []
+    if contract.target == "agy":
+        blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
@@ -716,6 +722,9 @@ def launch(
     _process_birth_fn: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
+    initial_contract = Contract.from_path(contract_path)
+    if initial_contract.target == "agy":
+        require_agy_regular_launch_authority()
     report = doctor(
         contract_path=contract_path,
         manifest_path=manifest_path,

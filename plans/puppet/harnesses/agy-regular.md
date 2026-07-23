@@ -4,6 +4,30 @@ Parent: regular-lane packet `plans/puppet/codex-goal-regular-qualification.md`.
 Scope: static census, authoritative documentation, source/tests inspection, and
 fixture/test design only. No live target launch in this lane.
 
+## Current controller verdict: unsupported planner-only
+
+AGY regular sessions are not launchable or qualifiable in Puppet. The pure
+controller verdict is body-free and always reports:
+
+- `launch_authorized: false`
+- `qualification_authorized: false`
+- `agy_config_root_isolation_unproved`
+- `agy_sandbox_off_unproved`
+- `agy_native_instruction_plane_unqualified`
+- `agy_default_model_unobserved`
+- `agy_ordinary_session_no_bleed_unproved`
+
+These blockers are immutable for this baseline. An exact parallel-process
+override cannot clear them. Generic session launch rejects AGY before doctor,
+process census, launch-environment construction, proof/tmux setup, or target
+callbacks. Pass-B probe rejects AGY before mapping validation, fresh census,
+process lookup, proof-root creation, or tmux construction. Qualification and
+manifest promotion reject AGY even if supplied a fallback-wrapper receipt.
+
+This verdict does not alter status, halt, or recovery for an already registered
+Puppet-owned AGY session. Puppet must not inspect, steer, halt, or otherwise
+intervene in an ordinary non-Puppet AGY session.
+
 ## 1) Exact-version discovery facts vs hypotheses
 
 ### Facts (from read-only census + source/tests)
@@ -49,10 +73,10 @@ fixture/test design only. No live target launch in this lane.
   - `Adapter.envelope()` allows exactly one native profile prefix on initial send,
     rejects caller-supplied slash-prefixes (`/goal`, `/teamwork-preview`, `/btw`, `/side`) on follow-ups.
   - AGY graceful halt action is `tmux_pane_eof` (twice if still alive).
-  - AGY regular profile launch is supported by adapter shape. Omitted and
-    explicit `session_profile: regular` contracts canonicalize to the same
-    identity; `/teamwork-preview` is retained only as a deferred explicit
-    mapping.
+  - The adapter statically constructs the regular profile shape, but that shape
+    grants no launch authority. Omitted and explicit
+    `session_profile: regular` contracts canonicalize to the same identity;
+    `/teamwork-preview` is retained only as a deferred explicit mapping.
 - Model list command discovered: `agy models` currently emits:
   `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`,
   `gemini-3.5-flash-high`, `gemini-3.5-flash-medium`, `gemini-3.5-flash-low`,
@@ -98,7 +122,9 @@ unprefixed message. It is not one of the three instruction planes.
   plane. Keep this candidate unsupported unless a native additive path is
   proved without putting instruction bodies in argv.
 
-## 3) Default-model observation plan
+## 3) Future default-model observation gate
+
+The following is a future proof design, not an executable Puppet path:
 
 1. Build isolated conformance fixture root and prompt fixture only.
 2. Use `session_profile=regular` in contract and omit `--model`/`--effort` in launch command.
@@ -107,7 +133,7 @@ unprefixed message. It is not one of the three instruction planes.
 4. If absent, classify as `model_unknown` blocker and promote a separate model-observation variant with explicit
    model selection (`--model` from `agy models`) before this lane can be promoted as regular-default complete.
 
-## 4) Regular matrix (launch / resume / steer / halt / no-bleed)
+## 4) Future regular qualification matrix (not executable)
 
 | Surface | Planned action | Expected evidence | Stop criteria |
 |---|---|---|---|
@@ -131,11 +157,16 @@ unprefixed message. It is not one of the three instruction planes.
   project selection only; it does not neutralize the persistent sandbox setting.
 - Any config-root override must remain per-lane and never cross-target.
 
-## 6) Required Puppet source deltas for this lane
+## 6) Implemented source fence and future deltas
 
 - Preserve and test integration commit `45f728f`, which makes `regular` the
   canonical default and prevents implicit `teamwork-preview` selection.
-- Add explicit regular-plane fixture proving steps for `session_profile=regular` in source.
+- Keep the pure AGY verdict and the unconditional doctor, launch, probe, and
+  qualification fences in place until every blocker above is independently
+  closed.
+- Add explicit regular-plane fixture proving steps for
+  `session_profile=regular` only after a separately reviewed source change
+  makes the live proof lane eligible.
 - Add explicit model-observation handling (or explicit-block strategy) for omitted `--model`.
 - Make resume outcome explicit in capability proof (currently not promoted by resume contract).
 - Extend instruction-plane testing for AGY to prove workspace/per-run-plane precedence before allowing any mixed-plane defaulting.
@@ -150,6 +181,9 @@ unprefixed message. It is not one of the three instruction planes.
     proved for the exact isolated run.
   - Default model/effect remains unresolved without live default-observation evidence.
 - Stop criteria:
-  - one native instruction plane must win or the harness must fail closed;
-    regular lifecycle must show clean `launch -> steer -> halt` and a no-bleed
-    control, plus explicit handling for unsupported resume.
+  - the current lane stops at the planner-only unsupported verdict; it makes no
+    live or qualified claim.
+  - a future lane may remove the fence only after one native instruction plane
+    wins, config and sandbox isolation are exact, the default model is observed,
+    and regular lifecycle shows clean `launch -> steer -> halt` plus an ordinary
+    non-Puppet no-bleed control and explicit unsupported-resume handling.

@@ -16,6 +16,7 @@ from .authority import (
     controller_authority_root,
     verify_qualification_attestation,
 )
+from .agy_launch import require_agy_regular_launch_authority
 from .contracts import (
     MANDATORY_HARD_GATES,
     PROCESS_IDENTITY_FIELDS,
@@ -2084,6 +2085,8 @@ class AdapterManifest:
         _server_process_fn: Optional[Any] = None,
         _tmux_factory: Optional[Any] = None,
     ) -> Dict[str, Any]:
+        if self.target == "agy":
+            require_agy_regular_launch_authority()
         if self.raw["doctor_only"]:
             raise UnsupportedError(
                 "doctor-only manifest has no real-harness qualification"

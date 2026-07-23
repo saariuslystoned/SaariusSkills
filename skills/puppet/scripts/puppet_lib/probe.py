@@ -27,6 +27,7 @@ from .adapter_manifest import (
     verify_qualification_receipt,
 )
 from .adapters import adapter_for
+from .agy_launch import require_agy_regular_launch_authority
 from .authority import (
     acquire_real_harness_lock,
     admit_session_lease,
@@ -847,6 +848,8 @@ def run_probe(
 
     if target not in TARGETS:
         raise ValidationError("unsupported probe target")
+    if target == "agy":
+        require_agy_regular_launch_authority()
     if profile != PROBE_PROFILE:
         raise ValidationError(
             "probe profile must be the fixed source-free Pass B contract"
