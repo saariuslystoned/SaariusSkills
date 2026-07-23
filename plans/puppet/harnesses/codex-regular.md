@@ -192,6 +192,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
     revalidation rebuilds the exact plan from current source-owned launch,
     root, manifest, and contract inputs, and rejects an existing or symlinked
     `AGENTS.md` before any mutation;
+  - composes the exact resolved executable, unrestricted flag, absolute `-C`
+    workspace, session/run identity, and closed `CODEX_HOME`-only environment
+    into a standard admitted-launch plan while preserving every source-only
+    blocker and `launch_authorized=false`;
   - all lifecycle entry points unconditionally raise `UnsupportedError`.
 
 - `skills/puppet/scripts/puppet_lib/census.py`

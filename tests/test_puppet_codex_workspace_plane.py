@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import os
 import stat
 import sys
 import tempfile
@@ -44,6 +45,7 @@ from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
 
 def _root_identity(path: Path) -> dict[str, object]:
+    path = path.resolve(strict=True)
     details = path.lstat()
     return {
         "path": str(path),
@@ -209,14 +211,62 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
         self.assertFalse(raw["materialization_supported"])
         self.assertFalse(raw["rollback_supported"])
         self.assertFalse(raw["recovery_supported"])
-        self.assertEqual(raw["launch_delta"], {"argv": ["-C", str(self.workspace)]})
+        workspace = str(self.workspace.resolve())
+        codex_home = str(self.codex_home.resolve())
+        self.assertEqual(raw["launch_delta"], {"argv": ["-C", workspace]})
+        admitted = raw["admitted_launch_plan"]
+        self.assertEqual(
+            admitted["argv"],
+            [
+                str(self.resolved_executable),
+                EXPECTED_UNRESTRICTED_FLAG,
+                "-C",
+                workspace,
+            ],
+        )
+        self.assertEqual(admitted["session"], self.expected_run_identity["session"])
+        self.assertEqual(admitted["run_id"], self.expected_run_identity["run_id"])
+        self.assertEqual(admitted["cwd"], workspace)
+        self.assertEqual(admitted["env_names"], ["CODEX_HOME"])
+        self.assertEqual(
+            admitted["env_fingerprint"],
+            sha256_bytes(
+                canonical_json_bytes([["CODEX_HOME", codex_home]])
+            ),
+        )
         self.assertEqual(raw["planned_artifact"]["relative_path"], "AGENTS.md")
         self.assertEqual(
             raw["planned_artifact"]["content_sha256"],
             sha256_bytes(self.compiled.rendered),
         )
-        self.assertEqual(first.planned_artifact_path, self.workspace / "AGENTS.md")
+        self.assertEqual(
+            first.planned_artifact_path, self.workspace.resolve() / "AGENTS.md"
+        )
         self.assertEqual(repr(first).find("PUPPET_INSTRUCTION_BODY_CANARY"), -1)
+
+    def test_admitted_plan_ignores_ambient_values_and_has_no_selectors_or_body(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "CODEX_ACCESS_TOKEN": "ambient-token-canary",
+                "HOME": "/ambient/home-canary",
+                "PATH": "/ambient/path-canary",
+            },
+        ):
+            admitted = self._plan().to_dict()["admitted_launch_plan"]
+        encoded = canonical_json_bytes(admitted)
+        self.assertEqual(admitted["env_names"], ["CODEX_HOME"])
+        for forbidden in (
+            b"ambient-token-canary",
+            b"ambient/home-canary",
+            b"ambient/path-canary",
+            b"PUPPET_INSTRUCTION_BODY_CANARY",
+            b"--model",
+            b"--profile",
+            b"--config",
+            b"--effort",
+        ):
+            self.assertNotIn(forbidden, encoded)
 
     def test_public_api_has_no_task_body_or_authority_inputs(self):
         parameters = inspect.signature(plan_codex_workspace_plane).parameters
@@ -357,6 +407,20 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             ("launch_authorized", True),
             ("launch_delta", {"argv": ["-C", str(self.base)]}),
             ("requested_executable_path", str(self.base / "other-codex")),
+            (
+                "admitted_launch_plan",
+                {
+                    **raw["admitted_launch_plan"],
+                    "argv": [
+                        str(self.resolved_executable),
+                        EXPECTED_UNRESTRICTED_FLAG,
+                        "--model",
+                        "alternate",
+                        "-C",
+                        str(self.workspace.resolve()),
+                    ],
+                },
+            ),
         )
         for name, value in mutations:
             with self.subTest(name=name):

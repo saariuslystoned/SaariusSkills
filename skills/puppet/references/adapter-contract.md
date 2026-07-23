@@ -176,6 +176,14 @@ Do not generalize initial-only or repeated-prefix behavior to native commands:
 each command must separately prove activation, continuation, steering, resume,
 and termination envelopes.
 
+Codex's disabled workspace-plane plan composes the exact unrestricted base argv
+with the exact absolute `-C` workspace into one standard admitted-launch plan.
+That plan binds the source-owned session/run identity and a closed environment
+whose only name is `CODEX_HOME`; ambient home, path, credential, model, effort,
+profile, and config selectors cannot enter it. This is launch-context evidence,
+not launch authority: every existing blocker and disabled lifecycle entry point
+remains in force.
+
 Codex may present a first-use workspace-trust gate before its composer exists.
 That is a human-present security/configuration gate, not input readiness. Puppet
 must not answer it, edit or inspect Codex configuration, or paste a task into

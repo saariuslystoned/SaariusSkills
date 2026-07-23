@@ -33,6 +33,11 @@ from .codex_launch import (
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .conformance import tree_fingerprint
 from .instructions import validate_instruction_manifest
+from .launch import (
+    build_admitted_launch_plan,
+    select_launch_environment,
+    validate_admitted_launch_plan,
+)
 from .safety import (
     canonical_json_bytes,
     paths_overlap,
@@ -43,7 +48,7 @@ from .safety import (
 )
 
 
-PLAN_SCHEMA = "puppet.codex-workspace-plane-plan/v1"
+PLAN_SCHEMA = "puppet.codex-workspace-plane-plan/v2"
 STATUS = {"surface": "hypothesis", "activation": "disabled"}
 PLANNED_ARTIFACT = "AGENTS.md"
 WORKSPACE_BLOCKERS = (
@@ -81,6 +86,7 @@ _PLAN_FIELDS = {
     "workspace_root_identity",
     "codex_home_identity",
     "launch_delta",
+    "admitted_launch_plan",
     "instruction_manifest_sha256",
     "contract_identity_sha256",
     "workspace_identity_sha256",
@@ -92,6 +98,48 @@ _PLAN_FIELDS = {
     "planned_artifact",
     "plan_sha256",
 }
+
+
+def _codex_launch_environment(
+    *, lane: Mapping[str, Any], codex_home: Mapping[str, Any]
+) -> Dict[str, str]:
+    environment = select_launch_environment(
+        target="codex",
+        source_environment={},
+        bindings={"CODEX_HOME": str(codex_home["path"])},
+        admitted_lane_root=Path(str(lane["path"])),
+    )
+    if set(environment) != {"CODEX_HOME"}:
+        raise IdentityError("Codex workspace launch environment changed")
+    return environment
+
+
+def _build_codex_admitted_plan(
+    *,
+    session: str,
+    run_id: str,
+    lane: Mapping[str, Any],
+    workspace: Mapping[str, Any],
+    codex_home: Mapping[str, Any],
+    argv: list[str],
+) -> Dict[str, Any]:
+    expected_argv = [
+        EXPECTED_RESOLVED_EXECUTABLE_PATH,
+        EXPECTED_UNRESTRICTED_FLAG,
+        "-C",
+        str(workspace["path"]),
+    ]
+    if argv != expected_argv:
+        raise IdentityError("Codex workspace admitted argv changed")
+    return build_admitted_launch_plan(
+        target="codex",
+        session=validate_identifier(session, "Codex admitted session"),
+        run_id=validate_identifier(run_id, "Codex admitted run id"),
+        repo=Path(str(workspace["path"])),
+        argv=expected_argv,
+        environment=_codex_launch_environment(lane=lane, codex_home=codex_home),
+        admitted_lane_root=Path(str(lane["path"])),
+    )
 
 
 def _exact_int(value: Any, *, label: str, minimum: int = 0) -> int:
@@ -313,6 +361,21 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
     expected_delta = {"argv": ["-C", workspace["path"]]}
     if value.get("launch_delta") != expected_delta:
         raise IdentityError("Codex workspace launch delta changed")
+    admitted_value = value.get("admitted_launch_plan")
+    admitted = validate_admitted_launch_plan(
+        admitted_value,
+        expected_target="codex",
+    )
+    expected_admitted = _build_codex_admitted_plan(
+        session=admitted["session"],
+        run_id=admitted["run_id"],
+        lane=lane,
+        workspace=workspace,
+        codex_home=codex_home,
+        argv=admitted["argv"],
+    )
+    if admitted_value != expected_admitted:
+        raise IdentityError("Codex workspace admitted launch plan changed")
 
     effective_sha = validate_sha256(
         value.get("effective_contract_sha256"), "effective contract sha256"
@@ -357,6 +420,7 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
         "workspace_root_identity": workspace,
         "codex_home_identity": codex_home,
         "launch_delta": expected_delta,
+        "admitted_launch_plan": expected_admitted,
         "instruction_manifest_sha256": validate_sha256(
             value.get("instruction_manifest_sha256"),
             "instruction manifest sha256",
@@ -505,6 +569,14 @@ def plan_codex_workspace_plane(
         "workspace_root_identity": workspace,
         "codex_home_identity": home,
         "launch_delta": {"argv": ["-C", workspace["path"]]},
+        "admitted_launch_plan": _build_codex_admitted_plan(
+            session=run_identity["session"],
+            run_id=run_identity["run_id"],
+            lane=lane,
+            workspace=workspace,
+            codex_home=home,
+            argv=[*context.argv, "-C", workspace["path"]],
+        ),
         "instruction_manifest_sha256": sha256_bytes(
             canonical_json_bytes(manifest) + b"\n"
         ),
