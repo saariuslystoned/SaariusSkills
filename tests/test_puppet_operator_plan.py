@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 import puppet as puppet_cli  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
+    AdapterManifest,
     direct_execution_bundle,
 )
 from puppet_lib.agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS  # noqa: E402
@@ -25,6 +27,10 @@ from puppet_lib.campaign import (  # noqa: E402
     HARD_GATES as CAMPAIGN_HARD_GATES,
 )
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
+from puppet_lib.codex_launch import (  # noqa: E402
+    MAPPING_INCOMPLETE_BLOCKER,
+    SOURCE_ONLY_BLOCKERS,
+)
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
@@ -264,7 +270,7 @@ class OperatorPlanFixture:
 class OperatorPlanTests(unittest.TestCase):
     def test_direct_mode_infers_git_root_and_emits_exact_body_free_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = OperatorPlanFixture(Path(temporary))
+            fixture = OperatorPlanFixture(Path(temporary), target="claude")
             real_run = subprocess.run
             calls = []
 
@@ -312,6 +318,8 @@ class OperatorPlanTests(unittest.TestCase):
                 ["--until", "done", "--timeout", "60.0"],
             )
             self.assertTrue(plan["commands"]["profile"]["supported"])
+            self.assertNotIn("state", plan["commands"]["profile"])
+            self.assertNotIn("target_gate", plan)
             digest_plan = dict(plan)
             digest = digest_plan.pop("plan_sha256")
             self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
@@ -411,6 +419,182 @@ class OperatorPlanTests(unittest.TestCase):
                     ):
                         compile_operator_plan(**kwargs, repo=fixture.repo)
 
+    def test_codex_source_only_plan_emits_human_gate_and_no_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="codex")
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CODEX_ACCESS_TOKEN": "PUPPET_OPERATOR_SECRET_CANARY"},
+                ),
+                patch(
+                    "puppet_lib.session.doctor",
+                    side_effect=AssertionError("doctor must not run"),
+                ) as doctor,
+                patch(
+                    "puppet_lib.session.launch",
+                    side_effect=AssertionError("harness must not launch"),
+                ) as launch,
+                patch(
+                    "puppet_lib.tmux.TmuxController",
+                    side_effect=AssertionError("tmux must not construct"),
+                ) as tmux,
+                patch(
+                    "puppet_lib.campaign.active_target_processes",
+                    side_effect=AssertionError("process census must not run"),
+                ) as processes,
+                patch(
+                    "puppet_lib.viewer.prepare_operator_view",
+                    side_effect=AssertionError("viewer must not prepare"),
+                ) as viewer,
+                patch(
+                    "puppet_lib.codex_launch.build_codex_launch_context",
+                    side_effect=AssertionError("launch context must not build"),
+                ) as launch_context,
+                patch(
+                    "puppet_lib.codex_launch.observe_codex_doctor",
+                    side_effect=AssertionError("doctor observation must not run"),
+                ) as doctor_observation,
+                patch(
+                    "puppet_lib.codex_workspace_plane.plan_codex_workspace_plane",
+                    side_effect=AssertionError("workspace plan must not run"),
+                ) as workspace_plan,
+                patch(
+                    "puppet_lib.run_observations.build_codex_doctor_run_observation",
+                    side_effect=AssertionError("run observation must not build"),
+                ) as run_observation,
+            ):
+                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            gate = plan["target_gate"]
+            self.assertEqual(gate["state"], "waiting_for_human")
+            self.assertEqual(
+                gate["failed_invariant"],
+                "approved_authentication_preserving_private_codex_home_route_unavailable",
+            )
+            self.assertEqual(gate["rung"], "codex_regular_pass_b")
+            self.assertEqual(
+                gate["next_safe_action"],
+                "human_choose_private_codex_auth_route",
+            )
+            self.assertEqual(
+                gate["available_routes"],
+                [
+                    "process_local_broker",
+                    "human_present_lane_owned_home_login",
+                ],
+            )
+            manifest = AdapterManifest.from_path(fixture.manifest)
+            executable = manifest.raw["executable"]
+            self.assertEqual(
+                gate["last_trusted_identity"],
+                {
+                    "manifest_sha256": hashlib.sha256(
+                        fixture.manifest.read_bytes()
+                    ).hexdigest(),
+                    "manifest_fingerprint": manifest.fingerprint,
+                    "execution_fingerprint": manifest.execution_fingerprint,
+                    "requested_executable_path": executable["requested_path"],
+                    "resolved_executable_path": executable["resolved_path"],
+                    "executable_device": executable["device"],
+                    "executable_inode": executable["inode"],
+                    "executable_size": executable["size"],
+                    "executable_mtime_ns": executable["mtime_ns"],
+                    "executable_sha256": executable["sha256"],
+                    "version_sha256": executable["version_sha256"],
+                    "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                    "protocol_sha256": manifest.raw["protocol_fingerprint"],
+                },
+            )
+            self.assertEqual(
+                gate["evidence"],
+                {
+                    "manifest_state": "doctor_only_unqualified",
+                    "source_only_blockers": [
+                        *SOURCE_ONLY_BLOCKERS,
+                        MAPPING_INCOMPLETE_BLOCKER,
+                    ],
+                },
+            )
+            self.assertEqual(
+                gate["preserved_evidence_kinds"],
+                [
+                    "puppet.codex-launch-context/v1",
+                    "puppet.codex-workspace-plane-plan/v2",
+                    "puppet.codex-doctor-observation/v1",
+                    "puppet.run-observation/v1",
+                ],
+            )
+            for blocker in (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER):
+                self.assertIn(blocker, plan["blockers"])
+            self.assertEqual(plan["commands"]["doctor"][3], "doctor")
+            unsupported = {
+                "supported": False,
+                "reason": "codex_regular_session_source_only_unqualified",
+            }
+            for command in (
+                "launch",
+                "status",
+                "waits",
+                "attach_command",
+                "open_view",
+                "halt",
+            ):
+                self.assertEqual(plan["commands"][command], unsupported)
+            profile = plan["commands"]["profile"]
+            self.assertTrue(profile["supported"])
+            self.assertEqual(profile["state"], "human_gated_proposal")
+            self.assertEqual(
+                profile["required_gate"],
+                "human_choose_private_codex_auth_route",
+            )
+            self.assertEqual(profile["init"][3], "profile-init")
+            encoded = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(fixture.prompt_body.strip(), encoded)
+            self.assertNotIn("CODEX_ACCESS_TOKEN", encoded)
+            self.assertNotIn("PUPPET_OPERATOR_SECRET_CANARY", encoded)
+            self.assertNotIn("selector", encoded.lower())
+            self.assertNotIn("op://", encoded)
+            digest_plan = dict(plan)
+            digest = digest_plan.pop("plan_sha256")
+            self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+            for sentinel in (
+                doctor,
+                launch,
+                tmux,
+                processes,
+                viewer,
+                launch_context,
+                doctor_observation,
+                workspace_plan,
+                run_observation,
+            ):
+                sentinel.assert_not_called()
+
+    def test_codex_stale_manifest_is_an_independent_blocker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="codex")
+            manifest = json.loads(fixture.manifest.read_text(encoding="utf-8"))
+            manifest["adapter_fingerprint"] = "d" * 64
+            _write_json(fixture.manifest, manifest)
+
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            self.assertEqual(
+                plan["target_gate"]["failed_invariant"],
+                "approved_authentication_preserving_private_codex_home_route_unavailable",
+            )
+            self.assertEqual(
+                plan["target_gate"]["last_trusted_identity"]["adapter_sha256"],
+                "d" * 64,
+            )
+            self.assertIn(
+                "adapter_manifest_source_fingerprint_is_stale",
+                plan["blockers"],
+            )
+            for blocker in (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER):
+                self.assertIn(blocker, plan["blockers"])
+
     def test_agy_plan_keeps_private_profile_setup_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="agy")
@@ -444,6 +628,7 @@ class OperatorPlanTests(unittest.TestCase):
                     "reason": "agy_private_subscription_profile_unsupported",
                 },
             )
+            self.assertNotIn("target_gate", plan)
             self.assertIn(
                 "agy_private_subscription_profile_unsupported",
                 plan["blockers"],

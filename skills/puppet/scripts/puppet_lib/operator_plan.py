@@ -14,6 +14,7 @@ from .adapter_manifest import AdapterManifest
 from .agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS
 from .campaign import validate_campaign_authorization
 from .census import adapter_implementation_fingerprint
+from .codex_launch import MAPPING_INCOMPLETE_BLOCKER, SOURCE_ONLY_BLOCKERS
 from .contracts import Contract
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
@@ -37,6 +38,22 @@ _GIT_OUTPUT_BYTES = 65536
 _PRIVATE_MODE = 0o700
 _WAIT_SECONDS = 60.0
 _AGY_LIFECYCLE_UNSUPPORTED_REASON = "agy_regular_session_unsupported_planner_only"
+_CODEX_LIFECYCLE_UNSUPPORTED_REASON = "codex_regular_session_source_only_unqualified"
+_CODEX_FAILED_INVARIANT = (
+    "approved_authentication_preserving_private_codex_home_route_unavailable"
+)
+_CODEX_GATE_RUNG = "codex_regular_pass_b"
+_CODEX_NEXT_SAFE_ACTION = "human_choose_private_codex_auth_route"
+_CODEX_AUTH_ROUTES = (
+    "process_local_broker",
+    "human_present_lane_owned_home_login",
+)
+_CODEX_PRESERVED_EVIDENCE_KINDS = (
+    "puppet.codex-launch-context/v1",
+    "puppet.codex-workspace-plane-plan/v2",
+    "puppet.codex-doctor-observation/v1",
+    "puppet.run-observation/v1",
+)
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
     "doctor_must_pass_at_execution_time",
@@ -254,6 +271,7 @@ def _commands(
     state_root: Path,
     session: str,
     executable_path: Path,
+    codex_source_only: bool,
 ) -> Dict[str, Any]:
     common = [
         "--contract",
@@ -309,10 +327,15 @@ def _commands(
         ],
         "halt": [*base, "halt", *session_base, "--timeout", "10.0"],
     }
+    lifecycle_unsupported_reason = None
     if contract.target == "agy":
+        lifecycle_unsupported_reason = _AGY_LIFECYCLE_UNSUPPORTED_REASON
+    elif codex_source_only:
+        lifecycle_unsupported_reason = _CODEX_LIFECYCLE_UNSUPPORTED_REASON
+    if lifecycle_unsupported_reason is not None:
         unsupported = {
             "supported": False,
-            "reason": _AGY_LIFECYCLE_UNSUPPORTED_REASON,
+            "reason": lifecycle_unsupported_reason,
         }
         for command in (
             "launch",
@@ -323,6 +346,7 @@ def _commands(
             "halt",
         ):
             result[command] = dict(unsupported)
+    if contract.target == "agy":
         result["profile"] = {
             "supported": False,
             "reason": "agy_private_subscription_profile_unsupported",
@@ -347,7 +371,48 @@ def _commands(
                 str(profile_root),
             ],
         }
+        if codex_source_only:
+            result["profile"]["state"] = "human_gated_proposal"
+            result["profile"]["required_gate"] = _CODEX_NEXT_SAFE_ACTION
     return result
+
+
+def _codex_target_gate(
+    *,
+    manifest: AdapterManifest,
+    manifest_artifact: Dict[str, Any],
+) -> Dict[str, Any]:
+    executable = manifest.raw["executable"]
+    return {
+        "state": "waiting_for_human",
+        "failed_invariant": _CODEX_FAILED_INVARIANT,
+        "rung": _CODEX_GATE_RUNG,
+        "last_trusted_identity": {
+            "manifest_sha256": manifest_artifact["sha256"],
+            "manifest_fingerprint": manifest.fingerprint,
+            "execution_fingerprint": manifest.execution_fingerprint,
+            "requested_executable_path": executable["requested_path"],
+            "resolved_executable_path": executable["resolved_path"],
+            "executable_device": executable["device"],
+            "executable_inode": executable["inode"],
+            "executable_size": executable["size"],
+            "executable_mtime_ns": executable["mtime_ns"],
+            "executable_sha256": executable["sha256"],
+            "version_sha256": executable["version_sha256"],
+            "adapter_sha256": manifest.raw["adapter_fingerprint"],
+            "protocol_sha256": manifest.raw["protocol_fingerprint"],
+        },
+        "evidence": {
+            "manifest_state": "doctor_only_unqualified",
+            "source_only_blockers": [
+                *SOURCE_ONLY_BLOCKERS,
+                MAPPING_INCOMPLETE_BLOCKER,
+            ],
+        },
+        "preserved_evidence_kinds": list(_CODEX_PRESERVED_EVIDENCE_KINDS),
+        "next_safe_action": _CODEX_NEXT_SAFE_ACTION,
+        "available_routes": list(_CODEX_AUTH_ROUTES),
+    }
 
 
 def compile_operator_plan(
@@ -436,6 +501,11 @@ def compile_operator_plan(
     cli = cli.resolve(strict=True)
     interpreter = Path(sys.executable).resolve(strict=True)
     base = _command_base(cli, interpreter)
+    codex_source_only = (
+        contract.target == "codex"
+        and manifest.raw["doctor_only"] is True
+        and manifest.raw["qualification"] is None
+    )
     commands = _commands(
         base=base,
         contract=contract,
@@ -448,12 +518,16 @@ def compile_operator_plan(
         state_root=state,
         session=session,
         executable_path=Path(manifest.raw["executable"]["resolved_path"]),
+        codex_source_only=codex_source_only,
     )
     adapter_sha256 = adapter_implementation_fingerprint()
     blockers = list(_LAUNCH_BLOCKERS)
     if contract.target == "agy":
         blockers.append("agy_private_subscription_profile_unsupported")
         blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
+    if codex_source_only:
+        blockers.extend(SOURCE_ONLY_BLOCKERS)
+        blockers.append(MAPPING_INCOMPLETE_BLOCKER)
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:
@@ -494,6 +568,11 @@ def compile_operator_plan(
         },
         "commands": commands,
     }
+    if codex_source_only:
+        result["target_gate"] = _codex_target_gate(
+            manifest=manifest,
+            manifest_artifact=manifest_artifact,
+        )
     result["plan_sha256"] = sha256_bytes(canonical_json_bytes(result))
     validate_bounded_json(
         result,

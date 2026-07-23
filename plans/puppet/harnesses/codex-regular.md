@@ -257,6 +257,21 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
     disconnected from launch, session, probe, adapter, and qualification
     consumers.
 
+- `skills/puppet/scripts/puppet_lib/operator_plan.py`
+  - emits a body-free `target_gate` for a doctor-only, unqualified Codex
+    manifest with state `waiting_for_human`, failed invariant
+    `approved_authentication_preserving_private_codex_home_route_unavailable`,
+    rung `codex_regular_pass_b`, the exact manifest/executable/version/adapter/
+    protocol identity, every source-only blocker, and the preserved launch,
+    workspace-plan, doctor, and zero-agent observation kinds;
+  - keeps only `doctor` as a proposed Codex diagnostic and marks launch,
+    status, waits, attach, open-view, and halt unsupported with reason
+    `codex_regular_session_source_only_unqualified`;
+  - records `profile-init` as a human-gated proposal. The only named choices
+    are `process_local_broker` and
+    `human_present_lane_owned_home_login`; neither name carries a value or
+    selector, and choosing or executing either route remains outside planning.
+
 ## 7) Blockers and stop criteria
 
 - Unconditional source-only blocker: approved process-local auth broker unavailable.
@@ -278,7 +293,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   currently available. The supported candidate is controller-brokered,
   process-local `CODEX_ACCESS_TOKEN` injection into the exact child with no
   value in argv, proof, logs, or agent context; no such authority exists in the
-  current campaign.
+  current campaign. The operator packet therefore stops at
+  `human_choose_private_codex_auth_route`; its other named option is a
+  human-present login into the lane-owned home, not an automatic login or
+  permission to inspect an existing home.
 - Stop condition: no unsupported claims beyond this lane scope; if model/plane/resume
   evidence is inconclusive, defer plane choice and keep harness status as `experimental`
   with blockers recorded.

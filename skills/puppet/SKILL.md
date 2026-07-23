@@ -25,6 +25,15 @@ security, secrets, spending, and destructive actions separately gated.
    private roots, blockers, and exact command arrays, but always reports
    `launch_authorized: false`; it neither checks login state nor creates a
    profile, tmux server, session, or harness process.
+   A doctor-only, unqualified Codex manifest also yields a
+   `target_gate.state=waiting_for_human` packet for the exact
+   `codex_regular_pass_b` identity. It preserves the source-only evidence
+   kinds and proposes `doctor`, but marks launch, status, waits, attach,
+   open-view, and halt unsupported. Its `profile-init` command is a
+   human-gated proposal: the human must choose either the named process-local
+   broker route or a human-present login into the lane-owned home before any
+   account action. The plan carries route names only, never values or
+   credential selectors.
 2. Resolve the target repository explicitly. From a cockpit or another repo,
    require an explicit target path. From inside the target, use its Git root
    unless the user overrides it. Give every mutating target a fresh worktree;
@@ -68,6 +77,8 @@ not proof that a harness-native global, workspace, or additive plane works.
 Subscription authentication is profile-scoped. Use `profile-init` to create a
 Puppet-owned mode-0700 home/config root and obtain an exact human-run login
 handoff; Puppet does not copy an existing credential or perform login itself.
+For an unqualified Codex regular plan, do not execute that proposal until its
+`human_choose_private_codex_auth_route` gate is explicitly resolved.
 After the operator completes that account action, use `profile-status` to retain
 only an allowlisted login state. Codex, Claude, Cursor, and Grok have current
 private-profile recipes. AGY stays unsupported here until its installed CLI
