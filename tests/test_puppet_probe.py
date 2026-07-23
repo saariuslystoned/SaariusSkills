@@ -1151,6 +1151,52 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(signal_path.is_file())
             self.assertEqual(signal_path.read_bytes(), fake.deferred_marker)
 
+    def test_claude_success_rechecks_signal_after_exact_halt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-success-halt-race"
+            halt_exact = puppet_probe._halt_exact
+            recreated = False
+
+            def recreate_after_first_halt(**kwargs):
+                nonlocal recreated
+                result = halt_exact(**kwargs)
+                if not recreated:
+                    fake.write_deferred_signal()
+                    recreated = True
+                return result
+
+            with patch.object(
+                puppet_probe,
+                "_halt_exact",
+                side_effect=recreate_after_first_halt,
+            ):
+                with self.assertRaisesRegex(
+                    ConflictError, "recreated after observation"
+                ):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                    )
+
+            run_root = files["proof"] / "probes" / run_id
+            signal_path = (
+                run_root
+                / "activation-lane"
+                / "workspace"
+                / MARKER_SIGNAL_RELATIVE_PATH
+            )
+            self.assertTrue(recreated)
+            self.assertFalse(fake.alive)
+            self.assertTrue(signal_path.is_file())
+            self.assertEqual(signal_path.read_bytes(), fake.deferred_marker)
+            self.assertFalse((run_root / "receipt.json").exists())
+
     def test_claude_matched_control_attestation_and_reservation_fail_pre_materialize(
         self,
     ):

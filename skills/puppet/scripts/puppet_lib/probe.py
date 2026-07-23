@@ -1964,8 +1964,22 @@ def run_probe(
                 plane_descriptor_value is None
                 or activation_public_context is None
                 or activation_receipt is None
+                or matched_compiled is None
+                or matched_activation_attestation is None
+                or matched_signal_observation is None
             ):
                 raise IdentityError("activation proof family is incomplete")
+            terminal_signal_observation = recover_claude_marker_signal_observation(
+                matched_compiled,
+                activation_plan=activation_plan,
+                descriptor=plane_descriptor_value,
+                adapter_manifest=manifest,
+                activation_attestation=matched_activation_attestation,
+            )
+            if terminal_signal_observation != matched_signal_observation:
+                raise IdentityError(
+                    "matched-control signal changed before terminal activation"
+                )
             rollback_activation(activation_plan)
             activation_intent = read_json(
                 activation_plan.intent_path,
