@@ -22,10 +22,8 @@ from .cursor_workspace_plane import (
     PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
 )
 from .errors import IdentityError, UnsupportedError, ValidationError
-from .grok_evidence import (
-    GROK_PASS_A_LIMITATIONS,
-    expected_grok_pass_a_evidence,
-)
+from .grok_evidence import expected_grok_pass_a_evidence
+from .grok_halt import GROK_CURRENT_SOURCE_BLOCKERS
 from .handoffs import PROTOCOL_FINGERPRINT
 from .run_observations import (
     CLAUDE_MATCHED_CONTROL_BLOCKERS,
@@ -85,10 +83,12 @@ _CURSOR_PRESERVED_EVIDENCE_KINDS = (
     CURSOR_BINDING_SCHEMA,
 )
 _GROK_LIFECYCLE_UNSUPPORTED_REASON = "grok_regular_session_source_only_unqualified"
-_GROK_FAILED_INVARIANT = "grok_regular_launch_authority_unavailable"
+_GROK_FAILED_INVARIANT = (
+    "approved_authentication_preserving_private_grok_home_route_unavailable"
+)
 _GROK_GATE_RUNG = "grok_regular_pass_b"
-_GROK_NEXT_SAFE_ACTION = "model_grok_leader_child_halt_authority"
 _GROK_PROFILE_GATE = "human_authenticate_lane_owned_private_roots"
+_GROK_NEXT_SAFE_ACTION = _GROK_PROFILE_GATE
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
     "doctor_must_pass_at_execution_time",
@@ -552,7 +552,7 @@ def _grok_target_gate(
     executable = manifest.raw["executable"]
     admission = expected_grok_pass_a_evidence()
     return {
-        "state": "blocked",
+        "state": "waiting_for_human",
         "failed_invariant": _GROK_FAILED_INVARIANT,
         "rung": _GROK_GATE_RUNG,
         "last_trusted_identity": {
@@ -577,10 +577,11 @@ def _grok_target_gate(
                 "state": admission["state"],
                 "record_sha256": admission["record_sha256"],
             },
-            "source_only_blockers": list(admission["limitations"]),
+            "source_only_blockers": list(GROK_CURRENT_SOURCE_BLOCKERS),
         },
         "preserved_evidence_kinds": [],
         "next_safe_action": _GROK_NEXT_SAFE_ACTION,
+        "available_routes": ["human_present_lane_owned_home_login"],
     }
 
 
@@ -720,7 +721,7 @@ def compile_operator_plan(
     if cursor_source_only:
         blockers.extend(CURSOR_SOURCE_ONLY_BLOCKERS)
     if grok_source_only:
-        blockers.extend(GROK_PASS_A_LIMITATIONS)
+        blockers.extend(GROK_CURRENT_SOURCE_BLOCKERS)
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:

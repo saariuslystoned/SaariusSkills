@@ -208,7 +208,7 @@ absent.
 
 This is planning authority only. The candidate records
 `launch_authorized=false` with blockers for authentication isolation, the
-native instruction plane, and leader/child halt authority. Normal-session
+native instruction plane, and live leader/child halt proof. Normal-session
 doctor also keeps Grok blocked even if a synthetic manifest claims readiness.
 No live Grok session was launched or qualified by this change.
 
@@ -271,6 +271,16 @@ authority rather than an unreachable launch hook.
 - Implemented source-only: normal-session census retains exact and mismatched
   Grok candidates, requires the existing exact override for a matching active
   population, and fails closed on different executable identity.
+- Implemented source-only: `target_population.py` now owns the shared
+  protected/root/descendant admission policy previously embedded in the probe.
+  `grok_halt.py` binds a pre-launch protected population, the exact expected
+  Grok runtime selector and private leader-socket path, then admits only a
+  retained exact root plus birth-bound same-runtime descendant chains. Its
+  completion verifier accepts only the unchanged protected population after
+  the exact root and all bound descendants stop and the leader socket is gone.
+  It authorizes only an exact root `SIGINT`; broad signals and force-kill are
+  structurally impossible. These records remain source-only and grant neither
+  launch nor qualification authority.
 - Implemented source-only: a canonical schema-v1 prior-evidence admission input
   for historical 0.2.106 Pass A binds exact executable/version/help/catalog
   hashes, parser
@@ -285,9 +295,11 @@ authority rather than an unreachable launch hook.
   all eleven limitations without loading or claiming to preserve an evidence
   artifact. It keeps only `doctor` as a runnable diagnostic; launch, status,
   waits, attach, open-view, and halt are unsupported. Private-profile setup
-  remains a human-gated proposal, and the blocked target gate names leader/child
-  halt modeling as the next safe source-only action. A schema-valid qualified
-  manifest is not labeled doctor-only/unqualified.
+  remains a human-gated proposal, and the waiting target gate records the
+  leader/child halt model as current source and advances the next safe action
+  to the human-gated, lane-owned private-profile login required for live
+  topology and halt proof. A schema-valid qualified manifest is not labeled
+  doctor-only/unqualified.
 - Intentionally unchanged: census remains `doctor_only` and its incomplete
   mapping does not promote help/parser facts into live sandbox or isolation
   claims.
@@ -297,8 +309,10 @@ authority rather than an unreachable launch hook.
   revalidation, matched no-bleed proof, and exact rollback are still absent.
 - `session.py` / `tmux.py`: consume the typed plan only after qualification and
   recheck the exact candidate population immediately before target start.
-- `registry.py` / `probe.py`: bind leader/child identities, lane homes, artifact
-  hash, model/auth observation, no-bleed control, and exact rollback.
+- `registry.py` / `probe.py`: consume the source-owned Grok halt plan during a
+  future approved live lane, bind the observed root/descendant tuple, deliver
+  the exact-root halt, and record the completion receipt alongside lane homes,
+  artifact hash, model/auth observation, no-bleed control, and exact rollback.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
   launcher/runtime separation, path containment, no live-home fallback,
   distinct lane sockets/UUIDs, leader identity, default-model parsing, and
@@ -310,8 +324,9 @@ authority rather than an unreachable launch hook.
 - No invocation-scoped additive file plane.
 - Sandbox-off and always-approve semantics are parser-proved but not live-
   observed in the isolated authenticated tuple.
-- The direct launcher/runtime vnode is censused, but possible leader/child
-  process identity and exact tree halt authority are not modeled.
+- The direct launcher/runtime vnode and a fail-closed retained-root/descendant
+  halt contract are modeled, but Grok's actual authenticated leader/child
+  topology and exact completion behavior remain live-unproved.
 - No direct/cockpit lifecycle, control, no-bleed, or rollback proof exists.
 
 Keep Grok at `doctor_only/mapping`. Do not start live Pass B until these gates

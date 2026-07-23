@@ -57,7 +57,7 @@ GROK_REQUIRED_PATH_TOOLS: Tuple[str, ...] = ("git", "sh")
 GROK_LAUNCH_AUTHORITY_BLOCKERS: Tuple[str, ...] = (
     "grok_authentication_isolation_unapproved",
     "grok_native_instruction_plane_unqualified",
-    "grok_leader_child_halt_authority_unmodeled",
+    "grok_leader_child_halt_runtime_unproved",
 )
 GROK_LAUNCH_AUTHORITY_BLOCKER = (
     "Grok launch remains doctor-only until authentication isolation, the native "

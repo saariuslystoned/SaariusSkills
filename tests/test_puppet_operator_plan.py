@@ -38,10 +38,8 @@ from puppet_lib.cursor_workspace_plane import (  # noqa: E402
     PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
 )
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
-from puppet_lib.grok_evidence import (  # noqa: E402
-    GROK_PASS_A_LIMITATIONS,
-    expected_grok_pass_a_evidence,
-)
+from puppet_lib.grok_evidence import expected_grok_pass_a_evidence  # noqa: E402
+from puppet_lib.grok_halt import GROK_CURRENT_SOURCE_BLOCKERS  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.operator_plan import compile_operator_plan  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
@@ -617,15 +615,19 @@ class OperatorPlanTests(unittest.TestCase):
                 plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
 
             gate = plan["target_gate"]
-            self.assertEqual(gate["state"], "blocked")
+            self.assertEqual(gate["state"], "waiting_for_human")
             self.assertEqual(
                 gate["failed_invariant"],
-                "grok_regular_launch_authority_unavailable",
+                "approved_authentication_preserving_private_grok_home_route_unavailable",
             )
             self.assertEqual(gate["rung"], "grok_regular_pass_b")
             self.assertEqual(
                 gate["next_safe_action"],
-                "model_grok_leader_child_halt_authority",
+                "human_authenticate_lane_owned_private_roots",
+            )
+            self.assertEqual(
+                gate["available_routes"],
+                ["human_present_lane_owned_home_login"],
             )
             manifest = AdapterManifest.from_path(fixture.manifest)
             executable = manifest.raw["executable"]
@@ -659,7 +661,7 @@ class OperatorPlanTests(unittest.TestCase):
                         "state": admission["state"],
                         "record_sha256": admission["record_sha256"],
                     },
-                    "source_only_blockers": list(GROK_PASS_A_LIMITATIONS),
+                    "source_only_blockers": list(GROK_CURRENT_SOURCE_BLOCKERS),
                 },
             )
             self.assertEqual(
@@ -668,7 +670,7 @@ class OperatorPlanTests(unittest.TestCase):
             )
             self.assertEqual(len(gate["evidence"]["source_only_blockers"]), 11)
             self.assertFalse(plan["launch_authorized"])
-            for blocker in GROK_PASS_A_LIMITATIONS:
+            for blocker in GROK_CURRENT_SOURCE_BLOCKERS:
                 self.assertIn(blocker, plan["blockers"])
             self.assertEqual(plan["commands"]["doctor"][3], "doctor")
             unsupported = {
@@ -744,7 +746,7 @@ class OperatorPlanTests(unittest.TestCase):
             )
             self.assertNotIn("doctor_only_unqualified", encoded)
             self.assertNotIn("expected_pass_a_source_identity", encoded)
-            for blocker in GROK_PASS_A_LIMITATIONS:
+            for blocker in GROK_CURRENT_SOURCE_BLOCKERS:
                 self.assertNotIn(blocker, plan["blockers"])
 
     def test_branch_and_manifest_target_are_bound(self):
