@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import os
 import stat
@@ -37,6 +38,12 @@ from puppet_lib.matched_control import (  # noqa: E402
     bind_claude_marker_activation_plan,
     compile_claude_marker_instruction,
     validate_claude_marker_activation_join,
+)
+from puppet_lib.matched_control_authority import (  # noqa: E402
+    ACTIVATION_MARKER_ATTESTATION_EVENT_SCHEMA,
+    ACTIVATION_MARKER_ATTESTATION_SCHEMA_VERSION,
+    attest_claude_marker_activation_join,
+    verify_claude_marker_activation_join_attestation,
 )
 from puppet_lib.plane_activation import (  # noqa: E402
     ACTIVATION_LIFECYCLE_SCOPE,
@@ -269,9 +276,7 @@ class PlaneActivationTests(unittest.TestCase):
         arguments.update(overrides)
         return build_activation_launch_context(self.plan, **arguments)
 
-    def test_marker_compilation_joins_exact_activation_plan_without_runtime_authority(
-        self,
-    ):
+    def _marker_plan(self):
         marker = compile_claude_marker_instruction(
             descriptor=self.descriptor,
             task="Write the bounded source-free conformance handoff.",
@@ -295,6 +300,12 @@ class PlaneActivationTests(unittest.TestCase):
             instruction_manifest=marker.manifest,
             effective_contract=marker.rendered,
         )
+        return marker, plan
+
+    def test_marker_compilation_joins_exact_activation_plan_without_runtime_authority(
+        self,
+    ):
+        marker, plan = self._marker_plan()
         joined = bind_claude_marker_activation_plan(
             marker,
             activation_plan=plan,
@@ -430,6 +441,88 @@ class PlaneActivationTests(unittest.TestCase):
                 activation_plan=plan,
                 descriptor=self.descriptor,
                 adapter_manifest=self.adapter_manifest,
+            )
+
+    def test_marker_plan_attestation_is_body_free_fixed_root_and_non_authorizing(self):
+        marker, plan = self._marker_plan()
+        authority_root = self.base / "controller-authority"
+        first = attest_claude_marker_activation_join(
+            marker,
+            activation_plan=plan,
+            descriptor=self.descriptor,
+            adapter_manifest=self.adapter_manifest,
+            authority_root=authority_root,
+        )
+        second = attest_claude_marker_activation_join(
+            marker,
+            activation_plan=plan,
+            descriptor=self.descriptor,
+            adapter_manifest=self.adapter_manifest,
+            authority_root=authority_root,
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(
+            first["schema_version"], ACTIVATION_MARKER_ATTESTATION_SCHEMA_VERSION
+        )
+        row = verify_claude_marker_activation_join_attestation(
+            first,
+            marker,
+            activation_plan=plan,
+            descriptor=self.descriptor,
+            adapter_manifest=self.adapter_manifest,
+            authority_root=authority_root,
+        )
+        self.assertEqual(
+            row["event"]["schema"], ACTIVATION_MARKER_ATTESTATION_EVENT_SCHEMA
+        )
+        for name in (
+            "delivery_authorized",
+            "runtime_scan_authorized",
+            "checkpoint_observed",
+            "no_bleed_evaluated",
+            "no_bleed_verified",
+            "qualification_authorized",
+            "promotion_authorized",
+        ):
+            self.assertIs(row["event"][name], False)
+        durable = json.dumps(
+            {
+                "attestation": first,
+                "row": row,
+            },
+            sort_keys=True,
+        )
+        self.assertNotIn("PUPPET_CLAUDE_MATCHED_CONTROL_MARKER", durable)
+        self.assertNotIn("Write the bounded", durable)
+        self.assertNotIn("marker_sha256", durable)
+
+        for function in (
+            attest_claude_marker_activation_join,
+            verify_claude_marker_activation_join_attestation,
+        ):
+            parameters = inspect.signature(function).parameters
+            for forbidden in ("marker", "digest", "event", "journal", "rows"):
+                self.assertNotIn(forbidden, parameters)
+
+        changed = dict(first, ledger_entry_hash="e" * 64)
+        with self.assertRaisesRegex(IdentityError, "unavailable"):
+            verify_claude_marker_activation_join_attestation(
+                changed,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+                authority_root=authority_root,
+            )
+        other_root = self.base / "other-controller-authority"
+        with self.assertRaisesRegex(IdentityError, "authority changed"):
+            verify_claude_marker_activation_join_attestation(
+                first,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+                authority_root=other_root,
             )
 
     def test_plan_manifest_rejects_paired_false_version_observation(self):

@@ -182,15 +182,22 @@ bytes and can derive an `activation_plan_join_only` record from the exact
 manifest/implementation/execution-file/exact-mapping tuple. The schema-v2 saved
 record is verified only by rebuilding it from those inputs; schema v1 is
 rejected, and callers cannot supply a marker or marker digest. It remains
-body-free and fixes
-delivery, runtime scan, checkpoint observation, no-bleed, qualification, and
+body-free and fixes delivery, runtime scan, checkpoint observation, no-bleed, qualification, and
 promotion to false. It intentionally carries no controller, campaign, goal, or
-authority claim. This is a source substrate only: the live probe does not
-consume it and no controller journal attests it yet.
+authority claim. This is a source substrate only and the live probe does not
+consume it.
 
-1. Wire the activation-plan join into the controller-owned probe and attest it
-   before delivery. Do not accept an arbitrary marker, digest, binding row, or
-   journal from a caller.
+`puppet_lib/matched_control_authority.py` provides the source-only pre-delivery
+authority stage: it rebuilds the join internally and appends an
+idempotent body-free event to a fixed controller-authority journal. The event
+contains no marker digest, instruction body, or transcript data, and its public
+surface accepts no caller marker, digest, event, or journal. It explicitly
+leaves delivery, runtime scan, qualification, and promotion unauthorized. The
+live probe still does not consume the attestation.
+
+1. Wire the controller-owned pre-delivery attestation into the probe's ordering
+   before materialization/delivery. Do not accept an arbitrary marker, digest,
+   binding row, or journal from a caller.
 2. Run two sequential, controller-created Claude fixture sessions under exact
    leases: an activated lane and a distinct ordinary control with the same
    default-model selection and no native plane. Bind full session, target,

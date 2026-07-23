@@ -104,6 +104,14 @@ rejected. The record makes no
 controller, campaign, goal, checkpoint, runtime-scan, no-bleed, qualification,
 or promotion claim and is not yet consumed by the live probe.
 
+The controller can now rebuild that join and append one idempotent pre-delivery
+attestation to its fixed private authority journal. The event retains only the
+join and plan/descriptor/adapter identity hashes plus session/run identifiers;
+it contains no marker digest, instruction body, or transcript content. The
+public producer accepts no caller event, marker, digest, or journal. This
+attestation still fixes delivery, runtime scan, qualification, and promotion to
+false and is not a live-probe or matched-control receipt.
+
 ## Interface
 
 An adapter must provide detection and fingerprinting, current unrestricted and
