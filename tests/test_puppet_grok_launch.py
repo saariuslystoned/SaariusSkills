@@ -627,10 +627,15 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             self.assertIn(GROK_LAUNCH_AUTHORITY_BLOCKER, report["blockers"])
             self.assertEqual(report["candidate_target_pids"], [])
 
-            with patch.object(
-                puppet_session,
-                "doctor",
-                return_value={"target": "grok", "launch_ready": True},
+            with (
+                patch.object(
+                    puppet_session.Contract, "from_path", return_value=contract
+                ),
+                patch.object(
+                    puppet_session,
+                    "doctor",
+                    return_value={"target": "grok", "launch_ready": True},
+                ),
             ):
                 with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
                     puppet_session.launch(

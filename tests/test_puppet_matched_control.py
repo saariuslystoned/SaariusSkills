@@ -243,7 +243,9 @@ class ExperimentalMatchedControlTests(unittest.TestCase):
             patch.object(
                 puppet_adapter_lab.AdapterManifest,
                 "from_path",
-                return_value=SimpleNamespace(raw={"doctor_only": True}),
+                return_value=SimpleNamespace(
+                    target="claude", raw={"doctor_only": True}
+                ),
             ),
             patch.object(
                 puppet_adapter_lab,
