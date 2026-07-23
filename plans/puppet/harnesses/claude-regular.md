@@ -15,7 +15,8 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
   - `claude --version` -> `2.1.215 (Claude Code)`
   - version payload SHA-256: `3c95eff850dac10d40c5692a73957f526b54a74767163913dc858c4f8d4c8c63`
   - `claude --help` SHA-256: `fcd5b45507c7c602d54d85a300eab288a8a3c6770c6def696ca19a3100725de4`
-- `census_target('claude', adapter_implementation_fingerprint())`:
+- Historical `census_target('claude', adapter_implementation_fingerprint())`
+  snapshot, recorded before the current controller source changes:
   - permission flag: `--dangerously-skip-permissions`
   - model flag: `--model`
   - effort flag: `--effort`
@@ -30,8 +31,16 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
   - `startup_settle_seconds`: `8.0`
   - `submit_settle_seconds`: `1.0`
   - manifest caps are declared for launch/send/status/wait/checkpoint/resume/halt; manifest is initially `doctor_only`
-  - adapter fingerprint: `dff76b92ab1ecea857a67118424fc9109b5ff2f7066e50f9595bc6c086076d6b`
-  - protocol fingerprint: `a09805b247b6dcdaad8a7d45e8c29c2c4742c8dcce65283f853953c679590aab`
+  - historical adapter fingerprint: `dff76b92ab1ecea857a67118424fc9109b5ff2f7066e50f9595bc6c086076d6b`
+  - historical protocol fingerprint: `a09805b247b6dcdaad8a7d45e8c29c2c4742c8dcce65283f853953c679590aab`
+  - this snapshot is not a current doctor manifest and grants no launch or
+    qualification authority.
+- Pure source identity at controller head
+  `b2f443bc941567830f6a5b7d2c141b2b1a651a81`, computed without invoking
+  Claude or reading operator state:
+  - adapter fingerprint: `db3b4391007e46105f53a802d9bec80e732237f8878b44c6a165c5aca7cf78a9`
+  - protocol fingerprint: `a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9`
+  - a fresh exact-version census remains required before any live lane.
 - `profiles.py` defaults:
   - `default_session_profile("claude") == "regular"`.
 - `adapters.py` confirms first-launch profile-prefixing only:

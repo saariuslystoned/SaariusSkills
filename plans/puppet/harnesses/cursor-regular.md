@@ -26,7 +26,10 @@
     `f45ce0860ce8c282110c2f8cfc04e0e8d8b3bc6a83ad01fcded0b5916e1e3a6e`
   - version text SHA-256: `ff67fa8c4d173904e13f0da944d7f763f5399ec48052b81c1ae3c7d87f118f4a`
   - `cursor-agent --help` SHA-256: `bb2aed29e46b3c80635858d2181c140985dbf9f6a96d788f1b6a8adbb0d725af`
-- `census_target('cursor', adapter_implementation_fingerprint())` (`protocol_fingerprint: a09805b247b6dcdaad8a7d45e8c29c2c4742c8dcce65283f853953c679590aab`):
+- Historical `census_target('cursor', adapter_implementation_fingerprint())`
+  snapshot (historical protocol fingerprint
+  `a09805b247b6dcdaad8a7d45e8c29c2c4742c8dcce65283f853953c679590aab`),
+  recorded before the current controller source changes:
   - `permission_flags`: `["--yolo"]`
   - `project_isolation_flags`: `[]`; the current `all([])` result is a vacuous
     truth and not isolation proof. A typed absolute `--workspace` selector is
@@ -44,6 +47,14 @@
   - adapter fingerprint at the recorded census snapshot (any Puppet source
     change, including this substrate, requires a fresh doctor manifest):
     `dff76b92ab1ecea857a67118424fc9109b5ff2f7066e50f9595bc6c086076d6b`
+  - this snapshot is not a current doctor manifest and grants no launch or
+    qualification authority.
+- Pure source identity at controller head
+  `b2f443bc941567830f6a5b7d2c141b2b1a651a81`, computed without invoking
+  Cursor or reading operator state:
+  - adapter fingerprint: `db3b4391007e46105f53a802d9bec80e732237f8878b44c6a165c5aca7cf78a9`
+  - protocol fingerprint: `a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9`
+  - a fresh exact-version census remains required before any live lane.
 - `cursor-agent --help` confirms:
   - command format is `agent [options] [command] [prompt...]`
   - notable supported features for this lane: `--yolo`, `--model`, `--resume`, `--continue`,
