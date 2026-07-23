@@ -6,11 +6,17 @@ from typing import Any, Dict, Tuple
 
 
 GROK_SUBSCRIPTION_ADOPTION_SCHEMA = "puppet.grok-subscription-adoption/v1"
-GROK_SUBSCRIPTION_ADOPTION_BLOCKERS: Tuple[str, ...] = (
-    "grok_operator_leader_auth_boundary_unproved",
+GROK_SHARED_LEADER_PLAN_SCHEMA = "puppet.grok-shared-leader-plan/v1"
+GROK_SHARED_CLIENT_COMPLETION_SCHEMA = "puppet.grok-shared-client-completion/v1"
+GROK_SHARED_LEADER_HUMAN_ACTION = "human_start_attended_operator_grok_leader"
+GROK_SHARED_LEADER_BLOCKERS: Tuple[str, ...] = (
+    "grok_attended_operator_leader_start_requires_human",
+    "grok_leader_socket_process_ownership_unproved",
+    "grok_tui_shared_leader_attach_semantics_unproved",
     "grok_leader_client_configuration_no_bleed_unproved",
-    "grok_broker_socket_ownership_and_lifecycle_unproved",
+    "grok_shared_leader_client_halt_live_unproved",
 )
+GROK_SUBSCRIPTION_ADOPTION_BLOCKERS = GROK_SHARED_LEADER_BLOCKERS
 GROK_AGENT_HELP_SHA256 = (
     "80eca1cc827e677c5d4310fe60ccaa941627cc688189405742e69e4f4ec734d3"
 )
@@ -34,10 +40,17 @@ def grok_subscription_adoption_plan() -> Dict[str, Any]:
                 "reuse": "native_refreshable_cached_session",
             },
             "process_local_shared_leader": {
-                "status": "discovered_unqualified",
+                "status": "source_plan_available",
                 "auth_owner": "attended_operator_process",
                 "client_boundary": "exact_unix_socket",
                 "private_material_projection_required": False,
+                "source_plan_schema": GROK_SHARED_LEADER_PLAN_SCHEMA,
+                "client_completion_schema": GROK_SHARED_CLIENT_COMPLETION_SCHEMA,
+                "live_human_gate": {
+                    "required": True,
+                    "action": GROK_SHARED_LEADER_HUMAN_ACTION,
+                    "puppet_may_execute": False,
+                },
                 "surfaces": [
                     "grok agent --leader",
                     "grok agent leader",
@@ -57,7 +70,9 @@ def grok_subscription_adoption_plan() -> Dict[str, Any]:
         },
         "blockers": list(GROK_SUBSCRIPTION_ADOPTION_BLOCKERS),
         "human_action_required": False,
-        "next_action": "qualify_grok_process_local_shared_leader",
+        "next_action": (
+            "compile_grok_shared_leader_plan_then_request_human_start"
+        ),
         "private_store_accessed": False,
         "private_material_projected": False,
         "login_performed": False,
@@ -72,6 +87,10 @@ def grok_subscription_adoption_plan() -> Dict[str, Any]:
 __all__ = [
     "GROK_AGENT_HELP_SHA256",
     "GROK_AGENT_LEADER_HELP_SHA256",
+    "GROK_SHARED_CLIENT_COMPLETION_SCHEMA",
+    "GROK_SHARED_LEADER_BLOCKERS",
+    "GROK_SHARED_LEADER_HUMAN_ACTION",
+    "GROK_SHARED_LEADER_PLAN_SCHEMA",
     "GROK_SUBSCRIPTION_ADOPTION_BLOCKERS",
     "GROK_SUBSCRIPTION_ADOPTION_SCHEMA",
     "grok_subscription_adoption_plan",

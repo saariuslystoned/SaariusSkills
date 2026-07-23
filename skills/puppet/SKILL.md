@@ -116,6 +116,14 @@ For Grok 0.2.111, prefer qualification of its native shared-leader/exact-socket
 surface as the no-copy operator-subscription candidate. Its external auth
 provider is not a cached-session export and is not a generic consumer bridge
 without a separately provisioned token provider.
+Use `grok_shared_leader.py` only to compile the exact source plan and bind
+structural observations. Require an empty same-target baseline before the
+attended leader starts. Puppet must not start or signal that leader: present
+the exact `human_start_attended_operator_grok_leader` handoff, then bind its
+private socket and process identity. Client halt authority targets only the
+exact client root and must preserve the leader tree and socket unchanged.
+Socket ownership, TUI attach semantics, configuration no-bleed, and live halt
+remain blockers until independently observed.
 Use `onboard` with the current adapter manifest for every selected harness and
 one durable mode-0700 profile shelf. It prepares or rejoins supported profiles,
 runs body-free native status checks, silently marks logged-in profiles ready,

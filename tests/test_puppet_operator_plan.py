@@ -618,16 +618,17 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(gate["state"], "waiting_for_human")
             self.assertEqual(
                 gate["failed_invariant"],
-                "durable_private_grok_subscription_profile_not_ready",
+                "authenticated_grok_route_not_bound",
             )
             self.assertEqual(gate["rung"], "grok_regular_pass_b")
             self.assertEqual(
                 gate["next_safe_action"],
-                "reuse_or_enroll_durable_private_grok_profile_once",
+                "human_choose_attended_shared_leader_or_one_time_private_enrollment",
             )
             self.assertEqual(
                 gate["available_routes"],
                 [
+                    "process_local_shared_leader",
                     "reuse_previously_authenticated_puppet_profile",
                     "human_present_one_time_profile_enrollment",
                 ],
@@ -664,6 +665,19 @@ class OperatorPlanTests(unittest.TestCase):
                         "state": admission["state"],
                         "record_sha256": admission["record_sha256"],
                     },
+                    "shared_leader_source_plan": {
+                        "schema": (
+                            "puppet.grok-shared-leader-plan/v1"
+                        ),
+                        "status": "source_plan_available",
+                        "live_human_gate": {
+                            "required": True,
+                            "action": (
+                                "human_start_attended_operator_grok_leader"
+                            ),
+                            "puppet_may_execute": False,
+                        },
+                    },
                     "source_only_blockers": list(GROK_CURRENT_SOURCE_BLOCKERS),
                 },
             )
@@ -694,7 +708,7 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(profile["state"], "human_gated_proposal")
             self.assertEqual(
                 profile["required_gate"],
-                "reuse_or_enroll_durable_private_grok_profile_once",
+                "human_choose_attended_shared_leader_or_one_time_private_enrollment",
             )
             self.assertEqual(profile["reuse_scope"], "durable_cross_run")
             self.assertEqual(profile["status_policy"], "silent_before_each_launch")
@@ -713,6 +727,10 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(
                 adoption["routes"]["external_auth_provider"]["status"],
                 "not_a_native_cache_bridge",
+            )
+            self.assertEqual(
+                adoption["routes"]["process_local_shared_leader"]["status"],
+                "source_plan_available",
             )
             self.assertFalse(adoption["private_store_accessed"])
             self.assertFalse(adoption["private_material_projected"])

@@ -99,9 +99,11 @@ _CURSOR_PRESERVED_EVIDENCE_KINDS = (
     CURSOR_BINDING_SCHEMA,
 )
 _GROK_LIFECYCLE_UNSUPPORTED_REASON = "grok_regular_session_source_only_unqualified"
-_GROK_FAILED_INVARIANT = "durable_private_grok_subscription_profile_not_ready"
+_GROK_FAILED_INVARIANT = "authenticated_grok_route_not_bound"
 _GROK_GATE_RUNG = "grok_regular_pass_b"
-_GROK_PROFILE_GATE = "reuse_or_enroll_durable_private_grok_profile_once"
+_GROK_PROFILE_GATE = (
+    "human_choose_attended_shared_leader_or_one_time_private_enrollment"
+)
 _GROK_NEXT_SAFE_ACTION = _GROK_PROFILE_GATE
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
@@ -573,6 +575,8 @@ def _grok_target_gate(
 ) -> Dict[str, Any]:
     executable = manifest.raw["executable"]
     admission = expected_grok_pass_a_evidence()
+    adoption = grok_subscription_adoption_plan()
+    shared_leader = adoption["routes"]["process_local_shared_leader"]
     return {
         "state": "waiting_for_human",
         "failed_invariant": _GROK_FAILED_INVARIANT,
@@ -599,11 +603,17 @@ def _grok_target_gate(
                 "state": admission["state"],
                 "record_sha256": admission["record_sha256"],
             },
+            "shared_leader_source_plan": {
+                "schema": shared_leader["source_plan_schema"],
+                "status": shared_leader["status"],
+                "live_human_gate": shared_leader["live_human_gate"],
+            },
             "source_only_blockers": list(GROK_CURRENT_SOURCE_BLOCKERS),
         },
         "preserved_evidence_kinds": [],
         "next_safe_action": _GROK_NEXT_SAFE_ACTION,
         "available_routes": [
+            "process_local_shared_leader",
             "reuse_previously_authenticated_puppet_profile",
             "human_present_one_time_profile_enrollment",
         ],

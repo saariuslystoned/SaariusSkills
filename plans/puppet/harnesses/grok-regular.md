@@ -147,7 +147,20 @@ copying `auth.json` or inheriting the operator's whole `GROK_HOME`:
 Puppet therefore prefers a future process-local shared-leader broker: an
 attended operator-owned process keeps the ordinary native authentication, while
 a private Puppet client connects only through a controller-bound socket. This
-is source-candidate status, not authority. Qualification must prove that
+now has a source-only admission and client-halt plan, not launch authority.
+The exact human handoff is:
+
+```text
+grok agent leader --no-exit-on-disconnect --relay-on-demand \
+  --no-auto-update --leader-socket <controller-owned-private-socket>
+```
+
+Puppet may compile and validate that vector but may not execute or signal it.
+The plan requires an empty same-target baseline, binds the closed private
+client vector, and models client completion only when the exact client tree
+stops while the attended leader tree and socket remain unchanged. Qualification
+must still prove that the socket belongs to the bound leader, the TUI actually
+attaches without consulting local auth, and
 operator instructions, configuration, plugins, sessions, logs, and tools do
 not bleed across the leader/client boundary; bind exact socket ownership and
 process lifecycle; and show that stopping the Puppet client never stops or
@@ -313,6 +326,16 @@ authority rather than an unreachable launch hook.
 - Implemented source-only: normal-session census retains exact and mismatched
   Grok candidates, requires the existing exact override for a matching active
   population, and fails closed on different executable identity.
+- Implemented source-only:
+  `skills/puppet/scripts/puppet_lib/grok_shared_leader.py` compiles the exact
+  attended leader handoff and private client join from the current launch
+  context. It requires an empty same-target baseline, records no operator
+  environment values, starts and signals no process, and grants no launch or
+  qualification authority. Its structural binders admit only an exact leader
+  tree plus private socket, then an exact client tree. Client completion
+  requires the client tree gone while the protected leader tree and socket
+  remain byte-for-byte identity-stable. Socket ownership, attach semantics,
+  no-bleed, and live halt remain explicitly false.
 - Implemented source-only: `target_population.py` now owns the shared
   protected/root/descendant admission policy previously embedded in the probe.
   `grok_halt.py` binds a pre-launch protected population, the exact expected
@@ -362,7 +385,13 @@ authority rather than an unreachable launch hook.
 
 ## 7) Blockers and stop condition
 
-- No approved authentication-preserving isolated `HOME`/`GROK_HOME` route.
+- The no-copy attended shared-leader route has source admission but still
+  requires the explicit human start action and live proof of socket ownership,
+  TUI attach without local auth, and configuration no-bleed. The durable
+  private-profile fallback still requires one-time enrollment.
+- The 2026-07-23 CP-1 source census found two exact 0.2.111 Grok processes.
+  Puppet must not reuse, attach to, or stop them; live shared-leader work waits
+  for an empty same-target baseline.
 - No invocation-scoped additive file plane.
 - Sandbox-off and always-approve semantics are parser-proved but not live-
   observed in the isolated authenticated tuple.

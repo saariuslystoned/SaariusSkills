@@ -16,6 +16,9 @@ from puppet_lib import grok_subscription_adoption as adoption_module  # noqa: E4
 from puppet_lib.grok_subscription_adoption import (  # noqa: E402
     GROK_AGENT_HELP_SHA256,
     GROK_AGENT_LEADER_HELP_SHA256,
+    GROK_SHARED_CLIENT_COMPLETION_SCHEMA,
+    GROK_SHARED_LEADER_HUMAN_ACTION,
+    GROK_SHARED_LEADER_PLAN_SCHEMA,
     GROK_SUBSCRIPTION_ADOPTION_BLOCKERS,
     GROK_SUBSCRIPTION_ADOPTION_SCHEMA,
     grok_subscription_adoption_plan,
@@ -32,7 +35,23 @@ class GrokSubscriptionAdoptionTests(unittest.TestCase):
         )
         self.assertEqual(
             plan["routes"]["process_local_shared_leader"]["status"],
-            "discovered_unqualified",
+            "source_plan_available",
+        )
+        shared = plan["routes"]["process_local_shared_leader"]
+        self.assertEqual(
+            shared["source_plan_schema"], GROK_SHARED_LEADER_PLAN_SCHEMA
+        )
+        self.assertEqual(
+            shared["client_completion_schema"],
+            GROK_SHARED_CLIENT_COMPLETION_SCHEMA,
+        )
+        self.assertEqual(
+            shared["live_human_gate"],
+            {
+                "required": True,
+                "action": GROK_SHARED_LEADER_HUMAN_ACTION,
+                "puppet_may_execute": False,
+            },
         )
         self.assertFalse(
             plan["routes"]["process_local_shared_leader"][
