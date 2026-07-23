@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
+HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
 
 
 class PackagingTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class PackagingTests(unittest.TestCase):
         )
         expected_root = {
             "name": "saarius-skills",
-            "description": "Experimental progressive product-decision workflows.",
+            "description": "Experimental agent workflows and Herdr transport tools.",
         }
         market = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
@@ -106,6 +107,44 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("os.system", source)
         self.assertNotIn("git push", source)
         self.assertNotIn("gh pr", source)
+
+    def test_herdr_puppet_skill_is_packaged_and_bounded(self) -> None:
+        skill = (HERDR_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (HERDR_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        client = (
+            HERDR_SKILL
+            / "scripts"
+            / "herdr_puppet_lib"
+            / "herdr_client.py"
+        ).read_text(encoding="utf-8")
+        compact_client = " ".join(client.split())
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("$herdr-puppet", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("transcript-blind", skill)
+        self.assertIn("Never inject `/teamwork-preview` automatically", skill)
+        self.assertIn("lease-preserve", skill)
+        self.assertIn('"pane", "run"', compact_client)
+        self.assertIn('"wait", "output"', compact_client)
+        self.assertIn('"api", "snapshot"', compact_client)
+        self.assertNotIn('"pane", "read"', compact_client)
+        self.assertNotIn('"send-text"', compact_client)
+        self.assertNotIn('"send-keys"', compact_client)
+        self.assertNotIn('"server", "stop"', compact_client)
+        self.assertNotIn('"session", "stop"', compact_client)
+        self.assertNotIn('"workspace", "close"', compact_client)
+        self.assertNotIn('"tab", "close"', compact_client)
+
+    def test_herdr_puppet_schemas_parse(self) -> None:
+        references = HERDR_SKILL / "references"
+        for name in ("plan.schema.json", "lease.schema.json", "event.schema.json"):
+            schema = json.loads((references / name).read_text(encoding="utf-8"))
+            self.assertEqual(
+                schema["$schema"],
+                "https://json-schema.org/draft/2020-12/schema",
+            )
 
 
 if __name__ == "__main__":
