@@ -34,6 +34,20 @@ The PATH winner is an operator-local symlink chain to the final Mach-O binary:
 - `help agent` SHA-256:
   `80eca1cc827e677c5d4310fe60ccaa941627cc688189405742e69e4f4ec734d3`.
 
+The canonical machine-readable prior-evidence admission input for Pass A is
+`grok-build-0.2.106-pass-a-evidence.json`, with record SHA-256
+`219f5e5b20a7ea4de65b35c098eeb2a31f287a6e44d8c389857863554b1f6ef4`.
+`puppet_lib/grok_evidence.py` rederives every admitted field from source-owned
+constants and rejects altered hashes, parser classifications, limitations, or
+authority bits. It distinguishes the parser lane's observation-source revision
+`b8cce94bf2a4a62f974207a95abcfe1668412b90` from evidence-artifact revision
+`c711c6b11ef529e1ff7860bef4232ad03c83e6ef`, which first records the detailed
+facts. The packet also binds both dates, lane owner, artifact blob and SHA-256,
+proof strength, mechanism/version scope, portability/operator assumptions, MIT
+attribution, reuse decision, deterministic tests, and remaining live delta for
+each claim. It is not a complete current Pass-A census and is not consumed by
+launch, session, probe, adapter, qualification, or promotion code.
+
 An alternate PATH candidate is a shell `exec` wrapper. If selected, the
 fingerprinted launcher and live runtime process differ. Puppet must bind or
 reject the complete launcher chain instead of assuming argv executable equals
@@ -214,6 +228,12 @@ authority rather than an unreachable launch hook.
 - Implemented source-only: normal-session census retains exact and mismatched
   Grok candidates, requires the existing exact override for a matching active
   population, and fails closed on different executable identity.
+- Implemented source-only: a canonical schema-v1 prior-evidence admission input
+  for Pass A binds exact executable/version/help/catalog hashes, parser
+  classifications, model/effort/session control candidates, unavailable status
+  and authenticated-effort facts, public provenance, three claim-level
+  decisions/deltas, and eleven remaining live limitations. Every runtime and
+  promotion authority bit is false, and no runtime module consumes the packet.
 - Intentionally unchanged: census remains `doctor_only` and its incomplete
   mapping does not promote help/parser facts into live sandbox or isolation
   claims.
