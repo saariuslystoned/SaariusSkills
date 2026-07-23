@@ -25,6 +25,11 @@ conversation.
   qualified hierarchical `/teamwork-preview` profile with four specialized
   leaders, bounded leaf fanout, one integration authority, and staged 2x2/4x4
   live-proof gates.
+- [`antigravity-discovery-proof.md`](antigravity-discovery-proof.md) records
+  the stage-2 discovery probe and the 2026-07-23 live smoke probes: the four
+  authored leader profiles, the negative pre-session inventory and silent
+  `--agent` fallback findings, and the clean direct, 2x2, forced-failure
+  retry, and twice-passed 4x4 token-relay runs under the isolation posture.
 - [`prior-proof-provenance.md`](prior-proof-provenance.md) maps the existing
   public and operator-local evidence families to what Puppet may admit,
   reimplement, or must prove again.

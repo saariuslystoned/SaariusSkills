@@ -53,6 +53,7 @@ conversation stores:
 | Persistent custom-agent inventory | no entries returned |
 | Python Antigravity SDK runtime | not installed |
 | Guarded teamwork runner | refused launch while another AGY process was active |
+| Workspace-profile inventory visibility (2026-07-23) | four well-formed workspace profiles not listed by the pre-session inventory command; see [discovery proof](antigravity-discovery-proof.md) |
 
 An empty persistent-agent inventory does not prevent dynamic custom subagents.
 It does mean that workspace-profile discovery and `/teamwork-preview` leader
@@ -87,23 +88,51 @@ prompt or spending experiment quota. It did not bypass, inspect, interrupt,
 reuse, or clean up that process.
 
 Because the 2x2 calibration did not start, the 4x4 stage was not attempted.
-This is a safety pass and a live-capability blocker, not evidence that nested
-fanout is unsupported.
+This was a safety pass under the original exclusivity guard, not evidence that
+nested fanout is unsupported.
+
+### Concurrency posture: isolation, not exclusivity (operator decision, 2026-07-23)
+
+The operator runs multiple concurrent AGY sessions on this machine as a normal
+operating state. A pre-existing AGY session is therefore no longer a launch
+blocker. The exclusivity guard is replaced by an isolation contract that every
+live probe and calibration must satisfy:
+
+- launch only fresh sessions from a disposable workspace; never pass
+  `--continue` or resume a conversation ID the experiment did not create;
+- never enumerate, inspect, signal, or clean up AGY processes by name,
+  pattern, or process group; track and manage only the process and
+  conversation IDs the experiment itself spawned;
+- keep prompts, agents, and any writes scoped to the disposable workspace;
+  never write global configuration or the global custom-agent directory; and
+- treat resource contention with concurrent sessions (slow spawns, queued
+  helpers, quota pressure) as recordable telemetry, not as license to touch
+  the other sessions.
 
 The current accepted claims are therefore:
 
 - custom and nested agents are documented capabilities;
 - the proposed topology fits the documented depth limit;
 - no concurrent-helper maximum is published;
-- CLI direct and nested fanout remain live-unverified on this exact tuple;
+- CLI direct fanout, nested 2x2 fanout with a contained forced-failure retry,
+  and nested 4x4 fanout (20 helpers, 21 actors) are live-demonstrated on CLI
+  `1.1.5` via token-relay smoke probes run concurrently with unrelated
+  operator AGY sessions (2026-07-23; see the
+  [discovery and live-probe proof](antigravity-discovery-proof.md));
+- those smoke probes rely on root-reported relay output and are not yet
+  contract-grade: no external ledger, capability fingerprint, sanitized
+  telemetry, or independent actor-count observation bound them;
+- workspace-profile discovery and `--agent` selection remain unproved, and the
+  CLI silently falls back to the default agent on an unknown `--agent` name;
 - app direct and nested fanout remain independently live-unverified; and
-- reliable 4x4 operation is not yet an accepted claim.
+- reliable, contract-grade 4x4 operation is demonstrated but not yet an
+  accepted qualification claim.
 
 ## Capability matrix
 
 | Surface | Direct helpers | Nested helpers | Custom leaders | Root relay | 2x2 proven | 4x4 proven |
 |---|---|---|---|---|---|---|
-| CLI 1.1.5 | documented, not run | documented, depth 10, not run | dynamic and persistent forms documented; no local profiles discovered | documented, not run | no | no |
+| CLI 1.1.5 | live-demonstrated (2 dynamic leaves, token relay) | live-demonstrated at depth 2 (2x2 and 4x4 smoke probes) | dynamic definitions live-demonstrated; workspace profiles undiscovered pre-session and `--agent` falls back silently | live-demonstrated (aggregates and 16-token relay) | smoke: yes (clean + forced-failure retry); contract-grade: no | smoke: yes, two identical clean passes; contract-grade: no |
 | App 2.3.1 | shared-harness documentation only | shared documentation only | dynamic behavior documented; app selection not run | shared documentation only | no | no |
 | Python SDK | documented as a separate programmatic surface | not locally tested | declarative configuration documented | telemetry/lifecycle documented | runtime absent | runtime absent |
 
@@ -430,7 +459,16 @@ repo-wide should a contract add this one sentence:
 
 ## Acceptance decision
 
-Keep this design as an experimental Puppet plan. Reject default enablement,
-global custom-agent installation, or any claim of reliable 4x4 capacity until
-the staged live proof succeeds. The next safe action is a fresh 2x2 calibration
-when no pre-existing AGY session is active; 4x4 remains gated on that result.
+Keep this design as an experimental Puppet plan. Reject default enablement and
+global custom-agent installation until the staged proof completes at contract
+grade. Live capability is no longer the open question: on 2026-07-23, under
+the isolation posture, CLI `1.1.5` demonstrated direct fanout, nested 2x2 with
+a contained forced-failure retry, and two identical clean nested 4x4 passes
+(20 helpers, 21 actors) concurrently with unrelated operator AGY sessions.
+
+What remains before an experimental Puppet profile is the contract-grade
+harness around that demonstrated capability: the stage-1 static ledger,
+dedupe, barrier, and timeout tests; a guarded runner that binds a full
+capability fingerprint; sanitized telemetry with independent actor-count
+observation rather than root self-report; and the app-surface qualification,
+which inherits nothing from these CLI results.
