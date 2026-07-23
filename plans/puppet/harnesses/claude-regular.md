@@ -111,7 +111,7 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
 | Surface | Planned action | Exact expected evidence | Stop criteria |
 | --- | --- | --- | --- |
 | Launch | `session_profile=regular`, contract-bound fixture, no `--model`/`--effort` | `launch` transitions active, startup settle succeeds, manifest/process/socket/lease identities remain exact | blocked if manifest drift or post-launch process mismatch |
-| Plane control | selected instruction plane plus ordinary control | marker appears only in Puppet checkpoint; built-ins and repo rules remain active | blocked on bleed, replacement, or precedence ambiguity |
+| Plane control | selected instruction plane plus ordinary control | exact one-use sidecar is consumed and unlinked before a hash-only controller observation; checkpoint JSON stays marker-free; built-ins and repo rules remain active | blocked on bleed, replacement, precedence ambiguity, or marker retention |
 | Resume | reuse any resume API during same session profile | no supported capability in current contract; resume is treated as unsupported | hard stop; must be supported by explicit resume contract before lane promotion |
 | Steer | ordinary follow-up via `send` with initial=False | no slash prefix injected, one delivery event, fixture handoff advances once | blocked if prefix appears in argv or message body |
 | Halt | exact process shutdown via adapter halt action | exact pid `SIGINT` sequence, `HALTED`, no process bleed | blocked if process does not stop or registry/tmux evidence changes |
