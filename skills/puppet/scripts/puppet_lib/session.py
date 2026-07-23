@@ -22,6 +22,7 @@ from .authority import (
 from .beacons import parse_beacon
 from .campaign import (
     active_target_processes,
+    agy_process_population,
     grok_process_population,
     parallel_target_override,
     validate_campaign_authorization,
@@ -143,6 +144,40 @@ def _parallel_target_override(
     authorization: Dict[str, Any], target: str, active: List[Dict[str, Any]]
 ) -> bool:
     return parallel_target_override(authorization, target, active)
+
+
+def _agy_population(
+    manifest: AdapterManifest,
+) -> Dict[str, List[Dict[str, Any]]]:
+    runtime = manifest.raw["execution"]["runtime_executable"]
+    return agy_process_population(
+        runtime_selector={
+            "path": runtime["path"],
+            "device": runtime["device"],
+            "inode": runtime["inode"],
+        }
+    )
+
+
+def _assess_agy_population(
+    authorization: Dict[str, Any],
+    population: Dict[str, List[Dict[str, Any]]],
+) -> Tuple[List[Dict[str, Any]], bool, List[str]]:
+    matching = population["matching"]
+    mismatched = population["mismatched"]
+    override = _parallel_target_override(authorization, "agy", matching)
+    blockers = []
+    if mismatched:
+        override = False
+        blockers.append(
+            "a live AGY candidate has a different executable identity and blocks launch"
+        )
+    if matching and not override:
+        blockers.append(
+            "active AGY processes may hold the exclusive store lock and require "
+            "the exact parallel isolation override"
+        )
+    return matching, override, blockers
 
 
 def _grok_population(
@@ -720,7 +755,14 @@ def doctor(
             "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete"
         )
     candidate_processes: List[Dict[str, Any]]
-    if contract.target == "grok":
+    if contract.target == "agy":
+        agy_population = _agy_population(manifest)
+        active, parallel_override, population_blockers = _assess_agy_population(
+            authorization, agy_population
+        )
+        candidate_processes = agy_population["candidates"]
+        blockers.extend(population_blockers)
+    elif contract.target == "grok":
         grok_population = _grok_population(manifest)
         active, parallel_override, population_blockers = _assess_grok_population(
             authorization, grok_population
@@ -737,8 +779,6 @@ def doctor(
         parallel_override = _parallel_target_override(
             authorization, contract.target, active
         )
-        if contract.target == "agy" and active and not parallel_override:
-            blockers.append("active AGY process may hold the exclusive store lock")
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()

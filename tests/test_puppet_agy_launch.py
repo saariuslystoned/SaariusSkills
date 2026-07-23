@@ -4,6 +4,7 @@ import ast
 import io
 import inspect
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab  # noqa: E402
 import puppet as puppet_cli  # noqa: E402
+import puppet_lib.campaign as campaign  # noqa: E402
 from puppet_lib import adapter_manifest as adapter_manifest_module  # noqa: E402
 from puppet_lib import agy_launch as agy_launch_module  # noqa: E402
 from puppet_lib import probe as puppet_probe  # noqa: E402
@@ -32,8 +34,28 @@ from puppet_lib.agy_launch import (  # noqa: E402
     agy_regular_verdict,
     require_agy_regular_launch_authority,
 )
-from puppet_lib.errors import UnsupportedError  # noqa: E402
+from puppet_lib.errors import IdentityError, UnsupportedError  # noqa: E402
 from puppet_lib.probe import PROBE_PROFILE, run_probe  # noqa: E402
+
+
+def process_identity(
+    pid: int,
+    *,
+    command: str,
+    executable_path: str,
+    device: int,
+    inode: int,
+) -> dict:
+    return {
+        "identity_version": 2,
+        "pid": pid,
+        "start": "darwin:100:000001",
+        "kernel_birth_id": "darwin:100:000001",
+        "command": command,
+        "executable_path": executable_path,
+        "device": device,
+        "inode": inode,
+    }
 
 
 class AgyRegularFenceTests(unittest.TestCase):
@@ -94,6 +116,222 @@ class AgyRegularFenceTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
+    def test_population_is_current_uid_argv_free_and_exactly_classified(self):
+        runtime_selector = {
+            "path": "/opt/current/agy",
+            "device": 10,
+            "inode": 20,
+        }
+        matching = process_identity(
+            101,
+            command="/opt/current/agy",
+            executable_path=runtime_selector["path"],
+            device=runtime_selector["device"],
+            inode=runtime_selector["inode"],
+        )
+        mismatched = process_identity(
+            102,
+            command="agy",
+            executable_path="/opt/other/agy",
+            device=11,
+            inode=21,
+        )
+        ps_result = SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "101 %d /opt/current/agy\n"
+                "102 %d agy\n"
+                "103 %d agy\n"
+                "104 %d agy-helper\n"
+                % (os.getuid(), os.getuid(), os.getuid() + 1, os.getuid())
+            ),
+        )
+        with (
+            mock.patch.object(campaign.sys, "platform", "linux"),
+            mock.patch.object(
+                campaign.subprocess, "run", return_value=ps_result
+            ) as process_rows,
+            mock.patch.object(
+                campaign,
+                "process_birth_identity",
+                side_effect=[matching, mismatched],
+            ) as process_birth,
+        ):
+            population = campaign.agy_process_population(
+                runtime_selector=runtime_selector
+            )
+
+        self.assertEqual(
+            process_rows.call_args.args[0],
+            ["ps", "-axo", "pid=,uid=,comm="],
+        )
+        self.assertEqual(
+            [call.args[0] for call in process_birth.call_args_list],
+            [101, 102],
+        )
+        self.assertEqual(population["candidates"], [matching, mismatched])
+        self.assertEqual(population["matching"], [matching])
+        self.assertEqual(population["mismatched"], [mismatched])
+
+    def test_population_candidate_name_is_fixed_not_selector_derived(self):
+        runtime_selector = {
+            "path": "/opt/runtime/renamed-agy-v115",
+            "device": 10,
+            "inode": 20,
+        }
+        with mock.patch.object(
+            campaign, "_target_process_rows", return_value=[]
+        ) as process_rows:
+            population = campaign.agy_process_population(
+                runtime_selector=runtime_selector
+            )
+
+        process_rows.assert_called_once_with(
+            {"agy"},
+            set(),
+            error_prefix="AGY candidate process inventory",
+        )
+        self.assertEqual(
+            population,
+            {"candidates": [], "matching": [], "mismatched": []},
+        )
+
+    def test_population_identity_failure_is_narrow_only_for_vanished_pid(self):
+        rows = [(101, "agy")]
+        with (
+            mock.patch.object(campaign, "_target_process_rows", return_value=rows),
+            mock.patch.object(
+                campaign,
+                "process_birth_identity",
+                side_effect=IdentityError("candidate identity unavailable"),
+            ),
+            mock.patch.object(campaign, "_pid_still_exists", return_value=False),
+        ):
+            self.assertEqual(
+                campaign.agy_process_population(
+                    runtime_selector={
+                        "path": "/opt/current/agy",
+                        "device": 10,
+                        "inode": 20,
+                    }
+                ),
+                {"candidates": [], "matching": [], "mismatched": []},
+            )
+
+        with (
+            mock.patch.object(campaign, "_target_process_rows", return_value=rows),
+            mock.patch.object(
+                campaign,
+                "process_birth_identity",
+                side_effect=IdentityError("candidate identity unavailable"),
+            ),
+            mock.patch.object(campaign, "_pid_still_exists", return_value=True),
+            self.assertRaisesRegex(IdentityError, "candidate identity unavailable"),
+        ):
+            campaign.agy_process_population(
+                runtime_selector={
+                    "path": "/opt/current/agy",
+                    "device": 10,
+                    "inode": 20,
+                }
+            )
+
+    def test_session_population_uses_only_exact_runtime_selector(self):
+        runtime = {
+            "path": "/opt/current/agy",
+            "device": 10,
+            "inode": 20,
+        }
+        manifest = SimpleNamespace(
+            raw={
+                "executable": {
+                    "resolved_path": "/opt/launcher/agy",
+                    "device": 11,
+                    "inode": 21,
+                },
+                "execution": {
+                    "runtime_executable": {
+                        **runtime,
+                        "size": 100,
+                        "mtime_ns": 200,
+                        "sha256": "a" * 64,
+                    },
+                    "transient_executables": [
+                        {
+                            "path": "/opt/transient/agy",
+                            "device": 12,
+                            "inode": 22,
+                        }
+                    ],
+                },
+            }
+        )
+        expected = {"candidates": [], "matching": [], "mismatched": []}
+        with mock.patch.object(
+            puppet_session,
+            "agy_process_population",
+            return_value=expected,
+        ) as population:
+            self.assertEqual(puppet_session._agy_population(manifest), expected)
+        population.assert_called_once_with(runtime_selector=runtime)
+
+    def test_mismatch_cannot_be_hidden_by_exact_parallel_override(self):
+        matching = process_identity(
+            101,
+            command="agy",
+            executable_path="/opt/current/agy",
+            device=10,
+            inode=20,
+        )
+        authorization = {
+            "authorization": {
+                "parallel_target_override": {
+                    "target": "agy",
+                    "isolation": "unique_private_tmux_socket_and_session",
+                    "failure_cleanup_scope": "exact_new_target_only",
+                    "protected_session": "operator-agy",
+                    "protected_processes": [matching],
+                }
+            }
+        }
+        matching_only = {
+            "candidates": [matching],
+            "matching": [matching],
+            "mismatched": [],
+        }
+        active, override, blockers = puppet_session._assess_agy_population(
+            {"authorization": {}}, matching_only
+        )
+        self.assertEqual(active, [matching])
+        self.assertFalse(override)
+        self.assertTrue(any("exact parallel" in item for item in blockers))
+
+        active, override, blockers = puppet_session._assess_agy_population(
+            authorization, matching_only
+        )
+        self.assertEqual(active, [matching])
+        self.assertTrue(override)
+        self.assertEqual(blockers, [])
+
+        mismatched = dict(
+            matching,
+            pid=102,
+            executable_path="/opt/other/agy",
+            device=11,
+            inode=21,
+        )
+        population = {
+            "candidates": [matching, mismatched],
+            "matching": [matching],
+            "mismatched": [mismatched],
+        }
+        active, override, blockers = puppet_session._assess_agy_population(
+            authorization, population
+        )
+        self.assertEqual(active, [matching])
+        self.assertFalse(override)
+        self.assertTrue(any("different executable" in item for item in blockers))
+
     def test_doctor_rejects_after_contract_before_manifest_or_machine_state(self):
         contract = SimpleNamespace(target="agy", session_profile="regular")
         forbidden = {
@@ -114,6 +352,9 @@ class AgyRegularFenceTests(unittest.TestCase):
             ),
             "processes": mock.Mock(
                 side_effect=AssertionError("process census must not run")
+            ),
+            "population": mock.Mock(
+                side_effect=AssertionError("AGY population census must not run")
             ),
             "override": mock.Mock(
                 side_effect=AssertionError("parallel override must not inspect")
@@ -151,6 +392,9 @@ class AgyRegularFenceTests(unittest.TestCase):
             ),
             mock.patch.object(
                 puppet_session, "_active_processes", forbidden["processes"]
+            ),
+            mock.patch.object(
+                puppet_session, "_agy_population", forbidden["population"]
             ),
             mock.patch.object(
                 puppet_session,
@@ -243,6 +487,9 @@ class AgyRegularFenceTests(unittest.TestCase):
         process_query = mock.Mock(
             side_effect=AssertionError("process query must not run")
         )
+        population_query = mock.Mock(
+            side_effect=AssertionError("AGY population census must not run")
+        )
         environment = mock.Mock(
             side_effect=AssertionError("launch environment must not build")
         )
@@ -263,6 +510,7 @@ class AgyRegularFenceTests(unittest.TestCase):
             ),
             mock.patch.object(puppet_session, "doctor", doctor),
             mock.patch.object(puppet_session, "_active_processes", process_query),
+            mock.patch.object(puppet_session, "_agy_population", population_query),
             mock.patch.object(puppet_session, "build_launch_identity", environment),
             mock.patch.object(puppet_session, "TmuxController", tmux),
         ):
@@ -284,6 +532,7 @@ class AgyRegularFenceTests(unittest.TestCase):
         for sentinel in (
             doctor,
             process_query,
+            population_query,
             environment,
             tmux,
             process_birth,
@@ -364,6 +613,9 @@ class AgyRegularFenceTests(unittest.TestCase):
             },
         }
         verified = mock.Mock(return_value=fallback_receipt)
+        population = mock.Mock(
+            side_effect=AssertionError("AGY population census must not run")
+        )
         args = SimpleNamespace(
             manifest=Path("/does/not/matter/manifest.json"),
             mapping=Path("/does/not/matter/mapping.json"),
@@ -375,10 +627,12 @@ class AgyRegularFenceTests(unittest.TestCase):
                 adapter_lab.AdapterManifest, "from_path", return_value=base
             ),
             mock.patch.object(adapter_lab, "_verified_receipt", verified),
+            mock.patch.object(puppet_session, "_agy_population", population),
         ):
             with self.assertRaisesRegex(UnsupportedError, "planner-only"):
                 adapter_lab._qualify(args)
         verified.assert_not_called()
+        population.assert_not_called()
 
     def test_manifest_authority_requires_explicit_regular_profile_before_receipt_io(
         self,

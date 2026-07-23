@@ -38,6 +38,7 @@ MAX_PROCESS_SNAPSHOT_ROWS = 32768
 MAX_PROCESS_ANCESTRY_NODES = 512
 MAX_PROCESS_ANCESTRY_DEPTH = 64
 MAX_PROCESS_EXECUTION_SELECTORS = 10
+_AGY_PROCESS_CANDIDATE_NAMES = frozenset({"agy"})
 _GROK_PROCESS_CANDIDATE_NAMES = frozenset(
     {
         "grok",
@@ -504,6 +505,53 @@ def active_target_processes(
                 raise IdentityError("same-target process changed during the inventory")
             processes.append(process)
     return processes
+
+
+def agy_process_population(
+    runtime_selector: Dict[str, Any],
+) -> Dict[str, list[Dict[str, Any]]]:
+    """Return AGY candidates split by exact current-runtime identity.
+
+    The fixed candidate name keeps this census independent from caller-supplied
+    execution basenames. Every same-name current-UID process is retained before
+    exact path/device/inode classification, so another AGY build cannot appear
+    absent merely because its vnode differs from the current 1.1.5 manifest.
+    """
+
+    _, selectors = _target_process_selectors("agy", [runtime_selector])
+    rows = _target_process_rows(
+        set(_AGY_PROCESS_CANDIDATE_NAMES),
+        set(),
+        error_prefix="AGY candidate process inventory",
+    )
+    candidates = []
+    for pid, command in sorted(rows):
+        try:
+            process = process_birth_identity(pid)
+        except ExecTransitionSamplingError:
+            raise
+        except IdentityError:
+            if not _pid_still_exists(pid):
+                continue
+            raise
+        if process["command"] != command:
+            raise IdentityError("AGY candidate changed during the inventory")
+        candidates.append(process)
+    matching = [
+        process
+        for process in candidates
+        if _matches_execution_selector(process, selectors)
+    ]
+    mismatched = [
+        process
+        for process in candidates
+        if not _matches_execution_selector(process, selectors)
+    ]
+    return {
+        "candidates": sorted(candidates, key=lambda item: item["pid"]),
+        "matching": sorted(matching, key=lambda item: item["pid"]),
+        "mismatched": sorted(mismatched, key=lambda item: item["pid"]),
+    }
 
 
 def grok_process_population(

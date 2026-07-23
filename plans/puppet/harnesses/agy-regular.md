@@ -193,6 +193,14 @@ The following is a future proof design, not an executable Puppet path:
   must continue to rederive workspace inode identity and the regular verdict on
   every record read, and must not become an admitted launch plan while config
   isolation and a positive sandbox-off control remain absent.
+- A detection-only population classifier now retains every current-UID process
+  with the fixed `agy` basename before splitting candidates by the exact
+  current-manifest runtime path/device/inode. A same-name different-version or
+  different-vnode process remains a mismatched hard blocker and cannot be
+  hidden by a parallel override. The classifier is wired only behind the
+  unconditional contract-first AGY doctor/launch fence; it reads no argv,
+  config, transcript, credential, or session-store content and grants no
+  runtime authority. This source primitive does not by itself prove no-bleed.
 - Add explicit regular-plane fixture proving steps for
   `session_profile=regular` only after a separately reviewed source change
   makes the live proof lane eligible.
