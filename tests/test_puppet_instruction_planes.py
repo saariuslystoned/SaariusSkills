@@ -17,14 +17,20 @@ from puppet_lib.instruction_planes import (  # noqa: E402
     AGY_WORKSPACE_ARTIFACT_ID,
     AGY_WORKSPACE_BLOCKERS,
     AGY_WORKSPACE_DESCRIPTOR_ID,
+    CURSOR_AGENT_VERSION,
+    CURSOR_WORKSPACE_ARTIFACT_ID,
+    CURSOR_WORKSPACE_BLOCKERS,
+    CURSOR_WORKSPACE_DESCRIPTOR_ID,
     GROK_BUILD_VERSION,
     GROK_WORKSPACE_ARTIFACT_ID,
     GROK_WORKSPACE_DESCRIPTOR_ID,
     build_agy_workspace_agent_descriptor,
+    build_cursor_workspace_addendum_descriptor,
     build_grok_workspace_addendum_descriptor,
     descriptor_fingerprint,
     parse_instruction_plane_descriptor,
     validate_agy_workspace_agent_descriptor,
+    validate_cursor_workspace_addendum_descriptor,
     validate_grok_workspace_addendum_descriptor,
     validate_instruction_plane_descriptor,
 )
@@ -729,6 +735,85 @@ class AgyWorkspaceDescriptorTests(unittest.TestCase):
             with self.subTest(case_id=case_id, parser="json"):
                 with self.assertRaises(ValidationError):
                     parse_instruction_plane_descriptor(json.dumps(candidate))
+
+
+class CursorWorkspaceDescriptorTests(unittest.TestCase):
+    def setUp(self):
+        self.adapter_hash = "a" * 64
+        self.rendered_hash = "b" * 64
+        self.descriptor = build_cursor_workspace_addendum_descriptor(
+            adapter_manifest_sha256=self.adapter_hash,
+            rendered_sha256=self.rendered_hash,
+        )
+
+    def test_exact_descriptor_is_hash_named_create_only_and_disabled(self):
+        artifact = self.descriptor["materialize"][0]
+        self.assertEqual(
+            self.descriptor["descriptor_id"], CURSOR_WORKSPACE_DESCRIPTOR_ID
+        )
+        self.assertEqual(self.descriptor["target"]["version"], CURSOR_AGENT_VERSION)
+        self.assertEqual(self.descriptor["target"]["requested_model"], "default")
+        self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
+        self.assertEqual(
+            self.descriptor["target"]["config_fingerprint"], "unavailable"
+        )
+        self.assertEqual(
+            self.descriptor["status"],
+            {"surface": "factual", "activation": "disabled"},
+        )
+        self.assertEqual(artifact["artifact_id"], CURSOR_WORKSPACE_ARTIFACT_ID)
+        self.assertEqual(artifact["root_ref"], "workspace_root")
+        self.assertEqual(
+            artifact["relative_path"],
+            ".cursor/rules/puppet-%s.mdc" % self.rendered_hash,
+        )
+        self.assertEqual(artifact["write_mode"], "create_only")
+        self.assertEqual(
+            self.descriptor["launch_delta"],
+            {
+                "cwd_ref": "workspace_root",
+                "env": [],
+                "argv": [
+                    {"literal": "--workspace"},
+                    {"root_ref": "workspace_root"},
+                ],
+            },
+        )
+        self.assertEqual(self.descriptor["blockers"], sorted(CURSOR_WORKSPACE_BLOCKERS))
+        self.assertEqual(
+            validate_cursor_workspace_addendum_descriptor(self.descriptor),
+            self.descriptor,
+        )
+
+    def test_reserved_cursor_id_rejects_shape_drift_through_both_parsers(self):
+        cases = (
+            ("version", lambda value: value["target"].update({"version": "3.12.17"})),
+            ("activation", lambda value: value["status"].update({"activation": "qualification_only"})),
+            ("path", lambda value: value["materialize"][0].update({"relative_path": ".cursor/rules/puppet.mdc"})),
+            ("selector", lambda value: value["launch_delta"].update({"argv": []})),
+            ("blockers", lambda value: value.update({"blockers": ["caller_green"]})),
+        )
+        for case_id, mutate in cases:
+            candidate = copy.deepcopy(self.descriptor)
+            mutate(candidate)
+            with self.subTest(case_id=case_id, parser="mapping"):
+                with self.assertRaises(ValidationError):
+                    validate_instruction_plane_descriptor(candidate)
+            with self.subTest(case_id=case_id, parser="json"):
+                with self.assertRaises(ValidationError):
+                    parse_instruction_plane_descriptor(json.dumps(candidate))
+
+    def test_builder_rejects_non_hash_inputs(self):
+        with self.assertRaises(ValidationError):
+            build_cursor_workspace_addendum_descriptor(
+                adapter_manifest_sha256="not-a-hash",
+                rendered_sha256=self.rendered_hash,
+            )
+        with self.assertRaises(ValidationError):
+            build_cursor_workspace_addendum_descriptor(
+                adapter_manifest_sha256=self.adapter_hash,
+                rendered_sha256="A" * 64,
+            )
 
 
 class GrokWorkspaceDescriptorTests(unittest.TestCase):

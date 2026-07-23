@@ -97,8 +97,8 @@ instruction plane.
     themselves instruction injection.
   - Select scope only through `--workspace <absolute-lane-path>`. Prove
     precedence and preserve existing repo rules in the isolated worktree.
-  - The source-only substrate chooses a deterministic
-    `.cursor/rules/puppet-<scope>.mdc` artifact rather than `AGENTS.md`. The
+  - The source-only binding chooses a deterministic
+    `.cursor/rules/puppet-<effective-contract-sha256>.mdc` artifact rather than `AGENTS.md`. The
     stored CLI/help and official-surface notes identify `.cursor/rules/*.mdc`
     as the Cursor-native workspace candidate, while `AGENTS.md` is a broader
     compatibility surface. This is not activation proof: the substrate records
@@ -171,11 +171,15 @@ and `https://docs.cursor.com/en/cli/using`.
   current-UID `0700` workspace beneath that lane. Read-only traversal is
   descriptor-relative with no-follow opens, and the workspace must remain an
   empty Puppet-owned nested scope.
-- The sole record is a body-free plan containing paths, typed root identities,
-  sizes, and hashes. It never contains guidance bytes. Planning represents the
-  deterministic future candidate
-  `.cursor/rules/puppet-<scope>.mdc` and exact dynamic argv delta `--workspace
-  <absolute-workspace-root>`, but hard-codes `launch_authorized=false` and
+- The original planner record remains body-free and contains paths, typed root
+  identities, sizes, and hashes. A separate source-only binding now joins it to
+  the exact shipped compiler manifest, effective-contract hash, source-owned
+  descriptor, contract/run/workspace identities, and current
+  adapter/protocol/execution tuple. The bound deterministic future candidate is
+  `.cursor/rules/puppet-<effective-contract-sha256>.mdc` with exact dynamic argv
+  delta `--workspace <absolute-workspace-root>`. The binding hard-codes
+  `activation_authorized=false`, `launch_authorized=false`, and
+  `qualification_authorized=false`; the underlying plan keeps
   `materialization_supported=false`, `rollback_supported=false`, and
   `recovery_supported=false`.
 - Python/macOS pathname deletion has a check-then-remove race: a verified file

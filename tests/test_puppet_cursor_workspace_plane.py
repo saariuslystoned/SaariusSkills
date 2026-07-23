@@ -19,9 +19,12 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     BEHAVIOR_CAPABILITIES,
     AdapterManifest,
+    QUALIFICATION_PROFILE,
     build_execution_bundle,
 )
 from puppet_lib.cursor_workspace_plane import (  # noqa: E402
+    BINDING_SCHEMA,
+    BINDING_STATE,
     BLOCKERS,
     CURSOR_ENTRYPOINT_SHA256,
     CURSOR_HELP_SHA256,
@@ -30,6 +33,7 @@ from puppet_lib.cursor_workspace_plane import (  # noqa: E402
     CURSOR_VERSION,
     CURSOR_VERSION_OBSERVATION_SHA256,
     CursorWorkspacePlan,
+    bind_cursor_workspace_plane,
     materialize_cursor_workspace_plane,
     plan_cursor_workspace_plane,
     recover_cursor_workspace_plane,
@@ -43,6 +47,10 @@ from puppet_lib.errors import (  # noqa: E402
     UnsupportedError,
     ValidationError,
 )
+from puppet_lib.instruction_planes import (  # noqa: E402
+    build_cursor_workspace_addendum_descriptor,
+)
+from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
@@ -242,6 +250,131 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
                 plan,
                 adapter_manifest=self.manifest,
             )
+
+    def _binding_arguments(self):
+        workspace_identity = self._plan().raw["workspace_root"]
+        contract_identity = {
+            "fingerprint": "3" * 64,
+            "controller": "cursor-controller",
+            "target": "cursor",
+            "task_profile": QUALIFICATION_PROFILE,
+        }
+        run_identity = {
+            "session": "cursor-session",
+            "run_id": "cursor-run",
+            "nonce": "cursor-nonce-0123456789",
+        }
+        compiled = compile_instruction_wrapper(
+            target="cursor",
+            task="CURSOR_BINDING_BODY_CANARY produce one bounded handoff",
+            contract_identity=contract_identity,
+            workspace_identity=workspace_identity,
+            run_identity=run_identity,
+            model_binding="default",
+            effort_binding="default",
+        )
+        descriptor = build_cursor_workspace_addendum_descriptor(
+            adapter_manifest_sha256=self.manifest_sha256,
+            rendered_sha256=compiled.manifest["rendered_sha256"],
+        )
+        return {
+            "descriptor": descriptor,
+            "instruction_manifest": compiled.manifest,
+            "effective_contract": compiled.rendered,
+            "adapter_manifest": self.manifest,
+            "admitted_lane_root": self.lane,
+            "workspace_root": self.workspace,
+            "expected_contract_identity": contract_identity,
+            "expected_workspace_identity": workspace_identity,
+            "expected_run_identity": run_identity,
+        }
+
+    def _bind(self, values=None):
+        arguments = self._binding_arguments() if values is None else values
+        with self._current_authority():
+            return bind_cursor_workspace_plane(**arguments)
+
+    def _binding_record(self, binding):
+        with self._current_authority():
+            return binding.record
+
+    def test_compiler_binding_is_deterministic_body_free_and_authority_disabled(self):
+        values = self._binding_arguments()
+        first = self._bind(values)
+        second = self._bind(values)
+        record = self._binding_record(first)
+        self.assertEqual(record, self._binding_record(second))
+        self.assertEqual(record["schema"], BINDING_SCHEMA)
+        self.assertEqual(record["state"], BINDING_STATE)
+        self.assertEqual(record["target"], "cursor")
+        self.assertEqual(record["target_version"], CURSOR_VERSION)
+        self.assertEqual(record["requested_model"], "default")
+        self.assertEqual(record["observed_model"], "unavailable")
+        self.assertEqual(record["config_fingerprint"], "unavailable")
+        self.assertEqual(
+            record["artifact"]["relative_path"],
+            ".cursor/rules/puppet-%s.mdc"
+            % record["effective_contract_sha256"],
+        )
+        for name in (
+            "activation_authorized",
+            "launch_authorized",
+            "qualification_authorized",
+        ):
+            self.assertIs(record[name], False)
+        encoded = json.dumps(record, sort_keys=True)
+        self.assertNotIn("CURSOR_BINDING_BODY_CANARY", encoded)
+        self.assertNotIn(str(self.workspace), encoded)
+        self.assertNotIn("--yolo", encoded)
+        self.assertNotIn("--sandbox", encoded)
+        self.assertNotIn("--model", encoded)
+        self.assertNotIn("--profile", encoded)
+        self.assertNotIn("CURSOR_BINDING_BODY_CANARY", repr(first))
+        self.assertFalse(hasattr(first, "from_dict"))
+
+    def test_binding_rejects_contract_run_workspace_and_descriptor_replay(self):
+        cases = ("contract", "run", "workspace", "descriptor", "bytes", "model")
+        for case in cases:
+            with self.subTest(case=case):
+                values = self._binding_arguments()
+                if case == "contract":
+                    values["expected_contract_identity"] = {
+                        **values["expected_contract_identity"],
+                        "controller": "alternate-controller",
+                    }
+                elif case == "run":
+                    values["expected_run_identity"] = {
+                        **values["expected_run_identity"],
+                        "run_id": "alternate-run",
+                    }
+                elif case == "workspace":
+                    values["expected_workspace_identity"] = {
+                        **values["expected_workspace_identity"],
+                        "inode": values["expected_workspace_identity"]["inode"] + 1,
+                    }
+                elif case == "descriptor":
+                    descriptor = copy.deepcopy(values["descriptor"])
+                    descriptor["materialize"][0]["relative_path"] = (
+                        ".cursor/rules/puppet-%s.mdc" % ("f" * 64)
+                    )
+                    values["descriptor"] = descriptor
+                elif case == "bytes":
+                    values["effective_contract"] += b"\ntampered"
+                else:
+                    manifest = copy.deepcopy(values["instruction_manifest"])
+                    manifest["runtime_binding"]["model"] = "unavailable"
+                    values["instruction_manifest"] = manifest
+                with self.assertRaises((IdentityError, ValidationError)):
+                    self._bind(values)
+
+    def test_binding_rederivation_rejects_same_path_workspace_replacement(self):
+        binding = self._bind()
+        original = self.lane / "workspace-binding-original"
+        self.workspace.rename(original)
+        self.workspace.mkdir(mode=0o700)
+        self.workspace.chmod(0o700)
+        with self.assertRaises(IdentityError):
+            self._binding_record(binding)
 
     def test_success_is_body_free_current_bound_and_planner_only(self):
         plan = self._plan()

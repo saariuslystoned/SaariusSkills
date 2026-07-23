@@ -190,6 +190,13 @@ must not answer it, edit or inspect Codex configuration, or paste a task into
 the gate. Qualify Codex only in an already trusted exact fixture root; otherwise
 stop with the trust gate as the blocker.
 
+Cursor's source-only workspace binding uses an exact reserved descriptor and a
+contract-hash-named `.cursor/rules` candidate. It rejoins the shipped compiler
+manifest, contract/run/workspace identities, current doctor-only adapter and
+execution tuple, and the disabled workspace plan. Its public record is
+body-free and fixes activation, launch, and qualification authority to false;
+the older generic planner input is not itself binding or qualification proof.
+
 AGY launches require exactly one help-proved `--new-project` flag in a
 separately declared and fingerprinted project-isolation bucket. This prevents a
 qualification run from silently joining the default AGY project; it does not

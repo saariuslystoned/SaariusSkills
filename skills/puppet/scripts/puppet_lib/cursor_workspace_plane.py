@@ -6,9 +6,10 @@ authentication, default-model resolution, or a race-safe rollback primitive.
 This module therefore plans and revalidates only.  It never creates guidance,
 launches Cursor, mints halt authority, or removes filesystem objects.
 
-The sole public artifact is a body-free plan.  Private guidance bytes are
-accepted only to bind their size and digest into that plan; they are never
-returned or persisted here.
+The public artifacts are a body-free disabled plan and a source-only binding
+that joins the exact compiler manifest, effective-contract hash, controller
+identities, descriptor, current adapter tuple, and plan. Private guidance bytes
+are never returned or persisted here.
 """
 
 from __future__ import annotations
@@ -20,10 +21,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, NoReturn, Optional, Sequence, Tuple
 
-from .adapter_manifest import AdapterManifest
+from .adapter_manifest import AdapterManifest, QUALIFICATION_PROFILE
 from .census import adapter_implementation_fingerprint
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
+from .instruction_planes import (
+    CURSOR_WORKSPACE_DESCRIPTOR_ID,
+    descriptor_fingerprint,
+    validate_cursor_workspace_addendum_descriptor,
+)
+from .instructions import validate_instruction_manifest
 from .safety import (
     canonical_json_bytes,
     sha256_bytes,
@@ -49,6 +56,8 @@ CURSOR_ENTRYPOINT_SHA256 = (
 CURSOR_HELP_SHA256 = "bb2aed29e46b3c80635858d2181c140985dbf9f6a96d788f1b6a8adbb0d725af"
 
 PLAN_SCHEMA = "puppet.cursor-workspace-plane-plan/v2"
+BINDING_SCHEMA = "puppet.cursor-workspace-plane-binding/v1"
+BINDING_STATE = "binding_only"
 STATUS = {"surface": "hypothesis", "activation": "disabled"}
 BLOCKERS = (
     "cursor_auth_isolation_unproved",
@@ -104,6 +113,52 @@ _PLAN_KEYS = {
     "planned_artifact",
     "workspace_preimage_sha256",
     "plan_sha256",
+}
+_CONTRACT_IDENTITY_KEYS = {
+    "fingerprint",
+    "controller",
+    "target",
+    "task_profile",
+}
+_RUN_IDENTITY_KEYS = {"session", "run_id", "nonce"}
+_BINDING_KEYS = {
+    "schema",
+    "state",
+    "target",
+    "target_version",
+    "plane",
+    "descriptor_id",
+    "descriptor_sha256",
+    "instruction_manifest_sha256",
+    "instruction_policy_fingerprint",
+    "effective_contract_fingerprint",
+    "effective_contract_sha256",
+    "effective_contract_bytes",
+    "contract_identity_sha256",
+    "workspace_identity_sha256",
+    "run_identity_sha256",
+    "adapter_manifest_sha256",
+    "adapter_implementation_sha256",
+    "adapter_protocol_sha256",
+    "adapter_execution_sha256",
+    "workspace_plan_sha256",
+    "launch_delta_sha256",
+    "requested_model",
+    "observed_model",
+    "config_fingerprint",
+    "artifact",
+    "activation_authorized",
+    "launch_authorized",
+    "qualification_authorized",
+}
+_BINDING_HASH_KEYS = {
+    name
+    for name in _BINDING_KEYS
+    if name.endswith("_sha256")
+    or (
+        name.endswith("_fingerprint")
+        and name != "config_fingerprint"
+    )
 }
 
 
@@ -339,6 +394,48 @@ def _validate_guidance(value: bytes) -> bytes:
     except UnicodeDecodeError as exc:
         raise ValidationError("guidance bytes must be UTF-8") from exc
     return value
+
+
+def _normalized_contract_identity(value: Mapping[str, Any]) -> Dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != _CONTRACT_IDENTITY_KEYS:
+        raise ValidationError("expected Cursor contract identity is not exact")
+    result = {
+        "fingerprint": validate_sha256(
+            value.get("fingerprint"), "expected Cursor contract fingerprint"
+        ),
+        "controller": validate_identifier(
+            value.get("controller"), "expected Cursor controller"
+        ),
+        "target": value.get("target"),
+        "task_profile": value.get("task_profile"),
+    }
+    if result["target"] != "cursor" or result["task_profile"] != QUALIFICATION_PROFILE:
+        raise IdentityError("expected Cursor contract identity is not canonical Pass B")
+    return result
+
+
+def _normalized_run_identity(value: Mapping[str, Any]) -> Dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != _RUN_IDENTITY_KEYS:
+        raise ValidationError("expected Cursor run identity is not exact")
+    return {
+        "session": validate_identifier(value.get("session"), "expected Cursor session"),
+        "run_id": validate_identifier(value.get("run_id"), "expected Cursor run id"),
+        "nonce": validate_identifier(value.get("nonce"), "expected Cursor nonce"),
+    }
+
+
+def _identity_sha256(value: Mapping[str, Any]) -> str:
+    return sha256_bytes(canonical_json_bytes(dict(value)))
+
+
+def _mapping_from_canonical_json(value: bytes, *, label: str) -> Dict[str, Any]:
+    try:
+        decoded = json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise IdentityError("%s storage is invalid" % label) from exc
+    if not isinstance(decoded, dict) or canonical_json_bytes(decoded) != value:
+        raise IdentityError("%s storage is invalid" % label)
+    return decoded
 
 
 def _exact_cursor_manifest(
@@ -656,6 +753,366 @@ def revalidate_cursor_workspace_plan(
     _assert_identity(lane, plan.raw["admitted_lane_root"], label="admitted lane root")
     _assert_identity(workspace, plan.raw["workspace_root"], label="workspace root")
     return plan
+
+
+def _validate_binding_record(value: Mapping[str, Any]) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _BINDING_KEYS:
+        raise IdentityError("Cursor workspace binding fields changed")
+    result = json.loads(canonical_json_bytes(dict(value)).decode("utf-8"))
+    if (
+        result["schema"] != BINDING_SCHEMA
+        or result["state"] != BINDING_STATE
+        or result["target"] != "cursor"
+        or result["target_version"] != CURSOR_VERSION
+        or result["plane"] != "workspace_addendum"
+        or result["descriptor_id"] != CURSOR_WORKSPACE_DESCRIPTOR_ID
+    ):
+        raise IdentityError("Cursor workspace binding tuple changed")
+    for name in _BINDING_HASH_KEYS:
+        validate_sha256(result.get(name), name.replace("_", " "))
+    size = _exact_int(
+        result.get("effective_contract_bytes"),
+        label="Cursor effective contract bytes",
+        minimum=1,
+    )
+    if size > _MAX_GUIDANCE_BYTES:
+        raise ValidationError("Cursor effective contract exceeds the bound")
+    artifact = result.get("artifact")
+    if not isinstance(artifact, Mapping) or set(artifact) != {
+        "artifact_id",
+        "root_ref",
+        "relative_path",
+        "content_ref",
+        "write_mode",
+    }:
+        raise IdentityError("Cursor workspace binding artifact changed")
+    if artifact != {
+        "artifact_id": "cursor_workspace_rule",
+        "root_ref": "workspace_root",
+        "relative_path": (
+            ".cursor/rules/puppet-%s.mdc"
+            % result["effective_contract_sha256"]
+        ),
+        "content_ref": "effective_contract",
+        "write_mode": "create_only",
+    }:
+        raise IdentityError("Cursor workspace binding artifact changed")
+    if (
+        result["requested_model"] != "default"
+        or result["observed_model"] != "unavailable"
+        or result["config_fingerprint"] != "unavailable"
+        or any(
+            result[name] is not False
+            for name in (
+                "activation_authorized",
+                "launch_authorized",
+                "qualification_authorized",
+            )
+        )
+    ):
+        raise IdentityError("Cursor workspace binding gained authority")
+    validate_bounded_json(
+        result,
+        max_depth=5,
+        max_items=64,
+        max_string=512,
+        reject_sensitive_fields=True,
+    )
+    return result
+
+
+def _derive_cursor_workspace_binding_record(
+    *,
+    descriptor: Mapping[str, Any],
+    instruction_manifest: Mapping[str, Any],
+    effective_contract: bytes,
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+    admitted_lane_root: Path | str,
+    workspace_root: Path | str,
+    expected_contract_identity: Mapping[str, Any],
+    expected_workspace_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
+) -> Dict[str, Any]:
+    normalized_descriptor = validate_cursor_workspace_addendum_descriptor(descriptor)
+    normalized_instruction = validate_instruction_manifest(
+        instruction_manifest,
+        target="cursor",
+    )
+    contract_bytes = _validate_guidance(effective_contract)
+    rendered_sha = sha256_bytes(contract_bytes)
+    if (
+        normalized_instruction["rendered_sha256"] != rendered_sha
+        or normalized_instruction["byte_count"] != len(contract_bytes)
+    ):
+        raise IdentityError(
+            "Cursor effective contract does not match its instruction manifest"
+        )
+    if normalized_instruction["runtime_binding"] != {
+        "model": "default",
+        "effort": "default",
+    }:
+        raise IdentityError("Cursor workspace binding requires current defaults")
+
+    contract_identity = _normalized_contract_identity(expected_contract_identity)
+    run_identity = _normalized_run_identity(expected_run_identity)
+    workspace_identity = _validate_root(
+        expected_workspace_identity,
+        kind="workspace_root",
+    )
+    if normalized_instruction["contract_identity"] != contract_identity:
+        raise IdentityError("Cursor instruction contract identity changed")
+    if normalized_instruction["run_identity"] != run_identity:
+        raise IdentityError("Cursor instruction run identity changed")
+    if normalized_instruction["workspace_identity"] != workspace_identity:
+        raise IdentityError("Cursor instruction workspace identity changed")
+
+    manifest = _exact_cursor_manifest(
+        adapter_manifest,
+        observed_version=CURSOR_VERSION,
+    )
+    target = normalized_descriptor["target"]
+    if (
+        target["adapter_manifest_sha256"] != manifest.fingerprint
+        or target["version"] != CURSOR_VERSION
+        or target["requested_model"] != "default"
+        or target["observed_model"] != "unavailable"
+        or target["config_fingerprint"] != "unavailable"
+    ):
+        raise IdentityError("Cursor workspace descriptor target tuple changed")
+    artifact = normalized_descriptor["materialize"][0]
+    expected_relative_path = ".cursor/rules/puppet-%s.mdc" % rendered_sha
+    if artifact["relative_path"] != expected_relative_path:
+        raise IdentityError(
+            "Cursor workspace rule filename does not match the effective contract"
+        )
+    expected_launch_delta = {
+        "cwd_ref": "workspace_root",
+        "env": [],
+        "argv": [
+            {"literal": "--workspace"},
+            {"root_ref": "workspace_root"},
+        ],
+    }
+    if normalized_descriptor["launch_delta"] != expected_launch_delta:
+        raise IdentityError("Cursor workspace descriptor launch delta changed")
+
+    plan = plan_cursor_workspace_plane(
+        adapter_manifest=manifest,
+        expected_manifest_sha256=manifest.fingerprint,
+        expected_adapter_implementation_sha256=manifest.raw[
+            "adapter_fingerprint"
+        ],
+        observed_version=CURSOR_VERSION,
+        admitted_lane_root=admitted_lane_root,
+        workspace_root=workspace_root,
+        scope_id=rendered_sha,
+        guidance=contract_bytes,
+    )
+    if plan.raw["workspace_root"] != workspace_identity:
+        raise IdentityError("Cursor workspace binding root changed")
+    if (
+        plan.raw["planned_artifact"]["relative_path"] != expected_relative_path
+        or plan.raw["planned_artifact"]["content_sha256"] != rendered_sha
+        or plan.raw["planned_artifact"]["content_size"] != len(contract_bytes)
+        or plan.raw["launch_delta"]
+        != {"argv": ["--workspace", workspace_identity["path"]]}
+    ):
+        raise IdentityError("Cursor workspace plan join changed")
+
+    record: Dict[str, Any] = {
+        "schema": BINDING_SCHEMA,
+        "state": BINDING_STATE,
+        "target": "cursor",
+        "target_version": CURSOR_VERSION,
+        "plane": "workspace_addendum",
+        "descriptor_id": normalized_descriptor["descriptor_id"],
+        "descriptor_sha256": descriptor_fingerprint(normalized_descriptor),
+        "instruction_manifest_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_instruction) + b"\n"
+        ),
+        "instruction_policy_fingerprint": normalized_instruction[
+            "instruction_policy_fingerprint"
+        ],
+        "effective_contract_fingerprint": normalized_instruction[
+            "effective_contract_fingerprint"
+        ],
+        "effective_contract_sha256": rendered_sha,
+        "effective_contract_bytes": len(contract_bytes),
+        "contract_identity_sha256": _identity_sha256(contract_identity),
+        "workspace_identity_sha256": _identity_sha256(workspace_identity),
+        "run_identity_sha256": _identity_sha256(run_identity),
+        "adapter_manifest_sha256": manifest.fingerprint,
+        "adapter_implementation_sha256": plan.raw[
+            "adapter_implementation_sha256"
+        ],
+        "adapter_protocol_sha256": plan.raw["adapter_protocol_sha256"],
+        "adapter_execution_sha256": plan.raw["execution_fingerprint"],
+        "workspace_plan_sha256": plan.plan_sha256,
+        "launch_delta_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_descriptor["launch_delta"])
+        ),
+        "requested_model": "default",
+        "observed_model": "unavailable",
+        "config_fingerprint": "unavailable",
+        "artifact": {
+            "artifact_id": artifact["artifact_id"],
+            "root_ref": artifact["root_ref"],
+            "relative_path": artifact["relative_path"],
+            "content_ref": artifact["content_ref"],
+            "write_mode": artifact["write_mode"],
+        },
+        "activation_authorized": False,
+        "launch_authorized": False,
+        "qualification_authorized": False,
+    }
+    encoded = canonical_json_bytes(record)
+    if contract_bytes in encoded:
+        raise IdentityError("Cursor workspace binding contains instruction bytes")
+    return _validate_binding_record(record)
+
+
+class CursorWorkspacePlaneBinding:
+    """Immutable, body-free source join with lifecycle authority fixed false."""
+
+    __slots__ = (
+        "__adapter_manifest_json",
+        "__admitted_lane_root",
+        "__descriptor_json",
+        "__effective_contract",
+        "__expected_contract_identity_json",
+        "__expected_record_sha256",
+        "__expected_run_identity_json",
+        "__expected_workspace_identity_json",
+        "__instruction_manifest_json",
+        "__workspace_root",
+    )
+
+    def __init__(
+        self,
+        *,
+        descriptor: Mapping[str, Any],
+        instruction_manifest: Mapping[str, Any],
+        effective_contract: bytes,
+        adapter_manifest: AdapterManifest | Mapping[str, Any],
+        admitted_lane_root: Path | str,
+        workspace_root: Path | str,
+        expected_contract_identity: Mapping[str, Any],
+        expected_workspace_identity: Mapping[str, Any],
+        expected_run_identity: Mapping[str, Any],
+    ) -> None:
+        record = _derive_cursor_workspace_binding_record(
+            descriptor=descriptor,
+            instruction_manifest=instruction_manifest,
+            effective_contract=effective_contract,
+            adapter_manifest=adapter_manifest,
+            admitted_lane_root=admitted_lane_root,
+            workspace_root=workspace_root,
+            expected_contract_identity=expected_contract_identity,
+            expected_workspace_identity=expected_workspace_identity,
+            expected_run_identity=expected_run_identity,
+        )
+        manifest = AdapterManifest.from_dict(
+            dict(adapter_manifest.raw)
+            if isinstance(adapter_manifest, AdapterManifest)
+            else dict(adapter_manifest)
+        )
+        values = {
+            "adapter_manifest_json": canonical_json_bytes(manifest.raw),
+            "admitted_lane_root": Path(admitted_lane_root),
+            "descriptor_json": canonical_json_bytes(dict(descriptor)),
+            "effective_contract": bytes(effective_contract),
+            "expected_contract_identity_json": canonical_json_bytes(
+                dict(expected_contract_identity)
+            ),
+            "expected_record_sha256": sha256_bytes(canonical_json_bytes(record)),
+            "expected_run_identity_json": canonical_json_bytes(
+                dict(expected_run_identity)
+            ),
+            "expected_workspace_identity_json": canonical_json_bytes(
+                dict(expected_workspace_identity)
+            ),
+            "instruction_manifest_json": canonical_json_bytes(
+                dict(instruction_manifest)
+            ),
+            "workspace_root": Path(workspace_root),
+        }
+        for name, stored in values.items():
+            object.__setattr__(
+                self,
+                "_CursorWorkspacePlaneBinding__%s" % name,
+                stored,
+            )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("Cursor workspace bindings are immutable")
+
+    def __repr__(self) -> str:
+        return "CursorWorkspacePlaneBinding(state='binding_only')"
+
+    @property
+    def record(self) -> Dict[str, Any]:
+        record = _derive_cursor_workspace_binding_record(
+            descriptor=_mapping_from_canonical_json(
+                self.__descriptor_json,
+                label="Cursor workspace descriptor",
+            ),
+            instruction_manifest=_mapping_from_canonical_json(
+                self.__instruction_manifest_json,
+                label="Cursor instruction manifest",
+            ),
+            effective_contract=self.__effective_contract,
+            adapter_manifest=_mapping_from_canonical_json(
+                self.__adapter_manifest_json,
+                label="Cursor adapter manifest",
+            ),
+            admitted_lane_root=self.__admitted_lane_root,
+            workspace_root=self.__workspace_root,
+            expected_contract_identity=_mapping_from_canonical_json(
+                self.__expected_contract_identity_json,
+                label="expected Cursor contract identity",
+            ),
+            expected_workspace_identity=_mapping_from_canonical_json(
+                self.__expected_workspace_identity_json,
+                label="expected Cursor workspace identity",
+            ),
+            expected_run_identity=_mapping_from_canonical_json(
+                self.__expected_run_identity_json,
+                label="expected Cursor run identity",
+            ),
+        )
+        if sha256_bytes(canonical_json_bytes(record)) != self.__expected_record_sha256:
+            raise IdentityError("Cursor workspace binding changed after binding")
+        return record
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        return self.record
+
+
+def bind_cursor_workspace_plane(
+    *,
+    descriptor: Mapping[str, Any],
+    instruction_manifest: Mapping[str, Any],
+    effective_contract: bytes,
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+    admitted_lane_root: Path | str,
+    workspace_root: Path | str,
+    expected_contract_identity: Mapping[str, Any],
+    expected_workspace_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
+) -> CursorWorkspacePlaneBinding:
+    """Bind Cursor compiler output to the exact disabled workspace plan."""
+
+    return CursorWorkspacePlaneBinding(
+        descriptor=descriptor,
+        instruction_manifest=instruction_manifest,
+        effective_contract=effective_contract,
+        adapter_manifest=adapter_manifest,
+        admitted_lane_root=admitted_lane_root,
+        workspace_root=workspace_root,
+        expected_contract_identity=expected_contract_identity,
+        expected_workspace_identity=expected_workspace_identity,
+        expected_run_identity=expected_run_identity,
+    )
 
 
 def _disabled_lifecycle(plan: Any) -> NoReturn:

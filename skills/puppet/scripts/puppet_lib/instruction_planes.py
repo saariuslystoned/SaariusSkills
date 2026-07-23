@@ -103,6 +103,28 @@ _AGY_WORKSPACE_AGENT_RE = re.compile(
     r"^\.agents/agents/puppet-([0-9a-f]{64})/agent\.md$"
 )
 
+CURSOR_AGENT_VERSION = "2026.07.17-3e2a980"
+CURSOR_WORKSPACE_DESCRIPTOR_ID = (
+    "cursor-2026.07.17-3e2a980-workspace-addendum-disabled"
+)
+CURSOR_WORKSPACE_ARTIFACT_ID = "cursor_workspace_rule"
+CURSOR_WORKSPACE_ASSERTIONS = (
+    "cursor_workspace_context_delta_exact",
+    "cursor_workspace_create_only",
+    "cursor_workspace_effective_contract_hash_named",
+)
+CURSOR_WORKSPACE_BLOCKERS = (
+    "cursor_auth_isolation_unproved",
+    "cursor_default_model_resolution_unavailable",
+    "cursor_live_process_population_unproved",
+    "cursor_workspace_cleanup_has_no_race_safe_delete_primitive",
+    "cursor_workspace_plane_no_bleed_unproved",
+    "cursor_workspace_rule_activation_unqualified",
+)
+_CURSOR_WORKSPACE_RULE_RE = re.compile(
+    r"^\.cursor/rules/puppet-([0-9a-f]{64})\.mdc$"
+)
+
 GROK_BUILD_VERSION = "0.2.106"
 GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.106-workspace-addendum"
 GROK_WORKSPACE_ARTIFACT_ID = "grok_workspace_rule"
@@ -737,6 +759,109 @@ def _validate_agy_workspace_agent_shape(
     return dict(normalized)
 
 
+def _cursor_workspace_descriptor_payload(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    adapter_hash = validate_sha256(
+        adapter_manifest_sha256,
+        "Cursor adapter manifest sha256",
+    )
+    rendered_hash = validate_sha256(
+        rendered_sha256,
+        "Cursor rendered sha256",
+    )
+    return {
+        "schema": _SCHEMA_NAME,
+        "descriptor_id": CURSOR_WORKSPACE_DESCRIPTOR_ID,
+        "target": {
+            "harness": "cursor",
+            "version": CURSOR_AGENT_VERSION,
+            "adapter_manifest_sha256": adapter_hash,
+            "requested_model": "default",
+            "observed_model": "unavailable",
+            "config_fingerprint": "unavailable",
+        },
+        "plane": "workspace_addendum",
+        "status": {"surface": "factual", "activation": "disabled"},
+        "materialize": [
+            {
+                "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
+                "root_ref": "workspace_root",
+                "relative_path": (
+                    ".cursor/rules/puppet-%s.mdc" % rendered_hash
+                ),
+                "content_ref": "effective_contract",
+                "write_mode": "create_only",
+            }
+        ],
+        "launch_delta": {
+            "cwd_ref": "workspace_root",
+            "env": [],
+            "argv": [
+                {"literal": "--workspace"},
+                {"root_ref": "workspace_root"},
+            ],
+        },
+        "rollback": {
+            "owned_artifacts": [CURSOR_WORKSPACE_ARTIFACT_ID],
+            "preimage_sha256": [],
+            "retain_hash_only_proof": True,
+        },
+        "assertions": list(CURSOR_WORKSPACE_ASSERTIONS),
+        "blockers": list(CURSOR_WORKSPACE_BLOCKERS),
+    }
+
+
+def build_cursor_workspace_addendum_descriptor(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    """Build the exact activation-disabled Cursor workspace descriptor."""
+
+    return validate_instruction_plane_descriptor(
+        _cursor_workspace_descriptor_payload(
+            adapter_manifest_sha256=adapter_manifest_sha256,
+            rendered_sha256=rendered_sha256,
+        )
+    )
+
+
+def validate_cursor_workspace_addendum_descriptor(
+    raw: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Require the exact source-owned Cursor workspace descriptor shape."""
+
+    normalized = validate_instruction_plane_descriptor(raw)
+    if normalized["descriptor_id"] != CURSOR_WORKSPACE_DESCRIPTOR_ID:
+        raise ValidationError("descriptor is not the source-owned Cursor workspace rule")
+    return _validate_cursor_workspace_addendum_shape(normalized)
+
+
+def _validate_cursor_workspace_addendum_shape(
+    normalized: Mapping[str, Any],
+) -> Dict[str, Any]:
+    materialize = normalized["materialize"]
+    match = (
+        _CURSOR_WORKSPACE_RULE_RE.fullmatch(materialize[0]["relative_path"])
+        if len(materialize) == 1
+        else None
+    )
+    if match is None:
+        raise ValidationError("Cursor workspace rule filename is invalid")
+    expected = _cursor_workspace_descriptor_payload(
+        adapter_manifest_sha256=normalized["target"]["adapter_manifest_sha256"],
+        rendered_sha256=match.group(1),
+    )
+    if canonical_json_bytes(normalized) != canonical_json_bytes(expected):
+        raise ValidationError(
+            "descriptor is not the exact activation-disabled Cursor workspace rule"
+        )
+    return dict(normalized)
+
+
 def _grok_workspace_descriptor_payload(
     *,
     adapter_manifest_sha256: str,
@@ -938,6 +1063,8 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
     }
     if descriptor_id == AGY_WORKSPACE_DESCRIPTOR_ID:
         return _validate_agy_workspace_agent_shape(result)
+    if descriptor_id == CURSOR_WORKSPACE_DESCRIPTOR_ID:
+        return _validate_cursor_workspace_addendum_shape(result)
     return result
 
 
@@ -970,16 +1097,23 @@ __all__ = [
     "AGY_WORKSPACE_ASSERTIONS",
     "AGY_WORKSPACE_BLOCKERS",
     "AGY_WORKSPACE_DESCRIPTOR_ID",
+    "CURSOR_AGENT_VERSION",
+    "CURSOR_WORKSPACE_ARTIFACT_ID",
+    "CURSOR_WORKSPACE_ASSERTIONS",
+    "CURSOR_WORKSPACE_BLOCKERS",
+    "CURSOR_WORKSPACE_DESCRIPTOR_ID",
     "GROK_BUILD_VERSION",
     "GROK_WORKSPACE_ARTIFACT_ID",
     "GROK_WORKSPACE_ASSERTIONS",
     "GROK_WORKSPACE_BLOCKERS",
     "GROK_WORKSPACE_DESCRIPTOR_ID",
     "build_agy_workspace_agent_descriptor",
+    "build_cursor_workspace_addendum_descriptor",
     "build_grok_workspace_addendum_descriptor",
     "descriptor_fingerprint",
     "parse_instruction_plane_descriptor",
     "validate_agy_workspace_agent_descriptor",
+    "validate_cursor_workspace_addendum_descriptor",
     "validate_grok_workspace_addendum_descriptor",
     "validate_instruction_plane_descriptor",
 ]
