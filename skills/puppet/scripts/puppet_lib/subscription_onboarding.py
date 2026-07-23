@@ -26,16 +26,7 @@ from .subscription_profiles import (
 
 ONBOARDING_SCHEMA = "puppet.subscription-onboarding/v1"
 ONBOARDING_TARGETS = ("agy", "claude", "codex", "cursor", "grok")
-PUBLIC_PROFILE_TARGETS = frozenset({"claude", "codex", "grok"})
-UNSUPPORTED_PROFILE_REASONS = {
-    "cursor": "cursor_private_subscription_profile_unqualified",
-}
-UNSUPPORTED_PROFILE_ACTIONS = {
-    "cursor": {
-        "human_action_required": True,
-        "next_action": "human_approve_cursor_auth_isolation_probe",
-    },
-}
+PUBLIC_PROFILE_TARGETS = frozenset({"claude", "codex", "cursor", "grok"})
 
 AGY_NATIVE_REUSE_RESULT = {
     "supported": False,
@@ -217,19 +208,6 @@ def run_subscription_onboarding(
         if target == "agy":
             results[target] = dict(AGY_NATIVE_REUSE_RESULT)
             continue
-        if target not in PUBLIC_PROFILE_TARGETS:
-            action = UNSUPPORTED_PROFILE_ACTIONS[target]
-            results[target] = {
-                "supported": False,
-                "state": "unsupported",
-                "reason": UNSUPPORTED_PROFILE_REASONS[target],
-                **action,
-                "login_performed": False,
-                "account_change_performed": False,
-                "model_launched": False,
-                "raw_output_retained": False,
-            }
-            continue
         results[target] = _supported_result(
             target=target,
             shelf=shelf,
@@ -285,7 +263,5 @@ __all__ = [
     "ONBOARDING_TARGETS",
     "AGY_NATIVE_REUSE_RESULT",
     "PUBLIC_PROFILE_TARGETS",
-    "UNSUPPORTED_PROFILE_ACTIONS",
-    "UNSUPPORTED_PROFILE_REASONS",
     "run_subscription_onboarding",
 ]

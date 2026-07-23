@@ -118,6 +118,7 @@ class SubscriptionOnboardingTests(unittest.TestCase):
         states = {
             "codex": ("logged_in", "chatgpt"),
             "claude": ("logged_out", "claude.ai"),
+            "cursor": ("logged_out", "private_file_store"),
             "grok": ("unknown", "private_grok_home"),
         }
         login_state, method = states[target]
@@ -159,10 +160,10 @@ class SubscriptionOnboardingTests(unittest.TestCase):
 
             self.assertEqual(result["schema"], ONBOARDING_SCHEMA)
             self.assertEqual(result["ready_targets"], ["codex"])
-            self.assertEqual(result["enrollment_targets"], ["claude"])
+            self.assertEqual(result["enrollment_targets"], ["claude", "cursor"])
             self.assertEqual(result["unknown_targets"], ["grok"])
             self.assertEqual(result["native_reuse_candidate_targets"], ["agy"])
-            self.assertEqual(result["unsupported_targets"], ["cursor"])
+            self.assertEqual(result["unsupported_targets"], [])
             self.assertEqual(result["human_action_targets"], ["claude", "cursor"])
             self.assertTrue(result["human_action_required"])
             self.assertFalse(result["login_performed"])
@@ -200,16 +201,22 @@ class SubscriptionOnboardingTests(unittest.TestCase):
             )
             self.assertFalse(result["results"]["agy"]["profile_material_copied"])
             self.assertNotIn("login_command", result["results"]["agy"])
-            for target in ("agy", "cursor"):
-                self.assertFalse((shelf / target).exists())
-            self.assertEqual(result["results"]["cursor"]["state"], "unsupported")
+            self.assertFalse((shelf / "agy").exists())
+            self.assertEqual(
+                result["results"]["cursor"]["state"], "enrollment_required"
+            )
             self.assertFalse(result["results"]["agy"]["human_action_required"])
             self.assertTrue(result["results"]["cursor"]["human_action_required"])
             self.assertEqual(
                 result["results"]["cursor"]["next_action"],
-                "human_approve_cursor_auth_isolation_probe",
+                "human_run_one_time_login_handoff",
             )
-            for target in ("claude", "codex", "grok"):
+            self.assertIn("login_command", result["results"]["cursor"])
+            self.assertEqual(
+                result["results"]["cursor"]["status"]["method"],
+                "private_file_store",
+            )
+            for target in ("claude", "codex", "cursor", "grok"):
                 self.assertTrue((shelf / target / "profile.json").is_file())
 
             encoded = json.dumps(result, sort_keys=True)

@@ -855,7 +855,7 @@ class OperatorPlanTests(unittest.TestCase):
                     ):
                         compile_operator_plan(**kwargs, repo=fixture.repo)
 
-    def test_cursor_source_only_plan_emits_human_gate_and_no_lifecycle(self):
+    def test_cursor_source_only_plan_emits_runtime_gate_and_profile_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="cursor")
             with (
@@ -903,17 +903,23 @@ class OperatorPlanTests(unittest.TestCase):
                 plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
 
             gate = plan["target_gate"]
-            self.assertEqual(gate["state"], "waiting_for_human")
+            self.assertEqual(gate["state"], "qualification_required")
             self.assertEqual(
                 gate["failed_invariant"],
-                "approved_authentication_preserving_private_cursor_profile_route_unavailable",
+                "cursor_regular_runtime_qualification_missing",
             )
             self.assertEqual(gate["rung"], "cursor_regular_pass_b")
             self.assertEqual(
                 gate["next_safe_action"],
-                "human_approve_cursor_auth_isolation_probe",
+                "prepare_or_rejoin_private_cursor_profile_and_continue_runtime_qualification",
             )
-            self.assertEqual(gate["available_routes"], [])
+            self.assertEqual(
+                gate["available_routes"],
+                [
+                    "reuse_authenticated_puppet_profile",
+                    "human_present_one_time_profile_enrollment_if_logged_out",
+                ],
+            )
             manifest = AdapterManifest.from_path(fixture.manifest)
             executable = manifest.raw["executable"]
             self.assertEqual(
@@ -963,15 +969,21 @@ class OperatorPlanTests(unittest.TestCase):
                 "halt",
             ):
                 self.assertEqual(plan["commands"][command], unsupported)
+            profile = plan["commands"]["profile"]
+            self.assertTrue(profile["supported"])
+            self.assertEqual(profile["reuse_scope"], "durable_cross_run")
             self.assertEqual(
-                plan["commands"]["profile"],
-                {
-                    "supported": False,
-                    "reason": "cursor_private_subscription_profile_unqualified",
-                },
+                profile["human_login_policy"],
+                "initial_enrollment_or_provider_invalidation_only",
             )
-            self.assertNotIn("init", plan["commands"]["profile"])
-            self.assertNotIn("status", plan["commands"]["profile"])
+            self.assertEqual(profile["init"][3:7], [
+                "profile-init",
+                "--target",
+                "cursor",
+                "--profile-root",
+            ])
+            self.assertEqual(profile["status"][3], "profile-status")
+            self.assertNotIn("required_gate", profile)
             encoded = json.dumps(plan, sort_keys=True)
             self.assertNotIn(fixture.prompt_body.strip(), encoded)
             self.assertNotIn("CURSOR_API_KEY", encoded)
@@ -1005,7 +1017,7 @@ class OperatorPlanTests(unittest.TestCase):
 
             self.assertEqual(
                 plan["target_gate"]["failed_invariant"],
-                "approved_authentication_preserving_private_cursor_profile_route_unavailable",
+                "cursor_regular_runtime_qualification_missing",
             )
             self.assertEqual(
                 plan["target_gate"]["last_trusted_identity"]["adapter_sha256"],

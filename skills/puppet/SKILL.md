@@ -45,11 +45,11 @@ security, secrets, spending, and destructive actions separately gated.
    a human-gated proposal under
    `human_approve_authenticated_claude_matched_control_pair`; the plan neither
    authenticates nor runs either member of that pair.
-   A doctor-only, unqualified Cursor manifest yields the same body-free
-   `waiting_for_human` boundary for `cursor_regular_pass_b`, but it names no
-   available authentication route. Only `doctor` remains proposed; profile
-   initialization and every session lifecycle action are unsupported until a
-   human approves a separate Cursor authentication-isolation probe.
+   A doctor-only, unqualified Cursor manifest yields a body-free
+   `qualification_required` boundary for `cursor_regular_pass_b`. The exact
+   private file-store route is available through `profile-init` and
+   `profile-status`; neither command performs login. Session lifecycle actions
+   remain unsupported until the other Cursor runtime blockers qualify.
 2. Resolve the target repository explicitly. From a cockpit or another repo,
    require an explicit target path. From inside the target, use its Git root
    unless the user overrides it. Give every mutating target a fresh worktree;
@@ -125,22 +125,27 @@ local to that harness so the other selected subscriptions still classify. AGY
 reports `native_reuse_candidate`: its vendor route silently reuses a valid
 operating-system keyring profile, but Puppet does not probe the current account
 or emit a login action while AGY's separate configuration/no-bleed boundary is
-unqualified. Cursor remains explicitly unsupported until its isolated
-authentication route qualifies.
+unqualified. Cursor uses an exact private HOME/config/data root and file-backed
+credential selector. Its native status probe runs with browser opening
+disabled, retains only the allowlisted login classification, and emits the
+one-time login handoff only when that isolated profile reports logged out.
+This qualifies authentication isolation, not Cursor's remaining workspace,
+default-model, process-population, or lifecycle behavior.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
 For an unqualified Claude regular plan, profile initialization is only
 preparation for the separately approved authenticated matched-control pair; it
 is not launch or matched-control authority.
 After the operator completes that account action, use `profile-status` to retain
-only an allowlisted login state. Codex, Claude, and Grok have public
-private-profile recipes. Cursor retains an internal source-only recipe for
-deterministic validation, but `profile-init` does not expose it because no
-authentication-preserving private config-root selector is qualified. AGY does
-not need credential copying or a second Puppet-owned login profile: its
-installed CLI can reuse the operator's native keyring. It remains
-non-launchable until Puppet can isolate AGY's global configuration,
-instructions, plugins, sessions, and logs independently of that keyring.
+only an allowlisted login state. Codex, Claude, Cursor, and Grok have public
+private-profile recipes. Cursor's recipe fixes
+`AGENT_CLI_CREDENTIAL_STORE=file`, isolates HOME/config/data, and keeps
+`NO_OPEN_BROWSER=1` on status and login-handoff preparation; Puppet itself
+never runs the handoff. AGY does not need credential copying or a second
+Puppet-owned login profile: its installed CLI can reuse the operator's native
+keyring. It remains non-launchable until Puppet can isolate AGY's global
+configuration, instructions, plugins, sessions, and logs independently of that
+keyring.
 `doctor` and `launch` require the selected profile explicitly. `launch` passes
 only that profile's closed home/config environment to the exact target and
 revalidates its manifest, executable, directory identities, login state, and

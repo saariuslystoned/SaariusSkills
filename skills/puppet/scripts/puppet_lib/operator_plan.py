@@ -85,12 +85,15 @@ _CLAUDE_FAILED_INVARIANT = (
 _CLAUDE_GATE_RUNG = "claude_regular_pass_b"
 _CLAUDE_NEXT_SAFE_ACTION = "human_approve_authenticated_claude_matched_control_pair"
 _CURSOR_LIFECYCLE_UNSUPPORTED_REASON = "cursor_regular_session_source_only_unqualified"
-_CURSOR_PROFILE_UNSUPPORTED_REASON = "cursor_private_subscription_profile_unqualified"
-_CURSOR_FAILED_INVARIANT = (
-    "approved_authentication_preserving_private_cursor_profile_route_unavailable"
-)
+_CURSOR_FAILED_INVARIANT = "cursor_regular_runtime_qualification_missing"
 _CURSOR_GATE_RUNG = "cursor_regular_pass_b"
-_CURSOR_NEXT_SAFE_ACTION = "human_approve_cursor_auth_isolation_probe"
+_CURSOR_NEXT_SAFE_ACTION = (
+    "prepare_or_rejoin_private_cursor_profile_and_continue_runtime_qualification"
+)
+_CURSOR_AUTH_ROUTES = (
+    "reuse_authenticated_puppet_profile",
+    "human_present_one_time_profile_enrollment_if_logged_out",
+)
 _CURSOR_PRESERVED_EVIDENCE_KINDS = (
     CURSOR_PLAN_SCHEMA,
     CURSOR_BINDING_SCHEMA,
@@ -412,11 +415,6 @@ def _commands(
             "human_action_required": False,
             "next_action": "qualify_agy_runtime_isolation_without_credential_copy",
         }
-    elif cursor_source_only:
-        result["profile"] = {
-            "supported": False,
-            "reason": _CURSOR_PROFILE_UNSUPPORTED_REASON,
-        }
     else:
         result["profile"] = {
             "supported": True,
@@ -540,7 +538,7 @@ def _cursor_target_gate(
 ) -> Dict[str, Any]:
     executable = manifest.raw["executable"]
     return {
-        "state": "waiting_for_human",
+        "state": "qualification_required",
         "failed_invariant": _CURSOR_FAILED_INVARIANT,
         "rung": _CURSOR_GATE_RUNG,
         "last_trusted_identity": {
@@ -564,7 +562,7 @@ def _cursor_target_gate(
         },
         "preserved_evidence_kinds": list(_CURSOR_PRESERVED_EVIDENCE_KINDS),
         "next_safe_action": _CURSOR_NEXT_SAFE_ACTION,
-        "available_routes": [],
+        "available_routes": list(_CURSOR_AUTH_ROUTES),
     }
 
 

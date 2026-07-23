@@ -60,7 +60,6 @@ BINDING_SCHEMA = "puppet.cursor-workspace-plane-binding/v1"
 BINDING_STATE = "binding_only"
 STATUS = {"surface": "hypothesis", "activation": "disabled"}
 BLOCKERS = (
-    "cursor_auth_isolation_unproved",
     "cursor_default_model_resolution_unavailable",
     "cursor_live_process_population_unproved",
     "cursor_workspace_plane_no_bleed_unproved",

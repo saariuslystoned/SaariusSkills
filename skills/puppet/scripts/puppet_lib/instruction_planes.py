@@ -104,7 +104,9 @@ _AGY_WORKSPACE_AGENT_RE = re.compile(
 )
 
 CURSOR_AGENT_VERSION = "2026.07.17-3e2a980"
-CURSOR_WORKSPACE_DESCRIPTOR_ID = "cursor-2026.07.17-3e2a980-workspace-addendum-disabled"
+CURSOR_WORKSPACE_DESCRIPTOR_ID = (
+    "cursor-2026.07.17-3e2a980-workspace-addendum-disabled-v2"
+)
 CURSOR_WORKSPACE_ARTIFACT_ID = "cursor_workspace_rule"
 CURSOR_WORKSPACE_ASSERTIONS = (
     "cursor_workspace_context_delta_exact",
@@ -112,7 +114,6 @@ CURSOR_WORKSPACE_ASSERTIONS = (
     "cursor_workspace_effective_contract_hash_named",
 )
 CURSOR_WORKSPACE_BLOCKERS = (
-    "cursor_auth_isolation_unproved",
     "cursor_default_model_resolution_unavailable",
     "cursor_live_process_population_unproved",
     "cursor_workspace_cleanup_has_no_race_safe_delete_primitive",

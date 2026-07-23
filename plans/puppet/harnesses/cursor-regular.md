@@ -65,6 +65,18 @@
   - model-list SHA-256:
     `7160694a310c168cee2cc97747d08d19683a9529515a9252c8bae7e611541d3f`
   - output includes `gpt-5.6-sol-*`, `claude-*`, `gemini-*`, plus many Cursor/Opus/Sonnet model variants.
+- Authentication-isolation probe at controller head
+  `9fe12552aae516a727573ffe88cd929d68492ad8`:
+  - exact executable version `2026.07.17-3e2a980` ran only native
+    `status --format json` in a fresh current-UID mode-0700 profile;
+  - the closed environment replaced HOME and fixed private config/data roots,
+    `AGENT_CLI_CREDENTIAL_STORE=file`, and `NO_OPEN_BROWSER=1`;
+  - the allowlisted result was `logged_out` / `private_file_store`, exit 0;
+    raw output was discarded and no browser, login, account change, model, or
+    interaction with the pre-existing Cursor process occurred;
+  - this closes `cursor_auth_isolation_unproved` for the exact private-profile
+    mechanism. It does not authenticate that profile or qualify workspace,
+    trust, default-model, process, or session lifecycle behavior.
 
 ### Hypotheses requiring proof
 
@@ -143,9 +155,11 @@ and `https://docs.cursor.com/en/cli/using`.
   executable may be fingerprinted read-only; configuration proof stays inside
   lane-owned fixture/worktree surfaces.
 - Official config paths are fixed at user `~/.cursor/cli-config.json` and
-  workspace `.cursor/cli.json`; no public config-root selector was found. An
-  isolated home lacks a proved authorized auth path, and `--api-key` in argv is
-  forbidden. Trust/auth isolation remains a gate.
+  workspace `.cursor/cli.json`; no command-line config-root selector was found.
+  The exact installed launcher does honor Puppet's closed private HOME,
+  config/data, and file-credential-store environment, and the body-free native
+  status probe proved that route without borrowing operator state. Workspace
+  trust remains a separate gate, and `--api-key` in argv is forbidden.
 - Re-run all cursors probes when executable, manifest hash, or help hash changes.
 
 ## 6) Required Puppet source deltas for this lane
@@ -202,21 +216,20 @@ and `https://docs.cursor.com/en/cli/using`.
   `skills/puppet/scripts/puppet.py` keep that boundary at the public front
   door:
   - a doctor-only, unqualified Cursor manifest emits a body-free
-    `target_gate` with state `waiting_for_human`, failed invariant
-    `approved_authentication_preserving_private_cursor_profile_route_unavailable`,
+    `target_gate` with state `qualification_required`, failed invariant
+    `cursor_regular_runtime_qualification_missing`,
     rung `cursor_regular_pass_b`, the exact manifest/executable/version/
     adapter/protocol identity, and every planner-only blocker;
   - the only preserved evidence kinds are
     `puppet.cursor-workspace-plane-plan/v2` and
-    `puppet.cursor-workspace-plane-binding/v1`; no authentication route is
-    claimed;
-  - `doctor` remains proposed, while profile initialization and launch,
-    status, waits, attach, open-view, and halt are unsupported with explicit
-    source-only reasons; and
-  - the internal Cursor subscription-profile recipe remains available for
-    deterministic source validation, but the public `profile-init` command
-    does not advertise Cursor. The next safe action is the separately gated
-    `human_approve_cursor_auth_isolation_probe`, not login or config access.
+    `puppet.cursor-workspace-plane-binding/v1`;
+  - `doctor`, private `profile-init`, and body-free `profile-status` are
+    proposed, while launch, session status, waits, attach, open-view, and halt
+    remain unsupported with explicit source-only reasons; and
+  - public onboarding may silently reuse an authenticated private Cursor
+    profile or emit `human_run_one_time_login_handoff` only when native status
+    reports logged out. Isolation detection is not human-gated and the handoff
+    never runs unattended.
 
 ### Remaining shared integration work
 
@@ -246,9 +259,6 @@ and `https://docs.cursor.com/en/cli/using`.
   - Any default-model ambiguity that affects deterministic regular-session guarantees.
   - Launcher/runtime identity mismatch until the shell launcher, bundled Node,
     and entrypoint are all bound and verified.
-  - No safe isolated authentication/trust path for a disposable config home.
-    The source-only substrate names this
-    `cursor_auth_isolation_unproved` and never reads or changes auth/config.
   - Default selector `auto` still has no resolved provider/model/effort proof;
     the substrate names this `cursor_default_model_resolution_unavailable`.
   - `--yolo` remains subject to explicit permission denials; unknown user or

@@ -360,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile_init_parser.add_argument(
         "--target",
         required=True,
-        choices=["codex", "claude", "grok"],
+        choices=["codex", "claude", "cursor", "grok"],
     )
     profile_init_parser.add_argument("--profile-root", required=True, type=_path)
     profile_init_parser.add_argument("--executable", required=True, type=_path)

@@ -178,7 +178,7 @@ class PuppetCLITests(unittest.TestCase):
         args = self.parser.parse_args(["--json", "promote"])
         self.assertTrue(args.json)
 
-    def test_profile_init_does_not_advertise_unqualified_targets(self):
+    def test_profile_init_advertises_private_profile_targets(self):
         common = [
             "profile-init",
             "--profile-root",
@@ -186,10 +186,9 @@ class PuppetCLITests(unittest.TestCase):
             "--executable",
             "/tmp/executable",
         ]
-        for target in ("agy", "cursor"):
-            with self.subTest(target=target), self.assertRaises(SystemExit):
-                self.parser.parse_args([*common, "--target", target])
-        for target in ("codex", "claude", "grok"):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args([*common, "--target", "agy"])
+        for target in ("codex", "claude", "cursor", "grok"):
             with self.subTest(target=target):
                 args = self.parser.parse_args([*common, "--target", target])
                 self.assertEqual(args.target, target)
