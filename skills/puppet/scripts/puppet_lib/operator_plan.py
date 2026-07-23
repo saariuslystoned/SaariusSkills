@@ -22,6 +22,10 @@ from .cursor_workspace_plane import (
     PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
 )
 from .errors import IdentityError, UnsupportedError, ValidationError
+from .grok_evidence import (
+    GROK_PASS_A_LIMITATIONS,
+    expected_grok_pass_a_evidence,
+)
 from .handoffs import PROTOCOL_FINGERPRINT
 from .safety import (
     canonical_json_bytes,
@@ -70,6 +74,11 @@ _CURSOR_PRESERVED_EVIDENCE_KINDS = (
     CURSOR_PLAN_SCHEMA,
     CURSOR_BINDING_SCHEMA,
 )
+_GROK_LIFECYCLE_UNSUPPORTED_REASON = "grok_regular_session_source_only_unqualified"
+_GROK_FAILED_INVARIANT = "grok_regular_launch_authority_unavailable"
+_GROK_GATE_RUNG = "grok_regular_pass_b"
+_GROK_NEXT_SAFE_ACTION = "model_grok_leader_child_halt_authority"
+_GROK_PROFILE_GATE = "human_authenticate_lane_owned_private_roots"
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
     "doctor_must_pass_at_execution_time",
@@ -289,6 +298,7 @@ def _commands(
     executable_path: Path,
     codex_source_only: bool,
     cursor_source_only: bool,
+    grok_source_only: bool,
 ) -> Dict[str, Any]:
     common = [
         "--contract",
@@ -351,6 +361,8 @@ def _commands(
         lifecycle_unsupported_reason = _CODEX_LIFECYCLE_UNSUPPORTED_REASON
     elif cursor_source_only:
         lifecycle_unsupported_reason = _CURSOR_LIFECYCLE_UNSUPPORTED_REASON
+    elif grok_source_only:
+        lifecycle_unsupported_reason = _GROK_LIFECYCLE_UNSUPPORTED_REASON
     if lifecycle_unsupported_reason is not None:
         unsupported = {
             "supported": False,
@@ -398,6 +410,9 @@ def _commands(
         if codex_source_only:
             result["profile"]["state"] = "human_gated_proposal"
             result["profile"]["required_gate"] = _CODEX_NEXT_SAFE_ACTION
+        elif grok_source_only:
+            result["profile"]["state"] = "human_gated_proposal"
+            result["profile"]["required_gate"] = _GROK_PROFILE_GATE
     return result
 
 
@@ -471,6 +486,46 @@ def _cursor_target_gate(
         "preserved_evidence_kinds": list(_CURSOR_PRESERVED_EVIDENCE_KINDS),
         "next_safe_action": _CURSOR_NEXT_SAFE_ACTION,
         "available_routes": [],
+    }
+
+
+def _grok_target_gate(
+    *,
+    manifest: AdapterManifest,
+    manifest_artifact: Dict[str, Any],
+) -> Dict[str, Any]:
+    executable = manifest.raw["executable"]
+    admission = expected_grok_pass_a_evidence()
+    return {
+        "state": "blocked",
+        "failed_invariant": _GROK_FAILED_INVARIANT,
+        "rung": _GROK_GATE_RUNG,
+        "last_trusted_identity": {
+            "manifest_sha256": manifest_artifact["sha256"],
+            "manifest_fingerprint": manifest.fingerprint,
+            "execution_fingerprint": manifest.execution_fingerprint,
+            "requested_executable_path": executable["requested_path"],
+            "resolved_executable_path": executable["resolved_path"],
+            "executable_device": executable["device"],
+            "executable_inode": executable["inode"],
+            "executable_size": executable["size"],
+            "executable_mtime_ns": executable["mtime_ns"],
+            "executable_sha256": executable["sha256"],
+            "version_sha256": executable["version_sha256"],
+            "adapter_sha256": manifest.raw["adapter_fingerprint"],
+            "protocol_sha256": manifest.raw["protocol_fingerprint"],
+        },
+        "evidence": {
+            "manifest_state": "doctor_only_unqualified",
+            "expected_pass_a_source_identity": {
+                "schema": admission["schema"],
+                "state": admission["state"],
+                "record_sha256": admission["record_sha256"],
+            },
+            "source_only_blockers": list(admission["limitations"]),
+        },
+        "preserved_evidence_kinds": [],
+        "next_safe_action": _GROK_NEXT_SAFE_ACTION,
     }
 
 
@@ -570,6 +625,11 @@ def compile_operator_plan(
         and manifest.raw["doctor_only"] is True
         and manifest.raw["qualification"] is None
     )
+    grok_source_only = (
+        contract.target == "grok"
+        and manifest.raw["doctor_only"] is True
+        and manifest.raw["qualification"] is None
+    )
     commands = _commands(
         base=base,
         contract=contract,
@@ -584,6 +644,7 @@ def compile_operator_plan(
         executable_path=Path(manifest.raw["executable"]["resolved_path"]),
         codex_source_only=codex_source_only,
         cursor_source_only=cursor_source_only,
+        grok_source_only=grok_source_only,
     )
     adapter_sha256 = adapter_implementation_fingerprint()
     blockers = list(_LAUNCH_BLOCKERS)
@@ -595,6 +656,8 @@ def compile_operator_plan(
         blockers.append(MAPPING_INCOMPLETE_BLOCKER)
     if cursor_source_only:
         blockers.extend(CURSOR_SOURCE_ONLY_BLOCKERS)
+    if grok_source_only:
+        blockers.extend(GROK_PASS_A_LIMITATIONS)
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:
@@ -642,6 +705,11 @@ def compile_operator_plan(
         )
     elif cursor_source_only:
         result["target_gate"] = _cursor_target_gate(
+            manifest=manifest,
+            manifest_artifact=manifest_artifact,
+        )
+    elif grok_source_only:
+        result["target_gate"] = _grok_target_gate(
             manifest=manifest,
             manifest_artifact=manifest_artifact,
         )

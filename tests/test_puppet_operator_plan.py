@@ -38,6 +38,10 @@ from puppet_lib.cursor_workspace_plane import (  # noqa: E402
     PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
 )
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
+from puppet_lib.grok_evidence import (  # noqa: E402
+    GROK_PASS_A_LIMITATIONS,
+    expected_grok_pass_a_evidence,
+)
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.operator_plan import compile_operator_plan  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
@@ -341,16 +345,198 @@ class OperatorPlanTests(unittest.TestCase):
             ):
                 compile_operator_plan(**fixture.kwargs(), repo=other)
 
-    def test_grok_plan_remains_a_generic_proposal(self):
+    def test_grok_plan_emits_blocked_source_gate_and_no_lifecycle(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="grok")
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "GROK_API_KEY": "PUPPET_GROK_SECRET_CANARY",
+                        "GROK_HOME": "/untrusted/grok-home",
+                    },
+                ),
+                patch(
+                    "puppet_lib.grok_evidence.load_grok_pass_a_evidence",
+                    side_effect=AssertionError("evidence JSON must not load"),
+                ) as evidence_load,
+                patch(
+                    "puppet_lib.session.doctor",
+                    side_effect=AssertionError("doctor must not run"),
+                ) as doctor,
+                patch(
+                    "puppet_lib.session.launch",
+                    side_effect=AssertionError("harness must not launch"),
+                ) as launch,
+                patch(
+                    "puppet_lib.probe.run_probe",
+                    side_effect=AssertionError("probe must not run"),
+                ) as probe,
+                patch(
+                    "puppet_lib.tmux.TmuxController",
+                    side_effect=AssertionError("tmux must not construct"),
+                ) as tmux,
+                patch(
+                    "puppet_lib.campaign.active_target_processes",
+                    side_effect=AssertionError("process census must not run"),
+                ) as processes,
+                patch(
+                    "puppet_lib.campaign.grok_process_population",
+                    side_effect=AssertionError("Grok process census must not run"),
+                ) as grok_processes,
+                patch(
+                    "puppet_lib.viewer.prepare_operator_view",
+                    side_effect=AssertionError("viewer must not prepare"),
+                ) as viewer,
+                patch(
+                    "puppet_lib.grok_launch.build_grok_launch_context",
+                    side_effect=AssertionError("launch context must not build"),
+                ) as launch_context,
+                patch(
+                    "puppet_lib.grok_launch.bind_grok_workspace_plane",
+                    side_effect=AssertionError("workspace plane must not bind"),
+                ) as workspace_binding,
+                patch(
+                    "puppet_lib.subscription_profiles.initialize_subscription_profile",
+                    side_effect=AssertionError("profile must not initialize"),
+                ) as profile_init,
+                patch(
+                    "puppet_lib.subscription_profiles.subscription_profile_status",
+                    side_effect=AssertionError("profile status must not run"),
+                ) as profile_status,
+            ):
+                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            gate = plan["target_gate"]
+            self.assertEqual(gate["state"], "blocked")
+            self.assertEqual(
+                gate["failed_invariant"],
+                "grok_regular_launch_authority_unavailable",
+            )
+            self.assertEqual(gate["rung"], "grok_regular_pass_b")
+            self.assertEqual(
+                gate["next_safe_action"],
+                "model_grok_leader_child_halt_authority",
+            )
+            manifest = AdapterManifest.from_path(fixture.manifest)
+            executable = manifest.raw["executable"]
+            self.assertEqual(
+                gate["last_trusted_identity"],
+                {
+                    "manifest_sha256": hashlib.sha256(
+                        fixture.manifest.read_bytes()
+                    ).hexdigest(),
+                    "manifest_fingerprint": manifest.fingerprint,
+                    "execution_fingerprint": manifest.execution_fingerprint,
+                    "requested_executable_path": executable["requested_path"],
+                    "resolved_executable_path": executable["resolved_path"],
+                    "executable_device": executable["device"],
+                    "executable_inode": executable["inode"],
+                    "executable_size": executable["size"],
+                    "executable_mtime_ns": executable["mtime_ns"],
+                    "executable_sha256": executable["sha256"],
+                    "version_sha256": executable["version_sha256"],
+                    "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                    "protocol_sha256": manifest.raw["protocol_fingerprint"],
+                },
+            )
+            admission = expected_grok_pass_a_evidence()
+            self.assertEqual(
+                gate["evidence"],
+                {
+                    "manifest_state": "doctor_only_unqualified",
+                    "expected_pass_a_source_identity": {
+                        "schema": admission["schema"],
+                        "state": admission["state"],
+                        "record_sha256": admission["record_sha256"],
+                    },
+                    "source_only_blockers": list(GROK_PASS_A_LIMITATIONS),
+                },
+            )
+            self.assertEqual(
+                gate["preserved_evidence_kinds"],
+                [],
+            )
+            self.assertEqual(len(gate["evidence"]["source_only_blockers"]), 11)
+            self.assertFalse(plan["launch_authorized"])
+            for blocker in GROK_PASS_A_LIMITATIONS:
+                self.assertIn(blocker, plan["blockers"])
+            self.assertEqual(plan["commands"]["doctor"][3], "doctor")
+            unsupported = {
+                "supported": False,
+                "reason": "grok_regular_session_source_only_unqualified",
+            }
+            for command in (
+                "launch",
+                "status",
+                "waits",
+                "attach_command",
+                "open_view",
+                "halt",
+            ):
+                self.assertEqual(plan["commands"][command], unsupported)
+            profile = plan["commands"]["profile"]
+            self.assertTrue(profile["supported"])
+            self.assertEqual(profile["state"], "human_gated_proposal")
+            self.assertEqual(
+                profile["required_gate"],
+                "human_authenticate_lane_owned_private_roots",
+            )
+            self.assertEqual(profile["init"][3], "profile-init")
+            encoded = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(fixture.prompt_body.strip(), encoded)
+            self.assertNotIn("GROK_API_KEY", encoded)
+            self.assertNotIn("PUPPET_GROK_SECRET_CANARY", encoded)
+            self.assertNotIn("/untrusted/grok-home", encoded)
+            self.assertNotIn("selector", encoded.lower())
+            digest_plan = dict(plan)
+            digest = digest_plan.pop("plan_sha256")
+            self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+            for sentinel in (
+                evidence_load,
+                doctor,
+                launch,
+                probe,
+                tmux,
+                processes,
+                grok_processes,
+                viewer,
+                launch_context,
+                workspace_binding,
+                profile_init,
+                profile_status,
+            ):
+                sentinel.assert_not_called()
+
+    def test_qualified_grok_plan_is_not_labeled_source_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="grok")
+            manifest = json.loads(fixture.manifest.read_text(encoding="utf-8"))
+            manifest["doctor_only"] = False
+            manifest["capabilities"] = {
+                name: ("unsupported" if name == "resume" else "controller_verified")
+                for name in manifest["capabilities"]
+            }
+            manifest["qualification"] = {
+                "receipt_path": str(Path(temporary) / "qualification-receipt.json"),
+                "receipt_sha256": "d" * 64,
+                "session_profile": "regular",
+            }
+            _write_json(fixture.manifest, manifest)
+
             plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            self.assertFalse(plan["launch_authorized"])
             self.assertNotIn("target_gate", plan)
-            self.assertIsInstance(plan["commands"]["launch"], list)
-            self.assertIsInstance(plan["commands"]["status"], list)
-            self.assertIsInstance(plan["commands"]["waits"], dict)
-            self.assertTrue(plan["commands"]["profile"]["supported"])
-            self.assertEqual(plan["commands"]["profile"]["init"][3], "profile-init")
+            encoded = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(
+                "grok_regular_session_source_only_unqualified",
+                encoded,
+            )
+            self.assertNotIn("doctor_only_unqualified", encoded)
+            self.assertNotIn("expected_pass_a_source_identity", encoded)
+            for blocker in GROK_PASS_A_LIMITATIONS:
+                self.assertNotIn(blocker, plan["blockers"])
 
     def test_branch_and_manifest_target_are_bound(self):
         with tempfile.TemporaryDirectory() as temporary:

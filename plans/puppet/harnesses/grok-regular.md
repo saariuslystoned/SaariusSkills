@@ -234,6 +234,14 @@ authority rather than an unreachable launch hook.
   and authenticated-effort facts, public provenance, three claim-level
   decisions/deltas, and eleven remaining live limitations. Every runtime and
   promotion authority bit is false, and no runtime module consumes the packet.
+- Implemented source-only: for the doctor-only/unqualified tuple, the operator
+  plan now rederives the expected Pass-A source schema/state/record identity and
+  all eleven limitations without loading or claiming to preserve an evidence
+  artifact. It keeps only `doctor` as a runnable diagnostic; launch, status,
+  waits, attach, open-view, and halt are unsupported. Private-profile setup
+  remains a human-gated proposal, and the blocked target gate names leader/child
+  halt modeling as the next safe source-only action. A schema-valid qualified
+  manifest is not labeled doctor-only/unqualified.
 - Intentionally unchanged: census remains `doctor_only` and its incomplete
   mapping does not promote help/parser facts into live sandbox or isolation
   claims.
