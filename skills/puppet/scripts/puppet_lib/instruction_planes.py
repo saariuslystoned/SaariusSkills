@@ -1079,9 +1079,18 @@ def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str
             parsed = _parse_json_no_duplicates(raw)
         except ValidationError:
             raise
-        except (TypeError, json.JSONDecodeError, RecursionError) as exc:
+        except RecursionError as exc:
+            raise ValidationError("descriptor JSON nesting exceeds the limit") from exc
+        except (TypeError, json.JSONDecodeError) as exc:
             raise ValidationError("descriptor text must be valid JSON") from exc
         if not isinstance(parsed, Mapping):
+            validate_bounded_json(
+                parsed,
+                max_depth=8,
+                max_items=128,
+                max_string=2048,
+                reject_sensitive_fields=True,
+            )
             raise ValidationError("descriptor text must be an object")
         return validate_instruction_plane_descriptor(parsed)
     return validate_instruction_plane_descriptor(raw)

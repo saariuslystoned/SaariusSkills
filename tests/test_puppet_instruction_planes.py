@@ -144,10 +144,14 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "exceeds the size limit"):
             parse_instruction_plane_descriptor(payload)
 
-    def test_parse_converts_excessive_json_depth_to_validation_error(self):
+    def test_parse_rejects_excessive_json_depth_before_shape_validation(self):
         payload = "[" * 2000 + "0" + "]" * 2000
-        with self.assertRaisesRegex(ValidationError, "valid JSON"):
+        with self.assertRaisesRegex(ValidationError, "nesting exceeds"):
             parse_instruction_plane_descriptor(payload)
+
+    def test_parse_rejects_shallow_non_object_with_shape_error(self):
+        with self.assertRaisesRegex(ValidationError, "must be an object"):
+            parse_instruction_plane_descriptor("[0]")
 
     def test_set_like_lists_do_not_change_fingerprint_when_reordered(self):
         first = _fixture()
