@@ -64,14 +64,16 @@ adapter_lab.py probe --profile source-free-pass-b-v2 \
   --proof-root ROOT --manifest MANIFEST --mapping MAPPING \
   --authorization AUTH --controller CONTROLLER --campaign-id CAMPAIGN \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
-  --goal-path PATH --goal-sha256 SHA256 [--run-id RUN]
+  --goal-path PATH --goal-sha256 SHA256 \
+  --subscription-profile-root PRIVATE_PROFILE [--run-id RUN]
 adapter_lab.py verify --run ROOT/probes/RUN/receipt.json
 adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
 ```
 
-On interruption, replace `probe --profile ...` with `recover`, retain every
-identity argument, and supply the original required `--run-id`. There is no
+On interruption, replace `probe --profile ...` with `recover`, retain the
+shared identity arguments, omit `--subscription-profile-root`, and supply the
+original required `--run-id`. Recovery never relaunches a target. There is no
 `puppet.py recover`. A complete run is reverified without mutation; an
 incomplete run is either exactly halted and permanently marked non-qualifying,
 or remains fenced when control delivery or identity is ambiguous.
@@ -80,6 +82,13 @@ Qualification is capability-granular. The shared two-turn probe verifies
 `launch`, `send`, `status`, `wait`, `checkpoint`, and `halt`. It does not prove
 cross-process `resume`; keep `resume` explicitly `unsupported` until a separate
 real resume contract exists and passes for that exact harness identity.
+
+Regular qualification fails closed unless `PRIVATE_PROFILE` is the exact
+authenticated Puppet-owned profile bound to the adapter executable. The probe
+rechecks its body-free native auth status and closed launch environment
+immediately before target start. Claude activation-lifecycle experiments omit
+this flag because composition with the private subscription profile is not yet
+qualified; those experiments remain non-promotable.
 
 ## Interface
 

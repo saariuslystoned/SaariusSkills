@@ -30,6 +30,9 @@ security, secrets, spending, and destructive actions separately gated.
    with `adapter_lab.py qualify` and the accepted receipt from that probe. A
    probe also requires the separately supplied campaign ID, canonical goal
    repository root, and exact repository/commit/path/SHA-256 goal tuple.
+   Regular probes require the exact authenticated Puppet-owned private profile
+   and bind its closed launch environment; they never borrow an operator-global
+   harness home.
 5. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
    invalid, unauthenticated, or adapter-mismatched private profile; an active
    target/store lock; ambiguous executable identity; incomplete unrestricted

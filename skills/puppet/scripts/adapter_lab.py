@@ -94,6 +94,7 @@ def _probe(args):
         goal_repo=args.goal_repo,
         expected_campaign_id=args.campaign_id,
         expected_goal=expected_goal,
+        subscription_profile_root=args.subscription_profile_root,
         plane_descriptor=args.plane_descriptor,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
@@ -213,6 +214,14 @@ def build_parser():
     probe_parser.add_argument("--timeout", type=float, default=300.0)
     probe_parser.add_argument("--halt-timeout", type=float, default=10.0)
     probe_parser.add_argument("--run-id")
+    probe_parser.add_argument(
+        "--subscription-profile-root",
+        type=Path,
+        help=(
+            "exact authenticated Puppet-owned private profile; required for "
+            "promotable regular qualification"
+        ),
+    )
     probe_parser.add_argument("--plane-descriptor", type=Path)
     probe_parser.set_defaults(handler=_probe)
     recover_parser = commands.add_parser(

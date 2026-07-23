@@ -129,7 +129,7 @@ def followup():
     }
 
 
-def qualification_receipt_core(schema_version=2):
+def qualification_receipt_core(schema_version=3):
     return {
         "schema_version": schema_version,
         "campaign_id": "campaign-test",
@@ -143,15 +143,17 @@ def qualification_receipt_core(schema_version=2):
         "adapter_fingerprint": "5" * 64,
         "protocol_fingerprint": "6" * 64,
         "yolo_mapping_sha256": "7" * 64,
-        "instruction_policy_fingerprint": "8" * 64,
-        "accepted_checkpoint_id": "9" * 64,
-        "acceptance_sha256": "a" * 64,
-        "halt_receipt_sha256": "b" * 64,
+        "launch_plan_sha256": "8" * 64,
+        "instruction_policy_fingerprint": "9" * 64,
+        "accepted_checkpoint_id": "a" * 64,
+        "acceptance_sha256": "b" * 64,
+        "halt_receipt_sha256": "c" * 64,
+        "subscription_profile_sha256": "d" * 64,
     }
 
 
 class AuthorityTests(unittest.TestCase):
-    def test_qualification_attestation_v2_is_distinct_from_legacy_rows(self):
+    def test_qualification_attestation_v3_is_distinct_from_legacy_rows(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             current_core = qualification_receipt_core(
@@ -200,6 +202,8 @@ class AuthorityTests(unittest.TestCase):
 
             with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
                 puppet_authority._attestation_event(legacy_core)
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                puppet_authority._attestation_event(qualification_receipt_core(2))
             with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
                 puppet_authority._attestation_event(
                     qualification_receipt_core(
@@ -210,6 +214,12 @@ class AuthorityTests(unittest.TestCase):
                 puppet_authority.verify_qualification_attestation(
                     current_core,
                     dict(attestation, schema_version=1),
+                    authority_root=root,
+                )
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                puppet_authority.verify_qualification_attestation(
+                    current_core,
+                    dict(attestation, schema_version=2),
                     authority_root=root,
                 )
             with self.assertRaisesRegex(ValidationError, "unsupported qualification"):

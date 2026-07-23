@@ -58,6 +58,7 @@ from .errors import (
     ConflictError,
     IdentityError,
     PuppetError,
+    UnsupportedError,
     ValidationError,
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
@@ -109,6 +110,12 @@ from .safety import (
     sha256_bytes,
     sha256_file,
     validate_identifier,
+)
+from .subscription_profiles import (
+    SubscriptionLaunchContext,
+    build_subscription_launch_binding,
+    subscription_profile_preflight,
+    validate_subscription_launch_binding,
 )
 from .tmux import TargetLaunch, TmuxController
 from .verdicts import record_acceptance, record_review
@@ -818,6 +825,7 @@ def run_probe(
     goal_repo: Path,
     expected_campaign_id: str,
     expected_goal: Dict[str, str],
+    subscription_profile_root: Optional[Path] = None,
     plane_descriptor: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
@@ -839,6 +847,9 @@ def run_probe(
     _execution_sleep_fn: Callable[[float], None] = time.sleep,
     _execution_monotonic_fn: Callable[[], float] = time.monotonic,
     _authority_root: Optional[Path] = None,
+    _subscription_profile_preflight_fn: Callable[
+        ..., tuple[Any, Dict[str, Any]]
+    ] = subscription_profile_preflight,
 ) -> Dict[str, Any]:
     """Run one isolated source-free qualification probe.
 
@@ -898,6 +909,36 @@ def run_probe(
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
     )
+    subscription_context: Optional[SubscriptionLaunchContext] = None
+    subscription_status: Optional[Dict[str, Any]] = None
+    subscription_binding: Optional[Dict[str, Any]] = None
+    if plane_descriptor_value is not None:
+        if subscription_profile_root is not None:
+            raise UnsupportedError(
+                "profile-bound native instruction activation composition is not yet qualified"
+            )
+    else:
+        if subscription_profile_root is None:
+            raise ValidationError(
+                "regular qualification requires an explicit private subscription profile"
+            )
+        subscription_context, subscription_status = _subscription_profile_preflight_fn(
+            profile_root=subscription_profile_root,
+            expected_target=target,
+            expected_executable_path=manifest.raw["executable"]["resolved_path"],
+        )
+        if subscription_status.get("login_state") != "logged_in":
+            raise IdentityError(
+                "private subscription profile is not authenticated for qualification"
+            )
+        subscription_binding = build_subscription_launch_binding(
+            subscription_context, subscription_status
+        )
+        validate_subscription_launch_binding(
+            subscription_binding,
+            expected_target=target,
+            require_logged_in=True,
+        )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
     probes_root = proof_root / "probes"
@@ -914,6 +955,7 @@ def run_probe(
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
     instruction_path = run_root / "effective-instructions.json"
+    subscription_profile_path = run_root / "subscription-profile.json"
     launch_plan_path = run_root / "launch-plan.json"
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
     activation_context_path = run_root / "activation-context.json"
@@ -979,6 +1021,7 @@ def run_probe(
         "yolo_mapping_sha256": sha256_bytes(canonical_json_bytes(mapping)),
         "launch_argv_sha256": sha256_bytes(canonical_json_bytes(argv)),
         "launch_plan_sha256": None,
+        "subscription_profile_sha256": None,
         "launch_identity": None,
         "input_transport": OBSERVED_INPUT_TRANSPORT,
         "input_readiness_strategy": INPUT_READINESS_STRATEGY,
@@ -1011,6 +1054,11 @@ def run_probe(
     try:
         atomic_write_json(state_path, state)
         atomic_write_json(authorization_snapshot_path, authorization)
+        if subscription_binding is not None:
+            atomic_write_json(subscription_profile_path, subscription_binding)
+            evidence["subscription_profile_sha256"] = sha256_file(
+                subscription_profile_path, max_bytes=131072
+            )
         if plane_descriptor_value is not None:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
@@ -1098,10 +1146,18 @@ def run_probe(
         }
         admitted_lane_root: Optional[Path] = None
         if plane_descriptor_value is None:
+            if subscription_context is None:
+                raise IdentityError(
+                    "subscription profile launch context is unavailable"
+                )
+            admitted_lane_root = subscription_context.profile_root
             launch_environment, launch_identity = build_launch_identity(
                 target=target,
                 repo=fixture,
                 argv=argv,
+                source_environment=subscription_context.source_environment,
+                bindings=subscription_context.bindings,
+                admitted_lane_root=admitted_lane_root,
             )
             manifest.verify_launch_execution_environment(launch_environment)
             launch_plan = build_admitted_launch_plan(
@@ -1111,6 +1167,7 @@ def run_probe(
                 repo=fixture,
                 argv=argv,
                 environment=launch_environment,
+                admitted_lane_root=admitted_lane_root,
             )
         else:
             for activation_root in (
@@ -1258,10 +1315,48 @@ def run_probe(
                     launch_identity=activation_context.launch_identity,
                 )
             else:
+                if subscription_context is None or subscription_binding is None:
+                    raise IdentityError(
+                        "subscription profile authority is unavailable before target start"
+                    )
+                refreshed_context, refreshed_status = (
+                    _subscription_profile_preflight_fn(
+                        profile_root=subscription_context.profile_root,
+                        expected_target=target,
+                        expected_executable_path=manifest.raw["executable"][
+                            "resolved_path"
+                        ],
+                    )
+                )
+                refreshed_binding = build_subscription_launch_binding(
+                    refreshed_context, refreshed_status
+                )
+                validate_subscription_launch_binding(
+                    refreshed_binding,
+                    expected_target=target,
+                    require_logged_in=True,
+                )
+                refreshed_environment, refreshed_identity = build_launch_identity(
+                    target=target,
+                    repo=fixture,
+                    argv=argv,
+                    source_environment=refreshed_context.source_environment,
+                    bindings=refreshed_context.bindings,
+                    admitted_lane_root=refreshed_context.profile_root,
+                )
+                manifest.verify_launch_execution_environment(refreshed_environment)
+                if (
+                    refreshed_binding != subscription_binding
+                    or refreshed_environment != launch_environment
+                    or refreshed_identity != launch_identity
+                ):
+                    raise IdentityError(
+                        "subscription profile authority changed before target start"
+                    )
                 refreshed = TargetLaunch(
                     argv=list(argv),
-                    environment=dict(launch_environment),
-                    launch_identity=dict(launch_identity),
+                    environment=refreshed_environment,
+                    launch_identity=refreshed_identity,
                 )
             target_launch_attempted = True
             return refreshed
@@ -1778,17 +1873,29 @@ def run_probe(
         )
         proof_refs = [
             _proof_reference("authorization", authorization_snapshot_path, run_root),
-            _proof_reference("evidence", evidence_path, run_root),
-            _proof_reference("launch_plan", launch_plan_path, run_root),
-            _proof_reference("instructions", instruction_path, run_root),
-            _proof_reference("halt", halt_path, run_root),
-            _proof_reference("ready", fixture / "handoffs" / "ready.json", run_root),
-            _proof_reference(
-                "followup", fixture / "handoffs" / "followup.json", run_root
-            ),
-            _proof_reference("review", review_path, run_root),
-            _proof_reference("acceptance", acceptance_path, run_root),
         ]
+        if subscription_binding is not None:
+            proof_refs.append(
+                _proof_reference(
+                    "subscription_profile", subscription_profile_path, run_root
+                )
+            )
+        proof_refs.extend(
+            [
+                _proof_reference("evidence", evidence_path, run_root),
+                _proof_reference("launch_plan", launch_plan_path, run_root),
+                _proof_reference("instructions", instruction_path, run_root),
+                _proof_reference("halt", halt_path, run_root),
+                _proof_reference(
+                    "ready", fixture / "handoffs" / "ready.json", run_root
+                ),
+                _proof_reference(
+                    "followup", fixture / "handoffs" / "followup.json", run_root
+                ),
+                _proof_reference("review", review_path, run_root),
+                _proof_reference("acceptance", acceptance_path, run_root),
+            ]
+        )
         if activation_plan is not None:
             proof_refs.extend(
                 [
@@ -1836,6 +1943,7 @@ def run_probe(
             "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
             "yolo_mapping_sha256": evidence["yolo_mapping_sha256"],
             "launch_plan_sha256": evidence["launch_plan_sha256"],
+            "subscription_profile_sha256": evidence["subscription_profile_sha256"],
             "instruction_policy_fingerprint": compiled.manifest[
                 "instruction_policy_fingerprint"
             ],

@@ -25,6 +25,12 @@ from puppet_lib.profiles import (
     startup_settle_seconds_for,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file
+from puppet_lib.subscription_profiles import (
+    STATUS_SCHEMA,
+    build_subscription_launch_binding,
+    initialize_subscription_profile,
+    subscription_profile_launch_context,
+)
 from puppet_lib.verdicts import ACCEPTANCE_SCHEMA_VERSION, REVIEW_SCHEMA_VERSION
 
 
@@ -52,6 +58,8 @@ def write_qualification_receipt(
     session_profile: str | None = None,
     runtime_executable_path: Path | None = None,
 ) -> dict:
+    if target == "agy":
+        raise AssertionError("synthetic accepted AGY receipts are unsupported")
     receipt_path = Path(receipt_path)
     run_root = receipt_path.parent
     proof_root = run_root / (receipt_path.stem + "-proof")
@@ -260,6 +268,46 @@ def write_qualification_receipt(
     lock_details = lock_path.stat()
     instruction_path = proof_root / "effective-instructions.json"
     _write_json(instruction_path, compiled.manifest)
+    subscription_root = proof_root / "subscription-profile-root"
+    initialize_subscription_profile(
+        target=target,
+        profile_root=subscription_root,
+        executable_path=executable_path,
+    )
+    subscription_context = subscription_profile_launch_context(
+        profile_root=subscription_root,
+        expected_target=target,
+        expected_executable_path=executable_path,
+    )
+    subscription_status = {
+        "schema": STATUS_SCHEMA,
+        "target": target,
+        "profile_root": str(subscription_context.profile_root),
+        "login_state": "logged_in",
+        "method": {
+            "codex": "chatgpt",
+            "claude": "claude.ai",
+            "cursor": "private_file_store",
+            "grok": "private_grok_home",
+        }[target],
+        "status_exit": 0,
+        "raw_output_retained": False,
+        "login_performed": False,
+        "model_launched": False,
+    }
+    if target == "claude":
+        subscription_status["provider"] = "firstParty"
+    if target == "grok":
+        subscription_status["default_model"] = "grok-4.5"
+    subscription_binding = build_subscription_launch_binding(
+        subscription_context, subscription_status
+    )
+    subscription_profile_path = proof_root / "subscription-profile.json"
+    _write_json(subscription_profile_path, subscription_binding)
+    launch_environment = {
+        **subscription_context.source_environment,
+        **subscription_context.bindings,
+    }
     launch_plan_path = proof_root / "launch-plan.json"
     launch_plan = build_admitted_launch_plan(
         target=target,
@@ -267,7 +315,8 @@ def write_qualification_receipt(
         run_id=run_id,
         repo=handoff_root.parent,
         argv=launch_argv,
-        environment={},
+        environment=launch_environment,
+        admitted_lane_root=subscription_root,
     )
     _write_json(launch_plan_path, launch_plan)
     launch_identity = {
@@ -297,6 +346,7 @@ def write_qualification_receipt(
             "yolo_mapping_sha256": yolo_mapping_sha256,
             "launch_argv_sha256": launch_identity["argv_sha256"],
             "launch_plan_sha256": sha256_file(launch_plan_path),
+            "subscription_profile_sha256": sha256_file(subscription_profile_path),
             "launch_identity": launch_identity,
             "input_transport": OBSERVED_INPUT_TRANSPORT,
             "input_readiness_strategy": INPUT_READINESS_STRATEGY,
@@ -393,6 +443,7 @@ def write_qualification_receipt(
         "protocol_fingerprint": protocol_fingerprint,
         "yolo_mapping_sha256": yolo_mapping_sha256,
         "launch_plan_sha256": sha256_file(launch_plan_path),
+        "subscription_profile_sha256": sha256_file(subscription_profile_path),
         "instruction_policy_fingerprint": compiled.manifest[
             "instruction_policy_fingerprint"
         ],
@@ -403,6 +454,7 @@ def write_qualification_receipt(
         "plane_activation": None,
         "proof_refs": [
             reference("authorization", authorization_path),
+            reference("subscription_profile", subscription_profile_path),
             reference("evidence", evidence_path),
             reference("launch_plan", launch_plan_path),
             reference("instructions", instruction_path),

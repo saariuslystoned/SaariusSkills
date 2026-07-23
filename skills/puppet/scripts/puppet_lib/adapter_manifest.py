@@ -68,11 +68,13 @@ EXECUTION_TRANSITIONS = frozenset({"direct", "same_pid_exec"})
 MAX_TRANSIENT_EXECUTABLES = 8
 MAX_EXECUTION_SUPPORT_FILES = 16
 ADAPTER_MANIFEST_SCHEMA_VERSION = 2
-QUALIFICATION_RECEIPT_SCHEMA_VERSION = 2
-QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 2
-QUALIFICATION_STATE_SCHEMA_VERSION = 2
+QUALIFICATION_RECEIPT_SCHEMA_VERSION = 3
+QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 3
+QUALIFICATION_STATE_SCHEMA_VERSION = 3
+# The named Pass B procedure is stable across its versioned evidence envelopes.
 QUALIFICATION_PROFILE = "source-free-pass-b-v2"
 LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS = frozenset({1})
+LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2})
 CURSOR_REQUIRED_PATH_TOOLS = ("bash", "basename", "dirname", "realpath", "readlink")
 _EXECUTION_FILE_CHUNK_BYTES = 1024 * 1024
 
@@ -321,6 +323,7 @@ PROBE_CAPABILITIES = (
 
 QUALIFICATION_PROOF_KINDS = (
     "authorization",
+    "subscription_profile",
     "evidence",
     "launch_plan",
     "instructions",
@@ -373,6 +376,7 @@ _RECEIPT_FIELDS = {
     "protocol_fingerprint",
     "yolo_mapping_sha256",
     "launch_plan_sha256",
+    "subscription_profile_sha256",
     "instruction_policy_fingerprint",
     "capabilities",
     "accepted_checkpoint_id",
@@ -403,6 +407,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "yolo_mapping_sha256",
     "launch_argv_sha256",
     "launch_plan_sha256",
+    "subscription_profile_sha256",
     "launch_identity",
     "input_transport",
     "input_readiness_strategy",
@@ -464,9 +469,9 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValidationError("qualification evidence root must be an object")
     schema_version = value.get("schema_version")
-    if schema_version in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+    if schema_version in LEGACY_QUALIFICATION_SCHEMA_VERSIONS:
         raise UnsupportedError(
-            "legacy qualification evidence lacks authoritative runtime execution identity"
+            "legacy qualification evidence lacks current launch authority"
         )
     if schema_version != QUALIFICATION_EVIDENCE_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification evidence schema")
@@ -476,19 +481,30 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
         value.get("execution_fingerprint"),
         "qualification evidence execution fingerprint",
     )
-    validate_probe_plane_activation(value.get("plane_activation"))
+    activation = validate_probe_plane_activation(value.get("plane_activation"))
+    if activation is None and value.get("result") == "accepted":
+        validate_sha256(
+            value.get("subscription_profile_sha256"),
+            "qualification evidence subscription profile fingerprint",
+        )
+    elif (
+        activation is not None and value.get("subscription_profile_sha256") is not None
+    ):
+        raise ValidationError(
+            "activation-only qualification evidence cannot claim a subscription profile"
+        )
     return dict(value)
 
 
 def validate_qualification_state_schema(value: Any) -> Dict[str, Any]:
-    """Validate the lifecycle envelope that commits a v2 qualification."""
+    """Validate the lifecycle envelope that commits the current qualification."""
 
     if not isinstance(value, dict):
         raise ValidationError("qualification state root must be an object")
     schema_version = value.get("schema_version")
-    if schema_version in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+    if schema_version in LEGACY_QUALIFICATION_SCHEMA_VERSIONS:
         raise UnsupportedError(
-            "legacy qualification state lacks authoritative runtime execution identity"
+            "legacy qualification state lacks current launch authority"
         )
     if schema_version != QUALIFICATION_STATE_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification state schema")
@@ -564,7 +580,10 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
     expected_kinds = (
         QUALIFICATION_PROOF_KINDS
         if activation is None
-        else QUALIFICATION_PROOF_KINDS + ACTIVATION_QUALIFICATION_PROOF_KINDS
+        else tuple(
+            kind for kind in QUALIFICATION_PROOF_KINDS if kind != "subscription_profile"
+        )
+        + ACTIVATION_QUALIFICATION_PROOF_KINDS
     )
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
@@ -718,9 +737,9 @@ def verify_qualification_receipt(
     if not isinstance(receipt, dict):
         raise ValidationError("qualification receipt root must be an object")
     receipt_schema = receipt.get("schema_version")
-    if receipt_schema in LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS:
+    if receipt_schema in LEGACY_QUALIFICATION_SCHEMA_VERSIONS:
         raise UnsupportedError(
-            "legacy qualification receipt lacks authoritative runtime execution identity"
+            "legacy qualification receipt lacks current launch authority"
         )
     if receipt_schema != QUALIFICATION_RECEIPT_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification receipt schema")
@@ -750,7 +769,6 @@ def verify_qualification_receipt(
         "adapter_fingerprint",
         "protocol_fingerprint",
         "yolo_mapping_sha256",
-        "launch_plan_sha256",
         "instruction_policy_fingerprint",
         "accepted_checkpoint_id",
         "acceptance_sha256",
@@ -758,6 +776,16 @@ def verify_qualification_receipt(
         "goal_fingerprint",
     ):
         validate_sha256(receipt.get(name), name.replace("_", " "))
+    validate_sha256(receipt.get("launch_plan_sha256"), "launch plan fingerprint")
+    if plane_activation is None:
+        validate_sha256(
+            receipt.get("subscription_profile_sha256"),
+            "subscription profile fingerprint",
+        )
+    elif receipt.get("subscription_profile_sha256") is not None:
+        raise ValidationError(
+            "activation-only qualification receipt cannot claim a subscription profile"
+        )
     capabilities = receipt.get("capabilities")
     if capabilities != list(PROBE_CAPABILITIES):
         raise ValidationError("qualification capability receipt is invalid")
@@ -856,6 +884,35 @@ def verify_qualification_receipt(
     evidence = validate_qualification_evidence_schema(evidence)
     if evidence.get("plane_activation") != plane_activation:
         raise ValidationError("qualification plane activation identity mismatch")
+    if plane_activation is None:
+        from .subscription_profiles import (
+            subscription_binding_environment,
+            validate_subscription_launch_binding,
+        )
+
+        subscription_binding = validate_subscription_launch_binding(
+            read_json(
+                artifacts["subscription_profile"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            ),
+            expected_target=receipt["target"],
+            require_logged_in=True,
+        )
+        subscription_sha256 = sha256_file(
+            artifacts["subscription_profile"], max_bytes=131072
+        )
+        if (
+            evidence.get("subscription_profile_sha256") != subscription_sha256
+            or receipt.get("subscription_profile_sha256") != subscription_sha256
+            or subscription_binding["executable"]
+            != launcher_execution_identity(current["executable"])
+        ):
+            raise IdentityError("qualification subscription profile authority changed")
+    elif evidence.get("subscription_profile_sha256") is not None:
+        raise ValidationError(
+            "activation-only qualification evidence mixed profile authority"
+        )
     terminal_activation = None
     activation_intent = None
     if plane_activation is not None:
@@ -923,6 +980,29 @@ def verify_qualification_receipt(
         raise ValidationError(
             "qualification launch identity differs from its admitted plan"
         )
+    if plane_activation is None:
+        source_environment, profile_bindings, _profile_root = (
+            subscription_binding_environment(
+                subscription_binding, expected_target=receipt["target"]
+            )
+        )
+        expected_environment = {**source_environment, **profile_bindings}
+        expected_environment_names = sorted(expected_environment)
+        expected_environment_fingerprint = sha256_bytes(
+            canonical_json_bytes(
+                [
+                    (name, expected_environment[name])
+                    for name in expected_environment_names
+                ]
+            )
+        )
+        if (
+            launch_identity["env_names"] != expected_environment_names
+            or launch_identity["env_fingerprint"] != expected_environment_fingerprint
+        ):
+            raise IdentityError(
+                "qualification launch environment is not the bound subscription profile"
+            )
     observed_plan_sha = sha256_file(artifacts["launch_plan"], max_bytes=131072)
     if (
         evidence.get("launch_plan_sha256") != observed_plan_sha

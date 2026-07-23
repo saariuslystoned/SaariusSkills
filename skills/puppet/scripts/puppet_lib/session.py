@@ -65,6 +65,7 @@ from .safety import (
 from .state import is_terminal, transition
 from .subscription_profiles import (
     SubscriptionLaunchContext,
+    build_subscription_launch_binding,
     subscription_profile_preflight,
 )
 from .tmux import TargetLaunch, TmuxController
@@ -894,27 +895,9 @@ def launch(
     manifest = AdapterManifest.from_path(manifest_copy)
     profile_binding_sha: Optional[str] = None
     if profile_context is not None and profile_status is not None:
-        public_status = {
-            name: profile_status[name]
-            for name in (
-                "schema",
-                "target",
-                "profile_root",
-                "login_state",
-                "method",
-                "provider",
-                "default_model",
-                "status_exit",
-                "raw_output_retained",
-                "login_performed",
-                "model_launched",
-            )
-            if name in profile_status
-        }
-        profile_binding = {
-            **dict(profile_context.public_binding),
-            "status": public_status,
-        }
+        profile_binding = build_subscription_launch_binding(
+            profile_context, profile_status
+        )
         profile_copy = _bind_json(
             proof_root / "subscription-profile.json",
             profile_binding,

@@ -186,9 +186,21 @@ python3 skills/puppet/scripts/adapter_lab.py scaffold \
   --manifest /abs/census.json \
   --out skills/puppet/scripts/puppet_lib/generated
 python3 skills/puppet/scripts/adapter_lab.py probe \
-  --target agy \
-  --profile interactive-v1 \
-  --proof-root /abs/proof-root
+  --target codex \
+  --profile source-free-pass-b-v2 \
+  --session-profile regular \
+  --proof-root /abs/proof-root \
+  --manifest /abs/codex-doctor.json \
+  --mapping /abs/codex-yolo-mapping.json \
+  --authorization /abs/campaign-authorization.json \
+  --controller codex-controller \
+  --campaign-id campaign-id \
+  --goal-repo /abs/goal-repo \
+  --goal-repository owner/repo \
+  --goal-commit COMMIT_SHA \
+  --goal-path plans/puppet/codex-goal-regular-qualification.md \
+  --goal-sha256 GOAL_SHA256 \
+  --subscription-profile-root /abs/private-codex-profile
 python3 skills/puppet/scripts/adapter_lab.py verify --run /abs/proof-root
 ```
 

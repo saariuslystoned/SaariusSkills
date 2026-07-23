@@ -42,6 +42,20 @@ LAUNCH_BINDING_SCHEMA = "puppet.subscription-launch-binding/v1"
 
 _BASE_LAUNCH_ENVIRONMENT_NAMES = frozenset({"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"})
 _LOGIN_ONLY_ENVIRONMENT_NAMES = frozenset({"NO_OPEN_BROWSER"})
+_DIRECTORY_IDENTITY_FIELDS = {"path", "device", "inode", "uid", "mode"}
+_PUBLIC_BINDING_FIELDS = {
+    "schema",
+    "target",
+    "profile_root",
+    "root_identity",
+    "directory_identities",
+    "manifest_path",
+    "manifest_sha256",
+    "executable",
+    "launch_env_names",
+    "login_only_env_names",
+    "status",
+}
 
 _PROFILE_LAYOUTS: Mapping[str, tuple[str, ...]] = {
     "codex": ("home", "config", "tmp"),
@@ -676,10 +690,8 @@ def _launch_context_from_manifest(
         "manifest_path": str(manifest_path.resolve(strict=True)),
         "manifest_sha256": manifest_sha256,
         "executable": manifest["executable"],
-        "launch_environment_names": sorted(
-            [*source_environment.keys(), *bindings.keys()]
-        ),
-        "login_only_environment_names": sorted(
+        "launch_env_names": sorted([*source_environment.keys(), *bindings.keys()]),
+        "login_only_env_names": sorted(
             name
             for name in manifest["bindings"]
             if name in _LOGIN_ONLY_ENVIRONMENT_NAMES
@@ -747,6 +759,209 @@ def subscription_profile_preflight(
         return context, _public_status(manifest, result)
 
 
+def build_subscription_launch_binding(
+    context: SubscriptionLaunchContext, status: Mapping[str, Any]
+) -> Dict[str, Any]:
+    """Build the body-free proof binding for one sampled launch preflight."""
+
+    public_status = {
+        name: status[name]
+        for name in (
+            "schema",
+            "target",
+            "profile_root",
+            "login_state",
+            "method",
+            "provider",
+            "default_model",
+            "status_exit",
+            "raw_output_retained",
+            "login_performed",
+            "model_launched",
+        )
+        if name in status
+    }
+    return {**dict(context.public_binding), "status": public_status}
+
+
+def _validate_recorded_directory(value: Any, *, label: str) -> Dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _DIRECTORY_IDENTITY_FIELDS:
+        raise ValidationError("%s identity fields are invalid" % label)
+    path = value.get("path")
+    if (
+        not isinstance(path, str)
+        or not path
+        or not Path(path).is_absolute()
+        or any(character in path for character in "\x00\n\r")
+    ):
+        raise ValidationError("%s path is invalid" % label)
+    for name in ("device", "inode"):
+        observed = value.get(name)
+        if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+            raise ValidationError("%s identity is invalid" % label)
+    uid = value.get("uid")
+    if isinstance(uid, bool) or not isinstance(uid, int) or uid < 0:
+        raise ValidationError("%s owner is invalid" % label)
+    if value.get("mode") != 0o700:
+        raise ValidationError("%s mode is invalid" % label)
+    return dict(value)
+
+
+def validate_subscription_launch_binding(
+    value: Any,
+    *,
+    expected_target: str | None = None,
+    require_logged_in: bool = True,
+) -> Dict[str, Any]:
+    """Validate one body-free profile proof without reading credential content."""
+
+    if not isinstance(value, dict) or set(value) != _PUBLIC_BINDING_FIELDS:
+        raise ValidationError("subscription launch binding fields are invalid")
+    if value.get("schema") != LAUNCH_BINDING_SCHEMA:
+        raise ValidationError("subscription launch binding schema is unsupported")
+    target = validate_identifier(value.get("target"), "profile target")
+    if target not in _PROFILE_LAYOUTS or (
+        expected_target is not None and target != expected_target
+    ):
+        raise IdentityError("subscription launch binding target changed")
+    root = _validate_recorded_directory(
+        value.get("root_identity"), label="subscription profile root"
+    )
+    if value.get("profile_root") != root["path"]:
+        raise IdentityError("subscription launch binding root changed")
+    directories = value.get("directory_identities")
+    if not isinstance(directories, dict) or set(directories) != set(
+        _PROFILE_LAYOUTS[target]
+    ):
+        raise ValidationError("subscription launch directory map is invalid")
+    checked_directories = {}
+    for name in _PROFILE_LAYOUTS[target]:
+        directory = _validate_recorded_directory(
+            directories.get(name), label="subscription profile %s" % name
+        )
+        if Path(directory["path"]) != Path(root["path"]) / name:
+            raise IdentityError("subscription launch directory path changed")
+        checked_directories[name] = directory
+    manifest_path = value.get("manifest_path")
+    if (
+        not isinstance(manifest_path, str)
+        or Path(manifest_path) != Path(root["path"]) / "profile.json"
+    ):
+        raise IdentityError("subscription launch manifest path changed")
+    manifest_sha256 = value.get("manifest_sha256")
+    if (
+        not isinstance(manifest_sha256, str)
+        or len(manifest_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in manifest_sha256)
+    ):
+        raise ValidationError("subscription launch manifest fingerprint is invalid")
+    executable = validate_execution_file_identity(
+        value.get("executable"),
+        "subscription launch executable",
+        verify_current=False,
+    )
+    profile_environment = _profile_environment(target, checked_directories)
+    expected_login_only = sorted(
+        name for name in profile_environment if name in _LOGIN_ONLY_ENVIRONMENT_NAMES
+    )
+    expected_launch_names = sorted(
+        name
+        for name in profile_environment
+        if name not in _LOGIN_ONLY_ENVIRONMENT_NAMES
+    )
+    if (
+        value.get("launch_env_names") != expected_launch_names
+        or value.get("login_only_env_names") != expected_login_only
+    ):
+        raise IdentityError("subscription launch environment names changed")
+    status = value.get("status")
+    base_status_fields = {
+        "schema",
+        "target",
+        "profile_root",
+        "login_state",
+        "method",
+        "status_exit",
+        "raw_output_retained",
+        "login_performed",
+        "model_launched",
+    }
+    optional_status_fields = (
+        {"provider"}
+        if target == "claude"
+        else {"default_model"}
+        if target == "grok"
+        else set()
+    )
+    if not isinstance(status, dict) or set(status) != (
+        base_status_fields | optional_status_fields
+    ):
+        raise ValidationError("subscription launch status fields are invalid")
+    allowed_methods = {
+        "codex": {"chatgpt", "none", "unknown"},
+        "claude": {"claude.ai", "none", "other", "unknown"},
+        "cursor": {"private_file_store", "unknown"},
+        "grok": {"private_grok_home", "unknown"},
+    }
+    if (
+        status.get("schema") != STATUS_SCHEMA
+        or status.get("target") != target
+        or status.get("profile_root") != root["path"]
+        or status.get("login_state") not in {"logged_in", "logged_out", "unknown"}
+        or status.get("method") not in allowed_methods[target]
+        or isinstance(status.get("status_exit"), bool)
+        or not isinstance(status.get("status_exit"), int)
+        or status.get("raw_output_retained") is not False
+        or status.get("login_performed") is not False
+        or status.get("model_launched") is not False
+    ):
+        raise ValidationError("subscription launch status is invalid")
+    if target == "claude" and status.get("provider") not in {
+        "firstParty",
+        "other",
+    }:
+        raise ValidationError("subscription launch provider is invalid")
+    if target == "grok" and status.get("default_model") not in {
+        "grok-4.5",
+        "unknown",
+    }:
+        raise ValidationError("subscription launch default model is invalid")
+    if require_logged_in and (
+        status["login_state"] != "logged_in" or status["status_exit"] != 0
+    ):
+        raise IdentityError("subscription launch profile is not authenticated")
+    return {
+        **dict(value),
+        "root_identity": root,
+        "directory_identities": checked_directories,
+        "executable": executable,
+        "status": dict(status),
+    }
+
+
+def subscription_binding_environment(
+    value: Any, *, expected_target: str
+) -> tuple[Dict[str, str], Dict[str, str], Path]:
+    """Reconstruct the exact closed launch values committed by a proof binding."""
+
+    binding = validate_subscription_launch_binding(
+        value, expected_target=expected_target, require_logged_in=True
+    )
+    environment = _profile_environment(
+        binding["target"], binding["directory_identities"]
+    )
+    source = {
+        name: environment[name] for name in sorted(_BASE_LAUNCH_ENVIRONMENT_NAMES)
+    }
+    bindings = {
+        name: selected
+        for name, selected in environment.items()
+        if name not in _BASE_LAUNCH_ENVIRONMENT_NAMES
+        and name not in _LOGIN_ONLY_ENVIRONMENT_NAMES
+    }
+    return source, bindings, Path(binding["profile_root"])
+
+
 def execute_subscription_profile_login(
     *,
     profile_root: Path | str,
@@ -781,9 +996,12 @@ __all__ = [
     "PROFILE_SCHEMA",
     "STATUS_SCHEMA",
     "SubscriptionLaunchContext",
+    "build_subscription_launch_binding",
     "execute_subscription_profile_login",
     "initialize_subscription_profile",
     "subscription_profile_launch_context",
     "subscription_profile_preflight",
     "subscription_profile_status",
+    "subscription_binding_environment",
+    "validate_subscription_launch_binding",
 ]

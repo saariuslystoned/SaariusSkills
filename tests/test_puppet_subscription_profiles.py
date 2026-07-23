@@ -21,10 +21,14 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
     LAUNCH_BINDING_SCHEMA,
     MAX_STATUS_OUTPUT_BYTES,
     PROFILE_SCHEMA,
+    STATUS_SCHEMA,
+    build_subscription_launch_binding,
     execute_subscription_profile_login,
     initialize_subscription_profile,
     subscription_profile_launch_context,
+    subscription_binding_environment,
     subscription_profile_status,
+    validate_subscription_launch_binding,
 )
 
 
@@ -273,9 +277,37 @@ class SubscriptionProfileTests(unittest.TestCase):
             self.assertIn("CURSOR_DATA_DIR", context.bindings)
             self.assertNotIn("NO_OPEN_BROWSER", context.bindings)
             self.assertEqual(
-                context.public_binding["login_only_environment_names"],
+                context.public_binding["login_only_env_names"],
                 ["NO_OPEN_BROWSER"],
             )
+            binding = build_subscription_launch_binding(
+                context,
+                {
+                    "schema": STATUS_SCHEMA,
+                    "target": "cursor",
+                    "profile_root": str(context.profile_root),
+                    "login_state": "logged_in",
+                    "method": "private_file_store",
+                    "status_exit": 0,
+                    "raw_output_retained": False,
+                    "login_performed": False,
+                    "model_launched": False,
+                },
+            )
+            validated = validate_subscription_launch_binding(
+                binding, expected_target="cursor"
+            )
+            source, launch_bindings, lane_root = subscription_binding_environment(
+                validated, expected_target="cursor"
+            )
+            self.assertEqual(source["HOME"], str(context.profile_root / "home"))
+            self.assertEqual(launch_bindings["AGENT_CLI_CREDENTIAL_STORE"], "file")
+            self.assertNotIn("NO_OPEN_BROWSER", launch_bindings)
+            self.assertEqual(lane_root, context.profile_root)
+            tampered = json.loads(json.dumps(binding))
+            tampered["status"]["login_state"] = "logged_out"
+            with self.assertRaisesRegex(IdentityError, "not authenticated"):
+                validate_subscription_launch_binding(tampered)
             with self.assertRaisesRegex(IdentityError, "target does not match"):
                 subscription_profile_launch_context(
                     profile_root=profile,

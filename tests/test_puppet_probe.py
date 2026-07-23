@@ -63,6 +63,11 @@ from puppet_lib.safety import (  # noqa: E402
     sha256_bytes,
     sha256_file,
 )
+from puppet_lib.subscription_profiles import (  # noqa: E402
+    STATUS_SCHEMA,
+    initialize_subscription_profile,
+    subscription_profile_launch_context,
+)
 
 
 def write_json(path: Path, value) -> None:
@@ -249,6 +254,13 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
     proof.mkdir()
     authority = root / "authority"
     authority.mkdir(mode=0o700)
+    subscription_profile = root / "subscription-profile"
+    if target != "agy":
+        initialize_subscription_profile(
+            target=target,
+            profile_root=subscription_profile,
+            executable_path=Path(raw["executable"]["resolved_path"]),
+        )
     return {
         "manifest": manifest,
         "mapping": mapping_path,
@@ -258,6 +270,7 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
         "goal_repo": goal_repo,
         "expected_goal": expected_goal,
         "campaign_id": authorization_value["campaign_id"],
+        "subscription_profile": subscription_profile,
         "raw": raw,
     }
 
@@ -604,7 +617,45 @@ def execute(
     expected_goal=None,
     sleep_fn=None,
     plane_descriptor=None,
+    subscription_preflight_fn=None,
 ):
+    subscription_root = None
+    subscription_preflight = None
+    if plane_descriptor is None:
+        subscription_root = files["subscription_profile"]
+        context = subscription_profile_launch_context(
+            profile_root=subscription_root,
+            expected_target=target,
+            expected_executable_path=files["raw"]["executable"]["resolved_path"],
+        )
+        status = {
+            "schema": STATUS_SCHEMA,
+            "target": target,
+            "profile_root": str(context.profile_root),
+            "login_state": "logged_in",
+            "method": {
+                "codex": "chatgpt",
+                "claude": "claude.ai",
+                "cursor": "private_file_store",
+                "grok": "private_grok_home",
+            }[target],
+            "status_exit": 0,
+            "raw_output_retained": False,
+            "login_performed": False,
+            "model_launched": False,
+        }
+        if target == "claude":
+            status["provider"] = "firstParty"
+        if target == "grok":
+            status["default_model"] = "grok-4.5"
+
+        if subscription_preflight_fn is None:
+
+            def subscription_preflight(**_kwargs):
+                return context, status
+        else:
+            subscription_preflight = subscription_preflight_fn
+
     return run_probe(
         target=target,
         profile=PROBE_PROFILE,
@@ -621,6 +672,7 @@ def execute(
         goal_repo=files["goal_repo"],
         expected_campaign_id=files["campaign_id"],
         expected_goal=expected_goal or files["expected_goal"],
+        subscription_profile_root=subscription_root,
         plane_descriptor=plane_descriptor,
         timeout=timeout,
         halt_timeout=0.1,
@@ -648,6 +700,9 @@ def execute(
         _sleep_fn=sleep_fn or (lambda interval: None),
         _execution_sleep_fn=lambda interval: None,
         _authority_root=files["authority"],
+        _subscription_profile_preflight_fn=(
+            subscription_preflight or puppet_probe.subscription_profile_preflight
+        ),
     )
 
 
@@ -1561,7 +1616,11 @@ class ProbeTests(unittest.TestCase):
                     fake,
                     run_id="probe-private-launch-environment",
                 )
-            self.assertNotIn("CODEX_HOME", fake.launch_environment)
+            self.assertEqual(
+                fake.launch_environment["CODEX_HOME"],
+                str(files["subscription_profile"] / "config"),
+            )
+            self.assertNotEqual(fake.launch_environment["CODEX_HOME"], private_value)
             self.assertNotIn("PUPPET_PARENT_CANARY", fake.launch_environment)
             run_root = Path(result["run_root"])
             evidence = json.loads(
@@ -1572,7 +1631,7 @@ class ProbeTests(unittest.TestCase):
                 set(identity),
                 {"cwd", "argv_sha256", "env_names", "env_fingerprint"},
             )
-            self.assertNotIn("CODEX_HOME", identity["env_names"])
+            self.assertIn("CODEX_HOME", identity["env_names"])
             self.assertNotIn("launch_environment", evidence)
             for path in run_root.rglob("*"):
                 if path.is_file():
@@ -2811,6 +2870,110 @@ class ProbeTests(unittest.TestCase):
                     expected_campaign_id=files["campaign_id"],
                     expected_goal=files["expected_goal"],
                     _tmux_factory=lambda selected: fake,
+                )
+            self.assertIsNone(fake.launch_argv)
+
+    def test_regular_probe_rechecks_profile_immediately_before_target_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            context = subscription_profile_launch_context(
+                profile_root=files["subscription_profile"],
+                expected_target="codex",
+                expected_executable_path=files["raw"]["executable"]["resolved_path"],
+            )
+            logged_in = {
+                "schema": STATUS_SCHEMA,
+                "target": "codex",
+                "profile_root": str(context.profile_root),
+                "login_state": "logged_in",
+                "method": "chatgpt",
+                "status_exit": 0,
+                "raw_output_retained": False,
+                "login_performed": False,
+                "model_launched": False,
+            }
+            logged_out = dict(
+                logged_in,
+                login_state="logged_out",
+                method="none",
+                status_exit=1,
+            )
+            statuses = iter((logged_in, logged_out))
+
+            def changing_preflight(**_kwargs):
+                return context, next(statuses)
+
+            run_id = "probe-profile-revalidation"
+            with self.assertRaisesRegex(IdentityError, "not authenticated"):
+                execute(
+                    files,
+                    fake,
+                    run_id=run_id,
+                    subscription_preflight_fn=changing_preflight,
+                )
+            evidence = json.loads(
+                (files["proof"] / "probes" / run_id / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertFalse(evidence["failure"]["target_launch_attempted"])
+            self.assertEqual(fake.payloads, [])
+
+    def test_regular_probe_requires_authenticated_private_profile_before_tmux(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            common = {
+                "target": "codex",
+                "profile": PROBE_PROFILE,
+                "session_profile": "regular",
+                "proof_root": files["proof"],
+                "manifest_path": files["manifest"],
+                "mapping_path": files["mapping"],
+                "authorization_path": files["authorization"],
+                "controller": "tester",
+                "goal_repo": files["goal_repo"],
+                "expected_campaign_id": files["campaign_id"],
+                "expected_goal": files["expected_goal"],
+                "_tmux_factory": lambda selected: fake,
+                "_adapter_fingerprint_fn": lambda: files["raw"]["adapter_fingerprint"],
+                "_census_target_fn": lambda selected, fingerprint: (
+                    AdapterManifest.from_dict(files["raw"])
+                ),
+            }
+            with self.assertRaisesRegex(
+                ValidationError, "explicit private subscription profile"
+            ):
+                run_probe(**common)
+            self.assertIsNone(fake.launch_argv)
+
+            context = subscription_profile_launch_context(
+                profile_root=files["subscription_profile"],
+                expected_target="codex",
+                expected_executable_path=files["raw"]["executable"]["resolved_path"],
+            )
+            logged_out = {
+                "schema": STATUS_SCHEMA,
+                "target": "codex",
+                "profile_root": str(context.profile_root),
+                "login_state": "logged_out",
+                "method": "none",
+                "status_exit": 1,
+                "raw_output_retained": False,
+                "login_performed": False,
+                "model_launched": False,
+            }
+            with self.assertRaisesRegex(IdentityError, "not authenticated"):
+                run_probe(
+                    **common,
+                    subscription_profile_root=files["subscription_profile"],
+                    _subscription_profile_preflight_fn=lambda **_kwargs: (
+                        context,
+                        logged_out,
+                    ),
                 )
             self.assertIsNone(fake.launch_argv)
 
