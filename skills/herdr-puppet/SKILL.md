@@ -46,8 +46,8 @@ hand-composed Herdr mutations when the script owns the operation.
    requires its own topology, accounting, timeout, and cleanup proof.
 8. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
-   Supply prompt content through `--stdin` or a bounded UTF-8 `--text-file`;
-   never place prompt content in process arguments. Treat
+   Supply a non-empty prompt through `--stdin` or a bounded UTF-8
+   `--text-file`; never place prompt content in process arguments. Treat
    `herdr_input_outcome_unknown` as a hard stop: reconcile the same sequence
    from independent structural evidence before any later send, and never
    retry the prompt speculatively.

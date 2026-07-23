@@ -188,6 +188,11 @@ class HerdrClient:
         )
 
     def run_input(self, socket_path: str, pane_id: str, text: str) -> Any:
+        if not text.strip():
+            raise HerdrPuppetError(
+                "prompt_empty",
+                "The prompt must contain non-whitespace text.",
+            )
         text_bytes = text.encode("utf-8")
         if len(text_bytes) > MAX_PROMPT_BYTES:
             raise HerdrPuppetError(

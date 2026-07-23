@@ -433,6 +433,16 @@ class HerdrClientTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "prompt_too_large")
 
+    def test_input_rejects_empty_prompt_before_socket_access(self) -> None:
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_input(
+                "/does/not/exist.sock",
+                "w2:p1",
+                " \r\n\t",
+            )
+        self.assertEqual(caught.exception.code, "prompt_empty")
+
     def test_prompt_file_removes_only_one_terminal_line_ending(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             prompt_path = Path(directory) / "prompt.txt"

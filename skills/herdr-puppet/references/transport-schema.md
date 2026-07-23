@@ -46,11 +46,12 @@ Herdr server incarnation. A lost, malformed, or mismatched acknowledgement is
 an unknown delivery outcome. Never retry that sequence: stop and use
 `qualification-reconcile-send` only after independent evidence establishes
 that the original input was applied.
-Prompt content is accepted only through standard input or a UTF-8 file, with a
-256 KiB limit; it never appears in the controller or Herdr process argument
-vector. The controller never writes or copies prompt content, so callers own
-the lifecycle of any input file. This proves input acceptance only, not shell
-or harness execution.
+Non-empty prompt content is accepted only through standard input or a UTF-8
+file, with a 256 KiB limit; empty or whitespace-only input is rejected before
+socket access. Prompt content never appears in the controller or Herdr process
+argument vector. The controller never writes or copies prompt content, so
+callers own the lifecycle of any input file. This proves input acceptance only,
+not shell or harness execution.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible
