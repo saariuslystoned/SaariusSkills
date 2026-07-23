@@ -7,7 +7,8 @@ scanning, no-bleed evaluation, qualification, or promotion.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional
 
 from .adapter_manifest import AdapterManifest
 from .authority import AUTHORITY_ID, controller_authority_root
@@ -137,10 +138,11 @@ def verify_claude_marker_activation_join_attestation(
     activation_plan: ActivationPlan,
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
+    _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Rebuild the join and require its exact controller-journal inclusion."""
 
-    root = controller_authority_root()
+    root = controller_authority_root(_authority_root)
     if not isinstance(attestation, Mapping) or set(attestation) != _ATTESTATION_FIELDS:
         raise ValidationError("activation marker attestation fields are invalid")
     if (

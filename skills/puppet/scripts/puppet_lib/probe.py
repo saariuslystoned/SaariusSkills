@@ -73,6 +73,7 @@ from .matched_control import (
     MARKER_SIGNAL_RELATIVE_PATH,
     CompiledMarkerInstruction,
     _compile_claude_marker_ready_instruction,
+    claude_marker_ready_task,
 )
 from .matched_control_authority import (
     attest_claude_marker_activation_join,
@@ -542,21 +543,10 @@ def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> 
 def _matched_initial_prompt(
     fixture_contract: Dict[str, Any], ready: Dict[str, Any]
 ) -> str:
-    return (
-        "PUPPET_REAL_HARNESS_CONFORMANCE_V2\n"
-        "Read ./contract.json and verify schema_version, run_id, nonce, and "
-        "allowed_fixture_root. Make no source, repository, account, external-send, "
-        "or system changes. Atomically write ./handoffs/ready.json with the exact "
-        "JSON object below, then create only the exact one-use matched-control "
-        "signal specified later in this source-owned wrapper. Do not create any "
-        "other handoff artifact. Remain available for one follow-up and do not "
-        "claim controller acceptance.\n"
-        "run_id=%s\nnonce=%s\nWRITE_READY_JSON=%s"
-        % (
-            fixture_contract["run_id"],
-            fixture_contract["nonce"],
-            canonical_json_bytes(ready).decode("utf-8"),
-        )
+    return claude_marker_ready_task(
+        run_id=fixture_contract["run_id"],
+        nonce=fixture_contract["nonce"],
+        ready=ready,
     )
 
 
@@ -1258,13 +1248,11 @@ def run_probe(
                 raise IdentityError(
                     "matched-control compilation is unavailable before activation"
                 )
-            matched_activation_attestation = (
-                attest_claude_marker_activation_join(
-                    matched_compiled,
-                    activation_plan=activation_plan,
-                    descriptor=plane_descriptor_value,
-                    adapter_manifest=manifest,
-                )
+            matched_activation_attestation = attest_claude_marker_activation_join(
+                matched_compiled,
+                activation_plan=activation_plan,
+                descriptor=plane_descriptor_value,
+                adapter_manifest=manifest,
             )
             matched_signal_guard = prepare_claude_marker_signal(
                 matched_compiled,
@@ -2094,6 +2082,16 @@ def run_probe(
                         activation_plan.rollback_receipt_path,
                         run_root,
                     ),
+                    _proof_reference(
+                        "matched_control_attestation",
+                        matched_attestation_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "matched_control_signal",
+                        matched_signal_path,
+                        run_root,
+                    ),
                 ]
             )
         receipt_core = {
@@ -2660,9 +2658,7 @@ def recover_probe(
                 reject_sensitive_fields=True,
             )
             if persisted_observation != observation:
-                raise IdentityError(
-                    "persisted matched-control signal receipt changed"
-                )
+                raise IdentityError("persisted matched-control signal receipt changed")
         else:
             atomic_write_json(matched_signal_path, observation)
         observation_sha = sha256_file(matched_signal_path, max_bytes=131072)

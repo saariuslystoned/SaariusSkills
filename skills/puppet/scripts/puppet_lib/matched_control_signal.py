@@ -146,10 +146,7 @@ def _directory_identity(details: os.stat_result) -> Dict[str, int]:
 
 
 def _stable_directory_identity(identity: Mapping[str, int]) -> Dict[str, int]:
-    return {
-        name: identity[name]
-        for name in ("device", "inode", "uid", "gid", "mode")
-    }
+    return {name: identity[name] for name in ("device", "inode", "uid", "gid", "mode")}
 
 
 def _file_identity(details: os.stat_result) -> Dict[str, int]:
@@ -247,6 +244,7 @@ def _validated_source(
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
     activation_attestation: Mapping[str, Any],
+    _authority_root: Optional[Path] = None,
 ) -> tuple[Dict[str, Any], Dict[str, Any], bytes, Dict[str, Any]]:
     binding = validate_compiled_marker_binding(compiled)
     join = bind_claude_marker_activation_plan(
@@ -261,6 +259,7 @@ def _validated_source(
         activation_plan=activation_plan,
         descriptor=descriptor,
         adapter_manifest=adapter_manifest,
+        _authority_root=_authority_root,
     )
     return binding, join, _source_marker(compiled), attestation_row
 
@@ -592,9 +591,13 @@ def prepare_claude_marker_signal(
     parent_descriptor: Optional[int] = None
     with exclusive_lock(root / _PREPARE_LOCK_NAME):
         if reservation_journal.lookup(reservation_request_id) is not None:
-            raise ConflictError("marker signal reservation already exists for this join")
+            raise ConflictError(
+                "marker signal reservation already exists for this join"
+            )
         if observation_journal.lookup(observation_request_id) is not None:
-            raise ConflictError("marker signal observation already exists for this join")
+            raise ConflictError(
+                "marker signal observation already exists for this join"
+            )
         try:
             workspace_descriptor = os.open(
                 workspace_plan_identity["path"], _DIRECTORY_FLAGS
@@ -803,10 +806,11 @@ def verify_claude_marker_signal_observation(
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
     activation_attestation: Mapping[str, Any],
+    _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Rejoin a hash-only observation to source and its fixed journal row."""
 
-    root = controller_authority_root()
+    root = controller_authority_root(_authority_root)
     if not isinstance(observation, Mapping) or set(observation) != _PUBLIC_FIELDS:
         raise ValidationError("marker signal observation fields are invalid")
     if (
@@ -839,6 +843,7 @@ def verify_claude_marker_signal_observation(
         descriptor=descriptor,
         adapter_manifest=adapter_manifest,
         activation_attestation=activation_attestation,
+        _authority_root=root,
     )
     expected_join_sha = sha256_bytes(canonical_json_bytes(join))
     if join_sha != expected_join_sha or request_id != _observation_request_id(
@@ -929,6 +934,89 @@ def verify_claude_marker_signal_observation(
     return row
 
 
+def verify_claude_marker_signal_terminal_absence(
+    observation: Mapping[str, Any],
+    compiled: CompiledMarkerInstruction,
+    *,
+    activation_plan: ActivationPlan,
+    descriptor: Mapping[str, Any],
+    adapter_manifest: AdapterManifest | Mapping[str, Any],
+    activation_attestation: Mapping[str, Any],
+    _authority_root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Reverify the observation and require the exact signal leaf still absent."""
+
+    _require_fd_primitives()
+    root = controller_authority_root(_authority_root)
+    row = verify_claude_marker_signal_observation(
+        observation,
+        compiled,
+        activation_plan=activation_plan,
+        descriptor=descriptor,
+        adapter_manifest=adapter_manifest,
+        activation_attestation=activation_attestation,
+        _authority_root=root,
+    )
+    join = bind_claude_marker_activation_plan(
+        compiled,
+        activation_plan=activation_plan,
+        descriptor=descriptor,
+        adapter_manifest=adapter_manifest,
+    )
+    join_sha = sha256_bytes(canonical_json_bytes(join))
+    reservation_request_id = _reservation_request_id(join_sha)
+    reservation_row = Journal(root / _RESERVATION_JOURNAL_NAME).lookup(
+        reservation_request_id
+    )
+    if (
+        reservation_row is None
+        or reservation_row.get("request_id") != reservation_request_id
+        or not isinstance(reservation_row.get("event"), dict)
+        or set(reservation_row["event"]) != _RESERVATION_EVENT_FIELDS
+    ):
+        raise IdentityError("marker signal terminal reservation is unavailable")
+    parent_identity_sha256 = validate_sha256(
+        reservation_row["event"].get("signal_parent_identity_sha256"),
+        "marker signal terminal parent",
+    )
+    workspace_identity = _plan_workspace_identity(activation_plan)
+    workspace_descriptor: Optional[int] = None
+    parent_descriptor: Optional[int] = None
+    with exclusive_lock(root / _PREPARE_LOCK_NAME):
+        try:
+            workspace_descriptor = os.open(workspace_identity["path"], _DIRECTORY_FLAGS)
+            _assert_workspace_fd(
+                workspace_descriptor,
+                expected=workspace_identity,
+            )
+            parent_descriptor = os.open(
+                _SIGNAL_PARENT,
+                _DIRECTORY_FLAGS,
+                dir_fd=workspace_descriptor,
+            )
+            parent_identity = _assert_parent_fd(
+                workspace_descriptor,
+                parent_descriptor,
+                expected=_directory_identity(os.fstat(parent_descriptor)),
+            )
+            if (
+                sha256_bytes(
+                    canonical_json_bytes(_stable_directory_identity(parent_identity))
+                )
+                != parent_identity_sha256
+            ):
+                raise IdentityError("marker signal terminal parent identity changed")
+            if _leaf_exists(parent_descriptor):
+                raise ConflictError(
+                    "marker signal leaf was recreated after terminal observation"
+                )
+        finally:
+            for candidate in (parent_descriptor, workspace_descriptor):
+                if candidate is not None:
+                    os.close(candidate)
+    return row
+
+
 __all__ = [
     "MARKER_SIGNAL_OBSERVATION_EVENT_SCHEMA",
     "MARKER_SIGNAL_OBSERVATION_KIND",
@@ -936,4 +1024,5 @@ __all__ = [
     "prepare_claude_marker_signal",
     "recover_claude_marker_signal_observation",
     "verify_claude_marker_signal_observation",
+    "verify_claude_marker_signal_terminal_absence",
 ]

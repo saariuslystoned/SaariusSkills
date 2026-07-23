@@ -340,6 +340,8 @@ ACTIVATION_QUALIFICATION_PROOF_KINDS = (
     "activation_context",
     "activation_rollback_intent",
     "activation_rollback",
+    "matched_control_attestation",
+    "matched_control_signal",
 )
 PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
 ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
@@ -894,10 +896,15 @@ def verify_qualification_receipt(
         raise IdentityError("qualification subscription profile authority changed")
     terminal_activation = None
     activation_intent = None
+    matched_activation_plan = None
+    matched_plane_descriptor = None
     if plane_activation is not None:
-        from .plane_activation import validate_terminal_activation_evidence
+        from .plane_activation import (
+            ActivationPlan,
+            validate_terminal_activation_evidence,
+        )
 
-        plane_descriptor = read_json(
+        matched_plane_descriptor = read_json(
             artifacts["plane_descriptor"],
             max_bytes=131072,
             reject_sensitive_fields=True,
@@ -909,7 +916,7 @@ def verify_qualification_receipt(
         )
         terminal_activation = validate_terminal_activation_evidence(
             plane_activation,
-            descriptor=plane_descriptor,
+            descriptor=matched_plane_descriptor,
             intent=activation_intent,
             materialization_receipt=read_json(
                 artifacts["activation_receipt"],
@@ -936,6 +943,9 @@ def verify_qualification_receipt(
         if terminal_activation != plane_activation:
             raise ValidationError("terminal plane activation binding changed")
         activation_plan = activation_intent.get("plan")
+        if not isinstance(activation_plan, dict):
+            raise ValidationError("qualification activation plan is unavailable")
+        matched_activation_plan = ActivationPlan.from_dict(activation_plan)
         if not isinstance(activation_plan, dict) or evidence.get(
             "manifest_fingerprint"
         ) != activation_plan.get("adapter_manifest_sha256"):
@@ -1577,6 +1587,74 @@ def verify_qualification_receipt(
         review=review,
         review_summary=review_summary,
     )
+    if plane_activation is not None:
+        from .matched_control import (
+            _compile_claude_marker_ready_instruction,
+            claude_marker_ready_task,
+        )
+        from .matched_control_authority import (
+            verify_claude_marker_activation_join_attestation,
+        )
+        from .matched_control_signal import (
+            verify_claude_marker_signal_terminal_absence,
+        )
+
+        if matched_activation_plan is None or matched_plane_descriptor is None:
+            raise IdentityError("matched-control terminal source is unavailable")
+        ready_task = claude_marker_ready_task(
+            run_id=receipt["run_id"],
+            nonce=ready.identity["nonce"],
+            ready=ready.data,
+        )
+        matched_compiled = _compile_claude_marker_ready_instruction(
+            descriptor=matched_plane_descriptor,
+            contract_identity=instruction_manifest["contract_identity"],
+            workspace_identity=instruction_manifest["workspace_identity"],
+            run_identity=instruction_manifest["run_identity"],
+            ready_task=ready_task,
+        )
+        if canonical_json_bytes(matched_compiled.manifest) != canonical_json_bytes(
+            instruction_manifest
+        ):
+            raise IdentityError(
+                "matched-control terminal source differs from instruction authority"
+            )
+        matched_attestation = read_json(
+            artifacts["matched_control_attestation"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        matched_signal = read_json(
+            artifacts["matched_control_signal"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        attestation_sha = sha256_file(
+            artifacts["matched_control_attestation"], max_bytes=131072
+        )
+        signal_sha = sha256_file(artifacts["matched_control_signal"], max_bytes=131072)
+        if (
+            terminal_state.get("matched_control_attestation_sha256") != attestation_sha
+            or terminal_state.get("matched_control_signal_sha256") != signal_sha
+        ):
+            raise IdentityError("matched-control terminal state references changed")
+        verify_claude_marker_activation_join_attestation(
+            matched_attestation,
+            matched_compiled,
+            activation_plan=matched_activation_plan,
+            descriptor=matched_plane_descriptor,
+            adapter_manifest=current_manifest,
+            _authority_root=authority_root,
+        )
+        verify_claude_marker_signal_terminal_absence(
+            matched_signal,
+            matched_compiled,
+            activation_plan=matched_activation_plan,
+            descriptor=matched_plane_descriptor,
+            adapter_manifest=current_manifest,
+            activation_attestation=matched_attestation,
+            _authority_root=authority_root,
+        )
     if evidence.get("review_sha256") != sha256_file(
         artifacts["review"], max_bytes=131072
     ):

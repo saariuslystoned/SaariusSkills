@@ -158,7 +158,10 @@ preserve the run when its attestation, reservation, ready checkpoint, or
 hash-only signal observation is missing or drifted. Also stop on a non-source,
 ambiguous, or post-observation recreated signal leaf; do not manually delete or
 recreate it. An accepted activation lifecycle remains non-qualifying until a
-separate ordinary control and paired no-bleed proof are accepted.
+separate ordinary control and paired no-bleed proof are accepted. Its terminal
+receipt must retain both matched-control artifacts as exact proof references;
+standalone verification rejoins them to the source-owned ready request and
+controller journals before returning the still-non-promotable lifecycle result.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

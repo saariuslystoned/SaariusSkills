@@ -37,6 +37,7 @@ from puppet_lib.matched_control_signal import (  # noqa: E402
     prepare_claude_marker_signal,
     recover_claude_marker_signal_observation,
     verify_claude_marker_signal_observation,
+    verify_claude_marker_signal_terminal_absence,
 )
 from puppet_lib.plane_activation import plan_activation  # noqa: E402
 from tests.test_puppet_plane_activation import (  # noqa: E402
@@ -249,6 +250,7 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             prepare_claude_marker_signal,
             recover_claude_marker_signal_observation,
             verify_claude_marker_signal_observation,
+            verify_claude_marker_signal_terminal_absence,
         ):
             parameters = inspect.signature(function).parameters
             for forbidden in (
@@ -393,10 +395,12 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             with self.assertRaisesRegex(ConflictError, "reservation already exists"):
                 case.prepare()
 
-    def test_probe_consumes_signal_but_handoff_and_qualification_schemas_do_not(self):
+    def test_probe_and_terminal_verifier_consume_signal_authority_only(self):
         self.assertIn("matched_control_signal", inspect.getsource(probe))
-        for module in (adapter_manifest, puppet_adapter_lab):
-            self.assertNotIn("matched_control_signal", inspect.getsource(module))
+        self.assertIn("matched_control_signal", inspect.getsource(adapter_manifest))
+        self.assertNotIn(
+            "matched_control_signal", inspect.getsource(puppet_adapter_lab)
+        )
         self.assertNotIn(
             MARKER_SIGNAL_RELATIVE_PATH,
             json.dumps(probe._handoff_value.__code__.co_consts, default=str),

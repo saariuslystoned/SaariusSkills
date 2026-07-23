@@ -586,6 +586,47 @@ def compile_claude_marker_instruction(
     )
 
 
+def claude_marker_ready_task(
+    *,
+    run_id: str,
+    nonce: str,
+    ready: Mapping[str, Any],
+) -> str:
+    """Rebuild the exact source-owned ready request used by a live probe."""
+
+    normalized_run_id = validate_identifier(run_id, "matched-control ready run id")
+    normalized_nonce = validate_identifier(nonce, "matched-control ready nonce")
+    if not isinstance(ready, Mapping):
+        raise ValidationError("matched-control ready handoff must be an object")
+    ready_value = dict(ready)
+    if (
+        ready_value.get("run_id") != normalized_run_id
+        or ready_value.get("nonce") != normalized_nonce
+        or ready_value.get("phase") != "ready"
+        or ready_value.get("sequence") != 0
+    ):
+        raise IdentityError("matched-control ready handoff identity changed")
+    ready_json = canonical_json_bytes(ready_value)
+    if not ready_json or len(ready_json) > 65536 or b"\x00" in ready_json:
+        raise ValidationError("matched-control ready handoff is invalid")
+    return (
+        "PUPPET_REAL_HARNESS_CONFORMANCE_V2\n"
+        "Read ./contract.json and verify schema_version, run_id, nonce, and "
+        "allowed_fixture_root. Make no source, repository, account, external-send, "
+        "or system changes. Atomically write ./handoffs/ready.json with the exact "
+        "JSON object below, then create only the exact one-use matched-control "
+        "signal specified later in this source-owned wrapper. Do not create any "
+        "other handoff artifact. Remain available for one follow-up and do not "
+        "claim controller acceptance.\n"
+        "run_id=%s\nnonce=%s\nWRITE_READY_JSON=%s"
+        % (
+            normalized_run_id,
+            normalized_nonce,
+            ready_json.decode("utf-8"),
+        )
+    )
+
+
 def _compile_claude_marker_ready_instruction(
     *,
     descriptor: Mapping[str, Any],
@@ -705,6 +746,7 @@ __all__ = [
     "MARKER_SIGNAL_RELATIVE_PATH",
     "CompiledMarkerInstruction",
     "bind_claude_marker_activation_plan",
+    "claude_marker_ready_task",
     "compile_claude_marker_instruction",
     "validate_claude_marker_activation_join",
     "validate_compiled_marker_binding",

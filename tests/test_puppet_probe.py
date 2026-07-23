@@ -561,9 +561,9 @@ class FakeTmux:
         temporary = destination.with_suffix(".pending")
         write_json(temporary, value)
         temporary.replace(destination)
-        if len(self.payloads) == 1 and payload == (
-            CLAUDE_NATIVE_TRIGGER + "\n"
-        ).encode("utf-8"):
+        if len(self.payloads) == 1 and payload == (CLAUDE_NATIVE_TRIGGER + "\n").encode(
+            "utf-8"
+        ):
             marker = re.search(
                 rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}",
                 instruction_payload,
@@ -902,6 +902,8 @@ class ProbeTests(unittest.TestCase):
                     "activation_context",
                     "activation_rollback_intent",
                     "activation_rollback",
+                    "matched_control_attestation",
+                    "matched_control_signal",
                 },
             )
             intent = json.loads(
@@ -947,6 +949,51 @@ class ProbeTests(unittest.TestCase):
                 verify_recovered_receipt.call_args.args,
                 (run_root / "receipt.json",),
             )
+            recreated_signal = (
+                Path(intent["plan"]["workspace_root"]["path"])
+                / MARKER_SIGNAL_RELATIVE_PATH
+            )
+            recreated_signal.write_bytes(b"RECREATED_SIGNAL_CANARY")
+            recreated_signal.chmod(0o600)
+            with (
+                patch(
+                    "puppet_lib.adapter_manifest.stat.S_ISSOCK",
+                    return_value=True,
+                ),
+                self.assertRaisesRegex(
+                    ConflictError,
+                    "recreated after terminal observation",
+                ),
+            ):
+                verify_qualification_receipt(
+                    run_root / "receipt.json",
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _authority_root=files["authority"],
+                    _server_process_fn=lambda _pid: fake.server_process,
+                    _tmux_factory=lambda _root: fake,
+                )
+            recreated_signal.unlink()
+            state_path = run_root / "state.json"
+            terminal_state = json.loads(state_path.read_text(encoding="utf-8"))
+            terminal_state["matched_control_signal_sha256"] = "0" * 64
+            write_json(state_path, terminal_state)
+            with (
+                patch(
+                    "puppet_lib.adapter_manifest.stat.S_ISSOCK",
+                    return_value=True,
+                ),
+                self.assertRaisesRegex(
+                    IdentityError,
+                    "matched-control terminal state references changed",
+                ),
+            ):
+                verify_qualification_receipt(
+                    run_root / "receipt.json",
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _authority_root=files["authority"],
+                    _server_process_fn=lambda _pid: fake.server_process,
+                    _tmux_factory=lambda _root: fake,
+                )
 
     def test_claude_matched_control_pre_delivery_order_and_no_raw_retention(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1112,7 +1159,13 @@ class ProbeTests(unittest.TestCase):
                 self.assertIsNone(
                     re.search(
                         rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}",
-                        (run_root / "activation-lane" / "workspace" / "handoffs" / handoff_name).read_bytes(),
+                        (
+                            run_root
+                            / "activation-lane"
+                            / "workspace"
+                            / "handoffs"
+                            / handoff_name
+                        ).read_bytes(),
                     )
                 )
 
@@ -1144,9 +1197,7 @@ class ProbeTests(unittest.TestCase):
                 / "workspace"
                 / MARKER_SIGNAL_RELATIVE_PATH
             )
-            with self.assertRaisesRegex(
-                ConflictError, "recreated after observation"
-            ):
+            with self.assertRaisesRegex(ConflictError, "recreated after observation"):
                 recover_execute(files, run_id=run_id, tmux_factory=lambda _root: fake)
             self.assertTrue(signal_path.is_file())
             self.assertEqual(signal_path.read_bytes(), fake.deferred_marker)
@@ -1186,10 +1237,7 @@ class ProbeTests(unittest.TestCase):
 
             run_root = files["proof"] / "probes" / run_id
             signal_path = (
-                run_root
-                / "activation-lane"
-                / "workspace"
-                / MARKER_SIGNAL_RELATIVE_PATH
+                run_root / "activation-lane" / "workspace" / MARKER_SIGNAL_RELATIVE_PATH
             )
             self.assertTrue(recreated)
             self.assertFalse(fake.alive)
@@ -1273,9 +1321,7 @@ class ProbeTests(unittest.TestCase):
                     side_effect=ValidationError("materialization stopped"),
                 ),
             ):
-                with self.assertRaisesRegex(
-                    ValidationError, "materialization stopped"
-                ):
+                with self.assertRaisesRegex(ValidationError, "materialization stopped"):
                     execute(
                         files,
                         fake,
@@ -1375,9 +1421,10 @@ class ProbeTests(unittest.TestCase):
             )
 
             def crash_after_ready(_interval):
-                if fake.repo is not None and (
-                    fake.repo / "handoffs" / "ready.json"
-                ).is_file():
+                if (
+                    fake.repo is not None
+                    and (fake.repo / "handoffs" / "ready.json").is_file()
+                ):
                     raise KeyboardInterrupt()
 
             with patch.object(

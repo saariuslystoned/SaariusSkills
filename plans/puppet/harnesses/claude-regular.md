@@ -256,3 +256,13 @@ follow-up set check. A terminal post-halt recheck and interrupted recovery both
 fail closed on missing, drifted, non-source, or recreated signal evidence. This
 still authorizes neither delivery, target authorship, scanning, checkpoint
 claims, lease ownership, no-bleed, qualification, nor promotion.
+
+The terminal activation receipt now includes the body-free activation
+attestation and hash-only signal observation as mandatory proof references.
+Standalone receipt verification rebuilds the exact ready request from the
+validated ready handoff, rejoins both artifacts to the fixed controller
+journals and source-owned activation plan, and requires the terminal state to
+retain their exact hashes. Missing, tampered, wrong-authority, or source-drifted
+artifacts and a post-observation recreated signal leaf therefore fail before
+the existing matched no-bleed qualification fence; this binding does not
+itself prove no-bleed or authorize promotion.
