@@ -43,6 +43,11 @@ transcript-aware operations in the initial skill. Both use Herdr's blocking
 - emit only match state and hashes;
 - never emit or persist surrounding pane text.
 
+Herdr 0.7.3 returns the bounded matched window to the controller process; the
+skill cannot make that native response transcript-blind. Qualification waits
+therefore keep the window small, hold it only in memory, extract the strict
+match, and discard the response without stdout or journal exposure.
+
 The normal controller loop uses `qualification-beacon-wait`. In each task
 prompt, assign one unique nonce and require exactly one terminal line:
 

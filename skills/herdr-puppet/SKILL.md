@@ -46,6 +46,11 @@ hand-composed Herdr mutations when the script owns the operation.
    requires its own topology, accounting, timeout, and cleanup proof.
 8. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
+   Supply prompt content through `--stdin` or a bounded UTF-8 `--text-file`;
+   never place prompt content in process arguments. Treat
+   `herdr_input_outcome_unknown` as a hard stop: reconcile the same sequence
+   from independent structural evidence before any later send, and never
+   retry the prompt speculatively.
 9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
@@ -90,6 +95,14 @@ python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --run-root <run-root> \
   --allow-live-qualification
 
+python3 scripts/herdr_puppet.py qualification-send \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --stdin \
+  --run-root <run-root> \
+  --allow-live-qualification \
+  < <task-owned-prompt-file>
+
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <human_gate|route_superseded|milestone_complete|operator_stop>
@@ -113,7 +126,8 @@ destructive cleanup.
   material, or environment contents in a public proof.
 - Keep ordinary `status` transcript-blind. Only the separately gated
   qualification token and beacon waits may use Herdr's blocking `wait output`;
-  both must discard the returned text window.
+  both necessarily receive a bounded surrounding text window in controller
+  memory and must discard it without emitting or persisting it.
 - Treat the journal as review input, not automatic permission to broaden the
   skill.
 - Leave `halt` and `recover` unavailable until exact remote-process identity

@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import json
 import re
+import socket
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from typing import Any
@@ -26,8 +28,12 @@ from herdr_puppet_lib.core import (  # noqa: E402
     qualification_token_probe,
     structural_status,
 )
+from herdr_puppet_lib.cli import _read_prompt  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
-from herdr_puppet_lib.herdr_client import HerdrClient  # noqa: E402
+from herdr_puppet_lib.herdr_client import (  # noqa: E402
+    MAX_PROMPT_BYTES,
+    HerdrClient,
+)
 from herdr_puppet_lib.journal import (  # noqa: E402
     initialize_journal,
     refresh_state,
@@ -142,9 +148,10 @@ class FakeClient:
         }
         return {"result": {"tab_id": tab_id}}
 
-    def run_input(self, session: str, pane_id: str, text: str) -> str:
-        self._session(session)
-        self.sent.append(("run", pane_id, text))
+    def run_input(self, socket_path: str, pane_id: str, text: str) -> str:
+        if socket_path != self.server["socket"]:
+            raise AssertionError(f"wrong socket: {socket_path}")
+        self.sent.append(("input", pane_id, text))
         return ""
 
     def wait_output(
@@ -278,6 +285,47 @@ class DoctorAndPlanTests(unittest.TestCase):
 
 
 class HerdrClientTests(unittest.TestCase):
+    def start_socket_server(
+        self,
+        responder: Any,
+    ) -> tuple[str, dict[str, Any], threading.Thread]:
+        temporary_directory = tempfile.TemporaryDirectory()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        socket_path = str(Path(temporary_directory.name) / "herdr.sock")
+        server.bind(socket_path)
+        server.listen(1)
+        observed: dict[str, Any] = {}
+
+        def serve() -> None:
+            try:
+                connection, _ = server.accept()
+                with connection:
+                    request_line = bytearray()
+                    while b"\n" not in request_line:
+                        request_line.extend(connection.recv(64 * 1024))
+                    request = json.loads(request_line.split(b"\n", 1)[0])
+                    observed["request"] = request
+                    response = responder(request)
+                    encoded_response = (
+                        response
+                        if isinstance(response, bytes)
+                        else json.dumps(response).encode("utf-8")
+                    )
+                    connection.sendall(encoded_response + b"\n")
+            finally:
+                server.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+
+        def cleanup() -> None:
+            thread.join(timeout=1)
+            server.close()
+            temporary_directory.cleanup()
+
+        self.addCleanup(cleanup)
+        return socket_path, observed, thread
+
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_create_tab_accepts_empty_success_output(self, run: mock.Mock) -> None:
         run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
@@ -307,25 +355,92 @@ class HerdrClientTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], 32.0)
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
-    def test_failed_input_never_emits_prompt_in_error_details(
+    def test_input_uses_atomic_socket_request_and_never_process_argv(
         self,
         run: mock.Mock,
     ) -> None:
-        run.return_value = mock.Mock(
-            returncode=1,
-            stdout="",
-            stderr="rejected",
+        socket_path, observed, thread = self.start_socket_server(
+            lambda request: {
+                "id": request["id"],
+                "result": {"type": "ok"},
+            }
+        )
+        client = HerdrClient()
+        result = client.run_input(
+            socket_path,
+            "w2:p1",
+            "private prompt content",
+        )
+        thread.join(timeout=1)
+        self.assertEqual(result, {"type": "ok"})
+        self.assertEqual(observed["request"]["method"], "pane.send_input")
+        self.assertEqual(
+            observed["request"]["params"],
+            {
+                "pane_id": "w2:p1",
+                "text": "private prompt content",
+                "keys": ["enter"],
+            },
+        )
+        run.assert_not_called()
+
+    def test_failed_input_never_emits_prompt_in_error_details(self) -> None:
+        socket_path, _, _ = self.start_socket_server(
+            lambda request: {
+                "id": request["id"],
+                "error": {
+                    "code": "invalid_params",
+                    "message": f"rejected {request['params']['text']}",
+                },
+            }
         )
         client = HerdrClient()
         with self.assertRaises(HerdrPuppetError) as caught:
             client.run_input(
-                "operator-session",
+                socket_path,
                 "w2:p1",
                 "private prompt content",
             )
         serialized = json.dumps(caught.exception.as_json())
         self.assertNotIn("private prompt content", serialized)
-        self.assertIn("<redacted-input>", serialized)
+        self.assertEqual(
+            caught.exception.details["api_error_code"],
+            "invalid_params",
+        )
+
+    def test_invalid_utf8_acknowledgement_is_unknown_without_prompt_leak(self) -> None:
+        socket_path, _, _ = self.start_socket_server(lambda request: b"\xff")
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_input(
+                socket_path,
+                "w2:p1",
+                "private prompt content",
+            )
+        self.assertEqual(caught.exception.code, "herdr_input_outcome_unknown")
+        self.assertNotIn(
+            "private prompt content",
+            json.dumps(caught.exception.as_json()),
+        )
+
+    def test_input_rejects_oversized_prompt_before_socket_access(self) -> None:
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_input(
+                "/does/not/exist.sock",
+                "w2:p1",
+                "x" * (MAX_PROMPT_BYTES + 1),
+            )
+        self.assertEqual(caught.exception.code, "prompt_too_large")
+
+    def test_prompt_file_removes_only_one_terminal_line_ending(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            prompt_path = Path(directory) / "prompt.txt"
+            prompt_path.write_bytes(b"first line\nsecond line\n\n")
+            self.assertEqual(
+                _read_prompt(text_file=str(prompt_path), prompt_stdin=False),
+                "first line\nsecond line\n",
+            )
 
 
 class QualificationTests(unittest.TestCase):
@@ -448,7 +563,7 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("bounded prompt", events)
         self.assertEqual(
             self.client.sent,
-            [("run", "w2:p1", "bounded prompt")],
+            [("input", "w2:p1", "bounded prompt")],
         )
 
     def test_partial_send_reconciliation_requires_evidence(self) -> None:

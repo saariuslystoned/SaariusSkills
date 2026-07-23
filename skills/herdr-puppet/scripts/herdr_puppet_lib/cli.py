@@ -18,7 +18,7 @@ from .core import (
     structural_status,
 )
 from .errors import HerdrPuppetError
-from .herdr_client import HerdrClient, load_json
+from .herdr_client import MAX_PROMPT_BYTES, HerdrClient, load_json
 from .journal import (
     append_event,
     atomic_json,
@@ -54,6 +54,47 @@ def _client(args: argparse.Namespace) -> HerdrClient:
 def _common_live(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--herdr-bin", default="herdr")
     parser.add_argument("--timeout-seconds", type=float, default=10.0)
+
+
+def _read_prompt(*, text_file: str | None, prompt_stdin: bool) -> str:
+    if text_file is not None:
+        try:
+            with Path(text_file).open("rb") as prompt_stream:
+                raw = prompt_stream.read(MAX_PROMPT_BYTES + 1)
+        except OSError as exc:
+            raise HerdrPuppetError(
+                "prompt_read_failed",
+                "The prompt file could not be read.",
+                details={"path": text_file},
+            ) from exc
+    elif prompt_stdin:
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        raw = stream.read(MAX_PROMPT_BYTES + 1)
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+    else:
+        raise HerdrPuppetError(
+            "prompt_source_missing",
+            "Choose a non-argv prompt source.",
+        )
+    if len(raw) > MAX_PROMPT_BYTES:
+        raise HerdrPuppetError(
+            "prompt_too_large",
+            "The prompt exceeds the bounded input size.",
+            details={"max_prompt_bytes": MAX_PROMPT_BYTES},
+        )
+    try:
+        prompt = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HerdrPuppetError(
+            "invalid_prompt_encoding",
+            "The prompt must be valid UTF-8.",
+        ) from exc
+    if prompt.endswith("\r\n"):
+        return prompt[:-2]
+    if prompt.endswith(("\r", "\n")):
+        return prompt[:-1]
+    return prompt
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,8 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--lease-json", required=True)
     send.add_argument("--seq", type=int, required=True)
     send_source = send.add_mutually_exclusive_group(required=True)
-    send_source.add_argument("--text")
     send_source.add_argument("--text-file")
+    send_source.add_argument("--stdin", action="store_true", dest="prompt_stdin")
     send.add_argument("--run-root")
     send.add_argument("--allow-live-qualification", action="store_true")
     _common_live(send)
@@ -132,8 +173,12 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--lease-json", required=True)
     reconcile.add_argument("--seq", type=int, required=True)
     reconcile_source = reconcile.add_mutually_exclusive_group(required=True)
-    reconcile_source.add_argument("--text")
     reconcile_source.add_argument("--text-file")
+    reconcile_source.add_argument(
+        "--stdin",
+        action="store_true",
+        dest="prompt_stdin",
+    )
     reconcile.add_argument("--evidence", required=True)
     reconcile.add_argument("--confirm-applied", action="store_true")
     reconcile.add_argument("--run-root")
@@ -250,10 +295,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             run_root=Path(args.run_root) if args.run_root else None,
         )
     if args.command == "qualification-send":
-        text = args.text
-        if args.text_file:
-            text = Path(args.text_file).read_text(encoding="utf-8").rstrip("\r\n")
-        assert text is not None
+        text = _read_prompt(
+            text_file=args.text_file,
+            prompt_stdin=args.prompt_stdin,
+        )
         return qualification_send(
             _client(args),
             lease_payload=load_json(args.lease_json),
@@ -264,10 +309,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             allow_live=args.allow_live_qualification,
         )
     if args.command == "qualification-reconcile-send":
-        text = args.text
-        if args.text_file:
-            text = Path(args.text_file).read_text(encoding="utf-8").rstrip("\r\n")
-        assert text is not None
+        text = _read_prompt(
+            text_file=args.text_file,
+            prompt_stdin=args.prompt_stdin,
+        )
         return qualification_reconcile_send(
             _client(args),
             lease_payload=load_json(args.lease_json),

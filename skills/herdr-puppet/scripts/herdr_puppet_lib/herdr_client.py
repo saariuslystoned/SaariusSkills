@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import stat
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .errors import HerdrPuppetError
+
+
+MAX_PROMPT_BYTES = 256 * 1024
+MAX_SOCKET_RESPONSE_BYTES = 1024 * 1024
 
 
 class HerdrClient:
@@ -179,19 +187,154 @@ class HerdrClient:
             json_output=False,
         )
 
-    def run_input(self, session: str, pane_id: str, text: str) -> Any:
-        return self._run(
-            ["--session", session, "pane", "run", pane_id, text],
-            json_output=False,
-            safe_command=[
-                "--session",
-                session,
-                "pane",
-                "run",
-                pane_id,
-                "<redacted-input>",
-            ],
-        )
+    def run_input(self, socket_path: str, pane_id: str, text: str) -> Any:
+        text_bytes = text.encode("utf-8")
+        if len(text_bytes) > MAX_PROMPT_BYTES:
+            raise HerdrPuppetError(
+                "prompt_too_large",
+                "The prompt exceeds the bounded input size.",
+                details={"max_prompt_bytes": MAX_PROMPT_BYTES},
+            )
+        request_id = f"herdr_puppet_{uuid.uuid4().hex}"
+        request = {
+            "id": request_id,
+            "method": "pane.send_input",
+            "params": {
+                "pane_id": pane_id,
+                "text": text,
+                "keys": ["enter"],
+            },
+        }
+        encoded = json.dumps(
+            request,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if b"\n" in encoded:
+            raise HerdrPuppetError(
+                "invalid_socket_request",
+                "The encoded Herdr request is not one newline-delimited frame.",
+            )
+
+        path = Path(socket_path)
+        if not path.is_absolute():
+            raise HerdrPuppetError(
+                "invalid_herdr_socket",
+                "The leased Herdr socket path must be absolute.",
+            )
+        try:
+            socket_stat = os.lstat(path)
+        except OSError as exc:
+            raise HerdrPuppetError(
+                "herdr_socket_unavailable",
+                "The leased Herdr socket is unavailable.",
+            ) from exc
+        if not stat.S_ISSOCK(socket_stat.st_mode):
+            raise HerdrPuppetError(
+                "invalid_herdr_socket",
+                "The leased Herdr socket path is not a Unix socket.",
+            )
+        if socket_stat.st_uid != os.geteuid():
+            raise HerdrPuppetError(
+                "herdr_socket_owner_mismatch",
+                "The leased Herdr socket is not owned by the current user.",
+            )
+
+        dispatch_started = False
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(self.timeout_seconds)
+                connection.connect(socket_path)
+                connected_stat = os.lstat(path)
+                if (
+                    connected_stat.st_dev != socket_stat.st_dev
+                    or connected_stat.st_ino != socket_stat.st_ino
+                    or not stat.S_ISSOCK(connected_stat.st_mode)
+                    or connected_stat.st_uid != socket_stat.st_uid
+                ):
+                    raise HerdrPuppetError(
+                        "herdr_socket_replaced",
+                        "The leased Herdr socket changed during connection.",
+                    )
+                dispatch_started = True
+                connection.sendall(encoded + b"\n")
+                response_line = self._read_socket_line(connection)
+        except HerdrPuppetError:
+            raise
+        except (OSError, socket.timeout) as exc:
+            if dispatch_started:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "The Herdr input request may have been applied; reconcile "
+                    "the sequence before another send.",
+                ) from exc
+            raise HerdrPuppetError(
+                "herdr_socket_connection_failed",
+                "The leased Herdr socket could not be reached.",
+            ) from exc
+
+        try:
+            response = json.loads(response_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned an invalid input response; reconcile the "
+                "sequence before another send.",
+            ) from exc
+        if not isinstance(response, dict) or response.get("id") != request_id:
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned a mismatched input response; reconcile the "
+                "sequence before another send.",
+            )
+        error = response.get("error")
+        if isinstance(error, dict):
+            error_code = error.get("code")
+            raise HerdrPuppetError(
+                "herdr_input_rejected",
+                "Herdr rejected the input request.",
+                details={
+                    "api_error_code": (
+                        error_code if isinstance(error_code, str) else None
+                    )
+                },
+            )
+        result = response.get("result")
+        if not isinstance(result, dict) or result.get("type") != "ok":
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned an unexpected input response; reconcile the "
+                "sequence before another send.",
+            )
+        return result
+
+    @staticmethod
+    def _read_socket_line(connection: socket.socket) -> bytes:
+        response = bytearray()
+        while True:
+            chunk = connection.recv(64 * 1024)
+            if not chunk:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "Herdr closed the socket before acknowledging input; "
+                    "reconcile the sequence before another send.",
+                )
+            response.extend(chunk)
+            newline = response.find(b"\n")
+            if newline >= 0:
+                if newline > MAX_SOCKET_RESPONSE_BYTES:
+                    raise HerdrPuppetError(
+                        "herdr_input_outcome_unknown",
+                        "Herdr returned an oversized input response; reconcile "
+                        "the sequence before another send.",
+                    )
+                return bytes(response[:newline])
+            if len(response) > MAX_SOCKET_RESPONSE_BYTES:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "Herdr returned an oversized input response; reconcile the "
+                    "sequence before another send.",
+                )
 
     def wait_output(
         self,

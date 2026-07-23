@@ -36,10 +36,21 @@ ssh.target
 next_seq
 ```
 
-The lease file is updated atomically after a successful `pane run`. A caller
-supplies the expected sequence; equality with `next_seq` is mandatory.
-`pane run` submits text plus Enter through one Herdr API request. This proves
-input acceptance only, not shell or harness execution.
+The lease file is updated atomically after a successful `pane.send_input`. A
+caller supplies the expected sequence; equality with `next_seq` is mandatory.
+The controller sends `text` plus `keys: ["enter"]` as one newline-delimited
+JSON request to the exact, current-user-owned Unix socket bound in the lease.
+It rechecks the socket file identity after connecting and before dispatch.
+That inode check narrows path-replacement races; it does not prove a native
+Herdr server incarnation. A lost, malformed, or mismatched acknowledgement is
+an unknown delivery outcome. Never retry that sequence: stop and use
+`qualification-reconcile-send` only after independent evidence establishes
+that the original input was applied.
+Prompt content is accepted only through standard input or a UTF-8 file, with a
+256 KiB limit; it never appears in the controller or Herdr process argument
+vector. The controller never writes or copies prompt content, so callers own
+the lifecycle of any input file. This proves input acceptance only, not shell
+or harness execution.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible

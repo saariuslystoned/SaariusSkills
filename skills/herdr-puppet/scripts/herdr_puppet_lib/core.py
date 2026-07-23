@@ -575,9 +575,9 @@ def qualification_send(
             "Structural status blocked the send.",
             details={"blockers": status["blockers"]},
         )
-    session = lease_payload["session"]["name"]
+    socket_path = lease_payload["session"]["socket"]
     pane_id = lease_payload["pane_id"]
-    client.run_input(session, pane_id, text)
+    client.run_input(socket_path, pane_id, text)
     digest = sha256_text(text)
     updated = json.loads(json.dumps(lease_payload))
     updated["next_seq"] = seq + 1
@@ -591,7 +591,7 @@ def qualification_send(
                 "ok",
                 seq=seq,
                 prompt_sha256=digest,
-                data={"pane_id": pane_id, "input_request": "pane.run"},
+                data={"pane_id": pane_id, "input_request": "pane.send_input"},
             ),
         )
     return {

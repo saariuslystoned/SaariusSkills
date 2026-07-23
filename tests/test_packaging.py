@@ -119,6 +119,12 @@ class PackagingTests(unittest.TestCase):
             / "herdr_puppet_lib"
             / "herdr_client.py"
         ).read_text(encoding="utf-8")
+        cli = (
+            HERDR_SKILL
+            / "scripts"
+            / "herdr_puppet_lib"
+            / "cli.py"
+        ).read_text(encoding="utf-8")
         compact_client = " ".join(client.split())
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$herdr-puppet", metadata)
@@ -126,12 +132,17 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("transcript-blind", skill)
         self.assertIn("Never inject `/teamwork-preview` automatically", skill)
         self.assertIn("lease-preserve", skill)
-        self.assertIn('"pane", "run"', compact_client)
+        self.assertIn('"method": "pane.send_input"', compact_client)
+        self.assertIn('"keys": ["enter"]', compact_client)
+        self.assertIn("socket.AF_UNIX", client)
+        self.assertNotIn('add_argument("--text")', cli)
+        self.assertIn('add_argument("--stdin"', cli)
         self.assertIn('"wait", "output"', compact_client)
         self.assertIn('"api", "snapshot"', compact_client)
         self.assertNotIn('"pane", "read"', compact_client)
         self.assertNotIn('"send-text"', compact_client)
         self.assertNotIn('"send-keys"', compact_client)
+        self.assertNotIn('"pane", "run"', compact_client)
         self.assertNotIn('"server", "stop"', compact_client)
         self.assertNotIn('"session", "stop"', compact_client)
         self.assertNotIn('"workspace", "close"', compact_client)
