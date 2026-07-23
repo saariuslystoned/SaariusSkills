@@ -246,6 +246,16 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   - source-only Codex launch gate tests covering manifest binding, path/version checks,
     candidate-process call shape, no-ambient env, and an ambient
     `CODEX_ACCESS_TOKEN` non-leak canary.
+- `skills/puppet/scripts/puppet_lib/run_observations.py`
+  - persists the exact body-free `CodexDoctorObservation` as an atomic,
+    create-only zero-agent outcome record;
+  - records requested/current-default versus observed model/provider facts,
+    exact version, task/profile, bounded latency, explicit `unavailable`
+    native/checkpoint metrics, zero repairs, source-only proof integrity, and
+    a blocked controller verdict; and
+  - validates the source digest and every false authority bit while remaining
+    disconnected from launch, session, probe, adapter, and qualification
+    consumers.
 
 ## 7) Blockers and stop criteria
 
