@@ -32,6 +32,7 @@ from .matched_control_authority import (
 from .plane_activation import ActivationPlan
 from .safety import (
     canonical_json_bytes,
+    exclusive_lock,
     sha256_bytes,
     validate_identifier,
     validate_sha256,
@@ -44,6 +45,10 @@ MARKER_SIGNAL_OBSERVATION_EVENT_SCHEMA = (
 )
 MARKER_SIGNAL_OBSERVATION_KIND = "claude_marker_signal_consumed"
 _JOURNAL_NAME = "claude-marker-signal-observations"
+_RESERVATION_JOURNAL_NAME = "claude-marker-signal-reservations"
+_PREPARE_LOCK_NAME = ".claude-marker-signal-prepare.lock"
+_RESERVATION_EVENT_SCHEMA = "puppet.claude-marker-signal-reservation-event/v1"
+_RESERVATION_EVENT_KIND = "claude_marker_signal_reserved"
 _SIGNAL_PARENT, _SIGNAL_LEAF = MARKER_SIGNAL_RELATIVE_PATH.split("/", 1)
 _DIRECTORY_FLAGS = (
     os.O_RDONLY
@@ -72,6 +77,7 @@ _EVENT_FIELDS = {
     "run_id",
     "activation_join_sha256",
     "activation_attestation_entry_sha256",
+    "signal_reservation_entry_sha256",
     "compiled_binding_sha256",
     "marker_sha256",
     "signal_protocol_sha256",
@@ -81,6 +87,32 @@ _EVENT_FIELDS = {
     "signal_consumed",
     "raw_signal_retained",
     "signal_path_retained",
+    "delivery_authorized",
+    "runtime_scan_authorized",
+    "checkpoint_observed",
+    "lease_bound",
+    "no_bleed_evaluated",
+    "no_bleed_verified",
+    "qualification_authorized",
+    "promotion_authorized",
+    "result",
+}
+_RESERVATION_EVENT_FIELDS = {
+    "schema",
+    "kind",
+    "authority_id",
+    "target",
+    "session_profile",
+    "session",
+    "run_id",
+    "activation_join_sha256",
+    "activation_attestation_entry_sha256",
+    "compiled_binding_sha256",
+    "signal_protocol_sha256",
+    "workspace_identity_sha256",
+    "signal_parent_identity_sha256",
+    "signal_leaf_absent",
+    "raw_signal_retained",
     "delivery_authorized",
     "runtime_scan_authorized",
     "checkpoint_observed",
@@ -110,6 +142,13 @@ def _directory_identity(details: os.stat_result) -> Dict[str, int]:
         "gid": details.st_gid,
         "mode": stat.S_IMODE(details.st_mode),
         "nlink": details.st_nlink,
+    }
+
+
+def _stable_directory_identity(identity: Mapping[str, int]) -> Dict[str, int]:
+    return {
+        name: identity[name]
+        for name in ("device", "inode", "uid", "gid", "mode")
     }
 
 
@@ -231,6 +270,7 @@ def _event_source_fields(
     binding: Mapping[str, Any],
     join: Mapping[str, Any],
     attestation_row: Mapping[str, Any],
+    reservation_row: Mapping[str, Any],
     workspace_identity_sha256: str,
 ) -> Dict[str, Any]:
     return {
@@ -245,6 +285,9 @@ def _event_source_fields(
         "activation_attestation_entry_sha256": validate_sha256(
             attestation_row["entry_hash"], "marker activation attestation entry"
         ),
+        "signal_reservation_entry_sha256": validate_sha256(
+            reservation_row["entry_hash"], "marker signal reservation entry"
+        ),
         "compiled_binding_sha256": sha256_bytes(canonical_json_bytes(dict(binding))),
         "marker_sha256": validate_sha256(
             binding["marker_sha256"], "source marker signal"
@@ -256,9 +299,61 @@ def _event_source_fields(
     }
 
 
+def _reservation_event(
+    *,
+    binding: Mapping[str, Any],
+    join: Mapping[str, Any],
+    attestation_row: Mapping[str, Any],
+    workspace_identity_sha256: str,
+    parent_identity_sha256: str,
+) -> Dict[str, Any]:
+    event = {
+        "schema": _RESERVATION_EVENT_SCHEMA,
+        "kind": _RESERVATION_EVENT_KIND,
+        "authority_id": AUTHORITY_ID,
+        "target": "claude",
+        "session_profile": "regular",
+        "session": validate_identifier(join["session"], "marker signal session"),
+        "run_id": validate_identifier(join["run_id"], "marker signal run id"),
+        "activation_join_sha256": sha256_bytes(canonical_json_bytes(dict(join))),
+        "activation_attestation_entry_sha256": validate_sha256(
+            attestation_row["entry_hash"], "marker activation attestation entry"
+        ),
+        "compiled_binding_sha256": sha256_bytes(canonical_json_bytes(dict(binding))),
+        "signal_protocol_sha256": MARKER_SIGNAL_PROTOCOL_SHA256,
+        "workspace_identity_sha256": validate_sha256(
+            workspace_identity_sha256, "marker signal workspace"
+        ),
+        "signal_parent_identity_sha256": validate_sha256(
+            parent_identity_sha256, "marker signal parent"
+        ),
+        "signal_leaf_absent": True,
+        "raw_signal_retained": False,
+        "delivery_authorized": False,
+        "runtime_scan_authorized": False,
+        "checkpoint_observed": False,
+        "lease_bound": False,
+        "no_bleed_evaluated": False,
+        "no_bleed_verified": False,
+        "qualification_authorized": False,
+        "promotion_authorized": False,
+        "result": "signal_guard_prepared_only",
+    }
+    if set(event) != _RESERVATION_EVENT_FIELDS:
+        raise IdentityError("marker signal reservation fields changed")
+    return event
+
+
 def _observation_request_id(activation_join_sha256: str) -> str:
     return (
         "claude-marker-signal-%s"
+        % validate_sha256(activation_join_sha256, "marker signal activation join")[:40]
+    )
+
+
+def _reservation_request_id(activation_join_sha256: str) -> str:
+    return (
+        "claude-marker-rsv-%s"
         % validate_sha256(activation_join_sha256, "marker signal activation join")[:40]
     )
 
@@ -387,6 +482,17 @@ class _ClaudeMarkerSignalGuard:
             signal_identity = _file_identity(after)
             os.unlink(_SIGNAL_LEAF, dir_fd=self._parent_descriptor)
             self._signal_unlinked = True
+            unlinked = os.fstat(signal_descriptor)
+            if (
+                unlinked.st_dev != after.st_dev
+                or unlinked.st_ino != after.st_ino
+                or not stat.S_ISREG(unlinked.st_mode)
+                or unlinked.st_uid != os.getuid()
+                or stat.S_IMODE(unlinked.st_mode) != 0o600
+                or unlinked.st_size != expected_length
+                or unlinked.st_nlink != 0
+            ):
+                raise IdentityError("marker signal inode retained links after unlink")
             os.fsync(self._parent_descriptor)
             if _leaf_exists(self._parent_descriptor):
                 raise IdentityError("marker signal leaf remained after unlink")
@@ -402,7 +508,7 @@ class _ClaudeMarkerSignalGuard:
             event = {
                 **self._event_source_fields,
                 "signal_parent_identity_sha256": sha256_bytes(
-                    canonical_json_bytes(parent_identity)
+                    canonical_json_bytes(_stable_directory_identity(parent_identity))
                 ),
                 "signal_file_identity_sha256": sha256_bytes(
                     canonical_json_bytes(signal_identity)
@@ -469,51 +575,73 @@ def prepare_claude_marker_signal(
     root = controller_authority_root()
     if activation_attestation.get("authority_root") != str(root):
         raise IdentityError("marker signal authority root changed")
-    request_id = _observation_request_id(sha256_bytes(canonical_json_bytes(dict(join))))
-    if Journal(root / _JOURNAL_NAME).lookup(request_id) is not None:
-        raise ConflictError("marker signal observation already exists for this join")
+    join_sha = sha256_bytes(canonical_json_bytes(dict(join)))
+    observation_request_id = _observation_request_id(join_sha)
+    reservation_request_id = _reservation_request_id(join_sha)
+    observation_journal = Journal(root / _JOURNAL_NAME)
+    reservation_journal = Journal(root / _RESERVATION_JOURNAL_NAME)
     workspace_plan_identity = _plan_workspace_identity(plan)
     workspace_descriptor: Optional[int] = None
     parent_descriptor: Optional[int] = None
-    try:
-        workspace_descriptor = os.open(
-            workspace_plan_identity["path"], _DIRECTORY_FLAGS
-        )
-        _assert_workspace_fd(workspace_descriptor, expected=workspace_plan_identity)
-        parent_descriptor = os.open(
-            _SIGNAL_PARENT, _DIRECTORY_FLAGS, dir_fd=workspace_descriptor
-        )
-        parent_identity = _directory_identity(os.fstat(parent_descriptor))
-        _assert_parent_fd(
-            workspace_descriptor,
-            parent_descriptor,
-            expected=parent_identity,
-        )
-        if _leaf_exists(parent_descriptor):
-            raise ConflictError("marker signal leaf already exists before delivery")
-        guard = _ClaudeMarkerSignalGuard(
-            workspace_descriptor=workspace_descriptor,
-            parent_descriptor=parent_descriptor,
-            workspace_plan_identity=workspace_plan_identity,
-            parent_identity=parent_identity,
-            marker=marker,
-            event_source_fields=_event_source_fields(
-                binding=binding,
-                join=join,
-                attestation_row=attestation_row,
-                workspace_identity_sha256=sha256_bytes(
-                    canonical_json_bytes(workspace_plan_identity)
+    with exclusive_lock(root / _PREPARE_LOCK_NAME):
+        if reservation_journal.lookup(reservation_request_id) is not None:
+            raise ConflictError("marker signal reservation already exists for this join")
+        if observation_journal.lookup(observation_request_id) is not None:
+            raise ConflictError("marker signal observation already exists for this join")
+        try:
+            workspace_descriptor = os.open(
+                workspace_plan_identity["path"], _DIRECTORY_FLAGS
+            )
+            _assert_workspace_fd(workspace_descriptor, expected=workspace_plan_identity)
+            parent_descriptor = os.open(
+                _SIGNAL_PARENT, _DIRECTORY_FLAGS, dir_fd=workspace_descriptor
+            )
+            parent_identity = _directory_identity(os.fstat(parent_descriptor))
+            _assert_parent_fd(
+                workspace_descriptor,
+                parent_descriptor,
+                expected=parent_identity,
+            )
+            if _leaf_exists(parent_descriptor):
+                raise ConflictError("marker signal leaf already exists before delivery")
+            workspace_identity_sha256 = sha256_bytes(
+                canonical_json_bytes(workspace_plan_identity)
+            )
+            parent_identity_sha256 = sha256_bytes(
+                canonical_json_bytes(_stable_directory_identity(parent_identity))
+            )
+            reservation_row = reservation_journal.append(
+                request_id=reservation_request_id,
+                event=_reservation_event(
+                    binding=binding,
+                    join=join,
+                    attestation_row=attestation_row,
+                    workspace_identity_sha256=workspace_identity_sha256,
+                    parent_identity_sha256=parent_identity_sha256,
                 ),
-            ),
-            authority_root=root,
-        )
-        workspace_descriptor = None
-        parent_descriptor = None
-        return guard
-    finally:
-        for candidate in (parent_descriptor, workspace_descriptor):
-            if candidate is not None:
-                os.close(candidate)
+            )
+            guard = _ClaudeMarkerSignalGuard(
+                workspace_descriptor=workspace_descriptor,
+                parent_descriptor=parent_descriptor,
+                workspace_plan_identity=workspace_plan_identity,
+                parent_identity=parent_identity,
+                marker=marker,
+                event_source_fields=_event_source_fields(
+                    binding=binding,
+                    join=join,
+                    attestation_row=attestation_row,
+                    reservation_row=reservation_row,
+                    workspace_identity_sha256=workspace_identity_sha256,
+                ),
+                authority_root=root,
+            )
+            workspace_descriptor = None
+            parent_descriptor = None
+            return guard
+        finally:
+            for candidate in (parent_descriptor, workspace_descriptor):
+                if candidate is not None:
+                    os.close(candidate)
 
 
 def verify_claude_marker_signal_observation(
@@ -566,6 +694,36 @@ def verify_claude_marker_signal_observation(
         expected_join_sha
     ):
         raise IdentityError("marker signal activation join changed")
+    reservation_request_id = _reservation_request_id(expected_join_sha)
+    reservation_row = Journal(root / _RESERVATION_JOURNAL_NAME).lookup(
+        reservation_request_id
+    )
+    if (
+        reservation_row is None
+        or reservation_row.get("request_id") != reservation_request_id
+        or not isinstance(reservation_row.get("event"), dict)
+        or set(reservation_row["event"]) != _RESERVATION_EVENT_FIELDS
+    ):
+        raise IdentityError("marker signal controller reservation is unavailable")
+    reservation_event = reservation_row["event"]
+    parent_identity_sha256 = validate_sha256(
+        reservation_event.get("signal_parent_identity_sha256"),
+        "marker signal reservation parent",
+    )
+    expected_reservation_event = _reservation_event(
+        binding=binding,
+        join=join,
+        attestation_row=attestation_row,
+        workspace_identity_sha256=sha256_bytes(
+            canonical_json_bytes(_plan_workspace_identity(activation_plan))
+        ),
+        parent_identity_sha256=parent_identity_sha256,
+    )
+    if reservation_event != expected_reservation_event:
+        raise IdentityError("marker signal reservation source identity changed")
+    validate_sha256(
+        reservation_row.get("entry_hash"), "marker signal reservation entry"
+    )
     row = Journal(root / _JOURNAL_NAME).lookup(request_id)
     if (
         row is None
@@ -580,6 +738,7 @@ def verify_claude_marker_signal_observation(
         binding=binding,
         join=join,
         attestation_row=attestation_row,
+        reservation_row=reservation_row,
         workspace_identity_sha256=sha256_bytes(
             canonical_json_bytes(_plan_workspace_identity(activation_plan))
         ),
@@ -596,6 +755,7 @@ def verify_claude_marker_signal_observation(
     if (
         event["workspace_identity_sha256"]
         != expected_source["workspace_identity_sha256"]
+        or event["signal_parent_identity_sha256"] != parent_identity_sha256
         or event.get("signal_consumed") is not True
         or event.get("raw_signal_retained") is not False
         or event.get("signal_path_retained") is not False

@@ -130,10 +130,15 @@ retention. The existing probe does not consume this sidecar, and the current
 conformance handoffs remain exact marker-free acknowledgements. Signal
 consumption now has a source-only FD-bound guard that proves the leaf absent,
 pins the plan's workspace and private handoff-directory identities, consumes
-exact source-derived bytes, unlinks before journaling, and verifies a hash-only
-event through the fixed controller authority. It is not imported by the probe,
-handoff, adapter, or qualification paths and expressly proves neither delivery,
-target authorship, checkpoint observation, lease ownership, nor no-bleed.
+exact source-derived bytes, and writes a body-free one-use reservation for the
+activation join before exposing the guard. The fixed controller lock and
+reservation prevent an abandoned guard or post-unlink journal failure from
+authorizing a second attempt. Consumption unlinks before observation
+journaling, proves through the still-open descriptor that the exact signal
+inode has no retained link, and binds the verified hash-only event to the
+reservation. It is not imported by the probe, handoff, adapter, or
+qualification paths and expressly proves neither delivery, target authorship,
+checkpoint observation, lease ownership, nor no-bleed.
 Paired ordinary-session no-bleed verification remains separate work.
 
 ## Interface

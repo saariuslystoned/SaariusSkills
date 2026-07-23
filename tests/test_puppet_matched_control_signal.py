@@ -201,6 +201,7 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             )
             self.assertNotIn(case.marker, durable)
             self.assertNotIn(CLAUDE_MARKER_CONFORMANCE_TASK.encode(), durable)
+            self.assertNotIn(MARKER_SIGNAL_RELATIVE_PATH.encode(), durable)
             self.assertNotIn(case.marker, repr(guard).encode())
             with self.assertRaisesRegex(IdentityError, "closed"):
                 guard.consume()
@@ -318,6 +319,39 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             self.assertTrue(case.signal_path.exists())
             guard.close()
 
+        with tempfile.TemporaryDirectory() as temporary:
+            case = MarkerSignalCase(Path(temporary))
+            guard = case.prepare()
+            case.write_signal()
+            retained = case.handoffs / "retained-marker"
+            real_unlink = os.unlink
+
+            def retain_opened_inode_and_unlink_replacement(path, *, dir_fd=None):
+                os.rename(
+                    path,
+                    retained.name,
+                    src_dir_fd=dir_fd,
+                    dst_dir_fd=dir_fd,
+                )
+                case.write_signal()
+                real_unlink(path, dir_fd=dir_fd)
+
+            with mock.patch(
+                "puppet_lib.matched_control_signal.os.unlink",
+                side_effect=retain_opened_inode_and_unlink_replacement,
+            ):
+                with self.assertRaisesRegex(IdentityError, "retained links"):
+                    guard.consume()
+            self.assertEqual(retained.read_bytes(), case.marker)
+            self.assertFalse(case.signal_path.exists())
+            self.assertFalse(
+                (
+                    case.authority
+                    / "claude-marker-signal-observations"
+                    / "events.jsonl"
+                ).exists()
+            )
+
     def test_journal_failure_happens_after_unlink_and_cannot_retry_signal(self):
         with tempfile.TemporaryDirectory() as temporary:
             case = MarkerSignalCase(Path(temporary))
@@ -332,6 +366,8 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             self.assertFalse(case.signal_path.exists())
             with self.assertRaisesRegex(IdentityError, "closed"):
                 guard.consume()
+            with self.assertRaisesRegex(ConflictError, "reservation already exists"):
+                case.prepare()
 
     def test_production_probe_handoff_and_qualification_remain_disconnected(self):
         for module in (probe, adapter_manifest, puppet_adapter_lab):
