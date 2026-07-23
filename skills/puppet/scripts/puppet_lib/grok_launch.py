@@ -12,7 +12,7 @@ import os
 import shutil
 import stat
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Sequence, Tuple
@@ -66,8 +66,6 @@ GROK_LAUNCH_AUTHORITY_BLOCKER = (
 GROK_WORKSPACE_BINDING_SCHEMA = "puppet.grok-workspace-plane-binding/v1"
 GROK_WORKSPACE_BINDING_STATE = "binding_only"
 _MAX_SOCKET_PATH_BYTES = 100
-_GROK_CONTEXT_PROVENANCE = object()
-_GROK_BINDING_PROVENANCE = object()
 _DIRECTORY_IDENTITY_FIELDS = {"path", "device", "inode", "uid", "mode", "nlink"}
 _CONTRACT_IDENTITY_FIELDS = {
     "fingerprint",
@@ -144,6 +142,7 @@ class GrokLaunchContext:
     cwd: Path
     leader_socket: Path
     admitted_lane_root_identity: Mapping[str, Any]
+    home_root_identity: Mapping[str, Any]
     workspace_root_identity: Mapping[str, Any]
     config_root_identity: Mapping[str, Any]
     contract_identity: Mapping[str, Any]
@@ -157,68 +156,113 @@ class GrokLaunchContext:
     admitted_plan: Mapping[str, Any]
     blockers: Tuple[str, ...]
     launch_authorized: bool = False
-    _source_provenance: object = field(default=None, repr=False, compare=False)
 
 
 class GrokWorkspacePlaneBinding:
-    """Source-owned identity join whose public record is always rederived."""
+    """Body-free join rederived from controller-owned expected inputs."""
 
     __slots__ = (
         "__adapter_manifest_json",
-        "__context_sha256",
         "__descriptor_json",
         "__effective_contract",
+        "__expected_contract_identity_json",
+        "__expected_home_root_identity_json",
+        "__expected_lane_root_identity_json",
+        "__expected_record_sha256",
+        "__expected_run_identity_json",
+        "__expected_workspace_root_identity_json",
+        "__expected_config_root_identity_json",
+        "__grok_session_id",
         "__instruction_manifest_json",
-        "__launch_context",
-        "__source_provenance",
+        "__leader_socket",
+        "__manifest_path",
+        "__admitted_lane_root",
+        "__home",
+        "__grok_home",
+        "__cwd",
     )
 
     def __init__(
         self,
         *,
-        descriptor_json: bytes,
-        instruction_manifest_json: bytes,
+        descriptor: Mapping[str, Any],
+        instruction_manifest: Mapping[str, Any],
         effective_contract: bytes,
-        adapter_manifest_json: bytes,
-        launch_context: GrokLaunchContext,
-        context_sha256: str,
-        source_provenance: object,
+        adapter_manifest: AdapterManifest | Mapping[str, Any],
+        manifest_path: Path,
+        admitted_lane_root: Path,
+        home: Path,
+        grok_home: Path,
+        cwd: Path,
+        leader_socket: Path,
+        grok_session_id: str,
+        expected_contract_identity: Mapping[str, Any],
+        expected_run_identity: Mapping[str, Any],
+        expected_lane_root_identity: Mapping[str, Any],
+        expected_home_root_identity: Mapping[str, Any],
+        expected_workspace_root_identity: Mapping[str, Any],
+        expected_config_root_identity: Mapping[str, Any],
     ) -> None:
-        if source_provenance is not _GROK_BINDING_PROVENANCE:
-            raise TypeError("Grok workspace bindings are source-owned")
-        object.__setattr__(
-            self, "_GrokWorkspacePlaneBinding__descriptor_json", bytes(descriptor_json)
+        record = _derive_grok_workspace_binding_record(
+            descriptor=descriptor,
+            instruction_manifest=instruction_manifest,
+            effective_contract=effective_contract,
+            adapter_manifest=adapter_manifest,
+            manifest_path=manifest_path,
+            admitted_lane_root=admitted_lane_root,
+            home=home,
+            grok_home=grok_home,
+            cwd=cwd,
+            leader_socket=leader_socket,
+            grok_session_id=grok_session_id,
+            expected_contract_identity=expected_contract_identity,
+            expected_run_identity=expected_run_identity,
+            expected_lane_root_identity=expected_lane_root_identity,
+            expected_home_root_identity=expected_home_root_identity,
+            expected_workspace_root_identity=expected_workspace_root_identity,
+            expected_config_root_identity=expected_config_root_identity,
         )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__instruction_manifest_json",
-            bytes(instruction_manifest_json),
-        )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__effective_contract",
-            bytes(effective_contract),
-        )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__adapter_manifest_json",
-            bytes(adapter_manifest_json),
-        )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__launch_context",
-            launch_context,
-        )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__context_sha256",
-            validate_sha256(context_sha256, "Grok launch context fingerprint"),
-        )
-        object.__setattr__(
-            self,
-            "_GrokWorkspacePlaneBinding__source_provenance",
-            source_provenance,
-        )
+        manifest = _normalized_adapter_manifest(adapter_manifest)
+        values = {
+            "descriptor_json": canonical_json_bytes(dict(descriptor)),
+            "instruction_manifest_json": canonical_json_bytes(
+                dict(instruction_manifest)
+            ),
+            "effective_contract": bytes(effective_contract),
+            "adapter_manifest_json": canonical_json_bytes(dict(manifest.raw)),
+            "manifest_path": Path(manifest_path),
+            "admitted_lane_root": Path(admitted_lane_root),
+            "home": Path(home),
+            "grok_home": Path(grok_home),
+            "cwd": Path(cwd),
+            "leader_socket": Path(leader_socket),
+            "grok_session_id": grok_session_id,
+            "expected_contract_identity_json": canonical_json_bytes(
+                dict(expected_contract_identity)
+            ),
+            "expected_run_identity_json": canonical_json_bytes(
+                dict(expected_run_identity)
+            ),
+            "expected_lane_root_identity_json": canonical_json_bytes(
+                dict(expected_lane_root_identity)
+            ),
+            "expected_home_root_identity_json": canonical_json_bytes(
+                dict(expected_home_root_identity)
+            ),
+            "expected_workspace_root_identity_json": canonical_json_bytes(
+                dict(expected_workspace_root_identity)
+            ),
+            "expected_config_root_identity_json": canonical_json_bytes(
+                dict(expected_config_root_identity)
+            ),
+            "expected_record_sha256": sha256_bytes(canonical_json_bytes(record)),
+        }
+        for name, value in values.items():
+            object.__setattr__(
+                self,
+                "_GrokWorkspacePlaneBinding__%s" % name,
+                value,
+            )
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("Grok workspace bindings are immutable")
@@ -238,11 +282,9 @@ class GrokWorkspacePlaneBinding:
 
     @property
     def record(self) -> Dict[str, Any]:
-        """Rederive a detached body-free record from all bound source inputs."""
+        """Rederive the record from current sources and trusted expectations."""
 
-        if self.__source_provenance is not _GROK_BINDING_PROVENANCE:
-            raise IdentityError("Grok workspace binding is not source-owned")
-        return _derive_grok_workspace_binding_record(
+        record = _derive_grok_workspace_binding_record(
             descriptor=self._mapping_from_json(
                 self.__descriptor_json, "Grok workspace descriptor"
             ),
@@ -253,12 +295,44 @@ class GrokWorkspacePlaneBinding:
             adapter_manifest=self._mapping_from_json(
                 self.__adapter_manifest_json, "Grok adapter manifest"
             ),
-            launch_context=self.__launch_context,
-            expected_context_sha256=self.__context_sha256,
+            manifest_path=self.__manifest_path,
+            admitted_lane_root=self.__admitted_lane_root,
+            home=self.__home,
+            grok_home=self.__grok_home,
+            cwd=self.__cwd,
+            leader_socket=self.__leader_socket,
+            grok_session_id=self.__grok_session_id,
+            expected_contract_identity=self._mapping_from_json(
+                self.__expected_contract_identity_json,
+                "expected Grok contract identity",
+            ),
+            expected_run_identity=self._mapping_from_json(
+                self.__expected_run_identity_json,
+                "expected Grok run identity",
+            ),
+            expected_lane_root_identity=self._mapping_from_json(
+                self.__expected_lane_root_identity_json,
+                "expected Grok lane root identity",
+            ),
+            expected_home_root_identity=self._mapping_from_json(
+                self.__expected_home_root_identity_json,
+                "expected Grok home root identity",
+            ),
+            expected_workspace_root_identity=self._mapping_from_json(
+                self.__expected_workspace_root_identity_json,
+                "expected Grok workspace root identity",
+            ),
+            expected_config_root_identity=self._mapping_from_json(
+                self.__expected_config_root_identity_json,
+                "expected Grok config root identity",
+            ),
         )
+        if sha256_bytes(canonical_json_bytes(record)) != self.__expected_record_sha256:
+            raise IdentityError("Grok workspace binding changed after binding")
+        return record
 
     def to_public_dict(self) -> Dict[str, Any]:
-        """Return only hashes, closed identities, and relative artifact metadata."""
+        """Return only hashes, closed identities, and artifact metadata."""
 
         return self.record
 
@@ -481,6 +555,7 @@ def _private_context_identity(context: GrokLaunchContext) -> Dict[str, Any]:
         "cwd": str(context.cwd),
         "leader_socket": str(context.leader_socket),
         "admitted_lane_root_identity": dict(context.admitted_lane_root_identity),
+        "home_root_identity": dict(context.home_root_identity),
         "workspace_root_identity": dict(context.workspace_root_identity),
         "config_root_identity": dict(context.config_root_identity),
         "contract_identity": dict(context.contract_identity),
@@ -497,60 +572,36 @@ def _private_context_identity(context: GrokLaunchContext) -> Dict[str, Any]:
     }
 
 
-def _revalidate_launch_context(context: GrokLaunchContext) -> GrokLaunchContext:
-    if (
-        type(context) is not GrokLaunchContext
-        or context._source_provenance is not _GROK_CONTEXT_PROVENANCE
-    ):
-        raise IdentityError("Grok launch context is not source-owned")
-    _revalidate_context_roots(context)
-    expected = build_grok_launch_context(
-        manifest_path=context.doctor_manifest,
-        admitted_lane_root=context.admitted_lane_root,
-        home=context.home,
-        grok_home=context.grok_home,
-        cwd=context.cwd,
-        leader_socket=context.leader_socket,
-        contract_identity=context.contract_identity,
-        run_identity=context.run_identity,
-        grok_session_id=context.grok_session_id,
-    )
-    if canonical_json_bytes(_private_context_identity(context)) != canonical_json_bytes(
-        _private_context_identity(expected)
-    ):
-        raise IdentityError("Grok launch context changed after planning")
-    return expected
-
-
 def _revalidate_context_roots(context: GrokLaunchContext) -> None:
-    if (
-        type(context) is not GrokLaunchContext
-        or context._source_provenance is not _GROK_CONTEXT_PROVENANCE
-    ):
-        raise IdentityError("Grok launch context is not source-owned")
+    if type(context) is not GrokLaunchContext:
+        raise IdentityError("Grok launch context is invalid")
     for expected, path, label in (
         (
             context.admitted_lane_root_identity,
             context.admitted_lane_root,
             "admitted Grok lane root",
         ),
+        (context.home_root_identity, context.home, "Grok lane HOME"),
         (context.workspace_root_identity, context.cwd, "Grok workspace root"),
         (context.config_root_identity, context.grok_home, "Grok config root"),
     ):
         _revalidate_directory_identity(expected, path, label=label)
 
 
-def _bound_launch_context(
-    context: GrokLaunchContext, *, expected_context_sha256: str | None
-) -> GrokLaunchContext:
-    if expected_context_sha256 is None:
-        return _revalidate_launch_context(context)
-    validate_sha256(expected_context_sha256, "Grok launch context fingerprint")
-    _revalidate_context_roots(context)
-    observed = sha256_bytes(canonical_json_bytes(_private_context_identity(context)))
-    if observed != expected_context_sha256:
-        raise IdentityError("Grok launch context changed after binding")
-    return context
+def _require_expected_directory_identity(
+    path: Path,
+    expected: Mapping[str, Any],
+    *,
+    label: str,
+) -> Dict[str, Any]:
+    normalized = _normalized_directory_identity(expected, label=label)
+    try:
+        observed = _directory_identity(path, label=label)
+    except (OSError, ValidationError) as exc:
+        raise IdentityError("%s identity changed" % label) from exc
+    if canonical_json_bytes(observed) != canonical_json_bytes(normalized):
+        raise IdentityError("%s identity changed" % label)
+    return normalized
 
 
 def _normalized_adapter_manifest(
@@ -714,6 +765,9 @@ def build_grok_launch_context(
         admitted_lane_root_identity=_frozen_identity(
             _directory_identity(lane_root, label="admitted Grok lane root")
         ),
+        home_root_identity=_frozen_identity(
+            _directory_identity(lane_home, label="Grok lane HOME")
+        ),
         workspace_root_identity=_frozen_identity(
             _directory_identity(workspace, label="Grok workspace root")
         ),
@@ -731,7 +785,6 @@ def build_grok_launch_context(
         admitted_plan=_frozen_identity(admitted_plan),
         blockers=GROK_LAUNCH_AUTHORITY_BLOCKERS,
         launch_authorized=False,
-        _source_provenance=_GROK_CONTEXT_PROVENANCE,
     )
 
 
@@ -741,10 +794,21 @@ def _derive_grok_workspace_binding_record(
     instruction_manifest: Mapping[str, Any],
     effective_contract: bytes,
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    launch_context: GrokLaunchContext,
-    expected_context_sha256: str | None,
+    manifest_path: Path,
+    admitted_lane_root: Path,
+    home: Path,
+    grok_home: Path,
+    cwd: Path,
+    leader_socket: Path,
+    grok_session_id: str,
+    expected_contract_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
+    expected_lane_root_identity: Mapping[str, Any],
+    expected_home_root_identity: Mapping[str, Any],
+    expected_workspace_root_identity: Mapping[str, Any],
+    expected_config_root_identity: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """Rederive the exact body-free join from every source input."""
+    """Rederive the join from current sources and controller expectations."""
 
     normalized_descriptor = validate_grok_workspace_addendum_descriptor(descriptor)
     normalized_instruction = validate_instruction_manifest(
@@ -776,9 +840,38 @@ def _derive_grok_workspace_binding_record(
             "Grok workspace rule filename does not match the effective contract"
         )
 
-    context = _bound_launch_context(
-        launch_context,
-        expected_context_sha256=expected_context_sha256,
+    bound_contract_identity = _normalized_contract_identity(expected_contract_identity)
+    bound_run_identity = _normalized_run_identity(expected_run_identity)
+    _require_expected_directory_identity(
+        admitted_lane_root,
+        expected_lane_root_identity,
+        label="admitted Grok lane root",
+    )
+    _require_expected_directory_identity(
+        home,
+        expected_home_root_identity,
+        label="Grok lane HOME",
+    )
+    _require_expected_directory_identity(
+        cwd,
+        expected_workspace_root_identity,
+        label="Grok workspace root",
+    )
+    _require_expected_directory_identity(
+        grok_home,
+        expected_config_root_identity,
+        label="Grok config root",
+    )
+    context = build_grok_launch_context(
+        manifest_path=manifest_path,
+        admitted_lane_root=admitted_lane_root,
+        home=home,
+        grok_home=grok_home,
+        cwd=cwd,
+        leader_socket=leader_socket,
+        contract_identity=bound_contract_identity,
+        run_identity=bound_run_identity,
+        grok_session_id=grok_session_id,
     )
     manifest = _normalized_adapter_manifest(adapter_manifest)
     descriptor_target = normalized_descriptor["target"]
@@ -844,12 +937,12 @@ def _derive_grok_workspace_binding_record(
     contract_identity = _normalized_contract_identity(
         normalized_instruction["contract_identity"]
     )
-    if contract_identity != dict(context.contract_identity):
+    if contract_identity != bound_contract_identity:
         raise IdentityError(
             "Grok instruction manifest contract does not match launch context"
         )
     run_identity = _normalized_run_identity(normalized_instruction["run_identity"])
-    if run_identity != dict(context.run_identity):
+    if run_identity != bound_run_identity:
         raise IdentityError(
             "Grok instruction manifest run does not match launch context"
         )
@@ -925,27 +1018,40 @@ def bind_grok_workspace_plane(
     instruction_manifest: Mapping[str, Any],
     effective_contract: bytes,
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    launch_context: GrokLaunchContext,
+    manifest_path: Path,
+    admitted_lane_root: Path,
+    home: Path,
+    grok_home: Path,
+    cwd: Path,
+    leader_socket: Path,
+    grok_session_id: str,
+    expected_contract_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
+    expected_lane_root_identity: Mapping[str, Any],
+    expected_home_root_identity: Mapping[str, Any],
+    expected_workspace_root_identity: Mapping[str, Any],
+    expected_config_root_identity: Mapping[str, Any],
 ) -> GrokWorkspacePlaneBinding:
-    """Bind source-owned Grok inputs without writing, launching, or promoting."""
+    """Bind current Grok sources to explicit controller-owned expectations."""
 
-    record = _derive_grok_workspace_binding_record(
+    return GrokWorkspacePlaneBinding(
         descriptor=descriptor,
         instruction_manifest=instruction_manifest,
         effective_contract=effective_contract,
         adapter_manifest=adapter_manifest,
-        launch_context=launch_context,
-        expected_context_sha256=None,
-    )
-    manifest = _normalized_adapter_manifest(adapter_manifest)
-    return GrokWorkspacePlaneBinding(
-        descriptor_json=canonical_json_bytes(dict(descriptor)),
-        instruction_manifest_json=canonical_json_bytes(dict(instruction_manifest)),
-        effective_contract=effective_contract,
-        adapter_manifest_json=canonical_json_bytes(dict(manifest.raw)),
-        launch_context=launch_context,
-        context_sha256=record["launch_context_sha256"],
-        source_provenance=_GROK_BINDING_PROVENANCE,
+        manifest_path=manifest_path,
+        admitted_lane_root=admitted_lane_root,
+        home=home,
+        grok_home=grok_home,
+        cwd=cwd,
+        leader_socket=leader_socket,
+        grok_session_id=grok_session_id,
+        expected_contract_identity=expected_contract_identity,
+        expected_run_identity=expected_run_identity,
+        expected_lane_root_identity=expected_lane_root_identity,
+        expected_home_root_identity=expected_home_root_identity,
+        expected_workspace_root_identity=expected_workspace_root_identity,
+        expected_config_root_identity=expected_config_root_identity,
     )
 
 

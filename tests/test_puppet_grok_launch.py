@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -247,6 +248,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             )
             for identity in (
                 context.admitted_lane_root_identity,
+                context.home_root_identity,
                 context.workspace_root_identity,
                 context.config_root_identity,
             ):
@@ -725,21 +727,41 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
             "instruction_manifest": compiled.manifest,
             "effective_contract": compiled.rendered,
             "adapter_manifest": manifest,
+            "manifest_path": context.doctor_manifest,
+            "admitted_lane_root": context.admitted_lane_root,
+            "home": context.home,
+            "grok_home": context.grok_home,
+            "cwd": context.cwd,
+            "leader_socket": context.leader_socket,
+            "grok_session_id": context.grok_session_id,
+            "expected_contract_identity": dict(context.contract_identity),
+            "expected_run_identity": dict(context.run_identity),
+            "expected_lane_root_identity": dict(context.admitted_lane_root_identity),
+            "expected_home_root_identity": dict(context.home_root_identity),
+            "expected_workspace_root_identity": dict(context.workspace_root_identity),
+            "expected_config_root_identity": dict(context.config_root_identity),
             "launch_context": context,
         }
 
     @staticmethod
     def _bind(values: dict):
+        arguments = dict(values)
+        arguments.pop("launch_context")
         with patch.object(AdapterManifest, "verify_execution_files", return_value=None):
-            return bind_grok_workspace_plane(**values)
+            return bind_grok_workspace_plane(**arguments)
+
+    @staticmethod
+    def _record(binding):
+        with patch.object(AdapterManifest, "verify_execution_files", return_value=None):
+            return binding.record
 
     def test_binding_joins_exact_context_and_exposes_only_body_free_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             values = self._binding_fixture(Path(temporary).resolve())
             first = self._bind(values)
             second = self._bind(values)
-            record = first.record
-            self.assertEqual(record, second.record)
+            record = self._record(first)
+            self.assertEqual(record, self._record(second))
             self.assertEqual(record["schema"], GROK_WORKSPACE_BINDING_SCHEMA)
             self.assertEqual(record["state"], GROK_WORKSPACE_BINDING_STATE)
             self.assertEqual(record["target"], "grok")
@@ -788,35 +810,99 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
                 self.assertNotIn(forbidden, public_json)
             self.assertFalse(hasattr(first, "_effective_contract"))
             self.assertNotIn("TASK_BODY_CANARY", repr(first))
-            detached = first.record
+            detached = self._record(first)
             detached["state"] = "caller-green"
-            self.assertEqual(first.record["state"], GROK_WORKSPACE_BINDING_STATE)
+            self.assertEqual(self._record(first)["state"], GROK_WORKSPACE_BINDING_STATE)
             with self.assertRaisesRegex(TypeError, "dataclass instances"):
                 replace(first, context_sha256="f" * 64)
-            with self.assertRaisesRegex(TypeError, "source-owned"):
-                grok_launch.GrokWorkspacePlaneBinding(
-                    descriptor_json=b"{}",
-                    instruction_manifest_json=b"{}",
-                    effective_contract=b"forged",
-                    adapter_manifest_json=b"{}",
-                    launch_context=context,
-                    context_sha256="f" * 64,
-                    source_provenance=None,
-                )
+            direct_arguments = dict(values)
+            direct_arguments.pop("launch_context")
+            with patch.object(
+                AdapterManifest,
+                "verify_execution_files",
+                return_value=None,
+            ):
+                direct = grok_launch.GrokWorkspacePlaneBinding(**direct_arguments)
+            self.assertEqual(self._record(direct), record)
+            constructor_parameters = inspect.signature(
+                grok_launch.GrokWorkspacePlaneBinding
+            ).parameters
+            for bypass in (
+                "source_provenance",
+                "factory_key",
+                "context_sha256",
+                "expected_record_sha256",
+                "record",
+                "record_json",
+            ):
+                self.assertNotIn(bypass, constructor_parameters)
+            serialized = json.loads(json.dumps(self._record(first)))
+            self.assertFalse(
+                hasattr(grok_launch.GrokWorkspacePlaneBinding, "from_dict")
+            )
+            with self.assertRaisesRegex(ValidationError, "launch context is invalid"):
+                require_live_grok_launch(serialized)
             with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
                 require_live_grok_launch(context)
 
+    def test_public_binder_rebuilds_context_and_rejects_candidate_injection(self):
+        parameters = inspect.signature(bind_grok_workspace_plane).parameters
+        self.assertNotIn("launch_context", parameters)
+        self.assertTrue(
+            {
+                "manifest_path",
+                "admitted_lane_root",
+                "home",
+                "grok_home",
+                "cwd",
+                "leader_socket",
+                "grok_session_id",
+                "expected_contract_identity",
+                "expected_run_identity",
+                "expected_lane_root_identity",
+                "expected_home_root_identity",
+                "expected_workspace_root_identity",
+                "expected_config_root_identity",
+            }.issubset(parameters)
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            values = self._binding_fixture(Path(temporary).resolve())
+            context = values["launch_context"]
+            mutated_contract = dict(context.contract_identity)
+            mutated_contract["controller"] = "attacker-controller"
+            replaced_context = replace(
+                context,
+                contract_identity=mutated_contract,
+            )
+            arguments = dict(values)
+            arguments.pop("launch_context")
+            with (
+                patch.object(
+                    AdapterManifest,
+                    "verify_execution_files",
+                    return_value=None,
+                ),
+                self.assertRaisesRegex(TypeError, "launch_context"),
+            ):
+                bind_grok_workspace_plane(
+                    **arguments,
+                    launch_context=replaced_context,
+                )
+
     def test_binding_rejects_same_path_root_replacement_on_bind_and_record_read(self):
-        for case in ("lane", "workspace", "config"):
+        for case in ("lane", "home", "workspace", "config"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary).resolve()
                 values = self._binding_fixture(root)
                 context = values["launch_context"]
                 binding = self._bind(values)
-                self.assertEqual(binding.record["state"], GROK_WORKSPACE_BINDING_STATE)
+                self.assertEqual(
+                    self._record(binding)["state"], GROK_WORKSPACE_BINDING_STATE
+                )
 
                 replaced = {
                     "lane": context.admitted_lane_root,
+                    "home": context.home,
                     "workspace": context.cwd,
                     "config": context.grok_home,
                 }[case]
@@ -826,13 +912,14 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
 
                 changed_identity = {
                     "lane": "admitted Grok lane root identity changed",
+                    "home": "Grok lane HOME identity changed",
                     "workspace": "Grok workspace root identity changed",
                     "config": "Grok config root identity changed",
                 }[case]
                 with self.assertRaisesRegex(IdentityError, changed_identity):
                     self._bind(values)
                 with self.assertRaisesRegex(IdentityError, changed_identity):
-                    _ = binding.record
+                    self._record(binding)
 
     def test_binding_rejects_structurally_valid_contract_and_run_replays(self):
         cases = (
@@ -927,28 +1014,16 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
                 if case == "root":
                     other = root / "other-workspace"
                     other.mkdir()
-                    values["launch_context"] = self._build_context(
-                        {
-                            "manifest_path": context.doctor_manifest,
-                            "admitted_lane_root": context.admitted_lane_root,
-                            "home": context.home,
-                            "grok_home": context.grok_home,
-                            "cwd": other,
-                            "leader_socket": context.leader_socket,
-                            "contract_identity": context.contract_identity,
-                            "run_identity": context.run_identity,
-                            "grok_session_id": context.grok_session_id,
-                        }
-                    )
+                    values["cwd"] = other
                 elif case == "argv":
-                    values["launch_context"] = replace(
+                    changed_context = replace(
                         context,
                         argv=context.argv + ("--model", "grok-4.5"),
                     )
                 elif case == "environment":
                     environment = dict(context.environment)
                     environment["GROK_DISABLE_AUTOUPDATER"] = "false"
-                    values["launch_context"] = replace(
+                    changed_context = replace(
                         context,
                         environment=environment,
                     )
@@ -956,8 +1031,19 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
                     descriptor = copy.deepcopy(values["descriptor"])
                     descriptor["target"]["config_fingerprint"] = "e" * 64
                     values["descriptor"] = descriptor
-                with self.assertRaises((IdentityError, ValidationError)):
-                    self._bind(values)
+                if case in {"argv", "environment"}:
+                    with (
+                        patch.object(
+                            grok_launch,
+                            "build_grok_launch_context",
+                            return_value=changed_context,
+                        ),
+                        self.assertRaises((IdentityError, ValidationError)),
+                    ):
+                        self._bind(values)
+                else:
+                    with self.assertRaises((IdentityError, ValidationError)):
+                        self._bind(values)
 
     def test_binding_does_not_write_spawn_or_enter_session_surfaces(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -998,7 +1084,7 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
             )
             self.assertEqual(before, after)
             self.assertFalse((Path(values["launch_context"].cwd) / ".grok").exists())
-            self.assertEqual(result.record["state"], "binding_only")
+            self.assertEqual(self._record(result)["state"], "binding_only")
             for call in calls:
                 call.assert_not_called()
 

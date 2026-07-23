@@ -200,11 +200,13 @@ authority rather than an unreachable launch hook.
 
 - Implemented source-only: the exact 0.2.106 workspace-addendum descriptor and
   a deterministic body-free `binding_only` join rederived from its validated
-  instruction manifest, effective contract, current adapter, and source-owned
-  Grok launch context. It binds closed contract/run identities and exact
-  lane/workspace/config directory identities, rejecting replay or same-path
-  root replacement. The join does not materialize `.grok/rules`, activate the
-  plane, launch Grok, or authorize qualification.
+  instruction manifest, effective contract, current adapter/doctor manifest,
+  and current filesystem sources. The binder rebuilds the Grok launch context;
+  it never accepts one from a caller. Controller-owned expected contract, run,
+  lane, `HOME`, workspace, and config identities reject candidate-context
+  forgery, replay, and same-path root replacement. Saved bindings perform the
+  same full reconstruction on every record read. The join does not materialize
+  `.grok/rules`, activate the plane, launch Grok, or authorize qualification.
 - Implemented source-only: exact doctor-manifest/source/executable tuple,
   body-free argv/environment planning, private root and socket containment,
   UUID shape, a closed source-owned PATH/locale baseline with no ambient
