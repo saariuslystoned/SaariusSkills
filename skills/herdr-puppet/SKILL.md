@@ -50,7 +50,10 @@ hand-composed Herdr mutations when the script owns the operation.
    `--text-file`; never place prompt content in process arguments. Treat
    `herdr_input_outcome_unknown` as a hard stop: reconcile the same sequence
    from independent structural evidence before any later send, and never
-   retry the prompt speculatively.
+   retry the prompt speculatively. When an orchestration bridge cannot
+   reliably half-close standard input, do not paste a long prompt into its
+   canonical PTY. Use a private task-owned `--text-file`, require the exact
+   sequence acknowledgement, and then remove only that temporary file.
 9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns

@@ -50,8 +50,11 @@ Non-empty prompt content is accepted only through standard input or a UTF-8
 file, with a 256 KiB limit; empty or whitespace-only input is rejected before
 socket access. Prompt content never appears in the controller or Herdr process
 argument vector. The controller never writes or copies prompt content, so
-callers own the lifecycle of any input file. This proves input acceptance only,
-not shell or harness execution.
+callers own the lifecycle of any input file. If an orchestration bridge cannot
+reliably half-close stdin, avoid a long canonical-PTY paste: create one private
+task-owned input file, use `--text-file`, require the exact sequence
+acknowledgement, and remove only that file immediately afterward. This proves
+input acceptance only, not shell or harness execution.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible
