@@ -446,32 +446,35 @@ class PlaneActivationTests(unittest.TestCase):
     def test_marker_plan_attestation_is_body_free_fixed_root_and_non_authorizing(self):
         marker, plan = self._marker_plan()
         authority_root = self.base / "controller-authority"
-        first = attest_claude_marker_activation_join(
-            marker,
-            activation_plan=plan,
-            descriptor=self.descriptor,
-            adapter_manifest=self.adapter_manifest,
-            authority_root=authority_root,
-        )
-        second = attest_claude_marker_activation_join(
-            marker,
-            activation_plan=plan,
-            descriptor=self.descriptor,
-            adapter_manifest=self.adapter_manifest,
-            authority_root=authority_root,
-        )
-        self.assertEqual(first, second)
-        self.assertEqual(
-            first["schema_version"], ACTIVATION_MARKER_ATTESTATION_SCHEMA_VERSION
-        )
-        row = verify_claude_marker_activation_join_attestation(
-            first,
-            marker,
-            activation_plan=plan,
-            descriptor=self.descriptor,
-            adapter_manifest=self.adapter_manifest,
-            authority_root=authority_root,
-        )
+        authority_root.mkdir(mode=0o700)
+        with mock.patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=authority_root,
+        ):
+            first = attest_claude_marker_activation_join(
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+            )
+            second = attest_claude_marker_activation_join(
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+            )
+            self.assertEqual(first, second)
+            self.assertEqual(
+                first["schema_version"],
+                ACTIVATION_MARKER_ATTESTATION_SCHEMA_VERSION,
+            )
+            row = verify_claude_marker_activation_join_attestation(
+                first,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+            )
         self.assertEqual(
             row["event"]["schema"], ACTIVATION_MARKER_ATTESTATION_EVENT_SCHEMA
         )
@@ -501,29 +504,56 @@ class PlaneActivationTests(unittest.TestCase):
             verify_claude_marker_activation_join_attestation,
         ):
             parameters = inspect.signature(function).parameters
-            for forbidden in ("marker", "digest", "event", "journal", "rows"):
+            for forbidden in (
+                "marker",
+                "digest",
+                "event",
+                "journal",
+                "rows",
+                "authority_root",
+            ):
                 self.assertNotIn(forbidden, parameters)
 
         changed = dict(first, ledger_entry_hash="e" * 64)
-        with self.assertRaisesRegex(IdentityError, "unavailable"):
-            verify_claude_marker_activation_join_attestation(
-                changed,
-                marker,
-                activation_plan=plan,
-                descriptor=self.descriptor,
-                adapter_manifest=self.adapter_manifest,
-                authority_root=authority_root,
-            )
+        with mock.patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=authority_root,
+        ):
+            with self.assertRaisesRegex(IdentityError, "unavailable"):
+                verify_claude_marker_activation_join_attestation(
+                    changed,
+                    marker,
+                    activation_plan=plan,
+                    descriptor=self.descriptor,
+                    adapter_manifest=self.adapter_manifest,
+                )
+        bool_schema = dict(first, schema_version=True)
+        with mock.patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=authority_root,
+        ):
+            with self.assertRaisesRegex(ValidationError, "schema"):
+                verify_claude_marker_activation_join_attestation(
+                    bool_schema,
+                    marker,
+                    activation_plan=plan,
+                    descriptor=self.descriptor,
+                    adapter_manifest=self.adapter_manifest,
+                )
         other_root = self.base / "other-controller-authority"
-        with self.assertRaisesRegex(IdentityError, "authority changed"):
-            verify_claude_marker_activation_join_attestation(
-                first,
-                marker,
-                activation_plan=plan,
-                descriptor=self.descriptor,
-                adapter_manifest=self.adapter_manifest,
-                authority_root=other_root,
-            )
+        other_root.mkdir(mode=0o700)
+        with mock.patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=other_root,
+        ):
+            with self.assertRaisesRegex(IdentityError, "authority changed"):
+                verify_claude_marker_activation_join_attestation(
+                    first,
+                    marker,
+                    activation_plan=plan,
+                    descriptor=self.descriptor,
+                    adapter_manifest=self.adapter_manifest,
+                )
 
     def test_plan_manifest_rejects_paired_false_version_observation(self):
         changed_manifest = copy.deepcopy(self.adapter_manifest)

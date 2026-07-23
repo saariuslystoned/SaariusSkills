@@ -7,8 +7,7 @@ scanning, no-bleed evaluation, qualification, or promotion.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
 from .adapter_manifest import AdapterManifest
 from .authority import AUTHORITY_ID, controller_authority_root
@@ -108,11 +107,10 @@ def attest_claude_marker_activation_join(
     activation_plan: ActivationPlan,
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Append one idempotent, body-free pre-delivery plan-join attestation."""
 
-    root = controller_authority_root(authority_root)
+    root = controller_authority_root()
     event = _activation_join_event(
         compiled,
         activation_plan=activation_plan,
@@ -139,15 +137,15 @@ def verify_claude_marker_activation_join_attestation(
     activation_plan: ActivationPlan,
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Rebuild the join and require its exact controller-journal inclusion."""
 
-    root = controller_authority_root(authority_root)
+    root = controller_authority_root()
     if not isinstance(attestation, Mapping) or set(attestation) != _ATTESTATION_FIELDS:
         raise ValidationError("activation marker attestation fields are invalid")
     if (
-        attestation.get("schema_version")
+        type(attestation.get("schema_version")) is not int
+        or attestation.get("schema_version")
         != ACTIVATION_MARKER_ATTESTATION_SCHEMA_VERSION
     ):
         raise ValidationError("activation marker attestation schema is invalid")
