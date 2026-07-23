@@ -13,9 +13,20 @@
 
 ### Facts observed
 
-- Executable resolution: `command -v codex` -> `/opt/homebrew/bin/codex`.
+- Requested command path: `command -v codex` -> `/opt/homebrew/bin/codex`, which is
+  a symlink and is not the execution-file identity.
+- Resolved regular execution file:
+  `/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin`.
 - `codex --version` -> `codex-cli 0.145.0`.
-- Binary hash (SHA-256): `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
+- Resolved regular-file hash (SHA-256):
+  `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
+- The regular unrestricted mapping is exactly the resolved execution file followed by
+  `--dangerously-bypass-approvals-and-sandbox`. That one switch is declared in both
+  the permission and sandbox-disable buckets. Project isolation remains incomplete.
+- `model_flag=--model` records capability discovery only. The active baseline exposes
+  fixed symbolic `model_selection=current_default` and
+  `effort_selection=current_default`; it accepts no model, effort, profile, or config
+  selector.
 - `codex --help` declares `--model`, `--sandbox`, `--profile`, `--c` overrides,
   `resume`, and an `--json`/`--summary` style diagnosis path via `doctor`.
 - Puppet source declares `session_profile` values `regular` and `goal`; this is
@@ -106,14 +117,16 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Model observation policy:
   - Treat model/provider as `exact` only if both values are parseable and contract
     matches manifest evidence.
-  - If model resolves to `<default>` under isolated `CODEX_HOME`, record as
-    `available-for-test-plan-only` and require explicit test model pinning before any
-    live assertions.
+  - If model resolves to `<default>` under isolated `CODEX_HOME`, record it as
+    `available-for-test-plan-only`. The source-only baseline remains
+    `model_selection=current_default`; model pinning is outside this gate.
 
 ## 4) Regular-session launch/steer/resume/halt/no-bleed matrix
 
 1. **Launch regular without prefix**
-   - Input: `session_profile=regular`, no requested model.
+   - Input: `session_profile=regular`, fixed symbolic
+     `model_selection=current_default` and `effort_selection=current_default`.
+     There are no model/effort caller parameters or selector flags.
    - Expected: accepted launch with no prompt in argv, one PID-bound process snapshot,
      and fixture `ready.json` ready-phase acknowledgment.
 
@@ -175,7 +188,13 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   - expand resume/handoff assertions for Codex-specific resume path and no-bleed gates.
 - `skills/puppet/scripts/puppet_lib/codex_launch.py`
   - add a source-only Codex launch-context gate:
-    - manifest target/fingerprint/version/path binding against exact `/opt/homebrew/bin/codex`,
+    - bind the requested symlink `/opt/homebrew/bin/codex` separately from the exact
+      resolved regular execution file
+      `/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin`, and revalidate
+      that resolved file's current identity and bytes,
+    - admit only the resolved-file plus
+      `--dangerously-bypass-approvals-and-sandbox` argv mapping, with no model,
+      effort, profile, or config override,
     - doctor-only manifest enforcement for source-only regular sessions,
     - 0700 private lane/workspace/CODEX_HOME checks and non-overlap,
     - closed launch environment built from empty ambient state, and
@@ -194,6 +213,14 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 
 ## 7) Blockers and stop criteria
 
+- Unconditional source-only blocker: approved process-local auth broker unavailable.
+- Unconditional source-only blocker: native instruction plane
+  activation/precedence/no-bleed unproved.
+- Unconditional source-only blocker: live doctor/current-default and Pass-B lifecycle
+  unproved.
+- Unconditional source-only blocker: launch remains fenced/source-only.
+- Mapping blocker while applicable: native-plane mapping remains incomplete because
+  project isolation has not been proved.
 - Blocker: any executable/help/help-sha/`CODEX_HOME` drift after this census.
 - Blocker: inability to prove prompt transport without argv prompt injection.
 - Blocker: resume cannot be proven exact and isolated from ordinary session state.

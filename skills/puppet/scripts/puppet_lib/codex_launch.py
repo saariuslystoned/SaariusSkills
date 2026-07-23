@@ -1,8 +1,8 @@
-"""Source-only Codex launch gate context.
+"""Source-only Codex regular-session launch gate.
 
 The gate binds manifest and filesystem identity without launching a target process.
-Returned context is value-free by design; private launch argv and environment are
-retained only as immutable launch checks.
+Returned context is value-free by design; only the non-secret, exact launch argv is
+retained for inspection.
 """
 
 from __future__ import annotations
@@ -11,16 +11,14 @@ import os
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Tuple
-from typing import Sequence
+from typing import Any, Callable, Dict, Mapping, Sequence, Tuple
 
-from .adapter_manifest import AdapterManifest
+from .adapter_manifest import AdapterManifest, _validated_process_record
 from .campaign import active_target_processes
 from .census import adapter_implementation_fingerprint
 from .errors import IdentityError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .launch import public_launch_identity, select_launch_environment
-from .contracts import PROCESS_IDENTITY_FIELDS
 from .safety import (
     absolute_root,
     canonical_json_bytes,
@@ -31,11 +29,28 @@ from .safety import (
 )
 
 LAUNCH_CONTEXT_SCHEMA = "puppet.codex-launch-context/v1"
-EXPECTED_EXECUTABLE_PATH = "/opt/homebrew/bin/codex"
-EXPECTED_EXECUTABLE_SHA256 = "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590"
-EXPECTED_VERSION_SHA256 = "f9eb0c462cdded1fb971b33c647ff1b8b491dfe962a1506026e07a06f634f651"
+EXPECTED_REQUESTED_EXECUTABLE_PATH = "/opt/homebrew/bin/codex"
+EXPECTED_RESOLVED_EXECUTABLE_PATH = (
+    "/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin"
+)
+EXPECTED_EXECUTABLE_SHA256 = (
+    "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590"
+)
+EXPECTED_VERSION_SHA256 = (
+    "f9eb0c462cdded1fb971b33c647ff1b8b491dfe962a1506026e07a06f634f651"
+)
 EXPECTED_VERSION_TEXT = "codex-cli 0.145.0"
-EXPECTED_ADAPTER_FINGERPRINT = adapter_implementation_fingerprint()
+EXPECTED_UNRESTRICTED_FLAG = "--dangerously-bypass-approvals-and-sandbox"
+EXPECTED_MODEL_FLAG = "--model"
+CURRENT_DEFAULT_SELECTION = "current_default"
+AUTH_ROUTE = "process_local_access_token_broker"
+SOURCE_ONLY_BLOCKERS = (
+    "approved process-local auth broker unavailable",
+    "native instruction plane activation/precedence/no-bleed unproved",
+    "live doctor/current-default and Pass-B lifecycle unproved",
+    "launch remains fenced/source-only",
+)
+MAPPING_INCOMPLETE_BLOCKER = "native-plane mapping remains incomplete"
 
 
 def _validate_root(path: Path, *, label: str) -> Dict[str, Any]:
@@ -58,9 +73,7 @@ def _validate_root(path: Path, *, label: str) -> Dict[str, Any]:
     }
 
 
-def _contained_private_root(
-    root: Path, *, parent: Path, label: str
-) -> Dict[str, Any]:
+def _contained_private_root(root: Path, *, parent: Path, label: str) -> Dict[str, Any]:
     details = _validate_root(root, label=label)
     contained = ensure_within(Path(details["path"]), parent, must_exist=True)
     if contained == parent:
@@ -68,7 +81,28 @@ def _contained_private_root(
     return _validate_root(contained, label=label)
 
 
-def _validate_launch_argv(*, mapping: Mapping[str, Any], executable_path: str) -> Tuple[str, ...]:
+def _validate_requested_executable_link(
+    *, requested_path: str, resolved_path: str
+) -> None:
+    requested = Path(requested_path)
+    expected_resolved = Path(resolved_path)
+    try:
+        requested_details = requested.lstat()
+    except OSError as exc:
+        raise IdentityError("requested Codex executable is unavailable") from exc
+    if not stat.S_ISLNK(requested_details.st_mode):
+        raise IdentityError("requested Codex executable is not a symlink")
+    try:
+        current_resolved = requested.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise IdentityError("requested Codex executable symlink is invalid") from exc
+    if current_resolved != expected_resolved:
+        raise IdentityError("requested Codex executable symlink target changed")
+
+
+def _validate_launch_argv(
+    *, mapping: Mapping[str, Any], executable_path: str
+) -> Tuple[str, ...]:
     raw_argv = mapping.get("launch_argv")
     if not isinstance(raw_argv, list) or not raw_argv:
         raise ValidationError("manifest launch argv must be a non-empty list")
@@ -85,41 +119,81 @@ def _validate_launch_argv(*, mapping: Mapping[str, Any], executable_path: str) -
             raise ValidationError("manifest launch argv item is invalid")
         validated.append(item)
     if validated[0] != executable_path:
-        raise ValidationError("manifest launch argv does not start with executable path")
+        raise ValidationError(
+            "manifest launch argv does not start with executable path"
+        )
     return tuple(validated)
 
 
-def _validate_candidate_processes(processes: Any, *, block: list[str]) -> Tuple[int, ...]:
+def _validate_codex_mapping(
+    *, mapping: Mapping[str, Any], executable_path: str
+) -> Tuple[str, ...]:
+    argv = _validate_launch_argv(mapping=mapping, executable_path=executable_path)
+    expected_argv = (executable_path, EXPECTED_UNRESTRICTED_FLAG)
+    if argv != expected_argv:
+        raise ValidationError(
+            "manifest launch argv is not the exact Codex regular unrestricted mapping"
+        )
+    if mapping.get("permission_declared") is not True or mapping.get(
+        "permission_flags"
+    ) != [EXPECTED_UNRESTRICTED_FLAG]:
+        raise ValidationError("Codex permission mapping is unexpected")
+    if mapping.get("sandbox_disable_declared") is not True or mapping.get(
+        "sandbox_flags"
+    ) != [EXPECTED_UNRESTRICTED_FLAG]:
+        raise ValidationError("Codex sandbox mapping is unexpected")
+    if mapping.get("project_isolation_flags") != []:
+        raise ValidationError("Codex project isolation mapping is unexpected")
+    if mapping.get("model_flag") != EXPECTED_MODEL_FLAG:
+        raise ValidationError("Codex model capability mapping is unexpected")
+    if "effort_flag" in mapping:
+        raise ValidationError("Codex effort capability mapping is unexpected")
+    return argv
+
+
+def _validate_candidate_processes(
+    processes: Any,
+    *,
+    selectors: Tuple[Tuple[str, int, int], ...],
+    block: list[str],
+) -> Tuple[Dict[str, Any], ...]:
     if not isinstance(processes, list):
         raise ValidationError("candidate process output must be a list")
     if len(processes) > 4096:
         raise ValidationError("candidate process output is too large")
     validated = []
-    seen = set()
+    seen_pids = set()
+    seen_birth_identities = set()
+    selector_set = set(selectors)
     for process in processes:
-        if (
-            not isinstance(process, dict)
-            or set(process) != PROCESS_IDENTITY_FIELDS
-            or isinstance(process.get("pid"), bool)
-            or not isinstance(process.get("pid"), int)
-            or process["pid"] <= 1
-        ):
-            raise ValidationError("candidate process identity is invalid")
-        if process["pid"] in seen:
+        process = _validated_process_record(process, "candidate process")
+        selector = (
+            process["executable_path"],
+            process["device"],
+            process["inode"],
+        )
+        if selector not in selector_set:
+            raise ValidationError("candidate process executable is not declared")
+        birth_identity = (process["start"], process["kernel_birth_id"])
+        if process["pid"] in seen_pids or birth_identity in seen_birth_identities:
             raise ValidationError("candidate process identities duplicate")
-        seen.add(process["pid"])
-        validated.append(process["pid"])
-    if not processes:
-        block.append("no existing target candidate processes detected")
-    return tuple(sorted(validated))
+        seen_pids.add(process["pid"])
+        seen_birth_identities.add(birth_identity)
+        validated.append(process)
+    if validated:
+        block.append("existing target candidate processes detected")
+    return tuple(sorted(validated, key=lambda item: item["pid"]))
 
 
-def _build_candidate_fingerprint(pids: Sequence[int]) -> str:
+def _build_candidate_fingerprint(processes: Sequence[Dict[str, Any]]) -> str:
+    normalized = [
+        {name: process[name] for name in sorted(process)} for process in processes
+    ]
     return sha256_bytes(
         canonical_json_bytes(
             {
-                "count": len(pids),
-                "pids": list(sorted(pids)),
+                "count": len(processes),
+                "candidates": normalized,
             }
         )
     )
@@ -135,21 +209,22 @@ class CodexLaunchContext:
     adapter_fingerprint: str
     protocol_fingerprint: str
     version_text: str
-    executable_path: str
+    requested_executable_path: str
+    resolved_executable_path: str
     manifest_executable_sha256: str
     manifest_version_sha256: str
+    model_selection: str
+    effort_selection: str
     lane_root_identity: Dict[str, Any]
     workspace_root_identity: Dict[str, Any]
     codex_home_identity: Dict[str, Any]
     launch_authorized: bool
     blockers: Tuple[str, ...]
-    auth_value_accepted: bool
-    auth_value_persisted: bool
+    auth_route: str
     candidate_process_count: int
     candidate_process_pids: Tuple[int, ...]
     candidate_process_fingerprint: str
     _argv: Tuple[str, ...] = field(repr=False)
-    _environment_items: Tuple[Tuple[str, str], ...] = field(repr=False)
     _launch_identity: Dict[str, Any] = field(repr=False)
 
     def to_public_dict(self) -> Dict[str, Any]:
@@ -162,7 +237,8 @@ class CodexLaunchContext:
             "adapter_fingerprint": self.adapter_fingerprint,
             "protocol_fingerprint": self.protocol_fingerprint,
             "version_text": self.version_text,
-            "executable_path": self.executable_path,
+            "requested_executable_path": self.requested_executable_path,
+            "resolved_executable_path": self.resolved_executable_path,
             "executable_sha256": self.manifest_executable_sha256,
             "version_sha256": self.manifest_version_sha256,
             "lane_root_identity": self.lane_root_identity,
@@ -181,12 +257,9 @@ class CodexLaunchContext:
             "candidate_process_count": self.candidate_process_count,
             "candidate_process_pids": list(self.candidate_process_pids),
             "candidate_process_fingerprint": self.candidate_process_fingerprint,
-            "process_local_CODEX_ACCESS_TOKEN": {
-                "accepted": self.auth_value_accepted,
-                "persisted": self.auth_value_persisted,
-            },
-            "auth_value_accepted": self.auth_value_accepted,
-            "auth_value_persisted": self.auth_value_persisted,
+            "model_selection": self.model_selection,
+            "effort_selection": self.effort_selection,
+            "auth_route": self.auth_route,
             "blockers": list(self.blockers),
         }
 
@@ -198,10 +271,6 @@ class CodexLaunchContext:
     def argv(self) -> list[str]:
         return list(self._argv)
 
-    @property
-    def environment(self) -> Dict[str, str]:
-        return dict(self._environment_items)
-
 
 def build_codex_launch_context(
     *,
@@ -209,8 +278,9 @@ def build_codex_launch_context(
     lane_root: Path | str,
     workspace_root: Path | str,
     codex_home: Path | str,
-    candidate_fn: Callable[[str, list[Dict[str, Any]]], list[Dict[str, Any]]] = active_target_processes,
-    process_local_CODEX_ACCESS_TOKEN: str | None = None,
+    candidate_fn: Callable[
+        [str, list[Dict[str, Any]]], list[Dict[str, Any]]
+    ] = active_target_processes,
 ) -> CodexLaunchContext:
     """Build a source-only Codex launch context without starting anything."""
 
@@ -219,11 +289,7 @@ def build_codex_launch_context(
     if manifest.target != "codex":
         raise ValidationError("launch context requires target codex")
 
-    blockers = []
-    if process_local_CODEX_ACCESS_TOKEN is not None:
-        if not isinstance(process_local_CODEX_ACCESS_TOKEN, str):
-            raise ValidationError("process-local CODEX access token must be a string")
-        blockers.append("no approved CODEX_ACCESS_TOKEN broker route for child launch")
+    blockers = list(SOURCE_ONLY_BLOCKERS)
     lane = _validate_root(Path(lane_root), label="lane root")
     lane_root_path = Path(lane["path"])
     workspace = _contained_private_root(
@@ -240,58 +306,66 @@ def build_codex_launch_context(
     codex_home_path = Path(home["path"])
     if paths_overlap(workspace_path, codex_home_path):
         raise ValidationError("workspace and CODEX_HOME must be non-overlapping")
-    if manifest.raw["adapter_fingerprint"] != EXPECTED_ADAPTER_FINGERPRINT:
+    if manifest.raw["adapter_fingerprint"] != adapter_implementation_fingerprint():
         raise ValidationError("manifest adapter fingerprint is unexpected")
     if manifest.raw["protocol_fingerprint"] != PROTOCOL_FINGERPRINT:
         raise ValidationError("manifest protocol fingerprint is unexpected")
 
-    mapping = manifest.raw["yolo_mapping"]
-    argv = _validate_launch_argv(
-        mapping=mapping,
-        executable_path=manifest.raw["executable"]["resolved_path"],
-    )
     executable = manifest.raw["executable"]
-    if executable["resolved_path"] != EXPECTED_EXECUTABLE_PATH:
-        raise ValidationError("manifest executable path is not the expected Codex binary")
+    if executable["requested_path"] != EXPECTED_REQUESTED_EXECUTABLE_PATH:
+        raise ValidationError("manifest requested executable path is unexpected")
+    if executable["resolved_path"] != EXPECTED_RESOLVED_EXECUTABLE_PATH:
+        raise ValidationError("manifest resolved executable path is unexpected")
     if executable["sha256"] != EXPECTED_EXECUTABLE_SHA256:
         raise ValidationError("manifest executable hash is unexpected")
     if executable["version_sha256"] != EXPECTED_VERSION_SHA256:
         raise ValidationError("manifest executable version hash is unexpected")
-    if not manifest.raw["yolo_mapping"].get("complete", False):
-        blockers.append("native-plane mapping remains incomplete")
-    if manifest.raw["yolo_mapping"].get("model_flag") is not None:
-        blockers.append("native plane model selector remains unresolved")
-    if manifest.raw["yolo_mapping"].get("effort_flag") is not None:
-        blockers.append("native plane effort selector remains unresolved")
-    if "--model" in argv:
-        blockers.append("manifest launch argv includes model selector")
-    if "--effort" in argv:
-        blockers.append("manifest launch argv includes effort selector")
-    if set(argv) != {manifest.raw["executable"]["resolved_path"]}:
-        blockers.append("native launch argv is not source-only")
+    _validate_requested_executable_link(
+        requested_path=executable["requested_path"],
+        resolved_path=executable["resolved_path"],
+    )
+    manifest.verify_execution_files()
+
+    mapping = manifest.raw["yolo_mapping"]
+    argv = _validate_codex_mapping(
+        mapping=mapping,
+        executable_path=executable["resolved_path"],
+    )
+    if not mapping["complete"] or not mapping["project_isolation_declared"]:
+        blockers.append(MAPPING_INCOMPLETE_BLOCKER)
     if not manifest.raw["doctor_only"]:
         raise ValidationError("source-only Codex launch requires doctor-only manifest")
     if manifest.raw["qualification"] is not None:
-        raise ValidationError("source-only Codex launch requires a doctor-only manifest")
-    auth_accepted = False
-    auth_persisted = False
+        raise ValidationError(
+            "source-only Codex launch requires a doctor-only manifest"
+        )
 
     try:
         selectors = manifest.process_execution_selectors()
+        selector_tuples = tuple(
+            (
+                selector["path"],
+                selector["device"],
+                selector["inode"],
+            )
+            for selector in selectors
+        )
         candidate_processes = candidate_fn(manifest.target, selectors)
     except (TypeError, ValueError, IdentityError, ValidationError, AttributeError):
         raise ValidationError("candidate process lookup is malformed")
     except Exception as exc:  # pragma: no cover - defensive guardrail
         raise ValidationError("candidate process lookup failed") from exc
     try:
-        candidate_pids = _validate_candidate_processes(
+        candidate_processes = _validate_candidate_processes(
             candidate_processes,
+            selectors=selector_tuples,
             block=blockers,
         )
     except (TypeError, ValueError, IdentityError, ValidationError) as exc:
         raise ValidationError("candidate process lookup is malformed") from exc
 
-    candidate_hash = _build_candidate_fingerprint(candidate_pids)
+    candidate_pids = tuple(process["pid"] for process in candidate_processes)
+    candidate_hash = _build_candidate_fingerprint(candidate_processes)
 
     environment = select_launch_environment(
         target="codex",
@@ -299,34 +373,35 @@ def build_codex_launch_context(
         bindings={"CODEX_HOME": str(codex_home_path)},
         admitted_lane_root=lane_root_path,
     )
+    manifest.verify_launch_execution_environment(environment)
     launch_identity = public_launch_identity(
         repo=workspace_path,
         argv=argv,
         environment=environment,
         admitted_lane_root=lane_root_path,
     )
-    context = CodexLaunchContext(
+    return CodexLaunchContext(
         target=manifest.target,
         session_profile=session_profile,
         manifest_fingerprint=manifest.fingerprint,
         adapter_fingerprint=manifest.raw["adapter_fingerprint"],
         protocol_fingerprint=manifest.raw["protocol_fingerprint"],
         version_text=EXPECTED_VERSION_TEXT,
-        executable_path=executable["resolved_path"],
+        requested_executable_path=executable["requested_path"],
+        resolved_executable_path=executable["resolved_path"],
         manifest_executable_sha256=executable["sha256"],
         manifest_version_sha256=executable["version_sha256"],
+        model_selection=CURRENT_DEFAULT_SELECTION,
+        effort_selection=CURRENT_DEFAULT_SELECTION,
         lane_root_identity=lane,
         workspace_root_identity=workspace,
         codex_home_identity=home,
         launch_authorized=False,
+        auth_route=AUTH_ROUTE,
         blockers=tuple(blockers),
-        auth_value_accepted=auth_accepted,
-        auth_value_persisted=auth_persisted,
         candidate_process_count=len(candidate_pids),
         candidate_process_pids=candidate_pids,
         candidate_process_fingerprint=candidate_hash,
         _argv=argv,
-        _environment_items=tuple(sorted(environment.items())),
         _launch_identity=launch_identity,
     )
-    return context
