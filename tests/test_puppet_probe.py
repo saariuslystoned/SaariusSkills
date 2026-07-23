@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import socket as socket_module
 import stat
 import subprocess
@@ -40,6 +41,7 @@ from puppet_lib.halt_control import deliver_halt_actions  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.launch import public_launch_identity  # noqa: E402
+from puppet_lib.matched_control import MARKER_SIGNAL_RELATIVE_PATH  # noqa: E402
 from puppet_lib.plane_activation import CLAUDE_NATIVE_TRIGGER  # noqa: E402
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
 from puppet_lib.probe import (  # noqa: E402
@@ -376,6 +378,7 @@ class FakeTmux:
         interrupt_after_control=False,
         terminal_pid_drift=False,
         regular_socket=False,
+        defer_matched_signal=False,
     ):
         self.root = root
         self.socket_root = Path(tempfile.mkdtemp(prefix="pft-", dir="/tmp"))
@@ -388,6 +391,8 @@ class FakeTmux:
         self.interrupt_after_control = interrupt_after_control
         self.terminal_pid_drift = terminal_pid_drift
         self.regular_socket = regular_socket
+        self.defer_matched_signal = defer_matched_signal
+        self.deferred_marker = None
         self.alive = True
         self.preserved = True
         self.launch_argv = None
@@ -556,8 +561,36 @@ class FakeTmux:
         temporary = destination.with_suffix(".pending")
         write_json(temporary, value)
         temporary.replace(destination)
+        if len(self.payloads) == 1 and payload == (
+            CLAUDE_NATIVE_TRIGGER + "\n"
+        ).encode("utf-8"):
+            marker = re.search(
+                rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}",
+                instruction_payload,
+            )
+            if marker is None:
+                raise AssertionError("matched-control marker is unavailable")
+            self.deferred_marker = marker.group(0)
+            if not self.defer_matched_signal:
+                self.write_deferred_signal()
         if self.extra_handoff:
             write_json(self.repo / "handoffs" / "unexpected.json", {"unexpected": True})
+
+    def write_deferred_signal(self):
+        if self.deferred_marker is None:
+            raise AssertionError("deferred matched-control marker is unavailable")
+        signal_path = self.repo / MARKER_SIGNAL_RELATIVE_PATH
+        signal_descriptor = os.open(
+            signal_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        try:
+            os.fchmod(signal_descriptor, 0o600)
+            os.write(signal_descriptor, self.deferred_marker)
+            os.fsync(signal_descriptor)
+        finally:
+            os.close(signal_descriptor)
 
     def interrupt(self, *, socket, session, pane=None, server_identity=None):
         self.interrupts.append((str(socket), session, pane))
@@ -653,78 +686,107 @@ def execute(
     else:
         subscription_preflight = subscription_preflight_fn
 
-    return run_probe(
-        target=target,
-        profile=PROBE_PROFILE,
-        session_profile=(
-            default_session_profile(target)
-            if session_profile is None
-            else session_profile
+    with (
+        patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=files["authority"],
         ),
-        proof_root=files["proof"],
-        manifest_path=files["manifest"],
-        mapping_path=files["mapping"],
-        authorization_path=files["authorization"],
-        controller="tester",
-        goal_repo=files["goal_repo"],
-        expected_campaign_id=files["campaign_id"],
-        expected_goal=expected_goal or files["expected_goal"],
-        subscription_profile_root=subscription_root,
-        plane_descriptor=plane_descriptor,
-        timeout=timeout,
-        halt_timeout=0.1,
-        run_id=run_id,
-        _tmux_factory=lambda root: fake,
-        _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
-        _server_process_birth_fn=lambda pid: fake.server_process,
-        _process_alive_fn=lambda identity: fake.alive,
-        _process_tree_alive_fn=lambda identity: fake.alive,
-        _exact_sigint_fn=fake.exact_sigint,
-        _active_processes_fn=active_processes_fn
-        or (lambda selected: list(active or [])),
-        _continuous_population_fn=continuous_population_fn
-        or (
-            lambda selected: [
-                *list(active or []),
-                *([process_identity(fake)] if fake.alive else []),
-            ]
+        patch(
+            "puppet_lib.matched_control_signal.controller_authority_root",
+            return_value=files["authority"],
         ),
-        _population_snapshot_fn=population_snapshot_fn,
-        _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
-        _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
-            observed_manifest or files["raw"]
-        ),
-        _sleep_fn=sleep_fn or (lambda interval: None),
-        _execution_sleep_fn=lambda interval: None,
-        _authority_root=files["authority"],
-        _subscription_profile_preflight_fn=(subscription_preflight),
-    )
+    ):
+        return run_probe(
+            target=target,
+            profile=PROBE_PROFILE,
+            session_profile=(
+                default_session_profile(target)
+                if session_profile is None
+                else session_profile
+            ),
+            proof_root=files["proof"],
+            manifest_path=files["manifest"],
+            mapping_path=files["mapping"],
+            authorization_path=files["authorization"],
+            controller="tester",
+            goal_repo=files["goal_repo"],
+            expected_campaign_id=files["campaign_id"],
+            expected_goal=expected_goal or files["expected_goal"],
+            subscription_profile_root=subscription_root,
+            plane_descriptor=plane_descriptor,
+            timeout=timeout,
+            halt_timeout=0.1,
+            run_id=run_id,
+            _tmux_factory=lambda root: fake,
+            _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
+            _server_process_birth_fn=lambda pid: fake.server_process,
+            _process_alive_fn=lambda identity: fake.alive,
+            _process_tree_alive_fn=lambda identity: fake.alive,
+            _exact_sigint_fn=fake.exact_sigint,
+            _active_processes_fn=active_processes_fn
+            or (lambda selected: list(active or [])),
+            _continuous_population_fn=continuous_population_fn
+            or (
+                lambda selected: [
+                    *list(active or []),
+                    *([process_identity(fake)] if fake.alive else []),
+                ]
+            ),
+            _population_snapshot_fn=population_snapshot_fn,
+            _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+            _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+                observed_manifest or files["raw"]
+            ),
+            _sleep_fn=sleep_fn or (lambda interval: None),
+            _execution_sleep_fn=lambda interval: None,
+            _authority_root=files["authority"],
+            _subscription_profile_preflight_fn=(subscription_preflight),
+        )
 
 
-def recover_execute(files, *, run_id, tmux_factory=None, plane_descriptor=None):
-    return recover_probe(
-        target="claude",
-        proof_root=files["proof"],
-        manifest_path=files["manifest"],
-        mapping_path=files["mapping"],
-        authorization_path=files["authorization"],
-        controller="tester",
-        goal_repo=files["goal_repo"],
-        expected_campaign_id=files["campaign_id"],
-        expected_goal=files["expected_goal"],
-        run_id=run_id,
-        plane_descriptor=plane_descriptor,
-        halt_timeout=0.1,
-        _tmux_factory=tmux_factory or (lambda root: FakeTmux(root)),
-        _process_alive_fn=lambda identity: False,
-        _active_processes_fn=lambda selected: [],
-        _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
-        _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
-            files["raw"]
+def recover_execute(
+    files,
+    *,
+    run_id,
+    tmux_factory=None,
+    plane_descriptor=None,
+    process_alive_fn=None,
+    exact_sigint_fn=None,
+):
+    with (
+        patch(
+            "puppet_lib.matched_control_authority.controller_authority_root",
+            return_value=files["authority"],
         ),
-        _sleep_fn=lambda interval: None,
-        _authority_root=files["authority"],
-    )
+        patch(
+            "puppet_lib.matched_control_signal.controller_authority_root",
+            return_value=files["authority"],
+        ),
+    ):
+        return recover_probe(
+            target="claude",
+            proof_root=files["proof"],
+            manifest_path=files["manifest"],
+            mapping_path=files["mapping"],
+            authorization_path=files["authorization"],
+            controller="tester",
+            goal_repo=files["goal_repo"],
+            expected_campaign_id=files["campaign_id"],
+            expected_goal=files["expected_goal"],
+            run_id=run_id,
+            plane_descriptor=plane_descriptor,
+            halt_timeout=0.1,
+            _tmux_factory=tmux_factory or (lambda root: FakeTmux(root)),
+            _process_alive_fn=process_alive_fn or (lambda identity: False),
+            _exact_sigint_fn=exact_sigint_fn or puppet_probe.send_exact_sigint,
+            _active_processes_fn=lambda selected: [],
+            _adapter_fingerprint_fn=lambda: files["raw"]["adapter_fingerprint"],
+            _census_target_fn=lambda selected, fingerprint: AdapterManifest.from_dict(
+                files["raw"]
+            ),
+            _sleep_fn=lambda interval: None,
+            _authority_root=files["authority"],
+        )
 
 
 class ProbeTests(unittest.TestCase):
@@ -884,6 +946,441 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(
                 verify_recovered_receipt.call_args.args,
                 (run_root / "receipt.json",),
+            )
+
+    def test_claude_matched_control_pre_delivery_order_and_no_raw_retention(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            events = []
+            matched_sources = []
+
+            class TracedTmux(FakeTmux):
+                def launch(self, **kwargs):
+                    events.append("launch")
+                    return super().launch(**kwargs)
+
+                def paste_bytes(self, **kwargs):
+                    if not self.payloads:
+                        events.append("deliver")
+                    return super().paste_bytes(**kwargs)
+
+            fake = TracedTmux(root / "fake-tmux", regular_socket=True)
+            compile_ready = puppet_probe._compile_claude_marker_ready_instruction
+            plan = puppet_probe.plan_activation
+            attest = puppet_probe.attest_claude_marker_activation_join
+            prepare = puppet_probe.prepare_claude_marker_signal
+            materialize = puppet_probe.materialize_activation
+            wait_for_handoff = puppet_probe._wait_for_handoff
+            write = puppet_probe.atomic_write_json
+
+            def traced_compile(**kwargs):
+                events.append("compile")
+                compiled = compile_ready(**kwargs)
+                matched_sources.append(compiled.rendered)
+                return compiled
+
+            def traced_plan(*args, **kwargs):
+                events.append("plan")
+                return plan(*args, **kwargs)
+
+            def traced_attest(*args, **kwargs):
+                events.append("attest")
+                return attest(*args, **kwargs)
+
+            class TracedGuard:
+                def __init__(self, guard):
+                    self.guard = guard
+
+                def consume(self):
+                    events.append("consume")
+                    return self.guard.consume()
+
+                def close(self):
+                    return self.guard.close()
+
+            def traced_prepare(*args, **kwargs):
+                events.append("reserve")
+                return TracedGuard(prepare(*args, **kwargs))
+
+            def traced_materialize(*args, **kwargs):
+                events.append("materialize")
+                return materialize(*args, **kwargs)
+
+            def traced_wait(**kwargs):
+                handoff = wait_for_handoff(**kwargs)
+                if Path(kwargs["path"]).name == "ready.json":
+                    events.append("ready_checkpoint")
+                return handoff
+
+            def traced_write(path, value):
+                result = write(path, value)
+                if Path(path).name == "receipt.json":
+                    events.append("terminal_receipt")
+                return result
+
+            with (
+                patch.object(
+                    puppet_probe,
+                    "_compile_claude_marker_ready_instruction",
+                    side_effect=traced_compile,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "plan_activation",
+                    side_effect=traced_plan,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "attest_claude_marker_activation_join",
+                    side_effect=traced_attest,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "prepare_claude_marker_signal",
+                    side_effect=traced_prepare,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "materialize_activation",
+                    side_effect=traced_materialize,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "_wait_for_handoff",
+                    side_effect=traced_wait,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "atomic_write_json",
+                    side_effect=traced_write,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "verify_qualification_receipt",
+                    return_value={},
+                ),
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id="probe-claude-matched-order",
+                    plane_descriptor=files["descriptor"],
+                )
+
+            self.assertEqual(result["result"], "accepted")
+            self.assertEqual(len(matched_sources), 1)
+            self.assertNotIn(
+                b"Atomically write only ./handoffs/ready.json",
+                matched_sources[0],
+            )
+            self.assertIn(
+                b"then create only the exact one-use matched-control signal",
+                matched_sources[0],
+            )
+            expected = [
+                "compile",
+                "plan",
+                "attest",
+                "reserve",
+                "materialize",
+                "launch",
+                "deliver",
+                "ready_checkpoint",
+                "consume",
+                "terminal_receipt",
+            ]
+            self.assertEqual(
+                [event for event in events if event in expected],
+                expected,
+            )
+            run_root = files["proof"] / "probes" / "probe-claude-matched-order"
+            retained = b"".join(
+                path.read_bytes()
+                for search_root in (run_root, files["authority"])
+                for path in search_root.rglob("*")
+                if path.is_file()
+            )
+            self.assertIsNone(
+                re.search(
+                    rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}",
+                    retained,
+                )
+            )
+            for handoff_name in ("ready.json", "followup.json"):
+                self.assertIsNone(
+                    re.search(
+                        rb"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=[0-9a-f]{64}",
+                        (run_root / "activation-lane" / "workspace" / "handoffs" / handoff_name).read_bytes(),
+                    )
+                )
+
+    def test_claude_accepted_recovery_rejects_recreated_signal_leaf(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            run_id = "probe-claude-recreated-signal"
+            with patch.object(
+                puppet_probe,
+                "verify_qualification_receipt",
+                return_value={},
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                )
+            self.assertEqual(result["result"], "accepted")
+            fake.write_deferred_signal()
+            signal_path = (
+                files["proof"]
+                / "probes"
+                / run_id
+                / "activation-lane"
+                / "workspace"
+                / MARKER_SIGNAL_RELATIVE_PATH
+            )
+            with self.assertRaisesRegex(
+                ConflictError, "recreated after observation"
+            ):
+                recover_execute(files, run_id=run_id, tmux_factory=lambda _root: fake)
+            self.assertTrue(signal_path.is_file())
+            self.assertEqual(signal_path.read_bytes(), fake.deferred_marker)
+
+    def test_claude_matched_control_attestation_and_reservation_fail_pre_materialize(
+        self,
+    ):
+        cases = (
+            (
+                "attestation",
+                "attest_claude_marker_activation_join",
+                ValidationError("attestation denied"),
+            ),
+            (
+                "reservation",
+                "prepare_claude_marker_signal",
+                ConflictError("reservation denied"),
+            ),
+        )
+        for label, function_name, failure in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary).resolve()
+                    files = claude_activation_inputs(root)
+                    fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+                    materialize = puppet_probe.materialize_activation
+                    with (
+                        patch.object(
+                            puppet_probe,
+                            function_name,
+                            side_effect=failure,
+                        ),
+                        patch.object(
+                            puppet_probe,
+                            "materialize_activation",
+                            wraps=materialize,
+                        ) as materialize_call,
+                    ):
+                        with self.assertRaisesRegex(
+                            failure.__class__,
+                            str(failure),
+                        ):
+                            execute(
+                                files,
+                                fake,
+                                target="claude",
+                                run_id="probe-claude-%s-failure" % label,
+                                plane_descriptor=files["descriptor"],
+                            )
+                    self.assertEqual(materialize_call.call_count, 0)
+                    self.assertIsNone(fake.launch_argv)
+                    self.assertEqual(fake.payloads, [])
+
+    def test_claude_matched_control_post_reservation_failure_closes_and_spends_guard(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            prepare = puppet_probe.prepare_claude_marker_signal
+            guards = []
+
+            def capture_guard(*args, **kwargs):
+                guard = prepare(*args, **kwargs)
+                guards.append(guard)
+                return guard
+
+            with (
+                patch.object(
+                    puppet_probe,
+                    "prepare_claude_marker_signal",
+                    side_effect=capture_guard,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "materialize_activation",
+                    side_effect=ValidationError("materialization stopped"),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValidationError, "materialization stopped"
+                ):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id="probe-claude-spent-reservation",
+                        plane_descriptor=files["descriptor"],
+                    )
+
+            self.assertEqual(len(guards), 1)
+            with self.assertRaisesRegex(IdentityError, "closed"):
+                guards[0].consume()
+            self.assertTrue(
+                (
+                    files["authority"]
+                    / "claude-marker-signal-reservations"
+                    / "events.jsonl"
+                ).is_file()
+            )
+            self.assertIsNone(fake.launch_argv)
+            self.assertEqual(fake.payloads, [])
+            with self.assertRaisesRegex(ConflictError, "run id already exists"):
+                execute(
+                    files,
+                    fake,
+                    target="claude",
+                    run_id="probe-claude-spent-reservation",
+                    plane_descriptor=files["descriptor"],
+                )
+
+    def test_claude_matched_control_recovery_consumes_post_ready_crash_signal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            prepare = puppet_probe.prepare_claude_marker_signal
+
+            class CrashBeforeConsume:
+                def __init__(self, guard):
+                    self.guard = guard
+
+                def consume(self):
+                    raise KeyboardInterrupt()
+
+                def close(self):
+                    return self.guard.close()
+
+            def crash_guard(*args, **kwargs):
+                return CrashBeforeConsume(prepare(*args, **kwargs))
+
+            with patch.object(
+                puppet_probe,
+                "prepare_claude_marker_signal",
+                side_effect=crash_guard,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id="probe-claude-signal-crash",
+                        plane_descriptor=files["descriptor"],
+                    )
+
+            signal_path = (
+                files["proof"]
+                / "probes"
+                / "probe-claude-signal-crash"
+                / "activation-lane"
+                / "workspace"
+                / MARKER_SIGNAL_RELATIVE_PATH
+            )
+            self.assertTrue(signal_path.is_file())
+            recovered = recover_execute(
+                files,
+                run_id="probe-claude-signal-crash",
+                tmux_factory=lambda _root: fake,
+            )
+            self.assertEqual(recovered["result"], "interrupted_probe_reconciled")
+            self.assertFalse(signal_path.exists())
+            self.assertTrue(
+                (
+                    files["proof"]
+                    / "probes"
+                    / "probe-claude-signal-crash"
+                    / "matched-control-signal.json"
+                ).is_file()
+            )
+
+    def test_claude_matched_control_rechecks_signal_after_recovery_halt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = claude_activation_inputs(root)
+            fake = FakeTmux(
+                root / "fake-tmux",
+                regular_socket=True,
+                defer_matched_signal=True,
+            )
+
+            def crash_after_ready(_interval):
+                if fake.repo is not None and (
+                    fake.repo / "handoffs" / "ready.json"
+                ).is_file():
+                    raise KeyboardInterrupt()
+
+            with patch.object(
+                puppet_probe,
+                "_halt_exact",
+                side_effect=IdentityError("defer exact halt to recovery"),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    execute(
+                        files,
+                        fake,
+                        target="claude",
+                        run_id="probe-claude-signal-halt-race",
+                        plane_descriptor=files["descriptor"],
+                        sleep_fn=crash_after_ready,
+                    )
+
+            signal_path = (
+                files["proof"]
+                / "probes"
+                / "probe-claude-signal-halt-race"
+                / "activation-lane"
+                / "workspace"
+                / MARKER_SIGNAL_RELATIVE_PATH
+            )
+            self.assertFalse(signal_path.exists())
+            self.assertTrue(fake.alive)
+
+            def create_signal_during_halt(identity):
+                fake.write_deferred_signal()
+                fake.exact_sigint(identity)
+
+            recovered = recover_execute(
+                files,
+                run_id="probe-claude-signal-halt-race",
+                tmux_factory=lambda _root: fake,
+                process_alive_fn=lambda _identity: fake.alive,
+                exact_sigint_fn=create_signal_during_halt,
+            )
+            self.assertEqual(recovered["result"], "interrupted_probe_reconciled")
+            self.assertFalse(fake.alive)
+            self.assertFalse(signal_path.exists())
+            self.assertTrue(
+                (
+                    files["proof"]
+                    / "probes"
+                    / "probe-claude-signal-halt-race"
+                    / "matched-control-signal.json"
+                ).is_file()
             )
 
     def test_claude_activation_rechecks_private_profile_before_target_start(self):

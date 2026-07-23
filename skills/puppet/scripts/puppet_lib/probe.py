@@ -69,6 +69,19 @@ from .instruction_planes import (
 )
 from .journal import Journal
 from .launch import build_admitted_launch_plan, build_launch_identity
+from .matched_control import (
+    MARKER_SIGNAL_RELATIVE_PATH,
+    CompiledMarkerInstruction,
+    _compile_claude_marker_ready_instruction,
+)
+from .matched_control_authority import (
+    attest_claude_marker_activation_join,
+)
+from .matched_control_signal import (
+    prepare_claude_marker_signal,
+    recover_claude_marker_signal_observation,
+    verify_claude_marker_signal_observation,
+)
 from .plane_activation import (
     ACTIVATION_LIFECYCLE_SCOPE,
     CLAUDE_NATIVE_TRIGGER,
@@ -411,13 +424,18 @@ def _assert_instruction_artifact(
     return observed
 
 
-def _assert_handoff_set(fixture: Path, expected_names: set[str]) -> None:
+def _observed_handoff_set(fixture: Path) -> set[str]:
     handoffs = ensure_within(fixture / "handoffs", fixture, must_exist=True)
     observed = set()
     for entry in handoffs.iterdir():
         if entry.is_symlink() or not entry.is_file():
             raise IdentityError("probe handoff directory contains a non-regular entry")
         observed.add(entry.name)
+    return observed
+
+
+def _assert_handoff_set(fixture: Path, expected_names: set[str]) -> None:
+    observed = _observed_handoff_set(fixture)
     if observed != expected_names:
         raise IdentityError("probe handoff directory contains unexpected artifacts")
 
@@ -521,6 +539,27 @@ def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> 
     )
 
 
+def _matched_initial_prompt(
+    fixture_contract: Dict[str, Any], ready: Dict[str, Any]
+) -> str:
+    return (
+        "PUPPET_REAL_HARNESS_CONFORMANCE_V2\n"
+        "Read ./contract.json and verify schema_version, run_id, nonce, and "
+        "allowed_fixture_root. Make no source, repository, account, external-send, "
+        "or system changes. Atomically write ./handoffs/ready.json with the exact "
+        "JSON object below, then create only the exact one-use matched-control "
+        "signal specified later in this source-owned wrapper. Do not create any "
+        "other handoff artifact. Remain available for one follow-up and do not "
+        "claim controller acceptance.\n"
+        "run_id=%s\nnonce=%s\nWRITE_READY_JSON=%s"
+        % (
+            fixture_contract["run_id"],
+            fixture_contract["nonce"],
+            canonical_json_bytes(ready).decode("utf-8"),
+        )
+    )
+
+
 def _followup_prompt(fixture_contract: Dict[str, Any], followup: Dict[str, Any]) -> str:
     return (
         "PUPPET_REAL_HARNESS_FOLLOWUP_V2\n"
@@ -599,6 +638,7 @@ def _wait_for_handoff(
     process_alive_fn: Callable[[Dict[str, Any]], bool],
     population_guard: Callable[[], None],
     expected_handoff_names: set[str],
+    transient_missing_handoff_names: Optional[set[str]] = None,
     timeout: float,
     sleep_fn: Callable[[float], None],
 ) -> ValidatedHandoff:
@@ -623,7 +663,19 @@ def _wait_for_handoff(
                 raise IdentityError(
                     "probe handoff content differs from the exact contract"
                 )
-            _assert_handoff_set(fixture, expected_handoff_names)
+            observed_names = _observed_handoff_set(fixture)
+            if observed_names != expected_handoff_names:
+                if (
+                    transient_missing_handoff_names
+                    and observed_names
+                    == expected_handoff_names - transient_missing_handoff_names
+                    and time.monotonic() < deadline
+                ):
+                    sleep_fn(POLL_INTERVAL_SECONDS)
+                    continue
+                raise IdentityError(
+                    "probe handoff directory contains unexpected artifacts"
+                )
             if tree_fingerprint(fixture) != fixture_fingerprint:
                 raise IdentityError("non-handoff conformance fixture content drifted")
             return handoff
@@ -948,6 +1000,8 @@ def run_probe(
     launch_plan_path = run_root / "launch-plan.json"
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
     activation_context_path = run_root / "activation-context.json"
+    matched_attestation_path = run_root / "matched-control-attestation.json"
+    matched_signal_path = run_root / "matched-control-signal.json"
     activation_lane_root = run_root / "activation-lane"
     activation_ephemeral_root = activation_lane_root / "ephemeral"
     activation_transaction_root = activation_lane_root / "transaction"
@@ -988,6 +1042,10 @@ def run_probe(
     activation_public_context: Optional[Dict[str, Any]] = None
     activation_receipt: Optional[Dict[str, Any]] = None
     activation_terminal: Optional[Dict[str, Any]] = None
+    matched_compiled: Optional[CompiledMarkerInstruction] = None
+    matched_activation_attestation: Optional[Dict[str, Any]] = None
+    matched_signal_guard: Optional[Any] = None
+    matched_signal_observation: Optional[Dict[str, Any]] = None
     active: Optional[list[Dict[str, Any]]] = None
     lock_descriptor: Optional[int] = None
     lease_owned = False
@@ -1094,33 +1152,51 @@ def run_probe(
             fixture_contract=fixture_contract,
             manifest=manifest,
         )
-        compiled = compile_instruction_wrapper(
-            target=target,
-            task=_initial_prompt(fixture_contract, ready_value),
-            contract_identity={
-                "fingerprint": controller_contract.fingerprint,
-                "controller": controller,
-                "target": target,
-                "task_profile": profile,
-            },
-            workspace_identity={
-                "fixture_fingerprint": fixture_fingerprint,
-                "workspace": "isolated_conformance_fixture",
-            },
-            run_identity={
-                "session": session,
-                "run_id": run_id,
-                "nonce": fixture_contract["nonce"],
-            },
-            session_profile=session_profile,
-            model_binding="default",
-            effort_binding="default",
-            runtime_contract_layer={
-                "mutation_owner": controller_contract.mutation_owner,
-                "allowed_modes": sorted(controller_contract.allowed_modes),
-                "hard_gates": sorted(controller_contract.hard_gates),
-            },
+        contract_identity = {
+            "fingerprint": controller_contract.fingerprint,
+            "controller": controller,
+            "target": target,
+            "task_profile": profile,
+        }
+        workspace_identity = {
+            "fixture_fingerprint": fixture_fingerprint,
+            "workspace": "isolated_conformance_fixture",
+        }
+        run_identity = {
+            "session": session,
+            "run_id": run_id,
+            "nonce": fixture_contract["nonce"],
+        }
+        ready_task = (
+            _initial_prompt(fixture_contract, ready_value)
+            if plane_descriptor_value is None
+            else _matched_initial_prompt(fixture_contract, ready_value)
         )
+        if plane_descriptor_value is None:
+            compiled = compile_instruction_wrapper(
+                target=target,
+                task=ready_task,
+                contract_identity=contract_identity,
+                workspace_identity=workspace_identity,
+                run_identity=run_identity,
+                session_profile=session_profile,
+                model_binding="default",
+                effort_binding="default",
+                runtime_contract_layer={
+                    "mutation_owner": controller_contract.mutation_owner,
+                    "allowed_modes": sorted(controller_contract.allowed_modes),
+                    "hard_gates": sorted(controller_contract.hard_gates),
+                },
+            )
+        else:
+            matched_compiled = _compile_claude_marker_ready_instruction(
+                descriptor=plane_descriptor_value,
+                contract_identity=contract_identity,
+                workspace_identity=workspace_identity,
+                run_identity=run_identity,
+                ready_task=ready_task,
+            )
+            compiled = matched_compiled
         atomic_write_json(instruction_path, compiled.manifest)
         instruction_manifest_sha = sha256_file(instruction_path, max_bytes=131072)
         evidence["instruction_wrapper"] = {
@@ -1177,6 +1253,37 @@ def run_probe(
                 transaction_root=activation_transaction_root,
                 config_root=activation_config_root,
                 _current_manifest=manifest,
+            )
+            if matched_compiled is None:
+                raise IdentityError(
+                    "matched-control compilation is unavailable before activation"
+                )
+            matched_activation_attestation = (
+                attest_claude_marker_activation_join(
+                    matched_compiled,
+                    activation_plan=activation_plan,
+                    descriptor=plane_descriptor_value,
+                    adapter_manifest=manifest,
+                )
+            )
+            matched_signal_guard = prepare_claude_marker_signal(
+                matched_compiled,
+                activation_plan=activation_plan,
+                descriptor=plane_descriptor_value,
+                adapter_manifest=manifest,
+                activation_attestation=matched_activation_attestation,
+            )
+            atomic_write_json(
+                matched_attestation_path,
+                matched_activation_attestation,
+            )
+            _write_state(
+                state_path,
+                state,
+                "preflight",
+                matched_control_attestation_sha256=sha256_file(
+                    matched_attestation_path, max_bytes=131072
+                ),
             )
             activation_receipt = materialize_activation(
                 activation_plan,
@@ -1650,10 +1757,39 @@ def run_probe(
             process=process,
             process_alive_fn=_process_alive_fn,
             population_guard=population_guard,
-            expected_handoff_names={"ready.json"},
+            expected_handoff_names=(
+                {"ready.json"}
+                if activation_plan is None
+                else {"ready.json", Path(MARKER_SIGNAL_RELATIVE_PATH).name}
+            ),
+            transient_missing_handoff_names=(
+                None
+                if activation_plan is None
+                else {Path(MARKER_SIGNAL_RELATIVE_PATH).name}
+            ),
             timeout=timeout,
             sleep_fn=_sleep_fn,
         )
+        if activation_plan is not None:
+            if (
+                plane_descriptor_value is None
+                or matched_compiled is None
+                or matched_activation_attestation is None
+                or matched_signal_guard is None
+            ):
+                raise IdentityError(
+                    "matched-control signal authority is incomplete after ready"
+                )
+            matched_signal_observation = matched_signal_guard.consume()
+            verify_claude_marker_signal_observation(
+                matched_signal_observation,
+                matched_compiled,
+                activation_plan=activation_plan,
+                descriptor=plane_descriptor_value,
+                adapter_manifest=manifest,
+                activation_attestation=matched_activation_attestation,
+            )
+            atomic_write_json(matched_signal_path, matched_signal_observation)
         evidence["ready"] = ready.reference()
         atomic_write_json(evidence_path, evidence)
         _write_state(
@@ -1661,6 +1797,15 @@ def run_probe(
             state,
             "ready_validated",
             ready_checkpoint_id=ready.checkpoint_id,
+            **(
+                {
+                    "matched_control_signal_sha256": sha256_file(
+                        matched_signal_path, max_bytes=131072
+                    )
+                }
+                if activation_plan is not None
+                else {}
+            ),
         )
 
         message_id = validate_identifier(
@@ -2179,6 +2324,8 @@ def run_probe(
             raise
         raise ValidationError("real-harness probe execution failed") from exc
     finally:
+        if matched_signal_guard is not None:
+            matched_signal_guard.close()
         _release_campaign_probe_lock(lock_descriptor)
 
 
@@ -2369,6 +2516,8 @@ def recover_probe(
         raise IdentityError("persisted probe recovery identity mismatch")
 
     activation_transaction_root = run_root / "activation-lane" / "transaction"
+    matched_attestation_path = run_root / "matched-control-attestation.json"
+    matched_signal_path = run_root / "matched-control-signal.json"
     if (
         activation_transaction_root.exists() or activation_transaction_root.is_symlink()
     ) and plane_descriptor_value is None:
@@ -2411,6 +2560,111 @@ def recover_probe(
             raise IdentityError("activation recovery state is unsupported")
         return recovered_activation.state
 
+    def reconcile_matched_control_signal(
+        *, require_observation: bool
+    ) -> Optional[Dict[str, Any]]:
+        if plane_descriptor_value is None:
+            return None
+        fixture = run_root / "activation-lane" / "workspace"
+        signal_leaf = fixture / MARKER_SIGNAL_RELATIVE_PATH
+        ready_path = fixture / "handoffs" / "ready.json"
+        if not matched_attestation_path.exists():
+            if signal_leaf.exists() or signal_leaf.is_symlink():
+                raise IdentityError(
+                    "matched-control signal exists without persisted attestation"
+                )
+            if require_observation:
+                raise IdentityError(
+                    "accepted activation lacks matched-control attestation"
+                )
+            return None
+        attestation_sha = sha256_file(
+            matched_attestation_path,
+            max_bytes=131072,
+        )
+        if state.get("matched_control_attestation_sha256") != attestation_sha:
+            raise IdentityError(
+                "matched-control attestation reference changed during recovery"
+            )
+        if not ready_path.exists():
+            if signal_leaf.exists() or signal_leaf.is_symlink():
+                raise IdentityError(
+                    "matched-control signal exists without the exact ready checkpoint"
+                )
+            if require_observation:
+                raise IdentityError(
+                    "accepted activation lacks the exact matched-control ready checkpoint"
+                )
+            return None
+
+        fixture_contract = read_json(
+            fixture / "contract.json",
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        ready_value = read_json(
+            ready_path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        matched_compiled = _compile_claude_marker_ready_instruction(
+            descriptor=plane_descriptor_value,
+            contract_identity=instruction_manifest["contract_identity"],
+            workspace_identity=instruction_manifest["workspace_identity"],
+            run_identity=instruction_manifest["run_identity"],
+            ready_task=_matched_initial_prompt(fixture_contract, ready_value),
+        )
+        if canonical_json_bytes(matched_compiled.manifest) != canonical_json_bytes(
+            instruction_manifest
+        ):
+            raise IdentityError(
+                "matched-control recovery source differs from the instruction manifest"
+            )
+        recovered_activation = recover_activation(activation_transaction_root)
+        activation_attestation = read_json(
+            matched_attestation_path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        observation = recover_claude_marker_signal_observation(
+            matched_compiled,
+            activation_plan=recovered_activation.plan,
+            descriptor=plane_descriptor_value,
+            adapter_manifest=manifest,
+            activation_attestation=activation_attestation,
+        )
+        if observation is None:
+            if require_observation:
+                raise IdentityError(
+                    "accepted activation lacks matched-control signal observation"
+                )
+            return None
+        if matched_signal_path.exists():
+            persisted_observation = read_json(
+                matched_signal_path,
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            )
+            if persisted_observation != observation:
+                raise IdentityError(
+                    "persisted matched-control signal receipt changed"
+                )
+        else:
+            atomic_write_json(matched_signal_path, observation)
+        observation_sha = sha256_file(matched_signal_path, max_bytes=131072)
+        persisted_sha = state.get("matched_control_signal_sha256")
+        if persisted_sha is not None and persisted_sha != observation_sha:
+            raise IdentityError(
+                "matched-control signal reference changed during recovery"
+            )
+        _write_state(
+            state_path,
+            state,
+            state["phase"],
+            matched_control_signal_sha256=observation_sha,
+        )
+        return observation
+
     lock_descriptor: Optional[int] = None
     try:
         complete = (
@@ -2422,6 +2676,7 @@ def recover_probe(
             reject_active_lease=False,
         )
         if complete:
+            reconcile_matched_control_signal(require_observation=True)
             if plane_descriptor_value is not None:
                 if reconcile_plane_activation(rollback_active=False) != "rolled_back":
                     raise IdentityError(
@@ -2523,6 +2778,7 @@ def recover_probe(
                 raise IdentityError(
                     "missing private launch root has an ambiguous target population"
                 )
+            reconcile_matched_control_signal(require_observation=False)
             activation_state = reconcile_plane_activation(rollback_active=True)
             if lease is not None:
                 transition_session_lease(
@@ -2768,6 +3024,7 @@ def recover_probe(
             raise IdentityError(
                 "protected same-target process population changed during recovery"
             )
+        reconcile_matched_control_signal(require_observation=False)
         activation_state = reconcile_plane_activation(rollback_active=True)
         if lease is not None and lease["state"] in {"launching", "active", "halting"}:
             transition_session_lease(

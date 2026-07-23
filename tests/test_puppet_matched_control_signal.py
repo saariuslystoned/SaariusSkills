@@ -35,6 +35,7 @@ from puppet_lib.matched_control_signal import (  # noqa: E402
     MARKER_SIGNAL_OBSERVATION_EVENT_SCHEMA,
     MARKER_SIGNAL_OBSERVATION_SCHEMA_VERSION,
     prepare_claude_marker_signal,
+    recover_claude_marker_signal_observation,
     verify_claude_marker_signal_observation,
 )
 from puppet_lib.plane_activation import plan_activation  # noqa: E402
@@ -219,11 +220,34 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             with self.assertRaisesRegex(ConflictError, "already exists for this join"):
                 case.prepare()
 
+    def test_recovery_rejects_a_recreated_leaf_after_valid_observation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            case = MarkerSignalCase(Path(temporary))
+            guard = case.prepare()
+            case.write_signal()
+            with case.authority_patches():
+                guard.consume()
+            case.write_signal()
+            with case.authority_patches():
+                with self.assertRaisesRegex(
+                    ConflictError, "recreated after observation"
+                ):
+                    recover_claude_marker_signal_observation(
+                        case.compiled,
+                        activation_plan=case.plan,
+                        descriptor=case.descriptor,
+                        adapter_manifest=case.manifest,
+                        activation_attestation=case.attestation,
+                    )
+            self.assertTrue(case.signal_path.is_file())
+            self.assertEqual(case.signal_path.read_bytes(), case.marker)
+
     def test_public_surfaces_expose_no_signal_or_authority_injection_hooks(self):
         self.assertFalse(hasattr(matched_control_signal, "ClaudeMarkerSignalGuard"))
         self.assertNotIn("ClaudeMarkerSignalGuard", matched_control_signal.__all__)
         for function in (
             prepare_claude_marker_signal,
+            recover_claude_marker_signal_observation,
             verify_claude_marker_signal_observation,
         ):
             parameters = inspect.signature(function).parameters
@@ -369,10 +393,10 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             with self.assertRaisesRegex(ConflictError, "reservation already exists"):
                 case.prepare()
 
-    def test_production_probe_handoff_and_qualification_remain_disconnected(self):
-        for module in (probe, adapter_manifest, puppet_adapter_lab):
-            source = inspect.getsource(module)
-            self.assertNotIn("matched_control_signal", source)
+    def test_probe_consumes_signal_but_handoff_and_qualification_schemas_do_not(self):
+        self.assertIn("matched_control_signal", inspect.getsource(probe))
+        for module in (adapter_manifest, puppet_adapter_lab):
+            self.assertNotIn("matched_control_signal", inspect.getsource(module))
         self.assertNotIn(
             MARKER_SIGNAL_RELATIVE_PATH,
             json.dumps(probe._handoff_value.__code__.co_consts, default=str),
