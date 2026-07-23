@@ -63,3 +63,11 @@ Live Herdr qualification authorizes only the exact tab/pane operations in the
 lease. Obtain separate authorization for unrestricted harness flags, source
 delivery, deploys, sends, spending, secrets, accounts/security, deletion, or
 other externally consequential actions.
+
+Maintenance observations do not add deletion authority. A run may inventory
+and classify only resources joined through its exact lease or explicitly named
+by sanitized structured harness events. Labels, process names, apparent age,
+and familiar paths are insufficient cleanup identity. Preserve ambiguous
+resources, journal recurring residue as a maintenance candidate, and require a
+separately authorized owner-specific reaper before closing panes or terminating
+processes.

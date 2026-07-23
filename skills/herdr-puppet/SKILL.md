@@ -62,7 +62,16 @@ hand-composed Herdr mutations when the script owns the operation.
 10. Preserve the owned tab with `lease-preserve` at a human gate, superseded
     route, completed milestone, or operator stop. Preservation changes only
     the controller lease and rejects further input; it does not close the tab.
-11. Review the journal after each useful checkpoint. Promote only repeatable
+11. Run a maintenance checkpoint at milestone boundaries. Inventory only
+    exact run-owned resources already joined by the lease or named in
+    structured harness events: tab, pane, terminal, foreground SSH PID,
+    task-owned prompt files, and explicitly recorded child processes. Classify
+    each as active, preserved, stale, or ambiguous. Remove only an acknowledged
+    task-owned prompt file automatically. Never close a pane or reap a process
+    from its label, name, or age; journal repeat residue as a
+    `maintenance_candidate` and route exact cleanup through a separately
+    authorized owner-specific maintenance tool.
+12. Review the journal after each useful checkpoint. Promote only repeatable
     lessons into this skill; keep transient incident detail in the run packet.
 
 ## Commands
@@ -133,5 +142,8 @@ destructive cleanup.
   memory and must discard it without emitting or persisting it.
 - Treat the journal as review input, not automatic permission to broaden the
   skill.
+- Treat maintenance as an inventory and routing layer, not deletion authority.
+  A recurring residue class justifies a deterministic adapter only after exact
+  identity and cleanup behavior have independent proof.
 - Leave `halt` and `recover` unavailable until exact remote-process identity
   and fail-closed recovery have independent qualification.
