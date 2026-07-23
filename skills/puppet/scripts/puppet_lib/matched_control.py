@@ -52,6 +52,10 @@ MARKER_SIGNAL_PROTOCOL_DESCRIPTOR = {
 MARKER_SIGNAL_PROTOCOL_SHA256 = sha256_bytes(
     canonical_json_bytes(MARKER_SIGNAL_PROTOCOL_DESCRIPTOR)
 )
+CLAUDE_MARKER_CONFORMANCE_TASK = (
+    "Follow the controller's exact source-free conformance request. Keep the "
+    "ready and follow-up handoffs byte-for-byte equal to the requested JSON."
+)
 _BINDING_FIELDS = {
     "schema",
     "scope",
@@ -224,12 +228,39 @@ def _marker_directive(token: bytes) -> str:
         + token.decode("ascii")
         + "`. Never place that marker in ready/follow-up JSON, claims, evidence, "
         "output, logs, source, or another file, and never recreate the one-use "
-        "signal after the controller consumes it."
+        "signal after the controller consumes it. This is create-only/no-replace: "
+        "if the final leaf already exists, leave it untouched and stop without "
+        "writing a marker signal."
     )
 
 
 def _identity_sha256(value: Mapping[str, Any]) -> str:
     return sha256_bytes(canonical_json_bytes(dict(value)))
+
+
+def _compile_source_marker_wrapper(
+    *,
+    descriptor_sha256: str,
+    contract_identity: Mapping[str, Any],
+    workspace_identity: Mapping[str, Any],
+    run_identity: Mapping[str, Any],
+):
+    token = _marker_token(descriptor_sha256=descriptor_sha256, **run_identity)
+    return compile_instruction_wrapper(
+        target="claude",
+        task=(CLAUDE_MARKER_CONFORMANCE_TASK + "\n\n" + _marker_directive(token)),
+        contract_identity=contract_identity,
+        workspace_identity=workspace_identity,
+        run_identity=run_identity,
+        session_profile="regular",
+        model_binding="default",
+        effort_binding="default",
+        runtime_contract_layer={
+            "mutation_owner": "none",
+            "allowed_modes": ["read", "test"],
+            "hard_gates": sorted(MANDATORY_HARD_GATES),
+        },
+    )
 
 
 def validate_compiled_marker_binding(
@@ -294,6 +325,12 @@ def validate_compiled_marker_binding(
     expected_marker = _marker_token(
         descriptor_sha256=binding["descriptor_sha256"], **run_identity
     )
+    expected_compiled = _compile_source_marker_wrapper(
+        descriptor_sha256=binding["descriptor_sha256"],
+        contract_identity=contract_identity,
+        workspace_identity=workspace_identity,
+        run_identity=run_identity,
+    )
     markers = _MARKER_PATTERN.findall(rendered)
     expected_directive = _marker_directive(expected_marker).encode("ascii")
     if (
@@ -301,6 +338,9 @@ def validate_compiled_marker_binding(
         or markers[0] != expected_marker
         or rendered.count(expected_marker) != 1
         or rendered.count(expected_directive) != 1
+        or rendered != expected_compiled.rendered
+        or canonical_json_bytes(manifest)
+        != canonical_json_bytes(expected_compiled.manifest)
     ):
         raise IdentityError("compiled marker signal directive must occur exactly once")
     manifest_sha = sha256_bytes(canonical_json_bytes(manifest) + b"\n")
@@ -441,7 +481,6 @@ def validate_claude_marker_activation_join(
 def compile_claude_marker_instruction(
     *,
     descriptor: Mapping[str, Any],
-    task: str,
     contract_identity: Mapping[str, Any],
     workspace_identity: Mapping[str, Any],
     run_identity: Mapping[str, Any],
@@ -471,21 +510,11 @@ def compile_claude_marker_instruction(
     normalized_run = _run_identity(run_identity)
     descriptor_sha = descriptor_fingerprint(normalized_descriptor)
     token = _marker_token(descriptor_sha256=descriptor_sha, **normalized_run)
-    activated_task = task + "\n\n" + _marker_directive(token)
-    compiled = compile_instruction_wrapper(
-        target="claude",
-        task=activated_task,
+    compiled = _compile_source_marker_wrapper(
+        descriptor_sha256=descriptor_sha,
         contract_identity=normalized_contract,
         workspace_identity=normalized_workspace,
         run_identity=normalized_run,
-        session_profile="regular",
-        model_binding="default",
-        effort_binding="default",
-        runtime_contract_layer={
-            "mutation_owner": "none",
-            "allowed_modes": ["read", "test"],
-            "hard_gates": sorted(MANDATORY_HARD_GATES),
-        },
     )
     manifest = validate_instruction_manifest(compiled.manifest, target="claude")
     if manifest["run_identity"] != normalized_run:
@@ -547,6 +576,7 @@ __all__ = [
     "COMPILED_MARKER_BINDING_SCHEMA",
     "COMPILED_MARKER_SCOPE",
     "COMPILED_MARKER_RESULT",
+    "CLAUDE_MARKER_CONFORMANCE_TASK",
     "LEGACY_COMPILED_MARKER_BINDING_SCHEMAS",
     "MARKER_SIGNAL_PROTOCOL_DESCRIPTOR",
     "MARKER_SIGNAL_PROTOCOL_SHA256",

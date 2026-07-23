@@ -202,9 +202,11 @@ live probe still does not consume the attestation.
    leases: an activated lane and a distinct ordinary control with the same
    default-model selection and no native plane. Bind full session, target,
    process-birth, lease, workspace, config, and tmux-server identities.
-3. Scan each exact controller-read checkpoint in memory, persist only the scan
-   digest/result row in a controller journal, and join that row to the checkpoint
-   artifact and process lease. Never persist the checkpoint or transcript body.
+3. Prepare the fixed one-use signal leaf through a retained workspace directory
+   descriptor before delivery. After the ready handoff, open the exact sidecar
+   with no-follow semantics, validate the internally rederived marker bytes,
+   unlink it before journaling, and persist hashes only. Never put marker bytes
+   in a handoff, proof reference, transcript, or durable event.
 4. Produce exact pre-launch and post-halt target census rows for both sessions.
    Derive protected-population equality and exact control target absence in the
    verifier; do not serialize caller-authored before/after verdicts.

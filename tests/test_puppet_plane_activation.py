@@ -279,7 +279,6 @@ class PlaneActivationTests(unittest.TestCase):
     def _marker_plan(self):
         marker = compile_claude_marker_instruction(
             descriptor=self.descriptor,
-            task="Write the bounded source-free conformance handoff.",
             contract_identity={
                 "fingerprint": "b" * 64,
                 "controller": "codex",
