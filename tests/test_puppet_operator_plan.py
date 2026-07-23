@@ -32,6 +32,11 @@ from puppet_lib.codex_launch import (  # noqa: E402
     SOURCE_ONLY_BLOCKERS,
 )
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
+from puppet_lib.cursor_workspace_plane import (  # noqa: E402
+    BINDING_SCHEMA as CURSOR_BINDING_SCHEMA,
+    BLOCKERS as CURSOR_SOURCE_ONLY_BLOCKERS,
+    PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
+)
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.operator_plan import compile_operator_plan  # noqa: E402
@@ -336,6 +341,17 @@ class OperatorPlanTests(unittest.TestCase):
             ):
                 compile_operator_plan(**fixture.kwargs(), repo=other)
 
+    def test_grok_plan_remains_a_generic_proposal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="grok")
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+            self.assertNotIn("target_gate", plan)
+            self.assertIsInstance(plan["commands"]["launch"], list)
+            self.assertIsInstance(plan["commands"]["status"], list)
+            self.assertIsInstance(plan["commands"]["waits"], dict)
+            self.assertTrue(plan["commands"]["profile"]["supported"])
+            self.assertEqual(plan["commands"]["profile"]["init"][3], "profile-init")
+
     def test_branch_and_manifest_target_are_bound(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -418,6 +434,169 @@ class OperatorPlanTests(unittest.TestCase):
                         "ownership roots must not overlap",
                     ):
                         compile_operator_plan(**kwargs, repo=fixture.repo)
+
+    def test_cursor_source_only_plan_emits_human_gate_and_no_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="cursor")
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "CURSOR_API_KEY": "PUPPET_CURSOR_SECRET_CANARY",
+                        "CURSOR_CONFIG_DIR": "/untrusted/cursor-config",
+                        "AGENT_CLI_CREDENTIAL_STORE": "untrusted-store",
+                    },
+                ),
+                patch(
+                    "puppet_lib.session.doctor",
+                    side_effect=AssertionError("doctor must not run"),
+                ) as doctor,
+                patch(
+                    "puppet_lib.session.launch",
+                    side_effect=AssertionError("harness must not launch"),
+                ) as launch,
+                patch(
+                    "puppet_lib.tmux.TmuxController",
+                    side_effect=AssertionError("tmux must not construct"),
+                ) as tmux,
+                patch(
+                    "puppet_lib.campaign.active_target_processes",
+                    side_effect=AssertionError("process census must not run"),
+                ) as processes,
+                patch(
+                    "puppet_lib.viewer.prepare_operator_view",
+                    side_effect=AssertionError("viewer must not prepare"),
+                ) as viewer,
+                patch(
+                    "puppet_lib.cursor_workspace_plane.plan_cursor_workspace_plane",
+                    side_effect=AssertionError("workspace plan must not run"),
+                ) as workspace_plan,
+                patch(
+                    "puppet_lib.subscription_profiles.initialize_subscription_profile",
+                    side_effect=AssertionError("profile must not initialize"),
+                ) as profile_init,
+                patch(
+                    "puppet_lib.subscription_profiles.subscription_profile_status",
+                    side_effect=AssertionError("profile status must not run"),
+                ) as profile_status,
+            ):
+                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            gate = plan["target_gate"]
+            self.assertEqual(gate["state"], "waiting_for_human")
+            self.assertEqual(
+                gate["failed_invariant"],
+                "approved_authentication_preserving_private_cursor_profile_route_unavailable",
+            )
+            self.assertEqual(gate["rung"], "cursor_regular_pass_b")
+            self.assertEqual(
+                gate["next_safe_action"],
+                "human_approve_cursor_auth_isolation_probe",
+            )
+            self.assertEqual(gate["available_routes"], [])
+            manifest = AdapterManifest.from_path(fixture.manifest)
+            executable = manifest.raw["executable"]
+            self.assertEqual(
+                gate["last_trusted_identity"],
+                {
+                    "manifest_sha256": hashlib.sha256(
+                        fixture.manifest.read_bytes()
+                    ).hexdigest(),
+                    "manifest_fingerprint": manifest.fingerprint,
+                    "execution_fingerprint": manifest.execution_fingerprint,
+                    "requested_executable_path": executable["requested_path"],
+                    "resolved_executable_path": executable["resolved_path"],
+                    "executable_device": executable["device"],
+                    "executable_inode": executable["inode"],
+                    "executable_size": executable["size"],
+                    "executable_mtime_ns": executable["mtime_ns"],
+                    "executable_sha256": executable["sha256"],
+                    "version_sha256": executable["version_sha256"],
+                    "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                    "protocol_sha256": manifest.raw["protocol_fingerprint"],
+                },
+            )
+            self.assertEqual(
+                gate["evidence"],
+                {
+                    "manifest_state": "doctor_only_unqualified",
+                    "source_only_blockers": list(CURSOR_SOURCE_ONLY_BLOCKERS),
+                },
+            )
+            self.assertEqual(
+                gate["preserved_evidence_kinds"],
+                [CURSOR_PLAN_SCHEMA, CURSOR_BINDING_SCHEMA],
+            )
+            for blocker in CURSOR_SOURCE_ONLY_BLOCKERS:
+                self.assertIn(blocker, plan["blockers"])
+            self.assertEqual(plan["commands"]["doctor"][3], "doctor")
+            unsupported = {
+                "supported": False,
+                "reason": "cursor_regular_session_source_only_unqualified",
+            }
+            for command in (
+                "launch",
+                "status",
+                "waits",
+                "attach_command",
+                "open_view",
+                "halt",
+            ):
+                self.assertEqual(plan["commands"][command], unsupported)
+            self.assertEqual(
+                plan["commands"]["profile"],
+                {
+                    "supported": False,
+                    "reason": "cursor_private_subscription_profile_unqualified",
+                },
+            )
+            self.assertNotIn("init", plan["commands"]["profile"])
+            self.assertNotIn("status", plan["commands"]["profile"])
+            encoded = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(fixture.prompt_body.strip(), encoded)
+            self.assertNotIn("CURSOR_API_KEY", encoded)
+            self.assertNotIn("PUPPET_CURSOR_SECRET_CANARY", encoded)
+            self.assertNotIn("CURSOR_CONFIG_DIR", encoded)
+            self.assertNotIn("AGENT_CLI_CREDENTIAL_STORE", encoded)
+            self.assertNotIn("selector", encoded.lower())
+            digest_plan = dict(plan)
+            digest = digest_plan.pop("plan_sha256")
+            self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+            for sentinel in (
+                doctor,
+                launch,
+                tmux,
+                processes,
+                viewer,
+                workspace_plan,
+                profile_init,
+                profile_status,
+            ):
+                sentinel.assert_not_called()
+
+    def test_cursor_stale_manifest_is_an_independent_blocker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="cursor")
+            manifest = json.loads(fixture.manifest.read_text(encoding="utf-8"))
+            manifest["adapter_fingerprint"] = "d" * 64
+            _write_json(fixture.manifest, manifest)
+
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            self.assertEqual(
+                plan["target_gate"]["failed_invariant"],
+                "approved_authentication_preserving_private_cursor_profile_route_unavailable",
+            )
+            self.assertEqual(
+                plan["target_gate"]["last_trusted_identity"]["adapter_sha256"],
+                "d" * 64,
+            )
+            self.assertIn(
+                "adapter_manifest_source_fingerprint_is_stale",
+                plan["blockers"],
+            )
+            for blocker in CURSOR_SOURCE_ONLY_BLOCKERS:
+                self.assertIn(blocker, plan["blockers"])
 
     def test_codex_source_only_plan_emits_human_gate_and_no_lifecycle(self):
         with tempfile.TemporaryDirectory() as temporary:

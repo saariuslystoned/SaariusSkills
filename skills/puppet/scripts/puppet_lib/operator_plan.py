@@ -16,6 +16,11 @@ from .campaign import validate_campaign_authorization
 from .census import adapter_implementation_fingerprint
 from .codex_launch import MAPPING_INCOMPLETE_BLOCKER, SOURCE_ONLY_BLOCKERS
 from .contracts import Contract
+from .cursor_workspace_plane import (
+    BINDING_SCHEMA as CURSOR_BINDING_SCHEMA,
+    BLOCKERS as CURSOR_SOURCE_ONLY_BLOCKERS,
+    PLAN_SCHEMA as CURSOR_PLAN_SCHEMA,
+)
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .safety import (
@@ -53,6 +58,17 @@ _CODEX_PRESERVED_EVIDENCE_KINDS = (
     "puppet.codex-workspace-plane-plan/v2",
     "puppet.codex-doctor-observation/v1",
     "puppet.run-observation/v1",
+)
+_CURSOR_LIFECYCLE_UNSUPPORTED_REASON = "cursor_regular_session_source_only_unqualified"
+_CURSOR_PROFILE_UNSUPPORTED_REASON = "cursor_private_subscription_profile_unqualified"
+_CURSOR_FAILED_INVARIANT = (
+    "approved_authentication_preserving_private_cursor_profile_route_unavailable"
+)
+_CURSOR_GATE_RUNG = "cursor_regular_pass_b"
+_CURSOR_NEXT_SAFE_ACTION = "human_approve_cursor_auth_isolation_probe"
+_CURSOR_PRESERVED_EVIDENCE_KINDS = (
+    CURSOR_PLAN_SCHEMA,
+    CURSOR_BINDING_SCHEMA,
 )
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
@@ -272,6 +288,7 @@ def _commands(
     session: str,
     executable_path: Path,
     codex_source_only: bool,
+    cursor_source_only: bool,
 ) -> Dict[str, Any]:
     common = [
         "--contract",
@@ -332,6 +349,8 @@ def _commands(
         lifecycle_unsupported_reason = _AGY_LIFECYCLE_UNSUPPORTED_REASON
     elif codex_source_only:
         lifecycle_unsupported_reason = _CODEX_LIFECYCLE_UNSUPPORTED_REASON
+    elif cursor_source_only:
+        lifecycle_unsupported_reason = _CURSOR_LIFECYCLE_UNSUPPORTED_REASON
     if lifecycle_unsupported_reason is not None:
         unsupported = {
             "supported": False,
@@ -350,6 +369,11 @@ def _commands(
         result["profile"] = {
             "supported": False,
             "reason": "agy_private_subscription_profile_unsupported",
+        }
+    elif cursor_source_only:
+        result["profile"] = {
+            "supported": False,
+            "reason": _CURSOR_PROFILE_UNSUPPORTED_REASON,
         }
     else:
         result["profile"] = {
@@ -412,6 +436,41 @@ def _codex_target_gate(
         "preserved_evidence_kinds": list(_CODEX_PRESERVED_EVIDENCE_KINDS),
         "next_safe_action": _CODEX_NEXT_SAFE_ACTION,
         "available_routes": list(_CODEX_AUTH_ROUTES),
+    }
+
+
+def _cursor_target_gate(
+    *,
+    manifest: AdapterManifest,
+    manifest_artifact: Dict[str, Any],
+) -> Dict[str, Any]:
+    executable = manifest.raw["executable"]
+    return {
+        "state": "waiting_for_human",
+        "failed_invariant": _CURSOR_FAILED_INVARIANT,
+        "rung": _CURSOR_GATE_RUNG,
+        "last_trusted_identity": {
+            "manifest_sha256": manifest_artifact["sha256"],
+            "manifest_fingerprint": manifest.fingerprint,
+            "execution_fingerprint": manifest.execution_fingerprint,
+            "requested_executable_path": executable["requested_path"],
+            "resolved_executable_path": executable["resolved_path"],
+            "executable_device": executable["device"],
+            "executable_inode": executable["inode"],
+            "executable_size": executable["size"],
+            "executable_mtime_ns": executable["mtime_ns"],
+            "executable_sha256": executable["sha256"],
+            "version_sha256": executable["version_sha256"],
+            "adapter_sha256": manifest.raw["adapter_fingerprint"],
+            "protocol_sha256": manifest.raw["protocol_fingerprint"],
+        },
+        "evidence": {
+            "manifest_state": "doctor_only_unqualified",
+            "source_only_blockers": list(CURSOR_SOURCE_ONLY_BLOCKERS),
+        },
+        "preserved_evidence_kinds": list(_CURSOR_PRESERVED_EVIDENCE_KINDS),
+        "next_safe_action": _CURSOR_NEXT_SAFE_ACTION,
+        "available_routes": [],
     }
 
 
@@ -506,6 +565,11 @@ def compile_operator_plan(
         and manifest.raw["doctor_only"] is True
         and manifest.raw["qualification"] is None
     )
+    cursor_source_only = (
+        contract.target == "cursor"
+        and manifest.raw["doctor_only"] is True
+        and manifest.raw["qualification"] is None
+    )
     commands = _commands(
         base=base,
         contract=contract,
@@ -519,6 +583,7 @@ def compile_operator_plan(
         session=session,
         executable_path=Path(manifest.raw["executable"]["resolved_path"]),
         codex_source_only=codex_source_only,
+        cursor_source_only=cursor_source_only,
     )
     adapter_sha256 = adapter_implementation_fingerprint()
     blockers = list(_LAUNCH_BLOCKERS)
@@ -528,6 +593,8 @@ def compile_operator_plan(
     if codex_source_only:
         blockers.extend(SOURCE_ONLY_BLOCKERS)
         blockers.append(MAPPING_INCOMPLETE_BLOCKER)
+    if cursor_source_only:
+        blockers.extend(CURSOR_SOURCE_ONLY_BLOCKERS)
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:
@@ -570,6 +637,11 @@ def compile_operator_plan(
     }
     if codex_source_only:
         result["target_gate"] = _codex_target_gate(
+            manifest=manifest,
+            manifest_artifact=manifest_artifact,
+        )
+    elif cursor_source_only:
+        result["target_gate"] = _cursor_target_gate(
             manifest=manifest,
             manifest_artifact=manifest_artifact,
         )

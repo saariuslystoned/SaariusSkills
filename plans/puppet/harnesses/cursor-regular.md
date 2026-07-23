@@ -198,6 +198,25 @@ and `https://docs.cursor.com/en/cli/using`.
 - The substrate has no call site in `probe.py`, `launch.py`, or an adapter. It
   cannot materialize, launch, clean up, recover, or qualify Cursor and must stay
   planner-only until the remaining blockers below are independently closed.
+- `skills/puppet/scripts/puppet_lib/operator_plan.py` and
+  `skills/puppet/scripts/puppet.py` keep that boundary at the public front
+  door:
+  - a doctor-only, unqualified Cursor manifest emits a body-free
+    `target_gate` with state `waiting_for_human`, failed invariant
+    `approved_authentication_preserving_private_cursor_profile_route_unavailable`,
+    rung `cursor_regular_pass_b`, the exact manifest/executable/version/
+    adapter/protocol identity, and every planner-only blocker;
+  - the only preserved evidence kinds are
+    `puppet.cursor-workspace-plane-plan/v2` and
+    `puppet.cursor-workspace-plane-binding/v1`; no authentication route is
+    claimed;
+  - `doctor` remains proposed, while profile initialization and launch,
+    status, waits, attach, open-view, and halt are unsupported with explicit
+    source-only reasons; and
+  - the internal Cursor subscription-profile recipe remains available for
+    deterministic source validation, but the public `profile-init` command
+    does not advertise Cursor. The next safe action is the separately gated
+    `human_approve_cursor_auth_isolation_probe`, not login or config access.
 
 ### Remaining shared integration work
 

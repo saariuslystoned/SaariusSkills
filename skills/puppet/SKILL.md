@@ -34,6 +34,11 @@ security, secrets, spending, and destructive actions separately gated.
    broker route or a human-present login into the lane-owned home before any
    account action. The plan carries route names only, never values or
    credential selectors.
+   A doctor-only, unqualified Cursor manifest yields the same body-free
+   `waiting_for_human` boundary for `cursor_regular_pass_b`, but it names no
+   available authentication route. Only `doctor` remains proposed; profile
+   initialization and every session lifecycle action are unsupported until a
+   human approves a separate Cursor authentication-isolation probe.
 2. Resolve the target repository explicitly. From a cockpit or another repo,
    require an explicit target path. From inside the target, use its Git root
    unless the user overrides it. Give every mutating target a fresh worktree;
@@ -80,9 +85,12 @@ handoff; Puppet does not copy an existing credential or perform login itself.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
 After the operator completes that account action, use `profile-status` to retain
-only an allowlisted login state. Codex, Claude, Cursor, and Grok have current
-private-profile recipes. AGY stays unsupported here until its installed CLI
-exposes an authentication-preserving private config-root selector.
+only an allowlisted login state. Codex, Claude, and Grok have public
+private-profile recipes. Cursor retains an internal source-only recipe for
+deterministic validation, but `profile-init` does not expose it because no
+authentication-preserving private config-root selector is qualified. AGY
+likewise stays unsupported here until its installed CLI exposes such a
+selector.
 `doctor` and `launch` require the selected profile explicitly. `launch` passes
 only that profile's closed home/config environment to the exact target and
 revalidates its manifest, executable, directory identities, login state, and
