@@ -353,6 +353,7 @@ class CodexLaunchContextTests(unittest.TestCase):
                 "HOME": "/ambient/home-must-not-flow",
                 "PATH": "/ambient/path-must-not-flow",
                 "TERM": "ambient-term-must-not-flow",
+                "CODEX_ACCESS_TOKEN": "ambient-token-must-not-flow",
             },
             clear=False,
         ):

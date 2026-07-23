@@ -1,10 +1,14 @@
 # Codex regular-session qualification harness (v0.1)
 
+Status: launch-disabled workspace-plane planning only; no live Codex session is
+qualified.
+
 ## Scope and lane contract
 
 - File purpose: planning and proof-prep for Codex regular-session qualification under
   `codex-goal-regular-qualification.md`.
-- Branch in scope: `codex/puppet-regular-codex-20260722`.
+- Current source lane: `codex/puppet-codex-workspace-plan` from exact integrated
+  base `8f64210dccad81377ec33e482c79703c6c7a8806`.
 - Objective: map exact Codex regular-session behavior for the three instruction planes,
   select a winner for the exact installed version, and define deterministic evidence and
   fixture deltas so the lane can qualify with no transcript bleed.
@@ -96,6 +100,12 @@ instruction plane.
   - The fixture must preserve existing repository instructions. Prefer a scoped
     additive project layer or nested fixture over overwriting an existing file.
   - Exact discovery, trust behavior, and cleanup remain live proof requirements.
+  - `codex_workspace_plane.py` now plans one exact create-only root
+    `AGENTS.md` candidate for an absent preimage and binds its compiled-contract
+    hash, instruction-manifest hash, current source-only launch context, private
+    lane/workspace/`CODEX_HOME` identities, and exact `-C <workspace>` delta.
+    The record is body-free and keeps materialization, verification, rollback,
+    recovery, launch, and qualification disabled. It is not activation proof.
 
 - **Plane 3: additive per-run system instruction**
   - `-c developer_instructions=...` is additive, but a literal instruction body
@@ -175,7 +185,14 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Verification precondition: any evidence that references config/profile paths must
   resolve under the lane-owned fixture root only.
 
-## 6) Required Puppet source deltas (blocked to future lane implementation)
+## 6) Implemented substrate and remaining Puppet source deltas
+
+- `skills/puppet/scripts/puppet_lib/codex_workspace_plane.py`
+  - implements the launch-disabled body-free workspace plan described above;
+    revalidation rebuilds the exact plan from current source-owned launch,
+    root, manifest, and contract inputs, and rejects an existing or symlinked
+    `AGENTS.md` before any mutation;
+  - all lifecycle entry points unconditionally raise `UnsupportedError`.
 
 - `skills/puppet/scripts/puppet_lib/census.py`
   - record Codex-specific model/probe identity facts from `codex doctor --json` to
@@ -209,7 +226,8 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 
 - `tests/test_puppet_codex_launch.py`
   - source-only Codex launch gate tests covering manifest binding, path/version checks,
-    candidate-process call shape, no-ambient env, and auth token non-leak behavior.
+    candidate-process call shape, no-ambient env, and an ambient
+    `CODEX_ACCESS_TOKEN` non-leak canary.
 
 ## 7) Blockers and stop criteria
 
