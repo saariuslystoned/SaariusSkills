@@ -222,6 +222,12 @@ class AuthorityTests(unittest.TestCase):
                     dict(attestation, schema_version=2),
                     authority_root=root,
                 )
+            with self.assertRaisesRegex(UnsupportedError, "legacy qualification"):
+                puppet_authority.verify_qualification_attestation(
+                    current_core,
+                    dict(attestation, schema_version=3),
+                    authority_root=root,
+                )
             with self.assertRaisesRegex(ValidationError, "unsupported qualification"):
                 puppet_authority.verify_qualification_attestation(
                     current_core,

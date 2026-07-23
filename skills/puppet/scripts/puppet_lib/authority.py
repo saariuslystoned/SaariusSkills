@@ -1094,7 +1094,7 @@ def verify_qualification_attestation(
     if not isinstance(attestation, dict) or set(attestation) != expected_fields:
         raise ValidationError("qualification controller attestation fields are invalid")
     attestation_schema = attestation.get("schema_version")
-    if attestation_schema in {1, 2}:
+    if attestation_schema in {1, 2, 3}:
         raise UnsupportedError(
             "legacy qualification controller attestation is not authoritative"
         )

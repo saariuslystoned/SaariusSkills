@@ -781,13 +781,17 @@ class ProbeTests(unittest.TestCase):
             receipt = json.loads(
                 (run_root / "receipt.json").read_text(encoding="utf-8")
             )
-            verified = verify_qualification_receipt(
-                run_root / "receipt.json",
-                _current_manifest=AdapterManifest.from_dict(files["raw"]),
-                _authority_root=files["authority"],
-                _server_process_fn=lambda _pid: fake.server_process,
-                _tmux_factory=lambda _root: fake,
-            )
+            # The managed test sandbox denies AF_UNIX creation, so FakeTmux uses
+            # a regular file. Keep the production socket check intact and narrow
+            # the synthetic seam to this explicit end-to-end verifier call.
+            with patch("puppet_lib.adapter_manifest.stat.S_ISSOCK", return_value=True):
+                verified = verify_qualification_receipt(
+                    run_root / "receipt.json",
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _authority_root=files["authority"],
+                    _server_process_fn=lambda _pid: fake.server_process,
+                    _tmux_factory=lambda _root: fake,
+                )
             self.assertEqual(verified, receipt)
             activation = evidence["plane_activation"]
             self.assertIsNone(evidence["failure"])
