@@ -18,11 +18,15 @@ controller verdict is body-free and always reports:
 - `agy_ordinary_session_no_bleed_unproved`
 
 These blockers are immutable for this baseline. An exact parallel-process
-override cannot clear them. Generic session launch rejects AGY before doctor,
-process census, launch-environment construction, proof/tmux setup, or target
-callbacks. Pass-B probe rejects AGY before mapping validation, fresh census,
-process lookup, proof-root creation, or tmux construction. Qualification and
-manifest promotion reject AGY even if supplied a fallback-wrapper receipt.
+override cannot clear them. The user-facing doctor reads only the contract
+target and then rejects AGY through the same pure authority fence, before
+manifest, authorization, proof/state-root, executable, profile, workspace,
+tmux, process, parallel-override, or qualification-receipt access. Generic
+session launch rejects AGY before doctor, process census, launch-environment
+construction, proof/tmux setup, or target callbacks. Pass-B probe rejects AGY
+before mapping validation, fresh census, process lookup, proof-root creation,
+or tmux construction. Qualification and manifest promotion reject AGY even if
+supplied a fallback-wrapper receipt.
 
 Every authority fence is now profile-aware. `regular` receives the five
 regular blockers; `goal`, `teamwork-preview`, invalid, and unbound profiles

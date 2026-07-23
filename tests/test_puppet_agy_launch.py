@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ast
+import io
 import inspect
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -16,6 +18,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab  # noqa: E402
+import puppet as puppet_cli  # noqa: E402
 from puppet_lib import adapter_manifest as adapter_manifest_module  # noqa: E402
 from puppet_lib import agy_launch as agy_launch_module  # noqa: E402
 from puppet_lib import probe as puppet_probe  # noqa: E402
@@ -30,9 +33,7 @@ from puppet_lib.agy_launch import (  # noqa: E402
     require_agy_regular_launch_authority,
 )
 from puppet_lib.errors import UnsupportedError  # noqa: E402
-from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
 from puppet_lib.probe import PROBE_PROFILE, run_probe  # noqa: E402
-from puppet_lib.safety import sha256_file  # noqa: E402
 
 
 class AgyRegularFenceTests(unittest.TestCase):
@@ -93,109 +94,132 @@ class AgyRegularFenceTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    def test_doctor_keeps_exact_blockers_under_qualified_override(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            executable = root / "synthetic-agy"
-            executable.write_bytes(b"synthetic")
-            contract = SimpleNamespace(
-                target="agy",
-                controller="codex",
-                campaign_authorization_id="campaign-agy-fence",
-                session_profile="regular",
-                requested_model=None,
-                requested_effort=None,
-                repo=root,
-                branch="codex/agy-fence",
-                fingerprint="a" * 64,
-            )
-            manifest = SimpleNamespace(
-                target="agy",
-                fingerprint="b" * 64,
-                raw={
-                    "executable": {
-                        "resolved_path": str(executable),
-                        "sha256": sha256_file(executable),
-                    },
-                    "yolo_mapping": {"complete": True},
-                    "capabilities": {
-                        "launch": "controller_verified",
-                        "send": "controller_verified",
-                        "status": "controller_verified",
-                        "wait": "controller_verified",
-                        "checkpoint": "controller_verified",
-                        "resume": "unsupported",
-                        "halt": "controller_verified",
-                    },
-                    "doctor_only": False,
-                },
-                verify_qualification=mock.Mock(
-                    return_value={
-                        "instruction_policy_fingerprint": instruction_policy_fingerprint(
-                            target="agy"
-                        )
-                    }
-                ),
-            )
-            active = [{"pid": 404}]
-            with (
-                mock.patch.object(
-                    puppet_session.Contract, "from_path", return_value=contract
-                ),
-                mock.patch.object(
-                    puppet_session.AdapterManifest,
-                    "from_path",
-                    return_value=manifest,
-                ),
-                mock.patch.object(
-                    puppet_session,
-                    "_authorization",
-                    return_value={"campaign_id": "campaign-agy-fence", "goal": {}},
-                ),
-                mock.patch.object(
-                    puppet_session,
-                    "_qualification_authority",
-                    return_value={
-                        "controller": "codex",
-                        "campaign_id": "campaign-agy-fence",
-                        "goal_fingerprint": "c" * 64,
-                    },
-                ),
-                mock.patch.object(
-                    puppet_session,
-                    "_workspace_snapshot",
-                    return_value={
-                        "branch": contract.branch,
-                        "head": "d" * 40,
-                        "tree": "e" * 40,
-                        "dirty": False,
-                    },
-                ),
-                mock.patch.object(
-                    puppet_session.TmuxController, "available", return_value=True
-                ),
-                mock.patch.object(
-                    puppet_session, "_active_processes", return_value=active
-                ) as process_query,
-                mock.patch.object(
-                    puppet_session,
-                    "_parallel_target_override",
-                    return_value=True,
-                ) as override,
-            ):
-                report = puppet_session.doctor(
-                    contract_path=root / "contract.json",
-                    manifest_path=root / "manifest.json",
-                    authorization_path=root / "authorization.json",
-                    proof_root=root,
-                    state_root=root,
+    def test_doctor_rejects_after_contract_before_manifest_or_machine_state(self):
+        contract = SimpleNamespace(target="agy", session_profile="regular")
+        forbidden = {
+            "manifest": mock.Mock(side_effect=AssertionError("manifest must not read")),
+            "authorization": mock.Mock(
+                side_effect=AssertionError("authorization must not read")
+            ),
+            "root": mock.Mock(side_effect=AssertionError("root must not resolve")),
+            "executable": mock.Mock(
+                side_effect=AssertionError("executable must not hash")
+            ),
+            "profile": mock.Mock(
+                side_effect=AssertionError("profile must not inspect")
+            ),
+            "tmux": mock.Mock(side_effect=AssertionError("tmux must not inspect")),
+            "workspace": mock.Mock(
+                side_effect=AssertionError("workspace must not inspect")
+            ),
+            "processes": mock.Mock(
+                side_effect=AssertionError("process census must not run")
+            ),
+            "override": mock.Mock(
+                side_effect=AssertionError("parallel override must not inspect")
+            ),
+            "qualification": mock.Mock(
+                side_effect=AssertionError("qualification must not inspect")
+            ),
+            "policy": mock.Mock(
+                side_effect=AssertionError("instruction policy must not inspect")
+            ),
+            "access": mock.Mock(side_effect=AssertionError("state must not inspect")),
+        }
+        with (
+            mock.patch.object(
+                puppet_session.Contract, "from_path", return_value=contract
+            ) as contract_read,
+            mock.patch.object(
+                puppet_session.AdapterManifest,
+                "from_path",
+                forbidden["manifest"],
+            ),
+            mock.patch.object(
+                puppet_session, "_authorization", forbidden["authorization"]
+            ),
+            mock.patch.object(puppet_session, "absolute_root", forbidden["root"]),
+            mock.patch.object(puppet_session, "sha256_file", forbidden["executable"]),
+            mock.patch.object(
+                puppet_session, "_profile_doctor_state", forbidden["profile"]
+            ),
+            mock.patch.object(
+                puppet_session.TmuxController, "available", forbidden["tmux"]
+            ),
+            mock.patch.object(
+                puppet_session, "_workspace_snapshot", forbidden["workspace"]
+            ),
+            mock.patch.object(
+                puppet_session, "_active_processes", forbidden["processes"]
+            ),
+            mock.patch.object(
+                puppet_session,
+                "_parallel_target_override",
+                forbidden["override"],
+            ),
+            mock.patch.object(
+                puppet_session,
+                "_qualification_authority",
+                forbidden["qualification"],
+            ),
+            mock.patch.object(
+                puppet_session,
+                "instruction_policy_fingerprint",
+                forbidden["policy"],
+            ),
+            mock.patch.object(puppet_session.os, "access", forbidden["access"]),
+        ):
+            with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+                puppet_session.doctor(
+                    contract_path=Path("/does/not/matter/contract.json"),
+                    manifest_path=Path("/does/not/matter/manifest.json"),
+                    authorization_path=Path("/does/not/matter/authorization.json"),
+                    proof_root=Path("/does/not/matter/proof"),
+                    state_root=Path("/does/not/matter/state"),
+                    profile_root=Path("/does/not/matter/profile"),
                 )
-            process_query.assert_called_once_with("agy", manifest)
-            override.assert_called_once_with(mock.ANY, "agy", active)
-            self.assertTrue(report["parallel_target_override"])
-            self.assertFalse(report["launch_ready"])
-            for blocker in AGY_REGULAR_AUTHORITY_BLOCKERS:
-                self.assertIn(blocker, report["blockers"])
+        contract_read.assert_called_once_with(Path("/does/not/matter/contract.json"))
+        for sentinel in forbidden.values():
+            sentinel.assert_not_called()
+
+    def test_cli_doctor_returns_structured_unsupported_before_manifest(self):
+        contract = SimpleNamespace(target="agy", session_profile="regular")
+        manifest = mock.Mock(side_effect=AssertionError("manifest must not read"))
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                puppet_session.Contract, "from_path", return_value=contract
+            ),
+            mock.patch.object(
+                puppet_session.AdapterManifest,
+                "from_path",
+                manifest,
+            ),
+            redirect_stderr(stderr),
+        ):
+            exit_code = puppet_cli.main(
+                [
+                    "doctor",
+                    "--contract",
+                    "/does/not/matter/contract.json",
+                    "--manifest",
+                    "/does/not/matter/manifest.json",
+                    "--authorization",
+                    "/does/not/matter/authorization.json",
+                    "--proof-root",
+                    "/does/not/matter/proof",
+                    "--state-root",
+                    "/does/not/matter/state",
+                    "--profile-root",
+                    "/does/not/matter/profile",
+                ]
+            )
+        self.assertEqual(exit_code, 3)
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "unsupported")
+        self.assertIn("planner-only", payload["detail"])
+        manifest.assert_not_called()
 
     def test_non_regular_profiles_cannot_borrow_regular_authority(self):
         for profile in (None, "goal", "teamwork-preview", "caller-profile"):

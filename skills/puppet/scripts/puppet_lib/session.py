@@ -12,10 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
-from .agy_launch import (
-    agy_authority_blockers,
-    require_agy_regular_launch_authority,
-)
+from .agy_launch import require_agy_regular_launch_authority
 from .authority import (
     admit_session_lease,
     lease_owner as build_lease_owner,
@@ -677,6 +674,8 @@ def doctor(
     require_subscription_profile: bool = True,
 ) -> Dict[str, Any]:
     contract = Contract.from_path(contract_path)
+    if contract.target == "agy":
+        require_agy_regular_launch_authority(contract.session_profile)
     manifest = AdapterManifest.from_path(manifest_path)
     if contract.target != manifest.target:
         raise ValidationError("contract and adapter target mismatch")
@@ -684,8 +683,6 @@ def doctor(
     proof_root = absolute_root(str(proof_root), "proof root")
     state_root = absolute_root(str(state_root), "state root")
     blockers = []
-    if contract.target == "agy":
-        blockers.extend(agy_authority_blockers(contract.session_profile))
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
