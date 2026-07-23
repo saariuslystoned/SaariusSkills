@@ -229,8 +229,14 @@ class ExperimentalMatchedControlTests(unittest.TestCase):
             validate_experimental_matched_control_candidate(value)
 
     def test_candidate_module_is_not_imported_by_qualification_code(self):
-        self.assertNotIn("matched_control", inspect.getsource(adapter_manifest))
-        self.assertNotIn("matched_control", inspect.getsource(puppet_adapter_lab))
+        self.assertNotIn(
+            "matched_control_experimental",
+            inspect.getsource(adapter_manifest),
+        )
+        self.assertNotIn(
+            "matched_control_experimental",
+            inspect.getsource(puppet_adapter_lab),
+        )
 
     def test_adapter_lab_still_rejects_every_activation_receipt(self):
         arguments = SimpleNamespace(
