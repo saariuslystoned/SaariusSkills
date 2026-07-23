@@ -40,6 +40,7 @@ from puppet_lib.matched_control import (  # noqa: E402
 )
 from puppet_lib.plane_activation import (  # noqa: E402
     ACTIVATION_LIFECYCLE_SCOPE,
+    ActivationPlan,
     CLAUDE_NATIVE_TRIGGER_SHA256,
     INTENT_FILENAME,
     PROBE_PLANE_ACTIVATION_SCHEMA,
@@ -298,9 +299,6 @@ class PlaneActivationTests(unittest.TestCase):
             activation_plan=plan,
             descriptor=self.descriptor,
             adapter_manifest=self.adapter_manifest,
-            controller="codex",
-            campaign_id="campaign-one",
-            goal_fingerprint="d" * 64,
         )
         self.assertEqual(joined["schema"], ACTIVATION_MARKER_JOIN_SCHEMA)
         self.assertEqual(joined["scope"], ACTIVATION_MARKER_JOIN_SCOPE)
@@ -310,7 +308,10 @@ class PlaneActivationTests(unittest.TestCase):
             joined["adapter_manifest_sha256"],
             AdapterManifest.from_dict(self.adapter_manifest).fingerprint,
         )
-        self.assertIs(joined["activation_lifecycle_delivery_only"], True)
+        self.assertEqual(joined["delivery_scope"], "activation_lifecycle_only")
+        self.assertIs(joined["delivery_authorized"], False)
+        for absent in ("controller", "campaign_id", "goal_fingerprint", "authority_id"):
+            self.assertNotIn(absent, joined)
         for name in (
             "runtime_scan_authorized",
             "checkpoint_observed",
@@ -330,9 +331,6 @@ class PlaneActivationTests(unittest.TestCase):
                 activation_plan=plan,
                 descriptor=self.descriptor,
                 adapter_manifest=self.adapter_manifest,
-                controller="codex",
-                campaign_id="campaign-one",
-                goal_fingerprint="d" * 64,
             ),
             joined,
         )
@@ -345,20 +343,6 @@ class PlaneActivationTests(unittest.TestCase):
                 activation_plan=plan,
                 descriptor=self.descriptor,
                 adapter_manifest=self.adapter_manifest,
-                controller="codex",
-                campaign_id="campaign-one",
-                goal_fingerprint="d" * 64,
-            )
-
-        with self.assertRaisesRegex(IdentityError, "join identity"):
-            bind_claude_marker_activation_plan(
-                marker,
-                activation_plan=plan,
-                descriptor=self.descriptor,
-                adapter_manifest=self.adapter_manifest,
-                controller="other-controller",
-                campaign_id="campaign-one",
-                goal_fingerprint="d" * 64,
             )
 
         changed_descriptor = copy.deepcopy(self.descriptor)
@@ -369,10 +353,70 @@ class PlaneActivationTests(unittest.TestCase):
                 activation_plan=plan,
                 descriptor=changed_descriptor,
                 adapter_manifest=self.adapter_manifest,
-                controller="codex",
-                campaign_id="campaign-one",
-                goal_fingerprint="d" * 64,
             )
+
+        def rehash_plan(**changes):
+            value = plan.to_dict()
+            value.update(changes)
+            value.pop("plan_sha256")
+            value["plan_sha256"] = sha256_bytes(canonical_json_bytes(value))
+            return ActivationPlan.from_dict(value)
+
+        mismatches = (
+            {"descriptor_id": "caller-other-descriptor"},
+            {"artifact_id": "caller-other-artifact"},
+            {"effective_contract_bytes": len(marker.rendered) + 1},
+        )
+        for changes in mismatches:
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(IdentityError, "join identity"):
+                    bind_claude_marker_activation_plan(
+                        marker,
+                        activation_plan=rehash_plan(**changes),
+                        descriptor=self.descriptor,
+                        adapter_manifest=self.adapter_manifest,
+                    )
+
+        changed_path = plan.to_dict()
+        changed_path["artifact_relative_path"] = "caller-other.md"
+        changed_path["launch"]["argv"][-1] = str(self.ephemeral / "caller-other.md")
+        changed_path["launch_plan_sha256"] = sha256_bytes(
+            canonical_json_bytes(changed_path["launch"])
+        )
+        changed_path.pop("plan_sha256")
+        changed_path["plan_sha256"] = sha256_bytes(canonical_json_bytes(changed_path))
+        with self.assertRaisesRegex(IdentityError, "join identity"):
+            bind_claude_marker_activation_plan(
+                marker,
+                activation_plan=ActivationPlan.from_dict(changed_path),
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+            )
+
+        with mock.patch.object(
+            AdapterManifest,
+            "verify_execution_files",
+            side_effect=IdentityError("execution files stale"),
+        ):
+            with self.assertRaisesRegex(IdentityError, "execution files stale"):
+                bind_claude_marker_activation_plan(
+                    marker,
+                    activation_plan=plan,
+                    descriptor=self.descriptor,
+                    adapter_manifest=self.adapter_manifest,
+                )
+
+        with mock.patch(
+            "puppet_lib.matched_control.adapter_implementation_fingerprint",
+            return_value="e" * 64,
+        ):
+            with self.assertRaisesRegex(IdentityError, "join identity"):
+                bind_claude_marker_activation_plan(
+                    marker,
+                    activation_plan=plan,
+                    descriptor=self.descriptor,
+                    adapter_manifest=self.adapter_manifest,
+                )
 
     def _revalidate_context(self, context, **overrides):
         arguments = {

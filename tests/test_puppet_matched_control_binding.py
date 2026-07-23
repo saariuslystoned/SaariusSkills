@@ -297,6 +297,55 @@ class CompiledMarkerBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(IdentityError, "binding identity"):
             validate_compiled_marker_binding(forged)
 
+        arbitrary_marker = b"PUPPET_CLAUDE_MATCHED_CONTROL_MARKER_V1=" + b"f" * 64
+        arbitrary = compile_instruction_wrapper(
+            target="claude",
+            task="caller-authored marker " + arbitrary_marker.decode("ascii"),
+            contract_identity={
+                "fingerprint": "b" * 64,
+                "controller": "codex",
+                "target": "claude",
+                "task_profile": "source-free-pass-b-v2",
+            },
+            workspace_identity={
+                "fixture_fingerprint": "c" * 64,
+                "workspace": "isolated_conformance_fixture",
+            },
+            run_identity={
+                "session": "claude-activated",
+                "run_id": "run-activated",
+                "nonce": "nonce-activated-0123456789",
+            },
+            model_binding="default",
+            effort_binding="default",
+            runtime_contract_layer={
+                "mutation_owner": "none",
+                "allowed_modes": ["read", "test"],
+                "hard_gates": sorted(MANDATORY_HARD_GATES),
+            },
+        )
+        forged_binding = result.binding
+        forged_binding.update(
+            instruction_manifest_sha256=sha256_bytes(
+                canonical_json_bytes(arbitrary.manifest) + b"\n"
+            ),
+            rendered_sha256=arbitrary.manifest["rendered_sha256"],
+            marker_sha256=sha256_bytes(arbitrary_marker),
+            instruction_policy_fingerprint=arbitrary.manifest[
+                "instruction_policy_fingerprint"
+            ],
+            effective_contract_fingerprint=arbitrary.manifest[
+                "effective_contract_fingerprint"
+            ],
+        )
+        forged = CompiledMarkerInstruction(
+            _rendered=arbitrary.rendered,
+            _manifest_json=canonical_json_bytes(arbitrary.manifest),
+            _binding_json=canonical_json_bytes(forged_binding),
+        )
+        with self.assertRaisesRegex(IdentityError, "exactly once"):
+            validate_compiled_marker_binding(forged)
+
     def test_binding_changes_with_contract_workspace_and_task(self):
         first = compile_binding()
         changed_contract = compile_binding(

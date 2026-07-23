@@ -178,12 +178,13 @@ compilation/body-retention gap; every runtime join below remains required.
 
 The same module now revalidates the compiled object from its exact in-memory
 bytes and can derive an `activation_plan_join_only` record from the exact
-`ActivationPlan`, descriptor, current adapter manifest, controller, campaign,
-and goal. The saved record is verified only by rebuilding it from those inputs;
-callers cannot supply a marker or marker digest. It remains body-free and fixes
-runtime scan, checkpoint observation, no-bleed, qualification, and promotion to
-false. This is a source substrate only: the live probe does not consume it and
-no controller journal attests it yet.
+`ActivationPlan`, descriptor, and current adapter manifest/implementation. The
+saved record is verified only by rebuilding it from those inputs; callers
+cannot supply a marker or marker digest. It remains body-free and fixes
+delivery, runtime scan, checkpoint observation, no-bleed, qualification, and
+promotion to false. It intentionally carries no controller, campaign, goal, or
+authority claim. This is a source substrate only: the live probe does not
+consume it and no controller journal attests it yet.
 
 1. Wire the activation-plan join into the controller-owned probe and attest it
    before delivery. Do not accept an arbitrary marker, digest, binding row, or

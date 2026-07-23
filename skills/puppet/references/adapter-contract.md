@@ -96,11 +96,11 @@ evidence is implemented and accepted.
 
 Claude's matched-control substrate also revalidates the source-owned compiled
 marker and can join its body-free hashes to one exact native activation plan,
-descriptor, current adapter manifest, controller, campaign, and goal. That
-`activation_plan_join_only` record authorizes only the already fenced
-activation-lifecycle delivery shape. It does not claim delivery, checkpoint
-observation, runtime scanning, no-bleed, qualification, or promotion, and it is
-not yet consumed by the live probe.
+descriptor, and current adapter manifest/implementation. That
+`activation_plan_join_only` record identifies the fenced activation-lifecycle
+delivery scope but explicitly leaves delivery unauthorized. It makes no
+controller, campaign, goal, checkpoint, runtime-scan, no-bleed, qualification,
+or promotion claim and is not yet consumed by the live probe.
 
 ## Interface
 

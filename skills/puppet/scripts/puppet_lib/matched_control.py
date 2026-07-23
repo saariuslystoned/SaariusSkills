@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping
 
 from .adapter_manifest import AdapterManifest, QUALIFICATION_PROFILE
-from .authority import AUTHORITY_ID
+from .census import adapter_implementation_fingerprint
 from .contracts import MANDATORY_HARD_GATES
 from .errors import IdentityError, ValidationError
 from .instruction_planes import (
@@ -73,10 +73,6 @@ _ACTIVATION_JOIN_FIELDS = {
     "session_profile",
     "session",
     "run_id",
-    "controller",
-    "campaign_id",
-    "goal_fingerprint",
-    "authority_id",
     "compiled_binding_sha256",
     "marker_sha256",
     "descriptor_sha256",
@@ -85,7 +81,8 @@ _ACTIVATION_JOIN_FIELDS = {
     "activation_plan_sha256",
     "adapter_manifest_sha256",
     "adapter_implementation_sha256",
-    "activation_lifecycle_delivery_only",
+    "delivery_scope",
+    "delivery_authorized",
     "runtime_scan_authorized",
     "checkpoint_observed",
     "no_bleed_evaluated",
@@ -260,14 +257,21 @@ def validate_compiled_marker_binding(
         if binding.get(name) is not False:
             raise ValidationError("compiled marker binding gained runtime authority")
 
-    rendered = compiled.rendered
-    markers = _MARKER_PATTERN.findall(rendered)
-    if len(markers) != 1 or rendered.count(markers[0]) != 1:
-        raise IdentityError("compiled marker must occur exactly once")
-    manifest_sha = sha256_bytes(canonical_json_bytes(manifest) + b"\n")
     run_identity = _run_identity(manifest.get("run_identity", {}))
     contract_identity = _contract_identity(manifest.get("contract_identity", {}))
     workspace_identity = _workspace_identity(manifest.get("workspace_identity", {}))
+    rendered = compiled.rendered
+    expected_marker = _marker_token(
+        descriptor_sha256=binding["descriptor_sha256"], **run_identity
+    )
+    markers = _MARKER_PATTERN.findall(rendered)
+    if (
+        len(markers) != 1
+        or markers[0] != expected_marker
+        or rendered.count(expected_marker) != 1
+    ):
+        raise IdentityError("compiled marker must occur exactly once")
+    manifest_sha = sha256_bytes(canonical_json_bytes(manifest) + b"\n")
     if (
         binding["session"] != run_identity["session"]
         or binding["run_id"] != run_identity["run_id"]
@@ -276,7 +280,7 @@ def validate_compiled_marker_binding(
         or binding["instruction_manifest_sha256"] != manifest_sha
         or binding["rendered_sha256"] != sha256_bytes(rendered)
         or binding["rendered_sha256"] != manifest.get("rendered_sha256")
-        or binding["marker_sha256"] != sha256_bytes(markers[0])
+        or binding["marker_sha256"] != sha256_bytes(expected_marker)
         or binding["instruction_policy_fingerprint"]
         != manifest.get("instruction_policy_fingerprint")
         or binding["effective_contract_fingerprint"]
@@ -286,7 +290,7 @@ def validate_compiled_marker_binding(
         or binding["run_identity_sha256"] != _identity_sha256(run_identity)
     ):
         raise IdentityError("compiled marker binding identity changed")
-    if markers[0] in canonical_json_bytes(binding):
+    if expected_marker in canonical_json_bytes(binding):
         raise IdentityError("compiled marker binding contains instruction body")
     return binding
 
@@ -297,15 +301,13 @@ def bind_claude_marker_activation_plan(
     activation_plan: ActivationPlan,
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    controller: str,
-    campaign_id: str,
-    goal_fingerprint: str,
 ) -> Dict[str, Any]:
     """Join source-owned marker compilation to one exact activation plan.
 
     The returned record authorizes no runtime scan, qualification, or promotion.
-    It only proves that the marker-bearing bytes admitted for the existing
-    activation-lifecycle probe match the descriptor, plan, and current adapter.
+    It only proves that the marker-bearing bytes planned for the existing
+    activation-lifecycle shape match the descriptor, plan, and current adapter.
+    A separate controller-authority join remains required before delivery.
     """
 
     binding = validate_compiled_marker_binding(compiled)
@@ -323,23 +325,30 @@ def bind_claude_marker_activation_plan(
     instruction_manifest = validate_instruction_manifest(
         compiled.manifest, target="claude"
     )
-    normalized_controller = validate_identifier(controller, "marker join controller")
+    current_implementation = adapter_implementation_fingerprint()
+    manifest.verify_execution_files()
+    materialize = normalized_descriptor["materialize"]
+    if len(materialize) != 1:
+        raise IdentityError("activation marker descriptor materialization changed")
+    artifact = materialize[0]
     if (
         normalized_descriptor["target"]["harness"] != "claude"
         or normalized_descriptor["target"]["adapter_manifest_sha256"]
         != manifest.fingerprint
         or binding["descriptor_sha256"] != descriptor_sha
         or plan.raw["descriptor_sha256"] != descriptor_sha
+        or plan.raw["descriptor_id"] != normalized_descriptor["descriptor_id"]
         or plan.raw["instruction_manifest_sha256"]
         != binding["instruction_manifest_sha256"]
         or plan.raw["effective_contract_sha256"] != binding["rendered_sha256"]
+        or plan.raw["effective_contract_bytes"] != len(compiled.rendered)
         or plan.raw["effective_contract_fingerprint"]
         != instruction_manifest["effective_contract_fingerprint"]
+        or plan.raw["artifact_id"] != artifact["artifact_id"]
+        or plan.raw["artifact_relative_path"] != artifact["relative_path"]
         or plan.raw["adapter_manifest_sha256"] != manifest.fingerprint
-        or plan.raw["adapter_implementation_sha256"]
-        != manifest.raw["adapter_fingerprint"]
-        or instruction_manifest["contract_identity"]["controller"]
-        != normalized_controller
+        or plan.raw["adapter_implementation_sha256"] != current_implementation
+        or manifest.raw["adapter_fingerprint"] != current_implementation
     ):
         raise IdentityError("activation marker join identity changed")
 
@@ -351,12 +360,6 @@ def bind_claude_marker_activation_plan(
         "session_profile": "regular",
         "session": binding["session"],
         "run_id": binding["run_id"],
-        "controller": normalized_controller,
-        "campaign_id": validate_identifier(campaign_id, "marker join campaign"),
-        "goal_fingerprint": validate_sha256(
-            goal_fingerprint, "marker join goal fingerprint"
-        ),
-        "authority_id": AUTHORITY_ID,
         "compiled_binding_sha256": sha256_bytes(canonical_json_bytes(binding)),
         "marker_sha256": binding["marker_sha256"],
         "descriptor_sha256": descriptor_sha,
@@ -364,8 +367,9 @@ def bind_claude_marker_activation_plan(
         "rendered_sha256": binding["rendered_sha256"],
         "activation_plan_sha256": plan.plan_sha256,
         "adapter_manifest_sha256": manifest.fingerprint,
-        "adapter_implementation_sha256": manifest.raw["adapter_fingerprint"],
-        "activation_lifecycle_delivery_only": True,
+        "adapter_implementation_sha256": current_implementation,
+        "delivery_scope": "activation_lifecycle_only",
+        "delivery_authorized": False,
         "runtime_scan_authorized": False,
         "checkpoint_observed": False,
         "no_bleed_evaluated": False,
@@ -387,9 +391,6 @@ def validate_claude_marker_activation_join(
     activation_plan: ActivationPlan,
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
-    controller: str,
-    campaign_id: str,
-    goal_fingerprint: str,
 ) -> Dict[str, Any]:
     """Rebuild and compare a saved body-free activation marker join."""
 
@@ -400,9 +401,6 @@ def validate_claude_marker_activation_join(
         activation_plan=activation_plan,
         descriptor=descriptor,
         adapter_manifest=adapter_manifest,
-        controller=controller,
-        campaign_id=campaign_id,
-        goal_fingerprint=goal_fingerprint,
     )
     if dict(value) != expected:
         raise IdentityError("saved activation marker join identity changed")
