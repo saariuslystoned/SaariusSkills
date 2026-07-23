@@ -27,6 +27,10 @@ from .grok_evidence import (
     expected_grok_pass_a_evidence,
 )
 from .handoffs import PROTOCOL_FINGERPRINT
+from .run_observations import (
+    CLAUDE_MATCHED_CONTROL_BLOCKERS,
+    ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND,
+)
 from .safety import (
     canonical_json_bytes,
     paths_overlap,
@@ -63,6 +67,12 @@ _CODEX_EXPECTED_EVIDENCE_KINDS = (
     "puppet.codex-doctor-observation/v1",
     "puppet.run-observation/v1",
 )
+_CLAUDE_LIFECYCLE_UNSUPPORTED_REASON = "claude_regular_session_source_only_unqualified"
+_CLAUDE_FAILED_INVARIANT = (
+    "authenticated_private_profile_matched_control_runtime_pair_missing"
+)
+_CLAUDE_GATE_RUNG = "claude_regular_pass_b"
+_CLAUDE_NEXT_SAFE_ACTION = "human_approve_authenticated_claude_matched_control_pair"
 _CURSOR_LIFECYCLE_UNSUPPORTED_REASON = "cursor_regular_session_source_only_unqualified"
 _CURSOR_PROFILE_UNSUPPORTED_REASON = "cursor_private_subscription_profile_unqualified"
 _CURSOR_FAILED_INVARIANT = (
@@ -297,6 +307,7 @@ def _commands(
     session: str,
     executable_path: Path,
     codex_source_only: bool,
+    claude_source_only: bool,
     cursor_source_only: bool,
     grok_source_only: bool,
 ) -> Dict[str, Any]:
@@ -359,6 +370,8 @@ def _commands(
         lifecycle_unsupported_reason = _AGY_LIFECYCLE_UNSUPPORTED_REASON
     elif codex_source_only:
         lifecycle_unsupported_reason = _CODEX_LIFECYCLE_UNSUPPORTED_REASON
+    elif claude_source_only:
+        lifecycle_unsupported_reason = _CLAUDE_LIFECYCLE_UNSUPPORTED_REASON
     elif cursor_source_only:
         lifecycle_unsupported_reason = _CURSOR_LIFECYCLE_UNSUPPORTED_REASON
     elif grok_source_only:
@@ -410,6 +423,9 @@ def _commands(
         if codex_source_only:
             result["profile"]["state"] = "human_gated_proposal"
             result["profile"]["required_gate"] = _CODEX_NEXT_SAFE_ACTION
+        elif claude_source_only:
+            result["profile"]["state"] = "human_gated_proposal"
+            result["profile"]["required_gate"] = _CLAUDE_NEXT_SAFE_ACTION
         elif grok_source_only:
             result["profile"]["state"] = "human_gated_proposal"
             result["profile"]["required_gate"] = _GROK_PROFILE_GATE
@@ -452,6 +468,44 @@ def _codex_target_gate(
         "preserved_evidence_kinds": [],
         "next_safe_action": _CODEX_NEXT_SAFE_ACTION,
         "available_routes": list(_CODEX_AUTH_ROUTES),
+    }
+
+
+def _claude_target_gate(
+    *,
+    manifest: AdapterManifest,
+    manifest_artifact: Dict[str, Any],
+) -> Dict[str, Any]:
+    executable = manifest.raw["executable"]
+    return {
+        "state": "waiting_for_human",
+        "failed_invariant": _CLAUDE_FAILED_INVARIANT,
+        "rung": _CLAUDE_GATE_RUNG,
+        "last_trusted_identity": {
+            "manifest_sha256": manifest_artifact["sha256"],
+            "manifest_fingerprint": manifest.fingerprint,
+            "execution_fingerprint": manifest.execution_fingerprint,
+            "requested_executable_path": executable["requested_path"],
+            "resolved_executable_path": executable["resolved_path"],
+            "executable_device": executable["device"],
+            "executable_inode": executable["inode"],
+            "executable_size": executable["size"],
+            "executable_mtime_ns": executable["mtime_ns"],
+            "executable_sha256": executable["sha256"],
+            "version_sha256": executable["version_sha256"],
+            "adapter_sha256": manifest.raw["adapter_fingerprint"],
+            "protocol_sha256": manifest.raw["protocol_fingerprint"],
+        },
+        "evidence": {
+            "manifest_state": "doctor_only_unqualified",
+            "source_only_blockers": list(CLAUDE_MATCHED_CONTROL_BLOCKERS),
+        },
+        "expected_observation_kinds": [
+            ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND,
+        ],
+        "preserved_evidence_kinds": [],
+        "next_safe_action": _CLAUDE_NEXT_SAFE_ACTION,
+        "available_routes": [],
     }
 
 
@@ -621,6 +675,11 @@ def compile_operator_plan(
         and manifest.raw["doctor_only"] is True
         and manifest.raw["qualification"] is None
     )
+    claude_source_only = (
+        contract.target == "claude"
+        and manifest.raw["doctor_only"] is True
+        and manifest.raw["qualification"] is None
+    )
     cursor_source_only = (
         contract.target == "cursor"
         and manifest.raw["doctor_only"] is True
@@ -644,6 +703,7 @@ def compile_operator_plan(
         session=session,
         executable_path=Path(manifest.raw["executable"]["resolved_path"]),
         codex_source_only=codex_source_only,
+        claude_source_only=claude_source_only,
         cursor_source_only=cursor_source_only,
         grok_source_only=grok_source_only,
     )
@@ -655,6 +715,8 @@ def compile_operator_plan(
     if codex_source_only:
         blockers.extend(SOURCE_ONLY_BLOCKERS)
         blockers.append(MAPPING_INCOMPLETE_BLOCKER)
+    if claude_source_only:
+        blockers.extend(CLAUDE_MATCHED_CONTROL_BLOCKERS)
     if cursor_source_only:
         blockers.extend(CURSOR_SOURCE_ONLY_BLOCKERS)
     if grok_source_only:
@@ -701,6 +763,11 @@ def compile_operator_plan(
     }
     if codex_source_only:
         result["target_gate"] = _codex_target_gate(
+            manifest=manifest,
+            manifest_artifact=manifest_artifact,
+        )
+    elif claude_source_only:
+        result["target_gate"] = _claude_target_gate(
             manifest=manifest,
             manifest_artifact=manifest_artifact,
         )

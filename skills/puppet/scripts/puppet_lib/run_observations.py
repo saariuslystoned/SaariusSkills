@@ -42,7 +42,7 @@ SOURCE_ONLY_PROOF = "source_only"
 BLOCKED_VERDICT = "blocked"
 MAX_LATENCY_MILLISECONDS = 3_600_000
 _EXPECTED_BLOCKERS = (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER)
-_CLAUDE_MATCHED_CONTROL_BLOCKERS = (
+CLAUDE_MATCHED_CONTROL_BLOCKERS = (
     "claude_ordinary_control_missing",
     "claude_paired_no_bleed_unproved",
     "claude_default_model_observation_unavailable",
@@ -384,7 +384,7 @@ def _build_claude_matched_control_blocker(
         "controller_gates_green": False,
         "independent_review_clean": False,
         "controller_verdict": BLOCKED_VERDICT,
-        "limitations": list(_CLAUDE_MATCHED_CONTROL_BLOCKERS),
+        "limitations": list(CLAUDE_MATCHED_CONTROL_BLOCKERS),
         "source_observation_sha256": source_bundle_sha256,
         "source_bundle": source_bundle,
         "source_bundle_sha256": source_bundle_sha256,
@@ -580,6 +580,7 @@ def write_claude_matched_control_blocker_observation(
 
 __all__ = [
     "BLOCKED_VERDICT",
+    "CLAUDE_MATCHED_CONTROL_BLOCKERS",
     "RUN_OBSERVATION_SCHEMA",
     "SOURCE_ONLY_PROOF",
     "UNAVAILABLE",

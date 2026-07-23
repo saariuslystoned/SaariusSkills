@@ -35,6 +35,16 @@ security, secrets, spending, and destructive actions separately gated.
    either the named process-local broker route or a human-present login into
    the lane-owned home before any account action. The plan carries route names
    only, never values or credential selectors.
+   A doctor-only, unqualified Claude manifest yields a body-free
+   `target_gate.state=waiting_for_human` packet for
+   `claude_regular_pass_b`. It names the expected
+   `zero_agent_claude_matched_control_blocker` observation kind but reports
+   preserved evidence kinds as empty because planning receives no observation
+   artifact. Only `doctor` remains proposed; launch, status, waits, attach,
+   open-view, and halt are unsupported. Private-profile initialization remains
+   a human-gated proposal under
+   `human_approve_authenticated_claude_matched_control_pair`; the plan neither
+   authenticates nor runs either member of that pair.
    A doctor-only, unqualified Cursor manifest yields the same body-free
    `waiting_for_human` boundary for `cursor_regular_pass_b`, but it names no
    available authentication route. Only `doctor` remains proposed; profile
@@ -85,6 +95,9 @@ Puppet-owned mode-0700 home/config root and obtain an exact human-run login
 handoff; Puppet does not copy an existing credential or perform login itself.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
+For an unqualified Claude regular plan, profile initialization is only
+preparation for the separately approved authenticated matched-control pair; it
+is not launch or matched-control authority.
 After the operator completes that account action, use `profile-status` to retain
 only an allowlisted login state. Codex, Claude, and Grok have public
 private-profile recipes. Cursor retains an internal source-only recipe for

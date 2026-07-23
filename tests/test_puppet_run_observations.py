@@ -25,6 +25,7 @@ from puppet_lib.codex_launch import (  # noqa: E402
 )
 from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
 from puppet_lib.run_observations import (  # noqa: E402
+    CLAUDE_MATCHED_CONTROL_BLOCKERS,
     RUN_OBSERVATION_SCHEMA,
     UNAVAILABLE,
     ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND,
@@ -252,6 +253,21 @@ class RunObservationTests(unittest.TestCase):
         self.assertEqual(value["controller_verdict"], "blocked")
         self.assertEqual(value["proof_integrity"], "source_only")
         self.assertEqual(value["verification_depth"], "source_only")
+        self.assertEqual(
+            value["limitations"],
+            list(CLAUDE_MATCHED_CONTROL_BLOCKERS),
+        )
+        self.assertEqual(
+            CLAUDE_MATCHED_CONTROL_BLOCKERS,
+            (
+                "claude_ordinary_control_missing",
+                "claude_paired_no_bleed_unproved",
+                "claude_default_model_observation_unavailable",
+                "claude_direct_cockpit_pair_unproved",
+                "claude_native_tui_attach_unproved",
+                "claude_activation_lifecycle_nonqualifying",
+            ),
+        )
         self.assertEqual(
             [item["role"] for item in value["source_bundle"]],
             [

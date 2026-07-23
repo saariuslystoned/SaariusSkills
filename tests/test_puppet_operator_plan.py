@@ -50,6 +50,10 @@ from puppet_lib.profiles import (  # noqa: E402
     session_profiles_for,
     startup_settle_seconds_for,
 )
+from puppet_lib.run_observations import (  # noqa: E402
+    CLAUDE_MATCHED_CONTROL_BLOCKERS,
+    ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND,
+)
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
 
@@ -280,6 +284,18 @@ class OperatorPlanTests(unittest.TestCase):
     def test_direct_mode_infers_git_root_and_emits_exact_body_free_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="claude")
+            manifest = json.loads(fixture.manifest.read_text(encoding="utf-8"))
+            manifest["doctor_only"] = False
+            manifest["capabilities"] = {
+                name: ("unsupported" if name == "resume" else "controller_verified")
+                for name in manifest["capabilities"]
+            }
+            manifest["qualification"] = {
+                "receipt_path": str(Path(temporary) / "qualification-receipt.json"),
+                "receipt_sha256": "d" * 64,
+                "session_profile": "regular",
+            }
+            _write_json(fixture.manifest, manifest)
             real_run = subprocess.run
             calls = []
 
@@ -329,9 +345,202 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertTrue(plan["commands"]["profile"]["supported"])
             self.assertNotIn("state", plan["commands"]["profile"])
             self.assertNotIn("target_gate", plan)
+            self.assertNotIn(
+                "claude_regular_session_source_only_unqualified",
+                encoded,
+            )
+            for blocker in CLAUDE_MATCHED_CONTROL_BLOCKERS:
+                self.assertNotIn(blocker, plan["blockers"])
             digest_plan = dict(plan)
             digest = digest_plan.pop("plan_sha256")
             self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+
+    def test_claude_source_only_plan_emits_human_gate_and_no_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="claude")
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ANTHROPIC_API_KEY": "PUPPET_CLAUDE_SECRET_CANARY",
+                        "CLAUDE_CODE_OAUTH_TOKEN": "PUPPET_CLAUDE_OAUTH_CANARY",
+                        "CLAUDE_CONFIG_DIR": "/untrusted/claude-config",
+                    },
+                ),
+                patch(
+                    "puppet_lib.run_observations.build_claude_matched_control_blocker_observation",
+                    side_effect=AssertionError("observation must not build"),
+                ) as observation,
+                patch(
+                    "puppet_lib.matched_control.bind_claude_marker_activation_plan",
+                    side_effect=AssertionError("matched control must not run"),
+                ) as matched_control,
+                patch(
+                    "puppet_lib.matched_control_signal.verify_claude_marker_signal_terminal_absence",
+                    side_effect=AssertionError("terminal verifier must not run"),
+                ) as terminal_verifier,
+                patch(
+                    "puppet_lib.session.doctor",
+                    side_effect=AssertionError("doctor must not run"),
+                ) as doctor,
+                patch(
+                    "puppet_lib.session.launch",
+                    side_effect=AssertionError("harness must not launch"),
+                ) as launch,
+                patch(
+                    "puppet_lib.probe.run_probe",
+                    side_effect=AssertionError("probe must not run"),
+                ) as probe,
+                patch(
+                    "puppet_lib.tmux.TmuxController",
+                    side_effect=AssertionError("tmux must not construct"),
+                ) as tmux,
+                patch(
+                    "puppet_lib.campaign.active_target_processes",
+                    side_effect=AssertionError("process census must not run"),
+                ) as processes,
+                patch(
+                    "puppet_lib.viewer.prepare_operator_view",
+                    side_effect=AssertionError("viewer must not prepare"),
+                ) as viewer,
+                patch(
+                    "puppet_lib.subscription_profiles.initialize_subscription_profile",
+                    side_effect=AssertionError("profile must not initialize"),
+                ) as profile_init,
+                patch(
+                    "puppet_lib.subscription_profiles.subscription_profile_status",
+                    side_effect=AssertionError("profile status must not run"),
+                ) as profile_status,
+            ):
+                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            gate = plan["target_gate"]
+            self.assertEqual(gate["state"], "waiting_for_human")
+            self.assertEqual(
+                gate["failed_invariant"],
+                "authenticated_private_profile_matched_control_runtime_pair_missing",
+            )
+            self.assertEqual(gate["rung"], "claude_regular_pass_b")
+            self.assertEqual(
+                gate["next_safe_action"],
+                "human_approve_authenticated_claude_matched_control_pair",
+            )
+            self.assertEqual(gate["available_routes"], [])
+            manifest = AdapterManifest.from_path(fixture.manifest)
+            executable = manifest.raw["executable"]
+            self.assertEqual(
+                gate["last_trusted_identity"],
+                {
+                    "manifest_sha256": hashlib.sha256(
+                        fixture.manifest.read_bytes()
+                    ).hexdigest(),
+                    "manifest_fingerprint": manifest.fingerprint,
+                    "execution_fingerprint": manifest.execution_fingerprint,
+                    "requested_executable_path": executable["requested_path"],
+                    "resolved_executable_path": executable["resolved_path"],
+                    "executable_device": executable["device"],
+                    "executable_inode": executable["inode"],
+                    "executable_size": executable["size"],
+                    "executable_mtime_ns": executable["mtime_ns"],
+                    "executable_sha256": executable["sha256"],
+                    "version_sha256": executable["version_sha256"],
+                    "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                    "protocol_sha256": manifest.raw["protocol_fingerprint"],
+                },
+            )
+            self.assertEqual(
+                gate["evidence"],
+                {
+                    "manifest_state": "doctor_only_unqualified",
+                    "source_only_blockers": list(CLAUDE_MATCHED_CONTROL_BLOCKERS),
+                },
+            )
+            self.assertEqual(
+                gate["expected_observation_kinds"],
+                [ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND],
+            )
+            self.assertEqual(gate["preserved_evidence_kinds"], [])
+            self.assertFalse(plan["launch_authorized"])
+            for blocker in CLAUDE_MATCHED_CONTROL_BLOCKERS:
+                self.assertIn(blocker, plan["blockers"])
+            self.assertEqual(plan["commands"]["doctor"][3], "doctor")
+            unsupported = {
+                "supported": False,
+                "reason": "claude_regular_session_source_only_unqualified",
+            }
+            for command in (
+                "launch",
+                "status",
+                "waits",
+                "attach_command",
+                "open_view",
+                "halt",
+            ):
+                self.assertEqual(plan["commands"][command], unsupported)
+            profile = plan["commands"]["profile"]
+            self.assertTrue(profile["supported"])
+            self.assertEqual(profile["state"], "human_gated_proposal")
+            self.assertEqual(
+                profile["required_gate"],
+                "human_approve_authenticated_claude_matched_control_pair",
+            )
+            self.assertEqual(profile["init"][3], "profile-init")
+            self.assertEqual(profile["status"][3], "profile-status")
+            encoded = json.dumps(plan, sort_keys=True)
+            for forbidden in (
+                fixture.prompt_body.strip(),
+                "ANTHROPIC_API_KEY",
+                "PUPPET_CLAUDE_SECRET_CANARY",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "PUPPET_CLAUDE_OAUTH_CANARY",
+                "CLAUDE_CONFIG_DIR",
+                "/untrusted/claude-config",
+                "marker",
+                "sidecar",
+                "selector",
+            ):
+                self.assertNotIn(forbidden, encoded)
+            digest_plan = dict(plan)
+            digest = digest_plan.pop("plan_sha256")
+            self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+            for sentinel in (
+                observation,
+                matched_control,
+                terminal_verifier,
+                doctor,
+                launch,
+                probe,
+                tmux,
+                processes,
+                viewer,
+                profile_init,
+                profile_status,
+            ):
+                sentinel.assert_not_called()
+
+    def test_claude_stale_manifest_is_an_independent_blocker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = OperatorPlanFixture(Path(temporary), target="claude")
+            manifest = json.loads(fixture.manifest.read_text(encoding="utf-8"))
+            manifest["adapter_fingerprint"] = "d" * 64
+            _write_json(fixture.manifest, manifest)
+
+            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+
+            self.assertEqual(
+                plan["target_gate"]["failed_invariant"],
+                "authenticated_private_profile_matched_control_runtime_pair_missing",
+            )
+            self.assertEqual(
+                plan["target_gate"]["last_trusted_identity"]["adapter_sha256"],
+                "d" * 64,
+            )
+            self.assertIn(
+                "adapter_manifest_source_fingerprint_is_stale",
+                plan["blockers"],
+            )
+            for blocker in CLAUDE_MATCHED_CONTROL_BLOCKERS:
+                self.assertIn(blocker, plan["blockers"])
 
     def test_cockpit_mode_requires_exact_explicit_repo(self):
         with tempfile.TemporaryDirectory() as temporary:

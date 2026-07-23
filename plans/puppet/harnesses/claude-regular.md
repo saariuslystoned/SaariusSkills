@@ -283,3 +283,19 @@ irreducible gate remains an authenticated private-profile runtime pair: one
 activated fixture followed by a distinct ordinary control under the same
 observed default-model tuple, with paired no-bleed, entry-path, and native-TUI
 proof before any qualification scope can be proposed.
+
+The public operator plan now projects that source truth without consuming or
+constructing an observation. An exact doctor-only, unqualified Claude manifest
+emits `waiting_for_human` at `claude_regular_pass_b`, carries the same six
+source-only blockers, expects the existing
+`zero_agent_claude_matched_control_blocker` kind, and reports no preserved
+evidence because no packet was supplied. It proposes only `doctor`; all six
+session lifecycle surfaces are unsupported, while private-profile setup remains
+a human-gated proposal under
+`human_approve_authenticated_claude_matched_control_pair`. The plan reads no
+Claude auth/config state and exercises no observation, matched-control,
+profile, runtime, process, tmux, or viewer path.
+
+Further source glue is **NO_SHIP**. The next admissible work is the live,
+human-approved authenticated matched pair described above; source-only code
+must not stand in for that evidence.
