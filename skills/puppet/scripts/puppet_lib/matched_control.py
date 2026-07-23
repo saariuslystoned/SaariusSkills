@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping
 
 from .adapter_manifest import AdapterManifest, QUALIFICATION_PROFILE
-from .census import adapter_implementation_fingerprint
 from .contracts import MANDATORY_HARD_GATES
 from .errors import IdentityError, ValidationError
 from .instruction_planes import (
@@ -22,13 +21,13 @@ from .safety import (
     validate_identifier,
     validate_sha256,
 )
-from .plane_activation import ActivationPlan
+from .plane_activation import ActivationPlan, validate_activation_plan_manifest
 
 
 COMPILED_MARKER_BINDING_SCHEMA = "puppet.claude-compiled-marker-binding/v1"
 COMPILED_MARKER_SCOPE = "compiled_binding_only"
 COMPILED_MARKER_RESULT = "not_evaluated"
-ACTIVATION_MARKER_JOIN_SCHEMA = "puppet.claude-activation-marker-join/v1"
+ACTIVATION_MARKER_JOIN_SCHEMA = "puppet.claude-activation-marker-join/v2"
 ACTIVATION_MARKER_JOIN_SCOPE = "activation_plan_join_only"
 ACTIVATION_MARKER_JOIN_RESULT = "not_evaluated"
 
@@ -325,16 +324,16 @@ def bind_claude_marker_activation_plan(
     instruction_manifest = validate_instruction_manifest(
         compiled.manifest, target="claude"
     )
-    current_implementation = adapter_implementation_fingerprint()
-    manifest.verify_execution_files()
+    manifest_hash, current_implementation = validate_activation_plan_manifest(
+        manifest, plan
+    )
     materialize = normalized_descriptor["materialize"]
     if len(materialize) != 1:
         raise IdentityError("activation marker descriptor materialization changed")
     artifact = materialize[0]
     if (
         normalized_descriptor["target"]["harness"] != "claude"
-        or normalized_descriptor["target"]["adapter_manifest_sha256"]
-        != manifest.fingerprint
+        or normalized_descriptor["target"]["adapter_manifest_sha256"] != manifest_hash
         or binding["descriptor_sha256"] != descriptor_sha
         or plan.raw["descriptor_sha256"] != descriptor_sha
         or plan.raw["descriptor_id"] != normalized_descriptor["descriptor_id"]
@@ -346,9 +345,7 @@ def bind_claude_marker_activation_plan(
         != instruction_manifest["effective_contract_fingerprint"]
         or plan.raw["artifact_id"] != artifact["artifact_id"]
         or plan.raw["artifact_relative_path"] != artifact["relative_path"]
-        or plan.raw["adapter_manifest_sha256"] != manifest.fingerprint
-        or plan.raw["adapter_implementation_sha256"] != current_implementation
-        or manifest.raw["adapter_fingerprint"] != current_implementation
+        or plan.raw["adapter_manifest_sha256"] != manifest_hash
     ):
         raise IdentityError("activation marker join identity changed")
 
@@ -366,7 +363,7 @@ def bind_claude_marker_activation_plan(
         "instruction_manifest_sha256": binding["instruction_manifest_sha256"],
         "rendered_sha256": binding["rendered_sha256"],
         "activation_plan_sha256": plan.plan_sha256,
-        "adapter_manifest_sha256": manifest.fingerprint,
+        "adapter_manifest_sha256": manifest_hash,
         "adapter_implementation_sha256": current_implementation,
         "delivery_scope": "activation_lifecycle_only",
         "delivery_authorized": False,

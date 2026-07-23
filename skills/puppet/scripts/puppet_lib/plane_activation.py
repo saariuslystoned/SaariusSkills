@@ -1204,7 +1204,7 @@ def plan_activation(
     return ActivationPlan.from_dict(plan)
 
 
-def _context_manifest(
+def validate_activation_plan_manifest(
     supplied: AdapterManifest,
     plan: ActivationPlan,
 ) -> Tuple[str, str]:
@@ -1255,6 +1255,15 @@ def _context_manifest(
         )
     supplied.verify_execution_files()
     return manifest_hash, implementation_hash
+
+
+def _context_manifest(
+    supplied: AdapterManifest,
+    plan: ActivationPlan,
+) -> Tuple[str, str]:
+    """Compatibility wrapper for the public plan/manifest revalidator."""
+
+    return validate_activation_plan_manifest(supplied, plan)
 
 
 def _exact_context_root(
@@ -2971,5 +2980,6 @@ __all__ = [
     "revalidate_activation_launch_context",
     "rollback_activation",
     "validate_terminal_activation_evidence",
+    "validate_activation_plan_manifest",
     "verify_activation",
 ]

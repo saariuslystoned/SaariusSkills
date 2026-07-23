@@ -96,9 +96,11 @@ evidence is implemented and accepted.
 
 Claude's matched-control substrate also revalidates the source-owned compiled
 marker and can join its body-free hashes to one exact native activation plan,
-descriptor, and current adapter manifest/implementation. That
+descriptor, and current doctor-only, unqualified adapter
+manifest/implementation/execution-file/mapping tuple. That schema-v2
 `activation_plan_join_only` record identifies the fenced activation-lifecycle
-delivery scope but explicitly leaves delivery unauthorized. It makes no
+delivery scope but explicitly leaves delivery unauthorized. Schema v1 is
+rejected. The record makes no
 controller, campaign, goal, checkpoint, runtime-scan, no-bleed, qualification,
 or promotion claim and is not yet consumed by the live probe.
 

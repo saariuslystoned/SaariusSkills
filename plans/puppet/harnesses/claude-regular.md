@@ -178,9 +178,11 @@ compilation/body-retention gap; every runtime join below remains required.
 
 The same module now revalidates the compiled object from its exact in-memory
 bytes and can derive an `activation_plan_join_only` record from the exact
-`ActivationPlan`, descriptor, and current adapter manifest/implementation. The
-saved record is verified only by rebuilding it from those inputs; callers
-cannot supply a marker or marker digest. It remains body-free and fixes
+`ActivationPlan`, descriptor, and current doctor-only, unqualified adapter
+manifest/implementation/execution-file/exact-mapping tuple. The schema-v2 saved
+record is verified only by rebuilding it from those inputs; schema v1 is
+rejected, and callers cannot supply a marker or marker digest. It remains
+body-free and fixes
 delivery, runtime scan, checkpoint observation, no-bleed, qualification, and
 promotion to false. It intentionally carries no controller, campaign, goal, or
 authority claim. This is a source substrate only: the live probe does not

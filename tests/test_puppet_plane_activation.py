@@ -366,10 +366,13 @@ class PlaneActivationTests(unittest.TestCase):
             {"descriptor_id": "caller-other-descriptor"},
             {"artifact_id": "caller-other-artifact"},
             {"effective_contract_bytes": len(marker.rendered) + 1},
+            {"version_observation_sha256": "f" * 64},
         )
         for changes in mismatches:
             with self.subTest(changes=changes):
-                with self.assertRaisesRegex(IdentityError, "join identity"):
+                with self.assertRaisesRegex(
+                    IdentityError, "join identity|version observation"
+                ):
                     bind_claude_marker_activation_plan(
                         marker,
                         activation_plan=rehash_plan(**changes),
@@ -407,16 +410,26 @@ class PlaneActivationTests(unittest.TestCase):
                 )
 
         with mock.patch(
-            "puppet_lib.matched_control.adapter_implementation_fingerprint",
-            return_value="e" * 64,
+            "puppet_lib.matched_control.validate_activation_plan_manifest",
+            side_effect=UnsupportedError("mapping is not activation-safe"),
         ):
-            with self.assertRaisesRegex(IdentityError, "join identity"):
+            with self.assertRaisesRegex(UnsupportedError, "activation-safe"):
                 bind_claude_marker_activation_plan(
                     marker,
                     activation_plan=plan,
                     descriptor=self.descriptor,
                     adapter_manifest=self.adapter_manifest,
                 )
+
+        old_schema = dict(joined, schema="puppet.claude-activation-marker-join/v1")
+        with self.assertRaisesRegex(IdentityError, "saved activation"):
+            validate_claude_marker_activation_join(
+                old_schema,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+            )
 
     def _revalidate_context(self, context, **overrides):
         arguments = {
