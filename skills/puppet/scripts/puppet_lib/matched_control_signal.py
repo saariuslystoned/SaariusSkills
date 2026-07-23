@@ -256,7 +256,14 @@ def _event_source_fields(
     }
 
 
-class ClaudeMarkerSignalGuard:
+def _observation_request_id(activation_join_sha256: str) -> str:
+    return (
+        "claude-marker-signal-%s"
+        % validate_sha256(activation_join_sha256, "marker signal activation join")[:40]
+    )
+
+
+class _ClaudeMarkerSignalGuard:
     """Private FD-bound one-use signal guard with a body-free representation."""
 
     def __init__(
@@ -295,7 +302,7 @@ class ClaudeMarkerSignalGuard:
             )
         )
 
-    def __enter__(self) -> "ClaudeMarkerSignalGuard":
+    def __enter__(self) -> "_ClaudeMarkerSignalGuard":
         if self._closed:
             raise IdentityError("marker signal guard is closed")
         return self
@@ -415,10 +422,7 @@ class ClaudeMarkerSignalGuard:
             }
             if set(event) != _EVENT_FIELDS:
                 raise IdentityError("marker signal observation fields changed")
-            request_id = "claude-marker-signal-%s-%s" % (
-                event["activation_join_sha256"][:20],
-                event["signal_file_identity_sha256"][:20],
-            )
+            request_id = _observation_request_id(event["activation_join_sha256"])
             row = Journal(self._authority_root / _JOURNAL_NAME).append(
                 request_id=request_id,
                 event=event,
@@ -448,7 +452,7 @@ def prepare_claude_marker_signal(
     descriptor: Mapping[str, Any],
     adapter_manifest: AdapterManifest | Mapping[str, Any],
     activation_attestation: Mapping[str, Any],
-) -> ClaudeMarkerSignalGuard:
+) -> _ClaudeMarkerSignalGuard:
     """Bind fixed workspace/parent FDs and prove the signal leaf is absent."""
 
     _require_fd_primitives()
@@ -465,6 +469,9 @@ def prepare_claude_marker_signal(
     root = controller_authority_root()
     if activation_attestation.get("authority_root") != str(root):
         raise IdentityError("marker signal authority root changed")
+    request_id = _observation_request_id(sha256_bytes(canonical_json_bytes(dict(join))))
+    if Journal(root / _JOURNAL_NAME).lookup(request_id) is not None:
+        raise ConflictError("marker signal observation already exists for this join")
     workspace_plan_identity = _plan_workspace_identity(plan)
     workspace_descriptor: Optional[int] = None
     parent_descriptor: Optional[int] = None
@@ -484,7 +491,7 @@ def prepare_claude_marker_signal(
         )
         if _leaf_exists(parent_descriptor):
             raise ConflictError("marker signal leaf already exists before delivery")
-        guard = ClaudeMarkerSignalGuard(
+        guard = _ClaudeMarkerSignalGuard(
             workspace_descriptor=workspace_descriptor,
             parent_descriptor=parent_descriptor,
             workspace_plan_identity=workspace_plan_identity,
@@ -555,7 +562,9 @@ def verify_claude_marker_signal_observation(
         activation_attestation=activation_attestation,
     )
     expected_join_sha = sha256_bytes(canonical_json_bytes(join))
-    if join_sha != expected_join_sha:
+    if join_sha != expected_join_sha or request_id != _observation_request_id(
+        expected_join_sha
+    ):
         raise IdentityError("marker signal activation join changed")
     row = Journal(root / _JOURNAL_NAME).lookup(request_id)
     if (
@@ -613,7 +622,6 @@ __all__ = [
     "MARKER_SIGNAL_OBSERVATION_EVENT_SCHEMA",
     "MARKER_SIGNAL_OBSERVATION_KIND",
     "MARKER_SIGNAL_OBSERVATION_SCHEMA_VERSION",
-    "ClaudeMarkerSignalGuard",
     "prepare_claude_marker_signal",
     "verify_claude_marker_signal_observation",
 ]

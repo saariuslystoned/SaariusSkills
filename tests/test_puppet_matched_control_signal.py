@@ -17,7 +17,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab as puppet_adapter_lab  # noqa: E402
-from puppet_lib import adapter_manifest, probe  # noqa: E402
+from puppet_lib import adapter_manifest, matched_control_signal, probe  # noqa: E402
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
@@ -204,8 +204,23 @@ class ClaudeMarkerSignalTests(unittest.TestCase):
             self.assertNotIn(case.marker, repr(guard).encode())
             with self.assertRaisesRegex(IdentityError, "closed"):
                 guard.consume()
+            changed_request = dict(observation, request_id="alternate-request")
+            with case.authority_patches():
+                with self.assertRaisesRegex(IdentityError, "activation join changed"):
+                    verify_claude_marker_signal_observation(
+                        changed_request,
+                        case.compiled,
+                        activation_plan=case.plan,
+                        descriptor=case.descriptor,
+                        adapter_manifest=case.manifest,
+                        activation_attestation=case.attestation,
+                    )
+            with self.assertRaisesRegex(ConflictError, "already exists for this join"):
+                case.prepare()
 
     def test_public_surfaces_expose_no_signal_or_authority_injection_hooks(self):
+        self.assertFalse(hasattr(matched_control_signal, "ClaudeMarkerSignalGuard"))
+        self.assertNotIn("ClaudeMarkerSignalGuard", matched_control_signal.__all__)
         for function in (
             prepare_claude_marker_signal,
             verify_claude_marker_signal_observation,
