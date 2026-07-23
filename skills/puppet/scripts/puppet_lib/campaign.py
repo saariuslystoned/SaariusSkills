@@ -38,6 +38,13 @@ MAX_PROCESS_SNAPSHOT_ROWS = 32768
 MAX_PROCESS_ANCESTRY_NODES = 512
 MAX_PROCESS_ANCESTRY_DEPTH = 64
 MAX_PROCESS_EXECUTION_SELECTORS = 10
+_GROK_PROCESS_CANDIDATE_NAMES = frozenset(
+    {
+        "grok",
+        "grok-macos-aarch64",
+        "grok-0.2.111-macos-aarch64",
+    }
+)
 
 
 ALLOWED_ACTIONS = [
@@ -513,7 +520,7 @@ def grok_process_population(
 
     _, selectors = _target_process_selectors("grok", [runtime_selector])
     rows = _target_process_rows(
-        {"grok", "grok-macos-aarch64"},
+        set(_GROK_PROCESS_CANDIDATE_NAMES),
         set(),
         error_prefix="Grok candidate process inventory",
     )

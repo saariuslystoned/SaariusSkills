@@ -181,12 +181,14 @@ consult it. Qualification needs a lane-owned `HOME` or an exact complete
 scanner-disable contract. Bind any leader process/socket and spawned children;
 the current single pane-process identity is insufficient for a shared leader.
 
-Normal-session preflight now retains every current-UID `grok` or
-`grok-macos-aarch64` candidate found by the repository-native argv-free census.
-Execution selectors cannot broaden those candidate basenames, so a declared
-transient such as `bash` does not become a Grok candidate. A same-name
-launcher/transient vnode is retained as a candidate but cannot match: only the
-validated final-runtime selector carries matching authority.
+Normal-session preflight now retains every current-UID `grok`,
+`grok-macos-aarch64`, or `grok-0.2.111-macos-aarch64` candidate found by the
+repository-native argv-free census. The versioned name is detection-only and
+does not admit 0.2.111 launch or parser semantics. Execution selectors cannot
+broaden those fixed candidate basenames, so a declared transient such as `bash`
+does not become a Grok candidate. A same-name launcher/transient vnode is
+retained as a candidate but cannot match: only the validated final-runtime
+selector carries matching authority.
 An exact current-manifest population still requires the existing exact V2
 parallel override. A same-name different-vnode candidate is a hard blocker and
 cannot be hidden by that override. Because all live Grok launch remains fenced,

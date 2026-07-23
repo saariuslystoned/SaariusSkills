@@ -477,6 +477,69 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
         self.assertEqual(population["matching"], [matching])
         self.assertEqual(population["mismatched"], [mismatched])
 
+    def test_versioned_runtime_basename_is_fixed_and_identity_classified(self):
+        basename = "grok-0.2.111-macos-aarch64"
+        runtime_selector = {
+            "path": "/opt/runtime/%s" % basename,
+            "device": 10,
+            "inode": 20,
+        }
+        matching = process_identity(
+            101,
+            command=basename,
+            executable_path=runtime_selector["path"],
+            device=runtime_selector["device"],
+            inode=runtime_selector["inode"],
+        )
+        mismatched = process_identity(
+            102,
+            command=basename,
+            executable_path="/opt/other/%s" % basename,
+            device=11,
+            inode=21,
+        )
+        rows = [
+            (matching["pid"], matching["command"]),
+            (mismatched["pid"], mismatched["command"]),
+        ]
+        with (
+            patch.object(
+                campaign,
+                "_target_process_rows",
+                return_value=rows,
+            ) as process_rows,
+            patch.object(
+                campaign,
+                "process_birth_identity",
+                side_effect=[matching, mismatched],
+            ),
+        ):
+            population = campaign.grok_process_population(
+                runtime_selector=runtime_selector
+            )
+
+        process_rows.assert_called_once_with(
+            {
+                "grok",
+                "grok-macos-aarch64",
+                "grok-0.2.111-macos-aarch64",
+            },
+            set(),
+            error_prefix="Grok candidate process inventory",
+        )
+        self.assertEqual(population["candidates"], [matching, mismatched])
+        self.assertEqual(population["matching"], [matching])
+        self.assertEqual(population["mismatched"], [mismatched])
+        _, override, blockers = puppet_session._assess_grok_population(
+            {"authorization": {}},
+            population,
+        )
+        self.assertFalse(override)
+        self.assertIn(
+            "a live Grok candidate has a different executable identity and blocks launch",
+            blockers,
+        )
+
     def test_transient_bash_row_is_not_a_grok_candidate(self):
         grok_selector = {
             "path": "/opt/grok-macos-aarch64",
