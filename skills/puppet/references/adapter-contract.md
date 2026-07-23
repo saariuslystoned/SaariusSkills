@@ -128,8 +128,13 @@ exact marker bytes without a terminator, create-only mode 0600, controller
 directory-FD/no-follow consumption, unlink before journaling, and hash-only
 retention. The existing probe does not consume this sidecar, and the current
 conformance handoffs remain exact marker-free acknowledgements. Signal
-consumption and paired ordinary-session no-bleed verification remain separate
-non-authorizing work.
+consumption now has a source-only FD-bound guard that proves the leaf absent,
+pins the plan's workspace and private handoff-directory identities, consumes
+exact source-derived bytes, unlinks before journaling, and verifies a hash-only
+event through the fixed controller authority. It is not imported by the probe,
+handoff, adapter, or qualification paths and expressly proves neither delivery,
+target authorship, checkpoint observation, lease ownership, nor no-bleed.
+Paired ordinary-session no-bleed verification remains separate work.
 
 ## Interface
 
