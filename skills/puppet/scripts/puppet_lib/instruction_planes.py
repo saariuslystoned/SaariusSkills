@@ -708,6 +708,16 @@ def validate_agy_workspace_agent_descriptor(
     """Require the exact source-owned, non-activatable AGY descriptor."""
 
     normalized = validate_instruction_plane_descriptor(raw)
+    if normalized["descriptor_id"] != AGY_WORKSPACE_DESCRIPTOR_ID:
+        raise ValidationError("descriptor is not the source-owned AGY workspace agent")
+    return _validate_agy_workspace_agent_shape(normalized)
+
+
+def _validate_agy_workspace_agent_shape(
+    normalized: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate the reserved AGY descriptor ID without recursive parsing."""
+
     materialize = normalized["materialize"]
     match = (
         _AGY_WORKSPACE_AGENT_RE.fullmatch(materialize[0]["relative_path"])
@@ -724,7 +734,7 @@ def validate_agy_workspace_agent_descriptor(
         raise ValidationError(
             "descriptor is not the exact activation-disabled AGY workspace agent"
         )
-    return normalized
+    return dict(normalized)
 
 
 def _grok_workspace_descriptor_payload(
@@ -914,7 +924,7 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
             raise ValidationError(
                 "unsupported or hypothesis disabled descriptors cannot include rollback data"
             )
-    return {
+    result = {
         "schema": _SCHEMA_NAME,
         "descriptor_id": descriptor_id,
         "target": target,
@@ -926,6 +936,9 @@ def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, A
         "assertions": assertions,
         "blockers": blockers,
     }
+    if descriptor_id == AGY_WORKSPACE_DESCRIPTOR_ID:
+        return _validate_agy_workspace_agent_shape(result)
+    return result
 
 
 def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str, Any]:

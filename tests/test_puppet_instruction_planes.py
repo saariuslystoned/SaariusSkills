@@ -692,6 +692,44 @@ class AgyWorkspaceDescriptorTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValidationError):
                 build_agy_workspace_agent_descriptor(**values)
 
+    def test_reserved_agy_id_is_exact_through_generic_mapping_and_json_parsers(self):
+        cases = (
+            (
+                "config-root",
+                lambda value: value["materialize"][0].update(
+                    {"root_ref": "config_root"}
+                ),
+            ),
+            (
+                "selector",
+                lambda value: value["launch_delta"]["argv"].__setitem__(
+                    1, {"name_ref": "puppet_profile_name"}
+                ),
+            ),
+            (
+                "path",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": ".agents/agents/puppet/agent.md"}
+                ),
+            ),
+            (
+                "activation",
+                lambda value: value["status"].update(
+                    {"activation": "qualification_only"}
+                ),
+            ),
+            ("blockers", lambda value: value.update({"blockers": []})),
+        )
+        for case_id, mutate in cases:
+            candidate = copy.deepcopy(self.descriptor)
+            mutate(candidate)
+            with self.subTest(case_id=case_id, parser="mapping"):
+                with self.assertRaises(ValidationError):
+                    validate_instruction_plane_descriptor(candidate)
+            with self.subTest(case_id=case_id, parser="json"):
+                with self.assertRaises(ValidationError):
+                    parse_instruction_plane_descriptor(json.dumps(candidate))
+
 
 class GrokWorkspaceDescriptorTests(unittest.TestCase):
     def setUp(self):
