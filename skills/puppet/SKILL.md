@@ -17,14 +17,22 @@ security, secrets, spending, and destructive actions separately gated.
 
 ## Before a live session
 
-1. Resolve the target repository explicitly. From a cockpit or another repo,
+1. Compile a source-only operator plan before running profile, doctor, launch,
+   or lifecycle commands. From inside the target repository, `plan` resolves
+   the current Git root. From a cockpit or another repository, pass `--repo`
+   with the exact target Git root. The body-free result binds the repository,
+   branch, commit, tree, controller fingerprints, input artifact hashes,
+   private roots, blockers, and exact command arrays, but always reports
+   `launch_authorized: false`; it neither checks login state nor creates a
+   profile, tmux server, session, or harness process.
+2. Resolve the target repository explicitly. From a cockpit or another repo,
    require an explicit target path. From inside the target, use its Git root
    unless the user overrides it. Give every mutating target a fresh worktree;
    keep the immutable controller, state, and proof outside that worktree.
-2. Read the target repository instructions and the task contract.
-3. Read [yolo-contract.md](references/yolo-contract.md) and require a local,
+3. Read the target repository instructions and the task contract.
+4. Read [yolo-contract.md](references/yolo-contract.md) and require a local,
    uncommitted acknowledgement for this exact campaign.
-4. Run `adapter_lab.py census` without launching an agent. Treat every generated
+5. Run `adapter_lab.py census` without launching an agent. Treat every generated
    capability as doctor-only until a real conformance probe qualifies the exact
    executable, adapter, platform, and protocol fingerprints. Enable it only
    with `adapter_lab.py qualify` and the accepted receipt from that probe. A
@@ -33,12 +41,12 @@ security, secrets, spending, and destructive actions separately gated.
    Regular probes require the exact authenticated Puppet-owned private profile
    and bind its closed launch environment; they never borrow an operator-global
    harness home.
-5. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
+6. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
    invalid, unauthenticated, or adapter-mismatched private profile; an active
    target/store lock; ambiguous executable identity; incomplete unrestricted
    mapping; missing sandbox-off control; prompt-in-argv transport; dirty or
    overlapping worktree; or missing proof-root writability.
-6. Run at most one live lane per harness target and one mutation owner per
+7. Run at most one live lane per harness target and one mutation owner per
    source slice. Different harness targets may proceed independently only with
    their own leases, isolated worktrees, state, sessions, and proof roots.
 
@@ -77,6 +85,26 @@ Invoke the skill-local CLI:
 ```bash
 python3 <skill-root>/scripts/puppet.py <command> ...
 ```
+
+Compile the first operator packet with:
+
+```bash
+python3 <skill-root>/scripts/puppet.py plan \
+  --contract <contract.json> \
+  --manifest <manifest.json> \
+  --authorization <authorization.json> \
+  --profile-root <private-profile> \
+  --prompt-file <launch-prompt.txt> \
+  --session <session-id> \
+  --run-root <private-run-root> \
+  [--repo <exact-target-git-root>]
+```
+
+Omit `--repo` only when the current directory is inside the target Git tree.
+Redirect the JSON result if a durable packet is needed; `plan` itself does not
+write an output file. Treat every listed command as proposed operator work, not
+as authority to run it. Resolve the reported blockers and make a separate human
+choice before any live launch.
 
 Use this sequence:
 

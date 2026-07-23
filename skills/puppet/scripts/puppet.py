@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
+from puppet_lib.operator_plan import compile_operator_plan
 from puppet_lib.promotions import close_bootstrap, promote_bootstrap
 from puppet_lib.session import (
     accept_checkpoint,
@@ -42,6 +43,19 @@ def _doctor(args):
         state_root=args.state_root,
         profile_root=args.profile_root,
         require_subscription_profile=True,
+    )
+
+
+def _plan(args):
+    return compile_operator_plan(
+        contract_path=args.contract,
+        manifest_path=args.manifest,
+        authorization_path=args.authorization,
+        profile_root=args.profile_root,
+        prompt_path=args.prompt_file,
+        session=args.session,
+        run_root=args.run_root,
+        repo=args.repo,
     )
 
 
@@ -177,6 +191,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version="puppet 0.1.0-bootstrap")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    plan_parser = commands.add_parser(
+        "plan",
+        help="compile a body-free source-only operator run plan",
+    )
+    plan_parser.add_argument("--contract", required=True, type=_path)
+    plan_parser.add_argument("--manifest", required=True, type=_path)
+    plan_parser.add_argument("--authorization", required=True, type=_path)
+    plan_parser.add_argument("--profile-root", required=True, type=_path)
+    plan_parser.add_argument("--prompt-file", required=True, type=_path)
+    plan_parser.add_argument("--session", required=True)
+    plan_parser.add_argument("--run-root", required=True, type=_path)
+    plan_parser.add_argument(
+        "--repo",
+        type=_path,
+        help="explicit target Git root for cockpit mode (default: current Git root)",
+    )
+    plan_parser.set_defaults(handler=_plan)
 
     doctor_parser = commands.add_parser("doctor", help="run read-only preflight")
     doctor_parser.add_argument("--contract", required=True, type=_path)
