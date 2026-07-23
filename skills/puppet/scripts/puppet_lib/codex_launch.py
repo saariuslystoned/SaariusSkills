@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import selectors
+import signal
 import stat
 import subprocess
 import time
@@ -359,6 +360,7 @@ def _bounded_doctor_run(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
         if process.stdout is None:  # pragma: no cover - PIPE guarantees this
             raise ValidationError("Codex doctor output pipe is unavailable")
@@ -404,7 +406,10 @@ def _bounded_doctor_run(
             selector.close()
         if process is not None:
             if process.poll() is None:
-                process.kill()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process.wait()
             if process.stdout is not None:
                 process.stdout.close()
@@ -440,6 +445,10 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> Dict[str, Any]:
     return value
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValidationError("Codex doctor output contains a non-JSON constant: %s" % value)
+
+
 def _safe_doctor_value(value: Any, *, label: str) -> str:
     if (
         not isinstance(value, str)
@@ -468,11 +477,21 @@ def _parse_doctor_model(output: bytes) -> Tuple[str, Optional[str], Optional[str
     except UnicodeDecodeError as exc:
         raise ValidationError("Codex doctor output is not UTF-8") from exc
     try:
-        value = json.loads(text, object_pairs_hook=_unique_json_object)
-    except json.JSONDecodeError as exc:
+        value = json.loads(
+            text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise ValidationError("Codex doctor output is not valid JSON") from exc
     if not isinstance(value, dict):
         raise ValidationError("Codex doctor JSON root is invalid")
+    validate_bounded_json(
+        value,
+        max_depth=12,
+        max_items=256,
+        max_string=8192,
+    )
     checks = value.get("checks")
     if not isinstance(checks, dict):
         raise ValidationError("Codex doctor checks are invalid")

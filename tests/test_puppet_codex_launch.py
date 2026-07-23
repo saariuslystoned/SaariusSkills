@@ -441,6 +441,13 @@ class CodexLaunchContextTests(unittest.TestCase):
                 b'"model provider":"openai"}}}}',
                 "model fields are ambiguous",
             ),
+            (
+                0,
+                b'{"checks":{"config.load":{"id":"config.load","details":'
+                b'{"model":"gpt-5.6-sol","model provider":"openai",'
+                b'"invalid":NaN}}}}',
+                "non-JSON constant",
+            ),
             (0, b"\xff", "not UTF-8"),
         )
         for returncode, output, message in cases:
