@@ -139,6 +139,50 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
 
 ## 7) Blockers and stop criteria
 
+### Experimental matched-control protocol boundary
+
+`scripts/matched_control_experimental.py` defines only a body-free candidate index. It is
+not imported by `adapter_manifest.py` or `adapter_lab.py`, every referenced
+observation is labeled non-authoritative, and its fixed status is
+`forbidden_missing_controller_producer_and_verifier`. A structurally valid
+candidate produces no pass/no-bleed verdict. Existing activation-lifecycle
+receipts remain non-promotable.
+
+The next implementation must add one controller-owned producer/verifier route,
+not widen this candidate validator:
+
+1. Derive the opaque marker digest while compiling the exact activated
+   instruction contract and join it to the descriptor and instruction manifest.
+   Do not accept an arbitrary marker digest from a caller.
+2. Run two sequential, controller-created Claude fixture sessions under exact
+   leases: an activated lane and a distinct ordinary control with the same
+   default-model selection and no native plane. Bind full session, target,
+   process-birth, lease, workspace, config, and tmux-server identities.
+3. Scan each exact controller-read checkpoint in memory, persist only the scan
+   digest/result row in a controller journal, and join that row to the checkpoint
+   artifact and process lease. Never persist the checkpoint or transcript body.
+4. Produce exact pre-launch and post-halt target census rows for both sessions.
+   Derive protected-population equality and exact control target absence in the
+   verifier; do not serialize caller-authored before/after verdicts.
+5. Join each terminal halt to the controller halt-control journal, exact target
+   process, exact tmux server/pane, terminal target absence, and terminal lease.
+   Do not infer halt from `stopped` or `signal_sent` booleans alone.
+6. Join activation rollback to its transaction journal and require its terminal
+   row to follow the activated halt terminal row. Ordering comes from chained
+   controller journal transitions, never a caller-authored event list.
+7. Revalidate the current manifest, execution files, adapter/protocol hashes,
+   descriptor, config/workspace identities, and interrupted recovery state at
+   verification time. Any missing, ambiguous, or mixed run fails closed.
+8. Qualify direct and cockpit entry modes as separate matched pairs. The current
+   candidate may name either mode only to plan evidence; it proves neither.
+9. Keep observed model/provider facts symbolic and unqualified until the live
+   sanitized controller hook is journal-joined. Never select a model to make the
+   proof easier.
+
+Only after that producer and verifier exist may a new receipt scope be proposed
+for `adapter_lab qualify`; the current command must continue rejecting every
+activation receipt.
+
 - Hard blockers:
   - No live hook proof yet; the default model remains unqualified.
   - Managed settings or instructions can invalidate assumed isolation or
