@@ -100,6 +100,9 @@ is hash-namespaced, create-only, workspace-root-only, and explicitly
 activation-disabled. It is a planning artifact only: no AGY launch, probe,
 materialization, or qualification path consumes it, and all config-isolation,
 sandbox-off, model, native-plane, and ordinary-session no-bleed blockers remain.
+AGY authority fences also require the exact session profile: `goal`,
+`teamwork-preview`, invalid, and unbound profiles receive an additional blocker
+and can never inherit a future `regular` qualification implicitly.
 
 Claude's matched-control substrate also revalidates the source-owned compiled
 marker and can join its body-free hashes to one exact native activation plan,

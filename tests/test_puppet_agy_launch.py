@@ -21,9 +21,12 @@ from puppet_lib import probe as puppet_probe  # noqa: E402
 from puppet_lib import session as puppet_session  # noqa: E402
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
 from puppet_lib.agy_launch import (  # noqa: E402
+    AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,
     AGY_REGULAR_AUTHORITY_BLOCKERS,
     AGY_REGULAR_VERDICT_SCHEMA,
+    agy_authority_blockers,
     agy_regular_verdict,
+    require_agy_regular_launch_authority,
 )
 from puppet_lib.errors import UnsupportedError  # noqa: E402
 from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
@@ -193,8 +196,24 @@ class AgyRegularFenceTests(unittest.TestCase):
             for blocker in AGY_REGULAR_AUTHORITY_BLOCKERS:
                 self.assertIn(blocker, report["blockers"])
 
+    def test_non_regular_profiles_cannot_borrow_regular_authority(self):
+        for profile in (None, "goal", "teamwork-preview", "caller-profile"):
+            with self.subTest(profile=profile):
+                with self.assertRaisesRegex(UnsupportedError, "non-regular"):
+                    require_agy_regular_launch_authority(profile)
+                self.assertEqual(
+                    agy_authority_blockers(profile),
+                    AGY_REGULAR_AUTHORITY_BLOCKERS
+                    + (AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,),
+                )
+        with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+            require_agy_regular_launch_authority("regular")
+        self.assertEqual(
+            agy_authority_blockers("regular"), AGY_REGULAR_AUTHORITY_BLOCKERS
+        )
+
     def test_launch_rejects_before_doctor_process_environment_or_tmux(self):
-        contract = SimpleNamespace(target="agy")
+        contract = SimpleNamespace(target="agy", session_profile="regular")
         doctor = mock.Mock(side_effect=AssertionError("doctor must not run"))
         process_query = mock.Mock(
             side_effect=AssertionError("process query must not run")

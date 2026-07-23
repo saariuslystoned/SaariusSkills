@@ -24,6 +24,11 @@ AGY_REGULAR_AUTHORITY_BLOCKER = (
     "sandbox-off behavior, a native instruction plane, the default model, and "
     "ordinary-session no-bleed are controller-qualified"
 )
+AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID = "agy_non_regular_profile_deferred"
+AGY_NON_REGULAR_AUTHORITY_BLOCKER = (
+    "AGY non-regular or unbound session profiles remain planner-only; regular, "
+    "goal, and teamwork-preview authority must qualify independently"
+)
 
 
 def agy_regular_verdict() -> Dict[str, Any]:
@@ -40,7 +45,17 @@ def agy_regular_verdict() -> Dict[str, Any]:
     }
 
 
-def require_agy_regular_launch_authority() -> None:
-    """Fail closed without consulting any live AGY or operator state."""
+def agy_authority_blockers(session_profile: Any) -> Tuple[str, ...]:
+    """Return static blockers without allowing profile authority to bleed."""
 
+    if session_profile == "regular":
+        return AGY_REGULAR_AUTHORITY_BLOCKERS
+    return AGY_REGULAR_AUTHORITY_BLOCKERS + (AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,)
+
+
+def require_agy_regular_launch_authority(session_profile: Any) -> None:
+    """Fail closed and prevent other AGY profiles from borrowing regular authority."""
+
+    if session_profile != "regular":
+        raise UnsupportedError(AGY_NON_REGULAR_AUTHORITY_BLOCKER)
     raise UnsupportedError(AGY_REGULAR_AUTHORITY_BLOCKER)

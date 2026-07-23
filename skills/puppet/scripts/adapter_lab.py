@@ -147,7 +147,7 @@ def _verify(args):
 def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
     if base.target == "agy":
-        require_agy_regular_launch_authority()
+        require_agy_regular_launch_authority(None)
     if not base.raw["doctor_only"]:
         raise ValidationError("qualification input must be a doctor-only manifest")
     mapping = read_json(args.mapping, max_bytes=65536)

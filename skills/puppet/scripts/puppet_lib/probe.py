@@ -858,7 +858,7 @@ def run_probe(
     if target not in TARGETS:
         raise ValidationError("unsupported probe target")
     if target == "agy":
-        require_agy_regular_launch_authority()
+        require_agy_regular_launch_authority(session_profile)
     if profile != PROBE_PROFILE:
         raise ValidationError(
             "probe profile must be the fixed source-free Pass B contract"

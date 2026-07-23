@@ -24,6 +24,13 @@ callbacks. Pass-B probe rejects AGY before mapping validation, fresh census,
 process lookup, proof-root creation, or tmux construction. Qualification and
 manifest promotion reject AGY even if supplied a fallback-wrapper receipt.
 
+Every authority fence is now profile-aware. `regular` receives the five
+regular blockers; `goal`, `teamwork-preview`, invalid, and unbound profiles
+receive the additional `agy_non_regular_profile_deferred` blocker and cannot
+borrow any future regular-session authority. Promotion keeps an unbound profile
+fenced until a receipt has been verified through a separately authorized path.
+This does not qualify any command profile.
+
 This verdict does not alter status, halt, or recovery for an already registered
 Puppet-owned AGY session. Puppet must not inspect, steer, halt, or otherwise
 intervene in an ordinary non-Puppet AGY session.
