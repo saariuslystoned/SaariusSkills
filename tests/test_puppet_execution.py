@@ -219,6 +219,54 @@ class ExecutionKernelTests(unittest.TestCase):
         with self.assertRaisesRegex(IdentityError, "support"):
             manifest.verify_execution_files()
 
+    def test_direct_with_support_requires_direct_runtime_and_support_provenance(self):
+        raw = manifest_raw(self.launcher)
+        raw["execution"] = build_execution_bundle(
+            launcher=launcher_execution_identity(raw["executable"]),
+            transition="direct_with_support",
+            runtime_executable=execution_file_identity(self.launcher),
+            transient_executables=[],
+            support_files=[execution_file_identity(self.support)],
+            settle_timeout_seconds=1.0,
+        )
+        manifest = AdapterManifest.from_dict(raw)
+        self.assertEqual(
+            manifest.raw["execution"]["transition"], "direct_with_support"
+        )
+
+        for label, transients, support in (
+            ("transient", [execution_file_identity(self.transient)], [
+                execution_file_identity(self.support)
+            ]),
+            ("support", [], []),
+        ):
+            with self.subTest(label=label):
+                changed = copy.deepcopy(raw)
+                changed["execution"] = build_execution_bundle(
+                    launcher=launcher_execution_identity(changed["executable"]),
+                    transition="direct_with_support",
+                    runtime_executable=execution_file_identity(self.launcher),
+                    transient_executables=transients,
+                    support_files=support,
+                    settle_timeout_seconds=1.0,
+                )
+                with self.assertRaisesRegex(
+                    ValidationError, "direct-with-support"
+                ):
+                    AdapterManifest.from_dict(changed)
+
+        changed = copy.deepcopy(raw)
+        changed["execution"] = build_execution_bundle(
+            launcher=launcher_execution_identity(changed["executable"]),
+            transition="direct_with_support",
+            runtime_executable=execution_file_identity(self.runtime),
+            transient_executables=[],
+            support_files=[execution_file_identity(self.support)],
+            settle_timeout_seconds=1.0,
+        )
+        with self.assertRaisesRegex(ValidationError, "direct-with-support"):
+            AdapterManifest.from_dict(changed)
+
     def test_execution_file_identity_rejects_path_replacement_after_open(self):
         original = self.root / "replaceable"
         replacement = self.root / "replacement"

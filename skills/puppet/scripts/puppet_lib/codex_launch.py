@@ -21,7 +21,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from .adapter_manifest import AdapterManifest, _validated_process_record
 from .campaign import active_target_processes
-from .census import adapter_implementation_fingerprint
+from .census import CODEX_NPM_LAUNCHER_SHA256, adapter_implementation_fingerprint
 from .errors import IdentityError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .launch import public_launch_identity, select_launch_environment
@@ -41,8 +41,13 @@ DOCTOR_OBSERVATION_STATE = "source_only_observation"
 DOCTOR_TIMEOUT_SECONDS = 10.0
 MAX_DOCTOR_OUTPUT_BYTES = 65536
 EXPECTED_REQUESTED_EXECUTABLE_PATH = "/opt/homebrew/bin/codex"
+EXPECTED_REQUESTED_LAUNCHER_PATH = (
+    "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"
+)
+EXPECTED_REQUESTED_LAUNCHER_SHA256 = CODEX_NPM_LAUNCHER_SHA256
 EXPECTED_RESOLVED_EXECUTABLE_PATH = (
-    "/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin"
+    "/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/"
+    "codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
 )
 EXPECTED_EXECUTABLE_SHA256 = (
     "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590"
@@ -97,7 +102,10 @@ def _contained_private_root(root: Path, *, parent: Path, label: str) -> Dict[str
 
 
 def _validate_requested_executable_link(
-    *, requested_path: str, resolved_path: str
+    *,
+    requested_path: str,
+    resolved_path: str,
+    execution: Mapping[str, Any],
 ) -> None:
     requested = Path(requested_path)
     expected_resolved = Path(resolved_path)
@@ -111,8 +119,23 @@ def _validate_requested_executable_link(
         current_resolved = requested.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise IdentityError("requested Codex executable symlink is invalid") from exc
-    if current_resolved != expected_resolved:
-        raise IdentityError("requested Codex executable symlink target changed")
+    transition = execution.get("transition")
+    if transition == "direct":
+        if current_resolved != expected_resolved:
+            raise IdentityError("requested Codex executable symlink target changed")
+        return
+    if transition != "direct_with_support":
+        raise IdentityError("requested Codex executable transition changed")
+    support = execution.get("support_files")
+    if (
+        not isinstance(support, list)
+        or len(support) != 1
+        or support[0].get("path") != EXPECTED_REQUESTED_LAUNCHER_PATH
+        or support[0].get("sha256") != EXPECTED_REQUESTED_LAUNCHER_SHA256
+        or current_resolved != Path(EXPECTED_REQUESTED_LAUNCHER_PATH)
+        or execution.get("runtime_executable", {}).get("path") != resolved_path
+    ):
+        raise IdentityError("requested Codex npm launcher identity changed")
 
 
 def _validate_launch_argv(
@@ -608,6 +631,7 @@ def build_codex_launch_context(
     _validate_requested_executable_link(
         requested_path=executable["requested_path"],
         resolved_path=executable["resolved_path"],
+        execution=manifest.raw["execution"],
     )
     manifest.verify_execution_files()
 

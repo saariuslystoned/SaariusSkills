@@ -19,8 +19,15 @@ qualified.
 
 - Requested command path: `command -v codex` -> `/opt/homebrew/bin/codex`, which is
   a symlink and is not the execution-file identity.
-- Resolved regular execution file:
-  `/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin`.
+- The 2026-07-23 CP-1 recensus resolves the requested symlink first to the
+  official npm JavaScript launcher
+  `/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js`, then statically
+  binds its bundled native execution file at
+  `/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`.
+- The exact npm launcher hash (SHA-256) is
+  `134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477`.
+  Census invokes the native file directly for version/help and records the
+  launcher as support provenance; it does not execute Node or follow a child.
 - `codex --version` -> `codex-cli 0.145.0`.
 - Resolved regular-file hash (SHA-256):
   `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
@@ -213,8 +220,11 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
     false and has no probe, adapter, session, or tmux consumer.
 
 - `skills/puppet/scripts/puppet_lib/census.py`
-  - record Codex-specific model/probe identity facts from `codex doctor --json` to
-    distinguish default-model and provider identity from command-line assumptions.
+  - resolves only the exact known Codex 0.145.0 npm launcher layout to its
+    bundled native file, records a `direct_with_support` execution tuple, and
+    invokes only that native file for bounded version/help census;
+  - reject unknown script launchers, launcher hash drift, package-layout drift,
+    native-file drift, and requested-link drift before emitting a manifest.
 - `skills/puppet/scripts/puppet_lib/adapter_manifest.py`
   - include explicit default-model/evidence fields for the observed Codex run tuple
     and validate them in qualification receipts.
@@ -223,10 +233,9 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   - expand resume/handoff assertions for Codex-specific resume path and no-bleed gates.
 - `skills/puppet/scripts/puppet_lib/codex_launch.py`
   - add a source-only Codex launch-context gate:
-    - bind the requested symlink `/opt/homebrew/bin/codex` separately from the exact
-      resolved regular execution file
-      `/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin`, and revalidate
-      that resolved file's current identity and bytes,
+    - bind the requested symlink `/opt/homebrew/bin/codex` separately from the
+      exact npm launcher and bundled native execution file, then revalidate the
+      requested link, launcher bytes, and native-file identity,
     - admit only the resolved-file plus
       `--dangerously-bypass-approvals-and-sandbox` argv mapping, with no model,
       effort, profile, or config override,

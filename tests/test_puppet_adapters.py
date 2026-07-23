@@ -46,8 +46,10 @@ from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     CENSUS_SCHEMA_VERSION,
+    CODEX_NPM_NATIVE_RELATIVE_PARTS,
     CURSOR_STATIC_LAUNCHER_LAYOUTS,
     DECLARED_MAPPINGS,
+    _codex_npm_execution_bundle,
     _cursor_execution_bundle,
     _execution_bundle,
     _project_isolation_declared,
@@ -506,6 +508,104 @@ class AdapterTests(unittest.TestCase):
             ):
                 census_target("cursor", "d" * 64)
             bounded_run.assert_not_called()
+
+    def test_codex_npm_census_executes_only_the_exact_bundled_native_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package_root = root / "@openai" / "codex"
+            launcher = package_root / "bin" / "codex.js"
+            runtime = package_root.joinpath(*CODEX_NPM_NATIVE_RELATIVE_PARTS)
+            requested = root / "bin" / "codex"
+            for parent in (launcher.parent, runtime.parent, requested.parent):
+                parent.mkdir(parents=True, exist_ok=True)
+            launcher.write_bytes(b"#!/usr/bin/env node\nsynthetic npm launcher\n")
+            runtime.write_bytes(b"synthetic bundled native runtime")
+            runtime.chmod(0o700)
+            requested.symlink_to(launcher)
+            launcher_identity = execution_file_identity(launcher)
+            real_which = shutil.which
+
+            def discovered(command, path=None):
+                if command == "codex":
+                    return str(requested)
+                return real_which(command, path=path)
+
+            with (
+                patch("puppet_lib.census.shutil.which", side_effect=discovered),
+                patch(
+                    "puppet_lib.census.CODEX_NPM_LAUNCHER_SHA256",
+                    launcher_identity["sha256"],
+                ),
+                patch(
+                    "puppet_lib.census._bounded_run",
+                    side_effect=[
+                        b"codex-cli 0.145.0\n",
+                        b"--dangerously-bypass-approvals-and-sandbox\n",
+                    ],
+                ) as bounded_run,
+            ):
+                manifest = census_target("codex", "d" * 64)
+
+            execution = manifest.raw["execution"]
+            self.assertEqual(execution["transition"], "direct_with_support")
+            self.assertEqual(
+                manifest.raw["executable"]["requested_path"], str(requested)
+            )
+            self.assertEqual(
+                manifest.raw["executable"]["resolved_path"], str(runtime.resolve())
+            )
+            self.assertEqual(
+                [item["path"] for item in execution["support_files"]],
+                [str(launcher.resolve())],
+            )
+            self.assertEqual(execution["transient_executables"], [])
+            self.assertEqual(
+                [call.args[0] for call in bounded_run.call_args_list],
+                [
+                    [str(runtime.resolve()), "--version"],
+                    [str(runtime.resolve()), "--help"],
+                ],
+            )
+
+            launcher.write_bytes(b"#!/usr/bin/env node\nchanged launcher\n")
+            changed_identity = execution_file_identity(launcher)
+            executable = {
+                "requested_path": str(requested),
+                "resolved_path": changed_identity["path"],
+                "device": changed_identity["device"],
+                "inode": changed_identity["inode"],
+                "size": changed_identity["size"],
+                "mtime_ns": changed_identity["mtime_ns"],
+                "sha256": changed_identity["sha256"],
+            }
+            with self.assertRaisesRegex(
+                ValidationError, "recognized layout"
+            ), patch(
+                "puppet_lib.census.CODEX_NPM_LAUNCHER_SHA256",
+                launcher_identity["sha256"],
+            ):
+                _codex_npm_execution_bundle(launcher, executable)
+
+            wrong_package = root / "@openai" / "not-codex" / "bin" / "codex.js"
+            wrong_package.parent.mkdir(parents=True)
+            wrong_package.write_bytes(launcher.read_bytes())
+            wrong_identity = execution_file_identity(wrong_package)
+            wrong_executable = {
+                "requested_path": str(requested),
+                "resolved_path": wrong_identity["path"],
+                "device": wrong_identity["device"],
+                "inode": wrong_identity["inode"],
+                "size": wrong_identity["size"],
+                "mtime_ns": wrong_identity["mtime_ns"],
+                "sha256": wrong_identity["sha256"],
+            }
+            with self.assertRaisesRegex(
+                ValidationError, "recognized layout"
+            ), patch(
+                "puppet_lib.census.CODEX_NPM_LAUNCHER_SHA256",
+                wrong_identity["sha256"],
+            ):
+                _codex_npm_execution_bundle(wrong_package, wrong_executable)
 
     def test_unknown_cursor_and_grok_shell_wrappers_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

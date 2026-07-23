@@ -77,6 +77,18 @@ fi
 exec -a "$0" "$NODE_BIN" "$SCRIPT_DIR/index.js" "$@"
 """,
 )
+CODEX_NPM_LAUNCHER_SHA256 = (
+    "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477"
+)
+CODEX_NPM_NATIVE_RELATIVE_PARTS = (
+    "node_modules",
+    "@openai",
+    "codex-darwin-arm64",
+    "vendor",
+    "aarch64-apple-darwin",
+    "bin",
+    "codex",
+)
 COMMANDS: Dict[str, Tuple[str, ...]] = {
     "agy": ("agy",),
     "cursor": ("cursor-agent",),
@@ -286,6 +298,39 @@ def _cursor_execution_bundle(
     )
 
 
+def _codex_npm_execution_bundle(
+    launcher_path: Path, launcher: Dict[str, Any]
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Resolve the exact 0.145.0 npm launcher to its bundled native CLI."""
+
+    observed_launcher, _raw = execution_file_snapshot(
+        launcher_path, max_bytes=16384
+    )
+    if observed_launcher != launcher_execution_identity(launcher):
+        raise ValidationError("codex npm launcher changed during static validation")
+    if (
+        observed_launcher["sha256"] != CODEX_NPM_LAUNCHER_SHA256
+        or launcher_path.name != "codex.js"
+        or launcher_path.parent.name != "bin"
+        or launcher_path.parent.parent.name != "codex"
+        or launcher_path.parent.parent.parent.name != "@openai"
+    ):
+        raise ValidationError("codex npm launcher is not the recognized layout")
+    package_root = launcher_path.parent.parent
+    runtime = execution_file_identity(
+        package_root.joinpath(*CODEX_NPM_NATIVE_RELATIVE_PARTS)
+    )
+    execution = build_execution_bundle(
+        launcher=runtime,
+        transition="direct_with_support",
+        runtime_executable=runtime,
+        transient_executables=[],
+        support_files=[observed_launcher],
+        settle_timeout_seconds=DIRECT_EXECUTION_SETTLE_SECONDS,
+    )
+    return runtime, execution
+
+
 def _execution_bundle(
     target: str, launcher_path: Path, launcher: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -323,27 +368,68 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     if not discovered:
         raise ValidationError("target executable is unavailable")
     requested_path = Path(discovered)
-    resolved_path = requested_path.resolve(strict=True)
-    if not resolved_path.is_file():
+    requested_resolved_path = requested_path.resolve(strict=True)
+    if not requested_resolved_path.is_file():
         raise ValidationError("resolved executable is not a regular file")
-    launcher = execution_file_identity(resolved_path)
-    executable = {
+    requested_launcher = execution_file_identity(requested_resolved_path)
+    requested_executable = {
         "requested_path": str(requested_path),
-        "resolved_path": launcher["path"],
-        "device": launcher["device"],
-        "inode": launcher["inode"],
-        "size": launcher["size"],
-        "mtime_ns": launcher["mtime_ns"],
-        "sha256": launcher["sha256"],
+        "resolved_path": requested_launcher["path"],
+        "device": requested_launcher["device"],
+        "inode": requested_launcher["inode"],
+        "size": requested_launcher["size"],
+        "mtime_ns": requested_launcher["mtime_ns"],
+        "sha256": requested_launcher["sha256"],
     }
-    execution = _execution_bundle(target, resolved_path, executable)
+    with requested_resolved_path.open("rb") as handle:
+        prefix = handle.read(2)
+    if target == "codex" and prefix == b"#!":
+        runtime, execution = _codex_npm_execution_bundle(
+            requested_resolved_path, requested_executable
+        )
+        executable = {
+            "requested_path": str(requested_path),
+            "resolved_path": runtime["path"],
+            "device": runtime["device"],
+            "inode": runtime["inode"],
+            "size": runtime["size"],
+            "mtime_ns": runtime["mtime_ns"],
+            "sha256": runtime["sha256"],
+        }
+        resolved_path = Path(runtime["path"])
+    else:
+        executable = requested_executable
+        resolved_path = requested_resolved_path
+        execution = _execution_bundle(target, resolved_path, executable)
     command_prefix = _census_command_prefix(target, resolved_path, execution)
     version = _bounded_run(command_prefix + ["--version"])
     help_output = _bounded_run(command_prefix + ["--help"])
-    if execution_file_identity(resolved_path) != launcher:
-        raise ValidationError("target launcher changed during bounded census")
-    if _execution_bundle(target, resolved_path, executable) != execution:
-        raise ValidationError("target runtime layout changed during bounded census")
+    if requested_path.resolve(strict=True) != requested_resolved_path:
+        raise ValidationError("target requested executable changed during bounded census")
+    if target == "codex" and prefix == b"#!":
+        current_launcher = {
+            "requested_path": str(requested_path),
+            "resolved_path": requested_launcher["path"],
+            "device": requested_launcher["device"],
+            "inode": requested_launcher["inode"],
+            "size": requested_launcher["size"],
+            "mtime_ns": requested_launcher["mtime_ns"],
+            "sha256": requested_launcher["sha256"],
+        }
+        current_runtime, current_execution = _codex_npm_execution_bundle(
+            requested_resolved_path, current_launcher
+        )
+        if current_runtime != runtime or current_execution != execution:
+            raise ValidationError(
+                "target runtime layout changed during bounded census"
+            )
+    else:
+        if execution_file_identity(resolved_path) != requested_launcher:
+            raise ValidationError("target launcher changed during bounded census")
+        if _execution_bundle(target, resolved_path, executable) != execution:
+            raise ValidationError(
+                "target runtime layout changed during bounded census"
+            )
     mapping = dict(DECLARED_MAPPINGS[target])
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
@@ -372,7 +458,7 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "session_profiles_declared": session_profiles_declared,
             "startup_settle_seconds": startup_settle_seconds,
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
-            "launch_argv": [str(resolved_path)] + _launch_flags(mapping),
+            "launch_argv": [executable["resolved_path"]] + _launch_flags(mapping),
         }
     )
     executable.update(

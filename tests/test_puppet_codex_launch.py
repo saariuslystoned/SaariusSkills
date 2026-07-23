@@ -23,8 +23,10 @@ from puppet_lib import codex_launch as codex_launch_module  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
+    build_execution_bundle,
     direct_execution_bundle,
     execution_file_identity,
+    launcher_execution_identity,
 )
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
 from puppet_lib.codex_launch import (  # noqa: E402
@@ -804,6 +806,58 @@ class CodexLaunchContextTests(unittest.TestCase):
         self.requested_executable.symlink_to(replacement)
         with self.assertRaisesRegex(IdentityError, "symlink target changed"):
             self._build(candidate_lookup=lambda _target, _selectors: [])
+
+    def test_exact_npm_launcher_supports_direct_native_context(self):
+        npm_launcher = self.base / "node_modules" / "@openai" / "codex" / "bin"
+        npm_launcher.mkdir(parents=True)
+        npm_launcher = npm_launcher / "codex.js"
+        npm_launcher.write_bytes(b"#!/usr/bin/env node\nsynthetic npm launcher\n")
+        launcher_identity = execution_file_identity(npm_launcher)
+        self.requested_executable.unlink()
+        self.requested_executable.symlink_to(npm_launcher)
+        raw = copy.deepcopy(self.manifest_raw)
+        raw["execution"] = build_execution_bundle(
+            launcher=launcher_execution_identity(raw["executable"]),
+            transition="direct_with_support",
+            runtime_executable=execution_file_identity(self.resolved_executable),
+            transient_executables=[],
+            support_files=[launcher_identity],
+            settle_timeout_seconds=1.0,
+        )
+        with (
+            mock.patch.object(
+                codex_launch_module,
+                "EXPECTED_REQUESTED_LAUNCHER_PATH",
+                launcher_identity["path"],
+            ),
+            mock.patch.object(
+                codex_launch_module,
+                "EXPECTED_REQUESTED_LAUNCHER_SHA256",
+                launcher_identity["sha256"],
+            ),
+        ):
+            context = self._build(
+                raw, candidate_lookup=lambda _target, _selectors: []
+            )
+        self.assertEqual(
+            context.resolved_executable_path, self.execution_identity["path"]
+        )
+
+        npm_launcher.write_bytes(b"#!/usr/bin/env node\nchanged npm launcher\n")
+        with (
+            mock.patch.object(
+                codex_launch_module,
+                "EXPECTED_REQUESTED_LAUNCHER_PATH",
+                launcher_identity["path"],
+            ),
+            mock.patch.object(
+                codex_launch_module,
+                "EXPECTED_REQUESTED_LAUNCHER_SHA256",
+                launcher_identity["sha256"],
+            ),
+            self.assertRaises(IdentityError),
+        ):
+            self._build(raw, candidate_lookup=lambda _target, _selectors: [])
 
     def test_forged_requested_or_resolved_manifest_path_is_rejected(self):
         mutations = (

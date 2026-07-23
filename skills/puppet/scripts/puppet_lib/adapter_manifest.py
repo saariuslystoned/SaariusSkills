@@ -64,7 +64,9 @@ EXECUTION_FIELDS = {
     "settle_timeout_seconds",
     "execution_fingerprint",
 }
-EXECUTION_TRANSITIONS = frozenset({"direct", "same_pid_exec"})
+EXECUTION_TRANSITIONS = frozenset(
+    {"direct", "direct_with_support", "same_pid_exec"}
+)
 MAX_TRANSIENT_EXECUTABLES = 8
 MAX_EXECUTION_SUPPORT_FILES = 16
 ADAPTER_MANIFEST_SCHEMA_VERSION = 2
@@ -1837,6 +1839,12 @@ class AdapterManifest:
             if runtime != launcher or transients or support:
                 raise ValidationError(
                     "direct runtime execution must equal the launch file"
+                )
+        elif transition == "direct_with_support":
+            if runtime != launcher or transients or not support:
+                raise ValidationError(
+                    "direct-with-support runtime must equal the launch file "
+                    "and declare only support files"
                 )
         elif (
             runtime["device"],
