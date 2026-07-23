@@ -19,6 +19,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     direct_execution_bundle,
 )
+from puppet_lib.agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS  # noqa: E402
 from puppet_lib.campaign import (  # noqa: E402
     ALLOWED_ACTIONS as CAMPAIGN_ALLOWED_ACTIONS,
     HARD_GATES as CAMPAIGN_HARD_GATES,
@@ -196,9 +197,7 @@ class OperatorPlanFixture:
                 if mutating
                 else ["read", "test"]
             ),
-            "terminal_criteria": [
-                {"id": "plan_ready", "evidence": "operator_plan"}
-            ],
+            "terminal_criteria": [{"id": "plan_ready", "evidence": "operator_plan"}],
             "hard_gates": sorted(MANDATORY_HARD_GATES),
         }
         if mutating:
@@ -298,12 +297,15 @@ class OperatorPlanTests(unittest.TestCase):
             )
             self.assertNotIn("prompt", plan["artifacts"])
             command = plan["commands"]["launch"]
-            self.assertEqual(command[:4], [
-                str(Path(sys.executable).resolve(strict=True)),
-                str((SCRIPTS / "puppet.py").resolve(strict=True)),
-                "--json",
-                "launch",
-            ])
+            self.assertEqual(
+                command[:4],
+                [
+                    str(Path(sys.executable).resolve(strict=True)),
+                    str((SCRIPTS / "puppet.py").resolve(strict=True)),
+                    "--json",
+                    "launch",
+                ],
+            )
             self.assertEqual(command[4:6], ["--session", "operator-plan-1"])
             self.assertEqual(
                 plan["commands"]["waits"]["done"][-4:],
@@ -387,11 +389,7 @@ class OperatorPlanTests(unittest.TestCase):
             sentinel = root / "fsmonitor-ran"
             hook = root / "fsmonitor-hook"
             hook.write_text(
-                "#!/bin/sh\n"
-                + "touch '"
-                + str(sentinel)
-                + "'\n"
-                + "printf '2\\n'\n",
+                "#!/bin/sh\n" + "touch '" + str(sentinel) + "'\n" + "printf '2\\n'\n",
                 encoding="utf-8",
             )
             hook.chmod(0o700)
@@ -416,7 +414,29 @@ class OperatorPlanTests(unittest.TestCase):
     def test_agy_plan_keeps_private_profile_setup_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="agy")
-            plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+            with (
+                patch(
+                    "puppet_lib.session.doctor",
+                    side_effect=AssertionError("doctor must not run"),
+                ) as doctor,
+                patch(
+                    "puppet_lib.session.launch",
+                    side_effect=AssertionError("harness must not launch"),
+                ) as launch,
+                patch(
+                    "puppet_lib.tmux.TmuxController",
+                    side_effect=AssertionError("tmux must not construct"),
+                ) as tmux,
+                patch(
+                    "puppet_lib.campaign.active_target_processes",
+                    side_effect=AssertionError("process census must not run"),
+                ) as processes,
+                patch(
+                    "puppet_lib.viewer.prepare_operator_view",
+                    side_effect=AssertionError("viewer must not prepare"),
+                ) as viewer,
+            ):
+                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
             self.assertEqual(
                 plan["commands"]["profile"],
                 {
@@ -428,6 +448,32 @@ class OperatorPlanTests(unittest.TestCase):
                 "agy_private_subscription_profile_unsupported",
                 plan["blockers"],
             )
+            for blocker in AGY_REGULAR_AUTHORITY_BLOCKERS:
+                self.assertIn(blocker, plan["blockers"])
+            self.assertEqual(
+                plan["commands"]["doctor"][3],
+                "doctor",
+            )
+            unsupported = {
+                "supported": False,
+                "reason": "agy_regular_session_unsupported_planner_only",
+            }
+            for command in (
+                "launch",
+                "status",
+                "waits",
+                "attach_command",
+                "open_view",
+                "halt",
+            ):
+                self.assertEqual(plan["commands"][command], unsupported)
+            encoded = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(fixture.prompt_body.strip(), encoded)
+            digest_plan = dict(plan)
+            digest = digest_plan.pop("plan_sha256")
+            self.assertEqual(digest, sha256_bytes(canonical_json_bytes(digest_plan)))
+            for sentinel in (doctor, launch, tmux, processes, viewer):
+                sentinel.assert_not_called()
 
     def test_existing_profile_root_must_remain_private(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 from .adapter_manifest import AdapterManifest
+from .agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS
 from .campaign import validate_campaign_authorization
 from .census import adapter_implementation_fingerprint
 from .contracts import Contract
@@ -35,6 +36,7 @@ _GIT_TIMEOUT_SECONDS = 5.0
 _GIT_OUTPUT_BYTES = 65536
 _PRIVATE_MODE = 0o700
 _WAIT_SECONDS = 60.0
+_AGY_LIFECYCLE_UNSUPPORTED_REASON = "agy_regular_session_unsupported_planner_only"
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
     "doctor_must_pass_at_execution_time",
@@ -103,7 +105,10 @@ def _future_profile_root(path: Path | str) -> Path:
     else:
         if stat.S_ISLNK(lexical.st_mode) or not stat.S_ISDIR(lexical.st_mode):
             raise ValidationError("existing profile root must be a private directory")
-        if lexical.st_uid != os.getuid() or stat.S_IMODE(lexical.st_mode) != _PRIVATE_MODE:
+        if (
+            lexical.st_uid != os.getuid()
+            or stat.S_IMODE(lexical.st_mode) != _PRIVATE_MODE
+        ):
             raise IdentityError("existing profile root must be current-UID 0700")
     return candidate
 
@@ -227,9 +232,9 @@ def _current_git_root(current_directory: Optional[Path | str]) -> Path:
     if not current.is_dir() or current.is_symlink():
         raise ValidationError("current directory must be a real directory")
     git = _git_executable()
-    return Path(
-        _git_output(git, current, ["rev-parse", "--show-toplevel"])
-    ).resolve(strict=True)
+    return Path(_git_output(git, current, ["rev-parse", "--show-toplevel"])).resolve(
+        strict=True
+    )
 
 
 def _command_base(cli: Path, interpreter: Path) -> list[str]:
@@ -305,6 +310,19 @@ def _commands(
         "halt": [*base, "halt", *session_base, "--timeout", "10.0"],
     }
     if contract.target == "agy":
+        unsupported = {
+            "supported": False,
+            "reason": _AGY_LIFECYCLE_UNSUPPORTED_REASON,
+        }
+        for command in (
+            "launch",
+            "status",
+            "waits",
+            "attach_command",
+            "open_view",
+            "halt",
+        ):
+            result[command] = dict(unsupported)
         result["profile"] = {
             "supported": False,
             "reason": "agy_private_subscription_profile_unsupported",
@@ -396,10 +414,7 @@ def compile_operator_plan(
             contract.supervisor_root,
             require_linked_clean=False,
         )
-        if (
-            repo_identity["git_common_dir"]
-            != supervisor_identity["git_common_dir"]
-        ):
+        if repo_identity["git_common_dir"] != supervisor_identity["git_common_dir"]:
             raise IdentityError(
                 "candidate worktree does not belong to the contract supervisor"
             )
@@ -409,7 +424,9 @@ def compile_operator_plan(
     state = _private_root(run / "state", label="state root")
     profile = _future_profile_root(profile_root)
     if paths_overlap(selected, run) or paths_overlap(selected, profile):
-        raise ValidationError("operator roots must remain outside the target repository")
+        raise ValidationError(
+            "operator roots must remain outside the target repository"
+        )
     if paths_overlap(profile, run) or paths_overlap(proof, state):
         raise ValidationError(
             "profile, proof, and state ownership roots must not overlap"
@@ -436,6 +453,7 @@ def compile_operator_plan(
     blockers = list(_LAUNCH_BLOCKERS)
     if contract.target == "agy":
         blockers.append("agy_private_subscription_profile_unsupported")
+        blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:
