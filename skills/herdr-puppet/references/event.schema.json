@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/event.schema.json",
+  "title": "Herdr-Puppet controller event v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "event_id",
+    "timestamp",
+    "run_id",
+    "kind",
+    "result"
+  ],
+  "properties": {
+    "schema": {"const": "herdr-puppet.event.v1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "result": {
+      "enum": ["ok", "blocked", "failed", "observed", "keep", "repair", "defer", "reject", "human_gate"]
+    },
+    "seq": {"type": "integer", "minimum": 1},
+    "prompt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonce_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "note": {"type": "string"},
+    "data": {"type": "object"}
+  },
+  "additionalProperties": false
+}
