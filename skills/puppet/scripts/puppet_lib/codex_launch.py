@@ -7,11 +7,16 @@ retained for inspection.
 
 from __future__ import annotations
 
+import json
 import os
+import selectors
 import stat
+import subprocess
+import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from .adapter_manifest import AdapterManifest, _validated_process_record
 from .campaign import active_target_processes
@@ -25,10 +30,15 @@ from .safety import (
     ensure_within,
     paths_overlap,
     sha256_bytes,
+    validate_bounded_json,
     validate_identifier,
 )
 
 LAUNCH_CONTEXT_SCHEMA = "puppet.codex-launch-context/v1"
+DOCTOR_OBSERVATION_SCHEMA = "puppet.codex-doctor-observation/v1"
+DOCTOR_OBSERVATION_STATE = "source_only_observation"
+DOCTOR_TIMEOUT_SECONDS = 10.0
+MAX_DOCTOR_OUTPUT_BYTES = 65536
 EXPECTED_REQUESTED_EXECUTABLE_PATH = "/opt/homebrew/bin/codex"
 EXPECTED_RESOLVED_EXECUTABLE_PATH = (
     "/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin"
@@ -51,6 +61,10 @@ SOURCE_ONLY_BLOCKERS = (
     "launch remains fenced/source-only",
 )
 MAPPING_INCOMPLETE_BLOCKER = "native-plane mapping remains incomplete"
+DEFAULT_MODEL_SENTINEL = "<default>"
+DEFAULT_MODEL_CLASSIFICATION = "available_for_test_plan_only"
+EXPLICIT_MODEL_CLASSIFICATION = "observed_only"
+UNAVAILABLE_MODEL_CLASSIFICATION = "unavailable"
 
 
 def _validate_root(path: Path, *, label: str) -> Dict[str, Any]:
@@ -210,6 +224,7 @@ class CodexLaunchContext:
     target: str
     session_profile: str
     manifest_fingerprint: str
+    execution_fingerprint: str
     adapter_fingerprint: str
     protocol_fingerprint: str
     version_text: str
@@ -238,6 +253,7 @@ class CodexLaunchContext:
             "session_profile": self.session_profile,
             "launch_authorized": self.launch_authorized,
             "manifest_fingerprint": self.manifest_fingerprint,
+            "execution_fingerprint": self.execution_fingerprint,
             "adapter_fingerprint": self.adapter_fingerprint,
             "protocol_fingerprint": self.protocol_fingerprint,
             "version_text": self.version_text,
@@ -274,6 +290,250 @@ class CodexLaunchContext:
     @property
     def argv(self) -> list[str]:
         return list(self._argv)
+
+
+@dataclass(frozen=True)
+class CodexDoctorObservation:
+    """Allowlisted doctor provenance with the raw report discarded."""
+
+    classification: str
+    observed_model: Optional[str]
+    observed_provider: Optional[str]
+    doctor_output_sha256: str
+    doctor_output_bytes: int
+    manifest_fingerprint: str
+    execution_fingerprint: str
+    adapter_fingerprint: str
+    protocol_fingerprint: str
+    codex_home_identity_sha256: str
+    launch_context_sha256: str
+    doctor_command_identity: Dict[str, Any]
+    blockers: Tuple[str, ...]
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        value = {
+            "schema": DOCTOR_OBSERVATION_SCHEMA,
+            "state": DOCTOR_OBSERVATION_STATE,
+            "target": "codex",
+            "session_profile": "regular",
+            "classification": self.classification,
+            "observed_model": self.observed_model,
+            "observed_provider": self.observed_provider,
+            "doctor_output_sha256": self.doctor_output_sha256,
+            "doctor_output_bytes": self.doctor_output_bytes,
+            "manifest_fingerprint": self.manifest_fingerprint,
+            "execution_fingerprint": self.execution_fingerprint,
+            "adapter_fingerprint": self.adapter_fingerprint,
+            "protocol_fingerprint": self.protocol_fingerprint,
+            "codex_home_identity_sha256": self.codex_home_identity_sha256,
+            "launch_context_sha256": self.launch_context_sha256,
+            "doctor_command_identity": dict(self.doctor_command_identity),
+            "blockers": list(self.blockers),
+            "launch_authorized": False,
+            "qualification_authorized": False,
+            "same_runtime_proved": False,
+            "model_selection_authorized": False,
+        }
+        value["observation_sha256"] = sha256_bytes(canonical_json_bytes(value))
+        validate_bounded_json(
+            value,
+            max_depth=6,
+            max_items=64,
+            max_string=4096,
+            reject_sensitive_fields=True,
+        )
+        return value
+
+
+def _bounded_doctor_run(
+    argv: Sequence[str], *, environment: Mapping[str, str], cwd: Path
+) -> subprocess.CompletedProcess[bytes]:
+    process: Optional[subprocess.Popen[bytes]] = None
+    selector: Optional[selectors.BaseSelector] = None
+    output = bytearray()
+    try:
+        process = subprocess.Popen(
+            list(argv),
+            cwd=str(cwd),
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if process.stdout is None:  # pragma: no cover - PIPE guarantees this
+            raise ValidationError("Codex doctor output pipe is unavailable")
+        os.set_blocking(process.stdout.fileno(), False)
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + DOCTOR_TIMEOUT_SECONDS
+        eof = False
+        while not eof:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(list(argv), DOCTOR_TIMEOUT_SECONDS)
+            ready = selector.select(min(remaining, 0.25))
+            if not ready and process.poll() is not None:
+                ready = selector.select(0)
+                if not ready:
+                    break
+            for key, _mask in ready:
+                try:
+                    block = os.read(key.fileobj.fileno(), 4096)
+                except BlockingIOError:
+                    continue
+                if not block:
+                    eof = True
+                    break
+                output.extend(block)
+                if len(output) > MAX_DOCTOR_OUTPUT_BYTES:
+                    raise ValidationError("Codex doctor output exceeds the cap")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(list(argv), DOCTOR_TIMEOUT_SECONDS)
+        returncode = process.wait(timeout=remaining)
+        return subprocess.CompletedProcess(
+            list(argv),
+            returncode,
+            stdout=bytes(output),
+            stderr=None,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationError("Codex doctor command failed") from exc
+    finally:
+        if selector is not None:
+            selector.close()
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+
+
+def _doctor_command(
+    context: CodexLaunchContext,
+) -> Tuple[Tuple[str, ...], Dict[str, str], Dict[str, Any]]:
+    argv = (context.resolved_executable_path, "doctor", "--json")
+    lane_root = Path(context.lane_root_identity["path"])
+    workspace = Path(context.workspace_root_identity["path"])
+    environment = select_launch_environment(
+        target="codex",
+        source_environment={},
+        bindings={"CODEX_HOME": context.codex_home_identity["path"]},
+        admitted_lane_root=lane_root,
+    )
+    identity = public_launch_identity(
+        repo=workspace,
+        argv=argv,
+        environment=environment,
+        admitted_lane_root=lane_root,
+    )
+    return argv, environment, identity
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> Dict[str, Any]:
+    value: Dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValidationError("Codex doctor JSON contains duplicate fields")
+        value[key] = item
+    return value
+
+
+def _safe_doctor_value(value: Any, *, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 200
+        or value != value.strip()
+        or any(unicodedata.category(character).startswith("C") for character in value)
+    ):
+        raise ValidationError("Codex doctor %s is invalid" % label)
+    if value == DEFAULT_MODEL_SENTINEL and label == "model":
+        return value
+    if not all(
+        character.isascii()
+        and (character.isalnum() or character in "._:/-")
+        for character in value
+    ):
+        raise ValidationError("Codex doctor %s is invalid" % label)
+    return value
+
+
+def _parse_doctor_model(output: bytes) -> Tuple[str, Optional[str], Optional[str]]:
+    if len(output) > MAX_DOCTOR_OUTPUT_BYTES:
+        raise ValidationError("Codex doctor output exceeds the cap")
+    try:
+        text = output.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationError("Codex doctor output is not UTF-8") from exc
+    try:
+        value = json.loads(text, object_pairs_hook=_unique_json_object)
+    except json.JSONDecodeError as exc:
+        raise ValidationError("Codex doctor output is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValidationError("Codex doctor JSON root is invalid")
+    checks = value.get("checks")
+    if not isinstance(checks, dict):
+        raise ValidationError("Codex doctor checks are invalid")
+    config = checks.get("config.load")
+    if config is None:
+        return UNAVAILABLE_MODEL_CLASSIFICATION, None, None
+    if not isinstance(config, dict) or config.get("id") != "config.load":
+        raise ValidationError("Codex doctor config check is ambiguous")
+    details = config.get("details")
+    if not isinstance(details, dict):
+        return UNAVAILABLE_MODEL_CLASSIFICATION, None, None
+    for key in details:
+        normalized = " ".join(
+            key.casefold().replace("_", " ").replace("-", " ").split()
+        )
+        if normalized in {"model", "model provider"} and key not in {
+            "model",
+            "model provider",
+        }:
+            raise ValidationError("Codex doctor model fields are ambiguous")
+    if "model" not in details or "model provider" not in details:
+        return UNAVAILABLE_MODEL_CLASSIFICATION, None, None
+    model = _safe_doctor_value(details["model"], label="model")
+    provider = _safe_doctor_value(details["model provider"], label="provider")
+    classification = (
+        DEFAULT_MODEL_CLASSIFICATION
+        if model == DEFAULT_MODEL_SENTINEL
+        else EXPLICIT_MODEL_CLASSIFICATION
+    )
+    return classification, model, provider
+
+
+def _derive_codex_doctor_observation(
+    context: CodexLaunchContext,
+    output: bytes,
+    *,
+    doctor_command_identity: Mapping[str, Any],
+) -> CodexDoctorObservation:
+    if context.launch_authorized or context.target != "codex":
+        raise IdentityError("Codex doctor context gained launch authority")
+    _argv, _environment, expected_identity = _doctor_command(context)
+    if dict(doctor_command_identity) != expected_identity:
+        raise IdentityError("Codex doctor command identity changed")
+    classification, model, provider = _parse_doctor_model(output)
+    return CodexDoctorObservation(
+        classification=classification,
+        observed_model=model,
+        observed_provider=provider,
+        doctor_output_sha256=sha256_bytes(output),
+        doctor_output_bytes=len(output),
+        manifest_fingerprint=context.manifest_fingerprint,
+        execution_fingerprint=context.execution_fingerprint,
+        adapter_fingerprint=context.adapter_fingerprint,
+        protocol_fingerprint=context.protocol_fingerprint,
+        codex_home_identity_sha256=sha256_bytes(
+            canonical_json_bytes(context.codex_home_identity)
+        ),
+        launch_context_sha256=context.public_context_sha256,
+        doctor_command_identity=expected_identity,
+        blockers=context.blockers,
+    )
 
 
 def build_codex_launch_context(
@@ -383,6 +643,7 @@ def build_codex_launch_context(
         target=manifest.target,
         session_profile=session_profile,
         manifest_fingerprint=manifest.fingerprint,
+        execution_fingerprint=manifest.raw["execution"]["execution_fingerprint"],
         adapter_fingerprint=manifest.raw["adapter_fingerprint"],
         protocol_fingerprint=manifest.raw["protocol_fingerprint"],
         version_text=EXPECTED_VERSION_TEXT,
@@ -404,3 +665,58 @@ def build_codex_launch_context(
         _argv=argv,
         _launch_identity=launch_identity,
     )
+
+
+def observe_codex_doctor(
+    *,
+    manifest_path: Path | str,
+    lane_root: Path | str,
+    workspace_root: Path | str,
+    codex_home: Path | str,
+) -> CodexDoctorObservation:
+    """Run one exact private-root doctor command and discard its raw report."""
+
+    before = build_codex_launch_context(
+        manifest_path=manifest_path,
+        lane_root=lane_root,
+        workspace_root=workspace_root,
+        codex_home=codex_home,
+    )
+    if before.candidate_process_count:
+        raise IdentityError(
+            "Codex doctor observation requires zero pre-existing target processes"
+        )
+    argv, environment, command_identity = _doctor_command(before)
+    result = _bounded_doctor_run(
+        argv,
+        environment=environment,
+        cwd=Path(before.workspace_root_identity["path"]),
+    )
+    if result.returncode != 0:
+        raise ValidationError("Codex doctor command returned nonzero")
+    after = build_codex_launch_context(
+        manifest_path=manifest_path,
+        lane_root=lane_root,
+        workspace_root=workspace_root,
+        codex_home=codex_home,
+    )
+    if after.candidate_process_count or (
+        after.public_context_sha256 != before.public_context_sha256
+    ):
+        raise IdentityError("Codex doctor source identity changed during observation")
+    _after_argv, _after_environment, after_identity = _doctor_command(after)
+    if after_identity != command_identity:
+        raise IdentityError("Codex doctor command identity changed during observation")
+    return _derive_codex_doctor_observation(
+        after,
+        result.stdout,
+        doctor_command_identity=after_identity,
+    )
+
+
+__all__ = [
+    "CodexDoctorObservation",
+    "CodexLaunchContext",
+    "build_codex_launch_context",
+    "observe_codex_doctor",
+]

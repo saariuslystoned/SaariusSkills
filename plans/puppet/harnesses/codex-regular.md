@@ -198,6 +198,20 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
     blocker and `launch_authorized=false`;
   - all lifecycle entry points unconditionally raise `UnsupportedError`.
 
+- `skills/puppet/scripts/puppet_lib/codex_launch.py`
+  - now exposes a source-only doctor observation that rebuilds the existing
+    private-root launch context, requires zero pre-existing Codex processes,
+    runs only the exact resolved executable plus `doctor --json` under the
+    closed `CODEX_HOME`-only environment, and revalidates the complete context
+    after the command;
+  - retains only the bounded raw-output hash/byte count and the allowlisted
+    `config.load` model/provider pair. Duplicate, alias-ambiguous, malformed,
+    non-UTF-8, oversized, nonzero, timed-out, or drifted observations fail
+    closed. `<default>` remains `available_for_test_plan_only`; an explicit pair
+    remains `observed_only` until same-runtime live proof exists;
+  - fixes launch, model-selection, same-runtime, and qualification authority to
+    false and has no probe, adapter, session, or tmux consumer.
+
 - `skills/puppet/scripts/puppet_lib/census.py`
   - record Codex-specific model/probe identity facts from `codex doctor --json` to
     distinguish default-model and provider identity from command-line assumptions.

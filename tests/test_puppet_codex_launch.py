@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import inspect
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,7 +26,10 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     execution_file_identity,
 )
 from puppet_lib.census import adapter_implementation_fingerprint  # noqa: E402
-from puppet_lib.codex_launch import build_codex_launch_context  # noqa: E402
+from puppet_lib.codex_launch import (  # noqa: E402
+    build_codex_launch_context,
+    observe_codex_doctor,
+)
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
@@ -142,7 +147,34 @@ class CodexLaunchContextTests(unittest.TestCase):
         install_root.mkdir()
         requested_root.mkdir()
         self.resolved_executable = install_root / "codex-aarch64-apple-darwin"
-        self.resolved_executable.write_bytes(b"#!/bin/sh\nexit 0\n")
+        self.doctor_payload = {
+            "schemaVersion": 1,
+            "checks": {
+                "config.load": {
+                    "id": "config.load",
+                    "status": "ok",
+                    "details": {
+                        "model": "<default>",
+                        "model provider": "openai",
+                    },
+                }
+            },
+            "discarded-private-canary": "DO_NOT_PERSIST_DOCTOR_BODY_7139",
+        }
+        doctor_json = json.dumps(self.doctor_payload, separators=(",", ":"))
+        self.doctor_output = (doctor_json + "\n").encode("utf-8")
+        self.resolved_executable.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$#\" -eq 2 ] && [ \"$1\" = doctor ] "
+            "&& [ \"$2\" = --json ]; then\n"
+            "  printf '%s\\n' '"
+            + doctor_json
+            + "'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 2\n",
+            encoding="utf-8",
+        )
         self.resolved_executable.chmod(0o755)
         self.requested_executable = requested_root / "codex"
         self.requested_executable.symlink_to(self.resolved_executable)
@@ -198,6 +230,31 @@ class CodexLaunchContextTests(unittest.TestCase):
                 codex_home=codex_home,
                 **kwargs,
             )
+
+    def _observe(self, *, result=None):
+        with mock.patch.object(
+            codex_launch_module,
+            "active_target_processes",
+            return_value=[],
+        ):
+            if result is None:
+                return observe_codex_doctor(
+                    manifest_path=self.manifest_path,
+                    lane_root=self.lane_root,
+                    workspace_root=self.workspace,
+                    codex_home=self.codex_home,
+                )
+            with mock.patch.object(
+                codex_launch_module,
+                "_bounded_doctor_run",
+                return_value=result,
+            ):
+                return observe_codex_doctor(
+                    manifest_path=self.manifest_path,
+                    lane_root=self.lane_root,
+                    workspace_root=self.workspace,
+                    codex_home=self.codex_home,
+                )
 
     def test_build_context_binds_requested_and_resolved_identity(self):
         manifest = AdapterManifest.from_dict(self.manifest_raw)
@@ -259,6 +316,229 @@ class CodexLaunchContextTests(unittest.TestCase):
             self.assertIsNone(
                 re.search(r"token|secret|credential|password|auth_value", key, re.I)
             )
+
+    def test_doctor_observation_is_exact_body_free_and_non_authorizing(self):
+        captured = {}
+        real_runner = codex_launch_module._bounded_doctor_run
+
+        def observed(argv, *, environment, cwd):
+            captured.update(argv=list(argv), environment=dict(environment), cwd=cwd)
+            return real_runner(argv, environment=environment, cwd=cwd)
+
+        with mock.patch.object(
+            codex_launch_module,
+            "_bounded_doctor_run",
+            side_effect=observed,
+        ):
+            observation = self._observe()
+        public = observation.to_public_dict()
+        self.assertEqual(
+            public["schema"], codex_launch_module.DOCTOR_OBSERVATION_SCHEMA
+        )
+        self.assertEqual(
+            public["classification"],
+            codex_launch_module.DEFAULT_MODEL_CLASSIFICATION,
+        )
+        self.assertEqual(public["observed_model"], "<default>")
+        self.assertEqual(public["observed_provider"], "openai")
+        self.assertEqual(
+            captured["argv"],
+            [self.execution_identity["path"], "doctor", "--json"],
+        )
+        self.assertEqual(
+            captured["environment"],
+            {"CODEX_HOME": str(self.codex_home.resolve(strict=True))},
+        )
+        self.assertEqual(captured["cwd"], self.workspace.resolve(strict=True))
+        self.assertEqual(
+            public["doctor_output_sha256"],
+            hashlib.sha256(self.doctor_output).hexdigest(),
+        )
+        self.assertEqual(public["doctor_output_bytes"], len(self.doctor_output))
+        encoded = json.dumps(public, sort_keys=True)
+        self.assertNotIn("DO_NOT_PERSIST_DOCTOR_BODY_7139", encoded)
+        self.assertFalse(public["launch_authorized"])
+        self.assertFalse(public["qualification_authorized"])
+        self.assertFalse(public["same_runtime_proved"])
+        self.assertFalse(public["model_selection_authorized"])
+        self.assertFalse(hasattr(observation, "raw_output"))
+
+    def test_explicit_doctor_model_is_observed_only(self):
+        output = json.dumps(
+            {
+                "checks": {
+                    "config.load": {
+                        "id": "config.load",
+                        "details": {
+                            "model": "gpt-5.6-sol",
+                            "model provider": "openai",
+                        },
+                    }
+                }
+            }
+        ).encode("utf-8")
+        result = subprocess.CompletedProcess(
+            [self.execution_identity["path"], "doctor", "--json"],
+            0,
+            stdout=output,
+            stderr=None,
+        )
+        public = self._observe(result=result).to_public_dict()
+        self.assertEqual(
+            public["classification"],
+            codex_launch_module.EXPLICIT_MODEL_CLASSIFICATION,
+        )
+        self.assertEqual(public["observed_model"], "gpt-5.6-sol")
+        self.assertFalse(public["same_runtime_proved"])
+
+    def test_missing_doctor_model_pair_is_unavailable(self):
+        for details in ({}, {"model": "gpt-5.6-sol"}, {"model provider": "openai"}):
+            with self.subTest(details=details):
+                output = json.dumps(
+                    {
+                        "checks": {
+                            "config.load": {
+                                "id": "config.load",
+                                "details": details,
+                            }
+                        }
+                    }
+                ).encode("utf-8")
+                result = subprocess.CompletedProcess(
+                    [self.execution_identity["path"], "doctor", "--json"],
+                    0,
+                    stdout=output,
+                    stderr=None,
+                )
+                public = self._observe(result=result).to_public_dict()
+                self.assertEqual(
+                    public["classification"],
+                    codex_launch_module.UNAVAILABLE_MODEL_CLASSIFICATION,
+                )
+                self.assertIsNone(public["observed_model"])
+                self.assertIsNone(public["observed_provider"])
+
+    def test_doctor_rejects_nonzero_malformed_duplicate_and_unsafe_values(self):
+        cases = (
+            (1, self.doctor_output, "returned nonzero"),
+            (0, b"not-json", "not valid JSON"),
+            (
+                0,
+                b'{"checks":{"config.load":{"id":"config.load","details":'
+                b'{"model":"first","model":"second","model provider":"openai"}}}}',
+                "duplicate fields",
+            ),
+            (
+                0,
+                b'{"checks":{"config.load":{"id":"config.load","details":'
+                b'{"model":"bad\\u0000model","model provider":"openai"}}}}',
+                "model is invalid",
+            ),
+            (
+                0,
+                b'{"checks":{"config.load":{"id":"config.load","details":'
+                b'{"model":"gpt-5.6-sol","Model":"other",'
+                b'"model provider":"openai"}}}}',
+                "model fields are ambiguous",
+            ),
+            (0, b"\xff", "not UTF-8"),
+        )
+        for returncode, output, message in cases:
+            with self.subTest(message=message):
+                result = subprocess.CompletedProcess(
+                    [self.execution_identity["path"], "doctor", "--json"],
+                    returncode,
+                    stdout=output,
+                    stderr=None,
+                )
+                with self.assertRaisesRegex(ValidationError, message):
+                    self._observe(result=result)
+
+    def test_doctor_output_cap_timeout_and_source_drift_fail_closed(self):
+        oversized = subprocess.CompletedProcess(
+            [self.execution_identity["path"], "doctor", "--json"],
+            0,
+            stdout=b"x" * (codex_launch_module.MAX_DOCTOR_OUTPUT_BYTES + 1),
+            stderr=None,
+        )
+        with self.assertRaisesRegex(ValidationError, "exceeds the cap"):
+            self._observe(result=oversized)
+
+        with mock.patch.object(
+            codex_launch_module,
+            "DOCTOR_TIMEOUT_SECONDS",
+            0.01,
+        ):
+            with self.assertRaisesRegex(ValidationError, "command failed"):
+                codex_launch_module._bounded_doctor_run(
+                    ["/bin/sleep", "1"],
+                    environment={},
+                    cwd=self.workspace,
+                )
+
+        result = subprocess.CompletedProcess(
+            [self.execution_identity["path"], "doctor", "--json"],
+            0,
+            stdout=self.doctor_output,
+            stderr=None,
+        )
+
+        def drift_after_run(*_args, **_kwargs):
+            self.resolved_executable.write_bytes(b"changed after doctor\n")
+            return result
+
+        with mock.patch.object(
+            codex_launch_module,
+            "active_target_processes",
+            return_value=[],
+        ), mock.patch.object(
+            codex_launch_module,
+            "_bounded_doctor_run",
+            side_effect=drift_after_run,
+        ):
+            with self.assertRaises(IdentityError):
+                observe_codex_doctor(
+                    manifest_path=self.manifest_path,
+                    lane_root=self.lane_root,
+                    workspace_root=self.workspace,
+                    codex_home=self.codex_home,
+                )
+
+    def test_doctor_observation_rederives_and_has_no_runtime_consumer(self):
+        context = self._build(candidate_lookup=lambda _target, _selectors: [])
+        _argv, _environment, identity = codex_launch_module._doctor_command(context)
+        first = codex_launch_module._derive_codex_doctor_observation(
+            context,
+            self.doctor_output,
+            doctor_command_identity=identity,
+        ).to_public_dict()
+        second = codex_launch_module._derive_codex_doctor_observation(
+            context,
+            self.doctor_output,
+            doctor_command_identity=identity,
+        ).to_public_dict()
+        self.assertEqual(first, second)
+        digest_record = dict(first)
+        digest = digest_record.pop("observation_sha256")
+        self.assertEqual(
+            digest,
+            hashlib.sha256(
+                json.dumps(
+                    digest_record,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+        for relative in (
+            "puppet_lib/probe.py",
+            "puppet_lib/adapters.py",
+            "puppet_lib/session.py",
+            "puppet_lib/tmux.py",
+        ):
+            source = (SCRIPTS / relative).read_text(encoding="utf-8")
+            self.assertNotIn("observe_codex_doctor", source)
 
     def test_alternate_model_or_effort_parameters_are_impossible(self):
         parameters = inspect.signature(build_codex_launch_context).parameters

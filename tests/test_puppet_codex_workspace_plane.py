@@ -119,6 +119,7 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             "target": "codex",
             "session_profile": "regular",
             "manifest_fingerprint": "5" * 64,
+            "execution_fingerprint": "4" * 64,
             "adapter_fingerprint": "6" * 64,
             "protocol_fingerprint": "7" * 64,
             "version_text": workspace_module.EXPECTED_VERSION_TEXT,
