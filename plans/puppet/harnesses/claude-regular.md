@@ -160,9 +160,20 @@ receipts remain non-promotable.
 The next implementation must add one controller-owned producer/verifier route,
 not widen this candidate validator:
 
-1. Derive the opaque marker digest while compiling the exact activated
-   instruction contract and join it to the descriptor and instruction manifest.
-   Do not accept an arbitrary marker digest from a caller.
+`puppet_lib/matched_control.py` now supplies a narrower compile-only substrate.
+It validates the exact Claude additive descriptor, derives an opaque marker from
+the controller run identity, injects that marker exactly once into the activated
+compiled bytes, and returns only a hash-bound `compiled_binding_only` record.
+The record fixes `delivered`, `checkpoint_observed`, `lease_bound`,
+`no_bleed_evaluated`, `no_bleed_verified`, `runtime_scan_authorized`,
+`promotion_authorized`, and `qualification_authorized` to false, with
+`result: not_evaluated`. It writes no journal, touches no runtime, and is not
+wired into probe or qualification. This closes only the source-owned marker
+compilation/body-retention gap; every runtime join below remains required.
+
+1. Join the compile-only marker binding to the exact `ActivationPlan`, current
+   descriptor and manifest, and controller authority before delivery. Do not
+   accept an arbitrary marker, digest, binding row, or journal from a caller.
 2. Run two sequential, controller-created Claude fixture sessions under exact
    leases: an activated lane and a distinct ordinary control with the same
    default-model selection and no native plane. Bind full session, target,
