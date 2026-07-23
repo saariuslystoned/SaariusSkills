@@ -352,6 +352,18 @@ def _bounded_doctor_run(
     process: Optional[subprocess.Popen[bytes]] = None
     selector: Optional[selectors.BaseSelector] = None
     output = bytearray()
+    group_terminated = False
+
+    def terminate_group() -> None:
+        nonlocal group_terminated
+        if process is None or group_terminated:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        group_terminated = True
+
     try:
         process = subprocess.Popen(
             list(argv),
@@ -374,10 +386,6 @@ def _bounded_doctor_run(
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(list(argv), DOCTOR_TIMEOUT_SECONDS)
             ready = selector.select(min(remaining, 0.25))
-            if not ready and process.poll() is not None:
-                ready = selector.select(0)
-                if not ready:
-                    break
             for key, _mask in ready:
                 try:
                     block = os.read(key.fileobj.fileno(), 4096)
@@ -393,6 +401,7 @@ def _bounded_doctor_run(
         if remaining <= 0:
             raise subprocess.TimeoutExpired(list(argv), DOCTOR_TIMEOUT_SECONDS)
         returncode = process.wait(timeout=remaining)
+        terminate_group()
         return subprocess.CompletedProcess(
             list(argv),
             returncode,
@@ -405,12 +414,8 @@ def _bounded_doctor_run(
         if selector is not None:
             selector.close()
         if process is not None:
-            if process.poll() is None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait()
+            terminate_group()
+            process.wait()
             if process.stdout is not None:
                 process.stdout.close()
 

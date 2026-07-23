@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -482,6 +483,41 @@ class CodexLaunchContextTests(unittest.TestCase):
                     environment={},
                     cwd=self.workspace,
                 )
+
+        child_pid_path = self.base / "doctor-child.pid"
+        child_parent = self.base / "doctor-child-parent"
+        child_parent.write_text(
+            "#!/bin/sh\n"
+            "/bin/sleep 30 &\n"
+            "printf '%s\\n' \"$!\" > '"
+            + str(child_pid_path)
+            + "'\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        child_parent.chmod(0o700)
+        with mock.patch.object(
+            codex_launch_module,
+            "DOCTOR_TIMEOUT_SECONDS",
+            0.25,
+        ):
+            with self.assertRaisesRegex(ValidationError, "command failed"):
+                codex_launch_module._bounded_doctor_run(
+                    [str(child_parent)],
+                    environment={},
+                    cwd=self.workspace,
+                )
+        self.assertTrue(child_pid_path.is_file())
+        child_pid = int(child_pid_path.read_text(encoding="utf-8").strip())
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("doctor child process survived exact group cleanup")
 
         result = subprocess.CompletedProcess(
             [self.execution_identity["path"], "doctor", "--json"],
