@@ -204,3 +204,22 @@ repair, and internally promote immutable-between-session Puppet versions
 without per-rung operator approval, while external gated actions stay excluded.
 The required terminal result is either a locally committed, fully proved
 candidate or one precise evidence-backed blocker.
+
+## Post-GrillTrack architecture update
+
+The following decision was made after the closed 2026-07-21 GrillTrack. It does
+not alter the historical count or wording of the verified decisions above.
+
+### `transport-001` — explicit tmux and Herdr backends
+
+One Puppet controller contract should offer two explicit terminal backends:
+the existing private-tmux path and an optional Herdr-native path. A run binds
+exactly one backend before launch and never silently falls back. Tmux remains
+the portable qualified default; Herdr may enter as a clearly labeled
+experimental opt-in after a minimum 1x1 lease, non-argv send, structured
+checkpoint, client detach/reattach, and preservation proof. Full remote-process
+identity, targeted halt, recovery, repeated concurrency, and independent
+review remain gates for stable Herdr qualification. Authentication, proof,
+review, acceptance, and human-gate policy stay backend-independent. See
+[`dual-transport.md`](dual-transport.md) for the complete boundary and
+integration order.
