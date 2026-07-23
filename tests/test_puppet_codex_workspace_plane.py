@@ -14,6 +14,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib import codex_workspace_plane as workspace_module  # noqa: E402
+from puppet_lib.adapter_manifest import QUALIFICATION_PROFILE  # noqa: E402
 from puppet_lib.codex_launch import (  # noqa: E402
     AUTH_ROUTE,
     CURRENT_DEFAULT_SELECTION,
@@ -31,6 +32,7 @@ from puppet_lib.codex_workspace_plane import (  # noqa: E402
     rollback_codex_workspace_plane,
     verify_codex_workspace_plane,
 )
+from puppet_lib.conformance import tree_fingerprint  # noqa: E402
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
     IdentityError,
@@ -85,26 +87,26 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+        self.expected_contract_identity = {
+            "fingerprint": "3" * 64,
+            "controller": "controller-a",
+            "target": "codex",
+            "task_profile": QUALIFICATION_PROFILE,
+        }
+        self.expected_run_identity = {
+            "session": "codex-session-a",
+            "run_id": "codex-run-a",
+            "nonce": "codex-nonce-a",
+        }
         self.compiled = compile_instruction_wrapper(
             target="codex",
             task="PUPPET_INSTRUCTION_BODY_CANARY must never persist in the plan",
-            contract_identity={
-                "fingerprint": "3" * 64,
-                "controller": "controller-a",
-                "target": "codex",
-                "task_profile": "qualification-pass-b",
-            },
+            contract_identity=self.expected_contract_identity,
             workspace_identity={
-                "fixture_fingerprint": sha256_bytes(
-                    canonical_json_bytes(_root_identity(self.workspace))
-                ),
+                "fixture_fingerprint": tree_fingerprint(self.workspace),
                 "workspace": "isolated_conformance_fixture",
             },
-            run_identity={
-                "session": "codex-session-a",
-                "run_id": "codex-run-a",
-                "nonce": "codex-nonce-a",
-            },
+            run_identity=self.expected_run_identity,
             model_binding="default",
             effort_binding="default",
         )
@@ -147,7 +149,15 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
         values.update(overrides)
         return CodexLaunchContext(**values)
 
-    def _plan(self, *, context=None, manifest=None, contract=None):
+    def _plan(
+        self,
+        *,
+        context=None,
+        manifest=None,
+        contract=None,
+        expected_contract_identity=None,
+        expected_run_identity=None,
+    ):
         selected = self.context if context is None else context
         with mock.patch.object(
             workspace_module,
@@ -164,6 +174,16 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                 ),
                 effective_contract=(
                     self.compiled.rendered if contract is None else contract
+                ),
+                expected_contract_identity=(
+                    self.expected_contract_identity
+                    if expected_contract_identity is None
+                    else expected_contract_identity
+                ),
+                expected_run_identity=(
+                    self.expected_run_identity
+                    if expected_run_identity is None
+                    else expected_run_identity
                 ),
             )
         builder.assert_called_once_with(
@@ -209,6 +229,8 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                 "codex_home",
                 "instruction_manifest",
                 "effective_contract",
+                "expected_contract_identity",
+                "expected_run_identity",
             },
         )
         for forbidden in (
@@ -253,7 +275,15 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                     "fingerprint": "3" * 64,
                     "controller": "controller-a",
                     "target": "claude",
-                    "task_profile": "qualification-pass-b",
+                    "task_profile": QUALIFICATION_PROFILE,
+                }
+            },
+            {
+                "contract_identity": {
+                    "fingerprint": "c" * 64,
+                    "controller": "controller-b",
+                    "target": "codex",
+                    "task_profile": QUALIFICATION_PROFILE,
                 }
             },
             {
@@ -264,10 +294,9 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             },
             {
                 "run_identity": {
-                    "session": "codex-session-a",
-                    "run_id": "codex-run-a",
+                    "session": "alternate-session",
+                    "run_id": "alternate-run",
                     "nonce": "cross-run-nonce",
-                    "extra": "caller-field",
                 }
             },
         )
@@ -276,12 +305,10 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                 "fingerprint": "3" * 64,
                 "controller": "controller-a",
                 "target": "codex",
-                "task_profile": "qualification-pass-b",
+                "task_profile": QUALIFICATION_PROFILE,
             },
             "workspace_identity": {
-                "fixture_fingerprint": sha256_bytes(
-                    canonical_json_bytes(_root_identity(self.workspace))
-                ),
+                "fixture_fingerprint": tree_fingerprint(self.workspace),
                 "workspace": "isolated_conformance_fixture",
             },
             "run_identity": {
@@ -371,6 +398,8 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                     codex_home=self.codex_home,
                     instruction_manifest=self.compiled.manifest,
                     effective_contract=self.compiled.rendered,
+                    expected_contract_identity=self.expected_contract_identity,
+                    expected_run_identity=self.expected_run_identity,
                 )
 
     def test_lifecycle_entrypoints_are_unconditionally_disabled(self):

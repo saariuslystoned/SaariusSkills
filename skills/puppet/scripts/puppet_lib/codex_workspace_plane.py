@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, NoReturn, Optional
 
+from .adapter_manifest import QUALIFICATION_PROFILE
 from .codex_launch import (
     AUTH_ROUTE,
     CURRENT_DEFAULT_SELECTION,
@@ -30,6 +31,7 @@ from .codex_launch import (
     build_codex_launch_context,
 )
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
+from .conformance import tree_fingerprint
 from .instructions import validate_instruction_manifest
 from .safety import (
     canonical_json_bytes,
@@ -80,6 +82,9 @@ _PLAN_FIELDS = {
     "codex_home_identity",
     "launch_delta",
     "instruction_manifest_sha256",
+    "contract_identity_sha256",
+    "workspace_identity_sha256",
+    "run_identity_sha256",
     "instruction_policy_fingerprint",
     "effective_contract_fingerprint",
     "effective_contract_sha256",
@@ -170,39 +175,60 @@ def _validate_contract_bytes(value: bytes, manifest: Mapping[str, Any]) -> bytes
     return value
 
 
-def _validate_manifest_identities(
-    manifest: Mapping[str, Any], *, workspace: Mapping[str, Any]
-) -> None:
-    contract = manifest.get("contract_identity")
-    if not isinstance(contract, Mapping) or set(contract) != {
+def _expected_contract_identity(value: Mapping[str, Any]) -> Dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != {
         "fingerprint",
         "controller",
         "target",
         "task_profile",
     }:
-        raise IdentityError("Codex instruction contract identity is not exact")
-    validate_sha256(contract.get("fingerprint"), "contract fingerprint")
-    validate_identifier(contract.get("controller"), "contract controller")
-    if (
-        contract.get("target") != "codex"
-        or contract.get("task_profile") != "qualification-pass-b"
-    ):
-        raise IdentityError("Codex instruction contract identity is not Pass B")
+        raise ValidationError("expected Codex contract identity is not exact")
+    result = {
+        "fingerprint": validate_sha256(
+            value.get("fingerprint"), "expected contract fingerprint"
+        ),
+        "controller": validate_identifier(
+            value.get("controller"), "expected contract controller"
+        ),
+        "target": value.get("target"),
+        "task_profile": value.get("task_profile"),
+    }
+    if result["target"] != "codex" or result["task_profile"] != QUALIFICATION_PROFILE:
+        raise IdentityError("expected Codex contract identity is not canonical Pass B")
+    return result
 
-    workspace_identity = manifest.get("workspace_identity")
+
+def _expected_run_identity(value: Mapping[str, Any]) -> Dict[str, str]:
+    if not isinstance(value, Mapping) or set(value) != {"session", "run_id", "nonce"}:
+        raise ValidationError("expected Codex run identity is not exact")
+    return {
+        "session": validate_identifier(value.get("session"), "expected session"),
+        "run_id": validate_identifier(value.get("run_id"), "expected run id"),
+        "nonce": validate_identifier(value.get("nonce"), "expected nonce"),
+    }
+
+
+def _validate_manifest_identities(
+    manifest: Mapping[str, Any],
+    *,
+    workspace: Mapping[str, Any],
+    expected_contract_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
+) -> tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+    contract = _expected_contract_identity(expected_contract_identity)
+    run = _expected_run_identity(expected_run_identity)
+    if manifest.get("contract_identity") != contract:
+        raise IdentityError("Codex instruction contract identity changed")
+    if manifest.get("run_identity") != run:
+        raise IdentityError("Codex instruction run identity changed")
+
     expected_workspace = {
-        "fixture_fingerprint": sha256_bytes(canonical_json_bytes(dict(workspace))),
+        "fixture_fingerprint": tree_fingerprint(Path(str(workspace["path"]))),
         "workspace": "isolated_conformance_fixture",
     }
-    if workspace_identity != expected_workspace:
+    if manifest.get("workspace_identity") != expected_workspace:
         raise IdentityError("Codex instruction workspace identity changed")
-
-    run = manifest.get("run_identity")
-    if not isinstance(run, Mapping) or set(run) != {"session", "run_id", "nonce"}:
-        raise IdentityError("Codex instruction run identity is not exact")
-    validate_identifier(run.get("session"), "instruction session")
-    validate_identifier(run.get("run_id"), "instruction run id")
-    validate_identifier(run.get("nonce"), "instruction nonce")
+    return contract, expected_workspace, run
 
 
 def _validate_launch_context(context: CodexLaunchContext) -> Dict[str, Any]:
@@ -335,6 +361,17 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
             value.get("instruction_manifest_sha256"),
             "instruction manifest sha256",
         ),
+        "contract_identity_sha256": validate_sha256(
+            value.get("contract_identity_sha256"),
+            "contract identity sha256",
+        ),
+        "workspace_identity_sha256": validate_sha256(
+            value.get("workspace_identity_sha256"),
+            "workspace identity sha256",
+        ),
+        "run_identity_sha256": validate_sha256(
+            value.get("run_identity_sha256"), "run identity sha256"
+        ),
         "instruction_policy_fingerprint": validate_sha256(
             value.get("instruction_policy_fingerprint"),
             "instruction policy fingerprint",
@@ -413,6 +450,8 @@ def plan_codex_workspace_plane(
     codex_home: Path | str,
     instruction_manifest: Mapping[str, Any],
     effective_contract: bytes,
+    expected_contract_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
 ) -> CodexWorkspacePlan:
     """Plan one create-only candidate without writing or launching anything."""
 
@@ -429,8 +468,6 @@ def plan_codex_workspace_plane(
         public["workspace_root_identity"], label="workspace root"
     )
     home = _validate_root_identity(public["codex_home_identity"], label="CODEX_HOME")
-    _validate_manifest_identities(manifest, workspace=workspace)
-    contract = _validate_contract_bytes(effective_contract, manifest)
     _require_absent_agents_file(workspace)
     for identity, label in (
         (lane, "lane root"),
@@ -438,6 +475,13 @@ def plan_codex_workspace_plane(
         (home, "CODEX_HOME"),
     ):
         _assert_current_root(identity, label=label)
+    contract_identity, workspace_identity, run_identity = _validate_manifest_identities(
+        manifest,
+        workspace=workspace,
+        expected_contract_identity=expected_contract_identity,
+        expected_run_identity=expected_run_identity,
+    )
+    contract = _validate_contract_bytes(effective_contract, manifest)
     contract_sha = sha256_bytes(contract)
     value = {
         "schema": PLAN_SCHEMA,
@@ -464,6 +508,13 @@ def plan_codex_workspace_plane(
         "instruction_manifest_sha256": sha256_bytes(
             canonical_json_bytes(manifest) + b"\n"
         ),
+        "contract_identity_sha256": sha256_bytes(
+            canonical_json_bytes(contract_identity)
+        ),
+        "workspace_identity_sha256": sha256_bytes(
+            canonical_json_bytes(workspace_identity)
+        ),
+        "run_identity_sha256": sha256_bytes(canonical_json_bytes(run_identity)),
         "instruction_policy_fingerprint": manifest["instruction_policy_fingerprint"],
         "effective_contract_fingerprint": manifest["effective_contract_fingerprint"],
         "effective_contract_sha256": contract_sha,
@@ -490,6 +541,8 @@ def revalidate_codex_workspace_plan(
     codex_home: Path | str,
     instruction_manifest: Mapping[str, Any],
     effective_contract: bytes,
+    expected_contract_identity: Mapping[str, Any],
+    expected_run_identity: Mapping[str, Any],
 ) -> CodexWorkspacePlan:
     """Rebuild the disabled plan and require exact current-state identity."""
 
@@ -503,6 +556,8 @@ def revalidate_codex_workspace_plan(
         codex_home=codex_home,
         instruction_manifest=instruction_manifest,
         effective_contract=effective_contract,
+        expected_contract_identity=expected_contract_identity,
+        expected_run_identity=expected_run_identity,
     )
     if current.plan_sha256 != expected.plan_sha256:
         raise IdentityError("Codex workspace plan changed after planning")
