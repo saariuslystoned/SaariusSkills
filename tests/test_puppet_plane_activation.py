@@ -52,6 +52,7 @@ from puppet_lib.plane_activation import (  # noqa: E402
     recover_activation,
     revalidate_activation_launch_context,
     rollback_activation,
+    validate_activation_plan_manifest,
     validate_terminal_activation_evidence,
     verify_activation,
 )
@@ -429,6 +430,21 @@ class PlaneActivationTests(unittest.TestCase):
                 activation_plan=plan,
                 descriptor=self.descriptor,
                 adapter_manifest=self.adapter_manifest,
+            )
+
+    def test_plan_manifest_rejects_paired_false_version_observation(self):
+        changed_manifest = copy.deepcopy(self.adapter_manifest)
+        changed_manifest["executable"]["version_sha256"] = "f" * 64
+        changed_manifest = AdapterManifest.from_dict(changed_manifest)
+        changed_plan = self.plan.to_dict()
+        changed_plan["adapter_manifest_sha256"] = changed_manifest.fingerprint
+        changed_plan["version_observation_sha256"] = "f" * 64
+        changed_plan.pop("plan_sha256")
+        changed_plan["plan_sha256"] = sha256_bytes(canonical_json_bytes(changed_plan))
+        with self.assertRaisesRegex(IdentityError, "version observation"):
+            validate_activation_plan_manifest(
+                changed_manifest,
+                ActivationPlan.from_dict(changed_plan),
             )
 
     def _revalidate_context(self, context, **overrides):

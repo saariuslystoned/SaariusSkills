@@ -1222,9 +1222,11 @@ def validate_activation_plan_manifest(
         raise IdentityError("adapter implementation changed after activation planning")
     if not supplied.raw["doctor_only"] or supplied.raw["qualification"] is not None:
         raise IdentityError("activation launch context requires its doctor-only census")
+    expected_version_hash = _SUPPORTED_VERSION_OBSERVATIONS.get(("claude", "2.1.215"))
     if (
-        supplied.raw["executable"]["version_sha256"]
-        != plan.raw["version_observation_sha256"]
+        expected_version_hash is None
+        or supplied.raw["executable"]["version_sha256"] != expected_version_hash
+        or plan.raw["version_observation_sha256"] != expected_version_hash
     ):
         raise IdentityError("adapter version observation changed after activation")
     mapping = supplied.raw["yolo_mapping"]
