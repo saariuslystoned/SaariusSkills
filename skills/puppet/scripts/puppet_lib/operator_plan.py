@@ -38,6 +38,12 @@ from .safety import (
     validate_identifier,
     validate_sha1,
 )
+from .subscription_profiles import (
+    PROFILE_HUMAN_LOGIN_POLICY,
+    PROFILE_OPERATOR_GLOBAL_ADOPTION,
+    PROFILE_REUSE_SCOPE,
+    PROFILE_STATUS_POLICY,
+)
 
 
 OPERATOR_PLAN_SCHEMA = "puppet.operator-run-plan/v1"
@@ -83,11 +89,9 @@ _CURSOR_PRESERVED_EVIDENCE_KINDS = (
     CURSOR_BINDING_SCHEMA,
 )
 _GROK_LIFECYCLE_UNSUPPORTED_REASON = "grok_regular_session_source_only_unqualified"
-_GROK_FAILED_INVARIANT = (
-    "approved_authentication_preserving_private_grok_home_route_unavailable"
-)
+_GROK_FAILED_INVARIANT = "durable_private_grok_subscription_profile_not_ready"
 _GROK_GATE_RUNG = "grok_regular_pass_b"
-_GROK_PROFILE_GATE = "human_authenticate_lane_owned_private_roots"
+_GROK_PROFILE_GATE = "reuse_or_enroll_durable_private_grok_profile_once"
 _GROK_NEXT_SAFE_ACTION = _GROK_PROFILE_GATE
 _LAUNCH_BLOCKERS = (
     "operator_plan_is_not_launch_authority",
@@ -403,6 +407,10 @@ def _commands(
     else:
         result["profile"] = {
             "supported": True,
+            "reuse_scope": PROFILE_REUSE_SCOPE,
+            "status_policy": PROFILE_STATUS_POLICY,
+            "human_login_policy": PROFILE_HUMAN_LOGIN_POLICY,
+            "operator_global_adoption": PROFILE_OPERATOR_GLOBAL_ADOPTION,
             "init": [
                 *base,
                 "profile-init",
@@ -581,7 +589,10 @@ def _grok_target_gate(
         },
         "preserved_evidence_kinds": [],
         "next_safe_action": _GROK_NEXT_SAFE_ACTION,
-        "available_routes": ["human_present_lane_owned_home_login"],
+        "available_routes": [
+            "reuse_previously_authenticated_puppet_profile",
+            "human_present_one_time_profile_enrollment",
+        ],
     }
 
 

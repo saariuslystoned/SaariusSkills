@@ -125,6 +125,16 @@ sessions, skills, plugins, and logs. A clean lane root is unauthenticated.
 Puppet must never copy, link, inspect, hash, or persist the operator's live
 auth/session store to manufacture isolation.
 
+This is a first-enrollment limitation, not a per-run authentication contract.
+Current xAI documentation classifies browser OIDC and device-code sessions as
+refreshable, and Grok reuses cached credentials. Puppet therefore keeps one
+stable private Grok profile across runs, checks its native status silently
+before launch, and asks for a human login only when that profile has never been
+enrolled or Grok reports it invalidated. Safe adoption of an already-authorized
+operator subscription remains the preferred but unqualified route because
+inheriting the complete ordinary `GROK_HOME` would also inherit unrelated
+configuration, instructions, plugins, sessions, and logs.
+
 ### Plane 2: workspace addendum (strongest candidate, unqualified)
 
 Create a unique deepest-scope

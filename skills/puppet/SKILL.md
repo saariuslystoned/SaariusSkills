@@ -90,9 +90,25 @@ template root creates a new instruction-policy fingerprint and requires fresh
 qualification. The initial-message wrapper is a safe composition transport,
 not proof that a harness-native global, workspace, or additive plane works.
 
-Subscription authentication is profile-scoped. Use `profile-init` to create a
-Puppet-owned mode-0700 home/config root and obtain an exact human-run login
-handoff; Puppet does not copy an existing credential or perform login itself.
+Subscription authentication is profile-scoped and durable across Puppet runs.
+Use one stable Puppet-owned mode-0700 home/config root per user, harness, and
+account selection; never put it inside a disposable run, proof, or campaign
+root. `profile-init` creates that root once and idempotently rejoins it on later
+runs. It may atomically refresh the profile's non-secret, exact launcher
+authority after a compatible harness or Puppet update without replacing the
+profile directories or their authentication state. Rejoining or refreshing a
+profile is not a request to log in. Puppet silently checks native status before
+each launch and reuses a logged-in profile without a human prompt. A human login
+handoff is allowed only for initial enrollment or after the provider reports
+that the session was invalidated, revoked, or logged out. Puppet does not copy
+an existing credential or perform login itself.
+
+Prefer safe adoption of an already-authorized operator subscription when the
+harness exposes a qualified auth-only selector or broker. Do not adopt an
+operator-global home merely because it is logged in: that can also import
+unrelated instructions, configuration, plugins, sessions, and logs. When safe
+adoption is unavailable, group the one-time profile enrollments into first-use
+Puppet onboarding instead of interrupting later runs with repeated prompts.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
 For an unqualified Claude regular plan, profile initialization is only
@@ -141,9 +157,14 @@ choice before any live launch.
 
 Use this sequence:
 
-1. If the selected private profile is not authenticated, run `profile-init`,
-   give its `login_command` to the human, and verify it with `profile-status`.
-   The login handoff is an explicit account action and never runs unattended.
+1. Select the durable profile for this user, harness, and account. Run
+   `profile-init` as an automatic, non-account preparation step; it creates the
+   missing profile or rejoins it and refreshes only non-secret launcher
+   authority. Then run `profile-status`. Continue without prompting when it is
+   logged in. Present `login_command` to the human only for a newly created
+   profile or when native status reports a real logged-out or invalidated
+   session, then verify again with `profile-status`. The login handoff is an
+   explicit account action and never runs unattended.
 2. `doctor` validates the current executable, YOLO mapping, repository,
    authorization, tmux, proof root, and collision state.
 3. `launch` creates one deterministic user-private tmux socket/session from a

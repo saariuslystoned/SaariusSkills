@@ -36,6 +36,10 @@ from .safety import (
 
 PROFILE_SCHEMA = "puppet.subscription-profile/v1"
 STATUS_SCHEMA = "puppet.subscription-profile-status/v1"
+PROFILE_REUSE_SCOPE = "durable_cross_run"
+PROFILE_STATUS_POLICY = "silent_before_each_launch"
+PROFILE_HUMAN_LOGIN_POLICY = "initial_enrollment_or_provider_invalidation_only"
+PROFILE_OPERATOR_GLOBAL_ADOPTION = "not_yet_qualified"
 MAX_STATUS_OUTPUT_BYTES = 16384
 STATUS_TIMEOUT_SECONDS = 20
 LAUNCH_BINDING_SCHEMA = "puppet.subscription-launch-binding/v1"
@@ -208,12 +212,21 @@ def _manifest_public(value: Mapping[str, Any]) -> Dict[str, Any]:
             ]
         ),
         "manifest_sha256": sha256_bytes(canonical_json_bytes(value)),
+        "reuse_scope": PROFILE_REUSE_SCOPE,
+        "status_policy": PROFILE_STATUS_POLICY,
+        "human_login_policy": PROFILE_HUMAN_LOGIN_POLICY,
+        "operator_global_adoption": PROFILE_OPERATOR_GLOBAL_ADOPTION,
         "login_performed": False,
         "account_change_authorized": False,
     }
 
 
-def _validate_manifest(value: Any, *, verify_current: bool = True) -> Dict[str, Any]:
+def _validate_manifest(
+    value: Any,
+    *,
+    verify_current: bool = True,
+    allow_stale_launch_authority: bool = False,
+) -> Dict[str, Any]:
     fields = {
         "schema",
         "target",
@@ -276,11 +289,14 @@ def _validate_manifest(value: Any, *, verify_current: bool = True) -> Dict[str, 
         or not Path(requested).is_absolute()
     ):
         raise ValidationError("subscription profile requested executable is invalid")
-    try:
-        if Path(requested).resolve(strict=True) != Path(executable["path"]):
-            raise IdentityError("subscription profile executable path changed")
-    except (OSError, RuntimeError) as exc:
-        raise IdentityError("subscription profile executable is unavailable") from exc
+    if not allow_stale_launch_authority:
+        try:
+            if Path(requested).resolve(strict=True) != Path(executable["path"]):
+                raise IdentityError("subscription profile executable path changed")
+        except (OSError, RuntimeError) as exc:
+            raise IdentityError(
+                "subscription profile executable is unavailable"
+            ) from exc
 
     helper = validate_execution_file_identity(
         value.get("helper"), "profile login helper", verify_current=verify_current
@@ -359,6 +375,46 @@ def _write_create_only(path: Path, value: Dict[str, Any]) -> None:
             pass
 
 
+def _write_replace(path: Path, value: Dict[str, Any]) -> None:
+    """Atomically refresh non-secret launch authority for an owned profile."""
+
+    payload = canonical_json_bytes(value) + b"\n"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".%s." % path.name, dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        try:
+            os.fchmod(descriptor, 0o600)
+            offset = 0
+            while offset < len(payload):
+                written = os.write(descriptor, payload[offset:])
+                if written <= 0:
+                    raise OSError("short subscription profile manifest write")
+                offset += written
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        details = temporary.stat()
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or stat.S_IMODE(details.st_mode) != 0o600
+            or details.st_nlink != 1
+        ):
+            raise IdentityError("subscription profile temporary manifest is invalid")
+        os.replace(str(temporary), str(path))
+        parent_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _new_profile_root(path: Path) -> Dict[str, Any]:
     if not path.is_absolute():
         raise ValidationError("profile root must be absolute")
@@ -409,7 +465,11 @@ def initialize_subscription_profile(
         # malformed pre-existing roots are never implicitly adopted.
         if root_path.is_symlink() or not manifest_path.is_file():
             raise ConflictError("pre-existing subscription profile is not owned")
-        preflight = _validate_manifest(read_json(manifest_path), verify_current=True)
+        preflight = _validate_manifest(
+            read_json(manifest_path),
+            verify_current=False,
+            allow_stale_launch_authority=True,
+        )
         root_path = Path(preflight["root"]["path"])
         manifest_path = root_path / "profile.json"
     else:
@@ -420,30 +480,29 @@ def initialize_subscription_profile(
     lock_path = root_path / ".profile-init.lock"
     with exclusive_lock(lock_path):
         if manifest_path.exists():
-            manifest = _validate_manifest(read_json(manifest_path), verify_current=True)
-            if manifest["target"] != target:
-                raise ConflictError("subscription profile belongs to another target")
-            if (
-                manifest["requested_executable"] != requested
-                or manifest["executable"] != executable
-                or manifest["helper"] != helper
-                or manifest["interpreter"] != interpreter
-                or manifest["library"] != library
-                or manifest["env_executable"] != env_executable
-            ):
-                raise IdentityError("subscription profile launch authority changed")
-            return _manifest_public(manifest)
-
-        if any(entry.name != lock_path.name for entry in root_path.iterdir()):
-            raise ConflictError("unowned content exists in subscription profile root")
-        directories = {
-            name: _private_directory(
-                root_path / name,
-                label="profile %s directory" % name,
-                create=True,
+            previous = _validate_manifest(
+                read_json(manifest_path),
+                verify_current=False,
+                allow_stale_launch_authority=True,
             )
-            for name in _PROFILE_LAYOUTS[target]
-        }
+            if previous["target"] != target:
+                raise ConflictError("subscription profile belongs to another target")
+            root = previous["root"]
+            directories = previous["directories"]
+        else:
+            previous = None
+            if any(entry.name != lock_path.name for entry in root_path.iterdir()):
+                raise ConflictError(
+                    "unowned content exists in subscription profile root"
+                )
+            directories = {
+                name: _private_directory(
+                    root_path / name,
+                    label="profile %s directory" % name,
+                    create=True,
+                )
+                for name in _PROFILE_LAYOUTS[target]
+            }
         bindings = _profile_environment(target, directories)
         manifest = {
             "schema": PROFILE_SCHEMA,
@@ -459,7 +518,10 @@ def initialize_subscription_profile(
             "bindings": bindings,
             "commands": _profile_commands(target, executable["path"]),
         }
-        _write_create_only(manifest_path, manifest)
+        if previous is None:
+            _write_create_only(manifest_path, manifest)
+        elif manifest != previous:
+            _write_replace(manifest_path, manifest)
         manifest = _validate_manifest(manifest, verify_current=True)
         return _manifest_public(manifest)
 
@@ -644,6 +706,9 @@ def _public_status(
             else {}
         ),
         "status_exit": result.returncode,
+        "reuse_scope": PROFILE_REUSE_SCOPE,
+        "status_policy": PROFILE_STATUS_POLICY,
+        "human_login_policy": PROFILE_HUMAN_LOGIN_POLICY,
         "raw_output_retained": False,
         "login_performed": False,
         "model_launched": False,
@@ -993,7 +1058,11 @@ def execute_subscription_profile_login(
 __all__ = [
     "LAUNCH_BINDING_SCHEMA",
     "MAX_STATUS_OUTPUT_BYTES",
+    "PROFILE_HUMAN_LOGIN_POLICY",
+    "PROFILE_OPERATOR_GLOBAL_ADOPTION",
+    "PROFILE_REUSE_SCOPE",
     "PROFILE_SCHEMA",
+    "PROFILE_STATUS_POLICY",
     "STATUS_SCHEMA",
     "SubscriptionLaunchContext",
     "build_subscription_launch_binding",

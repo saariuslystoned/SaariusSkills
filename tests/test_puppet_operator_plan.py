@@ -618,16 +618,19 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(gate["state"], "waiting_for_human")
             self.assertEqual(
                 gate["failed_invariant"],
-                "approved_authentication_preserving_private_grok_home_route_unavailable",
+                "durable_private_grok_subscription_profile_not_ready",
             )
             self.assertEqual(gate["rung"], "grok_regular_pass_b")
             self.assertEqual(
                 gate["next_safe_action"],
-                "human_authenticate_lane_owned_private_roots",
+                "reuse_or_enroll_durable_private_grok_profile_once",
             )
             self.assertEqual(
                 gate["available_routes"],
-                ["human_present_lane_owned_home_login"],
+                [
+                    "reuse_previously_authenticated_puppet_profile",
+                    "human_present_one_time_profile_enrollment",
+                ],
             )
             manifest = AdapterManifest.from_path(fixture.manifest)
             executable = manifest.raw["executable"]
@@ -691,7 +694,16 @@ class OperatorPlanTests(unittest.TestCase):
             self.assertEqual(profile["state"], "human_gated_proposal")
             self.assertEqual(
                 profile["required_gate"],
-                "human_authenticate_lane_owned_private_roots",
+                "reuse_or_enroll_durable_private_grok_profile_once",
+            )
+            self.assertEqual(profile["reuse_scope"], "durable_cross_run")
+            self.assertEqual(profile["status_policy"], "silent_before_each_launch")
+            self.assertEqual(
+                profile["human_login_policy"],
+                "initial_enrollment_or_provider_invalidation_only",
+            )
+            self.assertEqual(
+                profile["operator_global_adoption"], "not_yet_qualified"
             )
             self.assertEqual(profile["init"][3], "profile-init")
             encoded = json.dumps(plan, sort_keys=True)

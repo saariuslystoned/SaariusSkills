@@ -20,7 +20,11 @@ from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError  # 
 from puppet_lib.subscription_profiles import (  # noqa: E402
     LAUNCH_BINDING_SCHEMA,
     MAX_STATUS_OUTPUT_BYTES,
+    PROFILE_HUMAN_LOGIN_POLICY,
+    PROFILE_OPERATOR_GLOBAL_ADOPTION,
+    PROFILE_REUSE_SCOPE,
     PROFILE_SCHEMA,
+    PROFILE_STATUS_POLICY,
     STATUS_SCHEMA,
     build_subscription_launch_binding,
     execute_subscription_profile_login,
@@ -52,6 +56,15 @@ class SubscriptionProfileTests(unittest.TestCase):
             self.assertEqual(result["target"], "cursor")
             self.assertFalse(result["login_performed"])
             self.assertFalse(result["account_change_authorized"])
+            self.assertEqual(result["reuse_scope"], PROFILE_REUSE_SCOPE)
+            self.assertEqual(result["status_policy"], PROFILE_STATUS_POLICY)
+            self.assertEqual(
+                result["human_login_policy"], PROFILE_HUMAN_LOGIN_POLICY
+            )
+            self.assertEqual(
+                result["operator_global_adoption"],
+                PROFILE_OPERATOR_GLOBAL_ADOPTION,
+            )
             self.assertEqual(result["bindings"]["AGENT_CLI_CREDENTIAL_STORE"], "file")
             self.assertEqual(result["bindings"]["NO_OPEN_BROWSER"], "1")
             self.assertIn("profile_login.py", result["login_command"])
@@ -65,7 +78,7 @@ class SubscriptionProfileTests(unittest.TestCase):
             for name in ("home", "config", "data", "tmp"):
                 self.assertEqual(stat.S_IMODE((profile / name).stat().st_mode), 0o700)
 
-    def test_init_is_idempotent_but_rejects_target_or_executable_drift(self):
+    def test_init_is_idempotent_and_refreshes_launcher_without_reenrollment(self):
         with tempfile.TemporaryDirectory() as temporary:
             executable = self._executable(temporary)
             other = Path(temporary) / "other"
@@ -75,6 +88,9 @@ class SubscriptionProfileTests(unittest.TestCase):
             first = initialize_subscription_profile(
                 target="codex", profile_root=profile, executable_path=executable
             )
+            opaque_profile_state = profile / "home" / "opaque-state"
+            opaque_profile_state.write_text("preserve\n", encoding="utf-8")
+            opaque_state_identity = opaque_profile_state.stat()
             second = initialize_subscription_profile(
                 target="codex", profile_root=profile, executable_path=executable
             )
@@ -83,10 +99,43 @@ class SubscriptionProfileTests(unittest.TestCase):
                 initialize_subscription_profile(
                     target="claude", profile_root=profile, executable_path=executable
                 )
-            with self.assertRaises(IdentityError):
+            refreshed = initialize_subscription_profile(
+                target="codex", profile_root=profile, executable_path=other
+            )
+            self.assertEqual(refreshed["root"], first["root"])
+            self.assertEqual(refreshed["directories"], first["directories"])
+            self.assertEqual(
+                refreshed["executable"]["path"], str(other.resolve(strict=True))
+            )
+            self.assertNotEqual(
+                refreshed["manifest_sha256"], first["manifest_sha256"]
+            )
+            self.assertEqual(
+                opaque_profile_state.read_text(encoding="utf-8"), "preserve\n"
+            )
+            self.assertEqual(
+                opaque_profile_state.stat().st_ino, opaque_state_identity.st_ino
+            )
+            self.assertEqual(
                 initialize_subscription_profile(
                     target="codex", profile_root=profile, executable_path=other
+                ),
+                refreshed,
+            )
+            with self.assertRaisesRegex(
+                IdentityError, "does not match adapter"
+            ):
+                subscription_profile_launch_context(
+                    profile_root=profile,
+                    expected_target="codex",
+                    expected_executable_path=executable,
                 )
+            context = subscription_profile_launch_context(
+                profile_root=profile,
+                expected_target="codex",
+                expected_executable_path=other,
+            )
+            self.assertEqual(context.profile_root, profile.resolve(strict=True))
 
     def test_init_rejects_unowned_root_content_and_agy(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -206,6 +255,11 @@ class SubscriptionProfileTests(unittest.TestCase):
                 result = subscription_profile_status(profile_root=profile)
             self.assertEqual(result["login_state"], "logged_out")
             self.assertEqual(result["method"], "private_file_store")
+            self.assertEqual(result["reuse_scope"], PROFILE_REUSE_SCOPE)
+            self.assertEqual(result["status_policy"], PROFILE_STATUS_POLICY)
+            self.assertEqual(
+                result["human_login_policy"], PROFILE_HUMAN_LOGIN_POLICY
+            )
             self.assertFalse(result["raw_output_retained"])
             self.assertNotIn("message", result)
             self.assertNotIn("hasAccessToken", result)

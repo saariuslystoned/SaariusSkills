@@ -191,6 +191,34 @@ or the literal state `unavailable`; checkpoint quality; repair-cycle count;
 proof integrity; and controller verdict. Never infer missing native metrics
 from a transcript, target claim, or brand stereotype.
 
+## Subscription onboarding product contract
+
+Puppet must not turn subscription access into recurring login work. Treat
+authentication checks and human authentication as different operations:
+
+- On every session, perform a bounded native status check without retaining
+  credential or status bodies. This check is automatic and non-interactive.
+- Prefer safe, qualified reuse of a subscription already authorized on the
+  operator terminal. Reuse may use a provider-owned auth-only selector or a
+  process-local broker, but must not copy credentials or inherit an entire
+  operator home just because it is logged in.
+- When safe adoption is unavailable, first use starts one guided onboarding
+  pass that connects every selected harness. Store each result in one stable,
+  private, user/harness/account profile outside disposable run and proof roots.
+- Reuse that profile across Puppet sessions. Refresh only its exact non-secret
+  launcher authority after a compatible launcher or Puppet update; preserve
+  the profile directories and authentication state. An update or a new
+  campaign must not by itself require human login again.
+- Ask the human to authenticate only for initial enrollment or when the
+  provider's native status proves that the session is logged out, revoked, or
+  invalidated. Native refreshable sessions renew silently.
+- Treat any repeated login prompt without a provider-reported invalidation as
+  a Puppet conformance failure and product bug.
+
+The bootstrap implementation may fall back to one-time guided enrollment while
+safe operator-profile adoption is still unqualified. It must label that gap
+honestly and may not describe one-time enrollment as a per-run gate.
+
 Do not put prompts, transcripts, raw pane output, credentials, auth logs, source
 copies, or arbitrary CLI logs into these files. Curate only bounded,
 non-secret evidence. Keep machine-private run state out of the public commit;
