@@ -21,6 +21,10 @@ conversation.
   future primary Codex orchestration session.
 - [`implementation-seed.md`](implementation-seed.md) is the complete product,
   CLI, adapter, lifecycle, trust, test, and acceptance contract.
+- [`antigravity-teamwork.md`](antigravity-teamwork.md) proposes a separately
+  qualified hierarchical `/teamwork-preview` profile with four specialized
+  leaders, bounded leaf fanout, one integration authority, and staged 2x2/4x4
+  live-proof gates.
 - [`prior-proof-provenance.md`](prior-proof-provenance.md) maps the existing
   public and operator-local evidence families to what Puppet may admit,
   reimplement, or must prove again.
