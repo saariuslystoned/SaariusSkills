@@ -21,7 +21,9 @@ from puppet_lib.matched_control import (  # noqa: E402
     COMPILED_MARKER_BINDING_SCHEMA,
     COMPILED_MARKER_RESULT,
     COMPILED_MARKER_SCOPE,
+    CompiledMarkerInstruction,
     compile_claude_marker_instruction,
+    validate_compiled_marker_binding,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
@@ -280,6 +282,20 @@ class CompiledMarkerBindingTests(unittest.TestCase):
         manifest["target"] = "grok"
         self.assertEqual(result.binding["result"], COMPILED_MARKER_RESULT)
         self.assertEqual(result.manifest["target"], "claude")
+
+    def test_saved_binding_is_rejoined_to_exact_in_memory_marker_bytes(self):
+        result = compile_binding()
+        self.assertEqual(validate_compiled_marker_binding(result), result.binding)
+
+        forged_binding = result.binding
+        forged_binding["marker_sha256"] = "f" * 64
+        forged = CompiledMarkerInstruction(
+            _rendered=result.rendered,
+            _manifest_json=canonical_json_bytes(result.manifest),
+            _binding_json=canonical_json_bytes(forged_binding),
+        )
+        with self.assertRaisesRegex(IdentityError, "binding identity"):
+            validate_compiled_marker_binding(forged)
 
     def test_binding_changes_with_contract_workspace_and_task(self):
         first = compile_binding()

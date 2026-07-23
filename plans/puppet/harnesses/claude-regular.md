@@ -176,9 +176,18 @@ The record fixes `delivered`, `checkpoint_observed`, `lease_bound`,
 wired into probe or qualification. This closes only the source-owned marker
 compilation/body-retention gap; every runtime join below remains required.
 
-1. Join the compile-only marker binding to the exact `ActivationPlan`, current
-   descriptor and manifest, and controller authority before delivery. Do not
-   accept an arbitrary marker, digest, binding row, or journal from a caller.
+The same module now revalidates the compiled object from its exact in-memory
+bytes and can derive an `activation_plan_join_only` record from the exact
+`ActivationPlan`, descriptor, current adapter manifest, controller, campaign,
+and goal. The saved record is verified only by rebuilding it from those inputs;
+callers cannot supply a marker or marker digest. It remains body-free and fixes
+runtime scan, checkpoint observation, no-bleed, qualification, and promotion to
+false. This is a source substrate only: the live probe does not consume it and
+no controller journal attests it yet.
+
+1. Wire the activation-plan join into the controller-owned probe and attest it
+   before delivery. Do not accept an arbitrary marker, digest, binding row, or
+   journal from a caller.
 2. Run two sequential, controller-created Claude fixture sessions under exact
    leases: an activated lane and a distinct ordinary control with the same
    default-model selection and no native plane. Bind full session, target,

@@ -30,6 +30,14 @@ from puppet_lib.errors import (  # noqa: E402
 )
 from puppet_lib.instruction_planes import descriptor_fingerprint  # noqa: E402
 from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
+from puppet_lib.matched_control import (  # noqa: E402
+    ACTIVATION_MARKER_JOIN_RESULT,
+    ACTIVATION_MARKER_JOIN_SCHEMA,
+    ACTIVATION_MARKER_JOIN_SCOPE,
+    bind_claude_marker_activation_plan,
+    compile_claude_marker_instruction,
+    validate_claude_marker_activation_join,
+)
 from puppet_lib.plane_activation import (  # noqa: E402
     ACTIVATION_LIFECYCLE_SCOPE,
     CLAUDE_NATIVE_TRIGGER_SHA256,
@@ -258,6 +266,113 @@ class PlaneActivationTests(unittest.TestCase):
         }
         arguments.update(overrides)
         return build_activation_launch_context(self.plan, **arguments)
+
+    def test_marker_compilation_joins_exact_activation_plan_without_runtime_authority(
+        self,
+    ):
+        marker = compile_claude_marker_instruction(
+            descriptor=self.descriptor,
+            task="Write the bounded source-free conformance handoff.",
+            contract_identity={
+                "fingerprint": "b" * 64,
+                "controller": "codex",
+                "target": "claude",
+                "task_profile": "source-free-pass-b-v2",
+            },
+            workspace_identity={
+                "fixture_fingerprint": "c" * 64,
+                "workspace": "isolated_conformance_fixture",
+            },
+            run_identity={
+                "session": "claude-activated",
+                "run_id": "run-activated",
+                "nonce": "nonce-activated-0123456789",
+            },
+        )
+        plan = self._plan(
+            instruction_manifest=marker.manifest,
+            effective_contract=marker.rendered,
+        )
+        joined = bind_claude_marker_activation_plan(
+            marker,
+            activation_plan=plan,
+            descriptor=self.descriptor,
+            adapter_manifest=self.adapter_manifest,
+            controller="codex",
+            campaign_id="campaign-one",
+            goal_fingerprint="d" * 64,
+        )
+        self.assertEqual(joined["schema"], ACTIVATION_MARKER_JOIN_SCHEMA)
+        self.assertEqual(joined["scope"], ACTIVATION_MARKER_JOIN_SCOPE)
+        self.assertEqual(joined["result"], ACTIVATION_MARKER_JOIN_RESULT)
+        self.assertEqual(joined["activation_plan_sha256"], plan.plan_sha256)
+        self.assertEqual(
+            joined["adapter_manifest_sha256"],
+            AdapterManifest.from_dict(self.adapter_manifest).fingerprint,
+        )
+        self.assertIs(joined["activation_lifecycle_delivery_only"], True)
+        for name in (
+            "runtime_scan_authorized",
+            "checkpoint_observed",
+            "no_bleed_evaluated",
+            "no_bleed_verified",
+            "qualification_authorized",
+            "promotion_authorized",
+        ):
+            self.assertIs(joined[name], False)
+        durable = json.dumps(joined, sort_keys=True)
+        self.assertNotIn("PUPPET_CLAUDE_MATCHED_CONTROL_MARKER", durable)
+        self.assertNotIn("Write the bounded", durable)
+        self.assertEqual(
+            validate_claude_marker_activation_join(
+                joined,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+                controller="codex",
+                campaign_id="campaign-one",
+                goal_fingerprint="d" * 64,
+            ),
+            joined,
+        )
+
+        changed_join = dict(joined, activation_plan_sha256="e" * 64)
+        with self.assertRaisesRegex(IdentityError, "saved activation"):
+            validate_claude_marker_activation_join(
+                changed_join,
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+                controller="codex",
+                campaign_id="campaign-one",
+                goal_fingerprint="d" * 64,
+            )
+
+        with self.assertRaisesRegex(IdentityError, "join identity"):
+            bind_claude_marker_activation_plan(
+                marker,
+                activation_plan=plan,
+                descriptor=self.descriptor,
+                adapter_manifest=self.adapter_manifest,
+                controller="other-controller",
+                campaign_id="campaign-one",
+                goal_fingerprint="d" * 64,
+            )
+
+        changed_descriptor = copy.deepcopy(self.descriptor)
+        changed_descriptor["descriptor_id"] = "claude-native-other"
+        with self.assertRaisesRegex(IdentityError, "join identity"):
+            bind_claude_marker_activation_plan(
+                marker,
+                activation_plan=plan,
+                descriptor=changed_descriptor,
+                adapter_manifest=self.adapter_manifest,
+                controller="codex",
+                campaign_id="campaign-one",
+                goal_fingerprint="d" * 64,
+            )
 
     def _revalidate_context(self, context, **overrides):
         arguments = {

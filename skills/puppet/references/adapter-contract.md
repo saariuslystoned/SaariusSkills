@@ -94,6 +94,14 @@ profile identities are joined in the receipt and reverified together. These
 activation-lifecycle results remain non-promotable until matched no-bleed
 evidence is implemented and accepted.
 
+Claude's matched-control substrate also revalidates the source-owned compiled
+marker and can join its body-free hashes to one exact native activation plan,
+descriptor, current adapter manifest, controller, campaign, and goal. That
+`activation_plan_join_only` record authorizes only the already fenced
+activation-lifecycle delivery shape. It does not claim delivery, checkpoint
+observation, runtime scanning, no-bleed, qualification, or promotion, and it is
+not yet consumed by the live probe.
+
 ## Interface
 
 An adapter must provide detection and fingerprinting, current unrestricted and
