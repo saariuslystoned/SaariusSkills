@@ -13,8 +13,13 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import ValidationError  # noqa: E402
 from puppet_lib.instruction_planes import (  # noqa: E402
+    GROK_BUILD_VERSION,
+    GROK_WORKSPACE_ARTIFACT_ID,
+    GROK_WORKSPACE_DESCRIPTOR_ID,
+    build_grok_workspace_addendum_descriptor,
     descriptor_fingerprint,
     parse_instruction_plane_descriptor,
+    validate_grok_workspace_addendum_descriptor,
     validate_instruction_plane_descriptor,
 )
 
@@ -540,6 +545,135 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                 mutate(candidate)
                 with self.assertRaisesRegex(ValidationError, pattern):
                     validate_instruction_plane_descriptor(candidate)
+
+
+class GrokWorkspaceDescriptorTests(unittest.TestCase):
+    def setUp(self):
+        self.adapter_hash = "a" * 64
+        self.rendered_hash = "b" * 64
+        self.descriptor = build_grok_workspace_addendum_descriptor(
+            adapter_manifest_sha256=self.adapter_hash,
+            rendered_sha256=self.rendered_hash,
+        )
+
+    def test_exact_descriptor_is_hash_named_create_only_and_deterministic(self):
+        expected_path = ".grok/rules/puppet-%s.md" % self.rendered_hash
+        artifact = self.descriptor["materialize"][0]
+        self.assertEqual(self.descriptor["descriptor_id"], GROK_WORKSPACE_DESCRIPTOR_ID)
+        self.assertEqual(self.descriptor["target"]["version"], GROK_BUILD_VERSION)
+        self.assertEqual(self.descriptor["target"]["requested_model"], "default")
+        self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
+        self.assertEqual(
+            self.descriptor["target"]["config_fingerprint"],
+            "unavailable",
+        )
+        self.assertEqual(self.descriptor["plane"], "workspace_addendum")
+        self.assertEqual(artifact["artifact_id"], GROK_WORKSPACE_ARTIFACT_ID)
+        self.assertEqual(artifact["root_ref"], "workspace_root")
+        self.assertEqual(artifact["relative_path"], expected_path)
+        self.assertEqual(artifact["write_mode"], "create_only")
+        self.assertEqual(
+            self.descriptor["launch_delta"],
+            {
+                "cwd_ref": "workspace_root",
+                "env": [
+                    {
+                        "name": "GROK_DISABLE_AUTOUPDATER",
+                        "value_ref": "true_literal",
+                    },
+                    {"name": "GROK_HOME", "value_ref": "config_root_path"},
+                ],
+                "argv": [],
+            },
+        )
+        self.assertEqual(
+            validate_grok_workspace_addendum_descriptor(self.descriptor),
+            self.descriptor,
+        )
+        self.assertEqual(
+            descriptor_fingerprint(self.descriptor),
+            descriptor_fingerprint(
+                build_grok_workspace_addendum_descriptor(
+                    adapter_manifest_sha256=self.adapter_hash,
+                    rendered_sha256=self.rendered_hash,
+                )
+            ),
+        )
+
+    def test_exact_descriptor_rejects_cross_tuple_and_activation_drift(self):
+        cases = (
+            (
+                "version",
+                lambda value: value["target"].update({"version": "0.2.105"}),
+            ),
+            (
+                "target",
+                lambda value: value["target"].update({"harness": "claude"}),
+            ),
+            ("plane", lambda value: value.update({"plane": "harness_global"})),
+            (
+                "root",
+                lambda value: value["materialize"][0].update(
+                    {"root_ref": "config_root"}
+                ),
+            ),
+            (
+                "filename",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": ".grok/rules/puppet.md"}
+                ),
+            ),
+            (
+                "write-mode",
+                lambda value: value["materialize"][0].update(
+                    {"write_mode": "patch_if_base_sha256"}
+                ),
+            ),
+            (
+                "env",
+                lambda value: value["launch_delta"].update({"env": []}),
+            ),
+            (
+                "argv",
+                lambda value: value["launch_delta"].update(
+                    {"argv": [{"literal": "--cwd"}]}
+                ),
+            ),
+            (
+                "model",
+                lambda value: value["target"].update({"observed_model": "grok-4.5"}),
+            ),
+            (
+                "config",
+                lambda value: value["target"].update({"config_fingerprint": "c" * 64}),
+            ),
+        )
+        for case_id, mutate in cases:
+            with self.subTest(case_id=case_id):
+                candidate = copy.deepcopy(self.descriptor)
+                mutate(candidate)
+                with self.assertRaises(ValidationError):
+                    validate_grok_workspace_addendum_descriptor(candidate)
+
+    def test_descriptor_builder_rejects_non_sha_inputs(self):
+        for name, values in (
+            (
+                "manifest",
+                {
+                    "adapter_manifest_sha256": "not-a-hash",
+                    "rendered_sha256": self.rendered_hash,
+                },
+            ),
+            (
+                "rendered",
+                {
+                    "adapter_manifest_sha256": self.adapter_hash,
+                    "rendered_sha256": "A" * 64,
+                },
+            ),
+        ):
+            with self.subTest(name=name), self.assertRaises(ValidationError):
+                build_grok_workspace_addendum_descriptor(**values)
 
 
 if __name__ == "__main__":

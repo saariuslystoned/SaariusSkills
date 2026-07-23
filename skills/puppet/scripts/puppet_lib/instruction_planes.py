@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Mapping, Sequence
 
 from .contracts import TARGETS
@@ -82,6 +83,25 @@ _SUPPORTED_ENV_REFS = {
     ("GROK_DISABLE_AUTOUPDATER", "true_literal"),
     ("GROK_HOME", "config_root_path"),
 }
+
+GROK_BUILD_VERSION = "0.2.106"
+GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.106-workspace-addendum"
+GROK_WORKSPACE_ARTIFACT_ID = "grok_workspace_rule"
+GROK_WORKSPACE_ASSERTIONS = (
+    "grok_workspace_context_delta_exact",
+    "grok_workspace_create_only",
+    "grok_workspace_effective_contract_hash_named",
+)
+GROK_WORKSPACE_BLOCKERS = (
+    "grok_authentication_isolation_unapproved",
+    "grok_leader_child_halt_authority_unmodeled",
+    "grok_workspace_plane_unqualified",
+)
+_GROK_WORKSPACE_RULE_RE = re.compile(r"^\.grok/rules/puppet-([0-9a-f]{64})\.md$")
+_GROK_WORKSPACE_ENV = [
+    {"name": "GROK_DISABLE_AUTOUPDATER", "value_ref": "true_literal"},
+    {"name": "GROK_HOME", "value_ref": "config_root_path"},
+]
 
 
 def _validate_text(
@@ -564,6 +584,24 @@ def _validate_qualification_launch_grammar(
             )
         return
 
+    if (harness, plane) == ("grok", "workspace_addendum"):
+        relative_path = materialize[0]["relative_path"] if materialize else ""
+        if (
+            len(materialize) != 1
+            or materialize[0]["artifact_id"] != GROK_WORKSPACE_ARTIFACT_ID
+            or materialize[0]["root_ref"] != "workspace_root"
+            or _GROK_WORKSPACE_RULE_RE.fullmatch(relative_path) is None
+            or materialize[0]["content_ref"] != "effective_contract"
+            or materialize[0]["write_mode"] != "create_only"
+            or cwd_ref != "workspace_root"
+            or env != _GROK_WORKSPACE_ENV
+            or argv
+        ):
+            raise ValidationError(
+                "Grok workspace qualification descriptor has an invalid closed launch grammar"
+            )
+        return
+
     raise ValidationError(
         "instruction-plane tuple is not enabled for qualification in descriptor v1"
     )
@@ -572,6 +610,103 @@ def _validate_qualification_launch_grammar(
 def descriptor_fingerprint(descriptor: Mapping[str, Any]) -> str:
     normalized = validate_instruction_plane_descriptor(descriptor)
     return sha256_bytes(canonical_json_bytes(normalized))
+
+
+def _grok_workspace_descriptor_payload(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    adapter_hash = validate_sha256(
+        adapter_manifest_sha256,
+        "Grok adapter manifest sha256",
+    )
+    rendered_hash = validate_sha256(
+        rendered_sha256,
+        "Grok rendered sha256",
+    )
+    return {
+        "schema": _SCHEMA_NAME,
+        "descriptor_id": GROK_WORKSPACE_DESCRIPTOR_ID,
+        "target": {
+            "harness": "grok",
+            "version": GROK_BUILD_VERSION,
+            "adapter_manifest_sha256": adapter_hash,
+            "requested_model": "default",
+            "observed_model": "unavailable",
+            "config_fingerprint": "unavailable",
+        },
+        "plane": "workspace_addendum",
+        "status": {
+            "surface": "factual",
+            "activation": "qualification_only",
+        },
+        "materialize": [
+            {
+                "artifact_id": GROK_WORKSPACE_ARTIFACT_ID,
+                "root_ref": "workspace_root",
+                "relative_path": (".grok/rules/puppet-%s.md" % rendered_hash),
+                "content_ref": "effective_contract",
+                "write_mode": "create_only",
+            }
+        ],
+        "launch_delta": {
+            "cwd_ref": "workspace_root",
+            "env": list(_GROK_WORKSPACE_ENV),
+            "argv": [],
+        },
+        "rollback": {
+            "owned_artifacts": [GROK_WORKSPACE_ARTIFACT_ID],
+            "preimage_sha256": [],
+            "retain_hash_only_proof": True,
+        },
+        "assertions": list(GROK_WORKSPACE_ASSERTIONS),
+        "blockers": list(GROK_WORKSPACE_BLOCKERS),
+    }
+
+
+def build_grok_workspace_addendum_descriptor(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    """Build the one exact Grok 0.2.106 workspace descriptor.
+
+    The contract body is represented only by its SHA-256 in the namespaced
+    relative filename.  This helper has no filesystem or launch behavior.
+    """
+
+    return validate_instruction_plane_descriptor(
+        _grok_workspace_descriptor_payload(
+            adapter_manifest_sha256=adapter_manifest_sha256,
+            rendered_sha256=rendered_sha256,
+        )
+    )
+
+
+def validate_grok_workspace_addendum_descriptor(
+    raw: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Require the exact source-owned Grok workspace descriptor shape."""
+
+    normalized = validate_instruction_plane_descriptor(raw)
+    materialize = normalized["materialize"]
+    match = (
+        _GROK_WORKSPACE_RULE_RE.fullmatch(materialize[0]["relative_path"])
+        if len(materialize) == 1
+        else None
+    )
+    if match is None:
+        raise ValidationError("Grok workspace rule filename is invalid")
+    expected = _grok_workspace_descriptor_payload(
+        adapter_manifest_sha256=normalized["target"]["adapter_manifest_sha256"],
+        rendered_sha256=match.group(1),
+    )
+    if canonical_json_bytes(normalized) != canonical_json_bytes(expected):
+        raise ValidationError(
+            "descriptor is not the exact Grok 0.2.106 workspace addendum"
+        )
+    return normalized
 
 
 def validate_instruction_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, Any]:
@@ -702,7 +837,14 @@ def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str
 
 
 __all__ = [
+    "GROK_BUILD_VERSION",
+    "GROK_WORKSPACE_ARTIFACT_ID",
+    "GROK_WORKSPACE_ASSERTIONS",
+    "GROK_WORKSPACE_BLOCKERS",
+    "GROK_WORKSPACE_DESCRIPTOR_ID",
+    "build_grok_workspace_addendum_descriptor",
     "descriptor_fingerprint",
     "parse_instruction_plane_descriptor",
+    "validate_grok_workspace_addendum_descriptor",
     "validate_instruction_plane_descriptor",
 ]

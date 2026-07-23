@@ -198,6 +198,11 @@ authority rather than an unreachable launch hook.
 
 ## 6) Source status and remaining deltas
 
+- Implemented source-only: the exact 0.2.106 workspace-addendum descriptor and
+  a deterministic body-free `binding_only` join across its validated
+  instruction manifest, effective-contract hash/size, current adapter
+  fingerprint, and existing Grok launch context. The join does not materialize
+  `.grok/rules`, activate the plane, launch Grok, or authorize qualification.
 - Implemented source-only: exact doctor-manifest/source/executable tuple,
   body-free argv/environment planning, private root and socket containment,
   UUID shape, a closed source-owned PATH/locale baseline with no ambient
@@ -210,8 +215,8 @@ authority rather than an unreachable launch hook.
   claims.
 - Remaining `census.py` / `adapter_manifest.py`: bind proved live semantics for
   explicit `--sandbox off`, parser facts, and clean-root model evidence.
-- `instructions.py`: bind a native-plane descriptor digest separately from the
-  fallback wrapper.
+- Remaining plane lifecycle: controller-attested materialization, launch-time
+  revalidation, matched no-bleed proof, and exact rollback are still absent.
 - `session.py` / `tmux.py`: consume the typed plan only after qualification and
   recheck the exact candidate population immediately before target start.
 - `registry.py` / `probe.py`: bind leader/child identities, lane homes, artifact
