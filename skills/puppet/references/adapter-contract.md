@@ -94,6 +94,13 @@ profile identities are joined in the receipt and reverified together. These
 activation-lifecycle results remain non-promotable until matched no-bleed
 evidence is implemented and accepted.
 
+AGY 1.1.5 has one source-owned workspace custom-agent descriptor for the
+documented `.agents/agents/<name>/agent.md` plus `--agent` surface. The candidate
+is hash-namespaced, create-only, workspace-root-only, and explicitly
+activation-disabled. It is a planning artifact only: no AGY launch, probe,
+materialization, or qualification path consumes it, and all config-isolation,
+sandbox-off, model, native-plane, and ordinary-session no-bleed blockers remain.
+
 Claude's matched-control substrate also revalidates the source-owned compiled
 marker and can join its body-free hashes to one exact native activation plan,
 descriptor, and current doctor-only, unqualified adapter

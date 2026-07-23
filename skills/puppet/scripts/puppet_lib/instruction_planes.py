@@ -84,6 +84,25 @@ _SUPPORTED_ENV_REFS = {
     ("GROK_HOME", "config_root_path"),
 }
 
+AGY_CLI_VERSION = "1.1.5"
+AGY_WORKSPACE_DESCRIPTOR_ID = "agy-1.1.5-workspace-agent-disabled"
+AGY_WORKSPACE_ARTIFACT_ID = "agy_workspace_agent"
+AGY_WORKSPACE_ASSERTIONS = (
+    "agy_workspace_agent_create_only",
+    "agy_workspace_agent_hash_named",
+    "agy_workspace_agent_selector_planned",
+)
+AGY_WORKSPACE_BLOCKERS = (
+    "agy_config_root_isolation_unproved",
+    "agy_default_model_unobserved",
+    "agy_native_instruction_plane_unqualified",
+    "agy_ordinary_session_no_bleed_unproved",
+    "agy_sandbox_off_unproved",
+)
+_AGY_WORKSPACE_AGENT_RE = re.compile(
+    r"^\.agents/agents/puppet-([0-9a-f]{64})/agent\.md$"
+)
+
 GROK_BUILD_VERSION = "0.2.106"
 GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.106-workspace-addendum"
 GROK_WORKSPACE_ARTIFACT_ID = "grok_workspace_rule"
@@ -612,6 +631,102 @@ def descriptor_fingerprint(descriptor: Mapping[str, Any]) -> str:
     return sha256_bytes(canonical_json_bytes(normalized))
 
 
+def _agy_workspace_descriptor_payload(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    adapter_hash = validate_sha256(
+        adapter_manifest_sha256,
+        "AGY adapter manifest sha256",
+    )
+    rendered_hash = validate_sha256(
+        rendered_sha256,
+        "AGY rendered sha256",
+    )
+    return {
+        "schema": _SCHEMA_NAME,
+        "descriptor_id": AGY_WORKSPACE_DESCRIPTOR_ID,
+        "target": {
+            "harness": "agy",
+            "version": AGY_CLI_VERSION,
+            "adapter_manifest_sha256": adapter_hash,
+            "requested_model": "default",
+            "observed_model": "unavailable",
+            "config_fingerprint": "unavailable",
+        },
+        "plane": "workspace_addendum",
+        "status": {
+            "surface": "factual",
+            "activation": "disabled",
+        },
+        "materialize": [
+            {
+                "artifact_id": AGY_WORKSPACE_ARTIFACT_ID,
+                "root_ref": "workspace_root",
+                "relative_path": (".agents/agents/puppet-%s/agent.md" % rendered_hash),
+                "content_ref": "effective_contract",
+                "write_mode": "create_only",
+            }
+        ],
+        "launch_delta": {
+            "cwd_ref": "workspace_root",
+            "env": [],
+            "argv": [
+                {"literal": "--agent"},
+                {"name_ref": "puppet_agent_name"},
+            ],
+        },
+        "rollback": {
+            "owned_artifacts": [AGY_WORKSPACE_ARTIFACT_ID],
+            "preimage_sha256": [],
+            "retain_hash_only_proof": True,
+        },
+        "assertions": list(AGY_WORKSPACE_ASSERTIONS),
+        "blockers": list(AGY_WORKSPACE_BLOCKERS),
+    }
+
+
+def build_agy_workspace_agent_descriptor(
+    *,
+    adapter_manifest_sha256: str,
+    rendered_sha256: str,
+) -> Dict[str, Any]:
+    """Build the exact activation-disabled AGY 1.1.5 workspace candidate."""
+
+    return validate_instruction_plane_descriptor(
+        _agy_workspace_descriptor_payload(
+            adapter_manifest_sha256=adapter_manifest_sha256,
+            rendered_sha256=rendered_sha256,
+        )
+    )
+
+
+def validate_agy_workspace_agent_descriptor(
+    raw: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Require the exact source-owned, non-activatable AGY descriptor."""
+
+    normalized = validate_instruction_plane_descriptor(raw)
+    materialize = normalized["materialize"]
+    match = (
+        _AGY_WORKSPACE_AGENT_RE.fullmatch(materialize[0]["relative_path"])
+        if len(materialize) == 1
+        else None
+    )
+    if match is None:
+        raise ValidationError("AGY workspace agent filename is invalid")
+    expected = _agy_workspace_descriptor_payload(
+        adapter_manifest_sha256=normalized["target"]["adapter_manifest_sha256"],
+        rendered_sha256=match.group(1),
+    )
+    if canonical_json_bytes(normalized) != canonical_json_bytes(expected):
+        raise ValidationError(
+            "descriptor is not the exact activation-disabled AGY workspace agent"
+        )
+    return normalized
+
+
 def _grok_workspace_descriptor_payload(
     *,
     adapter_manifest_sha256: str,
@@ -837,14 +952,21 @@ def parse_instruction_plane_descriptor(raw: str | Mapping[str, Any]) -> Dict[str
 
 
 __all__ = [
+    "AGY_CLI_VERSION",
+    "AGY_WORKSPACE_ARTIFACT_ID",
+    "AGY_WORKSPACE_ASSERTIONS",
+    "AGY_WORKSPACE_BLOCKERS",
+    "AGY_WORKSPACE_DESCRIPTOR_ID",
     "GROK_BUILD_VERSION",
     "GROK_WORKSPACE_ARTIFACT_ID",
     "GROK_WORKSPACE_ASSERTIONS",
     "GROK_WORKSPACE_BLOCKERS",
     "GROK_WORKSPACE_DESCRIPTOR_ID",
+    "build_agy_workspace_agent_descriptor",
     "build_grok_workspace_addendum_descriptor",
     "descriptor_fingerprint",
     "parse_instruction_plane_descriptor",
+    "validate_agy_workspace_agent_descriptor",
     "validate_grok_workspace_addendum_descriptor",
     "validate_instruction_plane_descriptor",
 ]

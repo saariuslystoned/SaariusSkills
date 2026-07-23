@@ -111,6 +111,12 @@ unprefixed message. It is not one of the three instruction planes.
   `.agents/agents/<name>/agent.md`, selectable through `--agent`. Operator field
   work separately indicates worktree `AGENTS.md` wording materially affects
   AGY/Gemini behavior.
+- `puppet_lib.instruction_planes` now owns one exact AGY 1.1.5 descriptor:
+  `.agents/agents/puppet-<rendered-sha>/agent.md`, create-only under the
+  workspace root, with planned `--agent puppet-<rendered-sha>`. Its status is
+  factual but `activation: disabled`; exact validation rejects global/config
+  roots, unnamespaced paths, selector drift, activation changes, and blocker
+  removal. No launcher, materializer, or qualification consumer accepts it.
 - A fixture must use a Puppet-namespaced custom agent, add only scoped
   orchestration guidance without replacing repository authority, and prove
   selector behavior, discovery order, built-in retention, and cleanup.

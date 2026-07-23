@@ -91,7 +91,7 @@ environment bindings—are normalized before fingerprinting.
 
 | Harness | Harness-global | Workspace | Per-run additive |
 |---|---|---|---|
-| AGY 1.1.5 | documented custom-agent candidate via `--agent`; blocked because no isolated config-root or positive sandbox-off control is proved | documented `.agents/agents/<name>/agent.md` candidate; unqualified | unsupported; no additive file/stdin system-instruction surface found |
+| AGY 1.1.5 | documented custom-agent candidate via `--agent`; blocked because no isolated config-root or positive sandbox-off control is proved | exact source-owned, activation-disabled `.agents/agents/puppet-<rendered-sha>/agent.md` + planned `--agent puppet-<rendered-sha>` descriptor; unqualified and disconnected from launch | unsupported; no additive file/stdin system-instruction surface found |
 | Codex CLI 0.145.0 | lane-owned `CODEX_HOME` named profile with additive `developer_instructions`; factual candidate blocked on isolated auth | nested/scoped `AGENTS.md` candidate; unqualified and still blocked on isolated auth | unsupported for the regular TUI because `-c developer_instructions=...` exposes the body in argv |
 | Claude Code 2.1.215 | namespaced custom output style under lane `CLAUDE_CONFIG_DIR`, selected by lane settings; unqualified | create-only namespaced `.claude/rules/*.md` candidate; unqualified | exact parser accepts `--append-system-prompt-file`; strongest first candidate, unqualified |
 | Cursor Agent 2026.07.17-3e2a980 | unsupported: no session-specific User Rules/config-root selector | namespaced `.cursor/rules/*.mdc` or scoped `AGENTS.md`, selected by absolute `--workspace`; sole viable candidate, unqualified | unsupported; no public additive file transport found |

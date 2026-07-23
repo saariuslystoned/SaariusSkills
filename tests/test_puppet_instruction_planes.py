@@ -13,12 +13,18 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import ValidationError  # noqa: E402
 from puppet_lib.instruction_planes import (  # noqa: E402
+    AGY_CLI_VERSION,
+    AGY_WORKSPACE_ARTIFACT_ID,
+    AGY_WORKSPACE_BLOCKERS,
+    AGY_WORKSPACE_DESCRIPTOR_ID,
     GROK_BUILD_VERSION,
     GROK_WORKSPACE_ARTIFACT_ID,
     GROK_WORKSPACE_DESCRIPTOR_ID,
+    build_agy_workspace_agent_descriptor,
     build_grok_workspace_addendum_descriptor,
     descriptor_fingerprint,
     parse_instruction_plane_descriptor,
+    validate_agy_workspace_agent_descriptor,
     validate_grok_workspace_addendum_descriptor,
     validate_instruction_plane_descriptor,
 )
@@ -545,6 +551,146 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                 mutate(candidate)
                 with self.assertRaisesRegex(ValidationError, pattern):
                     validate_instruction_plane_descriptor(candidate)
+
+
+class AgyWorkspaceDescriptorTests(unittest.TestCase):
+    def setUp(self):
+        self.adapter_hash = "a" * 64
+        self.rendered_hash = "b" * 64
+        self.descriptor = build_agy_workspace_agent_descriptor(
+            adapter_manifest_sha256=self.adapter_hash,
+            rendered_sha256=self.rendered_hash,
+        )
+
+    def test_exact_descriptor_is_hash_named_create_only_and_activation_disabled(self):
+        expected_path = ".agents/agents/puppet-%s/agent.md" % self.rendered_hash
+        artifact = self.descriptor["materialize"][0]
+        self.assertEqual(self.descriptor["descriptor_id"], AGY_WORKSPACE_DESCRIPTOR_ID)
+        self.assertEqual(self.descriptor["target"]["version"], AGY_CLI_VERSION)
+        self.assertEqual(self.descriptor["target"]["requested_model"], "default")
+        self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
+        self.assertEqual(self.descriptor["target"]["config_fingerprint"], "unavailable")
+        self.assertEqual(self.descriptor["plane"], "workspace_addendum")
+        self.assertEqual(
+            self.descriptor["status"],
+            {"surface": "factual", "activation": "disabled"},
+        )
+        self.assertEqual(artifact["artifact_id"], AGY_WORKSPACE_ARTIFACT_ID)
+        self.assertEqual(artifact["root_ref"], "workspace_root")
+        self.assertEqual(artifact["relative_path"], expected_path)
+        self.assertEqual(artifact["write_mode"], "create_only")
+        self.assertEqual(
+            self.descriptor["launch_delta"],
+            {
+                "cwd_ref": "workspace_root",
+                "env": [],
+                "argv": [
+                    {"literal": "--agent"},
+                    {"name_ref": "puppet_agent_name"},
+                ],
+            },
+        )
+        self.assertEqual(
+            self.descriptor["rollback"]["owned_artifacts"],
+            [AGY_WORKSPACE_ARTIFACT_ID],
+        )
+        self.assertEqual(self.descriptor["blockers"], sorted(AGY_WORKSPACE_BLOCKERS))
+        self.assertEqual(
+            validate_agy_workspace_agent_descriptor(self.descriptor),
+            self.descriptor,
+        )
+        self.assertEqual(
+            descriptor_fingerprint(self.descriptor),
+            descriptor_fingerprint(
+                build_agy_workspace_agent_descriptor(
+                    adapter_manifest_sha256=self.adapter_hash,
+                    rendered_sha256=self.rendered_hash,
+                )
+            ),
+        )
+
+    def test_exact_descriptor_rejects_global_paths_activation_and_shape_drift(self):
+        cases = (
+            (
+                "version",
+                lambda value: value["target"].update({"version": "1.1.4"}),
+            ),
+            (
+                "target",
+                lambda value: value["target"].update({"harness": "claude"}),
+            ),
+            ("plane", lambda value: value.update({"plane": "harness_global"})),
+            (
+                "activation",
+                lambda value: value["status"].update(
+                    {"activation": "qualification_only"}
+                ),
+            ),
+            (
+                "global-root",
+                lambda value: value["materialize"][0].update(
+                    {"root_ref": "config_root"}
+                ),
+            ),
+            (
+                "global-filename",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": ".gemini/config/agents/puppet/agent.md"}
+                ),
+            ),
+            (
+                "unnamespaced-filename",
+                lambda value: value["materialize"][0].update(
+                    {"relative_path": ".agents/agents/puppet/agent.md"}
+                ),
+            ),
+            (
+                "write-mode",
+                lambda value: value["materialize"][0].update(
+                    {"write_mode": "patch_if_base_sha256"}
+                ),
+            ),
+            (
+                "env",
+                lambda value: value["launch_delta"].update(
+                    {"env": [{"name": "CODEX_HOME", "value_ref": "config_root_path"}]}
+                ),
+            ),
+            (
+                "argv",
+                lambda value: value["launch_delta"].update({"argv": []}),
+            ),
+            (
+                "blockers",
+                lambda value: value.update({"blockers": ["caller_green"]}),
+            ),
+        )
+        for case_id, mutate in cases:
+            with self.subTest(case_id=case_id):
+                candidate = copy.deepcopy(self.descriptor)
+                mutate(candidate)
+                with self.assertRaises(ValidationError):
+                    validate_agy_workspace_agent_descriptor(candidate)
+
+    def test_descriptor_builder_rejects_non_sha_inputs(self):
+        for name, values in (
+            (
+                "manifest",
+                {
+                    "adapter_manifest_sha256": "not-a-hash",
+                    "rendered_sha256": self.rendered_hash,
+                },
+            ),
+            (
+                "rendered",
+                {
+                    "adapter_manifest_sha256": self.adapter_hash,
+                    "rendered_sha256": "A" * 64,
+                },
+            ),
+        ):
+            with self.subTest(name=name), self.assertRaises(ValidationError):
+                build_agy_workspace_agent_descriptor(**values)
 
 
 class GrokWorkspaceDescriptorTests(unittest.TestCase):
