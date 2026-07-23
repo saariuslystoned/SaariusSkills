@@ -45,7 +45,10 @@ GROK_DISABLE_AUTOUPDATER_VALUE = "true"
 GROK_EXECUTABLE_SHA256 = (
     "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe"
 )
-GROK_VERSION_OUTPUT_SHA256 = (
+GROK_CENSUS_VERSION_OUTPUT_SHA256 = (
+    "056584a715a3f6cdb882797e20c49495c1dc8874d83eb4c62d474a1fb188f15d"
+)
+GROK_ISOLATED_VERSION_OUTPUT_SHA256 = (
     "580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d"
 )
 GROK_MAIN_HELP_SHA256 = (
@@ -392,7 +395,11 @@ def _validated_grok_doctor_manifest(
     executable = manifest.raw["executable"]
     expected_hashes = {
         "sha256": GROK_EXECUTABLE_SHA256,
-        "version_sha256": GROK_VERSION_OUTPUT_SHA256,
+        # Adapter census intentionally fingerprints the installed command in
+        # its ordinary environment.  The closed-root parser probes have a
+        # different, channel-free version output and cannot authenticate the
+        # doctor manifest consumed here.
+        "version_sha256": GROK_CENSUS_VERSION_OUTPUT_SHA256,
         "help_sha256": GROK_MAIN_HELP_SHA256,
     }
     if any(executable[name] != digest for name, digest in expected_hashes.items()):

@@ -25,9 +25,10 @@ from puppet_lib.grok_evidence import (  # noqa: E402
     validate_grok_pass_a_evidence,
 )
 from puppet_lib.grok_launch import (  # noqa: E402
+    GROK_CENSUS_VERSION_OUTPUT_SHA256,
     GROK_EXECUTABLE_SHA256,
+    GROK_ISOLATED_VERSION_OUTPUT_SHA256,
     GROK_MAIN_HELP_SHA256,
-    GROK_VERSION_OUTPUT_SHA256,
 )
 from puppet_lib.instruction_planes import GROK_BUILD_VERSION  # noqa: E402
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
@@ -113,7 +114,11 @@ class GrokPassAEvidenceTests(unittest.TestCase):
         self.assertNotEqual(GROK_PASS_A_EXECUTABLE_SHA256, GROK_EXECUTABLE_SHA256)
         self.assertNotEqual(
             GROK_PASS_A_VERSION_OUTPUT_SHA256,
-            GROK_VERSION_OUTPUT_SHA256,
+            GROK_CENSUS_VERSION_OUTPUT_SHA256,
+        )
+        self.assertNotEqual(
+            GROK_PASS_A_VERSION_OUTPUT_SHA256,
+            GROK_ISOLATED_VERSION_OUTPUT_SHA256,
         )
         self.assertNotEqual(
             GROK_PASS_A_MAIN_HELP_SHA256,

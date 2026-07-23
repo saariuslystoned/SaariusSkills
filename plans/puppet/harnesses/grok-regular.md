@@ -35,7 +35,10 @@ binary:
 - Ordinary-home channel-labeled output:
   `grok 0.2.111 (94172f2aa4e5) [stable]`, SHA-256
   `056584a715a3f6cdb882797e20c49495c1dc8874d83eb4c62d474a1fb188f15d`.
-  It is safe-field census evidence, not private-profile launch authority.
+  It is the safe-field version identity in the doctor manifest consumed by the
+  source planner, not private-profile launch authority. The isolated-home hash
+  above is parser-probe evidence and must not be substituted for that census
+  identity.
 - Main-help SHA-256:
   `d11f1815c770a69d87a05f394c6f7759562738c7de4e29a043f9f06c0aeba1c1`.
 - `help agent` SHA-256:

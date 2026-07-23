@@ -38,13 +38,14 @@ from puppet_lib.errors import (  # noqa: E402
     ValidationError,
 )
 from puppet_lib.grok_launch import (  # noqa: E402
+    GROK_CENSUS_VERSION_OUTPUT_SHA256,
     GROK_DISABLE_AUTOUPDATER_VALUE,
     GROK_EXECUTABLE_SHA256,
+    GROK_ISOLATED_VERSION_OUTPUT_SHA256,
     GROK_LAUNCH_AUTHORITY_BLOCKER,
     GROK_MAIN_HELP_SHA256,
     GROK_RUNTIME_BASENAME,
     GROK_SAFE_PATH_COMPONENTS,
-    GROK_VERSION_OUTPUT_SHA256,
     GROK_WORKSPACE_BINDING_SCHEMA,
     GROK_WORKSPACE_BINDING_STATE,
     bind_grok_workspace_plane,
@@ -92,7 +93,11 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe",
         )
         self.assertEqual(
-            GROK_VERSION_OUTPUT_SHA256,
+            GROK_CENSUS_VERSION_OUTPUT_SHA256,
+            "056584a715a3f6cdb882797e20c49495c1dc8874d83eb4c62d474a1fb188f15d",
+        )
+        self.assertEqual(
+            GROK_ISOLATED_VERSION_OUTPUT_SHA256,
             "580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d",
         )
         self.assertEqual(
@@ -111,7 +116,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             "size": details.st_size,
             "mtime_ns": details.st_mtime_ns,
             "sha256": GROK_EXECUTABLE_SHA256,
-            "version_sha256": GROK_VERSION_OUTPUT_SHA256,
+            "version_sha256": GROK_CENSUS_VERSION_OUTPUT_SHA256,
             "help_sha256": GROK_MAIN_HELP_SHA256,
         }
         return {
@@ -364,6 +369,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             "qualification",
             "binary-hash",
             "version-hash",
+            "isolated-version-hash",
             "help-hash",
             "adapter-hash",
             "protocol-hash",
@@ -391,6 +397,11 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                     self._write_manifest(manifest_path, raw)
                 elif case == "version-hash":
                     raw["executable"]["version_sha256"] = "0" * 64
+                    self._write_manifest(manifest_path, raw)
+                elif case == "isolated-version-hash":
+                    raw["executable"][
+                        "version_sha256"
+                    ] = GROK_ISOLATED_VERSION_OUTPUT_SHA256
                     self._write_manifest(manifest_path, raw)
                 elif case == "help-hash":
                     raw["executable"]["help_sha256"] = "0" * 64
