@@ -266,3 +266,20 @@ retain their exact hashes. Missing, tampered, wrong-authority, or source-drifted
 artifacts and a post-observation recreated signal leaf therefore fail before
 the existing matched no-bleed qualification fence; this binding does not
 itself prove no-bleed or authorize promotion.
+
+`run_observations.py` now emits a create-only
+`zero_agent_claude_matched_control_blocker` record from the exact current
+matched-control binding, pre-delivery authority, signal observation, probe
+integration, and terminal-verifier source hashes. It records every runtime,
+model, and checkpoint observation as `unavailable`, fixes the controller
+verdict to `blocked`, and keeps launch, delivery, checkpoint, no-bleed,
+model-selection, qualification, and promotion authority false. The record
+contains no instruction body, marker name or bytes, sidecar path, handoff
+content, transcript, configuration, or authentication data and is not consumed
+by probe, adapter, session, or qualification paths.
+
+This source-only packet is durable blocker evidence, not a Claude run. The next
+irreducible gate remains an authenticated private-profile runtime pair: one
+activated fixture followed by a distinct ordinary control under the same
+observed default-model tuple, with paired no-bleed, entry-path, and native-TUI
+proof before any qualification scope can be proposed.

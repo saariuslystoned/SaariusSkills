@@ -25,6 +25,7 @@ from .errors import ConflictError, IdentityError, ValidationError
 from .safety import (
     canonical_json_bytes,
     sha256_bytes,
+    sha256_file,
     validate_bounded_json,
     validate_identifier,
     validate_sha256,
@@ -33,11 +34,29 @@ from .safety import (
 
 RUN_OBSERVATION_SCHEMA = "puppet.run-observation/v1"
 ZERO_AGENT_CODEX_DOCTOR_KIND = "zero_agent_codex_doctor"
+ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND = (
+    "zero_agent_claude_matched_control_blocker"
+)
 UNAVAILABLE = "unavailable"
 SOURCE_ONLY_PROOF = "source_only"
 BLOCKED_VERDICT = "blocked"
 MAX_LATENCY_MILLISECONDS = 3_600_000
 _EXPECTED_BLOCKERS = (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER)
+_CLAUDE_MATCHED_CONTROL_BLOCKERS = (
+    "claude_ordinary_control_missing",
+    "claude_paired_no_bleed_unproved",
+    "claude_default_model_observation_unavailable",
+    "claude_direct_cockpit_pair_unproved",
+    "claude_native_tui_attach_unproved",
+    "claude_activation_lifecycle_nonqualifying",
+)
+_CLAUDE_SOURCE_ROLES = (
+    ("activation_binding", "matched_control.py"),
+    ("pre_delivery_authority", "matched_control_authority.py"),
+    ("signal_observation", "matched_control_signal.py"),
+    ("probe_integration", "probe.py"),
+    ("terminal_verifier", "adapter_manifest.py"),
+)
 _SOURCE_FIELDS = {
     "schema",
     "state",
@@ -97,6 +116,14 @@ _RECORD_FIELDS = {
     "qualification_authorized",
     "promotion_authorized",
     "record_sha256",
+}
+_CLAUDE_RECORD_FIELDS = _RECORD_FIELDS | {
+    "source_bundle",
+    "source_bundle_sha256",
+    "delivery_authorized",
+    "checkpoint_observed",
+    "no_bleed_evaluated",
+    "no_bleed_verified",
 }
 
 
@@ -312,43 +339,168 @@ def _build_from_validated_source(
     return value
 
 
-def write_codex_doctor_run_observation(
-    root: Path | str,
-    observation: CodexDoctorObservation,
+def _claude_source_bundle() -> tuple[list[Dict[str, str]], str]:
+    library_root = Path(__file__).resolve(strict=True).parent
+    entries = []
+    for role, filename in _CLAUDE_SOURCE_ROLES:
+        source = library_root / filename
+        if source.is_symlink() or not source.is_file():
+            raise ValidationError("Claude blocker source bundle is unavailable")
+        entries.append({"role": role, "sha256": sha256_file(source)})
+    return entries, sha256_bytes(canonical_json_bytes(entries))
+
+
+def _build_claude_matched_control_blocker(
     *,
     run_id: str,
-    task_type: str,
-    task_profile: str,
     latency_milliseconds: int,
-) -> Path:
-    """Atomically create one immutable mode-0600 run observation."""
+) -> Dict[str, Any]:
+    source_bundle, source_bundle_sha256 = _claude_source_bundle()
+    value: Dict[str, Any] = {
+        "schema": RUN_OBSERVATION_SCHEMA,
+        "kind": ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND,
+        "run_id": run_id,
+        "requested_harness": "claude",
+        "observed_harness": UNAVAILABLE,
+        "requested_version": "current_installed",
+        "observed_version": UNAVAILABLE,
+        "requested_model": "current_default",
+        "observed_model": UNAVAILABLE,
+        "model_observation_classification": UNAVAILABLE,
+        "observed_provider": UNAVAILABLE,
+        "requested_effort": "current_default",
+        "observed_effort": UNAVAILABLE,
+        "task_type": "zero_agent_source_gap",
+        "task_profile": "regular_qualification",
+        "latency_milliseconds": latency_milliseconds,
+        "native_turn_count": UNAVAILABLE,
+        "native_tool_call_count": UNAVAILABLE,
+        "checkpoint_quality": UNAVAILABLE,
+        "repair_cycles": 0,
+        "proof_integrity": SOURCE_ONLY_PROOF,
+        "verification_depth": SOURCE_ONLY_PROOF,
+        "exact_accepted_head": UNAVAILABLE,
+        "target_claimed_green": False,
+        "controller_gates_green": False,
+        "independent_review_clean": False,
+        "controller_verdict": BLOCKED_VERDICT,
+        "limitations": list(_CLAUDE_MATCHED_CONTROL_BLOCKERS),
+        "source_observation_sha256": source_bundle_sha256,
+        "source_bundle": source_bundle,
+        "source_bundle_sha256": source_bundle_sha256,
+        "launch_authorized": False,
+        "delivery_authorized": False,
+        "checkpoint_observed": False,
+        "no_bleed_evaluated": False,
+        "no_bleed_verified": False,
+        "model_selection_authorized": False,
+        "qualification_authorized": False,
+        "promotion_authorized": False,
+    }
+    value["record_sha256"] = sha256_bytes(canonical_json_bytes(value))
+    return value
 
-    root = Path(root)
-    if not root.is_absolute() or root.is_symlink() or not root.is_dir():
+
+def build_claude_matched_control_blocker_observation(
+    *,
+    run_id: str,
+    latency_milliseconds: int,
+) -> Dict[str, Any]:
+    """Build one source-bound, non-authorizing Claude lane blocker."""
+
+    run_id = validate_identifier(run_id, "run observation run id")
+    if (
+        isinstance(latency_milliseconds, bool)
+        or not isinstance(latency_milliseconds, int)
+        or latency_milliseconds < 0
+        or latency_milliseconds > MAX_LATENCY_MILLISECONDS
+    ):
+        raise ValidationError("run observation latency is invalid")
+    value = _build_claude_matched_control_blocker(
+        run_id=run_id,
+        latency_milliseconds=latency_milliseconds,
+    )
+    validate_claude_matched_control_blocker_observation(
+        value,
+        run_id=run_id,
+        latency_milliseconds=latency_milliseconds,
+    )
+    return value
+
+
+def validate_claude_matched_control_blocker_observation(
+    value: Mapping[str, Any],
+    *,
+    run_id: str,
+    latency_milliseconds: int,
+) -> Dict[str, Any]:
+    """Rederive one exact Claude blocker from the current source bundle."""
+
+    if not isinstance(value, Mapping) or set(value) != _CLAUDE_RECORD_FIELDS:
+        raise ValidationError("Claude blocker observation fields changed")
+    supplied = dict(value)
+    supplied_sha = validate_sha256(
+        supplied.get("record_sha256"), "Claude blocker observation record"
+    )
+    core = dict(supplied)
+    core.pop("record_sha256")
+    if supplied_sha != sha256_bytes(canonical_json_bytes(core)):
+        raise IdentityError("Claude blocker observation fingerprint changed")
+    if (
+        isinstance(latency_milliseconds, bool)
+        or not isinstance(latency_milliseconds, int)
+        or latency_milliseconds < 0
+        or latency_milliseconds > MAX_LATENCY_MILLISECONDS
+    ):
+        raise ValidationError("run observation latency is invalid")
+    expected = _build_claude_matched_control_blocker(
+        run_id=validate_identifier(run_id, "run observation run id"),
+        latency_milliseconds=latency_milliseconds,
+    )
+    if supplied != expected:
+        raise IdentityError(
+            "Claude blocker observation differs from its current source bundle"
+        )
+    validate_bounded_json(
+        supplied,
+        max_depth=6,
+        max_items=64,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return supplied
+
+
+def _private_observation_root(root: Path | str) -> Path:
+    candidate = Path(root)
+    if not candidate.is_absolute() or candidate.is_symlink() or not candidate.is_dir():
         raise ValidationError("run observation root must be an existing directory")
-    root = root.resolve(strict=True)
-    details = root.stat()
+    candidate = candidate.resolve(strict=True)
+    details = candidate.stat()
     if (
         not stat.S_ISDIR(details.st_mode)
         or details.st_uid != os.getuid()
         or stat.S_IMODE(details.st_mode) != 0o700
     ):
         raise IdentityError("run observation root is not user-private")
+    return candidate
+
+
+def _write_create_only_observation(
+    root: Path | str,
+    *,
+    run_id: str,
+    value: Mapping[str, Any],
+) -> Path:
+    root_path = _private_observation_root(root)
     run_id = validate_identifier(run_id, "run observation run id")
-    value = build_codex_doctor_run_observation(
-        observation,
-        run_id=run_id,
-        task_type=task_type,
-        task_profile=task_profile,
-        latency_milliseconds=latency_milliseconds,
-    )
-    path = root / (run_id + ".json")
+    path = root_path / (run_id + ".json")
     if path.exists() or path.is_symlink():
         raise ConflictError("run observation already exists")
-    payload = canonical_json_bytes(value) + b"\n"
+    payload = canonical_json_bytes(dict(value)) + b"\n"
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=".%s." % path.name,
-        dir=str(root),
+        dir=str(root_path),
     )
     temporary = Path(temporary_name)
     try:
@@ -367,7 +519,7 @@ def write_codex_doctor_run_observation(
             os.link(str(temporary), str(path), follow_symlinks=False)
         except FileExistsError as exc:
             raise ConflictError("run observation already exists") from exc
-        parent_descriptor = os.open(str(root), os.O_RDONLY)
+        parent_descriptor = os.open(str(root_path), os.O_RDONLY)
         try:
             os.fsync(parent_descriptor)
         finally:
@@ -380,13 +532,63 @@ def write_codex_doctor_run_observation(
     return path
 
 
+def write_codex_doctor_run_observation(
+    root: Path | str,
+    observation: CodexDoctorObservation,
+    *,
+    run_id: str,
+    task_type: str,
+    task_profile: str,
+    latency_milliseconds: int,
+) -> Path:
+    """Atomically create one immutable mode-0600 run observation."""
+
+    run_id = validate_identifier(run_id, "run observation run id")
+    value = build_codex_doctor_run_observation(
+        observation,
+        run_id=run_id,
+        task_type=task_type,
+        task_profile=task_profile,
+        latency_milliseconds=latency_milliseconds,
+    )
+    return _write_create_only_observation(
+        root,
+        run_id=run_id,
+        value=value,
+    )
+
+
+def write_claude_matched_control_blocker_observation(
+    root: Path | str,
+    *,
+    run_id: str,
+    latency_milliseconds: int,
+) -> Path:
+    """Atomically create one immutable source-only Claude blocker record."""
+
+    run_id = validate_identifier(run_id, "run observation run id")
+    value = build_claude_matched_control_blocker_observation(
+        run_id=run_id,
+        latency_milliseconds=latency_milliseconds,
+    )
+    return _write_create_only_observation(
+        root,
+        run_id=run_id,
+        value=value,
+    )
+
+
 __all__ = [
     "BLOCKED_VERDICT",
     "RUN_OBSERVATION_SCHEMA",
     "SOURCE_ONLY_PROOF",
     "UNAVAILABLE",
     "ZERO_AGENT_CODEX_DOCTOR_KIND",
+    "ZERO_AGENT_CLAUDE_MATCHED_CONTROL_BLOCKER_KIND",
+    "build_claude_matched_control_blocker_observation",
     "build_codex_doctor_run_observation",
+    "validate_claude_matched_control_blocker_observation",
     "validate_codex_doctor_run_observation",
+    "write_claude_matched_control_blocker_observation",
     "write_codex_doctor_run_observation",
 ]
