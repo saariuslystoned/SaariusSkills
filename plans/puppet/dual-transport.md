@@ -100,10 +100,17 @@ handoff, checkpoint, halt receipt, and terminal-evidence record binds:
 
 - backend name and schema version;
 - exact backend executable/protocol identity;
-- target executable and process identity;
+- target executable and process identity when that capability is qualified, or
+  an explicit `unavailable` capability result when it is not;
 - run, source, worktree, and proof identity;
 - allowed mode and human gates;
 - the backend-specific session identity join.
+
+An unavailable target-process identity must not be inferred or replaced with a
+different process identity. In particular, an experimental Herdr record may
+bind the foreground SSH process as transport evidence, but must not report it
+as the remote harness process. Operations that require the unavailable
+identity remain explicitly `unsupported`.
 
 The tmux join includes its private socket, server, session, pane, and client
 mode. The Herdr join includes the authorized parent session and workspace plus

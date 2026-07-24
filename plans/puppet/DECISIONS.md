@@ -219,7 +219,9 @@ the portable qualified default; Herdr may enter as a clearly labeled
 experimental opt-in after a minimum 1x1 lease, non-argv send, structured
 checkpoint, client detach/reattach, and preservation proof. Full remote-process
 identity, targeted halt, recovery, repeated concurrency, and independent
-review remain gates for stable Herdr qualification. Authentication, proof,
-review, acceptance, and human-gate policy stay backend-independent. See
+review remain gates for stable Herdr qualification. Until remote-process
+identity is qualified, records mark it explicitly `unavailable` and never
+substitute the foreground SSH process. Authentication, proof, review,
+acceptance, and human-gate policy stay backend-independent. See
 [`dual-transport.md`](dual-transport.md) for the complete boundary and
 integration order.

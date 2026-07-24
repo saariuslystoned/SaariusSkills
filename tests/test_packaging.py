@@ -146,6 +146,27 @@ class PackagingTests(unittest.TestCase):
                 "https://json-schema.org/draft/2020-12/schema",
             )
 
+    def test_dual_transport_plan_fails_closed_on_unqualified_process_identity(
+        self,
+    ) -> None:
+        plan = (ROOT / "plans" / "puppet" / "dual-transport.md").read_text(
+            encoding="utf-8"
+        )
+        decisions = (ROOT / "plans" / "puppet" / "DECISIONS.md").read_text(
+            encoding="utf-8"
+        )
+        compact_plan = " ".join(plan.split())
+        compact_decisions = " ".join(decisions.split())
+
+        self.assertIn("explicit `unavailable` capability result", compact_plan)
+        self.assertIn(
+            "must not report it as the remote harness process", compact_plan
+        )
+        self.assertIn("remain explicitly `unsupported`", compact_plan)
+        self.assertIn(
+            "never substitute the foreground SSH process", compact_decisions
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
