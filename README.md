@@ -50,6 +50,8 @@ distinguishes physical screenshot IDs from logical input display IDs, rejects
 warning-corrupted PNG streams, flags suspiciously small black-screen captures,
 and keeps Vysor or scrcpy aligned with headless ADB proof. It is intentionally
 bounded to registered test devices and reversible, route-approved actions.
+The [initial Pixel 10 Pro XL proof](plans/phone-dogfood/PROOF.md) exercises the
+capture and human-mirror alignment slice.
 
 ## GrillTrack
 
