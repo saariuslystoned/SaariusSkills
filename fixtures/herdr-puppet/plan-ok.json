@@ -1,0 +1,29 @@
+{
+  "doctor": {
+    "version_text": "herdr 0.7.3",
+    "server_status": {
+      "status": "running",
+      "running": true,
+      "version": "0.7.3",
+      "protocol": 16,
+      "compatible": true,
+      "socket": "/redacted/herdr.sock",
+      "session": "operator-session"
+    },
+    "sessions": [
+      {
+        "name": "operator-session",
+        "running": true,
+        "socket_path": "/redacted/herdr.sock"
+      }
+    ]
+  },
+  "workspaces": [
+    {
+      "workspace_id": "w2",
+      "label": "worker-02",
+      "tab_count": 0,
+      "pane_count": 0
+    }
+  ]
+}

@@ -31,6 +31,30 @@ runtime-qualified: every live
 adapter remains hard-disabled until its exact current CLI passes the shared
 real-harness conformance probe, and no self-hosting promotion is claimed.
 
+## Herdr-Puppet
+
+Herdr-Puppet is the experimental transport skill growing beside Puppet. It
+binds an explicit operator capability to one newly created Herdr tab, exact
+tab/pane/terminal/SSH identity, a sequence-checked lease, and a transcript-blind
+controller journal.
+
+Ordinary AGY turns use plain messages. `/teamwork-preview` is reserved for an
+explicitly requested, separately qualified 4-20-helper fan-out; it is not the
+default steering prefix.
+
+The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
+append-only dogfood journals, gated qualification tab creation,
+sequence-checked input, partial-send reconciliation, and a bounded exact-nonce
+wait with strict `STATUS` / `ACTION_REQUIRED` / `DONE` checkpoint
+classification. Ordinary status never reads pane text. Parent-session mutation,
+pre-existing-tab adoption, generic transcript capture, halt, and recovery remain
+disabled.
+
+The first live dogfood lane uses one newly owned, persistently visible AGY pane
+on a remote worker. Its machine-local controller journal is deliberately not a
+public transcript or promotion claim; curated public proof will follow only
+after the behavior and redaction boundaries survive review.
+
 ## GrillTrack
 
 GrillTrack helps a user and an agent build a complicated thing without
@@ -141,6 +165,12 @@ invocation, but it is never required when the user's intent is already clear.
   proof, closeout, and frontend guidance.
 - `fixtures/`: small public evaluation inputs.
 - `tests/`: protocol, state, packaging, and safety regression tests.
+- [`skills/herdr-puppet/SKILL.md`](skills/herdr-puppet/SKILL.md): the
+  exact-identity Herdr transport and dogfood workflow.
+- `skills/herdr-puppet/scripts/herdr_puppet.py`: a standard-library controller
+  for doctor, plan, status, journals, and gated qualification operations.
+- `skills/herdr-puppet/references/`: authority, transport, qualification, and
+  versioned JSON-schema contracts.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
@@ -157,6 +187,7 @@ python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 python3 skills/puppet/scripts/puppet.py --help
 python3 skills/puppet/scripts/adapter_lab.py --help
+python3 skills/herdr-puppet/scripts/herdr_puppet.py --help
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.

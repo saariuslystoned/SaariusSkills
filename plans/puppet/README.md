@@ -50,6 +50,10 @@ conversation.
   and one deferred GrillTrack decisions in a public-safe form.
 - [`PROOF.md`](PROOF.md) records document verification, public artifact hashes,
   non-claims, redactions, and residual runtime risks.
+- [`herdr-puppet.md`](herdr-puppet.md) is an adjacent discovery-backed plan for
+  proving Herdr as a human-visible, transcript-blind remote-agent transport
+  before proposing it as an optional Puppet backend. Its redacted discovery
+  evidence is in [`herdr-puppet-proof.md`](herdr-puppet-proof.md).
 
 The raw local ledger/event stream and private-repository identifiers are not
 published. Their material decisions, supersessions, deferments, limitations,

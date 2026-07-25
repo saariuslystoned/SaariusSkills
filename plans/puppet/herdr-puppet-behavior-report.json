@@ -1,0 +1,62 @@
+{
+  "overall_behavior": "satisfies_contract",
+  "overall_confidence": 0.96,
+  "target": {
+    "type": "CLI and terminal UI",
+    "access": "Herdr 0.7.3 with SSH panes targeting one remote macOS worker"
+  },
+  "contract": {
+    "path": "herdr-puppet-proof.md",
+    "version": "2026-07-23"
+  },
+  "checks": [
+    {
+      "contract_clause": "One human-visible Herdr pane can host and control one remote AGY process without tmux",
+      "status": "pass",
+      "severity": null,
+      "evidence": "The Herdr pane had SSH as its foreground controller-side process, displayed the native AGY TUI, accepted two distinct prompts, and returned two exact distinct tokens. The remote worker had one matching AGY process and no tmux server.",
+      "confidence": 0.98
+    },
+    {
+      "contract_clause": "Three uniquely labeled Herdr tabs can run and control three AGY processes concurrently",
+      "status": "pass",
+      "severity": null,
+      "evidence": "Three unique tabs mapped to three distinct panes and three remote AGY processes. Three unique prompts were dispatched concurrently and each pane returned its matching exact token.",
+      "confidence": 0.98
+    },
+    {
+      "contract_clause": "The workflow persists across human client detach and reattach",
+      "status": "blocked",
+      "severity": null,
+      "evidence": "The Herdr server remained running, but the active human client was not detached during this proof.",
+      "confidence": 0.4
+    },
+    {
+      "contract_clause": "The primitive is qualified for Puppet ordinary operation",
+      "status": "blocked",
+      "severity": null,
+      "evidence": "The proof reused a pre-existing operator Herdr session and used bounded terminal reads. Puppet ordinary operation requires controller-owned identity and transcript-blind lifecycle evidence.",
+      "confidence": 0.99
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "Changed the expected response token in the same pane",
+      "result": "The AGY response changed to the second exact token"
+    },
+    {
+      "probe": "Dispatched three different tokens concurrently",
+      "result": "Each of the three panes returned only its matching token"
+    },
+    {
+      "probe": "Rechecked remote process and tmux inventory after responses",
+      "result": "The same three AGY process identities remained and no tmux server existed"
+    }
+  ],
+  "blockers": [
+    "client_detach_reattach_not_exercised",
+    "herdr_server_crash_recovery_not_exercised",
+    "parent_session_authority_not_qualified",
+    "puppet_transcript_blind_authority_not_implemented"
+  ]
+}

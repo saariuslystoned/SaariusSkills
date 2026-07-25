@@ -1,0 +1,6 @@
+interface:
+  display_name: "Herdr Puppet"
+  short_description: "Drive persistent remote agents through Herdr."
+  default_prompt: "Use $herdr-puppet to plan, launch, observe, and journal an explicitly owned remote agent pane in Herdr."
+policy:
+  allow_implicit_invocation: true
