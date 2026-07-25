@@ -20,6 +20,12 @@ The JSON Schemas in this directory are normative for their public fields:
 observations match live Herdr state. Creating a tab changes `state` from
 `planned` to an independently stored lease with `state: active`.
 
+When `qualification-create-tab` is invoked through the public controller, the
+matching controller journal is a mutation precondition. Its `plan.json`,
+`events.jsonl`, initialization event, and run ID are checked before
+`tab create`. A missing, malformed, empty, or cross-run journal fails before
+any tab, pane, SSH process, or lease is created.
+
 ## Lease lifecycle
 
 A lease binds:
@@ -59,6 +65,11 @@ input acceptance only, not shell or harness execution.
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible
 but cannot receive controller input.
+
+Preservation is not tab cleanup. Any later tab close or process reap belongs
+to a separately authorized maintenance surface that must target the exact
+leased identity and verify the affected processes exited. Herdr-Puppet does
+not infer cleanup authority from a milestone, label, age, or failed beacon.
 
 Do not infer a missing ID or repair a mismatch by searching labels. Recovery
 remains disabled until remote-process adoption and crash behavior are

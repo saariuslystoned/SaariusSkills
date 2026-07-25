@@ -62,6 +62,14 @@ again, emits only the checkpoint class, and journals only that class, the
 revision, and a nonce hash. `ACTION_REQUIRED` is a human gate. The lower-level
 token probe is for transport diagnosis and reports only match/no-match.
 
+`not_matched` is narrowly scoped evidence: no strict checkpoint line matched
+inside the bounded wait. It does not mean input delivery failed, the remote
+worker went offline, SSH exited, the harness stopped, or a human gate exists.
+Do not convert it into any of those claims. Recheck structural status and
+independent source/proof artifacts without reading the transcript; then
+preserve or supersede the run instead of speculatively resending the same
+prompt.
+
 The native waiter scans existing recent content before subscribing to new
 output, so every checkpoint nonce must be unique per send. Matching is
 line-based and does not itself prove output happened after the wait began.
@@ -84,3 +92,18 @@ redacted run packet.
 At a human gate or other terminal controller stop, run `lease-preserve`.
 Preservation is local and non-destructive: it keeps the Herdr tab visible while
 making all later send, reconcile, probe, and beacon operations fail closed.
+
+## Harness posture and tab lifecycle
+
+Herdr transport qualification never implies YOLO or auto-approval behavior in
+the target harness. The caller must separately authorize and pass the exact
+harness flag for the bounded launch. The controller journal records transport
+identity and sends; it does not reinterpret that flag as push, merge, deploy,
+secret, account, device, or cleanup authority.
+
+Closing a completed, failed, or gated tab is also separate from
+`lease-preserve`. When the operator authorizes closure, first preserve the
+lease, then route the exact leased tab through an owner-specific maintenance
+surface and verify its foreground SSH and recorded harness descendants exit.
+Do not add generic close/reap behavior to qualification, and do not target by
+label, process name, age, or focus.

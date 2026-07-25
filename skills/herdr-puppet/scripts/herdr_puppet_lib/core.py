@@ -9,7 +9,14 @@ from typing import Any
 
 from .errors import HerdrPuppetError
 from .herdr_client import HerdrClient
-from .journal import append_event, atomic_json, make_event, now, sha256_text
+from .journal import (
+    append_event,
+    atomic_json,
+    make_event,
+    now,
+    require_initialized_journal,
+    sha256_text,
+)
 
 
 SUPPORTED_HERDR_VERSION = "0.7.3"
@@ -438,6 +445,11 @@ def create_qualification_tab(
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
     _live_gate(plan_payload, allow_live)
+    if run_root is not None:
+        require_initialized_journal(
+            run_root,
+            run_id=plan_payload["run_id"],
+        )
     before_status = structural_status(client, plan_payload=plan_payload)
     if before_status["result"] != "ok":
         raise HerdrPuppetError(

@@ -200,6 +200,42 @@ def read_events(run_root: Path, *, maximum: int = 10_000) -> list[dict[str, Any]
     return events
 
 
+def require_initialized_journal(run_root: Path, *, run_id: str) -> None:
+    plan_path = run_root / "plan.json"
+    events_path = run_root / "events.jsonl"
+    if not plan_path.exists() or not events_path.exists():
+        raise HerdrPuppetError(
+            "journal_not_initialized",
+            "Initialize the controller journal before mutating Herdr.",
+            details={"run_root": str(run_root)},
+        )
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HerdrPuppetError(
+            "journal_not_initialized",
+            "The controller journal plan is unreadable or malformed.",
+            details={"run_root": str(run_root)},
+        ) from exc
+    if plan.get("run_id") != run_id:
+        raise HerdrPuppetError(
+            "journal_run_mismatch",
+            "The controller journal belongs to a different run.",
+            details={"run_root": str(run_root)},
+        )
+    events = read_events(run_root)
+    if (
+        not events
+        or events[0].get("kind") != "journal.initialized"
+        or events[0].get("run_id") != run_id
+    ):
+        raise HerdrPuppetError(
+            "journal_not_initialized",
+            "The controller journal has no matching initialization event.",
+            details={"run_root": str(run_root)},
+        )
+
+
 def summarize_journal(run_root: Path, *, recent_limit: int = 20) -> dict[str, Any]:
     if recent_limit < 1 or recent_limit > 100:
         raise HerdrPuppetError(

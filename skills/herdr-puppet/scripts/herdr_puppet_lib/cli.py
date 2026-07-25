@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     create_tab.add_argument("--lease-json", required=True)
     create_tab.add_argument("--allow-live-qualification", action="store_true")
     create_tab.add_argument("--settle-seconds", type=float, default=10.0)
-    create_tab.add_argument("--run-root")
+    create_tab.add_argument("--run-root", required=True)
     _common_live(create_tab)
 
     send = subparsers.add_parser("qualification-send")

@@ -79,3 +79,27 @@ This ruled out a single static or cached response.
 Account identifiers, machine paths, network addresses, process IDs, and
 unrelated terminal content are omitted. No credentials, auth stores,
 environment files, browser sessions, tokens, or private keys were inspected.
+
+## Pixel Use Dogfood Findings — 2026-07-25
+
+A later bounded Pixel Use build exercised repeated fresh AGY tabs through the
+qualification controller without ordinary transcript reads. It retained four
+repeatable lessons for this PR:
+
+- task-owned prompt files plus exact send-sequence acknowledgements remained a
+  reliable transport bridge;
+- `qualification-create-tab` could previously create the live tab and lease
+  before discovering that the controller journal was absent, leaving an exact
+  run-owned orphan after the command reported failure;
+- strict checkpoint beacons were not reliably observable from the AGY TUI even
+  while independent commits, gates, MCP subprocess identity, and proof
+  artifacts advanced; `not_matched` therefore cannot mean "worker offline" or
+  "human gate"; and
+- Herdr transport did not imply AGY auto-approval. The bounded launch required
+  the caller to authorize and pass the harness flag explicitly. Exact tab
+  closure remained a separate, operator-authorized maintenance action.
+
+The journal precondition is now checked before live tab creation, with negative
+tests for an absent and cross-run journal. The other findings are contract
+clarifications; this PR still does not add generic tab cleanup, process reaping,
+remote harness adoption, or a transcript-reading fallback.

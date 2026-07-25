@@ -522,6 +522,47 @@ class QualificationTests(unittest.TestCase):
         self.assertIn('"kind":"qualification.tab-created"', events)
         self.assertIn('"pane_id":"w2:p1"', events)
 
+    def test_create_tab_requires_initialized_journal_before_mutation(self) -> None:
+        run_root = self.root / "uninitialized-run"
+        with self.assertRaisesRegex(
+            HerdrPuppetError,
+            "Initialize the controller journal before mutating Herdr",
+        ):
+            create_qualification_tab(
+                self.client,
+                plan_payload=self.plan,
+                lease_path=self.lease_path,
+                allow_live=True,
+                settle_seconds=0.1,
+                run_root=run_root,
+            )
+        self.assertEqual(self.client.tab_rows, [])
+        self.assertEqual(self.client.pane_rows, [])
+        self.assertFalse(self.lease_path.exists())
+
+    def test_create_tab_rejects_journal_from_another_run_before_mutation(
+        self,
+    ) -> None:
+        run_root = self.root / "wrong-run"
+        wrong_plan = copy.deepcopy(self.plan)
+        wrong_plan["run_id"] = "different-run"
+        initialize_journal(run_root, wrong_plan)
+        with self.assertRaisesRegex(
+            HerdrPuppetError,
+            "belongs to a different run",
+        ):
+            create_qualification_tab(
+                self.client,
+                plan_payload=self.plan,
+                lease_path=self.lease_path,
+                allow_live=True,
+                settle_seconds=0.1,
+                run_root=run_root,
+            )
+        self.assertEqual(self.client.tab_rows, [])
+        self.assertEqual(self.client.pane_rows, [])
+        self.assertFalse(self.lease_path.exists())
+
     def test_status_detects_terminal_and_process_drift(self) -> None:
         lease = self.create_lease()
         self.client.pane_rows[0]["terminal_id"] = "replacement"

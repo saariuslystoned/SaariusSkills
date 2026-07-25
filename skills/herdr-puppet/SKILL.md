@@ -32,9 +32,12 @@ hand-composed Herdr mutations when the script owns the operation.
    named session, and an unambiguous workspace.
 3. Run `plan`. Save the JSON plan outside public source when it contains local
    paths or host/account identity.
-4. Initialize a controller journal. Record structural events, prompt hashes,
-   sequence numbers, checkpoint results, failures, and concise observations;
-   never copy pane output into the journal.
+4. Initialize a controller journal before any live tab mutation. Record
+   structural events, prompt hashes, sequence numbers, checkpoint results,
+   failures, and concise observations; never copy pane output into the
+   journal. `qualification-create-tab` preflights the matching initialized
+   journal and refuses to create a tab or lease when it is absent or belongs
+   to another run.
 5. Run structural `status` before every mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
 6. For a live qualification, create a new deterministic tab through
@@ -58,7 +61,10 @@ hand-composed Herdr mutations when the script owns the operation.
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
    only the checkpoint class and hashes, never pane text. Use
-   `qualification-token-probe` only for lower-level transport diagnosis.
+   `qualification-token-probe` only for lower-level transport diagnosis. A
+   `not_matched` result proves only that the strict line was absent from the
+   bounded window; it does not prove the worker, SSH process, harness, or tab
+   went offline and is not itself a human gate.
 10. Preserve the owned tab with `lease-preserve` at a human gate, superseded
     route, completed milestone, or operator stop. Preservation changes only
     the controller lease and rejects further input; it does not close the tab.
@@ -73,6 +79,15 @@ hand-composed Herdr mutations when the script owns the operation.
     authorized owner-specific maintenance tool.
 12. Review the journal after each useful checkpoint. Promote only repeatable
     lessons into this skill; keep transient incident detail in the run packet.
+
+Herdr-Puppet does not select a harness permission posture. Transport
+qualification flags authorize only the named Herdr operation. Unrestricted or
+auto-approval harness flags such as AGY's `--dangerously-skip-permissions` must
+be explicitly authorized and passed by the caller for that bounded launch.
+Likewise, closing a preserved tab is a separate exact-target maintenance
+action: it requires operator authority, the leased tab identity, and
+post-close process-exit proof. Never infer either behavior from "puppet",
+"Herdr", a label, or `--allow-live-qualification`.
 
 ## Commands
 
@@ -101,6 +116,12 @@ python3 scripts/herdr_puppet.py journal-init \
 python3 scripts/herdr_puppet.py journal-show \
   --run-root <run-root>
 
+python3 scripts/herdr_puppet.py qualification-create-tab \
+  --plan-json <plan.json> \
+  --lease-json <lease.json> \
+  --run-root <run-root> \
+  --allow-live-qualification
+
 python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --lease-json <lease.json> \
   --nonce <unique-checkpoint-nonce> \
@@ -122,9 +143,9 @@ python3 scripts/herdr_puppet.py lease-preserve \
 
 Live qualification commands additionally require
 `--allow-live-qualification`. That flag confirms transport mutation only. It
-does not authorize unrestricted harness flags, pushes, pull requests, merges,
-deploys, sends, spending, secret access, account/security changes, or
-destructive cleanup.
+does not authorize unrestricted or auto-approval harness flags, pushes, pull
+requests, merges, deploys, sends, spending, secret access, account/security
+changes, tab closure, process reaping, or destructive cleanup.
 
 ## Preserve the boundary
 
