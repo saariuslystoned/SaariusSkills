@@ -1066,7 +1066,7 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(
             argv,
             [
-                "/bin/echo",
+                raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
                 AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",
@@ -1076,7 +1076,7 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(
             raw["yolo_mapping"]["launch_argv"],
             [
-                "/bin/echo",
+                raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
                 AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",

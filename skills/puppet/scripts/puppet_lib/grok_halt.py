@@ -58,7 +58,14 @@ GROK_CURRENT_SOURCE_BLOCKERS = tuple(
     else item
     for item in GROK_PASS_A_LIMITATIONS
 )
-_SOCKET_IDENTITY_FIELDS = {"path", "device", "inode", "uid", "mode"}
+_SOCKET_IDENTITY_FIELDS = {
+    "path",
+    "device",
+    "inode",
+    "uid",
+    "mode",
+    "ctime_ns",
+}
 _EXECUTABLE_SELECTOR_FIELDS = {"path", "device", "inode"}
 _PLAN_FIELDS = {
     "schema",
@@ -347,6 +354,7 @@ def _live_socket_identity(path: Path) -> Dict[str, Any]:
         "inode": details.st_ino,
         "uid": details.st_uid,
         "mode": stat.S_IMODE(details.st_mode),
+        "ctime_ns": details.st_ctime_ns,
     }
 
 
@@ -360,7 +368,7 @@ def _validate_socket_identity(value: Any) -> Dict[str, Any]:
             isinstance(value.get(name), bool)
             or not isinstance(value.get(name), int)
             or value[name] < 0
-            for name in ("device", "inode", "uid", "mode")
+            for name in ("device", "inode", "uid", "mode", "ctime_ns")
         )
         or value["device"] <= 0
         or value["inode"] <= 0

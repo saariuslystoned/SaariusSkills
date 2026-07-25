@@ -1503,9 +1503,10 @@ class PlaneActivationTests(unittest.TestCase):
     def test_inode_replacement_with_same_body_blocks_rollback(self):
         self._activate()
         original_inode = self.plan.artifact_path.stat().st_ino
-        self.plan.artifact_path.unlink()
-        self.plan.artifact_path.write_bytes(self.compiled.rendered)
-        self.plan.artifact_path.chmod(0o600)
+        replacement = self.plan.artifact_path.with_name("replacement-artifact")
+        replacement.write_bytes(self.compiled.rendered)
+        replacement.chmod(0o600)
+        replacement.replace(self.plan.artifact_path)
         self.assertNotEqual(self.plan.artifact_path.stat().st_ino, original_inode)
         with self.assertRaises(IdentityError):
             verify_activation(self.plan)
