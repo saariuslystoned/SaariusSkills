@@ -1,0 +1,6 @@
+interface:
+  display_name: "SWARM Wiki"
+  short_description: "Compile, log and lint the knowledge the phone-side notebook reads."
+  default_prompt: "Use $swarm-wiki to ingest a source, file a notebook answer back, append a run entry, or lint the corpus."
+policy:
+  allow_implicit_invocation: true
