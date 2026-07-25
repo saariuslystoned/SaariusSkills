@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
+PHONE_DOGFOOD_SKILL = ROOT / "skills" / "phone-dogfood"
 
 
 class PackagingTests(unittest.TestCase):
@@ -145,6 +146,23 @@ class PackagingTests(unittest.TestCase):
                 schema["$schema"],
                 "https://json-schema.org/draft/2020-12/schema",
             )
+
+    def test_phone_dogfood_skill_is_packaged_and_bounded(self) -> None:
+        skill = (PHONE_DOGFOOD_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            PHONE_DOGFOOD_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        helper = (
+            PHONE_DOGFOOD_SKILL / "scripts" / "phone_dogfood.py"
+        ).read_text(encoding="utf-8")
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("$phone-dogfood", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("Actually inspect the image", skill)
+        self.assertIn("physical screenshot ID", skill)
+        self.assertNotIn("shell=True", helper)
+        self.assertNotIn("os.system", helper)
+        self.assertNotIn('"serial": serial', helper)
 
 
 if __name__ == "__main__":

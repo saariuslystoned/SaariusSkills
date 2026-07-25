@@ -42,6 +42,15 @@ on a remote worker. Its machine-local controller journal is deliberately not a
 public transcript or promotion claim; curated public proof will follow only
 after the behavior and redaction boundaries survive review.
 
+## Phone Dogfood
+
+Phone Dogfood closes the gap between a green mobile build and the UI a human
+actually sees. It runs a build-install-capture-inspect-fix-capture loop,
+distinguishes physical screenshot IDs from logical input display IDs, rejects
+warning-corrupted PNG streams, flags suspiciously small black-screen captures,
+and keeps Vysor or scrcpy aligned with headless ADB proof. It is intentionally
+bounded to registered test devices and reversible, route-approved actions.
+
 ## GrillTrack
 
 GrillTrack helps a user and an agent build a complicated thing without
@@ -151,6 +160,11 @@ invocation, but it is never required when the user's intent is already clear.
   for doctor, plan, status, journals, and gated qualification operations.
 - `skills/herdr-puppet/references/`: authority, transport, qualification, and
   versioned JSON-schema contracts.
+- [`skills/phone-dogfood/SKILL.md`](skills/phone-dogfood/SKILL.md): the
+  build-install-look-fix-look mobile UI workflow.
+- `skills/phone-dogfood/scripts/phone_dogfood.py`: a standard-library Android
+  display inventory and structurally validated screenshot helper.
+- `skills/phone-dogfood/references/`: display-ID and visual-proof contracts.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
@@ -166,6 +180,7 @@ python3 -m unittest discover -s tests -v
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 python3 skills/herdr-puppet/scripts/herdr_puppet.py --help
+python3 skills/phone-dogfood/scripts/phone_dogfood.py --help
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
