@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import shlex
+import signal
 import socket as socket_module
 import subprocess
 import sys
@@ -27,6 +28,10 @@ from puppet_lib.launch import (  # noqa: E402
     validate_admitted_launch_plan,
 )
 from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
+from puppet_lib.registry import (  # noqa: E402
+    process_birth_identity,
+    send_exact_sigint,
+)
 from puppet_lib.tmux import TargetLaunch, TmuxController  # noqa: E402
 
 
@@ -186,6 +191,45 @@ class TmuxTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(update_environment.returncode, 0)
                 self.assertEqual(update_environment.stdout, "")
+            finally:
+                self._kill(socket=socket, session=session)
+
+    def test_launch_normalizes_inherited_sigint_for_exact_halt(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            controller = TmuxController(root)
+            session = "tmux-normalized-sigint"
+            socket = controller.socket_path(session)
+            original_handler = signal.getsignal(signal.SIGINT)
+            metadata = None
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                metadata = controller.launch(
+                    session=session,
+                    target="codex",
+                    repo=repo,
+                    argv=["/bin/sleep", "600"],
+                    environment=self._launch_environment(),
+                )
+            finally:
+                signal.signal(signal.SIGINT, original_handler)
+            try:
+                send_exact_sigint(process_birth_identity(metadata["pane_pid"]))
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    observed = controller.metadata_for_session(
+                        socket=socket,
+                        session=session,
+                        server_identity=metadata["server_identity"],
+                    )
+                    if observed["pane_dead"]:
+                        break
+                    time.sleep(0.05)
+                self.assertTrue(observed["pane_dead"])
             finally:
                 self._kill(socket=socket, session=session)
 

@@ -82,6 +82,9 @@ HARD_GATES = [
 
 STABLE_INSTRUCTION_MANIFEST_SHA256 = "0" * 64
 ALTERNATE_INSTRUCTION_MANIFEST_SHA256 = "1" * 64
+SIGNAL_EXEC_HELPER = (
+    ROOT / "skills" / "puppet" / "scripts" / "puppet_lib" / "signal_exec.py"
+)
 
 
 def contract(repo: Path):
@@ -2296,6 +2299,8 @@ class AuthorityTests(unittest.TestCase):
     def test_exact_sigint_does_not_signal_a_shared_process_group(self):
         parent = subprocess.Popen(
             [
+                sys.executable,
+                str(SIGNAL_EXEC_HELPER),
                 sys.executable,
                 "-c",
                 (

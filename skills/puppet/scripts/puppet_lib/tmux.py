@@ -8,6 +8,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,7 @@ _PANE_FORMAT = (
 )
 _CLIENT_FORMAT = "#{client_pid}\t#{client_tty}\t#{client_readonly}\t#{session_name}"
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
+_SIGNAL_EXEC_HELPER = Path(__file__).resolve(strict=True).with_name("signal_exec.py")
 
 
 @dataclass(frozen=True)
@@ -248,6 +250,14 @@ class TmuxController:
             str(socket),
             *arguments,
         ]
+
+    @staticmethod
+    def _target_command(argv: Sequence[str]) -> List[str]:
+        """Wrap one direct target exec so exact SIGINT halt is always actionable."""
+
+        interpreter = Path(sys.executable).resolve(strict=True)
+        helper = _SIGNAL_EXEC_HELPER.resolve(strict=True)
+        return [str(interpreter), str(helper), *argv]
 
     def _run(
         self,
@@ -491,7 +501,7 @@ class TmuxController:
                     "-c",
                     str(repo),
                     "--",
-                    *target_argv,
+                    *self._target_command(target_argv),
                 ],
             )
             server_identity = self.server_identity(socket)
