@@ -269,8 +269,8 @@ def controller_files(
     )
     proof = root / "controller-proof"
     state_root = root / "state"
-    proof.mkdir()
-    state_root.mkdir()
+    proof.mkdir(mode=0o700)
+    state_root.mkdir(mode=0o700)
     contract_raw = {
         "schema_version": 1,
         "objective": "Exercise the composed Puppet controller kernel",
@@ -360,7 +360,15 @@ def kill_test_server(socket):
 class SessionIntegrationTests(unittest.TestCase):
     def setUp(self):
         # Session composition tests use /bin/cat as a deterministic target.
-        # Real-adapter qualification and anti-forgery are covered separately.
+        # Real-adapter qualification, process census, and anti-forgery are
+        # covered separately. Isolate composition from the ambient runner so a
+        # live Codex process cannot turn these fixtures into host-state tests.
+        process_patcher = patch(
+            "puppet_lib.session._active_processes",
+            return_value=[],
+        )
+        process_patcher.start()
+        self.addCleanup(process_patcher.stop)
         qualification_patcher = patch.object(
             AdapterManifest,
             "verify_qualification",
@@ -1307,7 +1315,14 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
                 self.assertEqual(first_error, [])
                 self.assertEqual(len(first_result), 1)
-                self.assertEqual(launch_calls, [session])
+                # Admission runs inside TmuxController.launch immediately
+                # before its subprocess call. The competing launch reaches
+                # that boundary but the global lease rejects it before any
+                # second tmux server or target can start.
+                self.assertEqual(launch_calls, [session, session])
+                self.assertFalse(
+                    TmuxController(second_state).socket_path(session).exists()
+                )
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 self.assertEqual(

@@ -972,12 +972,6 @@ def launch(
             "hard_gates": sorted(contract.hard_gates),
         },
     )
-    instruction_copy = _bind_json(
-        proof_root / "effective-instructions.json",
-        compiled.manifest,
-        "effective instruction manifest",
-    )
-    instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
     session_lease_owner = build_lease_owner(
         activity="session",
         run_id=protocol["run_id"],
@@ -1015,6 +1009,12 @@ def launch(
         ),
     )
     manifest.verify_launch_execution_environment(launch_environment)
+    instruction_copy = _bind_json(
+        proof_root / "effective-instructions.json",
+        compiled.manifest,
+        "effective instruction manifest",
+    )
+    instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
     registry = SessionRegistry(state_root)
     tmux = TmuxController(state_root)
     socket = tmux.socket_path(session)
