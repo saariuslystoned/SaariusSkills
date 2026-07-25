@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reset Puppet's graceful-halt signal before directly executing a target."""
+"""Normalize Puppet's graceful-halt signal before directly executing a target."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ def exec_with_default_sigint(argv: Sequence[str]) -> None:
 
     target = _validated_target(argv)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
     os.execve(target[0], target, dict(os.environ))
 
 

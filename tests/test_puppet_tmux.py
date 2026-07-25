@@ -205,6 +205,7 @@ class TmuxTransportTests(unittest.TestCase):
             session = "tmux-normalized-sigint"
             socket = controller.socket_path(session)
             original_handler = signal.getsignal(signal.SIGINT)
+            original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
             metadata = None
             try:
                 signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -217,6 +218,7 @@ class TmuxTransportTests(unittest.TestCase):
                 )
             finally:
                 signal.signal(signal.SIGINT, original_handler)
+                signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
             try:
                 send_exact_sigint(process_birth_identity(metadata["pane_pid"]))
                 deadline = time.monotonic() + 5
