@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import stat
 import subprocess
 import sys
 import time
@@ -852,6 +853,24 @@ def doctor(
         blockers.append("proof root is not writable")
     if not os.access(str(state_root), os.W_OK):
         blockers.append("state root is not writable")
+    state_details = state_root.stat()
+    if (
+        state_details.st_uid != os.getuid()
+        or stat.S_IMODE(state_details.st_mode) != 0o700
+    ):
+        blockers.append("state root is not current-UID mode 0700")
+    else:
+        viewer_root = state_root / "views"
+        if viewer_root.exists() or viewer_root.is_symlink():
+            if viewer_root.is_symlink() or not viewer_root.is_dir():
+                blockers.append("viewer root is not a regular directory")
+            else:
+                viewer_details = viewer_root.stat()
+                if (
+                    viewer_details.st_uid != os.getuid()
+                    or stat.S_IMODE(viewer_details.st_mode) != 0o700
+                ):
+                    blockers.append("viewer root is not current-UID mode 0700")
     mapping = manifest.raw["yolo_mapping"]
     if contract.session_profile != "regular":
         blockers.append("only the regular session profile is enabled")

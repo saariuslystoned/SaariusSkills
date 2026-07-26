@@ -731,6 +731,51 @@ class SessionIntegrationTests(unittest.TestCase):
             self.assertFalse(report["launch_ready"])
             self.assertIn("candidate worktree is not clean", report["blockers"])
 
+    def test_doctor_rejects_nonprivate_state_root_before_target_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-public-view-preflight"
+            candidate = initialize_repo(
+                root / "candidate",
+                "codex/public-view-preflight",
+                "candidate",
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/public-view-preflight",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            files["state"].chmod(0o755)
+            report = puppet_session.doctor(
+                contract_path=files["contract"],
+                manifest_path=files["manifest"],
+                authorization_path=files["authorization"],
+                proof_root=files["proof"],
+                state_root=files["state"],
+            )
+            self.assertFalse(report["launch_ready"])
+            self.assertIn(
+                "state root is not current-UID mode 0700",
+                report["blockers"],
+            )
+            with patch.object(TmuxController, "launch") as tmux_launch:
+                with self.assertRaisesRegex(UnsupportedError, "preflight is blocked"):
+                    launch(
+                        session=session,
+                        contract_path=files["contract"],
+                        manifest_path=files["manifest"],
+                        authorization_path=files["authorization"],
+                        proof_root=files["proof"],
+                        state_root=files["state"],
+                        supervisor_executable=files["supervisor_executable"],
+                        prompt="Never launch from a nonprivate state root.",
+                    )
+            tmux_launch.assert_not_called()
+            self.assertFalse(SessionRegistry(files["state"]).exists(session))
+
     def test_workspace_drift_after_doctor_fails_before_tmux_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
