@@ -166,6 +166,13 @@ workspace, process, tmux, socket, UUID, checkpoint, and viewer identities.
 Both runs require the normal sequenced follow-up checkpoint and exact
 registered-root halt, retained descendant ancestry, and identical protected
 pre/post populations. The positive rule must be hash-guardedly rolled back.
+Its current materialization receipt binds the workspace identity before and
+after create plus every `.grok` parent's inode and created-vs-preexisting
+status. Rollback removes only the matching artifact and recorded Puppet-created
+empty parents, deepest-first, then proves the workspace identity returned to
+its pre-create value; preexisting parents are never removed. Parent drift,
+symlink substitution, non-empty created parents, and legacy receipts without
+parent ownership are non-promotable.
 
 Record each live read-only view with
 `observe-grok-view --run-root RUN_ROOT`; it observes one tmux client attach and

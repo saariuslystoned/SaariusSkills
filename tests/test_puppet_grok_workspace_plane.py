@@ -39,6 +39,8 @@ from puppet_lib.grok_workspace_plane import (  # noqa: E402
     GROK_NO_BLEED_FS_SHORTCUT_BLOCKER,
     GROK_PUBLIC_LAUNCH_FENCED,
     GROK_QUALIFICATION_NONPROMOTABLE,
+    LEGACY_MATERIALIZATION_RECEIPT_SCHEMA,
+    LEGACY_ROLLBACK_RECEIPT_SCHEMA,
     MATCHED_CONTROL_PRECHECK_SCHEMA,
     MATCHED_CONTROL_SCHEMA,
     MATERIALIZATION_RECEIPT_SCHEMA,
@@ -63,9 +65,11 @@ from puppet_lib.grok_workspace_plane import (  # noqa: E402
     rollback_grok_workspace_rule,
     validate_grok_entry_descriptor,
     validate_grok_qualification_request,
+    validate_grok_workspace_materialization_receipt,
+    validate_grok_workspace_rollback_receipt,
     verify_grok_workspace_rule,
 )
-from puppet_lib.safety import sha256_bytes  # noqa: E402
+from puppet_lib.safety import canonical_json_bytes, sha256_bytes  # noqa: E402
 
 
 def _git(repo: Path, *arguments: str) -> str:
@@ -234,6 +238,22 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         )
         self.assertEqual(materialization["schema"], MATERIALIZATION_RECEIPT_SCHEMA)
         self.assertTrue(materialization["created"])
+        self.assertEqual(
+            [
+                (item["relative_path"], item["created"])
+                for item in materialization["parent_directories"]
+            ],
+            [(".grok", True), (".grok/rules", True)],
+        )
+        self.assertEqual(
+            validate_grok_workspace_materialization_receipt(
+                materialization,
+                expected_workspace_root=positive,
+                expected_relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+            ),
+            materialization,
+        )
         self.assertFalse(materialization["qualification_authorized"])
         self.assertFalse(materialization["launch_authorized"])
         verify_grok_workspace_rule(
@@ -258,12 +278,208 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
             workspace_root=positive,
             relative_path=self.relative,
             expected_content_sha256=self.content_sha,
+            materialization_receipt=materialization,
         )
         self.assertEqual(rollback["schema"], ROLLBACK_RECEIPT_SCHEMA)
         self.assertTrue(rollback["removed"])
+        self.assertEqual(
+            rollback["created_parents_removed"], [".grok/rules", ".grok"]
+        )
+        self.assertTrue(rollback["parent_restoration_verified"])
+        self.assertTrue(rollback["workspace_identity_restored"])
+        self.assertEqual(
+            validate_grok_workspace_rollback_receipt(
+                rollback,
+                materialization_receipt=materialization,
+            ),
+            rollback,
+        )
         self.assertFalse(rollback["qualification_authorized"])
         artifact = positive.joinpath(*self.relative.split("/"))
         self.assertFalse(artifact.exists())
+        self.assertFalse((positive / ".grok").exists())
+
+        replay = rollback_grok_workspace_rule(
+            workspace_root=positive,
+            relative_path=self.relative,
+            expected_content_sha256=self.content_sha,
+            materialization_receipt=materialization,
+        )
+        self.assertFalse(replay["removed"])
+        self.assertTrue(replay["workspace_identity_restored"])
+        self.assertEqual(
+            replay["created_parents_removed"], [".grok/rules", ".grok"]
+        )
+
+    def test_rollback_preserves_one_or_both_preexisting_parents(self) -> None:
+        for label, create_rules in (("one", False), ("both", True)):
+            with self.subTest(label=label):
+                workspace = self.base / ("preexisting-" + label)
+                workspace.mkdir(mode=0o700)
+                grok_dir = workspace / ".grok"
+                grok_dir.mkdir(mode=0o700)
+                rules_dir = grok_dir / "rules"
+                if create_rules:
+                    rules_dir.mkdir(mode=0o700)
+                materialization = materialize_grok_workspace_rule(
+                    workspace_root=workspace,
+                    relative_path=self.relative,
+                    content=self.contract_bytes,
+                    descriptor_sha256="d" * 64,
+                )
+                self.assertEqual(
+                    [item["created"] for item in materialization["parent_directories"]],
+                    [False, not create_rules],
+                )
+                rollback = rollback_grok_workspace_rule(
+                    workspace_root=workspace,
+                    relative_path=self.relative,
+                    expected_content_sha256=self.content_sha,
+                    materialization_receipt=materialization,
+                )
+                self.assertTrue(grok_dir.is_dir())
+                self.assertEqual(
+                    rollback["preexisting_parents_preserved"],
+                    [".grok", ".grok/rules"] if create_rules else [".grok"],
+                )
+                if create_rules:
+                    self.assertTrue(rules_dir.is_dir())
+                else:
+                    self.assertFalse(rules_dir.exists())
+                self.assertTrue(rollback["workspace_identity_restored"])
+
+    def test_nonempty_or_identity_drift_refuses_before_artifact_removal(self) -> None:
+        nonempty = self.base / "nonempty"
+        nonempty.mkdir(mode=0o700)
+        materialization = materialize_grok_workspace_rule(
+            workspace_root=nonempty,
+            relative_path=self.relative,
+            content=self.contract_bytes,
+            descriptor_sha256="e" * 64,
+        )
+        artifact = nonempty.joinpath(*self.relative.split("/"))
+        (nonempty / ".grok" / "rules" / "unowned.txt").write_text(
+            "keep\n", encoding="utf-8"
+        )
+        with self.assertRaises((ConflictError, IdentityError)):
+            rollback_grok_workspace_rule(
+                workspace_root=nonempty,
+                relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+                materialization_receipt=materialization,
+            )
+        self.assertTrue(artifact.is_file())
+
+        drifted = self.base / "drifted"
+        drifted.mkdir(mode=0o700)
+        drifted_materialization = materialize_grok_workspace_rule(
+            workspace_root=drifted,
+            relative_path=self.relative,
+            content=self.contract_bytes,
+            descriptor_sha256="f" * 64,
+        )
+        drifted_rules = drifted / ".grok" / "rules"
+        drifted_rules.chmod(0o755)
+        with self.assertRaisesRegex(IdentityError, "identity|drifted|ownership"):
+            rollback_grok_workspace_rule(
+                workspace_root=drifted,
+                relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+                materialization_receipt=drifted_materialization,
+            )
+        self.assertTrue(drifted.joinpath(*self.relative.split("/")).is_file())
+
+    def test_symlink_and_ownership_substitution_are_fail_closed(self) -> None:
+        workspace = self.base / "symlink-parent"
+        workspace.mkdir(mode=0o700)
+        outside = self.base / "outside"
+        outside.mkdir(mode=0o700)
+        (workspace / ".grok").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(IdentityError, "real directory"):
+            materialize_grok_workspace_rule(
+                workspace_root=workspace,
+                relative_path=self.relative,
+                content=self.contract_bytes,
+                descriptor_sha256="a" * 64,
+            )
+
+        substitution = self.base / "symlink-artifact"
+        substitution.mkdir(mode=0o700)
+        materialization = materialize_grok_workspace_rule(
+            workspace_root=substitution,
+            relative_path=self.relative,
+            content=self.contract_bytes,
+            descriptor_sha256="b" * 64,
+        )
+        artifact = substitution.joinpath(*self.relative.split("/"))
+        artifact.unlink()
+        outside_file = self.base / "outside-rule"
+        outside_file.write_bytes(self.contract_bytes)
+        artifact.symlink_to(outside_file)
+        with self.assertRaisesRegex(IdentityError, "regular file|identity"):
+            rollback_grok_workspace_rule(
+                workspace_root=substitution,
+                relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+                materialization_receipt=materialization,
+            )
+        self.assertEqual(outside_file.read_bytes(), self.contract_bytes)
+
+        owned = self.base / "ownership-substitution"
+        owned.mkdir(mode=0o700)
+        owned_materialization = materialize_grok_workspace_rule(
+            workspace_root=owned,
+            relative_path=self.relative,
+            content=self.contract_bytes,
+            descriptor_sha256="c" * 64,
+        )
+        forged = copy.deepcopy(owned_materialization)
+        forged["artifact_identity"]["uid"] += 1
+        unsigned = {
+            name: forged[name] for name in forged if name != "receipt_sha256"
+        }
+        forged["receipt_sha256"] = sha256_bytes(canonical_json_bytes(unsigned))
+        with self.assertRaisesRegex(IdentityError, "identity changed"):
+            rollback_grok_workspace_rule(
+                workspace_root=owned,
+                relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+                materialization_receipt=forged,
+            )
+
+    def test_legacy_rollback_is_artifact_only_and_nonpromotable(self) -> None:
+        workspace = self.base / "legacy"
+        workspace.mkdir(mode=0o700)
+        materialization = materialize_grok_workspace_rule(
+            workspace_root=workspace,
+            relative_path=self.relative,
+            content=self.contract_bytes,
+            descriptor_sha256="c" * 64,
+        )
+        legacy = rollback_grok_workspace_rule(
+            workspace_root=workspace,
+            relative_path=self.relative,
+            expected_content_sha256=self.content_sha,
+        )
+        self.assertEqual(legacy["schema"], LEGACY_ROLLBACK_RECEIPT_SCHEMA)
+        self.assertTrue(legacy["absent_after"])
+        self.assertFalse(legacy["parent_restoration_verified"])
+        self.assertFalse(legacy["workspace_identity_restored"])
+        self.assertTrue((workspace / ".grok" / "rules").is_dir())
+        legacy_materialization = dict(materialization)
+        legacy_materialization["schema"] = LEGACY_MATERIALIZATION_RECEIPT_SCHEMA
+        with self.assertRaisesRegex(UnsupportedError, "legacy|non-promotable"):
+            validate_grok_workspace_materialization_receipt(
+                legacy_materialization,
+                expected_workspace_root=workspace,
+                expected_relative_path=self.relative,
+                expected_content_sha256=self.content_sha,
+            )
+        with self.assertRaisesRegex(UnsupportedError, "legacy|non-promotable"):
+            validate_grok_workspace_rollback_receipt(
+                legacy,
+                materialization_receipt=materialization,
+            )
 
     def test_filesystem_absence_precheck_never_verifies_no_bleed(self) -> None:
         positive = self.base / "positive"
@@ -338,6 +554,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
             workspace_root=positive,
             relative_path=self.relative,
             expected_content_sha256=self.content_sha,
+            materialization_receipt=materialization,
         )
         # Recreate rule so materialization record still joins content hash fields.
         materialization = materialize_grok_workspace_rule(
@@ -350,6 +567,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
             workspace_root=positive,
             relative_path=self.relative,
             expected_content_sha256=self.content_sha,
+            materialization_receipt=materialization,
         )
         descriptor = {
             "schema": DESCRIPTOR_SCHEMA,
@@ -369,7 +587,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
             "executable_sha256": "5" * 64,
             "subscription_profile_root": str(self.profile),
             "artifact_relative_path": self.relative,
-            "descriptor_sha256": "6" * 64,
+            "descriptor_sha256": "1" * 64,
         }
         with self.assertRaisesRegex(
             UnsupportedError, "filesystem absence alone|paired subscription-backed"

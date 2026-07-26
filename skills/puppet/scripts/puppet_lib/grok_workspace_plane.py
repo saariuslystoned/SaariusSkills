@@ -15,6 +15,7 @@ reads auth/config-store contents.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -50,8 +51,10 @@ from .safety import (
 DESCRIPTOR_SCHEMA = "puppet.grok-workspace-entry-descriptor/v1"
 QUALIFICATION_REQUEST_SCHEMA = "puppet.grok-qualification-request/v1"
 TERMINAL_SCHEMA = "puppet.grok-workspace-isolation-receipt/v1"
-MATERIALIZATION_RECEIPT_SCHEMA = "puppet.grok-workspace-materialization/v1"
-ROLLBACK_RECEIPT_SCHEMA = "puppet.grok-workspace-rollback/v1"
+MATERIALIZATION_RECEIPT_SCHEMA = "puppet.grok-workspace-materialization/v2"
+LEGACY_MATERIALIZATION_RECEIPT_SCHEMA = "puppet.grok-workspace-materialization/v1"
+ROLLBACK_RECEIPT_SCHEMA = "puppet.grok-workspace-rollback/v2"
+LEGACY_ROLLBACK_RECEIPT_SCHEMA = "puppet.grok-workspace-rollback/v1"
 MATCHED_CONTROL_SCHEMA = "puppet.grok-matched-control-attestation/v1"
 MATCHED_CONTROL_PRECHECK_SCHEMA = "puppet.grok-matched-control-precheck/v1"
 FILESYSTEM_ABSENCE_PROOF = "filesystem_absence_only_nonpromotable"
@@ -142,9 +145,14 @@ _MATERIALIZATION_FIELDS = {
     "content_bytes",
     "descriptor_sha256",
     "created",
+    "workspace_identity_before",
+    "workspace_identity_after",
+    "parent_directories",
+    "artifact_identity",
     "activation_authorized",
     "launch_authorized",
     "qualification_authorized",
+    "receipt_sha256",
 }
 
 _ROLLBACK_FIELDS = {
@@ -154,8 +162,33 @@ _ROLLBACK_FIELDS = {
     "workspace_root",
     "relative_path",
     "expected_content_sha256",
+    "materialization_receipt_sha256",
     "removed",
     "absent_after",
+    "created_parents_removed",
+    "preexisting_parents_preserved",
+    "parent_restoration_verified",
+    "workspace_identity_before_sha256",
+    "workspace_identity_after_sha256",
+    "workspace_identity_restored",
+    "legacy_parent_ownership",
+    "launch_authorized",
+    "qualification_authorized",
+    "rollback_sha256",
+}
+
+_LEGACY_ROLLBACK_FIELDS = {
+    "schema",
+    "target",
+    "target_version",
+    "workspace_root",
+    "relative_path",
+    "expected_content_sha256",
+    "removed",
+    "absent_after",
+    "parent_restoration_verified",
+    "workspace_identity_restored",
+    "legacy_parent_ownership",
     "launch_authorized",
     "qualification_authorized",
 }
@@ -234,6 +267,301 @@ def _directory_identity(path: Path, *, label: str) -> Dict[str, Any]:
 
 def _identity_sha256(value: Mapping[str, Any]) -> str:
     return sha256_bytes(canonical_json_bytes(value))
+
+
+_DIRECTORY_IDENTITY_FIELDS = {
+    "path",
+    "device",
+    "inode",
+    "uid",
+    "mode",
+    "nlink",
+}
+_ARTIFACT_IDENTITY_FIELDS = _DIRECTORY_IDENTITY_FIELDS | {"size"}
+_PARENT_RECORD_FIELDS = {
+    "relative_path",
+    "created",
+    "identity_before",
+    "identity_after",
+}
+
+
+def _identity_integer(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValidationError("%s is invalid" % label)
+    return value
+
+
+def _validate_directory_identity(
+    value: Any,
+    *,
+    expected_path: Path,
+    label: str,
+) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _DIRECTORY_IDENTITY_FIELDS:
+        raise ValidationError("%s fields are invalid" % label)
+    result = dict(value)
+    if result.get("path") != str(expected_path):
+        raise IdentityError("%s path changed" % label)
+    for name in _DIRECTORY_IDENTITY_FIELDS - {"path"}:
+        _identity_integer(result.get(name), "%s %s" % (label, name))
+    return result
+
+
+def _validate_artifact_identity(
+    value: Any,
+    *,
+    expected_path: Path,
+) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _ARTIFACT_IDENTITY_FIELDS:
+        raise ValidationError("Grok artifact identity fields are invalid")
+    result = dict(value)
+    if result.get("path") != str(expected_path):
+        raise IdentityError("Grok artifact identity path changed")
+    for name in _ARTIFACT_IDENTITY_FIELDS - {"path"}:
+        _identity_integer(result.get(name), "Grok artifact identity %s" % name)
+    return result
+
+
+def _stable_directory_identity(value: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        name: value[name]
+        for name in ("path", "device", "inode", "uid", "mode")
+    }
+
+
+def _artifact_identity(path: Path) -> Dict[str, Any]:
+    try:
+        details = path.lstat()
+    except OSError as exc:
+        raise IdentityError("Grok workspace rule is unavailable") from exc
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or stat.S_ISLNK(details.st_mode)
+        or details.st_uid != os.getuid()
+    ):
+        raise IdentityError("Grok workspace rule must be a current-UID regular file")
+    return {
+        "path": str(path),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "uid": details.st_uid,
+        "mode": stat.S_IMODE(details.st_mode),
+        "nlink": details.st_nlink,
+        "size": details.st_size,
+    }
+
+
+def _hash_regular_file_nofollow(
+    path: Path,
+    *,
+    expected_identity: Optional[Mapping[str, Any]] = None,
+) -> str:
+    try:
+        descriptor = os.open(path, _READ_FLAGS)
+    except OSError as exc:
+        raise IdentityError("Grok workspace rule is unavailable") from exc
+    try:
+        details = os.fstat(descriptor)
+        observed_identity = {
+            "path": str(path),
+            "device": details.st_dev,
+            "inode": details.st_ino,
+            "uid": details.st_uid,
+            "mode": stat.S_IMODE(details.st_mode),
+            "nlink": details.st_nlink,
+            "size": details.st_size,
+        }
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_uid != os.getuid()
+            or (
+                expected_identity is not None
+                and observed_identity != dict(expected_identity)
+            )
+        ):
+            raise IdentityError("Grok workspace rule identity changed")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
+def _parent_relative_paths(relative_path: str) -> Tuple[str, str]:
+    relative = _validate_rule_relative_path(relative_path)
+    parts = relative.split("/")
+    return (parts[0], "/".join(parts[:2]))
+
+
+def _validate_parent_records(
+    value: Any,
+    *,
+    workspace: Path,
+    relative_path: str,
+) -> list[Dict[str, Any]]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValidationError("Grok parent directory records are invalid")
+    expected_relatives = _parent_relative_paths(relative_path)
+    normalized: list[Dict[str, Any]] = []
+    for index, expected_relative in enumerate(expected_relatives):
+        raw = value[index]
+        if not isinstance(raw, Mapping) or set(raw) != _PARENT_RECORD_FIELDS:
+            raise ValidationError("Grok parent directory record fields are invalid")
+        if raw.get("relative_path") != expected_relative:
+            raise IdentityError("Grok parent directory order or path changed")
+        if not isinstance(raw.get("created"), bool):
+            raise ValidationError("Grok parent directory ownership flag is invalid")
+        expected_path = workspace.joinpath(*expected_relative.split("/"))
+        before = raw.get("identity_before")
+        if raw["created"]:
+            if before is not None:
+                raise IdentityError(
+                    "Grok created parent cannot have a preexisting identity"
+                )
+            normalized_before = None
+        else:
+            normalized_before = _validate_directory_identity(
+                before,
+                expected_path=expected_path,
+                label="Grok preexisting parent identity",
+            )
+        after = _validate_directory_identity(
+            raw.get("identity_after"),
+            expected_path=expected_path,
+            label="Grok materialized parent identity",
+        )
+        if after["uid"] != os.getuid():
+            raise IdentityError("Grok materialized parent ownership changed")
+        if raw["created"] and after["mode"] != _DIR_MODE:
+            raise IdentityError("Grok created parent mode changed")
+        if (
+            normalized_before is not None
+            and _stable_directory_identity(normalized_before)
+            != _stable_directory_identity(after)
+        ):
+            raise IdentityError("Grok preexisting parent identity changed")
+        normalized.append(
+            {
+                "relative_path": expected_relative,
+                "created": raw["created"],
+                "identity_before": normalized_before,
+                "identity_after": after,
+            }
+        )
+    if normalized[1]["created"] is False and normalized[0]["created"] is True:
+        raise IdentityError(
+            "Grok rules parent cannot preexist when its .grok parent was created"
+        )
+    return normalized
+
+
+def validate_grok_workspace_materialization_receipt(
+    value: Any,
+    *,
+    expected_workspace_root: Path | str,
+    expected_relative_path: str,
+    expected_content_sha256: str,
+    expected_descriptor_sha256: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Validate a current parent-owning materialization receipt structurally."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("Grok materialization receipt is invalid")
+    if value.get("schema") == LEGACY_MATERIALIZATION_RECEIPT_SCHEMA:
+        raise UnsupportedError(
+            "legacy Grok materialization lacks parent ownership and is non-promotable"
+        )
+    if set(value) != _MATERIALIZATION_FIELDS:
+        raise ValidationError("Grok materialization receipt fields changed")
+    workspace = absolute_root(
+        str(expected_workspace_root), "Grok materialization workspace root"
+    )
+    relative = _validate_rule_relative_path(expected_relative_path)
+    expected_sha = validate_sha256(
+        expected_content_sha256, "expected materialized content"
+    )
+    if (
+        value.get("schema") != MATERIALIZATION_RECEIPT_SCHEMA
+        or value.get("target") != "grok"
+        or value.get("target_version") != GROK_BUILD_VERSION
+        or value.get("workspace_root") != str(workspace)
+        or value.get("relative_path") != relative
+        or value.get("artifact_id") != GROK_WORKSPACE_ARTIFACT_ID
+        or value.get("write_mode") != "create_only"
+        or value.get("content_sha256") != expected_sha
+        or value.get("created") is not True
+        or any(
+            value.get(name) is not False
+            for name in (
+                "activation_authorized",
+                "launch_authorized",
+                "qualification_authorized",
+            )
+        )
+    ):
+        raise IdentityError("Grok materialization receipt authority changed")
+    content_bytes = _identity_integer(
+        value.get("content_bytes"), "Grok materialization content bytes"
+    )
+    if content_bytes == 0:
+        raise ValidationError("Grok materialization content must be non-empty")
+    descriptor_sha = validate_sha256(
+        value.get("descriptor_sha256"), "materialization descriptor"
+    )
+    if (
+        expected_descriptor_sha256 is not None
+        and descriptor_sha
+        != validate_sha256(
+            expected_descriptor_sha256, "expected materialization descriptor"
+        )
+    ):
+        raise IdentityError("Grok materialization descriptor changed")
+    before = _validate_directory_identity(
+        value.get("workspace_identity_before"),
+        expected_path=workspace,
+        label="Grok workspace identity before materialization",
+    )
+    after = _validate_directory_identity(
+        value.get("workspace_identity_after"),
+        expected_path=workspace,
+        label="Grok workspace identity after materialization",
+    )
+    if _stable_directory_identity(before) != _stable_directory_identity(after):
+        raise IdentityError("Grok workspace root identity changed during materialization")
+    if before["uid"] != os.getuid() or after["uid"] != os.getuid():
+        raise IdentityError("Grok workspace root ownership changed")
+    parents = _validate_parent_records(
+        value.get("parent_directories"),
+        workspace=workspace,
+        relative_path=relative,
+    )
+    artifact = _validate_artifact_identity(
+        value.get("artifact_identity"),
+        expected_path=_artifact_path(workspace, relative),
+    )
+    if (
+        artifact["uid"] != os.getuid()
+        or artifact["nlink"] != 1
+        or artifact["size"] != value.get("content_bytes")
+    ):
+        raise IdentityError("Grok materialized artifact identity changed")
+    supplied = validate_sha256(
+        value.get("receipt_sha256"), "materialization receipt fingerprint"
+    )
+    unsigned = {name: value[name] for name in value if name != "receipt_sha256"}
+    if supplied != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise IdentityError("Grok materialization receipt is stale")
+    result = dict(value)
+    result["workspace_identity_before"] = before
+    result["workspace_identity_after"] = after
+    result["parent_directories"] = parents
+    result["artifact_identity"] = artifact
+    return result
 
 
 def _validate_rule_relative_path(value: Any) -> str:
@@ -643,12 +971,15 @@ def materialize_grok_workspace_rule(
     content: bytes,
     descriptor_sha256: str,
 ) -> Dict[str, Any]:
-    """Create-only materialize the namespaced workspace rule. No launch authority."""
+    """Create-only materialize one rule and bind exact parent ownership."""
 
     if not isinstance(content, (bytes, bytearray)) or not content:
         raise ValidationError("Grok workspace rule content must be non-empty bytes")
     content_bytes = bytes(content)
     content_sha = sha256_bytes(content_bytes)
+    descriptor_fingerprint = validate_sha256(
+        descriptor_sha256, "materialization descriptor"
+    )
     relative = _validate_rule_relative_path(relative_path)
     expected_name = "%s%s%s" % (_RULE_RE_PREFIX, content_sha, _RULE_RE_SUFFIX)
     if relative != expected_name:
@@ -667,22 +998,46 @@ def materialize_grok_workspace_rule(
     ):
         raise IdentityError("Grok workspace root must be a current-UID directory")
 
+    workspace_before = _directory_identity(workspace, label="Grok workspace root")
     rules_dir = workspace / ".grok" / "rules"
     artifact = _artifact_path(workspace, relative)
-    for parent in (workspace / ".grok", rules_dir):
+    parent_paths = (workspace / ".grok", rules_dir)
+    parent_records: list[Dict[str, Any]] = []
+    for index, parent in enumerate(parent_paths):
+        relative_parent = _parent_relative_paths(relative)[index]
+        identity_before: Optional[Dict[str, Any]]
         try:
-            os.mkdir(parent, _DIR_MODE)
-        except FileExistsError:
+            details = parent.lstat()
+        except FileNotFoundError:
             try:
-                details = parent.lstat()
+                os.mkdir(parent, _DIR_MODE)
+            except FileExistsError as exc:
+                raise ConflictError(
+                    "Grok rules parent appeared during create-only materialization"
+                ) from exc
             except OSError as exc:
-                raise IdentityError("Grok rules parent is unavailable") from exc
+                raise ValidationError(
+                    "Grok rules parent could not be created"
+                ) from exc
+            identity_before = None
+        except OSError as exc:
+            raise IdentityError("Grok rules parent is unavailable") from exc
+        else:
             if not stat.S_ISDIR(details.st_mode) or stat.S_ISLNK(details.st_mode):
                 raise IdentityError("Grok rules parent must be a real directory")
             if details.st_uid != os.getuid():
                 raise IdentityError("Grok rules parent must be current-UID owned")
-        except OSError as exc:
-            raise ValidationError("Grok rules parent could not be created") from exc
+            identity_before = _directory_identity(
+                parent, label="Grok preexisting rules parent"
+            )
+        parent_records.append(
+            {
+                "relative_path": relative_parent,
+                "created": identity_before is None,
+                "identity_before": identity_before,
+                "identity_after": None,
+            }
+        )
 
     flags = _CREATE_FLAGS
     try:
@@ -704,20 +1059,19 @@ def materialize_grok_workspace_rule(
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    try:
-        details = artifact.lstat()
-    except OSError as exc:
-        raise IdentityError("Grok workspace rule vanished after create") from exc
-    if (
-        not stat.S_ISREG(details.st_mode)
-        or stat.S_ISLNK(details.st_mode)
-        or details.st_size != len(content_bytes)
-        or details.st_uid != os.getuid()
-    ):
-        raise IdentityError("Grok workspace rule identity is invalid after create")
-    observed = sha256_bytes(artifact.read_bytes())
+    artifact_identity = _artifact_identity(artifact)
+    if artifact_identity["size"] != len(content_bytes):
+        raise IdentityError("Grok workspace rule size changed after create")
+    observed = _hash_regular_file_nofollow(
+        artifact, expected_identity=artifact_identity
+    )
     if observed != content_sha:
         raise IdentityError("Grok workspace rule content hash changed after create")
+    for index, parent in enumerate(parent_paths):
+        parent_records[index]["identity_after"] = _directory_identity(
+            parent, label="Grok materialized rules parent"
+        )
+    workspace_after = _directory_identity(workspace, label="Grok workspace root")
     receipt = {
         "schema": MATERIALIZATION_RECEIPT_SCHEMA,
         "target": "grok",
@@ -728,24 +1082,30 @@ def materialize_grok_workspace_rule(
         "write_mode": "create_only",
         "content_sha256": content_sha,
         "content_bytes": len(content_bytes),
-        "descriptor_sha256": validate_sha256(
-            descriptor_sha256, "materialization descriptor"
-        ),
+        "descriptor_sha256": descriptor_fingerprint,
         "created": True,
+        "workspace_identity_before": workspace_before,
+        "workspace_identity_after": workspace_after,
+        "parent_directories": parent_records,
+        "artifact_identity": artifact_identity,
         "activation_authorized": False,
         "launch_authorized": False,
         "qualification_authorized": False,
     }
+    receipt["receipt_sha256"] = sha256_bytes(canonical_json_bytes(receipt))
     validate_bounded_json(
         receipt,
-        max_depth=3,
-        max_items=32,
+        max_depth=5,
+        max_items=96,
         max_string=4096,
         reject_sensitive_fields=True,
     )
-    if set(receipt) != _MATERIALIZATION_FIELDS:
-        raise IdentityError("Grok materialization receipt fields changed")
-    return receipt
+    return validate_grok_workspace_materialization_receipt(
+        receipt,
+        expected_workspace_root=workspace,
+        expected_relative_path=relative,
+        expected_content_sha256=content_sha,
+    )
 
 
 def verify_grok_workspace_rule(
@@ -761,21 +1121,19 @@ def verify_grok_workspace_rule(
     expected = validate_sha256(expected_content_sha256, "expected rule content")
     artifact = _artifact_path(workspace, relative)
     try:
-        details = artifact.lstat()
+        details = _artifact_identity(artifact)
     except FileNotFoundError as exc:
         raise IdentityError("Grok workspace rule is missing") from exc
-    except OSError as exc:
-        raise IdentityError("Grok workspace rule is unavailable") from exc
-    if not stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
-        raise IdentityError("Grok workspace rule must be a regular non-symlink file")
-    observed = sha256_bytes(artifact.read_bytes())
+    observed = _hash_regular_file_nofollow(
+        artifact, expected_identity=details
+    )
     if observed != expected:
         raise IdentityError("Grok workspace rule content hash changed")
     return {
         "workspace_root": str(workspace),
         "relative_path": relative,
         "content_sha256": observed,
-        "content_bytes": details.st_size,
+        "content_bytes": details["size"],
         "present": True,
     }
 
@@ -785,46 +1143,226 @@ def rollback_grok_workspace_rule(
     workspace_root: Path | str,
     relative_path: str,
     expected_content_sha256: str,
+    materialization_receipt: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Remove only an exact hash-matching create-only artifact."""
+    """Restore the exact parent chain recorded by current materialization."""
 
     workspace = absolute_root(str(workspace_root), "Grok workspace root")
     relative = _validate_rule_relative_path(relative_path)
     expected = validate_sha256(expected_content_sha256, "expected rule content")
     artifact = _artifact_path(workspace, relative)
+    if (
+        materialization_receipt is None
+        or materialization_receipt.get("schema")
+        == LEGACY_MATERIALIZATION_RECEIPT_SCHEMA
+    ):
+        return _rollback_legacy_grok_artifact_only(
+            workspace=workspace,
+            relative=relative,
+            expected=expected,
+        )
+    materialization = validate_grok_workspace_materialization_receipt(
+        materialization_receipt,
+        expected_workspace_root=workspace,
+        expected_relative_path=relative,
+        expected_content_sha256=expected,
+    )
+    parents = materialization["parent_directories"]
+    created = [record for record in parents if record["created"]]
+    preexisting = [record for record in parents if not record["created"]]
+    workspace_before = materialization["workspace_identity_before"]
+    workspace_after = materialization["workspace_identity_after"]
+
+    artifact_present = True
     try:
-        details = artifact.lstat()
+        artifact_details = artifact.lstat()
     except FileNotFoundError:
-        receipt = {
-            "schema": ROLLBACK_RECEIPT_SCHEMA,
-            "target": "grok",
-            "target_version": GROK_BUILD_VERSION,
-            "workspace_root": str(workspace),
-            "relative_path": relative,
-            "expected_content_sha256": expected,
-            "removed": False,
-            "absent_after": True,
-            "launch_authorized": False,
-            "qualification_authorized": False,
-        }
-        if set(receipt) != _ROLLBACK_FIELDS:
-            raise IdentityError("Grok rollback receipt fields changed")
-        return receipt
+        artifact_present = False
     except OSError as exc:
         raise IdentityError("Grok workspace rule is unavailable for rollback") from exc
-    if not stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
+
+    created_presence: Dict[str, bool] = {}
+    for record in created:
+        parent_path = workspace.joinpath(*record["relative_path"].split("/"))
+        try:
+            parent_path.lstat()
+        except FileNotFoundError:
+            created_presence[record["relative_path"]] = False
+        except OSError as exc:
+            raise IdentityError("Grok created parent is unavailable") from exc
+        else:
+            created_presence[record["relative_path"]] = True
+    fully_restored = not artifact_present and not any(created_presence.values())
+    if fully_restored:
+        _verify_restored_grok_workspace(
+            workspace=workspace,
+            workspace_before=workspace_before,
+            preexisting=preexisting,
+        )
+        return _build_grok_rollback_receipt(
+            workspace=workspace,
+            relative=relative,
+            expected=expected,
+            materialization=materialization,
+            removed=False,
+            created_parents_removed=[
+                record["relative_path"] for record in reversed(created)
+            ],
+            preexisting_parents_preserved=[
+                record["relative_path"] for record in preexisting
+            ],
+        )
+    if not artifact_present:
+        raise ConflictError(
+            "Grok rollback is partial: artifact absent while created parents remain"
+        )
+    expected_artifact = materialization["artifact_identity"]
+    if (
+        not stat.S_ISREG(artifact_details.st_mode)
+        or stat.S_ISLNK(artifact_details.st_mode)
+    ):
         raise IdentityError("Grok workspace rule rollback target is not a regular file")
-    observed = sha256_bytes(artifact.read_bytes())
+    observed = _hash_regular_file_nofollow(
+        artifact, expected_identity=expected_artifact
+    )
     if observed != expected:
         raise IdentityError(
             "Grok workspace rule hash mismatch; refusing non-owned rollback"
         )
+    current_workspace = _directory_identity(workspace, label="Grok workspace root")
+    if current_workspace != workspace_after:
+        raise IdentityError("Grok workspace identity drifted before rollback")
+
+    for record in parents:
+        parent_path = workspace.joinpath(*record["relative_path"].split("/"))
+        current = _directory_identity(
+            parent_path, label="Grok rules parent before rollback"
+        )
+        if _stable_directory_identity(current) != _stable_directory_identity(
+            record["identity_after"]
+        ):
+            raise IdentityError("Grok rules parent ownership changed before rollback")
+        if current["nlink"] != record["identity_after"]["nlink"]:
+            raise IdentityError("Grok rules parent link identity drifted")
+    for record in created:
+        parent_path = workspace.joinpath(*record["relative_path"].split("/"))
+        entries = set(_directory_entries_nofollow(parent_path))
+        expected_entries: set[str] = set()
+        if record["relative_path"] == ".grok/rules":
+            expected_entries.add(artifact.name)
+        else:
+            child = next(
+                (
+                    item
+                    for item in created
+                    if item["relative_path"].startswith(
+                        record["relative_path"] + "/"
+                    )
+                ),
+                None,
+            )
+            if child is not None:
+                expected_entries.add(Path(child["relative_path"]).name)
+        if entries != expected_entries:
+            raise ConflictError(
+                "Grok created parent is non-empty or contains unowned entries"
+            )
+
+    # Revalidate the exact artifact immediately before unlinking.
+    if _artifact_identity(artifact) != expected_artifact:
+        raise IdentityError("Grok workspace rule ownership changed before unlink")
     try:
         os.unlink(artifact)
     except OSError as exc:
         raise ValidationError("Grok workspace rule could not be removed") from exc
     if artifact.exists() or artifact.is_symlink():
         raise IdentityError("Grok workspace rule remained after rollback")
+    removed_parents: list[str] = []
+    for record in reversed(created):
+        parent_path = workspace.joinpath(*record["relative_path"].split("/"))
+        current = _directory_identity(
+            parent_path, label="Grok created parent before removal"
+        )
+        if _stable_directory_identity(current) != _stable_directory_identity(
+            record["identity_after"]
+        ):
+            raise IdentityError("Grok created parent ownership changed before removal")
+        if _directory_entries_nofollow(parent_path):
+            raise ConflictError("Grok created parent became non-empty during rollback")
+        try:
+            os.rmdir(parent_path)
+        except OSError as exc:
+            raise ValidationError("Grok created parent could not be removed") from exc
+        if parent_path.exists() or parent_path.is_symlink():
+            raise IdentityError("Grok created parent remained after rollback")
+        removed_parents.append(record["relative_path"])
+
+    _verify_restored_grok_workspace(
+        workspace=workspace,
+        workspace_before=workspace_before,
+        preexisting=preexisting,
+    )
+    return _build_grok_rollback_receipt(
+        workspace=workspace,
+        relative=relative,
+        expected=expected,
+        materialization=materialization,
+        removed=True,
+        created_parents_removed=removed_parents,
+        preexisting_parents_preserved=[
+            record["relative_path"] for record in preexisting
+        ],
+    )
+
+
+def _directory_entries_nofollow(path: Path) -> list[str]:
+    try:
+        descriptor = os.open(path, _DIRECTORY_FLAGS)
+    except OSError as exc:
+        raise IdentityError("Grok rules parent is unavailable") from exc
+    try:
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(details.st_mode)
+            or details.st_uid != os.getuid()
+        ):
+            raise IdentityError("Grok rules parent is not an owned real directory")
+        return sorted(os.listdir(descriptor))
+    finally:
+        os.close(descriptor)
+
+
+def _verify_restored_grok_workspace(
+    *,
+    workspace: Path,
+    workspace_before: Mapping[str, Any],
+    preexisting: list[Dict[str, Any]],
+) -> None:
+    current_workspace = _directory_identity(workspace, label="Grok workspace root")
+    if current_workspace != dict(workspace_before):
+        raise IdentityError("Grok workspace identity was not restored")
+    for record in preexisting:
+        expected = record["identity_before"]
+        parent_path = workspace.joinpath(*record["relative_path"].split("/"))
+        current = _directory_identity(
+            parent_path, label="Grok preserved preexisting parent"
+        )
+        if current != expected:
+            raise IdentityError("Grok preexisting parent identity was not restored")
+
+
+def _build_grok_rollback_receipt(
+    *,
+    workspace: Path,
+    relative: str,
+    expected: str,
+    materialization: Mapping[str, Any],
+    removed: bool,
+    created_parents_removed: list[str],
+    preexisting_parents_preserved: list[str],
+) -> Dict[str, Any]:
+    workspace_before = materialization["workspace_identity_before"]
+    workspace_current = _directory_identity(workspace, label="Grok workspace root")
     receipt = {
         "schema": ROLLBACK_RECEIPT_SCHEMA,
         "target": "grok",
@@ -832,14 +1370,145 @@ def rollback_grok_workspace_rule(
         "workspace_root": str(workspace),
         "relative_path": relative,
         "expected_content_sha256": expected,
-        "removed": True,
+        "materialization_receipt_sha256": materialization["receipt_sha256"],
+        "removed": removed,
         "absent_after": True,
+        "created_parents_removed": created_parents_removed,
+        "preexisting_parents_preserved": preexisting_parents_preserved,
+        "parent_restoration_verified": True,
+        "workspace_identity_before_sha256": _identity_sha256(workspace_before),
+        "workspace_identity_after_sha256": _identity_sha256(workspace_current),
+        "workspace_identity_restored": workspace_current == workspace_before,
+        "legacy_parent_ownership": False,
         "launch_authorized": False,
         "qualification_authorized": False,
     }
+    receipt["rollback_sha256"] = sha256_bytes(canonical_json_bytes(receipt))
     if set(receipt) != _ROLLBACK_FIELDS:
         raise IdentityError("Grok rollback receipt fields changed")
     return receipt
+
+
+def _rollback_legacy_grok_artifact_only(
+    *,
+    workspace: Path,
+    relative: str,
+    expected: str,
+) -> Dict[str, Any]:
+    """Remove an exact legacy artifact but never claim parent restoration."""
+
+    artifact = _artifact_path(workspace, relative)
+    removed = False
+    try:
+        details = artifact.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise IdentityError("legacy Grok rule is unavailable for rollback") from exc
+    else:
+        if not stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
+            raise IdentityError("legacy Grok rollback target is not a regular file")
+        if _hash_regular_file_nofollow(artifact) != expected:
+            raise IdentityError(
+                "legacy Grok rule hash mismatch; refusing non-owned rollback"
+            )
+        try:
+            os.unlink(artifact)
+        except OSError as exc:
+            raise ValidationError("legacy Grok rule could not be removed") from exc
+        removed = True
+    receipt = {
+        "schema": LEGACY_ROLLBACK_RECEIPT_SCHEMA,
+        "target": "grok",
+        "target_version": GROK_BUILD_VERSION,
+        "workspace_root": str(workspace),
+        "relative_path": relative,
+        "expected_content_sha256": expected,
+        "removed": removed,
+        "absent_after": not artifact.exists() and not artifact.is_symlink(),
+        "parent_restoration_verified": False,
+        "workspace_identity_restored": False,
+        "legacy_parent_ownership": True,
+        "launch_authorized": False,
+        "qualification_authorized": False,
+    }
+    if set(receipt) != _LEGACY_ROLLBACK_FIELDS:
+        raise IdentityError("legacy Grok rollback receipt fields changed")
+    return receipt
+
+
+def validate_grok_workspace_rollback_receipt(
+    value: Any,
+    *,
+    materialization_receipt: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate terminal parent restoration; legacy cleanup never passes."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("Grok rollback receipt is invalid")
+    if value.get("schema") == LEGACY_ROLLBACK_RECEIPT_SCHEMA:
+        raise UnsupportedError(
+            "legacy Grok rollback lacks parent restoration and is non-promotable"
+        )
+    if set(value) != _ROLLBACK_FIELDS:
+        raise ValidationError("Grok rollback receipt fields changed")
+    workspace = value.get("workspace_root")
+    relative = value.get("relative_path")
+    expected = value.get("expected_content_sha256")
+    materialization = validate_grok_workspace_materialization_receipt(
+        materialization_receipt,
+        expected_workspace_root=workspace,
+        expected_relative_path=relative,
+        expected_content_sha256=expected,
+    )
+    created = [
+        record["relative_path"]
+        for record in reversed(materialization["parent_directories"])
+        if record["created"]
+    ]
+    preexisting = [
+        record["relative_path"]
+        for record in materialization["parent_directories"]
+        if not record["created"]
+    ]
+    workspace_sha = _identity_sha256(
+        materialization["workspace_identity_before"]
+    )
+    if (
+        value.get("schema") != ROLLBACK_RECEIPT_SCHEMA
+        or value.get("target") != "grok"
+        or value.get("target_version") != GROK_BUILD_VERSION
+        or value.get("workspace_root") != materialization["workspace_root"]
+        or value.get("relative_path") != materialization["relative_path"]
+        or value.get("expected_content_sha256")
+        != materialization["content_sha256"]
+        or value.get("materialization_receipt_sha256")
+        != materialization["receipt_sha256"]
+        or not isinstance(value.get("removed"), bool)
+        or value.get("absent_after") is not True
+        or value.get("created_parents_removed") != created
+        or value.get("preexisting_parents_preserved") != preexisting
+        or value.get("parent_restoration_verified") is not True
+        or value.get("workspace_identity_before_sha256") != workspace_sha
+        or value.get("workspace_identity_after_sha256") != workspace_sha
+        or value.get("workspace_identity_restored") is not True
+        or value.get("legacy_parent_ownership") is not False
+        or value.get("launch_authorized") is not False
+        or value.get("qualification_authorized") is not False
+    ):
+        raise IdentityError("Grok rollback parent restoration authority changed")
+    supplied = validate_sha256(value.get("rollback_sha256"), "rollback fingerprint")
+    unsigned = {name: value[name] for name in value if name != "rollback_sha256"}
+    if supplied != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise IdentityError("Grok rollback receipt is stale")
+    validate_bounded_json(
+        value,
+        max_depth=4,
+        max_items=64,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return dict(value)
 
 
 def precheck_grok_ordinary_control_artifact_absence(
@@ -1003,13 +1672,15 @@ def build_grok_terminal_workspace_isolation(
         or descriptor.get("qualification_authorized") is not False
     ):
         raise ValidationError("Grok terminal isolation requires the entry descriptor")
-    if (
-        not isinstance(materialization, Mapping)
-        or materialization.get("schema") != MATERIALIZATION_RECEIPT_SCHEMA
-        or materialization.get("created") is not True
-        or materialization.get("qualification_authorized") is not False
-    ):
+    if not isinstance(materialization, Mapping):
         raise ValidationError("Grok terminal isolation requires create-only materialization")
+    normalized_materialization = validate_grok_workspace_materialization_receipt(
+        materialization,
+        expected_workspace_root=descriptor.get("workspace_root"),
+        expected_relative_path=descriptor.get("artifact_relative_path"),
+        expected_content_sha256=materialization.get("content_sha256"),
+        expected_descriptor_sha256=descriptor.get("descriptor_sha256"),
+    )
     if not isinstance(matched_control, Mapping):
         raise ValidationError(
             "Grok terminal isolation requires verified matched ordinary control"
@@ -1037,13 +1708,10 @@ def build_grok_terminal_workspace_isolation(
         "ordinary_attach_sha256",
     ):
         validate_sha256(matched_control.get(name), name.replace("_", " "))
-    if (
-        not isinstance(rollback, Mapping)
-        or rollback.get("schema") != ROLLBACK_RECEIPT_SCHEMA
-        or rollback.get("absent_after") is not True
-        or rollback.get("qualification_authorized") is not False
-    ):
-        raise ValidationError("Grok terminal isolation requires hash-guarded rollback")
+    normalized_rollback = validate_grok_workspace_rollback_receipt(
+        rollback,
+        materialization_receipt=normalized_materialization,
+    )
     cwd = str(startup_cwd)
     if (
         not isinstance(cwd, str)
@@ -1056,15 +1724,18 @@ def build_grok_terminal_workspace_isolation(
     if observed_model not in {"unavailable", "grok-4.5", "unknown"}:
         raise ValidationError("Grok observed model claim is invalid")
     if (
-        materialization.get("relative_path") != descriptor.get("artifact_relative_path")
-        or materialization.get("content_sha256")
+        normalized_materialization.get("relative_path")
+        != descriptor.get("artifact_relative_path")
+        or normalized_materialization.get("content_sha256")
         != matched_control.get("positive_artifact_sha256")
-        or materialization.get("workspace_root") != descriptor.get("workspace_root")
+        or normalized_materialization.get("workspace_root")
+        != descriptor.get("workspace_root")
         or matched_control.get("positive_workspace_root")
         != descriptor.get("workspace_root")
-        or rollback.get("relative_path") != materialization.get("relative_path")
-        or rollback.get("expected_content_sha256")
-        != materialization.get("content_sha256")
+        or normalized_rollback.get("relative_path")
+        != normalized_materialization.get("relative_path")
+        or normalized_rollback.get("expected_content_sha256")
+        != normalized_materialization.get("content_sha256")
     ):
         raise IdentityError("Grok terminal isolation artifact join changed")
     value = {
@@ -1075,16 +1746,18 @@ def build_grok_terminal_workspace_isolation(
         ),
         "workspace_root": descriptor["workspace_root"],
         "startup_cwd": cwd,
-        "artifact_relative_path": materialization["relative_path"],
-        "artifact_sha256": materialization["content_sha256"],
+        "artifact_relative_path": normalized_materialization["relative_path"],
+        "artifact_sha256": normalized_materialization["content_sha256"],
         "workspace_identity_sha256": validate_sha256(
             descriptor.get("workspace_identity_sha256"), "workspace identity"
         ),
         "matched_control_sha256": validate_sha256(
             matched_control.get("attestation_sha256"), "matched control"
         ),
-        "materialization_sha256": sha256_bytes(canonical_json_bytes(materialization)),
-        "rollback_sha256": sha256_bytes(canonical_json_bytes(rollback)),
+        "materialization_sha256": sha256_bytes(
+            canonical_json_bytes(normalized_materialization)
+        ),
+        "rollback_sha256": sha256_bytes(canonical_json_bytes(normalized_rollback)),
         "controller_contract_sha256": validate_sha256(
             controller_contract_sha256, "controller contract"
         ),
@@ -1234,6 +1907,8 @@ __all__ = [
     "GROK_REGULAR_SANDBOX_FLAGS",
     "MATCHED_CONTROL_PRECHECK_SCHEMA",
     "MATCHED_CONTROL_SCHEMA",
+    "LEGACY_MATERIALIZATION_RECEIPT_SCHEMA",
+    "LEGACY_ROLLBACK_RECEIPT_SCHEMA",
     "MATERIALIZATION_RECEIPT_SCHEMA",
     "PAIRED_RUNTIME_PROOF",
     "QUALIFICATION_REQUEST_SCHEMA",
@@ -1259,7 +1934,9 @@ __all__ = [
     "source_authority_blockers",
     "validate_grok_entry_descriptor",
     "validate_grok_qualification_request",
+    "validate_grok_workspace_materialization_receipt",
     "validate_grok_workspace_isolation",
+    "validate_grok_workspace_rollback_receipt",
     "validate_plane_descriptor",
     "verify_grok_workspace_rule",
 ]
