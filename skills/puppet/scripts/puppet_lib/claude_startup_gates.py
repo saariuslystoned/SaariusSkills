@@ -119,7 +119,7 @@ def _workspace_label_line_indices(lines: Sequence[str]) -> List[int]:
 
 
 def _parse_displayed_workspace_path(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Parse exactly one displayed workspace value from raw pane text."""
+    """Parse one workspace value, removing only terminal hard-wrap boundaries."""
 
     lines = text.splitlines()
     label_indices = _workspace_label_line_indices(lines)
@@ -132,15 +132,24 @@ def _parse_displayed_workspace_path(text: str) -> Tuple[Optional[str], Optional[
     label_offset = label_line.find(_WORKSPACE_LABEL)
     if label_offset < 0:
         return None, "displayed workspace path is malformed"
-    candidate = label_line[label_offset + len(_WORKSPACE_LABEL) :].strip()
-    if not candidate:
-        for follow_line in lines[label_index + 1 :]:
-            display_line = follow_line.strip()
-            if display_line:
-                candidate = display_line
-                break
-    if not candidate:
+    safety_indices = [
+        index
+        for index in range(label_index + 1, len(lines))
+        if lines[index].strip() == "Quick safety check:"
+    ]
+    if len(safety_indices) != 1:
+        return None, "displayed workspace path is malformed"
+    safety_index = safety_indices[0]
+    path_lines = [
+        label_line[label_offset + len(_WORKSPACE_LABEL) :],
+        *lines[label_index + 1 : safety_index],
+    ]
+    segments = [line.strip() for line in path_lines if line.strip()]
+    if not segments:
         return None, "displayed workspace path is missing"
+    if len(segments) > 8 or not segments[0].startswith("/"):
+        return None, "displayed workspace path is malformed"
+    candidate = segments[0] if len(segments) == 1 else "".join(segments)
     try:
         return _absolute_normalized_worktree(candidate, label="displayed workspace"), None
     except ValidationError:

@@ -47,6 +47,12 @@ from puppet_lib.tmux import TmuxController, control_environment  # noqa: E402
 
 WORKTREE = "/tmp/puppet-claude-gate-worktree"
 WORKTREE_WITH_SPACES = "/tmp/puppet claude gate worktree"
+OBSERVED_WRAPPED_WORKTREE = (
+    "/Users/bobbybones/Developer/_machine-runs/"
+    "puppet-five-harness-dogfood-20260725/"
+    "claude-paired-cba2d22/proof/probes/"
+    "claude-activation-cba2d22-20260726/activation-lane/workspace"
+)
 PANE_PID = 4242
 FAST_TIMING = {
     "startup_deadline_seconds": 1.0,
@@ -151,6 +157,21 @@ def _trust_screen(*, worktree: str = WORKTREE, selected: str = "yes") -> str:
         "%s2. No, exit\n"
         "Enter to confirm\n"
     ) % (worktree, yes_prefix, no_prefix)
+
+
+def _observed_wrapped_trust_screen() -> str:
+    return (
+        "Accessing workspace:\n"
+        " /Users/bobbybones/Developer/_machine-runs/"
+        "puppet-five-harness-dogfood-20260725\n"
+        " /claude-paired-cba2d22/proof/probes/"
+        "claude-activation-cba2d22-20260726/activat\n"
+        " ion-lane/workspace\n"
+        "Quick safety check:\n"
+        "❯ 1. Yes, I trust this folder\n"
+        "  2. No, exit\n"
+        "Enter to confirm\n"
+    )
 
 
 def _bypass_screen(*, selected: str = "no") -> str:
@@ -331,6 +352,38 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["gate"], "workspace_trust")
                 self.assertTrue(result["worktree_match"])
+
+    def test_observed_hard_wrapped_workspace_matches_exact_path(self):
+        result = reduce_captured_claude_startup_screen(
+            _observed_wrapped_trust_screen().encode("utf-8"),
+            expected_worktree=OBSERVED_WRAPPED_WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["gate"], "workspace_trust")
+        self.assertEqual(result["selected"], "yes")
+        self.assertTrue(result["worktree_match"])
+
+    def test_hard_wrapped_workspace_drift_and_decoy_fail_closed(self):
+        cases = {
+            "segment_drift": _observed_wrapped_trust_screen().replace(
+                "activat\n ion-lane",
+                "activat\n on-lane",
+            ),
+            "path_decoy": _observed_wrapped_trust_screen().replace(
+                " ion-lane/workspace\nQuick safety check:",
+                " ion-lane/workspace\n /tmp/decoy\nQuick safety check:",
+            ),
+        }
+        for label, screen in cases.items():
+            with self.subTest(case=label):
+                result = reduce_captured_claude_startup_screen(
+                    screen.encode("utf-8"),
+                    expected_worktree=OBSERVED_WRAPPED_WORKTREE,
+                    pane_pid=PANE_PID,
+                )
+                self.assertFalse(result["ok"])
+                self.assertIn("displayed workspace path", result["error"])
 
     def test_duplicate_workspace_label_fails_closed(self):
         screen = (

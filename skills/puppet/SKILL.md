@@ -236,8 +236,10 @@ Use this sequence:
    classifies the pane against a fixed allowlist — the security notice, an
    exact-workspace trust prompt, the bypass warning, or the ready screen —
    requires the displayed workspace path to equal the contract worktree exactly,
-   and selects and recaptures the exact authorized `yes` choice before pressing
-   Enter. It retains only gate/selection/size/hash/timing metadata and discards
+   reconstructing only bounded hard-wrap boundaries between the unique
+   `Accessing workspace:` label and `Quick safety check:` marker, and selects
+   and recaptures the exact authorized `yes` choice before pressing Enter. It
+   retains only gate/selection/size/hash/timing metadata and discards
    raw bytes, and a login, account, terms, subscription, unknown, ambiguous,
    oversize, or non-UTF-8 screen fails closed with no retry. It is bounded by the
    Claude startup-settle and transition deadlines, and immediately before
