@@ -412,6 +412,7 @@ def _read_plane_descriptor(path: Path) -> Dict[str, Any]:
     if isinstance(decoded, dict) and decoded.get("schema") in {
         CODEX_WORKTREE_DESCRIPTOR_SCHEMA,
         GROK_WORKSPACE_DESCRIPTOR_SCHEMA,
+        GROK_QUALIFICATION_REQUEST_SCHEMA,
         CURSOR_QUALIFICATION_REQUEST_SCHEMA,
     }:
         return decoded

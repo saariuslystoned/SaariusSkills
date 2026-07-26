@@ -1063,6 +1063,21 @@ def recover_execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_read_plane_descriptor_accepts_grok_qualification_request_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request_path = Path(directory) / "grok-request.json"
+            request = {
+                "schema": puppet_probe.GROK_QUALIFICATION_REQUEST_SCHEMA,
+                "target": "grok",
+                "kind": "grok_workspace_positive_request",
+            }
+            write_json(request_path, request)
+
+            self.assertEqual(
+                puppet_probe._read_plane_descriptor(request_path),
+                request,
+            )
+
     def test_ambient_population_and_snapshot_use_only_final_runtime_selector(self):
         runtime = {
             "path": "/opt/cursor/node",
