@@ -39,6 +39,7 @@ TIMEOUT_SECONDS = 10
 CURSOR_EXECUTION_SETTLE_SECONDS = 5.0
 DIRECT_EXECUTION_SETTLE_SECONDS = 2.0
 AGY_SANDBOX_DISABLE_FLAG = "--sandbox=false"
+GROK_SANDBOX_DISABLE_FLAGS = ["--sandbox", "off"]
 CENSUS_SCHEMA_VERSION = 2
 CURSOR_STATIC_LAUNCHER_LAYOUTS = (
     b"""#!/usr/bin/env bash
@@ -132,7 +133,7 @@ DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "grok": {
         "permission_flags": ["--always-approve"],
         "project_isolation_flags": [],
-        "sandbox_flags": [],
+        "sandbox_flags": list(GROK_SANDBOX_DISABLE_FLAGS),
         "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--reasoning-effort",
@@ -232,6 +233,13 @@ def _sandbox_disable_declared(
     if target == "agy":
         return (
             flags == [AGY_SANDBOX_DISABLE_FLAG]
+            and re.search(r"(?m)^\s*--sandbox(?:[=,\s]|$)", help_text) is not None
+        )
+    if target == "grok":
+        # Help proves the --sandbox surface; the exact profile value "off" is the
+        # declared census mapping and is not required to appear as help text.
+        return (
+            flags == GROK_SANDBOX_DISABLE_FLAGS
             and re.search(r"(?m)^\s*--sandbox(?:[=,\s]|$)", help_text) is not None
         )
     if flags:

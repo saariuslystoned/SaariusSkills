@@ -29,6 +29,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     direct_execution_bundle,
 )
 from puppet_lib.census import (  # noqa: E402
+    GROK_SANDBOX_DISABLE_FLAGS,
     adapter_implementation_fingerprint,
     census_target,
 )
@@ -134,13 +135,17 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             "protocol_fingerprint": PROTOCOL_FINGERPRINT,
             "yolo_mapping": {
                 "complete": False,
-                "launch_argv": [str(executable), "--always-approve"],
+                "launch_argv": [
+                    str(executable),
+                    "--always-approve",
+                    *GROK_SANDBOX_DISABLE_FLAGS,
+                ],
                 "permission_declared": True,
                 "permission_flags": ["--always-approve"],
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
-                "sandbox_disable_declared": False,
-                "sandbox_flags": [],
+                "sandbox_disable_declared": True,
+                "sandbox_flags": list(GROK_SANDBOX_DISABLE_FLAGS),
                 "project_isolation_declared": False,
                 "project_isolation_flags": [],
                 "session_profiles": session_profiles_for("grok"),
@@ -435,18 +440,56 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                     side_effect=[
                         b"grok 0.2.111\n",
                         (
-                            b"--always-approve --sandbox off --cwd "
-                            b"--leader-socket --session-id\n"
+                            b"  --always-approve\n"
+                            b"  --sandbox <PROFILE>\n"
+                            b"  --cwd <CWD>\n"
+                            b"  --leader-socket <PATH>\n"
+                            b"  --session-id <ID>\n"
                         ),
                     ],
                 ),
             ):
                 manifest = census_target("grok", "d" * 64)
+            mapping = manifest.raw["yolo_mapping"]
             self.assertTrue(manifest.raw["doctor_only"])
             self.assertIsNone(manifest.raw["qualification"])
-            self.assertFalse(manifest.raw["yolo_mapping"]["complete"])
-            self.assertFalse(manifest.raw["yolo_mapping"]["sandbox_disable_declared"])
-            self.assertFalse(manifest.raw["yolo_mapping"]["project_isolation_declared"])
+            self.assertFalse(mapping["complete"])
+            self.assertTrue(mapping["permission_declared"])
+            self.assertEqual(mapping["permission_flags"], ["--always-approve"])
+            self.assertTrue(mapping["sandbox_disable_declared"])
+            self.assertEqual(mapping["sandbox_flags"], GROK_SANDBOX_DISABLE_FLAGS)
+            self.assertFalse(mapping["project_isolation_declared"])
+            self.assertEqual(mapping["project_isolation_flags"], [])
+            self.assertEqual(
+                mapping["launch_argv"],
+                [str(executable), "--always-approve", "--sandbox", "off"],
+            )
+            self.assertNotIn("--cwd", mapping["launch_argv"])
+
+    def test_census_help_missing_sandbox_surface_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary).resolve() / "grok-0.2.111-macos-aarch64"
+            executable.write_bytes(b"synthetic grok executable")
+            executable.chmod(0o700)
+            with (
+                patch("puppet_lib.census.shutil.which", return_value=str(executable)),
+                patch(
+                    "puppet_lib.census._bounded_run",
+                    side_effect=[
+                        b"grok 0.2.111\n",
+                        b"  --always-approve\n  --cwd <CWD>\n",
+                    ],
+                ),
+            ):
+                manifest = census_target("grok", "d" * 64)
+            mapping = manifest.raw["yolo_mapping"]
+            self.assertTrue(manifest.raw["doctor_only"])
+            self.assertIsNone(manifest.raw["qualification"])
+            self.assertFalse(mapping["complete"])
+            self.assertTrue(mapping["permission_declared"])
+            self.assertFalse(mapping["sandbox_disable_declared"])
+            self.assertEqual(mapping["sandbox_flags"], GROK_SANDBOX_DISABLE_FLAGS)
+            self.assertFalse(mapping["project_isolation_declared"])
 
     def test_same_name_transient_vnode_is_not_a_runtime_match(self):
         runtime_selector = {

@@ -50,6 +50,7 @@ from puppet_lib.census import (  # noqa: E402
     CODEX_NPM_NATIVE_RELATIVE_PARTS,
     CURSOR_STATIC_LAUNCHER_LAYOUTS,
     DECLARED_MAPPINGS,
+    GROK_SANDBOX_DISABLE_FLAGS,
     _codex_npm_execution_bundle,
     _cursor_execution_bundle,
     _execution_bundle,
@@ -308,6 +309,18 @@ class AdapterTests(unittest.TestCase):
                 "--new-project",
             ],
         )
+        self.assertEqual(
+            _launch_flags(DECLARED_MAPPINGS["grok"]),
+            ["--always-approve", "--sandbox", "off"],
+        )
+        self.assertEqual(
+            DECLARED_MAPPINGS["grok"]["permission_flags"],
+            ["--always-approve"],
+        )
+        self.assertEqual(
+            DECLARED_MAPPINGS["grok"]["sandbox_flags"],
+            GROK_SANDBOX_DISABLE_FLAGS,
+        )
 
     def test_adapter_fingerprint_binds_the_runtime_module_closure(self):
         fingerprint = adapter_implementation_fingerprint()
@@ -375,9 +388,41 @@ class AdapterTests(unittest.TestCase):
                 "  --dangerously-skip-permissions",
             )
         )
+        grok_help = "  --sandbox <PROFILE>"
+        self.assertTrue(
+            _sandbox_disable_declared("grok", DECLARED_MAPPINGS["grok"], grok_help)
+        )
+        self.assertFalse(
+            _sandbox_disable_declared("grok", DECLARED_MAPPINGS["grok"], "")
+        )
         self.assertFalse(
             _sandbox_disable_declared(
-                "grok", DECLARED_MAPPINGS["grok"], "  --sandbox <PROFILE>"
+                "grok",
+                DECLARED_MAPPINGS["grok"],
+                "This prose mentions --sandbox but does not declare it.",
+            )
+        )
+        for malformed in (
+            [],
+            ["--sandbox"],
+            ["--sandbox", "disabled"],
+            ["--sandbox", "off", "off"],
+            ["--sandbox=off"],
+            ["--sandbox", "off", "--extra"],
+        ):
+            with self.subTest(malformed=malformed):
+                self.assertFalse(
+                    _sandbox_disable_declared(
+                        "grok",
+                        dict(DECLARED_MAPPINGS["grok"], sandbox_flags=malformed),
+                        grok_help,
+                    )
+                )
+        self.assertFalse(
+            _sandbox_disable_declared(
+                "cursor",
+                dict(DECLARED_MAPPINGS["cursor"], sandbox_flags=GROK_SANDBOX_DISABLE_FLAGS),
+                grok_help,
             )
         )
         self.assertTrue(
