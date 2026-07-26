@@ -45,7 +45,11 @@ from .instructions import (
 )
 from .journal import Journal
 from .launch import build_launch_identity
-from .profiles import INPUT_READINESS_STRATEGY, startup_settle_seconds_for
+from .profiles import (
+    CLAUDE_STARTUP_GATE_REDUCER,
+    input_readiness_strategy_for,
+    startup_settle_seconds_for,
+)
 from .registry import (
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
@@ -501,6 +505,65 @@ def _deliver(
         )
         journal.append(request_id=submitted_id, event=submitted_event)
     return {"content_sha256": content_sha, "delivery": "submitted"}
+
+
+def _await_input_ready(
+    *,
+    target: str,
+    tmux: TmuxController,
+    manifest: AdapterManifest,
+    socket: Path,
+    session: str,
+    pane: str,
+    pane_pid: int,
+    repo: Path,
+    argv: List[str],
+    process: Dict[str, Any],
+    server_identity: Optional[Dict[str, Any]],
+    sleep_fn: Any,
+    verify_structural_settle: bool = True,
+    process_alive_fn: Optional[Any] = None,
+) -> Dict[str, Any]:
+    strategy = input_readiness_strategy_for(target)
+    alive_fn = process_alive_fn or (lambda: process_alive(process))
+    if strategy == CLAUDE_STARTUP_GATE_REDUCER:
+        from .claude_startup_gates import await_claude_input_ready
+
+        return await_claude_input_ready(
+            tmux,
+            manifest=manifest,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_worktree=repo,
+            expected_pane_pid=pane_pid,
+            launch_argv=argv,
+            server_identity=server_identity,
+            process_alive_fn=alive_fn,
+            sleep_fn=sleep_fn,
+        )
+    settle_seconds = startup_settle_seconds_for(target)
+    sleep_fn(settle_seconds)
+    if verify_structural_settle:
+        settled = tmux.metadata(
+            socket=socket,
+            session=session,
+            pane=pane,
+            server_identity=server_identity,
+        )
+        if (
+            settled.get("pane") != pane
+            or settled.get("pane_pid") != process["pid"]
+            or settled.get("pane_dead") is True
+            or not alive_fn()
+        ):
+            raise IdentityError("target changed during bounded startup settle")
+        manifest.verify_process_executable(process)
+    return {
+        "strategy": strategy,
+        "seconds": settle_seconds,
+        "raw_retained": False,
+    }
 
 
 def _runtime(
@@ -1281,30 +1344,32 @@ def launch(
                 "subscription_profile_sha256": profile_binding_sha,
             },
         )
-        settle_seconds = startup_settle_seconds_for(contract.target)
-        _sleep_fn(settle_seconds)
-        settled = tmux.metadata(
+        settle_result = _await_input_ready(
+            target=contract.target,
+            tmux=tmux,
+            manifest=manifest,
             socket=Path(metadata["socket"]),
             session=session,
             pane=metadata["pane"],
+            pane_pid=metadata["pane_pid"],
+            repo=contract.repo,
+            argv=argv,
+            process=process,
             server_identity=metadata["server_identity"],
+            sleep_fn=_sleep_fn,
         )
-        if (
-            settled.get("pane") != metadata["pane"]
-            or settled.get("pane_pid") != process["pid"]
-            or settled.get("pane_dead") is True
-            or not process_alive(process)
-        ):
-            raise IdentityError("target changed during bounded startup settle")
-        manifest.verify_process_executable(process)
         registry.verify_instructions(record)
         journal.append(
             request_id=_delivery_request_id(session, session, "input-settled"),
             event={
                 "kind": "launch",
                 "phase": "input_settled",
-                "strategy": INPUT_READINESS_STRATEGY,
-                "seconds": settle_seconds,
+                "strategy": settle_result["strategy"],
+                **{
+                    key: value
+                    for key, value in settle_result.items()
+                    if key not in {"strategy"}
+                },
             },
         )
         registry.verify_instructions(record)

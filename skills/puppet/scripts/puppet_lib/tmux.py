@@ -36,9 +36,15 @@ from .safety import (
 _PANE_FORMAT = (
     "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
 )
+_PANE_RUNTIME_FORMAT = "#{pane_dead}\t#{pane_pid}\t#{pane_current_path}"
 _CLIENT_FORMAT = "#{client_pid}\t#{client_tty}\t#{client_readonly}\t#{session_name}"
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
 _SIGNAL_EXEC_HELPER = Path(__file__).resolve(strict=True).with_name("signal_exec.py")
+_MAX_CAPTURE_BYTES = 65536
+_MAX_RUNTIME_METADATA_BYTES = 8192
+_CAPTURE_HISTORY_LINES = 80
+_GATE_NAVIGATION_KEYS = frozenset({"Enter", "Up", "Down"})
+_CAPTURE_PANE_COMMAND = "-".join(("capture", "pane"))
 
 
 @dataclass(frozen=True)
@@ -649,6 +655,165 @@ class TmuxController:
             server_identity=server_identity,
             payload=path.read_bytes(),
         )
+
+    def pane_runtime_identity(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        pane: str,
+        expected_pane_pid: int,
+        expected_worktree: Path | str,
+        server_identity: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        validate_identifier(session, "session")
+        validate_pane_id(pane)
+        if (
+            isinstance(expected_pane_pid, bool)
+            or not isinstance(expected_pane_pid, int)
+            or expected_pane_pid <= 1
+        ):
+            raise ValidationError("expected pane process identity is invalid")
+        metadata = self.metadata(
+            socket=socket,
+            session=session,
+            pane=pane,
+            server_identity=server_identity,
+        )
+        if metadata["pane_dead"]:
+            raise IdentityError("tmux pane is unavailable")
+        if metadata["pane_pid"] != expected_pane_pid:
+            raise IdentityError("tmux pane process identity changed")
+        target = "%s:%s" % (session, pane)
+        result = self._run_raw(
+            self._tmux_command(
+                socket,
+                [
+                    "display-message",
+                    "-p",
+                    "-t",
+                    target,
+                    _PANE_RUNTIME_FORMAT,
+                ],
+            ),
+            check=False,
+            env=control_environment(),
+        )
+        if (
+            result.returncode != 0
+            or not isinstance(result.stdout, (bytes, bytearray))
+            or len(result.stdout) > _MAX_RUNTIME_METADATA_BYTES
+        ):
+            raise IdentityError("owned pane metadata is unavailable")
+        try:
+            fields = result.stdout.decode("utf-8", "strict").rstrip("\n").split("\t")
+        except UnicodeDecodeError as exc:
+            raise IdentityError("owned pane metadata is not strict UTF-8") from exc
+        if len(fields) != 3 or fields[0] != "0":
+            raise IdentityError("owned pane is unavailable")
+        try:
+            pane_pid = int(fields[1])
+        except ValueError as exc:
+            raise IdentityError("owned pane pid is invalid") from exc
+        if pane_pid != expected_pane_pid:
+            raise IdentityError("owned pane pid changed during metadata capture")
+        worktree = os.path.normpath(os.fspath(expected_worktree))
+        if fields[2] != worktree:
+            raise IdentityError("owned pane identity or cwd changed")
+        return {
+            "session": session,
+            "pane": pane,
+            "pane_pid": pane_pid,
+            "pane_current_path": fields[2],
+            "pane_dead": False,
+        }
+
+    def capture_pane_bytes(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        pane: str,
+        expected_pane_pid: int,
+        server_identity: Optional[Dict[str, Any]] = None,
+        history_lines: int = _CAPTURE_HISTORY_LINES,
+    ) -> bytes:
+        validate_identifier(session, "session")
+        validate_pane_id(pane)
+        if (
+            isinstance(expected_pane_pid, bool)
+            or not isinstance(expected_pane_pid, int)
+            or expected_pane_pid <= 1
+        ):
+            raise ValidationError("expected pane process identity is invalid")
+        if (
+            isinstance(history_lines, bool)
+            or not isinstance(history_lines, int)
+            or history_lines < 1
+            or history_lines > 512
+        ):
+            raise ValidationError("capture history is outside the bound")
+        metadata = self.metadata(
+            socket=socket,
+            session=session,
+            pane=pane,
+            server_identity=server_identity,
+        )
+        if metadata["pane_dead"]:
+            raise IdentityError("tmux pane is unavailable")
+        if metadata["pane_pid"] != expected_pane_pid:
+            raise IdentityError("tmux pane process identity changed")
+        result = self._run_raw(
+            self._tmux_command(
+                socket,
+                [
+                    _CAPTURE_PANE_COMMAND,
+                    "-p",
+                    "-J",
+                    "-S",
+                    "-%d" % history_lines,
+                    "-t",
+                    pane,
+                ],
+            ),
+            check=False,
+            env=control_environment(),
+        )
+        if result.returncode != 0 or not isinstance(result.stdout, (bytes, bytearray)):
+            raise IdentityError("bounded pane screen is unavailable")
+        if len(result.stdout) > _MAX_CAPTURE_BYTES:
+            raise IdentityError("bounded pane screen exceeds the cap")
+        return bytes(result.stdout)
+
+    def send_keys_verified(
+        self,
+        *,
+        socket: Path,
+        session: str,
+        pane: Optional[str] = None,
+        keys: str,
+        expected_pane_pid: int,
+        server_identity: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if keys not in _GATE_NAVIGATION_KEYS:
+            raise ValidationError("gate navigation key is outside the allowlist")
+        if (
+            isinstance(expected_pane_pid, bool)
+            or not isinstance(expected_pane_pid, int)
+            or expected_pane_pid <= 1
+        ):
+            raise ValidationError("expected pane process identity is invalid")
+        metadata = self.metadata(
+            socket=socket,
+            session=session,
+            pane=pane,
+            server_identity=server_identity,
+        )
+        if metadata["pane_dead"]:
+            raise IdentityError("tmux pane is unavailable")
+        if metadata["pane_pid"] != expected_pane_pid:
+            raise IdentityError("tmux pane process identity changed")
+        self._run(socket, ["send-keys", "-t", metadata["pane"], keys])
 
     def send_control(
         self,

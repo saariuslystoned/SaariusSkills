@@ -105,14 +105,15 @@ from .plane_activation import (
     validate_terminal_activation_evidence,
 )
 from .profiles import (
-    INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
+    input_readiness_strategy_for,
     session_profiles_for,
     startup_settle_seconds_for,
     validate_session_profile,
 )
+from .session import _await_input_ready
 from .registry import (
     bind_runtime_process,
     process_alive,
@@ -1043,7 +1044,7 @@ def run_probe(
         "subscription_profile_sha256": None,
         "launch_identity": None,
         "input_transport": OBSERVED_INPUT_TRANSPORT,
-        "input_readiness_strategy": INPUT_READINESS_STRATEGY,
+        "input_readiness_strategy": input_readiness_strategy_for(target),
         "startup_settle_seconds": startup_settle_seconds_for(target),
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "payload_argv_absent": True,
@@ -1643,8 +1644,23 @@ def run_probe(
             process=process,
             attach_command=attach,
         )
-        settle_seconds = startup_settle_seconds_for(target)
-        _sleep_fn(settle_seconds)
+        settle_result = _await_input_ready(
+            target=target,
+            tmux=tmux,
+            manifest=manifest,
+            socket=socket,
+            session=session,
+            pane=metadata["pane"],
+            pane_pid=metadata["pane_pid"],
+            repo=launch_repo,
+            argv=argv,
+            process=process,
+            server_identity=server_identity,
+            sleep_fn=_sleep_fn,
+            verify_structural_settle=False,
+            process_alive_fn=lambda: _process_alive_fn(process),
+        )
+        del settle_result
         population_guard()
         _assert_runtime(
             tmux=tmux,

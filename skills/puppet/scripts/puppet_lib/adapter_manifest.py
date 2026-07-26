@@ -27,10 +27,10 @@ from .errors import IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
 from .launch import validate_admitted_launch_plan, validate_public_launch_identity
 from .profiles import (
-    INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
+    input_readiness_strategy_for,
     session_profiles_for,
     startup_settle_seconds_for,
     validate_session_profile,
@@ -1071,7 +1071,8 @@ def verify_qualification_receipt(
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
         or evidence.get("input_transport") != OBSERVED_INPUT_TRANSPORT
-        or evidence.get("input_readiness_strategy") != INPUT_READINESS_STRATEGY
+        or evidence.get("input_readiness_strategy")
+        != input_readiness_strategy_for(receipt["target"])
         or evidence.get("startup_settle_seconds")
         != startup_settle_seconds_for(receipt["target"])
         or evidence.get("submit_settle_seconds") != SUBMIT_SETTLE_SECONDS

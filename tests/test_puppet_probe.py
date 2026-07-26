@@ -462,6 +462,7 @@ class FakeTmux:
         self.payloads = []
         self.interrupts = []
         self.control_calls = []
+        self.gate_keys: list[str] = []
         self.session = None
         self.pane = "%7"
         self.pid = 4242
@@ -585,6 +586,37 @@ class FakeTmux:
             pane=self.pane,
             server_identity=server_identity,
         )
+
+    def pane_runtime_identity(
+        self,
+        *,
+        socket,
+        session,
+        pane,
+        expected_pane_pid,
+        expected_worktree,
+        server_identity=None,
+    ):
+        del socket, session, server_identity
+        return {
+            "session": self.session or session,
+            "pane": pane or self.pane,
+            "pane_pid": expected_pane_pid,
+            "pane_current_path": str(expected_worktree),
+            "pane_dead": not self.alive,
+        }
+
+    def capture_pane_bytes(self, **kwargs):
+        del kwargs
+        return (
+            "Claude Code v2.1.215\n"
+            "? for shortcuts\n"
+            "Bypass permissions on\n"
+            'Try "fix tests"\n'
+        ).encode("utf-8")
+
+    def send_keys_verified(self, **kwargs):
+        self.gate_keys.append(kwargs["keys"])
 
     @staticmethod
     def _exact_json(payload: bytes, marker: str):

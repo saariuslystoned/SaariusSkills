@@ -19,10 +19,10 @@ from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, validate_handoff
 from puppet_lib.instructions import compile_instruction_wrapper
 from puppet_lib.launch import build_admitted_launch_plan
 from puppet_lib.profiles import (
-    INPUT_READINESS_STRATEGY,
     OBSERVED_INPUT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
     default_session_profile,
+    input_readiness_strategy_for,
     startup_settle_seconds_for,
 )
 from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file
@@ -351,7 +351,7 @@ def write_qualification_receipt(
             "subscription_profile_sha256": sha256_file(subscription_profile_path),
             "launch_identity": launch_identity,
             "input_transport": OBSERVED_INPUT_TRANSPORT,
-            "input_readiness_strategy": INPUT_READINESS_STRATEGY,
+            "input_readiness_strategy": input_readiness_strategy_for(target),
             "session_profile": session_profile,
             "startup_settle_seconds": startup_settle_seconds_for(target),
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,

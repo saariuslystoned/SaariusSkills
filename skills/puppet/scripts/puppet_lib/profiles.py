@@ -9,7 +9,9 @@ from .errors import ValidationError
 
 PROMPT_TRANSPORT = "interactive_tmux_load_buffer_stdin_declared"
 OBSERVED_INPUT_TRANSPORT = "tmux_load_buffer_stdin"
-INPUT_READINESS_STRATEGY = "bounded_structural_settle"
+BOUNDED_STRUCTURAL_SETTLE = "bounded_structural_settle"
+CLAUDE_STARTUP_GATE_REDUCER = "bounded_claude_startup_gate_reducer"
+INPUT_READINESS_STRATEGY = BOUNDED_STRUCTURAL_SETTLE
 SUBMIT_SETTLE_SECONDS = 1.0
 
 SESSION_PROFILE_COMMANDS: Dict[str, Dict[str, str]] = {
@@ -70,3 +72,9 @@ def startup_settle_seconds_for(target: str) -> float:
     if settle is None:
         raise ValidationError("unsupported target")
     return float(settle)
+
+
+def input_readiness_strategy_for(target: str) -> str:
+    if target == "claude":
+        return CLAUDE_STARTUP_GATE_REDUCER
+    return BOUNDED_STRUCTURAL_SETTLE
