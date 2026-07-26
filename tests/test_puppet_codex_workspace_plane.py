@@ -16,7 +16,10 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib import codex_workspace_plane as workspace_module  # noqa: E402
-from puppet_lib.adapter_manifest import QUALIFICATION_PROFILE  # noqa: E402
+from puppet_lib.adapter_manifest import (  # noqa: E402
+    QUALIFICATION_PROFILE,
+    validate_codex_workspace_isolation,
+)
 from puppet_lib.codex_launch import (  # noqa: E402
     AUTH_ROUTE,
     CURRENT_DEFAULT_SELECTION,
@@ -680,6 +683,66 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             codex_probe_mapping_from_qualified(
                 changed_argv, workspace_isolation=workspace
             )
+
+    def test_terminal_workspace_schema_is_canonical_without_requiring_live_root(self):
+        missing_root = str(self.base / "not-created-candidate")
+        workspace = {
+            "schema": "puppet.codex-direct-worktree-receipt/v1",
+            "terminal_state": "controller_verified_after_exact_halt",
+            "descriptor_sha256": "1" * 64,
+            "candidate_root": missing_root,
+            "candidate_branch": "candidate/qualification",
+            "candidate_head": "2" * 40,
+            "startup_cwd": missing_root,
+            "controller_contract_sha256": "3" * 64,
+            "instruction_manifest_sha256": "4" * 64,
+            "executable_sha256": "5" * 64,
+            "subscription_profile_sha256": "6" * 64,
+            "launch_plan_sha256": "7" * 64,
+        }
+        self.assertEqual(validate_codex_workspace_isolation(workspace), workspace)
+        self.assertFalse(Path(missing_root).exists())
+
+        bad_roots = (
+            "relative/candidate",
+            str(self.base / "candidate" / ".." / "other"),
+            str(self.base / "candidate") + "/",
+            str(self.base / "candidate") + "\nignored",
+            "//tmp/candidate",
+        )
+        for root in bad_roots:
+            with self.subTest(root=repr(root)):
+                changed = dict(
+                    workspace,
+                    candidate_root=root,
+                    startup_cwd=root,
+                )
+                with self.assertRaisesRegex(
+                    ValidationError, "normalized and absolute"
+                ):
+                    validate_codex_workspace_isolation(changed)
+
+        with self.assertRaisesRegex(ValidationError, "cwd binding"):
+            validate_codex_workspace_isolation(
+                dict(workspace, startup_cwd=str(self.base / "other-candidate"))
+            )
+
+        for branch in ("", "   ", "candidate\nother", "candidate\x7fother", "a" * 201):
+            with self.subTest(branch=repr(branch)):
+                with self.assertRaisesRegex(ValidationError, "invalid branch"):
+                    validate_codex_workspace_isolation(
+                        dict(workspace, candidate_branch=branch)
+                    )
+
+        malformed = (
+            dict(workspace, terminal_state="preflight"),
+            dict(workspace, candidate_head="2" * 39),
+            {**workspace, "unexpected": True},
+        )
+        for value in malformed:
+            with self.subTest(fields=sorted(value)):
+                with self.assertRaises(ValidationError):
+                    validate_codex_workspace_isolation(value)
 
 
 if __name__ == "__main__":

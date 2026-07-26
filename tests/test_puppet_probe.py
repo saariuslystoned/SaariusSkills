@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -19,6 +20,8 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
+import adapter_lab as puppet_adapter_lab  # noqa: E402
+from puppet_lib import codex_workspace_plane as codex_workspace_module  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
@@ -30,6 +33,11 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     direct_execution_bundle,
     execution_file_identity,
     verify_qualification_receipt,
+)
+from puppet_lib.codex_launch import EXPECTED_UNRESTRICTED_FLAG  # noqa: E402
+from puppet_lib.codex_workspace_plane import (  # noqa: E402
+    build_codex_worktree_descriptor,
+    codex_probe_mapping_from_qualified,
 )
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
@@ -275,6 +283,59 @@ def controller_inputs(root: Path, *, target: str = "codex", override=False):
         "subscription_profile": subscription_profile,
         "raw": raw,
     }
+
+
+def codex_worktree_inputs(root: Path):
+    files = controller_inputs(root, target="codex")
+    mapping = json.loads(json.dumps(files["raw"]["yolo_mapping"]))
+    combined_flag = EXPECTED_UNRESTRICTED_FLAG
+    mapping.update(
+        complete=False,
+        launch_argv=[
+            files["raw"]["executable"]["resolved_path"],
+            combined_flag,
+        ],
+        permission_flags=[combined_flag],
+        sandbox_flags=[combined_flag],
+        project_isolation_declared=False,
+        project_isolation_flags=[],
+    )
+    files["raw"]["yolo_mapping"] = mapping
+    write_json(files["manifest"], files["raw"])
+    write_json(files["mapping"], mapping)
+
+    candidate = root / "candidate-worktree"
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(files["goal_repo"]),
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "codex-candidate",
+            str(candidate),
+        ],
+        check=True,
+    )
+    descriptor = build_codex_worktree_descriptor(
+        candidate_root=candidate,
+        supervisor_root=files["goal_repo"],
+        controller="tester",
+        campaign_id=files["campaign_id"],
+        goal_fingerprint=sha256_bytes(canonical_json_bytes(files["expected_goal"])),
+        executable_sha256=files["raw"]["executable"]["sha256"],
+        subscription_profile_root=files["subscription_profile"],
+    )
+    descriptor_path = root / "codex-worktree-descriptor.json"
+    write_json(descriptor_path, descriptor)
+    files.update(
+        candidate=candidate.resolve(strict=True),
+        descriptor=descriptor_path,
+        descriptor_value=descriptor,
+    )
+    return files
 
 
 def claude_activation_inputs(root: Path):
@@ -533,6 +594,15 @@ class FakeTmux:
                 return json.loads(line[len(marker) :])
         raise AssertionError("probe payload did not contain %s" % marker)
 
+    @staticmethod
+    def _task_repo(payload: bytes, default: Path) -> Path:
+        text = payload.decode("utf-8")
+        marker = "PUPPET_CONFORMANCE_FIXTURE_ROOT="
+        for line in text.splitlines():
+            if line.startswith(marker):
+                return Path(json.loads(line[len(marker) :]))
+        return default
+
     def paste_bytes(
         self, *, socket, session, pane, buffer_name, payload, server_identity=None
     ):
@@ -552,10 +622,18 @@ class FakeTmux:
                     self.launch_argv[artifact_flag + 1]
                 ).read_bytes()
             value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
-            destination = self.repo / "handoffs" / "ready.json"
+            destination = (
+                self._task_repo(instruction_payload, self.repo)
+                / "handoffs"
+                / "ready.json"
+            )
         else:
             value = self._exact_json(payload, "WRITE_FOLLOWUP_JSON=")
-            destination = self.repo / "handoffs" / "followup.json"
+            destination = (
+                self._task_repo(payload, self.repo)
+                / "handoffs"
+                / "followup.json"
+            )
         if self.bad_claim:
             value["claims"] = []
         temporary = destination.with_suffix(".pending")
@@ -790,6 +868,144 @@ def recover_execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_codex_direct_worktree_probe_receipt_and_qualification_close_exactly(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = codex_worktree_inputs(root)
+            fake = FakeTmux(root / "fake-tmux")
+            executable = files["raw"]["executable"]["resolved_path"]
+            run_id = "probe-codex-worktree"
+
+            with patch.object(
+                codex_workspace_module,
+                "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                executable,
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                )
+
+                self.assertEqual(result["result"], "accepted")
+                self.assertEqual(fake.repo, files["candidate"])
+                run_root = Path(result["run_root"])
+                fixture = run_root / "fixture"
+                launch_plan = json.loads(
+                    (run_root / "launch-plan.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(launch_plan["cwd"], str(files["candidate"]))
+                self.assertNotEqual(launch_plan["cwd"], str(fixture))
+
+                evidence = json.loads(
+                    (run_root / "evidence.json").read_text(encoding="utf-8")
+                )
+                workspace = evidence["workspace_isolation"]
+                self.assertEqual(workspace["candidate_root"], str(files["candidate"]))
+                self.assertEqual(workspace["startup_cwd"], str(files["candidate"]))
+                self.assertEqual(
+                    workspace["descriptor_sha256"],
+                    files["descriptor_value"]["descriptor_sha256"],
+                )
+                instructions = json.loads(
+                    (run_root / "effective-instructions.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    instructions["workspace_identity"]["workspace"],
+                    "isolated_conformance_fixture",
+                )
+                fixture_marker = (
+                    "PUPPET_CONFORMANCE_FIXTURE_ROOT="
+                    + json.dumps(str(fixture), separators=(",", ":"))
+                ).encode()
+                self.assertIn(fixture_marker, fake.payloads[0])
+
+                receipt_path = Path(result["receipt"])
+                receipt = verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+                proof_kinds = {reference["kind"] for reference in receipt["proof_refs"]}
+                self.assertIn("workspace_descriptor", proof_kinds)
+                self.assertIn("controller_contract", proof_kinds)
+                self.assertEqual(receipt["workspace_isolation"], workspace)
+
+                out = root / "qualified.json"
+                arguments = SimpleNamespace(
+                    manifest=files["manifest"],
+                    mapping=files["mapping"],
+                    receipt=receipt_path,
+                    out=out,
+                )
+                original_verify = AdapterManifest.verify_qualification
+
+                def verify_receipt_at_test_authority(path):
+                    return verify_qualification_receipt(
+                        path,
+                        _authority_root=files["authority"],
+                        _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                        _server_process_fn=lambda pid: fake.server_process,
+                        _tmux_factory=lambda selected: fake,
+                    )
+
+                def verify_qualified_at_test_authority(manifest, **_kwargs):
+                    return original_verify(
+                        manifest,
+                        _authority_root=files["authority"],
+                        _current_manifest=manifest,
+                        _server_process_fn=lambda pid: fake.server_process,
+                        _tmux_factory=lambda selected: fake,
+                    )
+
+                with (
+                    patch.object(
+                        puppet_adapter_lab,
+                        "_verified_receipt",
+                        side_effect=verify_receipt_at_test_authority,
+                    ),
+                    patch.object(
+                        AdapterManifest,
+                        "verify_qualification",
+                        new=verify_qualified_at_test_authority,
+                    ),
+                ):
+                    qualified_result = puppet_adapter_lab._qualify(arguments)
+                self.assertTrue(qualified_result["ok"])
+                qualified = AdapterManifest.from_path(out)
+                self.assertTrue(qualified.raw["yolo_mapping"]["complete"])
+                self.assertTrue(
+                    qualified.raw["yolo_mapping"]["project_isolation_declared"]
+                )
+                self.assertEqual(
+                    codex_probe_mapping_from_qualified(
+                        qualified.raw["yolo_mapping"],
+                        workspace_isolation=receipt["workspace_isolation"],
+                    ),
+                    files["raw"]["yolo_mapping"],
+                )
+
+                nonexact = json.loads(json.dumps(qualified.raw))
+                nonexact["yolo_mapping"]["project_isolation_declared"] = False
+                with self.assertRaisesRegex(
+                    IdentityError, "qualified mapping closure changed"
+                ):
+                    verify_qualification_receipt(
+                        receipt_path,
+                        _authority_root=files["authority"],
+                        _current_manifest=SimpleNamespace(
+                            target="codex",
+                            raw=nonexact,
+                        ),
+                        _server_process_fn=lambda pid: fake.server_process,
+                        _tmux_factory=lambda selected: fake,
+                    )
+
     def test_incomplete_claude_mapping_requires_plane_descriptor(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

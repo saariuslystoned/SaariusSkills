@@ -435,16 +435,42 @@ def _handoff_value(
     return value
 
 
-def _initial_prompt(fixture_contract: Dict[str, Any], ready: Dict[str, Any]) -> str:
+def _initial_prompt(
+    fixture_contract: Dict[str, Any],
+    ready: Dict[str, Any],
+    *,
+    bind_absolute_fixture: bool = False,
+) -> str:
+    fixture_root = fixture_contract["allowed_fixture_root"]
+    contract_path = (
+        str(Path(fixture_root) / "contract.json")
+        if bind_absolute_fixture
+        else "./contract.json"
+    )
+    ready_path = (
+        str(Path(fixture_root) / "handoffs" / "ready.json")
+        if bind_absolute_fixture
+        else "./handoffs/ready.json"
+    )
+    fixture_binding = (
+        "PUPPET_CONFORMANCE_FIXTURE_ROOT=%s\n"
+        % canonical_json_bytes(fixture_root).decode("utf-8")
+        if bind_absolute_fixture
+        else ""
+    )
     return (
         "PUPPET_REAL_HARNESS_CONFORMANCE_V2\n"
-        "Read ./contract.json and verify schema_version, run_id, nonce, and "
+        "%s"
+        "Read %s and verify schema_version, run_id, nonce, and "
         "allowed_fixture_root. Make no source, repository, account, external-send, "
-        "or system changes. Atomically write only ./handoffs/ready.json with the "
+        "or system changes. Atomically write only %s with the "
         "exact JSON object below, then remain available for one follow-up. Do not "
         "claim controller acceptance.\n"
         "run_id=%s\nnonce=%s\nWRITE_READY_JSON=%s"
         % (
+            fixture_binding,
+            contract_path,
+            ready_path,
             fixture_contract["run_id"],
             fixture_contract["nonce"],
             canonical_json_bytes(ready).decode("utf-8"),
@@ -462,15 +488,35 @@ def _matched_initial_prompt(
     )
 
 
-def _followup_prompt(fixture_contract: Dict[str, Any], followup: Dict[str, Any]) -> str:
+def _followup_prompt(
+    fixture_contract: Dict[str, Any],
+    followup: Dict[str, Any],
+    *,
+    bind_absolute_fixture: bool = False,
+) -> str:
+    fixture_root = fixture_contract["allowed_fixture_root"]
+    followup_path = (
+        str(Path(fixture_root) / "handoffs" / "followup.json")
+        if bind_absolute_fixture
+        else "./handoffs/followup.json"
+    )
+    fixture_binding = (
+        "PUPPET_CONFORMANCE_FIXTURE_ROOT=%s\n"
+        % canonical_json_bytes(fixture_root).decode("utf-8")
+        if bind_absolute_fixture
+        else ""
+    )
     return (
         "PUPPET_REAL_HARNESS_FOLLOWUP_V2\n"
+        "%s"
         "Verify the same run_id and nonce plus message_id and sequence=1. "
-        "Atomically write only ./handoffs/followup.json with the exact JSON object "
+        "Atomically write only %s with the exact JSON object "
         "below, make no other changes, and remain waiting for exact halt.\n"
         "run_id=%s\nnonce=%s\nmessage_id=%s\nsequence=1\n"
         "prior_checkpoint_sha256=%s\nWRITE_FOLLOWUP_JSON=%s"
         % (
+            fixture_binding,
+            followup_path,
             fixture_contract["run_id"],
             fixture_contract["nonce"],
             followup["message_id"],
@@ -1089,7 +1135,11 @@ def run_probe(
             "nonce": fixture_contract["nonce"],
         }
         ready_task = (
-            _initial_prompt(fixture_contract, ready_value)
+            _initial_prompt(
+                fixture_contract,
+                ready_value,
+                bind_absolute_fixture=codex_worktree_descriptor,
+            )
             if not claude_plane_descriptor
             else _matched_initial_prompt(fixture_contract, ready_value)
         )
@@ -1134,17 +1184,19 @@ def run_probe(
             "delivery_transport": compiled.manifest["delivery_transport"],
         }
         admitted_lane_root: Optional[Path] = None
+        launch_repo = fixture
         if not claude_plane_descriptor:
             if subscription_context is None:
                 raise IdentityError(
                     "subscription profile launch context is unavailable"
                 )
             admitted_lane_root = subscription_context.profile_root
-            launch_repo = (
-                Path(plane_descriptor_value["candidate_root"])
-                if codex_worktree_descriptor
-                else fixture
-            )
+            if codex_worktree_descriptor:
+                # The fixture remains the bounded conformance task workspace.
+                # Codex starts in the candidate worktree so its workspace plane
+                # binds there; terminal workspace_isolation independently proves
+                # that real process cwd while prompts use absolute fixture paths.
+                launch_repo = Path(plane_descriptor_value["candidate_root"])
             launch_environment, launch_identity = build_launch_identity(
                 target=target,
                 repo=launch_repo,
@@ -1382,7 +1434,7 @@ def run_probe(
                 )
                 refreshed_environment, refreshed_identity = build_launch_identity(
                     target=target,
-                    repo=fixture,
+                    repo=launch_repo,
                     argv=argv,
                     source_environment=refreshed_context.source_environment,
                     bindings=refreshed_context.bindings,
@@ -1408,7 +1460,7 @@ def run_probe(
         metadata = tmux.launch(
             session=session,
             target=target,
-            repo=fixture,
+            repo=launch_repo,
             argv=argv,
             environment=launch_environment,
             admitted_lane_root=admitted_lane_root,
@@ -1744,7 +1796,11 @@ def run_probe(
             prior_checkpoint_sha256=ready.artifact_sha256,
         )
         followup_message = adapter.envelope(
-            _followup_prompt(fixture_contract, followup_value),
+            _followup_prompt(
+                fixture_contract,
+                followup_value,
+                bind_absolute_fixture=codex_worktree_descriptor,
+            ),
             session_profile,
             initial=False,
         )

@@ -7,6 +7,7 @@ import math
 import os
 import shutil
 import stat
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
@@ -41,6 +42,8 @@ from .safety import (
     read_json,
     sha256_file,
     sha256_bytes,
+    validate_bounded_json,
+    validate_branch,
     validate_identifier,
     validate_pane_id,
     validate_sha1,
@@ -493,6 +496,7 @@ def validate_codex_workspace_isolation(value: Any) -> Optional[Dict[str, Any]]:
     }
     if not isinstance(value, dict) or set(value) != fields:
         raise ValidationError("Codex workspace isolation fields do not match schema")
+    validate_bounded_json(value, max_depth=2, max_items=16, max_string=4096)
     if (
         value.get("schema") != "puppet.codex-direct-worktree-receipt/v1"
         or value.get("terminal_state") != "controller_verified_after_exact_halt"
@@ -508,11 +512,28 @@ def validate_codex_workspace_isolation(value: Any) -> Optional[Dict[str, Any]]:
     }:
         validate_sha256(value.get(name), name.replace("_", " "))
     validate_sha1(value.get("candidate_head"), "candidate head")
-    if (
-        value.get("candidate_root") != value.get("startup_cwd")
-        or not isinstance(value.get("candidate_branch"), str)
-        or not value["candidate_branch"]
-    ):
+    roots = {}
+    for name in ("candidate_root", "startup_cwd"):
+        root = value.get(name)
+        if (
+            not isinstance(root, str)
+            or not root
+            or len(root) > 4096
+            or not Path(root).is_absolute()
+            or root.startswith("//")
+            or os.path.normpath(root) != root
+            or any(
+                unicodedata.category(character) in {"Cc", "Cf"}
+                for character in root
+            )
+        ):
+            raise ValidationError(
+                "Codex workspace %s is not normalized and absolute"
+                % name.replace("_", " ")
+            )
+        roots[name] = root
+    validate_branch(value.get("candidate_branch"))
+    if roots["candidate_root"] != roots["startup_cwd"]:
         raise ValidationError("Codex workspace startup cwd binding is invalid")
     return dict(value)
 
@@ -868,9 +889,12 @@ def verify_qualification_receipt(
         )
     current_mapping = current["yolo_mapping"]
     if workspace_isolation is not None and current_mapping.get("complete") is True:
-        current_mapping = dict(current_mapping)
-        current_mapping["complete"] = False
-        current_mapping["project_isolation_declared"] = False
+        from .codex_workspace_plane import codex_probe_mapping_from_qualified
+
+        current_mapping = codex_probe_mapping_from_qualified(
+            current_mapping,
+            workspace_isolation=workspace_isolation,
+        )
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
         "execution_fingerprint": current["execution"]["execution_fingerprint"],
