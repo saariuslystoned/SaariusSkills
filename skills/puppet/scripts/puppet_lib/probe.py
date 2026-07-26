@@ -473,8 +473,10 @@ def _initial_prompt(
         "Read %s and verify schema_version, run_id, nonce, and "
         "allowed_fixture_root. Make no source, repository, account, external-send, "
         "or system changes. Atomically write only %s with the "
-        "exact JSON object below, then remain available for one follow-up. Do not "
-        "claim controller acceptance.\n"
+        "exact JSON object below, then remain available for one follow-up. The "
+        "handoffs directory must contain exactly one regular file after this step: "
+        "ready.json. Do not create conformance_handoff.json, a summary, or any "
+        "other artifact. Do not claim controller acceptance.\n"
         "run_id=%s\nnonce=%s\nWRITE_READY_JSON=%s"
         % (
             fixture_binding,

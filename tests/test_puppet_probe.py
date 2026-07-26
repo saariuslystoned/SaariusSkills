@@ -943,6 +943,24 @@ def recover_execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_initial_probe_prompt_names_the_single_handoff_allowlist(self):
+        prompt = puppet_probe._initial_prompt(
+            {
+                "allowed_fixture_root": "/tmp/bounded-fixture",
+                "run_id": "probe-prompt-contract",
+                "nonce": "a" * 32,
+            },
+            {"schema_version": 2},
+        )
+        self.assertIn(
+            "handoffs directory must contain exactly one regular file",
+            prompt,
+        )
+        self.assertIn(
+            "Do not create conformance_handoff.json",
+            prompt,
+        )
+
     def test_agy_shared_auth_probe_revalidates_without_private_profile_context(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

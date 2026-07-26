@@ -135,6 +135,16 @@ class InstructionCompilerTests(unittest.TestCase):
             second.manifest["rendered_sha256"],
         )
 
+    def test_agy_overlay_forbids_undeclared_parallel_handoffs(self):
+        compiled = compile_instruction_wrapper(
+            target="agy",
+            **self._base_kwargs(),
+        )
+        text = compiled.rendered.decode("utf-8")
+        self.assertIn("exact artifact allowlists as hard boundaries", text)
+        self.assertIn("create exactly that file", text)
+        self.assertIn("Never synthesize `conformance_handoff.json`", text)
+
     def test_compile_with_addendum_and_task_hash_variation(self):
         compiled_base = compile_instruction_wrapper(
             target="codex",
