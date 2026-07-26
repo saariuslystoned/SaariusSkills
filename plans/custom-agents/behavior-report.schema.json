@@ -44,7 +44,8 @@
             "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1D.md",
             "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1E.md",
             "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE2_2X2.md",
-            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE3_4X4.md"
+            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE3_4X4.md",
+            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE4_CONTAINMENT.md"
           ]
         },
         "version": {
@@ -55,7 +56,8 @@
             "2026-07-26.phase1d",
             "2026-07-26.phase1e",
             "2026-07-26.phase2-2x2",
-            "2026-07-26.phase3-4x4"
+            "2026-07-26.phase3-4x4",
+            "2026-07-26.phase4-containment"
           ]
         }
       }
@@ -74,7 +76,7 @@
         ],
         "properties": {
           "contract_clause": {
-            "pattern": "^(C|F|R)[1-8]$",
+            "pattern": "^(C|F|R|Q)[1-8]$",
             "type": "string"
           },
           "status": {

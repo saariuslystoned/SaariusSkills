@@ -66,6 +66,10 @@ then exercises a locked-join denial, one malformed child, and a one-second
 controller watchdog. Permission containment and bounded termination are
 observable; retry-attempt count remains unqualified without a tool trace.
 
+Phase 4 is a characterization-only split for the three containment controls.
+It cannot repair the failed width-four join, admit product promotion, or turn a
+prompted retry policy into an observed retry count.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -87,6 +91,9 @@ Files:
 - `BEHAVIOR_CONTRACT_PHASE3_4X4.md` — four-round width-four reliability and
   containment contract;
 - `ROUTE_PHASE3_4X4.md` — bounded 4x4 and containment execution route;
+- `BEHAVIOR_CONTRACT_PHASE4_CONTAINMENT.md` — denial, malformed-child, and
+  watchdog characterization without width-four promotion;
+- `ROUTE_PHASE4_CONTAINMENT.md` — bounded containment-only execution route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe
