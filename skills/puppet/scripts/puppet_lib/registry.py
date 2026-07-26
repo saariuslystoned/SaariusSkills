@@ -268,6 +268,11 @@ _DARWIN_PROC_UID_ONLY = 4
 _DARWIN_PID_LIST_RETRIES = 3
 _DARWIN_PID_LIST_SLACK = 64
 _DARWIN_MAX_PROCESS_IDS = 32768
+# A PID can remain in ``proc_listpids`` briefly after its BSD row becomes
+# unavailable during exit.  Keep the retry window short and finite: only a row
+# whose PID is subsequently absent may be skipped; a row that recovers or
+# remains present is still ambiguous and fails closed.
+_DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS = (0.01, 0.05, 0.1)
 
 
 class ExecTransitionSamplingError(IdentityError):
@@ -477,10 +482,24 @@ def darwin_process_inventory(
             try:
                 _darwin_process_bsd_record(pid, libproc)
             except IdentityError as rebound_exc:
-                final_pids = _darwin_uid_process_ids(
-                    libproc, max_processes=max_processes
-                )
-                if pid not in final_pids:
+                vanished = False
+                for delay in _DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS:
+                    time.sleep(delay)
+                    final_pids = _darwin_uid_process_ids(
+                        libproc, max_processes=max_processes
+                    )
+                    if pid not in final_pids:
+                        vanished = True
+                        break
+                    try:
+                        _darwin_process_bsd_record(pid, libproc)
+                    except IdentityError as final_exc:
+                        rebound_exc = final_exc
+                        continue
+                    raise IdentityError(
+                        "Darwin process inventory PID reappeared with ambiguous identity"
+                    ) from rebound_exc
+                if vanished:
                     continue
                 raise IdentityError(
                     "Darwin process inventory row remained unavailable"

@@ -1915,6 +1915,87 @@ class AuthorityTests(unittest.TestCase):
         ):
             puppet_registry.darwin_process_inventory()
 
+    def test_darwin_inventory_waits_for_lingering_exited_row_to_leave_pid_list(self):
+        controller_pid = os.getpid()
+        controller_record = {
+            "pid": controller_pid,
+            "uid": os.getuid(),
+            "kernel_birth_id": "darwin:1:000001",
+        }
+        unavailable = IdentityError("BSD row unavailable")
+        sleeps = []
+
+        with (
+            patch.object(puppet_registry.ctypes, "CDLL", return_value=object()),
+            patch.object(
+                puppet_registry,
+                "_darwin_uid_process_ids",
+                side_effect=[
+                    [controller_pid, 4242],
+                    [controller_pid, 4242],
+                    [controller_pid],
+                ],
+            ),
+            patch.object(
+                puppet_registry,
+                "_darwin_process_bsd_record",
+                side_effect=[controller_record, unavailable, unavailable],
+            ),
+            patch.object(
+                puppet_registry.time,
+                "sleep",
+                side_effect=lambda delay: sleeps.append(delay),
+            ),
+        ):
+            self.assertEqual(
+                puppet_registry.darwin_process_inventory(),
+                [controller_record],
+            )
+
+        self.assertEqual(
+            sleeps,
+            [puppet_registry._DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS[0]],
+        )
+
+    def test_darwin_inventory_still_rejects_persistent_unavailable_row(self):
+        controller_pid = os.getpid()
+        controller_record = {
+            "pid": controller_pid,
+            "uid": os.getuid(),
+            "kernel_birth_id": "darwin:1:000001",
+        }
+
+        with (
+            patch.object(puppet_registry.ctypes, "CDLL", return_value=object()),
+            patch.object(
+                puppet_registry,
+                "_darwin_uid_process_ids",
+                return_value=[controller_pid, 4242],
+            ),
+            patch.object(
+                puppet_registry,
+                "_darwin_process_bsd_record",
+                side_effect=[
+                    controller_record,
+                    *[
+                        IdentityError("BSD row unavailable")
+                        for _ in range(
+                            2
+                            + len(
+                                puppet_registry._DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS
+                            )
+                        )
+                    ],
+                ],
+            ),
+            patch.object(puppet_registry.time, "sleep"),
+            self.assertRaisesRegex(
+                IdentityError,
+                "row remained unavailable",
+            ),
+        ):
+            puppet_registry.darwin_process_inventory()
+
     def test_darwin_executable_identity_comes_from_mapped_vnode(self):
         executable_path = b"/renamed/process-owned/codex"
 
