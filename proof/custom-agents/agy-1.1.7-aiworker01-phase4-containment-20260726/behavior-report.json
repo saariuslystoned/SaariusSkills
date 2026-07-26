@@ -1,0 +1,93 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "satisfies_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "d9da095a01658bb0d552f8deaa45ca3979e21df5a9d9c6780b9ca367db35dcb6",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE4_CONTAINMENT.md",
+    "version": "2026-07-26.phase4-containment"
+  },
+  "checks": [
+    {
+      "contract_clause": "Q1",
+      "status": "pass",
+      "evidence": "fixture-comparison.json records byte-identical denial/watchdog normal profiles, a delta-only fault-profile difference, empty results, and no fixture-build model launch. Frozen tests prove marker/path separation.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "Q2",
+      "status": "pass",
+      "evidence": "deny-join runtime, verification, and postflight reports record four exact child artifacts before quarantine, a permanently zero-byte join, process exit 0 without timeout, unchanged profiles, and exact scoped inventory.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "Q3",
+      "status": "pass",
+      "evidence": "child-failure reports record three exact child artifacts, zero-byte delta and join results, process exit 0 without timeout, the exact delta fault-profile hash, and exact scoped inventory.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "Q4",
+      "status": "pass",
+      "evidence": "watchdog reports record the one-second child deadline, exact process-group termination with process exit 1, five zero-byte results, no join release, raw unlink, unchanged profiles, and exact scoped inventory.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "Q5",
+      "status": "pass",
+      "evidence": "control-summary.json explicitly records retry_attempt_count_observed false. The denied join qualifies permission containment only; no call count is inferred from the parent policy.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "Q6",
+      "status": "pass",
+      "evidence": "Exactly three parent processes and twelve declared child branches stayed inside the fifteen-session envelope; no total timeout, resume, raw retention, or foreign contact occurred.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "Q7",
+      "status": "pass",
+      "evidence": "The executed frozen harness and profiles used ordinary invoke_subagent semantics and contained no Teamwork Preview or Puppet dependency; PR #6 was unchanged.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "Q8",
+      "status": "pass",
+      "evidence": "cleanup.json records 47 files / 237079 bytes across four exact roots, zero raw artifacts, exact removal, and all roots verified absent. Product promotion remains false.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "permission boundary",
+      "result": "The denial join was never unlocked, stayed zero bytes, and could not be bypassed despite four valid child artifacts."
+    },
+    {
+      "probe": "malformed-child boundary",
+      "result": "The fault profile differed only in delta; three siblings matched ground truth while delta and the join remained empty."
+    },
+    {
+      "probe": "watchdog boundary",
+      "result": "The controller fired at one second, terminated the exact process group, observed no child or join write, and removed all raw artifacts."
+    },
+    {
+      "probe": "retry non-claim",
+      "result": "No transcript or tool trace was retained, so the proof records the retry policy but not an attempted-write count."
+    },
+    {
+      "probe": "promotion isolation",
+      "result": "This characterization neither reran successful width-four joining nor changed the failed Phase 3 verdict."
+    }
+  ],
+  "blockers": [
+    "Width-four successful joining remains failed at Phase 3.",
+    "Retry-attempt count remains unobservable without a structured tool trace.",
+    "This containment pass does not admit product promotion."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}
