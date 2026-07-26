@@ -233,10 +233,12 @@ def _parse_trust_screen(
     return displayed, None
 
 
-def _screen_contains_worktree(lines: Sequence[str], expected_worktree: str) -> bool:
+def _screen_contains_worktree(
+    lines: Sequence[str], expected_worktree: str, *, start_index: int = 0
+) -> bool:
     """Match a literal or hard-wrapped workspace footer without retaining it."""
 
-    for index, line in enumerate(lines):
+    for index, line in enumerate(lines[start_index:], start_index):
         start = line.find("/")
         if start < 0:
             continue
@@ -255,18 +257,29 @@ def _screen_contains_worktree(lines: Sequence[str], expected_worktree: str) -> b
 
 
 def _ready_screen_matches(lines: Sequence[str], expected_worktree: str) -> bool:
-    joined = "\n".join(lines)
-    lower = joined.lower()
-    has_yolo_footer = "Run Everything" in joined
+    footer_indices = [
+        index for index, line in enumerate(lines) if "Run Everything" in line
+    ]
+    if not footer_indices:
+        return False
+    footer_index = footer_indices[-1]
+    trust_indices = [
+        index
+        for index, line in enumerate(lines)
+        if line in {_TRUST_TITLE, _TRUST_QUESTION, _TRUST_NAVIGATION}
+    ]
+    if trust_indices and footer_index <= trust_indices[-1]:
+        return False
+    scan_start = trust_indices[-1] + 1 if trust_indices else 0
     has_auto_selector = any(
-        re.search(r"(?:^|\s)Auto(?:\s|·|$)", line) is not None for line in lines
+        re.search(r"(?:^|\s)Auto(?:\s|·|$)", line) is not None
+        for line in lines[scan_start : footer_index + 1]
     )
     return (
-        has_yolo_footer
-        and has_auto_selector
-        and _screen_contains_worktree(lines, expected_worktree)
-        and _TRUST_TITLE.lower() not in lower
-        and _TRUST_QUESTION.lower() not in lower
+        has_auto_selector
+        and _screen_contains_worktree(
+            lines, expected_worktree, start_index=footer_index
+        )
     )
 
 
@@ -333,6 +346,15 @@ def reduce_captured_cursor_startup_screen(
             error=forbidden,
         )
     lines = _screen_lines(text)
+    if _ready_screen_matches(lines, worktree):
+        return _public_reduction(
+            ok=True,
+            gate="ready",
+            pane_pid=pane_pid,
+            worktree_match=True,
+            screen_bytes=len(captured),
+            screen_sha256=digest,
+        )
     if _trust_screen_present(lines):
         if not _trust_screen_complete(lines):
             if any(
@@ -381,15 +403,6 @@ def reduce_captured_cursor_startup_screen(
             ok=True,
             gate="workspace_trust",
             selected="yes",
-            pane_pid=pane_pid,
-            worktree_match=True,
-            screen_bytes=len(captured),
-            screen_sha256=digest,
-        )
-    if _ready_screen_matches(lines, worktree):
-        return _public_reduction(
-            ok=True,
-            gate="ready",
             pane_pid=pane_pid,
             worktree_match=True,
             screen_bytes=len(captured),

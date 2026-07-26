@@ -348,6 +348,26 @@ class CursorStartupScreenTests(unittest.TestCase):
         self.assertTrue(good["worktree_match"])
         self.assertFalse(bad["ok"])
 
+    def test_ready_footer_after_stale_trust_history_wins(self):
+        screen = _trust_screen() + "\n" + _ready_screen()
+        result = reduce_captured_cursor_startup_screen(
+            screen.encode(),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["gate"], "ready")
+
+    def test_ready_footer_before_current_trust_gate_does_not_bypass_gate(self):
+        screen = _ready_screen() + "\n" + _trust_screen()
+        result = reduce_captured_cursor_startup_screen(
+            screen.encode(),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["gate"], "workspace_trust")
+
 
 class CursorStartupNavigationTests(unittest.TestCase):
     def _argv(self, manifest: AdapterManifest, *, positional: bool = True):

@@ -97,6 +97,10 @@ once. An MCP-expanded (`w`), login, account, terms, permission, unknown,
 duplicate, non-UTF-8, oversize, or path-mismatched screen fails closed. After
 the key, the reducer requires Cursor's `Auto` / `Run Everything` footer and the
 exact workspace, then revalidates the process, pane, executable, and cwd.
+Cursor leaves the cleared trust dialog in pane history, so a ready footer may
+supersede it only when the footer and its exact hard-wrapped workspace occur
+later in the same bounded capture; an older ready footer can never bypass a
+newer trust gate.
 Only gate/workspace-match/byte-count/SHA-256/timing metadata survives; raw
 screen bytes are discarded.
 
