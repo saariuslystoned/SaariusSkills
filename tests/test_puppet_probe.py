@@ -21,6 +21,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
 import puppet_lib.agy_launch as agy_launch_module  # noqa: E402
+import puppet_lib.conformance as conformance_module  # noqa: E402
 import adapter_lab as puppet_adapter_lab  # noqa: E402
 from puppet_lib import codex_workspace_plane as codex_workspace_module  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
@@ -1001,6 +1002,10 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(
                 fake.launch_environment["HOME"],
                 str(Path.home().resolve(strict=True)),
+            )
+            self.assertEqual(
+                (fake.repo / "GEMINI.md").read_bytes(),
+                conformance_module.AGY_RUN_LOCAL_SYSTEM_ADDENDUM,
             )
 
     def test_codex_direct_worktree_probe_receipt_and_qualification_close_exactly(self):

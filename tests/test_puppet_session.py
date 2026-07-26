@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 import threading
 import subprocess
 import sys
@@ -32,6 +33,7 @@ from puppet_lib.campaign import (  # noqa: E402
     HARD_GATES as CAMPAIGN_HARD_GATES,
 )
 from puppet_lib.conformance import (  # noqa: E402
+    AGY_RUN_LOCAL_SYSTEM_ADDENDUM,
     CONFORMANCE_CONTRACT_SCHEMA_VERSION,
     create_fixture,
     validate_fixture_contract,
@@ -546,6 +548,14 @@ class SessionIntegrationTests(unittest.TestCase):
                     "Continue the bounded task.",
                 ).startswith("PUPPET_FOLLOWUP_V2\n")
             )
+            self.assertEqual(
+                (fixture / "GEMINI.md").read_bytes(),
+                AGY_RUN_LOCAL_SYSTEM_ADDENDUM,
+            )
+            self.assertEqual(
+                stat.S_IMODE((fixture / "GEMINI.md").stat().st_mode),
+                0o600,
+            )
 
             contract_path = fixture / "contract.json"
             legacy = dict(current, schema_version=1)
@@ -565,6 +575,17 @@ class SessionIntegrationTests(unittest.TestCase):
             write_json(contract_path, mixed)
             with self.assertRaisesRegex(ValidationError, "protocol version is mixed"):
                 puppet_session._fixture_contract(controller_contract, session)
+
+    def test_non_agy_conformance_fixture_has_no_harness_context_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary).resolve() / "fixture"
+            create_fixture(
+                fixture,
+                run_id="run-no-harness-context",
+                session="codex-no-harness-context",
+                target="codex",
+            )
+            self.assertFalse((fixture / "GEMINI.md").exists())
 
     def test_delivery_deduplication_is_scoped_to_the_exact_session(self):
         class RecordingTmux:

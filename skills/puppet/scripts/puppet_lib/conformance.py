@@ -9,6 +9,7 @@ from typing import Any, Dict
 from .errors import UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .safety import (
+    atomic_write_bytes,
     atomic_write_json,
     canonical_json_bytes,
     sha256_bytes,
@@ -42,6 +43,22 @@ FORBIDDEN_FIXTURE_ACTIONS = [
     "external_send",
     "system_change",
 ]
+AGY_RUN_LOCAL_SYSTEM_ADDENDUM = b"""# Puppet-owned AGY run-local system addendum
+
+This file applies only to this isolated Puppet conformance fixture. The
+controller owns campaign state, proof indexing, and lifecycle summaries; this
+bounded worker must not create `STATE.md`, `PROOF.md`, `events.jsonl`,
+`heartbeat`, or a generic completion handoff unless the current task packet
+names that exact path.
+
+- Treat every exact artifact allowlist in the current task as a hard boundary.
+- If the task says to write only one named path, create exactly that file.
+- Never invent `conformance_handoff.json`, a summary, or a parallel checkpoint.
+- A supplied `WRITE_*_JSON` value is the complete object. Never copy a prior
+  handoff and patch selected fields; preserve every nested phase/status value.
+- After the exact requested write, remain available and wait for controller
+  steering or exact halt.
+"""
 
 
 def validate_fixture_contract(
@@ -111,6 +128,11 @@ def create_fixture(
         "forbidden_actions": list(FORBIDDEN_FIXTURE_ACTIONS),
     }
     atomic_write_json(root / "contract.json", contract)
+    if target == "agy":
+        atomic_write_bytes(
+            root / "GEMINI.md",
+            AGY_RUN_LOCAL_SYSTEM_ADDENDUM,
+        )
     return validate_fixture_contract(
         contract,
         root=root,
