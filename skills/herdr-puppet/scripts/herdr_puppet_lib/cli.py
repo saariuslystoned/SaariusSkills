@@ -327,6 +327,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             lease_path=Path(args.lease_json),
             seq=args.seq,
             text=text,
+            text_file=args.text_file,
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
         )
@@ -370,6 +371,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return maintenance_checkpoint(
             _client(args),
             lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
             run_root=Path(args.run_root),
         )
     if args.command == "cleanup-preserved-tab":

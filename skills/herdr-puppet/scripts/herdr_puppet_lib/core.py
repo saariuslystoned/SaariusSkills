@@ -24,6 +24,7 @@ from .journal import (
 SUPPORTED_HERDR_VERSION = "0.7.3"
 SUPPORTED_HERDR_PROTOCOL = 16
 CHECKPOINT_KINDS = ("STATUS", "ACTION_REQUIRED", "DONE")
+STATUS_READY = "status_verified"
 PRESERVE_REASONS = {
     "checkpoint_failed",
     "human_gate",
@@ -47,6 +48,48 @@ LEASE_WAIT_REVISION_FIELDS = (
     "source",
     "proof_root",
 )
+PROMPT_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
+
+
+def _as_text_file_list(raw_value: Any) -> list[str]:
+    if not raw_value:
+        return []
+    if not isinstance(raw_value, list):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unexpected prompt-file tracking field type.",
+            details={"field": "caller_text_files"},
+        )
+    values: list[str] = []
+    for value in raw_value:
+        if isinstance(value, str) and value.strip():
+            values.append(value)
+        else:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Prompt-file tracking requires non-empty string paths.",
+                details={"value": value},
+            )
+    return values
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def _normalize_prompt_file(path: str) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def _is_prompt_file_retained(path: str) -> bool:
+    return Path(path).is_file()
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -128,6 +171,18 @@ def validate_lease(payload: dict[str, Any]) -> None:
                 "invalid_lease",
                 f"Required object field is missing: {key}",
             )
+    if (
+        "harness_readiness" in payload
+        and payload["harness_readiness"] not in {"unverified", STATUS_READY}
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unexpected harness readiness state.",
+            details={"harness_readiness": payload["harness_readiness"]},
+        )
+    for field in PROMPT_FILE_FIELDS:
+        if field in payload:
+            _as_text_file_list(payload[field])
     if payload["session"].get("incarnation_proven") is not False:
         raise HerdrPuppetError(
             "server_incarnation_claim_forbidden",
@@ -461,9 +516,33 @@ def maintenance_checkpoint(
     client: HerdrClient,
     *,
     lease_payload: dict[str, Any],
+    lease_path: Path,
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
+    current_from_disk = load_json(lease_path)
+    prompt_files = _as_text_file_list(current_from_disk.get("caller_text_files", []))
+    prompt_files_removed = _as_text_file_list(
+        current_from_disk.get("caller_text_files_removed", [])
+    )
+    retained_prompt_files = [
+        path
+        for path in prompt_files
+        if _is_prompt_file_retained(path)
+    ]
+    removed_prompt_files = [
+        path for path in prompt_files if path not in retained_prompt_files
+    ]
+    updated_prompt_file_state = json.loads(json.dumps(current_from_disk))
+    updated_prompt_file_state["caller_text_files"] = _dedupe_preserve_order(
+        retained_prompt_files
+    )
+    updated_prompt_file_state["caller_text_files_removed"] = _dedupe_preserve_order(
+        prompt_files_removed + removed_prompt_files
+    )
+    if updated_prompt_file_state != current_from_disk:
+        atomic_json(lease_path, updated_prompt_file_state)
+        lease_payload = updated_prompt_file_state
     require_initialized_journal(
         run_root,
         run_id=lease_payload["run_id"],
@@ -635,6 +714,11 @@ def maintenance_checkpoint(
                 "cleanup_performed": False,
                 "herdr_mutated": False,
                 "transcript_read": False,
+                "caller_text_files": lease_payload.get("caller_text_files", []),
+                "caller_text_files_removed": lease_payload.get(
+                    "caller_text_files_removed",
+                    [],
+                ),
             },
         ),
     )
@@ -652,6 +736,11 @@ def maintenance_checkpoint(
         "cleanup_performed": False,
         "herdr_mutated": False,
         "transcript_read": False,
+        "caller_text_files": lease_payload.get("caller_text_files", []),
+        "caller_text_files_removed": lease_payload.get(
+            "caller_text_files_removed",
+            [],
+        ),
     }
 
 
@@ -699,6 +788,7 @@ def cleanup_preserved_tab(
     inventory = maintenance_checkpoint(
         client,
         lease_payload=current,
+        lease_path=lease_path,
         run_root=run_root,
     )
     if inventory["classification"] == "ambiguous":
@@ -929,8 +1019,11 @@ def create_qualification_tab(
             "target": plan_payload["expected_ssh_target"],
         },
         "next_seq": 1,
+        "harness_readiness": "unverified",
         "source": plan_payload["source"],
         "proof_root": plan_payload["proof_root"],
+        "caller_text_files": [],
+        "caller_text_files_removed": [],
     }
     validate_lease(lease)
     atomic_json(lease_path, lease)
@@ -959,6 +1052,7 @@ def qualification_send(
     lease_path: Path,
     seq: int,
     text: str,
+    text_file: str | None = None,
     allow_live: bool,
     run_root: Path | None = None,
 ) -> dict[str, Any]:
@@ -976,6 +1070,15 @@ def qualification_send(
             "Send sequence is stale, skipped, duplicate, or replayed.",
             details={"expected": lease_payload["next_seq"], "received": seq},
         )
+    if seq > 1 and lease_payload.get("harness_readiness") != STATUS_READY:
+        raise HerdrPuppetError(
+            "harness_readiness_not_proven",
+            "Further prompts require status-verified harness readiness.",
+            details={
+                "expected": STATUS_READY,
+                "actual": lease_payload.get("harness_readiness"),
+            },
+        )
     status = structural_status(client, lease_payload=lease_payload)
     if status["result"] != "ok":
         raise HerdrPuppetError(
@@ -983,12 +1086,23 @@ def qualification_send(
             "Structural status blocked the send.",
             details={"blockers": status["blockers"]},
         )
+    text_file_retained = False
+    tracked_text_file: str | None = None
+    if text_file is not None:
+        normalized_text_file = _normalize_prompt_file(text_file)
+        text_file_retained = _is_prompt_file_retained(normalized_text_file)
+        tracked_text_file = normalized_text_file
     socket_path = lease_payload["session"]["socket"]
     pane_id = lease_payload["pane_id"]
     client.run_input(socket_path, pane_id, text)
     digest = sha256_text(text)
     updated = json.loads(json.dumps(lease_payload))
     updated["next_seq"] = seq + 1
+    if tracked_text_file is not None and text_file_retained:
+        updated["caller_text_files"] = _dedupe_preserve_order(
+            _as_text_file_list(updated.get("caller_text_files", []))
+            + [tracked_text_file]
+        )
     atomic_json(lease_path, updated)
     if run_root is not None:
         append_event(
@@ -1007,6 +1121,8 @@ def qualification_send(
                     "outcome": "pane_input_accepted",
                     "harness_readiness": "unverified",
                     "harness_acceptance": "unverified",
+                    "caller_text_file_retained": text_file_retained,
+                    "prompt_file_tracked": tracked_text_file,
                 },
             ),
         )
@@ -1023,6 +1139,8 @@ def qualification_send(
         "outcome": "pane_input_accepted",
         "harness_readiness": "unverified",
         "harness_acceptance": "unverified",
+        "caller_text_file_retained": text_file_retained,
+        "prompt_file_tracked": tracked_text_file,
         "prompt_persisted": False,
         "transcript_read": False,
     }
@@ -1205,19 +1323,13 @@ def _assert_wait_lease_revision(
 
 def _reject_terminal_nonce_replay(run_root: Path, nonce_digest: str) -> None:
     for event in read_events(run_root):
-        checkpoint = (
-            event.get("data", {}).get("checkpoint")
-            if isinstance(event.get("data"), dict)
-            else None
-        )
         if (
             event.get("kind") == "qualification.beacon"
             and event.get("nonce_sha256") == nonce_digest
-            and checkpoint in {"ACTION_REQUIRED", "DONE"}
         ):
             raise HerdrPuppetError(
                 "terminal_beacon_nonce_reused",
-                "A terminal checkpoint nonce may not be waited again.",
+                "A beacon nonce may not be waited again.",
             )
 
 
@@ -1318,6 +1430,12 @@ def qualification_beacon_wait(
     )
     current_after_wait = load_json(lease_path)
     _assert_wait_lease_revision(lease_payload, current_after_wait)
+    readiness = current_after_wait.get("harness_readiness", "unverified")
+    if checkpoint == "STATUS" and readiness != STATUS_READY:
+        readiness = STATUS_READY
+        current_after_wait = json.loads(json.dumps(current_after_wait))
+        current_after_wait["harness_readiness"] = readiness
+        atomic_json(lease_path, current_after_wait)
     append_event(
         run_root,
         make_event(
@@ -1331,6 +1449,7 @@ def qualification_beacon_wait(
                 "revision": revision,
                 "timeout_source": timeout_source,
                 "wait": "herdr.wait.output.regex",
+                "harness_readiness": readiness,
             },
         ),
     )
@@ -1360,6 +1479,7 @@ def qualification_beacon_wait(
         "timeout_source": timeout_source,
         "revision": revision,
         "auto_preserved": auto_preserved,
+        "harness_readiness": readiness,
         "lease_state": (
             "preserved" if auto_preserved else current_after_wait["state"]
         ),

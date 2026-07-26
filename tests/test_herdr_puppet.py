@@ -645,6 +645,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
@@ -670,6 +671,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(result["classification"], "stale")
@@ -688,6 +690,44 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             json.loads(self.lease_path.read_text(encoding="utf-8"))["state"],
             "active",
+        )
+
+    def test_maintenance_checkpoint_deduplicates_absent_prompt_files(self) -> None:
+        lease = self.create_lease()
+        preserved_prompt = self.root / "present.txt"
+        removed_prompt = self.root / "removed.txt"
+        preserved_prompt.write_text("still present", encoding="utf-8")
+        removed_prompt.write_text("to remove", encoding="utf-8")
+        lease["caller_text_files"] = [
+            str(preserved_prompt.resolve()),
+            str(removed_prompt.resolve()),
+        ]
+        removed_prompt.unlink()
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            run_root=run_root,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            updated["caller_text_files"],
+            [str(preserved_prompt.resolve())],
+        )
+        self.assertEqual(
+            updated["caller_text_files_removed"],
+            [str(removed_prompt.resolve())],
+        )
+        self.assertEqual(
+            result["caller_text_files"],
+            [str(preserved_prompt.resolve())],
+        )
+        self.assertEqual(
+            result["caller_text_files_removed"],
+            [str(removed_prompt.resolve())],
         )
 
     def test_maintenance_checkpoint_ignores_same_label_decoys(self) -> None:
@@ -712,6 +752,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(result["classification"], "stale")
@@ -729,6 +770,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(result["classification"], "ambiguous")
@@ -748,6 +790,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(result["classification"], "ambiguous")
@@ -766,6 +809,7 @@ class QualificationTests(unittest.TestCase):
         result = maintenance_checkpoint(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(result["classification"], "preserved")
@@ -816,6 +860,7 @@ class QualificationTests(unittest.TestCase):
         maintenance = maintenance_checkpoint(
             self.client,
             lease_payload=updated,
+            lease_path=self.lease_path,
             run_root=run_root,
         )
         self.assertEqual(maintenance["classification"], "stale")
@@ -965,6 +1010,38 @@ class QualificationTests(unittest.TestCase):
             )
         self.assertEqual(self.client.sent, [])
 
+    def test_send_rejects_followup_prompt_without_status_beacon(self) -> None:
+        lease = self.create_lease()
+        lease["next_seq"] = 2
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        with self.assertRaisesRegex(
+            HerdrPuppetError,
+            "status-verified harness readiness",
+        ):
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                text="next prompt",
+                allow_live=True,
+            )
+
+    def test_send_allows_followup_prompt_after_status_beacon(self) -> None:
+        lease = self.create_lease()
+        lease["next_seq"] = 2
+        lease["harness_readiness"] = "status_verified"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            text="next prompt",
+            allow_live=True,
+        )
+        self.assertEqual(result["next_seq"], 3)
+
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"
@@ -993,6 +1070,48 @@ class QualificationTests(unittest.TestCase):
             self.client.sent,
             [("input", "w2:p1", "bounded prompt")],
         )
+
+    def test_send_tracks_retained_prompt_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            prompt_path = Path(directory) / "prompt.txt"
+            prompt_path.write_text("from file", encoding="utf-8")
+            lease = self.create_lease()
+            run_root = self.root / "run"
+            initialize_journal(run_root, self.plan)
+            result = qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                text="via file",
+                text_file=str(prompt_path),
+                allow_live=True,
+                run_root=run_root,
+            )
+            updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+            normalized_prompt_path = str(prompt_path.resolve())
+            self.assertEqual(updated["caller_text_files"], [normalized_prompt_path])
+            self.assertEqual(result["caller_text_file_retained"], True)
+            self.assertEqual(result["prompt_file_tracked"], normalized_prompt_path)
+
+    def test_send_does_not_track_missing_prompt_file(self) -> None:
+        lease = self.create_lease()
+        missing_prompt = self.root / "missing.txt"
+        if missing_prompt.exists():
+            missing_prompt.unlink()
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            text="missing file",
+            text_file=str(missing_prompt),
+            allow_live=True,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(result["caller_text_file_retained"], False)
+        self.assertEqual(result["prompt_file_tracked"], str(missing_prompt.resolve()))
+        self.assertEqual(updated["caller_text_files"], [])
 
     def test_partial_send_reconciliation_requires_evidence(self) -> None:
         lease = self.create_lease()
@@ -1205,6 +1324,8 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(result["auto_preserved"])
         self.assertEqual(result["lease_state"], "active")
         self.assertEqual(updated["state"], "active")
+        self.assertEqual(result["harness_readiness"], "status_verified")
+        self.assertEqual(updated["harness_readiness"], "status_verified")
 
     def test_beacon_wait_rejects_terminal_nonce_replay_before_wait(self) -> None:
         lease = self.create_lease()
@@ -1238,6 +1359,32 @@ class QualificationTests(unittest.TestCase):
                 )
         self.assertEqual(caught.exception.code, "terminal_beacon_nonce_reused")
         wait_output.assert_not_called()
+
+    def test_beacon_wait_rejects_status_nonce_replay_before_wait(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        nonce = "CHECKPOINT-88"
+        append_event(
+            run_root,
+            make_event(
+                lease["run_id"],
+                "qualification.beacon",
+                "observed",
+                nonce_sha256=sha256_text(nonce),
+                data={"checkpoint": "STATUS"},
+            ),
+        )
+        with self.assertRaises(HerdrPuppetError):
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce=nonce,
+                allow_live=True,
+                lines=20,
+                run_root=run_root,
+            )
 
     def test_beacon_wait_rejects_lease_revision_race_before_journaling(
         self,
