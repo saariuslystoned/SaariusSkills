@@ -182,7 +182,10 @@
           "const": "child-hidden-markers-plus-gated-parent-join"
         },
         "join_gate": {
-          "const": "os-locked-until-both-child-files"
+          "enum": [
+            "os-locked-until-both-child-files",
+            "os-locked-until-all-four-child-files"
+          ]
         },
         "scheduler_observation": {
           "const": "functional-artifacts-not-tool-trace"

@@ -1,0 +1,42 @@
+{
+  "schema": "saarius.custom-agent-fanout4-mismatch.v1",
+  "classification": "parent_join_substituted_all_four_child_markers",
+  "children": [
+    {
+      "side": "alpha",
+      "expected_marker": "alpha4-a8af5d8c23df9046",
+      "child_marker": "alpha4-a8af5d8c23df9046",
+      "join_marker": "alpha-role-38416d860d5b4a92",
+      "child_matches_expected": true,
+      "join_matches_child": false
+    },
+    {
+      "side": "beta",
+      "expected_marker": "beta4-3817384f02e85890",
+      "child_marker": "beta4-3817384f02e85890",
+      "join_marker": "beta-role-53b92d6e46ff8522",
+      "child_matches_expected": true,
+      "join_matches_child": false
+    },
+    {
+      "side": "gamma",
+      "expected_marker": "gamma4-7e3962c91f3a9b1c",
+      "child_marker": "gamma4-7e3962c91f3a9b1c",
+      "join_marker": "gamma-role-b51f0c29f60a221f",
+      "child_matches_expected": true,
+      "join_matches_child": false
+    },
+    {
+      "side": "delta",
+      "expected_marker": "delta4-10f7edc3627e0924",
+      "child_marker": "delta4-10f7edc3627e0924",
+      "join_marker": "delta-role-ffae45759ef17eb9",
+      "child_matches_expected": true,
+      "join_matches_child": false
+    }
+  ],
+  "all_child_files_match_expected": true,
+  "all_join_markers_match_child_files": false,
+  "raw_transcript_read": false,
+  "raw_log_read": false
+}

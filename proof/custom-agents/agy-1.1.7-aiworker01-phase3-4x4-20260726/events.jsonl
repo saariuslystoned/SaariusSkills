@@ -1,0 +1,5 @@
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T06:05:09Z","event":"route_created","route_id":"route_20260726_020509_62287_saariusskills-custom-agent-4x4","source_head_sha":"479e7e5d891e8eee18b78a7602ff1e7898dbba0c"}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T06:05:30Z","event":"route_accepted","route_id":"route_20260726_020509_62287_saariusskills-custom-agent-4x4","source_head_sha":"479e7e5d891e8eee18b78a7602ff1e7898dbba0c"}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T06:06:38Z","event":"round_failed","round":"A","classification":"parent_join_substituted_all_four_child_markers","parent_processes_used":1,"declared_child_branches_used":4,"timeouts":0}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T06:06:38Z","event":"campaign_stopped","additional_model_launches":0,"blocked_rounds":3,"blocked_containment_controls":3}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T06:09:03Z","event":"remote_cleanup_verified","removed_roots":8,"removed_files":87,"removed_bytes":266310,"foreign_state_touched":false}

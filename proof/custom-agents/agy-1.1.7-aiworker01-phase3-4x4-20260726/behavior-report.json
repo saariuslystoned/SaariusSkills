@@ -1,0 +1,93 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "241f666ac886c6a7d0753dbcc15a998775dd96e4aaf16354ad7b5fadc340787d",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE3_4X4.md",
+    "version": "2026-07-26.phase3-4x4"
+  },
+  "checks": [
+    {
+      "contract_clause": "R1",
+      "status": "pass",
+      "evidence": "fixture-comparison.json and seven fixture reports record six byte-identical normal profile sets, one delta-only fault-profile difference, five exact profiles per fixture, empty results, and locked joins. Frozen tests prove parent/child marker and path separation.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R2",
+      "status": "fail",
+      "evidence": "Round A admitted exactly one parent and wrote all four exact hidden-marker child files, but success-a-verification.json rejected the joined result. The stop-on-first-failure gate blocked rounds B-D.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R3",
+      "status": "fail",
+      "evidence": "success-a-mismatch.json proves all four child files matched their controller-held markers while the parent join substituted four different markers. Functional width-four joining is therefore not source-grounded under this fingerprint.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R4",
+      "status": "blocked",
+      "evidence": "The deny-join fixture passed no-model preparation, but the contract prohibited its model launch after success round A failed.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R5",
+      "status": "blocked",
+      "evidence": "The delta-only malformed-child fixture passed no-model preparation, but the contract prohibited its model launch after success round A failed.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R6",
+      "status": "blocked",
+      "evidence": "The watchdog fixture passed no-model preparation, but the contract prohibited its model launch after success round A failed.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R7",
+      "status": "pass",
+      "evidence": "The executed frozen harness and profiles used ordinary invoke_subagent semantics and contained no Teamwork Preview or Puppet dependency; PR #6 was unchanged.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "R8",
+      "status": "pass",
+      "evidence": "campaign-stop.json records zero launches after the failure. cleanup.json records 87 files / 266310 bytes across eight exact roots, zero raw artifacts, exact removal, and all roots verified absent.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "child-marker ground truth",
+      "result": "All four child artifacts matched the controller-held agent, challenge, schema, status, and hidden marker; the mismatch exists only in the parent join."
+    },
+    {
+      "probe": "parent source blindness",
+      "result": "The parent profile contained no child marker or child result path, and the complete profile tree was quarantined before the join was unlocked."
+    },
+    {
+      "probe": "join release order",
+      "result": "The join was empty at release, changed afterward, and had an mtime after all four child files; the failure is semantic rather than an early-write race."
+    },
+    {
+      "probe": "campaign stop",
+      "result": "Only one runtime report exists. Six prepared workspaces retained zero-byte results and no additional parent or child session launched."
+    },
+    {
+      "probe": "transcript-blind diagnosis",
+      "result": "The classification used only five bounded result artifacts and strict verifier output; no transcript, stdout, stderr, or AGY log content was read or retained."
+    }
+  ],
+  "blockers": [
+    "Width-four parent joining substituted all four child role markers despite exact child artifacts.",
+    "The four-of-four gate blocked join-denial, malformed-child, and watchdog live controls.",
+    "Retry-attempt count remains unobservable without a tool trace."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

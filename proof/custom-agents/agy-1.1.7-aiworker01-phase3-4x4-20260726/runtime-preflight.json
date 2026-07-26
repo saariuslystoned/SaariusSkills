@@ -1,0 +1,17 @@
+{
+  "schema": "saarius.custom-agent-runtime-preflight.v1",
+  "recorded_at": "2026-07-26T06:09:03Z",
+  "host": {
+    "id": "aiworker-01",
+    "hostname": "aiworker-01.local",
+    "kernel": "Darwin 25.5.0 arm64",
+    "taxonomy": "worker_host"
+  },
+  "agy": {
+    "path": "/Users/aiworker/.local/bin/agy",
+    "version": "1.1.7",
+    "sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "python": "3.14.5",
+  "foreign_state_inspected": false
+}

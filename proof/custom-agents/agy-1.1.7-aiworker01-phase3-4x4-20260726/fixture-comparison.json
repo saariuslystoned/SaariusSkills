@@ -1,0 +1,14 @@
+{
+  "schema": "saarius.custom-agent-fanout4-fixture-comparison.v1",
+  "normal_fixture_count": 6,
+  "normal_fixture_sha256": "03775fb3b1f645e440dda4c2f0caefc39189063f7a6bfc02cadad9987484507e",
+  "normal_profile_sets_byte_identical": true,
+  "child_failure_fixture_sha256": "d2684d5f63174f7f215b75f13c942150ad0862f590c07bd59595e5df31fa986d",
+  "fault_profile_difference": {
+    "only_agent": "saarius-i15-delta4-f8526abdf5e168de",
+    "normal_sha256": "a77d49e5a9ce1af66aa38356f7405f659030c4eaf9a62aab5b48acf241e02b99",
+    "fault_sha256": "0a26a256c22750fb7ab427ee8036695fbb4879249986d2d93efd77ed66edf4c9"
+  },
+  "all_results_initially_empty": true,
+  "model_sessions_started_during_fixture_build": 0
+}
