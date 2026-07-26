@@ -74,9 +74,11 @@ security, secrets, spending, and destructive actions separately gated.
    harness home.
    Codex is stricter: one accepted worktree receipt can never qualify a public
    manifest. A bounded Codex candidate additionally requires a distinct
-   ordinary-control run linked to that positive receipt, the same exact private
-   subscription profile, the same current-default launch vector with no model
-   or effort selector while resolved model and effort remain unavailable,
+   ordinary-control run linked to that positive receipt and supplied with its
+   own clean linked-worktree descriptor from the same Git common repository and
+   exact head, the same exact private subscription profile, the same
+   current-default launch vector with no model or effort selector while
+   resolved model and effort remain unavailable,
    distinct non-overlapping workspace/process/tmux/lease identities, one real
    read-only native-view attach/detach observation, and exact terminal halts.
    `adapter_lab.py pair-codex` writes that body-free evidence create-only and

@@ -1,16 +1,16 @@
 # Codex regular-session qualification harness (v0.1)
 
-Status: paired qualification source substrate implemented but explicitly
-non-promotable; no live Codex pair is qualified and public launch remains
+Status: exact-head live pair independently verified at
+`57175e31212eaefdbb8564cbcf4d0ade09c6423c` as body-free
+`paired_evidence_only`; public launch and promotion remain intentionally
 fenced.
 
 ## Scope and lane contract
 
 - File purpose: planning and proof-prep for Codex regular-session qualification under
   `codex-goal-regular-qualification.md`.
-- Current bounded candidate lane:
-  `codex/puppet-codex-public-qualification-20260726` from exact base
-  `94b303fb9411c8de79a9d24367c916a2f1e465ae`.
+- Current bounded evidence is curated in
+  `plans/puppet/live-proof/codex-57175e3-20260726.json`.
 - Objective: map exact Codex regular-session behavior for the three instruction planes,
   select a winner for the exact installed version, and define deterministic evidence and
   fixture deltas so the lane can qualify with no transcript bleed.
@@ -18,6 +18,22 @@ fenced.
 ## 1) Exact-version discovery: facts vs hypotheses
 
 ### Facts observed
+
+- On 2026-07-26 the root controller ran two real subscription-backed Codex
+  regular sessions at exact source head `57175e3`: a positive direct-worktree
+  member and a later ordinary member in a distinct clean linked worktree from
+  the same Git common repository and exact head.
+- Both members used the same Puppet-owned private `CODEX_HOME`, the same
+  no-selector current-default launch vector, two sequenced structured
+  checkpoints, distinct process/tmux/controller-lease identities, empty
+  pre/post Codex populations, and exact owned-tree halts.
+- A real Terminal tmux client attached read-only to the live positive TUI and
+  detached while the target remained alive. The observer retained structural
+  identity only and captured no pane body, prompt, transcript, or scrollback.
+- `pair-codex` created body-free paired receipt SHA-256
+  `e67adce0a728fc8fe42f3cd55f8782d89398f8880e1f0737bfbc2889eaa4e718`;
+  `verify-codex-pair` independently rebuilt it. Its result remains
+  `paired_evidence_only`, with public launch and promotion false by contract.
 
 - Requested command path: `command -v codex` -> `/opt/homebrew/bin/codex`, which is
   a symlink and is not the execution-file identity.

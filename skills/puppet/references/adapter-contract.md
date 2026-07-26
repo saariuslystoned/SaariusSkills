@@ -70,7 +70,8 @@ adapter_lab.py probe --profile source-free-pass-b-v2 \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
   --goal-path PATH --goal-sha256 SHA256 \
   --subscription-profile-root PRIVATE_PROFILE \
-  [--plane-descriptor DESCRIPTOR] [--codex-entry-plan PLAN] [--run-id RUN]
+  [--plane-descriptor DESCRIPTOR] [--codex-entry-plan PLAN] \
+  [--codex-ordinary-worktree-descriptor DESCRIPTOR] [--run-id RUN]
 adapter_lab.py verify --run ROOT/probes/RUN/receipt.json
 adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
@@ -123,13 +124,17 @@ an evidence-only pair. The bounded Codex source substrate requires:
   `cockpit_explicit` entry mode, repository, branch, and head match the positive
   worktree receipt.
 
-Run the ordinary control with
-`--paired-codex-positive-receipt POSITIVE_RECEIPT`; recovery must receive that
-same option and receipt. Positive recovery must also receive the same persisted
-`--codex-entry-plan`; pair-time entry-plan input is rejected. The ordinary
-receipt core and controller attestation bind the exact positive source, so a
-completed control cannot be relinked by editing `state.json`. After both exact
-halts, `pair-codex` creates one new controller-attested
+Run the ordinary control with both
+`--paired-codex-positive-receipt POSITIVE_RECEIPT` and
+`--codex-ordinary-worktree-descriptor CONTROL_DESCRIPTOR`. The descriptor must
+prove a distinct clean linked worktree from the same Git common repository and
+exact head as the positive member, with no `AGENTS.md`; a synthetic or unrelated
+Git repository is not a valid control. Recovery must receive both exact inputs.
+Positive recovery must also receive the same persisted `--codex-entry-plan`;
+pair-time entry-plan input is rejected. The ordinary receipt core and
+controller attestation bind the exact positive source and control descriptor,
+so a completed control cannot be relinked by editing `state.json`. After both
+exact halts, `pair-codex` creates one new controller-attested
 `paired_evidence_only` receipt and refuses any existing destination.
 `verify-codex-pair` reopens both terminal receipts and all bound artifacts
 against the current doctor-only manifest and profile. Neither command promotes,
