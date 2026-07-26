@@ -30,8 +30,9 @@ from puppet_lib.cursor_qualification import (  # noqa: E402
     public_cursor_activation_context,
     record_cursor_native_view,
     revalidate_cursor_activation_context,
-    render_cursor_mdc_wrapper,
+    render_cursor_agents_wrapper,
     rollback_cursor_activation,
+    validate_cursor_qualification_descriptor,
     validate_cursor_terminal_activation,
 )
 from puppet_lib.errors import (  # noqa: E402
@@ -97,8 +98,8 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             adapter_manifest_sha256=AdapterManifest.from_dict(
                 self.manifest
             ).fingerprint,
-            mdc_wrapper_sha256=sha256_bytes(
-                render_cursor_mdc_wrapper(self.contract.rendered)
+            agents_wrapper_sha256=sha256_bytes(
+                render_cursor_agents_wrapper(self.contract.rendered)
             ),
         )
         self.execution_patch = mock.patch.object(
@@ -158,10 +159,10 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
         plan = self._plan()
         self.assertEqual(
             self.descriptor["materialize"][0]["content_ref"],
-            "cursor_mdc_always_apply_wrapper",
+            "cursor_root_agents_wrapper",
         )
         self.assertIn(
-            "cursor_workspace_mdc_always_apply_wrapper_hash_named",
+            "cursor_root_agents_wrapper_hash_bound",
             self.descriptor["assertions"],
         )
         self.assertIn(
@@ -172,18 +173,16 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             plan, effective_contract=self.contract.rendered
         )
         artifact = self.workspace / plan["artifact"]["relative_path"]
-        wrapper = render_cursor_mdc_wrapper(self.contract.rendered)
+        wrapper = render_cursor_agents_wrapper(self.contract.rendered)
         self.assertEqual(artifact.read_bytes(), wrapper)
         self.assertTrue(
             wrapper.startswith(
-                b"---\n"
-                b'description: "Puppet-managed qualification contract; '
-                b'remove after the exact owned session halts."\n'
-                b'globs: "**/*"\n'
-                b"alwaysApply: true\n"
-                b"---\n\n"
+                b"# Puppet Cursor qualification addendum\n\n"
+                b"This temporary root instruction file applies only to the exact "
+                b"Puppet-owned qualification session."
             )
         )
+        self.assertEqual(artifact.name, "AGENTS.md")
         self.assertEqual(
             plan["artifact"]["wrapper_sha256"], sha256_bytes(wrapper)
         )
@@ -233,7 +232,7 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(rollback["state"], "rolled_back_after_exact_halt")
         self.assertFalse(artifact.exists())
-        self.assertFalse((self.workspace / ".cursor").exists())
+        self.assertFalse((self.workspace / "AGENTS.md").exists())
 
         intent = json.loads(
             (self.transaction / "activation-intent.json").read_text()
@@ -301,7 +300,7 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             (self.workspace / plan["artifact"]["relative_path"]).is_file()
         )
 
-    def test_frontmatter_body_and_post_plan_substitution_fail_closed(self):
+    def test_wrapper_body_descriptor_and_post_plan_substitution_fail_closed(self):
         plan = self._plan()
         substituted = self.contract.rendered + b"\nPOST_PLAN_SUBSTITUTION\n"
         with self.assertRaisesRegex(IdentityError, "changed after planning"):
@@ -309,13 +308,15 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
                 plan,
                 effective_contract=substituted,
             )
-        self.assertFalse((self.workspace / ".cursor").exists())
+        self.assertFalse((self.workspace / "AGENTS.md").exists())
 
         for label, mutate in (
             (
-                "frontmatter",
+                "wrapper",
                 lambda payload: payload.replace(
-                    b"alwaysApply: true", b"alwaysApply: false", 1
+                    b"Puppet Cursor qualification addendum",
+                    b"Puppet Cursor substituted addendum",
+                    1,
                 ),
             ),
             (
@@ -331,8 +332,8 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
                     adapter_manifest_sha256=AdapterManifest.from_dict(
                         self.manifest
                     ).fingerprint,
-                    mdc_wrapper_sha256=sha256_bytes(
-                        render_cursor_mdc_wrapper(self.contract.rendered)
+                    agents_wrapper_sha256=sha256_bytes(
+                        render_cursor_agents_wrapper(self.contract.rendered)
                     ),
                 )
                 plan = plan_cursor_activation(
@@ -359,29 +360,58 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
                     exact_halt_receipt=self._halt(),
                 )
 
-    def test_rollback_preserves_rule_when_activation_root_gains_foreign_content(self):
+        other = render_cursor_agents_wrapper(
+            self.contract.rendered + b"\nDESCRIPTOR_SUBSTITUTION\n"
+        )
+        substituted_descriptor = build_cursor_qualification_descriptor(
+            adapter_manifest_sha256=AdapterManifest.from_dict(
+                self.manifest
+            ).fingerprint,
+            agents_wrapper_sha256=sha256_bytes(other),
+        )
+        with self.assertRaisesRegex(
+            IdentityError, "does not bind the root AGENTS wrapper"
+        ):
+            plan_cursor_activation(
+                descriptor=substituted_descriptor,
+                adapter_manifest=self.manifest,
+                effective_contract=self.contract.rendered,
+                workspace_root=self.workspace,
+                transaction_root=self.transaction,
+            )
+
+    def test_rollback_failure_preserves_drifted_root_agents(self):
         plan = self._plan()
         receipt = materialize_cursor_activation(
             plan, effective_contract=self.contract.rendered
         )
-        foreign = self.workspace / ".cursor" / "foreign"
-        foreign.write_text("do not remove\n", encoding="utf-8")
-        with self.assertRaisesRegex(ConflictError, "foreign content"):
+        artifact = self.workspace / "AGENTS.md"
+        artifact.write_bytes(artifact.read_bytes() + b"\nDRIFT\n")
+        with self.assertRaisesRegex(IdentityError, "identity changed"):
             rollback_cursor_activation(
                 plan,
                 materialization_receipt=receipt,
                 exact_halt_receipt=self._halt(),
             )
-        self.assertTrue(
-            (self.workspace / plan["artifact"]["relative_path"]).is_file()
-        )
-        self.assertEqual(foreign.read_text(encoding="utf-8"), "do not remove\n")
+        self.assertTrue(artifact.is_file())
 
-    def test_workspace_collision_and_artifact_replacement_fail_closed(self):
-        (self.workspace / ".cursor").mkdir()
+    def test_preexisting_agents_symlink_and_artifact_replacement_fail_closed(self):
+        agents = self.workspace / "AGENTS.md"
+        agents.write_text("preexisting repository instructions\n", encoding="utf-8")
         with self.assertRaisesRegex(ConflictError, "absent"):
             self._plan()
-        (self.workspace / ".cursor").rmdir()
+        self.assertEqual(
+            agents.read_text(encoding="utf-8"),
+            "preexisting repository instructions\n",
+        )
+        agents.unlink()
+        target = self.workspace / "elsewhere.md"
+        target.write_text("foreign\n", encoding="utf-8")
+        agents.symlink_to(target)
+        with self.assertRaisesRegex(ConflictError, "absent"):
+            self._plan()
+        self.assertTrue(agents.is_symlink())
+        agents.unlink()
         plan = self._plan()
         receipt = materialize_cursor_activation(
             plan, effective_contract=self.contract.rendered
@@ -391,7 +421,7 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
         # Some Linux filesystems immediately reuse an unlinked inode, which
         # makes an unlink/create fixture indistinguishable at the vnode layer.
         artifact.rename(artifact.with_name(artifact.name + ".replaced"))
-        artifact.write_bytes(render_cursor_mdc_wrapper(self.contract.rendered))
+        artifact.write_bytes(render_cursor_agents_wrapper(self.contract.rendered))
         artifact.chmod(0o600)
         with self.assertRaisesRegex(IdentityError, "vnode changed"):
             self._context(plan, receipt)
@@ -429,6 +459,14 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             self.contract.manifest["rendered_sha256"],
             json.dumps(request, sort_keys=True),
         )
+
+    def test_legacy_mdc_descriptor_is_not_current_qualification_authority(self):
+        legacy = copy.deepcopy(self.descriptor)
+        legacy["descriptor_id"] = (
+            "cursor-2026.07.17-3e2a980-workspace-addendum-qualification-v1"
+        )
+        with self.assertRaisesRegex(IdentityError, "tuple changed"):
+            validate_cursor_qualification_descriptor(legacy)
 
 
 class CursorNativeViewTests(unittest.TestCase):

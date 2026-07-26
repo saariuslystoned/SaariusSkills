@@ -103,7 +103,7 @@ from .cursor_qualification import (
     plan_cursor_activation,
     public_cursor_activation_context,
     revalidate_cursor_activation_context,
-    render_cursor_mdc_wrapper,
+    render_cursor_agents_wrapper,
     rollback_cursor_activation,
     validate_cursor_qualification_descriptor,
     validate_cursor_qualification_request,
@@ -1509,7 +1509,7 @@ def run_probe(
         ):
             raise IdentityError("fixture and manifest protocol fingerprints differ")
         fixture_excluded_prefixes = (
-            ("handoffs", ".cursor")
+            ("handoffs", "AGENTS.md")
             if cursor_plane_descriptor
             else ("handoffs",)
         )
@@ -1585,10 +1585,10 @@ def run_probe(
             )
             compiled = matched_compiled
         if cursor_plane_request:
-            cursor_mdc_wrapper = render_cursor_mdc_wrapper(compiled.rendered)
+            cursor_agents_wrapper = render_cursor_agents_wrapper(compiled.rendered)
             plane_descriptor_value = build_cursor_qualification_descriptor(
                 adapter_manifest_sha256=manifest.fingerprint,
-                mdc_wrapper_sha256=sha256_bytes(cursor_mdc_wrapper),
+                agents_wrapper_sha256=sha256_bytes(cursor_agents_wrapper),
             )
             atomic_write_json(
                 plane_descriptor_snapshot_path,

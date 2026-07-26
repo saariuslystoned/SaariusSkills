@@ -2,8 +2,8 @@
 
 The older :mod:`cursor_workspace_plane` module remains a source-only planning
 surface.  This module is the narrower live-qualification path: it accepts one
-exact qualification-only descriptor, creates one hash-named workspace rule,
-derives a private-profile-bound launch plan, and rolls the rule back only after
+exact qualification-only descriptor, creates one temporary root ``AGENTS.md``,
+derives a private-profile-bound launch plan, and rolls the file back only after
 the shared Pass B controller has recorded exact halt.
 
 An activated Pass B receipt is intentionally not promotable by itself.  The
@@ -23,8 +23,8 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .instruction_planes import (
     CURSOR_AGENT_VERSION,
-    CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
-    CURSOR_WORKSPACE_ARTIFACT_ID,
+    CURSOR_ROOT_AGENTS_ARTIFACT_ID,
+    CURSOR_ROOT_AGENTS_CONTENT_REF,
     descriptor_fingerprint,
     validate_instruction_plane_descriptor,
 )
@@ -42,14 +42,14 @@ from .safety import (
 
 
 CURSOR_QUALIFICATION_DESCRIPTOR_ID = (
-    "cursor-2026.07.17-3e2a980-workspace-addendum-qualification-v1"
+    "cursor-2026.07.17-3e2a980-root-agents-qualification-v2"
 )
 CURSOR_QUALIFICATION_REQUEST_SCHEMA = "puppet.cursor-qualification-request/v1"
 CURSOR_QUALIFICATION_ASSERTIONS = (
+    "cursor_root_agents_create_only",
+    "cursor_root_agents_wrapper_hash_bound",
     "cursor_workspace_context_delta_exact",
-    "cursor_workspace_create_only",
     "cursor_workspace_effective_contract_body_hash_bound",
-    "cursor_workspace_mdc_always_apply_wrapper_hash_named",
     "cursor_workspace_rollback_after_exact_halt",
 )
 CURSOR_QUALIFICATION_BLOCKERS = (
@@ -72,17 +72,14 @@ TERMINAL_QUALIFICATION_SCHEMA = "puppet.cursor-regular-qualification/v1"
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
 _MAX_CONTRACT_BYTES = 131072
-_MDC_WRAPPER_DESCRIPTION = (
-    "Puppet-managed qualification contract; remove after the exact owned session halts."
-)
-_MDC_WRAPPER_GLOBS = "**/*"
-_MDC_WRAPPER_FRONTMATTER = (
-    "---\n"
-    'description: "%s"\n'
-    'globs: "%s"\n'
-    "alwaysApply: true\n"
-    "---\n\n"
-    % (_MDC_WRAPPER_DESCRIPTION, _MDC_WRAPPER_GLOBS)
+_AGENTS_WRAPPER_PREFIX = (
+    "# Puppet Cursor qualification addendum\n\n"
+    "This temporary root instruction file applies only to the exact "
+    "Puppet-owned qualification session. Follow the bounded contract below.\n\n"
+    "<!-- PUPPET_CURSOR_QUALIFICATION_CONTRACT_BEGIN -->\n"
+).encode("utf-8")
+_AGENTS_WRAPPER_SUFFIX = (
+    "\n<!-- PUPPET_CURSOR_QUALIFICATION_CONTRACT_END -->\n"
 ).encode("utf-8")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC = getattr(os, "O_CLOEXEC", 0)
@@ -110,26 +107,31 @@ def _exact_contract(value: bytes) -> bytes:
     return bytes(value)
 
 
-def render_cursor_mdc_wrapper(effective_contract: bytes) -> bytes:
-    """Render Cursor's exact always-apply MDC envelope around the contract body."""
+def render_cursor_agents_wrapper(effective_contract: bytes) -> bytes:
+    """Render Cursor's exact temporary root-AGENTS envelope."""
 
     contract = _exact_contract(effective_contract)
-    wrapper = _MDC_WRAPPER_FRONTMATTER + contract
+    wrapper = _AGENTS_WRAPPER_PREFIX + contract + _AGENTS_WRAPPER_SUFFIX
     if len(wrapper) > _MAX_CONTRACT_BYTES:
-        raise ValidationError("Cursor MDC wrapper exceeds the bounded artifact size")
+        raise ValidationError("Cursor root AGENTS wrapper exceeds the artifact bound")
     return wrapper
 
 
-def _validate_cursor_mdc_wrapper(
+def _validate_cursor_agents_wrapper(
     value: bytes,
     *,
     expected_effective_contract_sha256: str,
     expected_effective_contract_size: int,
 ) -> bytes:
     wrapper = _exact_contract(value)
-    if not wrapper.startswith(_MDC_WRAPPER_FRONTMATTER):
-        raise IdentityError("Cursor MDC always-apply frontmatter changed")
-    body = wrapper[len(_MDC_WRAPPER_FRONTMATTER) :]
+    if (
+        not wrapper.startswith(_AGENTS_WRAPPER_PREFIX)
+        or not wrapper.endswith(_AGENTS_WRAPPER_SUFFIX)
+    ):
+        raise IdentityError("Cursor root AGENTS wrapper changed")
+    body = wrapper[
+        len(_AGENTS_WRAPPER_PREFIX) : -len(_AGENTS_WRAPPER_SUFFIX)
+    ]
     if (
         len(body) != expected_effective_contract_size
         or sha256_bytes(body)
@@ -138,7 +140,7 @@ def _validate_cursor_mdc_wrapper(
             "Cursor effective contract",
         )
     ):
-        raise IdentityError("Cursor MDC effective-contract body changed")
+        raise IdentityError("Cursor root AGENTS effective-contract body changed")
     return wrapper
 
 
@@ -191,28 +193,15 @@ def _open_directory(path: Path, *, label: str) -> int:
     return descriptor
 
 
-def _open_child_directory(parent_fd: int, name: str, *, label: str) -> int:
-    try:
-        lexical = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
-    except OSError as exc:
-        raise IdentityError("%s is unavailable" % label) from exc
-    opened = os.fstat(descriptor)
-    if (
-        stat.S_ISLNK(lexical.st_mode)
-        or not stat.S_ISDIR(lexical.st_mode)
-        or (lexical.st_dev, lexical.st_ino) != (opened.st_dev, opened.st_ino)
-        or opened.st_uid != os.getuid()
-        or stat.S_IMODE(opened.st_mode) != _DIR_MODE
-    ):
-        os.close(descriptor)
-        raise IdentityError("%s identity changed" % label)
-    return descriptor
+def _artifact_relative_path() -> str:
+    return "AGENTS.md"
 
 
-def _artifact_relative_path(rendered_sha256: str) -> str:
-    rendered = validate_sha256(rendered_sha256, "Cursor rendered contract")
-    return ".cursor/rules/puppet-%s.mdc" % rendered
+def _descriptor_wrapper_sha256(descriptor: Mapping[str, Any]) -> str:
+    return validate_sha256(
+        descriptor["target"]["config_fingerprint"],
+        "Cursor descriptor root AGENTS wrapper",
+    )
 
 
 def build_cursor_qualification_request(
@@ -277,7 +266,7 @@ def validate_cursor_qualification_request(
 def build_cursor_qualification_descriptor(
     *,
     adapter_manifest_sha256: str,
-    mdc_wrapper_sha256: str,
+    agents_wrapper_sha256: str,
 ) -> Dict[str, Any]:
     """Build the sole Cursor descriptor accepted by the live qualification lane."""
 
@@ -285,7 +274,7 @@ def build_cursor_qualification_descriptor(
         adapter_manifest_sha256, "Cursor adapter manifest"
     )
     wrapper_sha = validate_sha256(
-        mdc_wrapper_sha256, "Cursor MDC always-apply wrapper"
+        agents_wrapper_sha256, "Cursor root AGENTS wrapper"
     )
     value = {
         "schema": "puppet.instruction-plane/v1",
@@ -296,16 +285,16 @@ def build_cursor_qualification_descriptor(
             "adapter_manifest_sha256": adapter_sha,
             "requested_model": "default",
             "observed_model": "unavailable",
-            "config_fingerprint": "unavailable",
+            "config_fingerprint": wrapper_sha,
         },
         "plane": "workspace_addendum",
         "status": {"surface": "factual", "activation": "qualification_only"},
         "materialize": [
             {
-                "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
+                "artifact_id": CURSOR_ROOT_AGENTS_ARTIFACT_ID,
                 "root_ref": "workspace_root",
-                "relative_path": _artifact_relative_path(wrapper_sha),
-                "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
+                "relative_path": _artifact_relative_path(),
+                "content_ref": CURSOR_ROOT_AGENTS_CONTENT_REF,
                 "write_mode": "create_only",
             }
         ],
@@ -318,7 +307,7 @@ def build_cursor_qualification_descriptor(
             ],
         },
         "rollback": {
-            "owned_artifacts": [CURSOR_WORKSPACE_ARTIFACT_ID],
+            "owned_artifacts": [CURSOR_ROOT_AGENTS_ARTIFACT_ID],
             "preimage_sha256": [],
             "retain_hash_only_proof": True,
         },
@@ -338,11 +327,10 @@ def validate_cursor_qualification_descriptor(
         or normalized["target"]["version"] != CURSOR_AGENT_VERSION
         or normalized["target"]["requested_model"] != "default"
         or normalized["target"]["observed_model"] != "unavailable"
-        or normalized["target"]["config_fingerprint"] != "unavailable"
+        or normalized["target"]["config_fingerprint"] == "unavailable"
         or normalized["plane"] != "workspace_addendum"
         or normalized["status"]
         != {"surface": "factual", "activation": "qualification_only"}
-        or normalized["assertions"] != list(CURSOR_QUALIFICATION_ASSERTIONS)
         or normalized["blockers"] != list(CURSOR_QUALIFICATION_BLOCKERS)
     ):
         raise IdentityError("Cursor qualification descriptor tuple changed")
@@ -350,18 +338,17 @@ def validate_cursor_qualification_descriptor(
     if len(materialize) != 1:
         raise IdentityError("Cursor qualification artifact tuple changed")
     artifact = materialize[0]
-    rendered_sha = artifact["relative_path"].removeprefix(
-        ".cursor/rules/puppet-"
-    ).removesuffix(".mdc")
+    _descriptor_wrapper_sha256(normalized)
     exact = {
-        "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
+        "artifact_id": CURSOR_ROOT_AGENTS_ARTIFACT_ID,
         "root_ref": "workspace_root",
-        "relative_path": _artifact_relative_path(rendered_sha),
-        "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
+        "relative_path": _artifact_relative_path(),
+        "content_ref": CURSOR_ROOT_AGENTS_CONTENT_REF,
         "write_mode": "create_only",
     }
     if (
         artifact != exact
+        or normalized["assertions"] != list(CURSOR_QUALIFICATION_ASSERTIONS)
         or normalized["launch_delta"]
         != {
             "cwd_ref": "workspace_root",
@@ -373,7 +360,7 @@ def validate_cursor_qualification_descriptor(
         }
         or normalized["rollback"]
         != {
-            "owned_artifacts": [CURSOR_WORKSPACE_ARTIFACT_ID],
+            "owned_artifacts": [CURSOR_ROOT_AGENTS_ARTIFACT_ID],
             "preimage_sha256": [],
             "retain_hash_only_proof": True,
         }
@@ -480,7 +467,7 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
         "mode",
     }:
         raise ValidationError("Cursor activation artifact fields are invalid")
-    expected_path = _artifact_relative_path(artifact.get("wrapper_sha256"))
+    expected_path = _artifact_relative_path()
     if (
         artifact.get("relative_path") != expected_path
         or artifact.get("mode") != _FILE_MODE
@@ -492,10 +479,14 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
             for name in ("wrapper_size", "effective_contract_size")
         )
         or artifact["wrapper_size"]
-        != len(_MDC_WRAPPER_FRONTMATTER) + artifact["effective_contract_size"]
+        != (
+            len(_AGENTS_WRAPPER_PREFIX)
+            + artifact["effective_contract_size"]
+            + len(_AGENTS_WRAPPER_SUFFIX)
+        )
     ):
         raise IdentityError("Cursor activation artifact tuple changed")
-    validate_sha256(artifact.get("wrapper_sha256"), "Cursor MDC wrapper")
+    validate_sha256(artifact.get("wrapper_sha256"), "Cursor root AGENTS wrapper")
     validate_sha256(
         artifact.get("effective_contract_sha256"), "Cursor effective contract"
     )
@@ -528,11 +519,14 @@ def plan_cursor_activation(
     normalized_descriptor = validate_cursor_qualification_descriptor(descriptor)
     contract = _exact_contract(effective_contract)
     contract_sha = sha256_bytes(contract)
-    wrapper = render_cursor_mdc_wrapper(contract)
+    wrapper = render_cursor_agents_wrapper(contract)
     wrapper_sha = sha256_bytes(wrapper)
     artifact = normalized_descriptor["materialize"][0]
-    if artifact["relative_path"] != _artifact_relative_path(wrapper_sha):
-        raise IdentityError("Cursor descriptor does not name the MDC wrapper")
+    if (
+        artifact["relative_path"] != _artifact_relative_path()
+        or _descriptor_wrapper_sha256(normalized_descriptor) != wrapper_sha
+    ):
+        raise IdentityError("Cursor descriptor does not bind the root AGENTS wrapper")
     manifest = _manifest_identity(adapter_manifest)
     if (
         normalized_descriptor["target"]["adapter_manifest_sha256"]
@@ -545,9 +539,11 @@ def plan_cursor_activation(
         raise ValidationError("Cursor workspace and transaction roots overlap")
     if os.listdir(transaction["path"]):
         raise ConflictError("Cursor activation transaction root must be empty")
-    cursor_root = Path(workspace["path"]) / ".cursor"
-    if cursor_root.exists() or cursor_root.is_symlink():
-        raise ConflictError("Cursor activation requires an absent .cursor root")
+    agents_path = Path(workspace["path"]) / _artifact_relative_path()
+    if agents_path.exists() or agents_path.is_symlink():
+        raise ConflictError(
+            "Cursor activation requires an absent root AGENTS.md"
+        )
     value = {
         "schema": ACTIVATION_PLAN_SCHEMA,
         "target": "cursor",
@@ -598,7 +594,7 @@ def _read_exact_file(descriptor: int, *, expected: Mapping[str, Any]) -> bytes:
         or stat.S_IMODE(details.st_mode) != expected["mode"]
         or details.st_size != expected["wrapper_size"]
     ):
-        raise IdentityError("Cursor workspace rule identity changed")
+        raise IdentityError("Cursor root AGENTS identity changed")
     chunks = []
     remaining = expected["wrapper_size"] + 1
     while remaining:
@@ -612,8 +608,8 @@ def _read_exact_file(descriptor: int, *, expected: Mapping[str, Any]) -> bytes:
         len(payload) != expected["wrapper_size"]
         or sha256_bytes(payload) != expected["wrapper_sha256"]
     ):
-        raise IdentityError("Cursor workspace rule content changed")
-    return _validate_cursor_mdc_wrapper(
+        raise IdentityError("Cursor root AGENTS content changed")
+    return _validate_cursor_agents_wrapper(
         payload,
         expected_effective_contract_sha256=expected[
             "effective_contract_sha256"
@@ -627,11 +623,11 @@ def materialize_cursor_activation(
     *,
     effective_contract: bytes,
 ) -> Dict[str, Any]:
-    """Create the exact hash-named rule once, after persisting intent."""
+    """Create the exact root AGENTS wrapper once, after persisting intent."""
 
     normalized = _validate_plan(plan)
     contract = _exact_contract(effective_contract)
-    wrapper = render_cursor_mdc_wrapper(contract)
+    wrapper = render_cursor_agents_wrapper(contract)
     if (
         sha256_bytes(contract)
         != normalized["artifact"]["effective_contract_sha256"]
@@ -665,28 +661,20 @@ def materialize_cursor_activation(
     workspace_fd = _open_directory(
         Path(normalized["workspace_root"]["path"]), label="Cursor workspace root"
     )
-    cursor_fd = rules_fd = artifact_fd = -1
+    artifact_fd = -1
     try:
-        os.mkdir(".cursor", mode=_DIR_MODE, dir_fd=workspace_fd)
-        cursor_fd = _open_child_directory(
-            workspace_fd, ".cursor", label="Cursor activation directory"
-        )
-        os.mkdir("rules", mode=_DIR_MODE, dir_fd=cursor_fd)
-        rules_fd = _open_child_directory(
-            cursor_fd, "rules", label="Cursor rules directory"
-        )
-        leaf = Path(normalized["artifact"]["relative_path"]).name
+        leaf = normalized["artifact"]["relative_path"]
         artifact_fd = os.open(
             leaf,
             _FILE_CREATE_FLAGS,
             _FILE_MODE,
-            dir_fd=rules_fd,
+            dir_fd=workspace_fd,
         )
         written = 0
         while written < len(wrapper):
             count = os.write(artifact_fd, wrapper[written:])
             if count <= 0:
-                raise IdentityError("Cursor workspace rule write stalled")
+                raise IdentityError("Cursor root AGENTS write stalled")
             written += count
         os.fsync(artifact_fd)
         details = os.fstat(artifact_fd)
@@ -710,11 +698,11 @@ def materialize_cursor_activation(
             or artifact_identity["mode"] != _FILE_MODE
             or artifact_identity["wrapper_size"] != len(wrapper)
         ):
-            raise IdentityError("Cursor workspace rule creation identity is invalid")
+            raise IdentityError("Cursor root AGENTS creation identity is invalid")
     except FileExistsError as exc:
         raise ConflictError("Cursor activation is create-only") from exc
     finally:
-        for descriptor in (artifact_fd, rules_fd, cursor_fd, workspace_fd):
+        for descriptor in (artifact_fd, workspace_fd):
             if descriptor >= 0:
                 os.close(descriptor)
     receipt = {
@@ -726,7 +714,7 @@ def materialize_cursor_activation(
             "relative_path": normalized["artifact"]["relative_path"],
             **artifact_identity,
         },
-        "created_directories": [".cursor", ".cursor/rules"],
+        "created_directories": [],
     }
     atomic_write_json(paths["receipt"], receipt)
     return receipt
@@ -749,7 +737,7 @@ def _validate_materialized(
         value["schema"] != ACTIVATION_RECEIPT_SCHEMA
         or value["state"] != "active"
         or value["plan_sha256"] != normalized["plan_sha256"]
-        or value["created_directories"] != [".cursor", ".cursor/rules"]
+        or value["created_directories"] != []
     ):
         raise IdentityError("Cursor activation receipt changed")
     validate_sha256(value.get("intent_sha256"), "Cursor activation intent")
@@ -783,25 +771,19 @@ def _validate_materialized(
     workspace_fd = _open_directory(
         Path(normalized["workspace_root"]["path"]), label="Cursor workspace root"
     )
-    cursor_fd = rules_fd = artifact_fd = -1
+    artifact_fd = -1
     try:
-        cursor_fd = _open_child_directory(
-            workspace_fd, ".cursor", label="Cursor activation directory"
-        )
-        rules_fd = _open_child_directory(
-            cursor_fd, "rules", label="Cursor rules directory"
-        )
-        leaf = Path(artifact["relative_path"]).name
-        artifact_fd = os.open(leaf, _FILE_READ_FLAGS, dir_fd=rules_fd)
+        leaf = artifact["relative_path"]
+        artifact_fd = os.open(leaf, _FILE_READ_FLAGS, dir_fd=workspace_fd)
         details = os.fstat(artifact_fd)
         if (details.st_dev, details.st_ino) != (
             artifact["device"],
             artifact["inode"],
         ):
-            raise IdentityError("Cursor workspace rule vnode changed")
+            raise IdentityError("Cursor root AGENTS vnode changed")
         _read_exact_file(artifact_fd, expected=artifact)
     finally:
-        for descriptor in (artifact_fd, rules_fd, cursor_fd, workspace_fd):
+        for descriptor in (artifact_fd, workspace_fd):
             if descriptor >= 0:
                 os.close(descriptor)
     return value
@@ -818,7 +800,7 @@ def build_cursor_activation_context(
     bindings: Mapping[str, str],
     admitted_lane_root: Path,
 ) -> Dict[str, Any]:
-    """Join the active rule to the exact private-profile launch environment."""
+    """Join the active root AGENTS file to the private-profile launch."""
 
     normalized = _validate_plan(plan)
     receipt = _validate_materialized(normalized, materialization_receipt)
@@ -1011,7 +993,7 @@ def rollback_cursor_activation(
     materialization_receipt: Mapping[str, Any],
     exact_halt_receipt: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """Remove only the receipted rule and transaction-created empty directories."""
+    """Remove only the receipted temporary root AGENTS file."""
 
     normalized = _validate_plan(plan)
     receipt = _validate_materialized(normalized, materialization_receipt)
@@ -1034,16 +1016,10 @@ def rollback_cursor_activation(
     workspace_fd = _open_directory(
         Path(normalized["workspace_root"]["path"]), label="Cursor workspace root"
     )
-    cursor_fd = rules_fd = artifact_fd = -1
+    artifact_fd = -1
     try:
-        cursor_fd = _open_child_directory(
-            workspace_fd, ".cursor", label="Cursor activation directory"
-        )
-        rules_fd = _open_child_directory(
-            cursor_fd, "rules", label="Cursor rules directory"
-        )
-        leaf = Path(receipt["artifact"]["relative_path"]).name
-        artifact_fd = os.open(leaf, _FILE_READ_FLAGS, dir_fd=rules_fd)
+        leaf = receipt["artifact"]["relative_path"]
+        artifact_fd = os.open(leaf, _FILE_READ_FLAGS, dir_fd=workspace_fd)
         details = os.fstat(artifact_fd)
         if (details.st_dev, details.st_ino) != (
             receipt["artifact"]["device"],
@@ -1051,29 +1027,23 @@ def rollback_cursor_activation(
         ):
             raise IdentityError("Cursor rollback artifact vnode changed")
         _read_exact_file(artifact_fd, expected=receipt["artifact"])
-        if os.listdir(rules_fd) != [leaf]:
-            raise ConflictError("Cursor rules directory gained foreign content")
-        if os.listdir(cursor_fd) != ["rules"]:
-            raise ConflictError("Cursor activation directory gained foreign content")
-        os.close(artifact_fd)
-        artifact_fd = -1
-        os.unlink(leaf, dir_fd=rules_fd)
-        if os.listdir(rules_fd):
-            raise ConflictError("Cursor rules directory gained foreign content")
-        os.close(rules_fd)
-        rules_fd = -1
-        os.rmdir("rules", dir_fd=cursor_fd)
-        if os.listdir(cursor_fd):
-            raise ConflictError("Cursor activation directory gained foreign content")
-        os.close(cursor_fd)
-        cursor_fd = -1
-        os.rmdir(".cursor", dir_fd=workspace_fd)
+        lexical = os.stat(leaf, dir_fd=workspace_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(lexical.st_mode)
+            or (lexical.st_dev, lexical.st_ino)
+            != (
+                receipt["artifact"]["device"],
+                receipt["artifact"]["inode"],
+            )
+        ):
+            raise IdentityError("Cursor rollback artifact path changed")
+        os.unlink(leaf, dir_fd=workspace_fd)
     finally:
-        for descriptor in (artifact_fd, rules_fd, cursor_fd, workspace_fd):
+        for descriptor in (artifact_fd, workspace_fd):
             if descriptor >= 0:
                 os.close(descriptor)
     if paths["artifact"].exists() or paths["artifact"].is_symlink():
-        raise IdentityError("Cursor workspace rule remains after rollback")
+        raise IdentityError("Cursor root AGENTS remains after rollback")
     result = {
         "schema": ROLLBACK_RECEIPT_SCHEMA,
         "state": "rolled_back_after_exact_halt",
@@ -1085,7 +1055,7 @@ def rollback_cursor_activation(
         "halt_reason": rollback_intent["halt_reason"],
         "artifact_sha256": normalized["artifact"]["wrapper_sha256"],
         "removed_artifact": normalized["artifact"]["relative_path"],
-        "removed_directories": [".cursor/rules", ".cursor"],
+        "removed_directories": [],
     }
     atomic_write_json(paths["rollback_receipt"], result)
     return result
@@ -1203,7 +1173,7 @@ def validate_cursor_terminal_activation(
         or rollback_receipt_value.get("removed_artifact")
         != plan["artifact"]["relative_path"]
         or rollback_receipt_value.get("removed_directories")
-        != [".cursor/rules", ".cursor"]
+        != []
     ):
         raise IdentityError("Cursor activation rollback proof changed")
     expected = {
@@ -1219,8 +1189,8 @@ def validate_cursor_terminal_activation(
         "launch_context_sha256": sha256_bytes(canonical_json_bytes(public_context)),
         # The shared activation schema names the delivered instruction body.
         # Cursor's separately bound materialization receipt commits the outer
-        # MDC wrapper bytes, while this field preserves the compiler contract
-        # identity used by the shared qualification verifier.
+        # root AGENTS wrapper bytes, while this field preserves the compiler
+        # contract identity used by the shared qualification verifier.
         "artifact_sha256": plan["artifact"]["effective_contract_sha256"],
         "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
         "rollback_intent_sha256": sha256_bytes(
@@ -1256,7 +1226,7 @@ def _validate_materialized_shape(
         or value.get("schema") != ACTIVATION_RECEIPT_SCHEMA
         or value.get("state") != "active"
         or value.get("plan_sha256") != normalized["plan_sha256"]
-        or value.get("created_directories") != [".cursor", ".cursor/rules"]
+        or value.get("created_directories") != []
         or not isinstance(artifact, dict)
         or set(artifact)
         != {
@@ -1839,7 +1809,7 @@ __all__ = [
     "public_cursor_activation_context",
     "record_cursor_native_view",
     "revalidate_cursor_activation_context",
-    "render_cursor_mdc_wrapper",
+    "render_cursor_agents_wrapper",
     "rollback_cursor_activation",
     "validate_cursor_qualification_descriptor",
     "validate_cursor_qualification_request",

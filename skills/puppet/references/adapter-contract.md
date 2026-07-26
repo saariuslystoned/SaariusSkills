@@ -320,19 +320,23 @@ That record remains unchanged and non-promotable.
 
 The separate Cursor qualification-only descriptor is consumed only by the
 shared Pass B controller. It requires the exact current doctor tuple and
-authenticated private HOME/config/data/file-store profile, creates one absent
-`.cursor/rules/puppet-<mdc-wrapper-sha256>.mdc` with `O_EXCL`, and writes it
-mode 0600. The wrapper has deterministic bounded `description`,
-`globs: "**/*"`, and `alwaysApply: true` frontmatter; plan, receipt, and
+authenticated private HOME/config/data/file-store profile, requires an absent
+root `AGENTS.md`, and creates that one deterministic qualification wrapper
+mode 0600 with no-follow `O_EXCL`. The descriptor assertion, plan, receipt, and
 terminal rejoin bind both the wrapper SHA-256 and the underlying
-effective-contract SHA-256. The controller composes exactly one absolute
-`--workspace` selector and revalidates the rule, profile, launch plan,
-executable, and process boundary immediately before start. After accepted
-exact registered-PID halt it removes only the receipt-bound rule and
-transaction-created empty directories and commits terminal rollback proof.
+effective-contract SHA-256. Preexisting regular files and symlinks fail closed;
+Puppet never overwrites or appends to repository instructions. The controller
+composes exactly one absolute `--workspace` selector and revalidates the file,
+profile, launch plan, executable, and process boundary immediately before
+start. After accepted exact registered-PID halt it removes only the
+receipt-bound root `AGENTS.md` and commits terminal rollback proof.
 Failure cleanup may roll back the same exact artifact only after an exact
 failed-run halt and protected-population baseline restoration. Ambiguous halt
 or rollback remains fenced with the artifact preserved.
+The former qualification-only `.cursor/rules/*.mdc` descriptor and receipts
+are legacy, non-promotable evidence; the separate activation-disabled
+source-binding record remains non-promotable and cannot substitute for this
+root-AGENTS lifecycle.
 That activated receipt still cannot promote. Cursor promotion requires a
 controller-attested terminal join with a distinct ordinary Pass B control on
 the same private profile and authority tuple. The ordinary control has no rule

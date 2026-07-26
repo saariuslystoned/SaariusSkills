@@ -61,9 +61,11 @@ _SUPPORTED_ROOT_REFS = {"config_root", "workspace_root", "ephemeral_root"}
 _SUPPORTED_CWD_REFS = {"workspace_root"}
 _SUPPORTED_WRITE_MODES = {"create_only", "patch_if_base_sha256"}
 CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF = "cursor_mdc_always_apply_wrapper"
+CURSOR_ROOT_AGENTS_CONTENT_REF = "cursor_root_agents_wrapper"
 _SUPPORTED_CONTENT_REFS = {
     "effective_contract",
     CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
+    CURSOR_ROOT_AGENTS_CONTENT_REF,
 }
 _SUPPORTED_LITERAL_FLAGS = {
     "--agent",
@@ -112,6 +114,7 @@ CURSOR_WORKSPACE_DESCRIPTOR_ID = (
     "cursor-2026.07.17-3e2a980-workspace-addendum-disabled-v2"
 )
 CURSOR_WORKSPACE_ARTIFACT_ID = "cursor_workspace_rule"
+CURSOR_ROOT_AGENTS_ARTIFACT_ID = "cursor_root_agents"
 CURSOR_WORKSPACE_ASSERTIONS = (
     "cursor_workspace_context_delta_exact",
     "cursor_workspace_create_only",
@@ -646,13 +649,23 @@ def _validate_qualification_launch_grammar(
 
     if (harness, plane) == ("cursor", "workspace_addendum"):
         relative_path = materialize[0]["relative_path"] if materialize else ""
+        legacy_mdc = (
+            len(materialize) == 1
+            and materialize[0]["artifact_id"] == CURSOR_WORKSPACE_ARTIFACT_ID
+            and _CURSOR_WORKSPACE_RULE_RE.fullmatch(relative_path) is not None
+            and materialize[0]["content_ref"]
+            == CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF
+        )
+        root_agents = (
+            len(materialize) == 1
+            and materialize[0]["artifact_id"] == CURSOR_ROOT_AGENTS_ARTIFACT_ID
+            and relative_path == "AGENTS.md"
+            and materialize[0]["content_ref"] == CURSOR_ROOT_AGENTS_CONTENT_REF
+        )
         if (
             len(materialize) != 1
-            or materialize[0]["artifact_id"] != CURSOR_WORKSPACE_ARTIFACT_ID
             or materialize[0]["root_ref"] != "workspace_root"
-            or _CURSOR_WORKSPACE_RULE_RE.fullmatch(relative_path) is None
-            or materialize[0]["content_ref"]
-            != CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF
+            or not (legacy_mdc or root_agents)
             or materialize[0]["write_mode"] != "create_only"
             or cwd_ref != "workspace_root"
             or env
@@ -1132,6 +1145,8 @@ __all__ = [
     "AGY_WORKSPACE_DESCRIPTOR_ID",
     "CURSOR_AGENT_VERSION",
     "CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF",
+    "CURSOR_ROOT_AGENTS_ARTIFACT_ID",
+    "CURSOR_ROOT_AGENTS_CONTENT_REF",
     "CURSOR_WORKSPACE_ARTIFACT_ID",
     "CURSOR_WORKSPACE_ASSERTIONS",
     "CURSOR_WORKSPACE_BLOCKERS",

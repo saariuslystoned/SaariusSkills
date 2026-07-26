@@ -395,16 +395,18 @@ python3 <skill-root>/scripts/adapter_lab.py qualify \
 Both runs must bind the same exact authenticated private Cursor profile,
 controller, campaign, goal, executable, adapter, protocol, compiler policy, and
 unresolved default-model selection, but must use distinct workspaces and run
-identities. The activated rule is
-`.cursor/rules/puppet-<mdc-wrapper-sha256>.mdc`. Its deterministic YAML
-frontmatter fixes a bounded description, `globs: "**/*"`, and
-`alwaysApply: true`; the activation plan and receipt bind the wrapper hash and
-underlying effective-contract hash separately. Create it with no preimage and
-remove it only after exact registered-PID halt. A failed or timed-out
+identities. The activated instruction is a temporary root `AGENTS.md` with a
+deterministic Puppet qualification envelope; the descriptor, activation plan,
+and receipt bind the wrapper hash and underlying effective-contract hash
+separately. Require `AGENTS.md` to be absent, create it mode 0600 with
+no-follow `O_EXCL`, and remove it only after exact registered-PID halt. Never
+overwrite, append to, or follow a repository-owned `AGENTS.md`. A failed or timed-out
 activation rolls it back only after the controller proves the exact target
 stopped and the protected same-target population returned to baseline. Halt,
 population, artifact, or rollback ambiguity leaves the activation fenced for
-controller adjudication; recovery never relaunches or guesses at cleanup.
+controller adjudication; recovery never relaunches or guesses at cleanup. The
+prior `.cursor/rules/*.mdc` activation evidence remains non-promotable legacy
+evidence and cannot satisfy this root-AGENTS descriptor version.
 
 Grok qualification uses `grok-request`, one positive Pass B, one linked
 ordinary control, `observe-grok-view` for each real read-only TUI, `pair-grok`,

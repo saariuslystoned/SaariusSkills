@@ -115,21 +115,21 @@ only after target death and rejects any missing, drifted, non-source, or
 post-observation recreated leaf.
 
 Cursor qualification activates only from a body-free request bound to the
-fresh doctor manifest. Pass B derives the exact
-`.cursor/rules/puppet-<mdc-wrapper-sha256>.mdc` descriptor after compilation.
-The create-only mode-0600 artifact is an exact MDC envelope with deterministic
-bounded `description`, `globs: "**/*"`, and `alwaysApply: true` frontmatter.
-Bind its wrapper bytes and the enclosed effective-contract SHA-256 separately
-in the plan and materialization receipt. Require an absent `.cursor` root in a
-create-only 0700 workspace, and compose exactly one absolute `--workspace`
-selector with the enrolled private profile. Revalidate that profile and the
-artifact immediately before launch. While active, structurally observe one
-human read-only native tmux client attach and detach without reading pane
-content. After exact registered-PID halt, verify the receipted vnode and remove
-only the rule plus empty transaction-created directories. Failed or timed-out
-runs may do the same only after exact halt and protected-population baseline
-restoration. Any foreign content, identity drift, halt ambiguity, or rollback
-failure fences the activation for controller adjudication.
+fresh doctor manifest. Pass B derives an exact root `AGENTS.md` descriptor
+after compilation. Require that path to be absent, then create the deterministic
+Puppet qualification wrapper mode 0600 with no-follow `O_EXCL`. Bind its
+wrapper bytes and the enclosed effective-contract SHA-256 separately in the
+descriptor assertion, plan, and materialization receipt. Never overwrite,
+append to, or follow a repository-owned `AGENTS.md`. Compose exactly one
+absolute `--workspace` selector with the enrolled private profile and
+revalidate that profile and artifact immediately before launch. While active,
+structurally observe one human read-only native tmux client attach and detach
+without reading pane content. After exact registered-PID halt, verify the
+receipted vnode and unlink only that file. Failed or timed-out runs may do the
+same only after exact halt and protected-population baseline restoration.
+Identity drift, halt ambiguity, or rollback failure fences the activation for
+controller adjudication. Prior `.cursor/rules/*.mdc` activation receipts are
+legacy, non-promotable evidence.
 
 An activated Cursor receipt is activation-only and cannot promote. A terminal
 qualification must reverify it beside a distinct ordinary Pass B control using

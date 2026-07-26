@@ -769,11 +769,14 @@ class FakeTmux:
                 ).read_bytes()
             elif payload == (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8"):
                 workspace_flag = self.launch_argv.index("--workspace")
-                rules_root = Path(self.launch_argv[workspace_flag + 1]) / ".cursor" / "rules"
-                rules = list(rules_root.glob("puppet-*.mdc"))
-                if len(rules) != 1:
-                    raise AssertionError("Cursor qualification rule is unavailable")
-                instruction_payload = rules[0].read_bytes()
+                agents_path = (
+                    Path(self.launch_argv[workspace_flag + 1]) / "AGENTS.md"
+                )
+                if not agents_path.is_file():
+                    raise AssertionError(
+                        "Cursor qualification root AGENTS is unavailable"
+                    )
+                instruction_payload = agents_path.read_bytes()
             value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
             destination = (
                 self._task_repo(instruction_payload, self.repo)
@@ -1394,7 +1397,7 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(fake.launch_argv[4], "--workspace")
             run_root = files["proof"] / "probes" / run_id
             self.assertEqual(fake.launch_argv[5], str(run_root / "fixture"))
-            self.assertFalse((run_root / "fixture" / ".cursor").exists())
+            self.assertFalse((run_root / "fixture" / "AGENTS.md").exists())
             public_context = (
                 run_root / "activation-context.json"
             ).read_bytes()
@@ -1420,8 +1423,11 @@ class ProbeTests(unittest.TestCase):
             )
             self.assertEqual(
                 descriptor["materialize"][0]["relative_path"],
-                ".cursor/rules/puppet-%s.mdc"
-                % activation_intent["plan"]["artifact"]["wrapper_sha256"],
+                "AGENTS.md",
+            )
+            self.assertEqual(
+                descriptor["target"]["config_fingerprint"],
+                activation_intent["plan"]["artifact"]["wrapper_sha256"],
             )
             self.assertEqual(
                 activation_intent["plan"]["artifact"][
@@ -1484,6 +1490,7 @@ class ProbeTests(unittest.TestCase):
                 ordinary_fake.launch_argv[5],
                 str(ordinary_root / "fixture"),
             )
+            self.assertFalse((ordinary_root / "fixture" / "AGENTS.md").exists())
             ordinary_receipt = json.loads(
                 Path(ordinary["receipt"]).read_text(encoding="utf-8")
             )
@@ -1519,7 +1526,7 @@ class ProbeTests(unittest.TestCase):
                     timeout=0.001,
                 )
             run_root = files["proof"] / "probes" / run_id
-            self.assertFalse((run_root / "fixture" / ".cursor").exists())
+            self.assertFalse((run_root / "fixture" / "AGENTS.md").exists())
             rollback = json.loads(
                 (
                     run_root
@@ -1594,12 +1601,9 @@ class ProbeTests(unittest.TestCase):
                         timeout=0.001,
                     )
                 run_root = files["proof"] / "probes" / run_id
-                rules = list(
-                    (run_root / "fixture" / ".cursor" / "rules").glob(
-                        "puppet-*.mdc"
-                    )
+                self.assertTrue(
+                    (run_root / "fixture" / "AGENTS.md").is_file()
                 )
-                self.assertEqual(len(rules), 1)
                 self.assertFalse(
                     (
                         run_root
