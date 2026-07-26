@@ -474,7 +474,14 @@ def _selected_process_identity(
         if not _pid_still_exists(pid):
             return None
         if sys.platform == "darwin":
-            text_vnodes = darwin_process_text_vnodes(pid)
+            try:
+                text_vnodes = darwin_process_text_vnodes(pid)
+            except IdentityError as exc:
+                if not _pid_still_exists(pid):
+                    return None
+                raise IdentityError(
+                    "same-target executable identity is unavailable for a live PID"
+                ) from exc
             observed_vnodes = {
                 (
                     item["executable_path"],
