@@ -1374,5 +1374,32 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(refreshed["state"], "active")
 
 
+class ContractDocTests(unittest.TestCase):
+    def test_skill_contract_captures_agy_prompt_file_print_mode(self) -> None:
+        text = (
+            ROOT / "skills" / "herdr-puppet" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "agy --prompt @/exact/task-owned-prompt-file --print-timeout <bounded>",
+            text,
+        )
+        self.assertIn("should carry only a short launcher command", text)
+        self.assertIn("terminal evidence proves the process consumed it", text)
+
+    def test_qualification_contract_keeps_prompt_mode_narrow(self) -> None:
+        text = (
+            ROOT / "skills" / "herdr-puppet" / "references" / "qualification-contract.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "For AGY 1.1.7 noninteractive `--print`, launch task prompts through a",
+            text,
+        )
+        self.assertIn(
+            "Do not use positional/argv prompt",
+            text,
+        )
+        self.assertIn("Send only the short launcher command", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,14 +63,22 @@ hand-composed Herdr mutations when the script owns the operation.
    or replace a plugin prefix chosen for that turn.
 9. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
-   Supply a non-empty prompt through `--stdin` or a bounded UTF-8
-   `--text-file`; never place prompt content in process arguments. Treat
+   Supply a non-empty prompt through `--stdin` or a bounded UTF-8 `--text-file`;
+   never place prompt content in process arguments. Treat
    `herdr_input_outcome_unknown` as a hard stop: reconcile the same sequence
-   from independent structural evidence before any later send, and never
-   retry the prompt speculatively. When an orchestration bridge cannot
-   reliably half-close standard input, do not paste a long prompt into its
-   canonical PTY. Use a private task-owned `--text-file`, require the exact
-   sequence acknowledgement, and then remove only that temporary file.
+   from independent structural evidence before any later send, and never retry
+   the prompt speculatively. When an orchestration bridge cannot reliably
+   half-close standard input, do not paste a long prompt into its canonical PTY.
+   Use a private task-owned `--text-file`, require the exact sequence
+   acknowledgement, and then remove only that local transport file.
+   For AGY noninteractive `--print` runs (notably 1.1.7),
+   `qualification-send` should carry only a short launcher command. Put the
+   actual AGY task in a separate private file and reference only its path:
+   `agy --prompt @/exact/task-owned-prompt-file --print-timeout <bounded>`.
+   Do not feed the AGY task through positional argv or AGY stdin in this mode.
+   Retain that separate AGY prompt file until source-bound readiness or
+   terminal evidence proves the process consumed it, then remove only that
+   exact file during maintenance.
    Treat its success receipt as `herdr_pane_input_only`: it does not prove the
    harness was ready, accepted the prompt, started work, loaded an extension,
    or called a tool.
@@ -167,10 +175,9 @@ python3 scripts/herdr_puppet.py qualification-beacon-wait \
 python3 scripts/herdr_puppet.py qualification-send \
   --lease-json <lease.json> \
   --seq <next-seq> \
-  --stdin \
+  --text-file <task-owned-prompt-file> \
   --run-root <run-root> \
-  --allow-live-qualification \
-  < <task-owned-prompt-file>
+  --allow-live-qualification
 
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
