@@ -373,3 +373,33 @@ component and session evidence for input readiness and enrollment reuse. They do
 not stand in for the promoted Pass-B qualification receipt. The remaining work
 is the live, human-approved authenticated pair above; source-only code does not
 substitute for those inputs.
+
+### 2026-07-26 current-head behavioral checkpoint
+
+At source head `b2ee409b767a4d8fd169238f3ff4cb4e8a7b309e`, the root
+controller ran a fresh subscription-backed activation/control pair with Claude
+Code `2.1.215`, the durable Puppet-owned profile, the regular session profile,
+the current provider default model, and explicit
+`--dangerously-skip-permissions`.
+
+Both distinct sessions reached input readiness through
+`bounded_claude_startup_gate_reducer` without operator input, produced ready
+and follow-up checkpoints, received a real read-only native tmux/iTerm view,
+and halted only their exact registered target PIDs. The activation artifact
+rolled back, both post-halt target populations were empty, the terminal pair
+reported `no_bleed_verified: true`, and `adapter_lab.py verify` independently
+accepted the paired receipt. No pane body, prompt body, reply body,
+authentication material, or configuration body was retained.
+
+The curated body-free record is
+`../live-proof/claude-b2ee409-20260726.json`. It deliberately separates the
+live claim—ready was reached through the reducer with no human keystrokes—from
+the deterministic gate-specific claim. Unit/integration tests cover security
+Enter, exact-workspace trust choice 1, bypass choice 1 to choice 2 followed by
+Enter, unknown/account-gate refusal, and same-process/worktree revalidation
+before delivery. The specific optional screen sequence for this live run is
+not persisted.
+
+This is a behavioral checkpoint, not the final campaign receipt. Any later
+change to the qualifying implementation fingerprint requires a fresh
+source-stable pair before five-harness closeout.
