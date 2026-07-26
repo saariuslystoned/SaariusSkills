@@ -9,8 +9,9 @@ execution-time doctor remain required.
 
 ## Current controller verdict: shared-vendor-auth/config regular route
 
-AGY regular sessions launch on an explicit shared-vendor-auth/config route but
-are not yet fully qualified. The body-free `regular` verdict reports:
+AGY regular sessions launch on an explicit shared-vendor-auth/config route.
+The source verdict is intentionally non-authorizing until a fresh live receipt
+is promoted. Before that promotion, the body-free `regular` verdict reports:
 
 - `status: shared_vendor_auth_config_route`
 - `route: shared_vendor_auth_config_route`
@@ -19,6 +20,33 @@ are not yet fully qualified. The body-free `regular` verdict reports:
 - `agy_fresh_pass_b_required`
 - `agy_regular_receipt_promotion_required`
 - `agy_clean_doctor_required`
+
+### Interim live qualification at `188939f` (2026-07-26)
+
+The root controller completed a fresh subscription-backed regular Pass B at
+exact head `188939f`. AGY 1.1.7 used the shared same-user vendor route without
+reading its auth/config store, omitted model and effort selectors, wrote exact
+ready and sequenced-follow-up handoffs, and was halted through the exact owned
+tmux pane with zero AGY processes before launch and after halt. Independent
+receipt verification and promotion produced qualified manifest fingerprint
+`24638bb7db9e0fd7ccce5281aed731687f3f2aa548eab677380445448cc6f806`.
+
+That manifest then passed a public `puppet doctor` and launched one real
+mutating regular session from cockpit entry into an isolated linked worktree.
+`open-view` proved a new read-only native iTerm client with no controller
+attachment. AGY committed one bounded Cursor-ledger regression, emitted a
+valid source checkpoint, and remained alive for independent review. The root
+ran 14 focused tests, all 790 tests, diff checks, and skill validation; recorded
+`source_accept`; exact-halted only the owned AGY target; and integrated the
+candidate as `0538f29`. No pane body, transcript, auth/config value, or
+operator-global modification was retained.
+
+The public session reached source acceptance before the root's follow-up send,
+and Puppet correctly rejected messages in that phase. Pass B supplies the
+sequenced-steering evidence; a separate read-only public control still needs a
+pre-checkpoint steering turn. The curated body-free record is
+`plans/puppet/live-proof/agy-188939f-20260726.json`. This remains an interim
+checkpoint: later source commits require a final integrated-head rerun.
 
 The route runs under the operator's real `HOME` because AGY exposes no
 admitted config-root selector; private-profile isolation is explicitly not
@@ -300,10 +328,10 @@ qualification receipt.
   - Provider-default model identity, explicit model/effort, resume, and native
     `--agent` remain accepted/deferred limitations, not regular-route claims.
 - Stop criteria:
-  - the current lane admits the regular shared-vendor-auth/config route as
-    launch-authorized but withholds a promoted qualification receipt; it makes
-    no fully-qualified claim.
-  - the qualification fence may be removed only by a fresh accepted Pass B,
-    explicit regular-profile promotion, and clean doctor. Pass B must show
-    `launch -> steer -> halt` plus controller-observed exact private
-    socket/process no-bleed evidence for an ordinary non-Puppet session.
+  - the interim `188939f` lane closed fresh Pass B, explicit regular-profile
+    promotion, clean public doctor, native view, one mutating public session,
+    controller source acceptance, and exact halt.
+  - a distinct read-only public control with pre-checkpoint steering and the
+    final integrated-head rerun remain open. `/goal`, `/teamwork-preview`,
+    explicit model/effort, resume, native `--agent`, and private-config claims
+    remain deferred.
