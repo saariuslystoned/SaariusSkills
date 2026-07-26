@@ -1980,6 +1980,86 @@ class AuthorityTests(unittest.TestCase):
             ],
         )
 
+    def test_darwin_executable_identity_revalidates_large_region_inventory(self):
+        # A real V8/Node harness (the Cursor agent node runtime) maps far more
+        # than the former 4096-region wall. The sampler must still walk the full
+        # inventory to the terminal EINVAL and prove exactly one mapped
+        # executable vnode identity for such a process.
+        executable_path = b"/mapped/v8-node/cursor-agent-node"
+        region_total = 4096 + 1000  # over the proved 4096 failure wall
+
+        self.assertGreater(region_total, 4096)
+        self.assertLessEqual(region_total, puppet_registry._DARWIN_MAX_REGIONS)
+
+        class FakeProcPidPath:
+            argtypes = None
+            restype = None
+
+            def __call__(self, pid, buffer, size):
+                puppet_registry.ctypes.memmove(
+                    buffer, executable_path + b"\x00", len(executable_path) + 1
+                )
+                return len(executable_path)
+
+        class FakeProcPidInfo:
+            argtypes = None
+            restype = None
+
+            def __init__(self):
+                self.count = 0
+                self.terminal_errno = None
+
+            def __call__(self, pid, flavor, address, buffer, size):
+                if self.count >= region_total:
+                    puppet_registry.ctypes.set_errno(errno.EINVAL)
+                    self.terminal_errno = errno.EINVAL
+                    return 0
+                info = puppet_registry.ctypes.cast(
+                    buffer,
+                    puppet_registry.ctypes.POINTER(
+                        puppet_registry._DarwinProcRegionWithPathInfo
+                    ),
+                ).contents
+                info.prp_prinfo.pri_address = address
+                info.prp_prinfo.pri_size = 0x1000
+                # Exactly one region carries the executable mapped-vnode
+                # identity; the rest are non-executable mappings of the same
+                # path, so the completeness check must still resolve to one.
+                if self.count == 0:
+                    info.prp_prinfo.pri_protection = 5  # read + execute
+                    info.prp_vip.vip_vi.vi_stat.vst_mode = 0o100755
+                    info.prp_vip.vip_vi.vi_stat.vst_dev = 71
+                    info.prp_vip.vip_vi.vi_stat.vst_ino = 81
+                else:
+                    info.prp_prinfo.pri_protection = 1  # read-only, no execute
+                    info.prp_vip.vip_vi.vi_stat.vst_mode = 0o100644
+                    info.prp_vip.vip_vi.vi_stat.vst_dev = 71
+                    info.prp_vip.vip_vi.vi_stat.vst_ino = 81
+                info.prp_vip.vip_path = executable_path
+                self.count += 1
+                puppet_registry.ctypes.set_errno(0)
+                return size
+
+        proc_pidinfo = FakeProcPidInfo()
+        library = SimpleNamespace(
+            proc_pidpath=FakeProcPidPath(),
+            proc_pidinfo=proc_pidinfo,
+        )
+        with patch.object(puppet_registry.ctypes, "CDLL", return_value=library):
+            record = puppet_registry._darwin_process_executable_record(4242)
+        self.assertEqual(
+            record,
+            {
+                "executable_path": executable_path.decode(),
+                "device": 71,
+                "inode": 81,
+            },
+        )
+        # The walk consumed every valid region and terminated on the kernel's
+        # EINVAL rather than the anti-DoS cap.
+        self.assertEqual(proc_pidinfo.count, region_total)
+        self.assertEqual(proc_pidinfo.terminal_errno, errno.EINVAL)
+
     def test_darwin_region_inventory_failures_are_not_authoritative(self):
         executable_path = b"/mapped/process-owned/codex"
 

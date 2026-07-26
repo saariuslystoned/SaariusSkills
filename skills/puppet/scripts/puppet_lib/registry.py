@@ -253,7 +253,15 @@ class _DarwinProcRegionWithPathInfo(ctypes.Structure):
 
 _DARWIN_PROC_PIDREGIONPATHINFO = 8
 _DARWIN_VM_PROT_EXECUTE = 4
-_DARWIN_MAX_REGIONS = 4096
+# Anti-DoS cap on the executable-vnode region walk. This is a finite iteration
+# ceiling, not a completeness relaxation: the walk must still reach the kernel's
+# terminal EINVAL to be authoritative. A real V8/Node harness (e.g. the Cursor
+# agent node runtime) maps well over the former 4096 wall; live read-only
+# diagnostics on that process returned the exact same executable identity at
+# 6144, 8192, 12288, 16384, and 32768 regions, and completed the full walk at
+# 65536 in ~0.03s. We adopt 65536 for clear headroom over the proved 4096-6144
+# failure range while keeping a bounded, fast-terminating cap.
+_DARWIN_MAX_REGIONS = 65536
 _DARWIN_UINT64_MAX = (1 << 64) - 1
 _DARWIN_PROC_PIDTBSDINFO = 3
 _DARWIN_PROC_UID_ONLY = 4
