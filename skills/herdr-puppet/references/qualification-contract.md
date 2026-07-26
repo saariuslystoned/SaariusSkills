@@ -37,15 +37,25 @@ follow-up, status request, or gate acknowledgement.
 
 Treat a successful `qualification-send` receipt as pane transport acceptance
 only. Before the first real task, require independent readiness evidence from
-either the operator observing the exact leased tab's ready input surface or a
-bounded harness-specific token probe. Waiting a fixed number of seconds,
-counting a process, seeing an SSH client, or finding no receipt file does not
-prove readiness.
+the operator observing the exact leased tab's ready input surface, a bounded
+harness-specific token that cannot appear until input is ready, or a unique
+task-owned readiness artifact written by a harmless no-target preflight. Bind
+an artifact to the run nonce and source identity, require it to state that the
+target was untouched, and check its exact path rather than scanning a broad
+run directory. A product name or banner is startup evidence, not input
+readiness. Waiting a fixed number of seconds, counting a process, seeing an SSH
+client, or finding no receipt file does not prove readiness.
 
 If a launch send lands before the harness is ready, do not immediately resend
 the task. Reconcile from independent operator or structural evidence, then use
 the next sequence only when duplicate execution is ruled out. Journal the
 lesson without copying the prompt or pane.
+
+Plan status and lease status serve different lifecycle moments. Use
+`status --plan-json` before `qualification-create-tab`. After a successful
+create, the plan's owned label must exist, so plan status is expected to reject
+reuse; use `status --lease-json` or `maintenance-checkpoint` for every
+post-create structural check.
 
 ## Checkpoint and token waits
 
@@ -90,6 +100,12 @@ Do not convert it into any of those claims. Recheck structural status and
 independent source/proof artifacts without reading the transcript; then
 preserve or supersede the run instead of speculatively resending the same
 prompt.
+
+A validated terminal artifact may independently prove that the bounded task
+completed. In that case, record the artifact verdict, run
+`lease-preserve --reason milestone_complete`, and continue exact cleanup if it
+was authorized. Do not report the beacon as matched, and do not synthesize a
+`DONE` checkpoint that Herdr did not observe.
 
 The native waiter scans existing recent content before subscribing to new
 output, so every checkpoint nonce must be unique per send. Matching is

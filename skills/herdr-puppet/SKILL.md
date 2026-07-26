@@ -38,15 +38,22 @@ hand-composed Herdr mutations when the script owns the operation.
    journal. `qualification-create-tab` preflights the matching initialized
    journal and refuses to create a tab or lease when it is absent or belongs
    to another run.
-5. Run structural `status` before every mutation. Stop on any session,
+5. Run structural `status --plan-json` before tab creation. Once a lease
+   exists, stop rechecking the now-consumed plan: its owned label is expected
+   to exist and plan status must reject it. Use `status --lease-json` or
+   `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. Never adopt an existing tab or process.
 7. Start the harness, then prove its input surface is ready before sending the
-   real task. Accept either the operator's explicit observation of the exact
-   leased tab's ready input surface or a bounded harness-specific token probe.
-   A fixed delay, process liveness, and a successful Herdr input
-   acknowledgement do not prove harness readiness or prompt submission.
+   real task. Accept the operator's explicit observation of the exact leased
+   tab's ready input surface, a bounded harness-specific token that can appear
+   only after input readiness, or a unique task-owned readiness artifact
+   written by a harmless no-target preflight and bound to the run nonce and
+   source identity. A product name, banner, startup text, fixed delay, process
+   liveness, and successful Herdr input acknowledgement do not prove harness
+   readiness or prompt submission. If an artifact preflight is used, absence
+   is not permission to resend it; reconcile or supersede the run.
 8. Send ordinary AGY steering as a plain message with no slash-command prefix.
    Never inject `/teamwork-preview` automatically. Use it only when the
    operator explicitly requests a separately bounded 4-20-helper fan-out; one
@@ -72,9 +79,12 @@ hand-composed Herdr mutations when the script owns the operation.
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
    only the checkpoint class and hashes, never pane text. Use
    `qualification-token-probe` only for lower-level transport diagnosis. A
-   `not_matched` result proves only that the strict line was absent from the
-   bounded window; it does not prove the worker, SSH process, harness, or tab
-   went offline and is not itself a human gate.
+    `not_matched` result proves only that the strict line was absent from the
+    bounded window; it does not prove the worker, SSH process, harness, or tab
+    went offline and is not itself a human gate.
+    A separately validated terminal artifact may prove the task result and
+    justify explicit `lease-preserve`, but it must not be rewritten as a
+    matched `DONE` checkpoint.
     The waiter has an independent controller hard timeout. `DONE` and
     `ACTION_REQUIRED` automatically preserve the lease while leaving the tab
     visible. When the operator reports the exact nonce line directly from the
