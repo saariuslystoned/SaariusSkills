@@ -409,9 +409,17 @@ def _active_population(
 ) -> list[Dict[str, Any]]:
     if selector_fn is active_target_processes:
         return selector_fn(
-            target, execution_files=manifest.process_execution_selectors()
+            target, execution_files=manifest.process_population_selectors()
         )
     return selector_fn(target)
+
+
+def _target_population_snapshot(
+    target: str, manifest: AdapterManifest
+) -> Dict[str, Any]:
+    return target_process_snapshot(
+        target, execution_files=manifest.process_population_selectors()
+    )
 
 
 def _assert_executable_identity(manifest: AdapterManifest) -> None:
@@ -2006,9 +2014,7 @@ def run_probe(
                     ],
                 }
             else:
-                snapshot = target_process_snapshot(
-                    target, execution_files=manifest.process_execution_selectors()
-                )
+                snapshot = _target_population_snapshot(target, manifest)
             try:
                 observation = _validated_target_population(
                     snapshot=snapshot,

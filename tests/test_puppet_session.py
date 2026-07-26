@@ -360,6 +360,37 @@ def kill_test_server(socket):
         Path(socket).unlink(missing_ok=True)
 
 
+class SessionPopulationSelectorTests(unittest.TestCase):
+    def test_active_processes_uses_only_final_runtime_selector(self):
+        runtime = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+
+        class Manifest:
+            @staticmethod
+            def process_population_selectors():
+                return [runtime]
+
+            @staticmethod
+            def process_execution_selectors():
+                raise AssertionError(
+                    "ambient census must not use owned transition selectors"
+                )
+
+        with patch.object(
+            puppet_session,
+            "active_target_processes",
+            return_value=[],
+        ) as active:
+            self.assertEqual(
+                puppet_session._active_processes("cursor", Manifest()),
+                [],
+            )
+        active.assert_called_once_with("cursor", execution_files=[runtime])
+
+
 class SessionIntegrationTests(unittest.TestCase):
     def setUp(self):
         # Session composition tests use /bin/cat as a deterministic target.

@@ -2549,8 +2549,20 @@ class AdapterManifest:
     def execution_settle_timeout(self) -> float:
         return float(self.raw["execution"]["settle_timeout_seconds"])
 
+    def process_population_selectors(self) -> list[Dict[str, Any]]:
+        """Return only the final runtime selector for ambient population census."""
+
+        runtime = self.raw["execution"]["runtime_executable"]
+        return [
+            {
+                "path": runtime["path"],
+                "device": runtime["device"],
+                "inode": runtime["inode"],
+            }
+        ]
+
     def process_execution_selectors(self) -> list[Dict[str, Any]]:
-        """Return launcher/runtime/transient selectors for process prefiltering."""
+        """Return launcher/runtime/transient selectors for owned exec transitions."""
 
         execution = self.raw["execution"]
         identities = [

@@ -191,6 +191,15 @@ class ExecutionKernelTests(unittest.TestCase):
         launcher_identity = execution_file_identity(self.launcher)
         runtime_identity = execution_file_identity(self.runtime)
         transient_identity = execution_file_identity(self.transient)
+        runtime_selector = {
+            "path": runtime_identity["path"],
+            "device": runtime_identity["device"],
+            "inode": runtime_identity["inode"],
+        }
+        self.assertEqual(
+            manifest.process_population_selectors(),
+            [runtime_selector],
+        )
         self.assertEqual(
             manifest.process_execution_selectors(),
             [
@@ -199,11 +208,7 @@ class ExecutionKernelTests(unittest.TestCase):
                     "device": launcher_identity["device"],
                     "inode": launcher_identity["inode"],
                 },
-                {
-                    "path": runtime_identity["path"],
-                    "device": runtime_identity["device"],
-                    "inode": runtime_identity["inode"],
-                },
+                runtime_selector,
                 {
                     "path": transient_identity["path"],
                     "device": transient_identity["device"],

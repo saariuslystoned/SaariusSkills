@@ -132,7 +132,7 @@ def _git(repo: Path, arguments: List[str], *, identity_error: bool = False) -> s
 
 def _active_processes(target: str, manifest: AdapterManifest) -> List[Dict[str, Any]]:
     return active_target_processes(
-        target, execution_files=manifest.process_execution_selectors()
+        target, execution_files=manifest.process_population_selectors()
     )
 
 

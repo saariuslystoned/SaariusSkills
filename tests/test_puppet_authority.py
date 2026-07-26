@@ -423,6 +423,92 @@ class AuthorityTests(unittest.TestCase):
             )
         exact_identity.assert_called_once_with(101)
 
+    def test_darwin_runtime_population_excludes_exact_shell_and_samples_node(self):
+        runtime = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        shell = {
+            "path": "/bin/bash",
+            "device": 61,
+            "inode": 71,
+        }
+        inventory = [
+            {
+                "pid": 101,
+                "uid": os.getuid(),
+                "name": "bash",
+                "comm": "bash",
+                "command": "bash",
+            },
+            {
+                "pid": 102,
+                "uid": os.getuid(),
+                "name": "node",
+                "comm": "node",
+                "command": "node",
+            },
+        ]
+        identities = {
+            101: {
+                "identity_version": 2,
+                "pid": 101,
+                "start": "shell",
+                "kernel_birth_id": "darwin:1:000001",
+                "command": "bash",
+                "executable_path": shell["path"],
+                "device": shell["device"],
+                "inode": shell["inode"],
+            },
+            102: {
+                "identity_version": 2,
+                "pid": 102,
+                "start": "runtime",
+                "kernel_birth_id": "darwin:1:000002",
+                "command": "node",
+                "executable_path": runtime["path"],
+                "device": runtime["device"],
+                "inode": runtime["inode"],
+            },
+        }
+        sampled = []
+
+        def executable_identity(pid):
+            sampled.append(pid)
+            process = identities[pid]
+            return {
+                "pid": pid,
+                "kernel_birth_id": process["kernel_birth_id"],
+                "executable_path": process["executable_path"],
+                "device": process["device"],
+                "inode": process["inode"],
+            }
+
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=executable_identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                side_effect=lambda pid: identities[pid],
+            ),
+        ):
+            observed = puppet_campaign.active_target_processes(
+                "cursor", execution_files=[runtime]
+            )
+        self.assertEqual(sampled, [102])
+        self.assertEqual(observed, [identities[102]])
+
     def test_darwin_prefilter_fails_closed_for_live_matching_unreadable_pid(self):
         bundled = {
             "path": "/opt/cursor/node",

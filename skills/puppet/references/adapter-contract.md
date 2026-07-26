@@ -43,10 +43,14 @@ bounded same-executable processes whose freshly sampled kernel-revalidated
 parent edges and v2 birth identity reach that registered process. On Darwin,
 bounded current-UID discovery uses `proc_listpids` plus `PROC_PIDTBSDINFO`;
 other supported platforms may use `ps` only to find target `pid`/`comm` rows.
-Candidate names are prefiltered against every declared launcher, transient
-executable, and final runtime basename before the controller binds the exact
-process-owned mapped-vnode identity. Per-node parent edges and birth identity
-come from Darwin `proc_pidinfo` `(sec,usec)` or Linux
+Ambient candidate names are prefiltered against fixed target names and the
+declared final runtime basename before the controller binds the exact
+process-owned mapped-vnode identity. Launcher and transient executable
+identities are not ambient target-population authority. They are accepted only
+during the bounded same-PID exec transition after the private pane, PID, and
+kernel birth are already pinned; the final registered process must settle on
+the declared runtime identity. Per-node parent edges and birth identity come
+from Darwin `proc_pidinfo` `(sec,usec)` or Linux
 `(kernel.boot_id,/proc/<pid>/stat_starttime_ticks)`. Discovery never reads argv
 or terminal content. Missing ancestry, protected-process ancestry, PID reuse,
 executable drift, cycles, or unrelated same-name processes fail closed. Keep

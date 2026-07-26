@@ -1002,6 +1002,51 @@ def recover_execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_ambient_population_and_snapshot_use_only_final_runtime_selector(self):
+        runtime = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+
+        class Manifest:
+            @staticmethod
+            def process_population_selectors():
+                return [runtime]
+
+            @staticmethod
+            def process_execution_selectors():
+                raise AssertionError(
+                    "ambient census must not use owned transition selectors"
+                )
+
+        expected_snapshot = {"processes": [], "ancestry_nodes": []}
+        with patch.object(
+            puppet_probe,
+            "active_target_processes",
+            return_value=[],
+        ) as active:
+            self.assertEqual(
+                puppet_probe._active_population(
+                    puppet_probe.active_target_processes,
+                    "cursor",
+                    Manifest(),
+                ),
+                [],
+            )
+        active.assert_called_once_with("cursor", execution_files=[runtime])
+
+        with patch.object(
+            puppet_probe,
+            "target_process_snapshot",
+            return_value=expected_snapshot,
+        ) as snapshot:
+            self.assertEqual(
+                puppet_probe._target_population_snapshot("cursor", Manifest()),
+                expected_snapshot,
+            )
+        snapshot.assert_called_once_with("cursor", execution_files=[runtime])
+
     def test_initial_probe_prompt_names_the_single_handoff_allowlist(self):
         prompt = puppet_probe._initial_prompt(
             {

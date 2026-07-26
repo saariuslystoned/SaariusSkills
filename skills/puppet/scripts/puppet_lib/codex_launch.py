@@ -648,7 +648,7 @@ def build_codex_launch_context(
         )
 
     try:
-        selectors = manifest.process_execution_selectors()
+        selectors = manifest.process_population_selectors()
         selector_tuples = tuple(
             (
                 selector["path"],

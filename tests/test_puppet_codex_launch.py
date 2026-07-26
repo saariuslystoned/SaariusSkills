@@ -261,7 +261,7 @@ class CodexLaunchContextTests(unittest.TestCase):
 
     def test_build_context_binds_requested_and_resolved_identity(self):
         manifest = AdapterManifest.from_dict(self.manifest_raw)
-        selectors = manifest.process_execution_selectors()
+        selectors = manifest.process_population_selectors()
         called = {}
 
         def selector(target, observed):
