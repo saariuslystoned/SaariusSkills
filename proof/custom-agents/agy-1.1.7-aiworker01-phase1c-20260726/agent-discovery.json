@@ -1,0 +1,8 @@
+{
+  "filter_note": "The exact-name allowlist implementation was reused before its cosmetic plugin field/schema label was renamed.",
+  "expected_found": true,
+  "expected_plugin": "saarius-i15-recon-dead27c57bf0",
+  "raw_line_count": 2,
+  "raw_sha256": "734533f70bb0a780749aed8581a07a6f50302bdc1d41981bdbcff1c95739fc1a",
+  "schema": "saarius.custom-agent-plugin-inventory.v1"
+}

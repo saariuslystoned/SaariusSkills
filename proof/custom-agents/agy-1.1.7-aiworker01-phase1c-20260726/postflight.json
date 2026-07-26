@@ -1,0 +1,16 @@
+{
+  "expected_result_state": "unchanged",
+  "foreign_state_touched": false,
+  "passed": true,
+  "profile_sha256": "69e093b6e538237bdeae6746f39105a854af8bc15ee11f7e3ecaa280e473a5bc",
+  "quarantine_files": [
+    "agents/saarius-i15-recon-dead27c57bf0/agent.md"
+  ],
+  "result_bytes": 0,
+  "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "schema": "saarius.custom-agent-runtime-postflight.v1",
+  "workspace_files": [
+    ".issue15/result.json"
+  ],
+  "workspace_mode": "0o755"
+}

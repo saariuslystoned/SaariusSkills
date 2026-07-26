@@ -1,0 +1,12 @@
+{
+  "agent": "saarius-i15-recon-dead27c57bf0",
+  "initial_result_bytes": 0,
+  "initial_result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "main_agent": true,
+  "profile_sha256": "69e093b6e538237bdeae6746f39105a854af8bc15ee11f7e3ecaa280e473a5bc",
+  "role": "reconnaissance",
+  "role_marker": "recon-0626e22b6cbc2469",
+  "schema": "saarius.custom-agent-runtime-fixture.v1",
+  "subagent": true,
+  "template_version": "2026-07-26.phase1c"
+}

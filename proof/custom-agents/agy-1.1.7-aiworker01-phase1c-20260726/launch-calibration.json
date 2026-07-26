@@ -1,0 +1,42 @@
+{
+  "agent": "saarius-i15-recon-dead27c57bf0",
+  "effort": "low",
+  "execution_mode": "accept-edits",
+  "finished_at_ns": 1785042181408553000,
+  "model": "gemini-3.6-flash-low",
+  "process_exit": 2,
+  "prompt_class": "challenge-only-stdin",
+  "prompt_sha256": "eab7468b0b987b86f181f47b73ffa8836a7680dc2c6d97776b3b5a5a5431bc23",
+  "quarantine_delay_ms": 350,
+  "quarantined_at_ns": 1785042181408270000,
+  "raw_artifacts": {
+    "log": {
+      "bytes": 0,
+      "present": false,
+      "sha256": null
+    },
+    "stderr": {
+      "bytes": 1955,
+      "present": true,
+      "sha256": "2231176ef87e8e6f0eb9c3aafb8603941e2c7098a35a9fa83a67c691336afc2d"
+    },
+    "stdout": {
+      "bytes": 0,
+      "present": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "raw_artifacts_retained": false,
+  "result_bytes": 0,
+  "result_changed_after_quarantine": false,
+  "run_id": "pos-recon-01",
+  "runtime_workspace_mode": "0o555",
+  "sandbox": true,
+  "schema": "saarius.custom-agent-runtime-run.v1",
+  "started_at_ns": 1785042181045461000,
+  "stdin_accepted": true,
+  "surface": "print",
+  "timed_out": false,
+  "workspace_binding": "add-dir-absolute",
+  "workspace_mode_restored": true
+}
