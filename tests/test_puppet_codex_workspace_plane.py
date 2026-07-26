@@ -28,7 +28,9 @@ from puppet_lib.codex_launch import (  # noqa: E402
 from puppet_lib.codex_workspace_plane import (  # noqa: E402
     CodexWorkspacePlan,
     build_codex_worktree_descriptor,
+    codex_probe_mapping_from_qualified,
     codex_qualified_mapping,
+    is_codex_workspace_mapping_closure,
     materialize_codex_workspace_plane,
     plan_codex_workspace_plane,
     recover_codex_workspace_plane,
@@ -642,6 +644,42 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
         self.assertTrue(qualified["project_isolation_declared"])
         self.assertEqual(qualified["launch_argv"], mapping["launch_argv"])
         self.assertEqual(qualified["project_isolation_flags"], [])
+        self.assertTrue(is_codex_workspace_mapping_closure(qualified))
+        workspace = {
+            "schema": "puppet.codex-direct-worktree-receipt/v1",
+            "terminal_state": "controller_verified_after_exact_halt",
+            "descriptor_sha256": "1" * 64,
+            "candidate_root": "/tmp/candidate",
+            "candidate_branch": "candidate",
+            "candidate_head": "2" * 40,
+            "startup_cwd": "/tmp/candidate",
+            "controller_contract_sha256": "3" * 64,
+            "instruction_manifest_sha256": "4" * 64,
+            "executable_sha256": "5" * 64,
+            "subscription_profile_sha256": "6" * 64,
+            "launch_plan_sha256": "7" * 64,
+        }
+        self.assertEqual(
+            codex_probe_mapping_from_qualified(
+                qualified, workspace_isolation=workspace
+            ),
+            mapping,
+        )
+        with self.assertRaisesRegex(IdentityError, "terminal workspace proof"):
+            codex_probe_mapping_from_qualified(
+                qualified, workspace_isolation=None
+            )
+        nonterminal = dict(workspace, terminal_state="preflight")
+        with self.assertRaisesRegex(ValidationError, "not terminal"):
+            codex_probe_mapping_from_qualified(
+                qualified, workspace_isolation=nonterminal
+            )
+        changed_argv = copy.deepcopy(qualified)
+        changed_argv["launch_argv"].append("--project")
+        with self.assertRaisesRegex(IdentityError, "incomplete tuple"):
+            codex_probe_mapping_from_qualified(
+                changed_argv, workspace_isolation=workspace
+            )
 
 
 if __name__ == "__main__":

@@ -2442,8 +2442,32 @@ class AdapterManifest:
             canonical_json_bytes(self.raw["platform"])
         ):
             raise ValidationError("qualification platform or version identity mismatch")
+        mapping_committed_by_receipt = self.raw["yolo_mapping"]
+        workspace_isolation = receipt.get("workspace_isolation")
+        if workspace_isolation is not None:
+            if self.target != "codex":
+                raise ValidationError(
+                    "workspace-isolation closure is limited to Codex"
+                )
+            from .codex_workspace_plane import (
+                codex_probe_mapping_from_qualified,
+            )
+
+            mapping_committed_by_receipt = codex_probe_mapping_from_qualified(
+                mapping_committed_by_receipt,
+                workspace_isolation=workspace_isolation,
+            )
+        elif self.target == "codex":
+            from .codex_workspace_plane import (
+                is_codex_workspace_mapping_closure,
+            )
+
+            if is_codex_workspace_mapping_closure(mapping_committed_by_receipt):
+                raise ValidationError(
+                    "Codex qualified mapping lacks terminal workspace isolation"
+                )
         if receipt.get("yolo_mapping_sha256") != sha256_bytes(
-            canonical_json_bytes(self.raw["yolo_mapping"])
+            canonical_json_bytes(mapping_committed_by_receipt)
         ):
             raise ValidationError("qualified YOLO mapping changed")
         verified_capabilities = [

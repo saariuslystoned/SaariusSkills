@@ -262,6 +262,49 @@ def codex_qualified_mapping(mapping: Mapping[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def codex_probe_mapping_from_qualified(
+    mapping: Mapping[str, Any],
+    *,
+    workspace_isolation: Any,
+) -> Dict[str, Any]:
+    """Recover only the exact doctor mapping committed by terminal proof."""
+
+    from .adapter_manifest import validate_codex_workspace_isolation
+
+    if validate_codex_workspace_isolation(workspace_isolation) is None:
+        raise IdentityError("Codex qualified mapping lacks terminal workspace proof")
+    qualified = json.loads(canonical_json_bytes(mapping).decode("utf-8"))
+    if (
+        qualified.get("complete") is not True
+        or qualified.get("project_isolation_declared") is not True
+    ):
+        raise IdentityError("Codex qualified mapping closure changed")
+    probe_mapping = dict(qualified)
+    probe_mapping["complete"] = False
+    probe_mapping["project_isolation_declared"] = False
+    if codex_qualified_mapping(probe_mapping) != qualified:
+        raise IdentityError("Codex qualified mapping closure is not exact")
+    return probe_mapping
+
+
+def is_codex_workspace_mapping_closure(mapping: Mapping[str, Any]) -> bool:
+    """Identify the exact current closure that must carry terminal proof."""
+
+    try:
+        qualified = json.loads(canonical_json_bytes(mapping).decode("utf-8"))
+        if (
+            qualified.get("complete") is not True
+            or qualified.get("project_isolation_declared") is not True
+        ):
+            return False
+        probe_mapping = dict(qualified)
+        probe_mapping["complete"] = False
+        probe_mapping["project_isolation_declared"] = False
+        return codex_qualified_mapping(probe_mapping) == qualified
+    except (IdentityError, TypeError, ValueError):
+        return False
+
+
 def _codex_launch_environment(
     *, lane: Mapping[str, Any], codex_home: Mapping[str, Any]
 ) -> Dict[str, str]:
@@ -857,6 +900,8 @@ __all__ = [
     "CodexWorkspacePlan",
     "build_codex_worktree_descriptor",
     "codex_qualified_mapping",
+    "codex_probe_mapping_from_qualified",
+    "is_codex_workspace_mapping_closure",
     "materialize_codex_workspace_plane",
     "plan_codex_workspace_plane",
     "recover_codex_workspace_plane",

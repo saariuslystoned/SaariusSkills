@@ -19,6 +19,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab as puppet_adapter_lab  # noqa: E402
+from puppet_lib import codex_workspace_plane as codex_workspace_module  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     ACTIVATION_QUALIFICATION_PROOF_KINDS,
@@ -1277,6 +1278,131 @@ class AdapterTests(unittest.TestCase):
                 ):
                     puppet_adapter_lab._qualify(arguments)
             self.assertFalse(out.exists())
+
+    def test_codex_terminal_workspace_receipt_qualifies_and_reverifies(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = manifest_raw(target="codex")
+            probe_mapping = copy.deepcopy(raw["yolo_mapping"])
+            probe_mapping["complete"] = False
+            probe_mapping["project_isolation_declared"] = False
+            raw["yolo_mapping"] = probe_mapping
+            manifest_path = root / "doctor.json"
+            mapping_path = root / "mapping.json"
+            receipt_path = root / "receipt.json"
+            evidence_path = root / "evidence.json"
+            out = root / "qualified.json"
+            manifest_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            mapping_path.write_text(json.dumps(probe_mapping) + "\n", encoding="utf-8")
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            runtime = raw["execution"]["runtime_executable"]
+            evidence_path.write_text(
+                json.dumps(
+                    {
+                        "process": {
+                            "identity_version": 2,
+                            "pid": 4242,
+                            "start": "test-start",
+                            "kernel_birth_id": "test:4242",
+                            "command": Path(runtime["path"]).name,
+                            "executable_path": runtime["path"],
+                            "device": runtime["device"],
+                            "inode": runtime["inode"],
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            terminal_workspace = {
+                "schema": "puppet.codex-direct-worktree-receipt/v1",
+                "terminal_state": "controller_verified_after_exact_halt",
+                "descriptor_sha256": "1" * 64,
+                "candidate_root": "/tmp/codex-candidate",
+                "candidate_branch": "codex-candidate",
+                "candidate_head": "2" * 40,
+                "startup_cwd": "/tmp/codex-candidate",
+                "controller_contract_sha256": "3" * 64,
+                "instruction_manifest_sha256": "4" * 64,
+                "executable_sha256": raw["executable"]["sha256"],
+                "subscription_profile_sha256": "5" * 64,
+                "launch_plan_sha256": "6" * 64,
+            }
+            receipt = {
+                "target": "codex",
+                "session_profile": "regular",
+                "plane_activation": None,
+                "workspace_isolation": terminal_workspace,
+                "executable_fingerprint": raw["executable"]["sha256"],
+                "execution_fingerprint": raw["execution"]["execution_fingerprint"],
+                "adapter_fingerprint": raw["adapter_fingerprint"],
+                "protocol_fingerprint": raw["protocol_fingerprint"],
+                "version_fingerprint": raw["executable"]["version_sha256"],
+                "platform_fingerprint": hashlib.sha256(
+                    json.dumps(
+                        raw["platform"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "yolo_mapping_sha256": hashlib.sha256(
+                    json.dumps(
+                        probe_mapping,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "capabilities": [
+                    "launch",
+                    "send",
+                    "status",
+                    "wait",
+                    "checkpoint",
+                    "halt",
+                ],
+            }
+            arguments = SimpleNamespace(
+                manifest=manifest_path,
+                mapping=mapping_path,
+                receipt=receipt_path,
+                out=out,
+            )
+            patches = (
+                patch.object(
+                    codex_workspace_module,
+                    "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                    raw["executable"]["resolved_path"],
+                ),
+                patch.object(
+                    puppet_adapter_lab,
+                    "_verified_receipt",
+                    return_value=receipt,
+                ),
+                patch(
+                    "puppet_lib.adapter_manifest.verify_qualification_receipt",
+                    return_value=receipt,
+                ),
+                patch(
+                    "puppet_lib.adapter_manifest._qualification_artifacts",
+                    return_value={"evidence": evidence_path},
+                ),
+            )
+            with patches[0], patches[1], patches[2], patches[3]:
+                result = puppet_adapter_lab._qualify(arguments)
+                self.assertTrue(result["ok"])
+                qualified = AdapterManifest.from_path(out)
+                self.assertTrue(qualified.raw["yolo_mapping"]["complete"])
+                self.assertTrue(
+                    qualified.raw["yolo_mapping"]["project_isolation_declared"]
+                )
+                qualified.verify_qualification()
+
+                drifted = copy.deepcopy(qualified.raw)
+                drifted["yolo_mapping"]["permission_flags"].append("--drift")
+                with self.assertRaisesRegex(
+                    ValidationError, "qualified YOLO mapping changed"
+                ):
+                    AdapterManifest.from_dict(drifted).verify_qualification()
 
     def test_adapter_lab_probe_and_recover_accept_optional_plane_descriptor(self):
         descriptor = Path("claude-plane.json")
