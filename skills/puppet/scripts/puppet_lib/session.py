@@ -869,10 +869,11 @@ def doctor(
         )
         candidate_processes = grok_population["candidates"]
         blockers.extend(population_blockers)
-        # The source-only Grok planner binds private roots and an exact launch
-        # vector, but no live session may start until leader/child halt authority
-        # and the remaining Grok-specific qualification gates are proved.
-        blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
+        # Doctor-only Grok remains fenced. A terminal workspace-isolation receipt
+        # may promote a non-doctor manifest that the generic qualification path
+        # verifies below; incomplete census mapping alone never authorizes launch.
+        if manifest.raw["doctor_only"]:
+            blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
         active = _active_processes(contract.target, manifest)
         candidate_processes = active
@@ -970,9 +971,9 @@ def launch(
         profile_root=profile_root,
         require_subscription_profile=require_subscription_profile,
     )
-    if report["target"] == "grok":
-        # Defense in depth: no generic launch path may inherit an operator HOME
-        # or pretend the pane PID owns Grok's possible leader/child process tree.
+    if report["target"] == "grok" and not report.get("launch_ready"):
+        # Defense in depth: doctor-only Grok cannot launch through the public path.
+        # A verified, non-doctor qualification receipt may clear launch_ready.
         raise UnsupportedError(GROK_LAUNCH_AUTHORITY_BLOCKER)
     if not report["launch_ready"]:
         raise UnsupportedError("adapter remains doctor-only or preflight is blocked")

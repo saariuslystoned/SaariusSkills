@@ -313,6 +313,18 @@ authority rather than an unreachable launch hook.
 
 ## 6) Source status and remaining deltas
 
+- Implemented public qualification path: `grok_workspace_plane.py` independently
+  binds create-only `.grok/rules/puppet-<hash>.md` materialization, direct-
+  repository and cockpit entry join to one workspace identity, matched ordinary
+  control with no instruction bleed, hash-guarded rollback, exact regular argv
+  without model/effort selectors, and the terminal
+  `puppet.grok-workspace-isolation-receipt/v1` claim. Census stays incomplete
+  and doctor-only; only a controller-verified terminal receipt may close
+  `project_isolation_declared` via `grok_qualified_mapping`. Activation-only and
+  binding-only records remain non-promotable. `adapter_lab.py qualify` and
+  `AdapterManifest.verify_qualification` reverse the exact mapping closure.
+  `puppet.py launch` still refuses doctor-only Grok and consumes only a verified
+  non-doctor qualified manifest through the public path.
 - Implemented source-only: the exact 0.2.111 workspace-addendum descriptor and
   a deterministic body-free `binding_only` join rederived from its validated
   instruction manifest, effective contract, current adapter/doctor manifest,
@@ -368,19 +380,22 @@ authority rather than an unreachable launch hook.
   to the human-gated, lane-owned private-profile login required for live
   topology and halt proof. A schema-valid qualified manifest is not labeled
   doctor-only/unqualified.
-- Intentionally unchanged: census remains `doctor_only` and its incomplete
-  mapping does not promote help/parser facts into live sandbox or isolation
-  claims.
-- Remaining `census.py` / `adapter_manifest.py`: bind proved live semantics for
-  explicit `--sandbox off`, parser facts, and clean-root model evidence.
-- Remaining plane lifecycle: controller-attested materialization, launch-time
-  revalidation, matched no-bleed proof, and exact rollback are still absent.
-- `session.py` / `tmux.py`: consume the typed plan only after qualification and
-  recheck the exact candidate population immediately before target start.
-- `registry.py` / `probe.py`: consume the source-owned Grok halt plan during a
-  future approved live lane, bind the observed root/descendant tuple, deliver
-  the exact-root halt, and record the completion receipt alongside lane homes,
-  artifact hash, model/auth observation, no-bleed control, and exact rollback.
+- Intentionally unchanged: zero-agent census remains `doctor_only` with
+  incomplete `project_isolation_declared` until a terminal workspace-isolation
+  receipt closes the mapping. Help/parser facts alone never complete the mapping.
+- Public Pass-B path: `probe.py` accepts a Grok entry descriptor, materializes
+  the create-only rule, attests matched ordinary control, records exact halt,
+  rolls the rule back by content hash, and emits terminal workspace isolation
+  with optional `observed_model` (`unavailable` allowed). Live semantics of
+  `--sandbox off` / `--always-approve` remain controller-observed during that
+  approved Pass B, not self-reported.
+- `session.py`: doctor-only Grok stays fenced; a verified non-doctor qualified
+  manifest may proceed through the public `puppet.py launch` path with exact
+  regular argv and no model/effort selector.
+- Remaining: live leader/child halt topology proof under an authenticated
+  private profile during an approved controller-owned Pass B; native read-only
+  tmux attach is already a generic session surface and is recorded by probe
+  evidence, not a separate Grok module.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
   launcher/runtime separation, path containment, no live-home fallback,
   distinct lane sockets/UUIDs, leader identity, default-model parsing, and

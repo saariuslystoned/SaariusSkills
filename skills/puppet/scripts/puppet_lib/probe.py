@@ -60,6 +60,16 @@ from .codex_workspace_plane import (
     TERMINAL_SCHEMA as CODEX_WORKTREE_TERMINAL_SCHEMA,
     validate_codex_worktree_descriptor,
 )
+from .grok_workspace_plane import (
+    DESCRIPTOR_SCHEMA as GROK_WORKSPACE_DESCRIPTOR_SCHEMA,
+    TERMINAL_SCHEMA as GROK_WORKSPACE_TERMINAL_SCHEMA,
+    attest_grok_matched_control,
+    build_artifact_relative_path,
+    build_grok_terminal_workspace_isolation,
+    materialize_grok_workspace_rule,
+    rollback_grok_workspace_rule,
+    validate_grok_entry_descriptor,
+)
 from .contracts import (
     Contract,
     MANDATORY_HARD_GATES,
@@ -219,6 +229,7 @@ def _validated_mapping(
     allow_claude_activation: bool = False,
     allow_claude_control: bool = False,
     allow_codex_worktree_probe: bool = False,
+    allow_grok_workspace_probe: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
@@ -290,10 +301,38 @@ def _validated_mapping(
             and target == "claude"
             and mapping == expected_activation_mapping
         )
-        if not codex_worktree_exception and not claude_control_exception and (
-            not allow_claude_activation
-            or target != "claude"
-            or mapping != expected_activation_mapping
+        grok_workspace_exception = (
+            allow_grok_workspace_probe
+            and target == "grok"
+            and mapping.get("project_isolation_declared") is False
+            and mapping.get("project_isolation_flags") == []
+            and mapping.get("permission_flags") == ["--always-approve"]
+            and mapping.get("sandbox_flags") == ["--sandbox", "off"]
+            and all(
+                mapping.get(name) is True
+                for name in (
+                    "permission_declared",
+                    "prompt_transport_declared",
+                    "sandbox_disable_declared",
+                    "session_profiles_declared",
+                )
+            )
+            and isinstance(mapping.get("launch_argv"), list)
+            and len(mapping.get("launch_argv") or []) == 4
+            and (mapping.get("launch_argv") or [None])[1:]
+            == ["--always-approve", "--sandbox", "off"]
+            and "--model" not in (mapping.get("launch_argv") or [])
+            and "--reasoning-effort" not in (mapping.get("launch_argv") or [])
+        )
+        if (
+            not codex_worktree_exception
+            and not claude_control_exception
+            and not grok_workspace_exception
+            and (
+                not allow_claude_activation
+                or target != "claude"
+                or mapping != expected_activation_mapping
+            )
         ):
             raise ValidationError(
                 "candidate YOLO and sandbox-off mapping is incomplete"
@@ -323,7 +362,10 @@ def _read_plane_descriptor(path: Path) -> Dict[str, Any]:
         decoded = json.loads(text)
     except json.JSONDecodeError:
         return parse_instruction_plane_descriptor(text)
-    if isinstance(decoded, dict) and decoded.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA:
+    if isinstance(decoded, dict) and decoded.get("schema") in {
+        CODEX_WORKTREE_DESCRIPTOR_SCHEMA,
+        GROK_WORKSPACE_DESCRIPTOR_SCHEMA,
+    }:
         return decoded
     return parse_instruction_plane_descriptor(text)
 
@@ -937,8 +979,14 @@ def run_probe(
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA
     )
+    grok_workspace_descriptor = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema") == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
+    )
     claude_plane_descriptor = (
-        plane_descriptor_value is not None and not codex_worktree_descriptor
+        plane_descriptor_value is not None
+        and not codex_worktree_descriptor
+        and not grok_workspace_descriptor
     )
     if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
@@ -959,6 +1007,8 @@ def run_probe(
         paired_activation_receipt = _claude_activation_receipt_path(
             proof_root, paired_activation_receipt
         )
+    if grok_workspace_descriptor and target != "grok":
+        raise ValidationError("Grok workspace descriptor target changed")
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -966,6 +1016,7 @@ def run_probe(
         allow_claude_activation=claude_plane_descriptor,
         allow_claude_control=claude_control_probe,
         allow_codex_worktree_probe=codex_worktree_descriptor,
+        allow_grok_workspace_probe=grok_workspace_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -1034,6 +1085,15 @@ def run_probe(
             expected_executable_sha256=manifest.raw["executable"]["sha256"],
             expected_subscription_profile_root=subscription_context.profile_root,
         )
+    if grok_workspace_descriptor:
+        validate_grok_entry_descriptor(
+            plane_descriptor_value,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_subscription_profile_root=subscription_context.profile_root,
+        )
     if target != "agy":
         validate_subscription_launch_binding(
             subscription_binding,
@@ -1063,6 +1123,8 @@ def run_probe(
     activation_context_path = run_root / "activation-context.json"
     matched_attestation_path = run_root / "matched-control-attestation.json"
     matched_signal_path = run_root / "matched-control-signal.json"
+    workspace_materialization_path = run_root / "workspace-materialization.json"
+    workspace_rollback_path = run_root / "workspace-rollback.json"
     activation_lane_root = run_root / "activation-lane"
     activation_ephemeral_root = activation_lane_root / "ephemeral"
     activation_transaction_root = activation_lane_root / "transaction"
@@ -1109,6 +1171,9 @@ def run_probe(
     matched_activation_attestation: Optional[Dict[str, Any]] = None
     matched_signal_guard: Optional[Any] = None
     matched_signal_observation: Optional[Dict[str, Any]] = None
+    grok_materialization: Optional[Dict[str, Any]] = None
+    grok_matched_control: Optional[Dict[str, Any]] = None
+    grok_rollback: Optional[Dict[str, Any]] = None
     active: Optional[list[Dict[str, Any]]] = None
     lock_descriptor: Optional[int] = None
     lease_owned = False
@@ -1309,6 +1374,40 @@ def run_probe(
                     # binds there; terminal workspace_isolation independently proves
                     # that real process cwd while prompts use absolute fixture paths.
                     launch_repo = Path(plane_descriptor_value["candidate_root"])
+                if grok_workspace_descriptor:
+                    # Grok starts in the joined workspace root where the create-only
+                    # namespaced rule is materialized; the fixture still owns handoffs.
+                    launch_repo = Path(plane_descriptor_value["workspace_root"])
+                    relative_path = build_artifact_relative_path(
+                        compiled.manifest["rendered_sha256"]
+                    )
+                    if relative_path != plane_descriptor_value["artifact_relative_path"]:
+                        raise IdentityError(
+                            "Grok workspace rule path does not match the effective contract"
+                        )
+                    ordinary_control_root = run_root / "ordinary-control-workspace"
+                    ordinary_control_root.mkdir(mode=0o700)
+                    grok_materialization = materialize_grok_workspace_rule(
+                        workspace_root=launch_repo,
+                        relative_path=relative_path,
+                        content=compiled.rendered,
+                        descriptor_sha256=plane_descriptor_value["descriptor_sha256"],
+                    )
+                    atomic_write_json(
+                        workspace_materialization_path, grok_materialization
+                    )
+                    grok_matched_control = attest_grok_matched_control(
+                        positive_workspace_root=launch_repo,
+                        ordinary_workspace_root=ordinary_control_root,
+                        positive_relative_path=relative_path,
+                        positive_content_sha256=grok_materialization["content_sha256"],
+                        workspace_identity_join_sha256=plane_descriptor_value[
+                            "workspace_identity_sha256"
+                        ],
+                    )
+                    atomic_write_json(
+                        matched_attestation_path, grok_matched_control
+                    )
                 launch_environment, launch_identity = build_launch_identity(
                     target=target,
                     repo=launch_repo,
@@ -2223,6 +2322,55 @@ def run_probe(
                 ],
                 "launch_plan_sha256": evidence["launch_plan_sha256"],
             }
+        if grok_workspace_descriptor:
+            if (
+                grok_materialization is None
+                or grok_matched_control is None
+            ):
+                raise IdentityError(
+                    "Grok workspace materialization or matched control is missing"
+                )
+            # Hash-guarded rollback first so the linked worktree is clean before
+            # the controller rejoins the entry descriptor identity.
+            grok_rollback = rollback_grok_workspace_rule(
+                workspace_root=plane_descriptor_value["workspace_root"],
+                relative_path=grok_materialization["relative_path"],
+                expected_content_sha256=grok_materialization["content_sha256"],
+            )
+            atomic_write_json(workspace_rollback_path, grok_rollback)
+            validate_grok_entry_descriptor(
+                plane_descriptor_value,
+                expected_controller=controller,
+                expected_campaign_id=authorization["campaign_id"],
+                expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+                expected_executable_sha256=manifest.raw["executable"]["sha256"],
+                expected_subscription_profile_root=subscription_context.profile_root,
+            )
+            observed_model = "unavailable"
+            if isinstance(subscription_status, dict):
+                default_model = subscription_status.get("default_model")
+                if default_model in {"grok-4.5", "unknown", "unavailable"}:
+                    observed_model = default_model
+                elif default_model is None:
+                    observed_model = "unavailable"
+            evidence["workspace_isolation"] = build_grok_terminal_workspace_isolation(
+                descriptor=plane_descriptor_value,
+                materialization=grok_materialization,
+                matched_control=grok_matched_control,
+                rollback=grok_rollback,
+                startup_cwd=launch_plan["cwd"],
+                controller_contract_sha256=sha256_file(
+                    controller_contract_path, max_bytes=131072
+                ),
+                instruction_manifest_sha256=instruction_manifest_sha,
+                executable_sha256=manifest.raw["executable"]["sha256"],
+                subscription_profile_sha256=evidence["subscription_profile_sha256"],
+                launch_plan_sha256=evidence["launch_plan_sha256"],
+                observed_model=observed_model,
+                halt_receipt_sha256=halt_sha,
+            )
+            if evidence["workspace_isolation"]["schema"] != GROK_WORKSPACE_TERMINAL_SCHEMA:
+                raise IdentityError("Grok terminal workspace isolation schema changed")
         evidence["result"] = "accepted"
         atomic_write_json(evidence_path, evidence)
         _assert_instruction_artifact(
@@ -2304,6 +2452,40 @@ def run_probe(
                     ),
                     _proof_reference(
                         "controller_contract", controller_contract_path, run_root
+                    ),
+                ]
+            )
+        if grok_workspace_descriptor:
+            if (
+                grok_materialization is None
+                or grok_matched_control is None
+                or grok_rollback is None
+            ):
+                raise IdentityError("Grok workspace proof artifacts are incomplete")
+            proof_refs.extend(
+                [
+                    _proof_reference(
+                        "workspace_descriptor",
+                        plane_descriptor_snapshot_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "controller_contract", controller_contract_path, run_root
+                    ),
+                    _proof_reference(
+                        "matched_control_attestation",
+                        matched_attestation_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "workspace_materialization",
+                        workspace_materialization_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "workspace_rollback",
+                        workspace_rollback_path,
+                        run_root,
                     ),
                 ]
             )
@@ -2396,6 +2578,19 @@ def run_probe(
         return accepted_result
     except BaseException as exc:
         cleanup_error = None
+        if grok_materialization is not None and grok_rollback is None:
+            try:
+                grok_rollback = rollback_grok_workspace_rule(
+                    workspace_root=grok_materialization["workspace_root"],
+                    relative_path=grok_materialization["relative_path"],
+                    expected_content_sha256=grok_materialization["content_sha256"],
+                )
+                atomic_write_json(workspace_rollback_path, grok_rollback)
+            except Exception as rollback_exc:  # Preserve the original failure.
+                cleanup_error = "%s: %s" % (
+                    rollback_exc.__class__.__name__,
+                    str(rollback_exc)[:500],
+                )
         if (
             tmux is not None
             and metadata is not None
@@ -2636,8 +2831,14 @@ def recover_probe(
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA
     )
+    grok_workspace_descriptor = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema") == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
+    )
     claude_plane_descriptor = (
-        plane_descriptor_value is not None and not codex_worktree_descriptor
+        plane_descriptor_value is not None
+        and not codex_worktree_descriptor
+        and not grok_workspace_descriptor
     )
     if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
@@ -2658,6 +2859,8 @@ def recover_probe(
         paired_activation_receipt = _claude_activation_receipt_path(
             proof_root, paired_activation_receipt
         )
+    if grok_workspace_descriptor and target != "grok":
+        raise ValidationError("Grok workspace descriptor target changed")
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -2665,6 +2868,7 @@ def recover_probe(
         allow_claude_activation=claude_plane_descriptor,
         allow_claude_control=claude_control_probe,
         allow_codex_worktree_probe=codex_worktree_descriptor,
+        allow_grok_workspace_probe=grok_workspace_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )

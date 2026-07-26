@@ -10,7 +10,7 @@ import stat
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from .authority import (
     AUTHORITY_ID,
@@ -353,6 +353,13 @@ CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS = (
     "workspace_descriptor",
     "controller_contract",
 )
+GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS = (
+    "workspace_descriptor",
+    "controller_contract",
+    "matched_control_attestation",
+    "workspace_materialization",
+    "workspace_rollback",
+)
 PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
 ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
 _PROBE_PLANE_ACTIVATION_FIELDS = {
@@ -539,6 +546,44 @@ def validate_codex_workspace_isolation(value: Any) -> Optional[Dict[str, Any]]:
     return dict(value)
 
 
+def validate_grok_workspace_isolation(value: Any) -> Optional[Dict[str, Any]]:
+    """Validate terminal Grok workspace isolation without launching Grok."""
+
+    from .grok_workspace_plane import (
+        validate_grok_workspace_isolation as _validate_grok_workspace_isolation,
+    )
+
+    return _validate_grok_workspace_isolation(value)
+
+
+def validate_terminal_workspace_isolation(
+    value: Any,
+) -> Optional[Dict[str, Any]]:
+    """Dispatch Codex or Grok terminal workspace isolation by schema."""
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValidationError("workspace isolation root must be an object")
+    schema = value.get("schema")
+    if schema == "puppet.codex-direct-worktree-receipt/v1":
+        return validate_codex_workspace_isolation(value)
+    if schema == "puppet.grok-workspace-isolation-receipt/v1":
+        return validate_grok_workspace_isolation(value)
+    raise ValidationError("unsupported workspace isolation schema")
+
+
+def workspace_isolation_target(value: Optional[Mapping[str, Any]]) -> Optional[str]:
+    if value is None:
+        return None
+    schema = value.get("schema") if isinstance(value, Mapping) else None
+    if schema == "puppet.codex-direct-worktree-receipt/v1":
+        return "codex"
+    if schema == "puppet.grok-workspace-isolation-receipt/v1":
+        return "grok"
+    return None
+
+
 def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
     """Reject legacy, future, and mixed-shape qualification evidence."""
 
@@ -558,7 +603,7 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
         "qualification evidence execution fingerprint",
     )
     validate_probe_plane_activation(value.get("plane_activation"))
-    validate_codex_workspace_isolation(value.get("workspace_isolation"))
+    validate_terminal_workspace_isolation(value.get("workspace_isolation"))
     if value.get("result") == "accepted":
         validate_sha256(
             value.get("subscription_profile_sha256"),
@@ -648,14 +693,19 @@ def _verify_qualification_instruction_authority(
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
     activation = validate_probe_plane_activation(receipt.get("plane_activation"))
-    workspace = validate_codex_workspace_isolation(
+    workspace = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
     )
+    workspace_target = workspace_isolation_target(workspace)
+    if workspace is not None and workspace_target == "codex":
+        workspace_kinds = CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS
+    elif workspace is not None and workspace_target == "grok":
+        workspace_kinds = GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS
+    else:
+        workspace_kinds = ()
     expected_kinds = QUALIFICATION_PROOF_KINDS + (
         ACTIVATION_QUALIFICATION_PROOF_KINDS if activation is not None else ()
-    ) + (
-        CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS if workspace is not None else ()
-    )
+    ) + workspace_kinds
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
         raise ValidationError("qualification proof references are incomplete")
@@ -859,13 +909,18 @@ def verify_qualification_receipt(
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
     plane_activation = validate_probe_plane_activation(receipt.get("plane_activation"))
-    workspace_isolation = validate_codex_workspace_isolation(
+    workspace_isolation = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
     )
     if plane_activation is not None and receipt.get("target") != "claude":
         raise ValidationError("plane activation is supported only for Claude")
-    if workspace_isolation is not None and receipt.get("target") != "codex":
-        raise ValidationError("workspace isolation is supported only for Codex")
+    isolation_target = workspace_isolation_target(workspace_isolation)
+    if workspace_isolation is not None and receipt.get("target") != isolation_target:
+        raise ValidationError(
+            "workspace isolation target does not match the qualification receipt"
+        )
+    if isolation_target is not None and isolation_target not in {"codex", "grok"}:
+        raise ValidationError("workspace isolation is limited to Codex and Grok")
     validate_session_profile(receipt["target"], receipt.get("session_profile"))
     validate_identifier(receipt.get("run_id"), "qualification run id")
     validate_identifier(receipt.get("controller"), "qualification controller")
@@ -921,14 +976,32 @@ def verify_qualification_receipt(
         raise ValidationError(
             "Codex qualification lacks terminal workspace isolation"
         )
+    if (
+        receipt["target"] == "grok"
+        and current["yolo_mapping"].get("complete") is False
+        and workspace_isolation is None
+    ):
+        raise ValidationError(
+            "Grok qualification lacks terminal workspace isolation"
+        )
     current_mapping = current["yolo_mapping"]
     if workspace_isolation is not None and current_mapping.get("complete") is True:
-        from .codex_workspace_plane import codex_probe_mapping_from_qualified
+        if isolation_target == "codex":
+            from .codex_workspace_plane import codex_probe_mapping_from_qualified
 
-        current_mapping = codex_probe_mapping_from_qualified(
-            current_mapping,
-            workspace_isolation=workspace_isolation,
-        )
+            current_mapping = codex_probe_mapping_from_qualified(
+                current_mapping,
+                workspace_isolation=workspace_isolation,
+            )
+        elif isolation_target == "grok":
+            from .grok_workspace_plane import grok_probe_mapping_from_qualified
+
+            current_mapping = grok_probe_mapping_from_qualified(
+                current_mapping,
+                workspace_isolation=workspace_isolation,
+            )
+        else:
+            raise ValidationError("workspace isolation reverse-closure target is invalid")
     if receipt["target"] == "claude":
         from .claude_paired_qualification import (
             claude_probe_mapping_from_qualified,
@@ -1207,42 +1280,110 @@ def verify_qualification_receipt(
     if launch_plan["argv"] != expected_launch_argv:
         raise ValidationError("qualification launch argv differs from its authority")
     if workspace_isolation is not None:
-        from .codex_workspace_plane import validate_codex_worktree_descriptor
-
         descriptor = read_json(
             artifacts["workspace_descriptor"],
             max_bytes=131072,
             reject_sensitive_fields=True,
         )
-        validated_descriptor = validate_codex_worktree_descriptor(
-            descriptor,
-            expected_controller=receipt["controller"],
-            expected_campaign_id=receipt["campaign_id"],
-            expected_goal_fingerprint=receipt["goal_fingerprint"],
-            expected_executable_sha256=receipt["executable_fingerprint"],
-            expected_subscription_profile_root=subscription_binding["profile_root"],
-        )
-        if (
-            workspace_isolation["descriptor_sha256"]
-            != validated_descriptor["descriptor_sha256"]
-            or workspace_isolation["candidate_root"]
-            != validated_descriptor["candidate_root"]
-            or workspace_isolation["candidate_branch"]
-            != validated_descriptor["candidate_branch"]
-            or workspace_isolation["candidate_head"]
-            != validated_descriptor["candidate_head"]
-            or workspace_isolation["executable_sha256"]
-            != receipt["executable_fingerprint"]
-            or workspace_isolation["subscription_profile_sha256"]
-            != receipt["subscription_profile_sha256"]
-            or workspace_isolation["launch_plan_sha256"]
-            != receipt["launch_plan_sha256"]
-            or workspace_isolation["instruction_manifest_sha256"]
-            != sha256_file(artifacts["instructions"], max_bytes=131072)
-            or workspace_isolation["controller_contract_sha256"]
-            != sha256_file(artifacts["controller_contract"], max_bytes=131072)
-        ):
-            raise IdentityError("Codex terminal workspace receipt binding changed")
+        if isolation_target == "codex":
+            from .codex_workspace_plane import validate_codex_worktree_descriptor
+
+            validated_descriptor = validate_codex_worktree_descriptor(
+                descriptor,
+                expected_controller=receipt["controller"],
+                expected_campaign_id=receipt["campaign_id"],
+                expected_goal_fingerprint=receipt["goal_fingerprint"],
+                expected_executable_sha256=receipt["executable_fingerprint"],
+                expected_subscription_profile_root=subscription_binding[
+                    "profile_root"
+                ],
+            )
+            if (
+                workspace_isolation["descriptor_sha256"]
+                != validated_descriptor["descriptor_sha256"]
+                or workspace_isolation["candidate_root"]
+                != validated_descriptor["candidate_root"]
+                or workspace_isolation["candidate_branch"]
+                != validated_descriptor["candidate_branch"]
+                or workspace_isolation["candidate_head"]
+                != validated_descriptor["candidate_head"]
+                or workspace_isolation["executable_sha256"]
+                != receipt["executable_fingerprint"]
+                or workspace_isolation["subscription_profile_sha256"]
+                != receipt["subscription_profile_sha256"]
+                or workspace_isolation["launch_plan_sha256"]
+                != receipt["launch_plan_sha256"]
+                or workspace_isolation["instruction_manifest_sha256"]
+                != sha256_file(artifacts["instructions"], max_bytes=131072)
+                or workspace_isolation["controller_contract_sha256"]
+                != sha256_file(artifacts["controller_contract"], max_bytes=131072)
+            ):
+                raise IdentityError("Codex terminal workspace receipt binding changed")
+        elif isolation_target == "grok":
+            from .grok_workspace_plane import validate_grok_entry_descriptor
+
+            validated_descriptor = validate_grok_entry_descriptor(
+                descriptor,
+                expected_controller=receipt["controller"],
+                expected_campaign_id=receipt["campaign_id"],
+                expected_goal_fingerprint=receipt["goal_fingerprint"],
+                expected_executable_sha256=receipt["executable_fingerprint"],
+                expected_subscription_profile_root=subscription_binding[
+                    "profile_root"
+                ],
+            )
+            if (
+                workspace_isolation["descriptor_sha256"]
+                != validated_descriptor["descriptor_sha256"]
+                or workspace_isolation["workspace_root"]
+                != validated_descriptor["workspace_root"]
+                or workspace_isolation["workspace_identity_sha256"]
+                != validated_descriptor["workspace_identity_sha256"]
+                or workspace_isolation["artifact_relative_path"]
+                != validated_descriptor["artifact_relative_path"]
+                or workspace_isolation["executable_sha256"]
+                != receipt["executable_fingerprint"]
+                or workspace_isolation["subscription_profile_sha256"]
+                != receipt["subscription_profile_sha256"]
+                or workspace_isolation["launch_plan_sha256"]
+                != receipt["launch_plan_sha256"]
+                or workspace_isolation["instruction_manifest_sha256"]
+                != sha256_file(artifacts["instructions"], max_bytes=131072)
+                or workspace_isolation["controller_contract_sha256"]
+                != sha256_file(artifacts["controller_contract"], max_bytes=131072)
+                or workspace_isolation["halt_receipt_sha256"]
+                != receipt["halt_receipt_sha256"]
+            ):
+                raise IdentityError("Grok terminal workspace receipt binding changed")
+            matched = read_json(
+                artifacts["matched_control_attestation"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            )
+            materialization = read_json(
+                artifacts["workspace_materialization"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            )
+            rollback = read_json(
+                artifacts["workspace_rollback"],
+                max_bytes=131072,
+                reject_sensitive_fields=True,
+            )
+            if workspace_isolation["matched_control_sha256"] != matched.get(
+                "attestation_sha256"
+            ):
+                raise IdentityError("Grok matched-control proof reference changed")
+            if workspace_isolation["materialization_sha256"] != sha256_bytes(
+                canonical_json_bytes(materialization)
+            ):
+                raise IdentityError("Grok materialization proof reference changed")
+            if workspace_isolation["rollback_sha256"] != sha256_bytes(
+                canonical_json_bytes(rollback)
+            ):
+                raise IdentityError("Grok rollback proof reference changed")
+        else:
+            raise ValidationError("workspace isolation target is unsupported")
     wrapper = evidence.get("instruction_wrapper")
     if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
         raise ValidationError("qualification instruction wrapper fields are invalid")
@@ -2551,19 +2692,30 @@ class AdapterManifest:
             raise ValidationError("qualification platform or version identity mismatch")
         mapping_committed_by_receipt = self.raw["yolo_mapping"]
         workspace_isolation = receipt.get("workspace_isolation")
+        isolation_target = workspace_isolation_target(workspace_isolation)
         if workspace_isolation is not None:
-            if self.target != "codex":
+            if self.target != isolation_target or self.target not in {"codex", "grok"}:
                 raise ValidationError(
-                    "workspace-isolation closure is limited to Codex"
+                    "workspace-isolation closure does not match the adapter target"
                 )
-            from .codex_workspace_plane import (
-                codex_probe_mapping_from_qualified,
-            )
+            if isolation_target == "codex":
+                from .codex_workspace_plane import (
+                    codex_probe_mapping_from_qualified,
+                )
 
-            mapping_committed_by_receipt = codex_probe_mapping_from_qualified(
-                mapping_committed_by_receipt,
-                workspace_isolation=workspace_isolation,
-            )
+                mapping_committed_by_receipt = codex_probe_mapping_from_qualified(
+                    mapping_committed_by_receipt,
+                    workspace_isolation=workspace_isolation,
+                )
+            else:
+                from .grok_workspace_plane import (
+                    grok_probe_mapping_from_qualified,
+                )
+
+                mapping_committed_by_receipt = grok_probe_mapping_from_qualified(
+                    mapping_committed_by_receipt,
+                    workspace_isolation=workspace_isolation,
+                )
         elif self.target == "codex":
             from .codex_workspace_plane import (
                 is_codex_workspace_mapping_closure,
@@ -2572,6 +2724,15 @@ class AdapterManifest:
             if is_codex_workspace_mapping_closure(mapping_committed_by_receipt):
                 raise ValidationError(
                     "Codex qualified mapping lacks terminal workspace isolation"
+                )
+        elif self.target == "grok":
+            from .grok_workspace_plane import (
+                is_grok_workspace_mapping_closure,
+            )
+
+            if is_grok_workspace_mapping_closure(mapping_committed_by_receipt):
+                raise ValidationError(
+                    "Grok qualified mapping lacks terminal workspace isolation"
                 )
         if self.target == "claude":
             from .claude_paired_qualification import (
