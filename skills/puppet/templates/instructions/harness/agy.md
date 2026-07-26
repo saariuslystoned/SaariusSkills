@@ -10,3 +10,6 @@
   parallel summary or checkpoint artifact.
 - Never synthesize `conformance_handoff.json` or another conventional handoff
   name unless the task packet explicitly names that exact path.
+- When a task supplies a complete `WRITE_*_JSON` object, use that complete
+  object as the sole source. Never copy an earlier handoff and patch selected
+  fields; every nested phase or status value must match the supplied object.

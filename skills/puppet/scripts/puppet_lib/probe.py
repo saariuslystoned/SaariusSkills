@@ -522,7 +522,10 @@ def _followup_prompt(
         "%s"
         "Verify the same run_id and nonce plus message_id and sequence=1. "
         "Atomically write only %s with the exact JSON object "
-        "below, make no other changes, and remain waiting for exact halt.\n"
+        "below, make no other changes, and remain waiting for exact halt. "
+        "WRITE_FOLLOWUP_JSON is a complete replacement object: do not copy or "
+        "patch ready.json. Its top-level phase and its nested claim status must "
+        "both be followup, never ready.\n"
         "run_id=%s\nnonce=%s\nmessage_id=%s\nsequence=1\n"
         "prior_checkpoint_sha256=%s\nWRITE_FOLLOWUP_JSON=%s"
         % (

@@ -961,6 +961,24 @@ class ProbeTests(unittest.TestCase):
             prompt,
         )
 
+    def test_followup_probe_prompt_forbids_patching_the_ready_handoff(self):
+        prompt = puppet_probe._followup_prompt(
+            {
+                "allowed_fixture_root": "/tmp/bounded-fixture",
+                "run_id": "probe-followup-contract",
+                "nonce": "a" * 32,
+            },
+            {
+                "message_id": "message-followup",
+                "prior_checkpoint_sha256": "b" * 64,
+                "phase": "followup",
+                "claims": [{"status": "followup"}],
+            },
+        )
+        self.assertIn("complete replacement object", prompt)
+        self.assertIn("do not copy or patch ready.json", prompt)
+        self.assertIn("nested claim status must both be followup", prompt)
+
     def test_agy_shared_auth_probe_revalidates_without_private_profile_context(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

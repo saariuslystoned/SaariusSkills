@@ -144,6 +144,8 @@ class InstructionCompilerTests(unittest.TestCase):
         self.assertIn("exact artifact allowlists as hard boundaries", text)
         self.assertIn("create exactly that file", text)
         self.assertIn("Never synthesize `conformance_handoff.json`", text)
+        self.assertIn("Never copy an earlier handoff", text)
+        self.assertIn("every nested phase or status value", text)
 
     def test_compile_with_addendum_and_task_hash_variation(self):
         compiled_base = compile_instruction_wrapper(
