@@ -115,7 +115,7 @@
     },
     "agents": {
       "type": "array",
-      "minItems": 4,
+      "minItems": 3,
       "maxItems": 4,
       "items": {
         "type": "object",
@@ -151,7 +151,8 @@
         "tool_policy": {
           "enum": [
             "one-write-to-file-exact-result-all-else-deny",
-            "profile-write-only-plus-external-quarantine-postflight"
+            "profile-write-only-plus-external-quarantine-postflight",
+            "parent-invoke-plus-join-children-write-only"
           ]
         },
         "packaging": {
@@ -172,6 +173,18 @@
         },
         "discovery_output_policy": {
           "const": "digest-in-memory-not-retained"
+        },
+        "profile_quarantine_phase": {
+          "const": "after-child-writes-before-parent-join"
+        },
+        "fanout_oracle": {
+          "const": "child-hidden-markers-plus-gated-parent-join"
+        },
+        "join_gate": {
+          "const": "os-locked-until-both-child-files"
+        },
+        "scheduler_observation": {
+          "const": "functional-artifacts-not-tool-trace"
         }
       }
     },
@@ -188,7 +201,7 @@
         "max_sessions": {"type": "integer", "minimum": 1, "maximum": 8},
         "max_invocations": {"type": "integer", "minimum": 1, "maximum": 16},
         "max_wall_seconds": {"type": "integer", "minimum": 1, "maximum": 720},
-        "per_session_seconds": {"type": "integer", "minimum": 1, "maximum": 90}
+        "per_session_seconds": {"type": "integer", "minimum": 1, "maximum": 240}
       }
     }
   }

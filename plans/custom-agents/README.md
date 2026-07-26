@@ -56,6 +56,11 @@ duplicate controls were rejected before model launch; exactly one
 oracle. This admits a separately bounded 2x2 route while leaving raw direct
 unknown-name selection unqualified.
 
+Phase 2 uses two fresh parent rounds with two custom children per round. Hidden
+child markers and child-only paths ground each branch; the parent join remains
+OS-locked until both child files exist. This proves functional fan-out and join
+without reading tool traces or transcripts.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -71,10 +76,15 @@ Files:
 - `BEHAVIOR_CONTRACT_PHASE1E.md` — exact-count pre-model selection guard;
 - `ROUTE_PHASE_1E.md` — bounded no-model negatives and one positive guard
   route;
+- `BEHAVIOR_CONTRACT_PHASE2_2X2.md` — two-round, two-child nested fan-out
+  oracle;
+- `ROUTE_PHASE2_2X2.md` — bounded 2x2 execution route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe
   hook observer, inventory filter, CLI-log filter, and bounded result verifier.
+- `scripts/fanout_harness.py` — hidden-child fixture builder, guarded fan-out
+  runner, gated join observer, verifier, and scoped postflight.
 
 The committed fixture source is
 `fixtures/custom-agents/phase1/`. It is inert in this repository. Runtime
