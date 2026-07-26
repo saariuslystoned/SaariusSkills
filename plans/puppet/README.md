@@ -5,7 +5,14 @@ Bootstrap source now lives under `skills/puppet/`. Machine-private dogfood
 proof is intentionally excluded from the public branch; the live five-harness
 campaign remains incomplete until commit-bound public proof says otherwise.
 
-The active 2026-07-22 campaign amendment is
+The active 2026-07-25 dogfood goal is
+[`codex-goal-four-harness-dogfood.md`](codex-goal-four-harness-dogfood.md).
+It reopens PR #5 after its standalone core closeout to collect real,
+subscription-backed Codex, Claude, Cursor, and Grok implementation and
+cross-review evidence. The broader 2026-07-22 qualification packet remains the
+longer-term product contract but is not the active Codex goal.
+
+The active design amendment remains
 [`instruction-qualification.md`](instruction-qualification.md). It narrows the
 first portable baseline to regular sessions, adds instruction-plane safety and
 qualification, and permits isolated per-harness qualification lanes. Where it
@@ -26,8 +33,11 @@ conversation.
 
 ## Start here
 
+- [`codex-goal-four-harness-dogfood.md`](codex-goal-four-harness-dogfood.md)
+  is the active dogfood-first Codex goal packet.
 - [`codex-goal-regular-qualification.md`](codex-goal-regular-qualification.md)
-  is the active autonomous Codex goal packet.
+  is the broader superseded campaign packet and longer-term qualification
+  reference.
 - [`instruction-qualification.md`](instruction-qualification.md) records the
   post-closeout decisions on instruction composition, workspace ownership,
   regular-session scope, concurrency, models, and deferred native commands.
