@@ -36,6 +36,7 @@ from puppet_lib.conformance import (  # noqa: E402
     AGY_RUN_LOCAL_SYSTEM_ADDENDUM,
     CONFORMANCE_CONTRACT_SCHEMA_VERSION,
     create_fixture,
+    tree_fingerprint,
     validate_fixture_contract,
 )
 from puppet_lib.contracts import Contract  # noqa: E402
@@ -586,6 +587,25 @@ class SessionIntegrationTests(unittest.TestCase):
                 target="codex",
             )
             self.assertFalse((fixture / "GEMINI.md").exists())
+
+    def test_agy_conformance_fixture_system_addendum_participates_in_tree_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary).resolve() / "fixture"
+            create_fixture(
+                fixture,
+                run_id="run-agy-tree-fingerprint",
+                session="agy-tree-fingerprint",
+                target="agy",
+            )
+            gemini_md = fixture / "GEMINI.md"
+            self.assertTrue(gemini_md.exists())
+            self.assertEqual(gemini_md.read_bytes(), AGY_RUN_LOCAL_SYSTEM_ADDENDUM)
+
+            baseline_fingerprint = tree_fingerprint(fixture)
+            gemini_md.write_bytes(AGY_RUN_LOCAL_SYSTEM_ADDENDUM + b"\n# extra line\n")
+            modified_fingerprint = tree_fingerprint(fixture)
+
+            self.assertNotEqual(baseline_fingerprint, modified_fingerprint)
 
     def test_delivery_deduplication_is_scoped_to_the_exact_session(self):
         class RecordingTmux:
