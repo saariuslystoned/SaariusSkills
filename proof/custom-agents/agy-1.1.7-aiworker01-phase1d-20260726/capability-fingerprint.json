@@ -1,0 +1,79 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T05:20:15Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "3ed1313841227216129df0c41e2beb9d4c9341a9",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "print-argument-challenge-only",
+    "workspace_binding": "add-dir-absolute",
+    "execution_mode": "accept-edits"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-i15-recon-7ecb949ed142",
+      "definition_sha256": "eaa21f0e92e024ab5144805497948869d71dc83a8c744878b5421f2ecd858bfa",
+      "role_marker": "recon-b4396025f820bc18"
+    },
+    {
+      "name": "saarius-i15-impl-a13eaa57b47b",
+      "definition_sha256": "d73167084b7780f051d07d93d720687906812c886c4e6df5582305c4a05d5385",
+      "role_marker": "implementation-12c941bc52a68315"
+    },
+    {
+      "name": "saarius-i15-ver-b6b5fe8c8053",
+      "definition_sha256": "bb2ef7f667465e073614db8bf2d28353a68ee98a3b9d6eb971e83da7d478137c",
+      "role_marker": "verification-e707c0e5448974c5"
+    },
+    {
+      "name": "saarius-i15-proof-5d44d7a9581c",
+      "definition_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+      "role_marker": "proof-50715b65ccf60d21"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "not-collected",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "profile-write-only-plus-external-quarantine-postflight",
+    "packaging": "external-controller",
+    "harness_path_mode": "exact-commit-copy",
+    "profile_quarantine": "before-model-write",
+    "raw_output_policy": "digest-then-unlink"
+  },
+  "budget": {
+    "max_sessions": 7,
+    "max_invocations": 14,
+    "max_wall_seconds": 720,
+    "per_session_seconds": 90
+  }
+}

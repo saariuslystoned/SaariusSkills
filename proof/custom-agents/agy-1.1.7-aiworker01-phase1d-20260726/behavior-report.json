@@ -1,0 +1,100 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "a5dbd3e1242c6d5e693015f79f4f94e9123433bb1b12572a10aaccdbab960e3c",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1D.md",
+    "version": "2026-07-26.phase1d"
+  },
+  "checks": [
+    {
+      "contract_clause": "C1",
+      "status": "pass",
+      "evidence": "positive-identities.json records four create-only runtime fixtures, exact pre/post profile hashes, and complete scoped postflight inventories.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C2",
+      "status": "pass",
+      "evidence": "positive-identities.json records exact-name filtered discovery for all four random workspace-local profiles through absolute --add-dir binding.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C3",
+      "status": "pass",
+      "evidence": "All four roles produced exact controller-verifiable identities after their profiles were quarantined; every process exited 0 without timeout or raw retention.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "C4",
+      "status": "fail",
+      "evidence": "unknown-controls.json: the requested name was absent, yet a catalog containing one unrelated profile produced a post-quarantine structured result matching neither requested nor decoy identity. The empty-catalog companion stayed unchanged.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "C5",
+      "status": "pass",
+      "evidence": "negative-discovery-controls.json: invalid frontmatter was absent from filtered primary discovery, so no model selection was admitted.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C6",
+      "status": "pass",
+      "evidence": "negative-discovery-controls.json: duplicate declarations appeared twice with identical repeated digests and were rejected as ambiguous; path rename retained the declared identity with stable repeated discovery.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C7",
+      "status": "pass",
+      "evidence": "mainAgent:false was excluded from primary discovery, while the proof role with subagent:false passed primary discovery and exact identity selection.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C8",
+      "status": "pass",
+      "evidence": "After the recon profile was quarantined, exact-name discovery returned absent with no global agent write or foreign-state contact.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "unpredictable agent and marker withheld from prompt",
+      "result": "pass: the prompt contained only a random challenge; its digest was recorded and raw content was not retained"
+    },
+    {
+      "probe": "profile unavailable before qualifying result mutation",
+      "result": "pass: each positive result mtime followed the controller's 350 ms whole-profile quarantine"
+    },
+    {
+      "probe": "selected profile independently bound",
+      "result": "pass: all four bounded results matched controller-held agent, role marker, challenge, schema, and status"
+    },
+    {
+      "probe": "ordinary primary custom agent independent of nested-agent permission",
+      "result": "pass: pos-proof-04 had subagent:false and still passed discovery and exact primary identity"
+    },
+    {
+      "probe": "unknown-name behavior with unrelated catalog entry",
+      "result": "fail: a nonqualifying structured result was written after the unknown request; neither requested nor decoy exact identity verified"
+    },
+    {
+      "probe": "unknown-name behavior with empty catalog",
+      "result": "pass: result remained zero bytes and no unexpected file appeared"
+    },
+    {
+      "probe": "raw transcript or raw CLI output retained",
+      "result": "false: stdout, stderr, and CLI log were hashed for byte-level accountability and unlinked without content inspection"
+    }
+  ],
+  "blockers": [
+    "The strict unknown-name clause failed when another workspace profile existed, so Phase 2 fan-out remains unadmitted.",
+    "A subsequent route must prove a discovery-gated exact-selection guard that refuses absent or duplicate names before starting AGY."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "schema": "saarius.custom-agent-phase1d-unknown-controls.v1",
+  "contract_clause": "C4",
+  "status": "fail",
+  "reason": "An unknown name in a catalog containing one unrelated profile produced a structured but nonqualifying result instead of failing closed. The stricter empty-catalog control left the result unchanged.",
+  "catalog_with_decoy": {
+    "run_id": "neg-unknown-05",
+    "requested_agent": "saarius-i15-unknown-26e290ec3a90",
+    "decoy_agent": "saarius-i15-decoy-cf15126f983d",
+    "decoy_profile_sha256": "822062828ed177c339e4e4db45f85820630834db3af04c30d9df25e80482597c",
+    "discovery": {
+      "requested_found": false,
+      "exit": 2,
+      "raw_line_count": 2,
+      "raw_sha256": "385bcafb4c7de53cf4985823d063212ffda92d8f81da2fe23a0b1300b36f7033"
+    },
+    "runtime": {
+      "process_exit": 0,
+      "timed_out": false,
+      "started_at_ns": 1785042774779151000,
+      "quarantined_at_ns": 1785042775137177000,
+      "finished_at_ns": 1785042826992133000,
+      "prompt_sha256": "4ee04a2eb486eb707da8ae08eade03a260243f7bd4eddb5fcedfb6d2582903b4",
+      "result_changed_after_quarantine": true,
+      "result_bytes": 187,
+      "result_sha256": "d2cb4e686f63b546abb03827f60fbd3874e94feaa5cc5f08676d97d9ece65d33",
+      "raw_stdout": {
+        "bytes": 326,
+        "sha256": "4e0ee7af39b1a38b8714fe4e6dcb17024ed825810d9738ecd058e092fe3596fc"
+      },
+      "raw_stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_log": {
+        "bytes": 37731,
+        "sha256": "92e6272e29d8a501c389754a2031f3350204b9bb304f22f897898fb6f40148cd"
+      },
+      "raw_artifacts_retained": false
+    },
+    "requested_identity_verification": {
+      "passed": false,
+      "exit": 2,
+      "reasons": [
+        "agent_mismatch",
+        "role_marker_mismatch"
+      ]
+    },
+    "decoy_identity_verification": {
+      "passed": false,
+      "exit": 2,
+      "reasons": [
+        "agent_mismatch",
+        "role_marker_mismatch"
+      ]
+    },
+    "postflight": {
+      "passed": true,
+      "workspace_files": [
+        ".issue15/result.json"
+      ],
+      "quarantine_files": [
+        "agents/saarius-i15-decoy-cf15126f983d/agent.md"
+      ],
+      "profile_sha256": "822062828ed177c339e4e4db45f85820630834db3af04c30d9df25e80482597c",
+      "foreign_state_touched": false
+    },
+    "classification": "nonqualifying structured fallback; exact requested identity was not misreported, but the strict unknown-name contract failed"
+  },
+  "empty_catalog": {
+    "run_id": "neg-unknown-clean-10",
+    "requested_agent": "saarius-i15-unknown-1cd9ee0c7ca0",
+    "excluded_profile": "saarius-i15-excluded-ae1cad7acf21",
+    "excluded_profile_sha256": "65c4d40fdb52df7ca95fb866881447b562f84ab7ddab264461d7b8e3f45eb397",
+    "discovery": {
+      "requested_found": false,
+      "exit": 2,
+      "raw_line_count": 1,
+      "raw_sha256": "5ba339dfb7d1dc3241212fb4f5ba7221e4bb7832db07315b38a60b0efe744e49"
+    },
+    "runtime": {
+      "process_exit": 0,
+      "timed_out": false,
+      "started_at_ns": 1785043115676795000,
+      "quarantined_at_ns": 1785043116039341000,
+      "finished_at_ns": 1785043145315847000,
+      "prompt_sha256": "514d900668b0b9da1c2fdf68496b3be1a1f960ccdb697a3d8f954cb8789e0e36",
+      "result_changed_after_quarantine": false,
+      "result_bytes": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout": {
+        "bytes": 582,
+        "sha256": "f1ff0995695cd91755e701339e1e5e6d91194da8f0008e2c4ea3ffae8ada7196"
+      },
+      "raw_stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_log": {
+        "bytes": 31943,
+        "sha256": "51804e9cbb942696b4db6ab5918c527241d69757e15a0154e49043625af87791"
+      },
+      "raw_artifacts_retained": false
+    },
+    "postflight": {
+      "workspace_files": [
+        ".issue15/result.json"
+      ],
+      "quarantine_files": [],
+      "excluded_profile_hash_preserved": true,
+      "result_mode": "0600",
+      "workspace_mode": "0755",
+      "raw_artifacts_absent": true,
+      "foreign_state_touched": false
+    },
+    "classification": "clean no-result control"
+  }
+}

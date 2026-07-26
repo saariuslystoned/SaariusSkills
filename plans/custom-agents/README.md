@@ -42,6 +42,14 @@ Phase 1C's boundary passed its launch calibration, but AGY rejected a bare
 the bounded prompt transport to the officially documented
 `-p "<challenge-only prompt>"` value.
 
+Phase 1D proved four of four exact primary identities after profile quarantine,
+including a profile with `subagent: false`. Its strict unknown-name control
+failed when a catalog containing one unrelated profile produced a structured
+but nonqualifying result for an absent requested name. An empty-catalog
+companion stayed unchanged. Phase 2 therefore remains gated on a
+discovery-first exact-count selection guard; the CLI fallback is preserved as
+an upstream compatibility finding rather than normalized away.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
