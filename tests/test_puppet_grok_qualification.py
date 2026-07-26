@@ -30,6 +30,10 @@ from puppet_lib.errors import (  # noqa: E402
     ValidationError,
 )
 from puppet_lib.launch import build_launch_identity  # noqa: E402
+from puppet_lib.grok_workspace_plane import (  # noqa: E402
+    materialize_grok_workspace_rule,
+    rollback_grok_workspace_rule,
+)
 from puppet_lib.safety import (  # noqa: E402
     canonical_json_bytes,
     sha256_bytes,
@@ -120,7 +124,8 @@ class GrokPairFixture:
             self.ordinary_workspace, "grok-ordinary", "ordinary-run"
         )
         self.descriptor_sha = "11" * 32
-        self.instruction_sha = "12" * 32
+        self.instruction_content = b"Puppet test workspace rule.\n"
+        self.instruction_sha = sha256_bytes(self.instruction_content)
         self.instruction_relative = (
             ".grok/rules/puppet-%s.md" % self.instruction_sha
         )
@@ -305,22 +310,31 @@ class GrokPairFixture:
     def _write_positive_artifacts(self) -> None:
         write_json(
             self.positive_root / "workspace-descriptor.json",
-            {"descriptor_sha256": self.descriptor_sha},
+            {
+                "workspace_root": str(self.positive_workspace),
+                "artifact_relative_path": self.instruction_relative,
+                "descriptor_sha256": self.descriptor_sha,
+            },
+        )
+        materialization = materialize_grok_workspace_rule(
+            workspace_root=self.positive_workspace,
+            relative_path=self.instruction_relative,
+            content=self.instruction_content,
+            descriptor_sha256=self.descriptor_sha,
         )
         write_json(
             self.positive_root / "workspace-materialization.json",
-            {
-                "relative_path": self.instruction_relative,
-                "content_sha256": self.instruction_sha,
-                "created": True,
-            },
+            materialization,
+        )
+        rollback = rollback_grok_workspace_rule(
+            workspace_root=self.positive_workspace,
+            relative_path=self.instruction_relative,
+            expected_content_sha256=self.instruction_sha,
+            materialization_receipt=materialization,
         )
         write_json(
             self.positive_root / "workspace-rollback.json",
-            {
-                "expected_content_sha256": self.instruction_sha,
-                "absent_after": True,
-            },
+            rollback,
         )
 
     def _write_ordinary_artifacts(self) -> None:

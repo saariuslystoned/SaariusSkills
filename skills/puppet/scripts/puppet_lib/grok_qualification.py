@@ -903,7 +903,11 @@ def verify_grok_pair_member_artifacts(
             max_bytes=131072,
             reject_sensitive_fields=True,
         )
-        from .grok_workspace_plane import validate_grok_entry_descriptor
+        from .grok_workspace_plane import (
+            validate_grok_entry_descriptor,
+            validate_grok_workspace_materialization_receipt,
+            validate_grok_workspace_rollback_receipt,
+        )
 
         descriptor = validate_grok_entry_descriptor(
             descriptor,
@@ -912,6 +916,17 @@ def verify_grok_pair_member_artifacts(
             expected_goal_fingerprint=receipt["goal_fingerprint"],
             expected_executable_sha256=receipt["executable_fingerprint"],
             expected_subscription_profile_root=subscription_binding["profile_root"],
+        )
+        materialization = validate_grok_workspace_materialization_receipt(
+            materialization,
+            expected_workspace_root=descriptor["workspace_root"],
+            expected_relative_path=descriptor["artifact_relative_path"],
+            expected_content_sha256=member["instruction_artifact"]["sha256"],
+            expected_descriptor_sha256=descriptor["descriptor_sha256"],
+        )
+        rollback = validate_grok_workspace_rollback_receipt(
+            rollback,
+            materialization_receipt=materialization,
         )
         if (
             descriptor.get("descriptor_sha256") != member["descriptor_sha256"]
@@ -1250,6 +1265,22 @@ def _pair_core(
         positive_paths["workspace_rollback"],
         max_bytes=131072,
         reject_sensitive_fields=True,
+    )
+    from .grok_workspace_plane import (
+        validate_grok_workspace_materialization_receipt,
+        validate_grok_workspace_rollback_receipt,
+    )
+
+    materialization = validate_grok_workspace_materialization_receipt(
+        materialization,
+        expected_workspace_root=descriptor["workspace_root"],
+        expected_relative_path=descriptor["artifact_relative_path"],
+        expected_content_sha256=positive_member["instruction_artifact"]["sha256"],
+        expected_descriptor_sha256=descriptor["descriptor_sha256"],
+    )
+    rollback = validate_grok_workspace_rollback_receipt(
+        rollback,
+        materialization_receipt=materialization,
     )
     if (
         descriptor.get("descriptor_sha256") != positive_member["descriptor_sha256"]

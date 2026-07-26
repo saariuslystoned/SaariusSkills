@@ -69,6 +69,8 @@ from .grok_workspace_plane import (
     rollback_grok_workspace_rule,
     validate_grok_entry_descriptor,
     validate_grok_qualification_request,
+    validate_grok_workspace_materialization_receipt,
+    validate_grok_workspace_rollback_receipt,
 )
 from .grok_qualification import (
     GROK_NATIVE_TRIGGER,
@@ -2885,9 +2887,12 @@ def run_probe(
                 workspace_root=grok_materialization["workspace_root"],
                 relative_path=grok_materialization["relative_path"],
                 expected_content_sha256=grok_materialization["content_sha256"],
+                materialization_receipt=grok_materialization,
             )
-            if grok_rollback.get("absent_after") is not True:
-                raise IdentityError("Grok positive instruction rollback is incomplete")
+            grok_rollback = validate_grok_workspace_rollback_receipt(
+                grok_rollback,
+                materialization_receipt=grok_materialization,
+            )
             atomic_write_json(grok_rollback_path, grok_rollback)
         elif grok_ordinary_control:
             absence_after = grok_puppet_rule_count(launch_repo)
@@ -3328,6 +3333,11 @@ def run_probe(
                     expected_content_sha256=grok_materialization[
                         "content_sha256"
                     ],
+                    materialization_receipt=grok_materialization,
+                )
+                grok_rollback = validate_grok_workspace_rollback_receipt(
+                    grok_rollback,
+                    materialization_receipt=grok_materialization,
                 )
                 atomic_write_json(grok_rollback_path, grok_rollback)
             except Exception as rollback_exc:
@@ -3954,30 +3964,27 @@ def recover_probe(
             max_bytes=65536,
             reject_sensitive_fields=True,
         )
-        if (
-            not isinstance(materialization, dict)
-            or materialization.get("schema")
-            != "puppet.grok-workspace-materialization/v1"
-            or materialization.get("workspace_root")
-            != plane_descriptor_value["workspace_root"]
-            or materialization.get("relative_path")
-            != plane_descriptor_value["artifact_relative_path"]
-            or materialization.get("descriptor_sha256")
-            != plane_descriptor_value["descriptor_sha256"]
-            or materialization.get("content_sha256")
-            != instruction_manifest["rendered_sha256"]
-            or materialization.get("created") is not True
-        ):
-            raise IdentityError(
-                "Grok recovery materialization differs from its descriptor"
-            )
+        materialization = validate_grok_workspace_materialization_receipt(
+            materialization,
+            expected_workspace_root=plane_descriptor_value["workspace_root"],
+            expected_relative_path=plane_descriptor_value[
+                "artifact_relative_path"
+            ],
+            expected_content_sha256=instruction_manifest["rendered_sha256"],
+            expected_descriptor_sha256=plane_descriptor_value[
+                "descriptor_sha256"
+            ],
+        )
         rollback = rollback_grok_workspace_rule(
             workspace_root=materialization["workspace_root"],
             relative_path=materialization["relative_path"],
             expected_content_sha256=materialization["content_sha256"],
+            materialization_receipt=materialization,
         )
-        if rollback.get("absent_after") is not True:
-            raise IdentityError("Grok recovery rollback is incomplete")
+        rollback = validate_grok_workspace_rollback_receipt(
+            rollback,
+            materialization_receipt=materialization,
+        )
         atomic_write_json(rollback_path, rollback)
         return "rolled_back"
 
