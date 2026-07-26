@@ -84,6 +84,8 @@ new frozen route; it does not normalize or overwrite the first result.
 
 Files:
 
+- `ISSUE15_RECOMMENDATION.md` — evidence-backed `reference_only` packaging
+  decision;
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
   and stop condition;
 - `BEHAVIOR_CONTRACT.md` — source-blind observable clauses and anti-cheat
