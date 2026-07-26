@@ -1416,10 +1416,14 @@ class ProbeTests(unittest.TestCase):
             )
             self.assertEqual(
                 repository["schema"],
-                "puppet.codex-ordinary-repository/v1",
+                "puppet.codex-ordinary-repository/v2",
             )
             self.assertEqual(repository["role"], "ordinary_control")
-            self.assertEqual(repository["head_state"], "unborn")
+            self.assertEqual(
+                repository["head_state"],
+                "controller_seed_commit",
+            )
+            self.assertEqual(repository["tracked_paths"], ["contract.json"])
             self.assertTrue(repository["agents_md_absent"])
             self.assertTrue(repository["system_config_disabled"])
             self.assertTrue(repository["global_config_disabled"])
