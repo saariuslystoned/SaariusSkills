@@ -450,6 +450,7 @@ class FakeTmux:
         terminal_pid_drift=False,
         regular_socket=False,
         defer_matched_signal=False,
+        alternate_timestamp=False,
     ):
         self.root = root
         self.socket_root = Path(tempfile.mkdtemp(prefix="pft-", dir="/tmp"))
@@ -463,6 +464,7 @@ class FakeTmux:
         self.terminal_pid_drift = terminal_pid_drift
         self.regular_socket = regular_socket
         self.defer_matched_signal = defer_matched_signal
+        self.alternate_timestamp = alternate_timestamp
         self.deferred_marker = None
         self.alive = True
         self.preserved = True
@@ -678,6 +680,8 @@ class FakeTmux:
             )
         if self.bad_claim:
             value["claims"] = []
+        if self.alternate_timestamp:
+            value["timestamp"] = "2030-01-02T03:04:05+00:00"
         temporary = destination.with_suffix(".pending")
         write_json(temporary, value)
         temporary.replace(destination)
@@ -979,6 +983,31 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("complete replacement object", prompt)
         self.assertIn("do not copy or patch ready.json", prompt)
         self.assertIn("nested claim status must both be followup", prompt)
+
+    def test_probe_accepts_schema_valid_target_timestamp_variance_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", alternate_timestamp=True)
+
+            result = execute(
+                files,
+                fake,
+                run_id="probe-target-timestamps",
+            )
+
+            self.assertEqual(result["result"], "accepted")
+            run_root = Path(result["run_root"])
+            for name in ("ready.json", "followup.json"):
+                handoff = json.loads(
+                    (run_root / "fixture" / "handoffs" / name).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    handoff["timestamp"],
+                    "2030-01-02T03:04:05+00:00",
+                )
 
     def test_agy_shared_auth_probe_revalidates_without_private_profile_context(self):
         with tempfile.TemporaryDirectory() as temporary:

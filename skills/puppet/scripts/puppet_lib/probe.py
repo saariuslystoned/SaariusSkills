@@ -473,7 +473,9 @@ def _initial_prompt(
         "Read %s and verify schema_version, run_id, nonce, and "
         "allowed_fixture_root. Make no source, repository, account, external-send, "
         "or system changes. Atomically write only %s with the "
-        "exact JSON object below, then remain available for one follow-up. The "
+        "exact semantic JSON object below, then remain available for one follow-up. "
+        "The timestamp may be the supplied value or another schema-valid timezone "
+        "timestamp; every other field must be exact. The "
         "handoffs directory must contain exactly one regular file after this step: "
         "ready.json. Do not create conformance_handoff.json, a summary, or any "
         "other artifact. Do not claim controller acceptance.\n"
@@ -521,8 +523,10 @@ def _followup_prompt(
         "PUPPET_REAL_HARNESS_FOLLOWUP_V2\n"
         "%s"
         "Verify the same run_id and nonce plus message_id and sequence=1. "
-        "Atomically write only %s with the exact JSON object "
+        "Atomically write only %s with the exact semantic JSON object "
         "below, make no other changes, and remain waiting for exact halt. "
+        "The timestamp may be the supplied value or another schema-valid timezone "
+        "timestamp; every other field must be exact. "
         "WRITE_FOLLOWUP_JSON is a complete replacement object: do not copy or "
         "patch ready.json. Its top-level phase and its nested claim status must "
         "both be followup, never ready.\n"
@@ -621,7 +625,17 @@ def _wait_for_handoff(
         population_guard()
         if path.exists():
             handoff = validate_handoff(path, allowed_roots=[fixture], expected=expected)
-            if handoff.data != expected_data:
+            semantic_data = {
+                key: value
+                for key, value in handoff.data.items()
+                if key != "timestamp"
+            }
+            expected_semantic_data = {
+                key: value
+                for key, value in expected_data.items()
+                if key != "timestamp"
+            }
+            if semantic_data != expected_semantic_data:
                 raise IdentityError(
                     "probe handoff content differs from the exact contract"
                 )
