@@ -25,9 +25,9 @@ binds an explicit operator capability to one newly created Herdr tab, exact
 tab/pane/terminal/SSH identity, a sequence-checked lease, and a transcript-blind
 controller journal.
 
-Ordinary AGY turns use plain messages. `/teamwork-preview` is reserved for an
-explicitly requested, separately qualified 4-20-helper fan-out; it is not the
-default steering prefix.
+Ordinary AGY turns use plain messages. Herdr-Puppet never injects or selects
+`/teamwork-preview`; native teamwork and custom-agent semantics are outside its
+transport contract.
 
 The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
 append-only dogfood journals, gated qualification tab creation,
@@ -41,6 +41,20 @@ The first live dogfood lane uses one newly owned, persistently visible AGY pane
 on a remote worker. Its machine-local controller journal is deliberately not a
 public transcript or promotion claim; curated public proof will follow only
 after the behavior and redaction boundaries survive review.
+
+## Custom-agent research
+
+The bounded Antigravity custom-agent investigation is logged in
+[`plans/custom-agents/`](plans/custom-agents/README.md), with its canonical
+decision in
+[`ISSUE15_RECOMMENDATION.md`](plans/custom-agents/ISSUE15_RECOMMENDATION.md).
+
+The disposition is `reference_only`: guarded primary selection and functional
+width-two joining are useful research primitives, but width-four semantic
+joining failed and a Pixel-use comparison showed no accuracy gain over one
+agent while using three times the declared sessions. No Teamwork Preview,
+custom-agent, or product-specific skill ships from this result. Puppet and
+Herdr-Puppet remain transport/controller work and do not own these semantics.
 
 ## GrillTrack
 
@@ -151,6 +165,8 @@ invocation, but it is never required when the user's intent is already clear.
   for doctor, plan, status, journals, and gated qualification operations.
 - `skills/herdr-puppet/references/`: authority, transport, qualification, and
   versioned JSON-schema contracts.
+- `plans/custom-agents/` and `proof/custom-agents/`: non-shipping research
+  contracts, harnesses, decision records, and transcript-blind proof.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

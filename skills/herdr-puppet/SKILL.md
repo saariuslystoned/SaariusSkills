@@ -40,10 +40,10 @@ hand-composed Herdr mutations when the script owns the operation.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. Never adopt an existing tab or process.
 7. Send ordinary AGY steering as a plain message with no slash-command prefix.
-   Never inject `/teamwork-preview` automatically. Use it only when the
-   operator explicitly requests a separately bounded 4-20-helper fan-out; one
-   AGY root remains the integration writer, and that experimental hierarchy
-   requires its own topology, accounting, timeout, and cleanup proof.
+   Never inject or select `/teamwork-preview`; Teamwork and custom-agent
+   semantics are outside this transport skill. Route any future experiment
+   through its own bounded contract rather than treating Herdr-Puppet as its
+   capability owner.
 8. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
 9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a

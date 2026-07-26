@@ -217,7 +217,7 @@ record:
 At minimum, thoroughly inventory the public map and any separately authorized
 operator-local evidence for:
 
-- AGY/teamwork launch, steering, locks, checkpoints, and sanitized lifecycle
+- AGY launch, steering, locks, checkpoints, and sanitized lifecycle
   metadata;
 - Codex and Claude launch/worker lanes;
 - current and historical Grok PTY/tmux buffer isolation, lane identity,
@@ -227,7 +227,8 @@ operator-local evidence for:
   separation, exact input routing, output/event fanout, and explicit completion;
 - generational one-live-session, attach, provenance, fencing, rollback, and
   exact-session lifecycle proofs;
-- current `teamwork-preview` mechanics and its sanitized bridge hook;
+- the issue #15 `reference_only` custom-agent decision and its explicit
+  separation from Puppet transport;
 - process identity, tmux session collision, exact halt, worktree isolation,
   proof packet, review, and exact-head acceptance patterns;
 - Cursor's current installed CLI surface, recognizing that no admitted Cursor
@@ -383,9 +384,9 @@ Every Pass B launch must:
 
 The behavioral contract and checkpoint schema must be semantically identical
 across the five harnesses. Only the adapter's launch/transport commands, exact
-YOLO flags, controller-selected harness/model values, and a required native
-envelope such as AGY's single `/teamwork-preview` prefix may differ. The native
-envelope must not change the contract's authority or expected checkpoint bytes.
+YOLO flags, and controller-selected harness/model values may differ. Adapters
+must not inject a native teamwork envelope or change the contract's authority
+or expected checkpoint bytes.
 
 The fixture contains `contract.json`, a writable `handoffs/` directory, and no
 Puppet source. The initial prompt tells the target to:

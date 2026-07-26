@@ -9,6 +9,18 @@ curated public design packet produced during its first GrillTrack campaign so th
 implementation can begin from explicit decisions instead of reconstructing the
 conversation.
 
+## Custom-agent research amendment
+
+The later issue #15 qualification supersedes every older requirement in this
+bundle that made `/teamwork-preview` an AGY message envelope or Puppet
+dependency. See the canonical
+[`reference_only` decision](../custom-agents/ISSUE15_RECOMMENDATION.md).
+
+Puppet transports ordinary caller-supplied messages and does not prepend,
+require, qualify, install, migrate, or remove Teamwork Preview. Any future
+Teamwork or custom-agent product experiment needs an independent contract and
+route; it is not Puppet or Herdr-Puppet behavior.
+
 > **Mandatory operating warning:** the proposed live runtime is YOLO-only. A
 > future Puppet launch must use each harness's unrestricted/always-accept mode
 > and disable its sandbox where that control exists. That runtime posture does
