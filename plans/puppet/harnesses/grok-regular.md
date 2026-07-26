@@ -110,7 +110,7 @@ Parser-only controls prove:
 - top-level `--agent <name|definition-file>` selects a whole agent profile,
   including prompt/tool behavior, rather than an additive instruction file.
 
-`--always-approve --sandbox off --cwd /var/empty --leader-socket <path>
+`--always-approve --sandbox off --no-leader --trust --cwd /var/empty --leader-socket <path>
 --version` parses successfully. Runtime semantics remain live-unqualified.
 
 ## 2) Instruction-plane map
@@ -189,9 +189,10 @@ Zero-agent hashes for the exact installed surface:
 
 The positive Pass-B run creates a deepest-scope
 `<candidate-worktree>/.grok/rules/puppet-<contract-sha>.md` artifact with
-`write_mode=create_only`, then launches from that exact worktree with explicit
-`--cwd`, a new socket below the enrolled private profile, and a canonical new
-UUIDv4. The externally prepared request is body-free. After the randomized
+`write_mode=create_only`, then launches from that exact worktree with
+`--no-leader`, `--trust`, explicit `--cwd`, a new socket namespace below the
+enrolled private profile, and a canonical new UUIDv4. The externally prepared
+request is body-free. After the randomized
 fixture contract is compiled, the controller derives and persists the exact
 hash-named entry descriptor before process launch. Only the positive run
 receives the opaque native trigger; the ordinary control receives the regular

@@ -284,12 +284,20 @@ def build_grok_runtime_vector(
         or "--reasoning-effort" in argv
         or any(
             selector in argv
-            for selector in ("--cwd", "--leader-socket", "--session-id")
+            for selector in (
+                "--no-leader",
+                "--trust",
+                "--cwd",
+                "--leader-socket",
+                "--session-id",
+            )
         )
     ):
         raise IdentityError("Grok base regular argv is not exact")
     argv.extend(
         [
+            "--no-leader",
+            "--trust",
             "--cwd",
             str(workspace),
             "--leader-socket",
@@ -353,8 +361,10 @@ def validate_grok_runtime_vector(
     if (
         not isinstance(argv, list)
         or sha256_bytes(canonical_json_bytes(argv)) != result.get("argv_sha256")
-        or argv[-6:]
+        or argv[-8:]
         != [
+            "--no-leader",
+            "--trust",
             "--cwd",
             result["cwd"],
             "--leader-socket",

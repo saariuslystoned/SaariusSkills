@@ -511,7 +511,19 @@ class GrokRuntimeVectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = GrokPairFixture(Path(temporary))
             vector = fixture.positive_vector
-            self.assertEqual(vector["argv"][-6], "--cwd")
+            self.assertEqual(
+                vector["argv"][-8:],
+                [
+                    "--no-leader",
+                    "--trust",
+                    "--cwd",
+                    str(fixture.positive_workspace),
+                    "--leader-socket",
+                    str(fixture.profile / "tmp" / "positive-run.sock"),
+                    "--session-id",
+                    vector["record"]["session_uuid"],
+                ],
+            )
             self.assertEqual(vector["record"]["profile_root"], str(fixture.profile))
             self.assertNotIn("--model", vector["argv"])
             self.assertNotIn("--reasoning-effort", vector["argv"])
