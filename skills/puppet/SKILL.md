@@ -48,8 +48,14 @@ security, secrets, spending, and destructive actions separately gated.
    A doctor-only, unqualified Cursor manifest yields a body-free
    `qualification_required` boundary for `cursor_regular_pass_b`. The exact
    private file-store route is available through `profile-init` and
-   `profile-status`; neither command performs login. Session lifecycle actions
-   remain unsupported until the other Cursor runtime blockers qualify.
+   `profile-status`; neither command performs login. Cursor promotion then
+   requires two fresh regular Pass B runs against that exact profile: one
+   qualification-only, create-once namespaced workspace rule and one separate
+   ordinary control. The activated run must also carry a structurally observed
+   read-only native-view attach/detach. `cursor-pair` joins only those exact
+   accepted runs after both exact halts and activated-rule rollback. A
+   source-only binding, a standalone activation receipt, or an ordinary receipt
+   cannot qualify the manifest.
 2. Resolve the target repository explicitly. From a cockpit or another repo,
    require an explicit target path. From inside the target, use its Git root
    unless the user overrides it. Give every mutating target a fresh worktree;
@@ -306,6 +312,61 @@ activation-only and unpaired control receipts remain non-promotable. Repeat the
 same `--paired-activation-receipt` on linked-control recovery. These commands
 retain structural hashes only and never read or store pane, instruction,
 configuration, authentication, prompt, or reply bodies.
+
+Cursor workspace qualification also uses a one-use activation transaction.
+Build a body-free request from the fresh doctor manifest; the activated Pass B
+compiles the effective contract, derives the exact hash-named
+qualification-only descriptor, and runs it with `--plane-descriptor`:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py cursor-request \
+  --manifest <fresh-cursor-doctor-manifest> \
+  --out <private-proof-root>/cursor-qualification-request.json
+python3 <skill-root>/scripts/adapter_lab.py probe \
+  --target cursor --profile source-free-pass-b-v2 --session-profile regular \
+  --manifest <fresh-cursor-doctor-manifest> \
+  --mapping <fresh-cursor-mapping> \
+  --subscription-profile-root <exact-enrolled-cursor-profile> \
+  --plane-descriptor <private-proof-root>/cursor-qualification-request.json \
+  <campaign-goal-and-proof-options>
+```
+
+The request contains no instruction body and grants no materialization, launch,
+or qualification authority outside that exact Pass B. While the activated
+probe is active, run:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py cursor-native-view \
+  --run-root <proof-root>/probes/<activated-run>
+```
+
+The command prints the exact human read-only tmux attach command to stderr,
+observes one read-only client attach and detach structurally, and writes no pane
+content. Run a separate ordinary Cursor Pass B without a descriptor; Pass B
+still composes the exact dynamic absolute `--workspace` selector for its
+distinct control fixture. Then join and promote:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py cursor-pair \
+  --activated-receipt <activated-run>/receipt.json \
+  --ordinary-receipt <ordinary-run>/receipt.json \
+  --native-view <activated-run>/cursor-native-view.json \
+  --out <private-proof-root>/cursor-terminal-qualification.json
+python3 <skill-root>/scripts/adapter_lab.py qualify \
+  --manifest <fresh-cursor-doctor-manifest> \
+  --mapping <fresh-cursor-mapping> \
+  --receipt <private-proof-root>/cursor-terminal-qualification.json \
+  --out <qualified-cursor-manifest>
+```
+
+Both runs must bind the same exact authenticated private Cursor profile,
+controller, campaign, goal, executable, adapter, protocol, compiler policy, and
+unresolved default-model selection, but must use distinct workspaces and run
+identities. The activated rule is
+`.cursor/rules/puppet-<effective-contract-sha256>.mdc`, created with no
+preimage and removed only after exact registered-PID halt. An interrupted
+Cursor activation is currently fenced and preserved for controller
+adjudication; recovery never relaunches or guesses at cleanup.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

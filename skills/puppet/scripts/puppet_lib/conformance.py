@@ -141,14 +141,23 @@ def create_fixture(
     )
 
 
-def tree_fingerprint(root: Path, excluded_prefix: str = "handoffs") -> str:
+def tree_fingerprint(
+    root: Path, excluded_prefix: str | tuple[str, ...] = "handoffs"
+) -> str:
     root = Path(root).resolve(strict=True)
+    excluded = (
+        (excluded_prefix,)
+        if isinstance(excluded_prefix, str)
+        else tuple(excluded_prefix)
+    )
     rows = []
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
         if (
-            relative == excluded_prefix
-            or relative.startswith(excluded_prefix + "/")
+            any(
+                relative == prefix or relative.startswith(prefix + "/")
+                for prefix in excluded
+            )
             or relative == ".git"
             or relative.startswith(".git/")
         ):

@@ -2,12 +2,76 @@
 
 ## Scope and lane contract
 
-- File purpose: planning and static fixture design for Cursor Agent regular-session qualification under
-  `codex-goal-regular-qualification.md`.
-- Branch in scope: `codex/puppet-cursor-workspace-plane`.
-- Objective: map exact Cursor Agent regular-session behavior for the three instruction planes for this
-  installed tuple, and provide a launch-disabled, planner-only workspace-plane substrate that can later be
-  integrated only after safe materialization, rollback, and no-bleed authority exist.
+- File purpose: exact-version design and public operating record for Cursor
+  Agent regular-session qualification under `codex-goal-regular-qualification.md`.
+- Current source baseline: integration head
+  `94b303fb9411c8de79a9d24367c916a2f1e465ae`.
+- Objective: qualify the sole viable workspace plane without granting authority
+  to source-only plans or one-sided activation evidence.
+
+## Current public qualification path (2026-07-26)
+
+The controller now has a public, qualification-only Cursor path. This source
+change did not launch Cursor or inspect the enrolled private profile; fresh real
+evidence is still required before any manifest becomes promotable.
+
+1. Run a fresh Cursor census and scaffold at the current controller source.
+2. Create a body-free request:
+
+   ```bash
+   python3 skills/puppet/scripts/adapter_lab.py cursor-request \
+     --manifest <fresh-cursor-doctor-manifest> \
+     --out <private-proof-root>/cursor-qualification-request.json
+   ```
+
+3. Run an activated regular Pass B with that request, the fresh manifest and
+   mapping, and `<exact-enrolled-cursor-profile>`. Pass B compiles the effective
+   contract, derives
+   `.cursor/rules/puppet-<effective-contract-sha256>.mdc`, requires the
+   workspace `.cursor` root to be absent, creates the rule and directories
+   create-only, and composes exactly one absolute `--workspace` selector with
+   `cursor-agent --yolo --sandbox disabled`.
+4. While the activated probe is live, run:
+
+   ```bash
+   python3 skills/puppet/scripts/adapter_lab.py cursor-native-view \
+     --run-root <activated-run-root>
+   ```
+
+   The command prints the exact read-only attach command, observes exactly one
+   read-only tmux client attach and detach structurally, and never reads pane
+   content.
+5. Run a distinct ordinary regular Pass B without a plane descriptor, using the
+   same controller, campaign, goal, executable, compiler policy, unresolved
+   default-model selection, and exact private profile, but another workspace.
+6. After both accepted exact halts and activated-rule rollback, join them:
+
+   ```bash
+   python3 skills/puppet/scripts/adapter_lab.py cursor-pair \
+     --activated-receipt <activated-run-root>/receipt.json \
+     --ordinary-receipt <ordinary-run-root>/receipt.json \
+     --native-view <activated-run-root>/cursor-native-view.json \
+     --out <private-proof-root>/cursor-terminal-qualification.json
+   python3 skills/puppet/scripts/adapter_lab.py qualify \
+     --manifest <fresh-cursor-doctor-manifest> \
+     --mapping <fresh-cursor-mapping> \
+     --receipt <private-proof-root>/cursor-terminal-qualification.json \
+     --out <qualified-cursor-manifest>
+   ```
+
+`cursor-pair` re-verifies both Pass B receipts, exact profile identity,
+distinct/unchanged workspaces, native-view identity, activation rollback, and
+ordinary-control absence before fixed-controller attestation. The unresolved
+current default is intentionally represented as requested `default`, observed
+`unavailable`, with no explicit model selector. Source-only records,
+qualification requests, descriptors, activation-only receipts, and ordinary
+receipts are non-promotable.
+
+Interrupted activation never relaunches and never guesses cleanup. Recovery
+fences and preserves the exact transaction for controller adjudication. Rollback
+occurs only after accepted exact registered-PID halt and refuses to remove
+anything when the receipted artifact changed or either created directory gained
+foreign content.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -162,9 +226,9 @@ and `https://docs.cursor.com/en/cli/using`.
   trust remains a separate gate, and `--api-key` in argv is forbidden.
 - Re-run all cursors probes when executable, manifest hash, or help hash changes.
 
-## 6) Required Puppet source deltas for this lane
+## 6) Puppet source surfaces for this lane
 
-### Implemented planner-only substrate
+### Preserved source-only substrate
 
 - `skills/puppet/scripts/puppet_lib/cursor_workspace_plane.py` is deliberately
   standalone from the shared probe and launch lifecycle. It performs no
@@ -210,8 +274,8 @@ and `https://docs.cursor.com/en/cli/using`.
   assertion. Canonical caller-shaped rollback JSON is not authority and is
   always rejected.
 - The substrate has no call site in `probe.py`, `launch.py`, or an adapter. It
-  cannot materialize, launch, clean up, recover, or qualify Cursor and must stay
-  planner-only until the remaining blockers below are independently closed.
+  cannot materialize, launch, clean up, recover, or qualify Cursor. It remains
+  planner-only even though the separate qualification path below now exists.
 - `skills/puppet/scripts/puppet_lib/operator_plan.py` and
   `skills/puppet/scripts/puppet.py` keep that boundary at the public front
   door:
@@ -231,53 +295,51 @@ and `https://docs.cursor.com/en/cli/using`.
     reports logged out. Isolation detection is not human-gated and the handoff
     never runs unattended.
 
-### Remaining shared integration work
+### Integrated qualification-only path
 
-- `skills/puppet/scripts/puppet_lib/census.py`
-  - bind both launcher and bundled runtime/package identities; replace vacuous
-    project isolation with a dynamic absolute `--workspace` selector.
-- `skills/puppet/scripts/puppet_lib/adapters.py`
-  - consume the source-only exact vector only after the native plane,
-    authentication, process population, and lifecycle gates qualify; do not
-    rebuild a parallel caller-shaped workspace argv path.
-- `skills/puppet/scripts/puppet_lib/probe.py`
-  - record selector `auto`, model-list hash, and literal `unavailable` resolved
-    model/effort for the current default tuple.
-- `skills/puppet/scripts/puppet_lib/adapter_manifest.py` / `tests/test_puppet_probe.py`
-  - require resume evidence before marking resume as `controller_verified` for cursor live claims.
-- Tests:
-  - add explicit cursor fixture assertions for resume/no-bleed behavior under worktree/workspace planes.
-  - integrate a controller-attested exact halt/lease proof before any cleanup
-    authority is considered.
-  - provide a platform primitive that conditionally removes the exact verified
-    vnode, or design a non-destructive retained-artifact lifecycle. Ordinary
-    pathname `unlink`/`rmdir` checks are insufficient.
+- `cursor_qualification.py` owns the exact installed tuple, body-free request,
+  derived descriptor, create-only materialization, private-profile launch join,
+  structural native-view observation, exact-halt rollback, mapping closure, and
+  paired terminal receipt.
+- `probe.py` accepts the request only for the exact fresh doctor manifest,
+  derives the descriptor from the compiled contract, revalidates profile and
+  launch authority immediately before start, emits the activation proof family,
+  and leaves activation-only output non-promotable.
+- `adapter_manifest.py` re-verifies both underlying Pass B receipts and the
+  terminal join before closing only the dynamic absolute-workspace bit.
+  `session.py` then composes that selector per normal repository and rejects
+  explicit model/effort selection.
+- `adapter_lab.py` exposes `cursor-request`, `cursor-native-view`, and
+  `cursor-pair`. Request and output files are create-only.
+- Unit coverage exercises create-only collisions, replacement and foreign-file
+  refusal, exact halt, rollback, descriptor/body separation, mapping closure,
+  native-view structure, paired no-bleed joins, and promotion rejection for
+  nonterminal evidence.
 
 ## 7) Blockers and stop criteria
 
-- Hard blockers:
-  - Any default-model ambiguity that affects deterministic regular-session guarantees.
-  - Launcher/runtime identity mismatch until the shell launcher, bundled Node,
-    and entrypoint are all bound and verified.
-  - Default selector `auto` still has no resolved provider/model/effort proof;
-    the substrate names this `cursor_default_model_resolution_unavailable`.
-  - `--yolo` remains subject to explicit permission denials; unknown user or
-    project policy and MCP approval prompts can invalidate unrestricted mode.
-  - No exact pre-launch proof excludes pre-existing Cursor launcher/runtime
-    processes; the substrate names this
-    `cursor_live_process_population_unproved` and performs no process census.
-  - No proven isolated resume behavior under this exact executable/version tuple.
-  - No proven non-bleed enforcement across fixture vs ordinary sessions.
-    The substrate names this `cursor_workspace_plane_no_bleed_unproved`.
-  - Workspace-rule activation and precedence are still unqualified; the
-    substrate names this `cursor_workspace_rule_activation_unqualified` and
-    therefore records `hypothesis/disabled` even though `.cursor/rules/*.mdc`
-    is the selected candidate surface.
-  - No race-safe exact-delete primitive or controller-attested halt authority
-    is integrated. The substrate names this
-    `cursor_workspace_cleanup_has_no_race_safe_delete_primitive` and disables
-    materialization, rollback, and recovery rather than claiming exact cleanup.
-  - Any source command or fixture operation that writes prompt-bearing values into argv.
+- Promotion blockers:
+  - No fresh real activated/control pair has yet exercised this source at the
+    current adapter/protocol fingerprints.
+  - The enrolled private profile must report logged in through the body-free
+    status contract immediately before each run; no operator-global fallback is
+    allowed.
+  - The activated run must prove the rule was consumed, one structural native
+    view joined it, exact halt succeeded, and rollback completed. The ordinary
+    run must prove absence and both workspaces must remain unchanged.
+  - The current default remains unresolved. This path permits only requested
+    `default`, observed `unavailable`, with no explicit selector; any claim of a
+    resolved provider/model or effort requires separate evidence.
+  - Resume remains unsupported and must not be inferred from regular
+    launch/steer/halt qualification.
+  - `--yolo` can still encounter product policy or approval denial. Any such
+    result blocks rather than weakening the contract.
+  - Any prompt-bearing value in argv, environment, request, descriptor, receipt,
+    or durable proof is a terminal validation failure.
 - Stop criteria:
-  - Keep this lane `mapping` until regular-profile launch/steer/halt and no-bleed are proven by fixture proof.
-  - Defer or downgrade resume if it cannot be proven exact for this tuple.
+  - Keep the doctor manifest unqualified until `cursor-pair` and `qualify`
+    reverify one fresh accepted pair at the exact current identities.
+  - Preserve and adjudicate any interrupted activation; do not relaunch or
+    manually delete its rule.
+  - Keep resume and alternate/default-model resolution claims unsupported until
+    independently qualified.

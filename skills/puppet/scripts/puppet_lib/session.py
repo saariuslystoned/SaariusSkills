@@ -1006,7 +1006,21 @@ def launch(
     effective_model = contract.requested_model
     effective_effort = contract.requested_effort
     adapter = adapter_for(contract.target)
+    if contract.target == "cursor" and (
+        effective_model is not None or effective_effort is not None
+    ):
+        raise UnsupportedError(
+            "Cursor regular qualification covers only the unresolved current default model"
+        )
     argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
+    if contract.target == "cursor":
+        from .cursor_qualification import cursor_regular_launch_argv
+
+        argv = cursor_regular_launch_argv(
+            manifest.raw["yolo_mapping"],
+            base_argv=argv,
+            workspace_root=contract.repo,
+        )
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
     if contract.target == "agy":

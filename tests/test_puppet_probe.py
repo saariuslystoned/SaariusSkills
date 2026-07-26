@@ -41,6 +41,10 @@ from puppet_lib.codex_workspace_plane import (  # noqa: E402
     build_codex_worktree_descriptor,
     codex_probe_mapping_from_qualified,
 )
+from puppet_lib.cursor_qualification import (  # noqa: E402
+    CURSOR_NATIVE_TRIGGER,
+    build_cursor_qualification_request,
+)
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
     current_session_lease,
@@ -435,6 +439,43 @@ def claude_activation_inputs(root: Path):
     return files
 
 
+def cursor_activation_inputs(root: Path):
+    files = controller_inputs(root, target="cursor")
+    raw = files["raw"]
+    mapping = {
+        "complete": False,
+        "launch_argv": [
+            raw["executable"]["resolved_path"],
+            "--yolo",
+            "--sandbox",
+            "disabled",
+        ],
+        "permission_declared": True,
+        "permission_flags": ["--yolo"],
+        "prompt_transport": PROMPT_TRANSPORT,
+        "prompt_transport_declared": True,
+        "sandbox_disable_declared": True,
+        "sandbox_flags": ["--sandbox", "disabled"],
+        "project_isolation_declared": False,
+        "project_isolation_flags": [],
+        "session_profiles": session_profiles_for("cursor"),
+        "session_profiles_declared": True,
+        "startup_settle_seconds": startup_settle_seconds_for("cursor"),
+        "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+        "model_flag": "--model",
+    }
+    raw["yolo_mapping"] = mapping
+    write_json(files["manifest"], raw)
+    write_json(files["mapping"], mapping)
+    request = build_cursor_qualification_request(
+        adapter_manifest_sha256=AdapterManifest.from_dict(raw).fingerprint
+    )
+    request_path = root / "cursor-qualification-request.json"
+    write_json(request_path, request)
+    files.update(raw=raw, descriptor=request_path)
+    return files
+
+
 class FakeTmux:
     def __init__(
         self,
@@ -665,6 +706,13 @@ class FakeTmux:
                 instruction_payload = Path(
                     self.launch_argv[artifact_flag + 1]
                 ).read_bytes()
+            elif payload == (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8"):
+                workspace_flag = self.launch_argv.index("--workspace")
+                rules_root = Path(self.launch_argv[workspace_flag + 1]) / ".cursor" / "rules"
+                rules = list(rules_root.glob("puppet-*.mdc"))
+                if len(rules) != 1:
+                    raise AssertionError("Cursor qualification rule is unavailable")
+                instruction_payload = rules[0].read_bytes()
             value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
             destination = (
                 self._task_repo(instruction_payload, self.repo)
@@ -1174,6 +1222,128 @@ class ProbeTests(unittest.TestCase):
                         _server_process_fn=lambda pid: fake.server_process,
                         _tmux_factory=lambda selected: fake,
                     )
+
+    def test_cursor_request_runs_activation_only_pass_b_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = cursor_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", regular_socket=True)
+            manifest = AdapterManifest.from_dict(files["raw"])
+            manifest_identity = {
+                "manifest": manifest,
+                "manifest_sha256": manifest.fingerprint,
+                "execution_sha256": manifest.execution_fingerprint,
+                "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                "protocol_sha256": manifest.raw["protocol_fingerprint"],
+            }
+            run_id = "probe-cursor-workspace-activation"
+            with (
+                patch(
+                    "puppet_lib.cursor_qualification._manifest_identity",
+                    return_value=manifest_identity,
+                ),
+                patch.object(
+                    puppet_probe,
+                    "verify_qualification_receipt",
+                    return_value={},
+                ),
+            ):
+                result = execute(
+                    files,
+                    fake,
+                    target="cursor",
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                )
+
+            self.assertEqual(result["result"], "accepted")
+            self.assertEqual(
+                fake.payloads[0],
+                (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8"),
+            )
+            self.assertEqual(
+                fake.launch_argv[:4],
+                files["raw"]["yolo_mapping"]["launch_argv"],
+            )
+            self.assertEqual(fake.launch_argv[4], "--workspace")
+            run_root = files["proof"] / "probes" / run_id
+            self.assertEqual(fake.launch_argv[5], str(run_root / "fixture"))
+            self.assertFalse((run_root / "fixture" / ".cursor").exists())
+            public_context = (
+                run_root / "activation-context.json"
+            ).read_bytes()
+            self.assertNotIn(
+                str(files["subscription_profile"]).encode("utf-8"),
+                public_context,
+            )
+            descriptor = json.loads(
+                (run_root / "plane-descriptor.json").read_text(encoding="utf-8")
+            )
+            instruction = json.loads(
+                (run_root / "effective-instructions.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                descriptor["materialize"][0]["relative_path"],
+                ".cursor/rules/puppet-%s.mdc"
+                % instruction["rendered_sha256"],
+            )
+            receipt = json.loads(
+                (run_root / "receipt.json").read_text(encoding="utf-8")
+            )
+            with patch("puppet_lib.adapter_manifest.stat.S_ISSOCK", return_value=True):
+                verified = verify_qualification_receipt(
+                    run_root / "receipt.json",
+                    _current_manifest=manifest,
+                    _authority_root=files["authority"],
+                    _server_process_fn=lambda _pid: fake.server_process,
+                    _tmux_factory=lambda _root: fake,
+                )
+            self.assertEqual(verified, receipt)
+            self.assertEqual(
+                receipt["plane_activation"]["terminal_state"],
+                "rolled_back",
+            )
+            self.assertEqual(
+                {
+                    reference["kind"]
+                    for reference in receipt["proof_refs"]
+                    if reference["kind"].startswith("activation_")
+                    or reference["kind"] == "plane_descriptor"
+                },
+                {
+                    "plane_descriptor",
+                    "activation_intent",
+                    "activation_receipt",
+                    "activation_context",
+                    "activation_rollback_intent",
+                    "activation_rollback",
+                },
+            )
+
+            ordinary_fake = FakeTmux(root / "fake-ordinary-tmux")
+            ordinary = execute(
+                files,
+                ordinary_fake,
+                target="cursor",
+                run_id="probe-cursor-ordinary-control",
+            )
+            self.assertEqual(ordinary["result"], "accepted")
+            self.assertEqual(
+                ordinary_fake.launch_argv[:4],
+                files["raw"]["yolo_mapping"]["launch_argv"],
+            )
+            self.assertEqual(ordinary_fake.launch_argv[4], "--workspace")
+            ordinary_root = Path(ordinary["run_root"])
+            self.assertEqual(
+                ordinary_fake.launch_argv[5],
+                str(ordinary_root / "fixture"),
+            )
+            ordinary_receipt = json.loads(
+                Path(ordinary["receipt"]).read_text(encoding="utf-8")
+            )
+            self.assertIsNone(ordinary_receipt["plane_activation"])
 
     def test_incomplete_claude_mapping_requires_plane_descriptor(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -94,7 +94,7 @@ environment bindings—are normalized before fingerprinting.
 | AGY 1.1.5 | documented custom-agent candidate via `--agent`; blocked because no isolated config-root or positive sandbox-off control is proved | exact source-owned, activation-disabled `.agents/agents/puppet-<rendered-sha>/agent.md` + planned `--agent puppet-<rendered-sha>` descriptor; a source-only body-free binding rejoins compiler bytes, strict workspace inode identity, current doctor/adapter/protocol/execution, and the immutable regular verdict while all lifecycle authority stays false | unsupported; no additive file/stdin system-instruction surface found |
 | Codex CLI 0.145.0 | lane-owned `CODEX_HOME` named profile with additive `developer_instructions`; factual candidate blocked on isolated auth | nested/scoped `AGENTS.md` candidate; unqualified and still blocked on isolated auth | unsupported for the regular TUI because `-c developer_instructions=...` exposes the body in argv |
 | Claude Code 2.1.215 | namespaced custom output style under lane `CLAUDE_CONFIG_DIR`, selected by lane settings; unqualified | create-only namespaced `.claude/rules/*.md` candidate; unqualified | exact parser accepts `--append-system-prompt-file`; strongest first candidate, unqualified |
-| Cursor Agent 2026.07.17-3e2a980 | unsupported: no session-specific User Rules/config-root selector | namespaced `.cursor/rules/*.mdc` or scoped `AGENTS.md`, selected by absolute `--workspace`; sole viable candidate, unqualified | unsupported; no public additive file transport found |
+| Cursor Agent 2026.07.17-3e2a980 | unsupported: no session-specific User Rules/config-root selector | qualification-only namespaced `.cursor/rules/puppet-<rendered-sha>.mdc`, selected by one absolute `--workspace`; public lifecycle implemented, but unqualified until a fresh activated/control pair and native-view proof produce a terminal receipt | unsupported; no public additive file transport found |
 | Grok Build 0.2.106 | exact `$GROK_HOME/rules/*.md` additive surface; factual candidate blocked because the isolated root also owns auth/session state | deepest-scope `.grok/rules/*.md` plus explicit `--cwd`; strongest first candidate, unqualified | unsupported: append alias is literal `--rules`, file variants are rejected, replacement flags forbidden |
 
 ## Qualification and no-bleed evidence
@@ -113,6 +113,15 @@ Required evidence is structural and source-blind:
 - create-only or preimage-guarded materialization plus exact rollback; and
 - hashes only in durable proof, with no instruction/task body, transcript,
   scrollback, config content, credential, or auth material.
+
+Cursor's workspace row has an additional paired gate. A body-free request lets
+Pass B derive the hash-named descriptor only after compiling the effective
+contract. One activated run must create and later roll back the rule after exact
+halt, while a distinct ordinary run on the same exact private profile must carry
+no activation. Both workspaces must remain unchanged, and the activated run must
+record one structural read-only native tmux attach/detach. Only the
+controller-attested terminal join is promotable; a descriptor, source-only
+binding, activated receipt, or ordinary receipt alone is not.
 
 An unsupported plane is a valid independent result. It does not authorize a
 fallback wrapper to impersonate that plane. A harness baseline can be promoted

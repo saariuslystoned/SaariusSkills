@@ -109,6 +109,27 @@ relaunches or reuses the reservation. It reconciles an exact stranded signal
 only after target death and rejects any missing, drifted, non-source, or
 post-observation recreated leaf.
 
+Cursor qualification activates only from a body-free request bound to the
+fresh doctor manifest. Pass B derives the exact
+`.cursor/rules/puppet-<effective-contract-sha256>.mdc` descriptor after
+compilation, requires an absent `.cursor` root in a create-only 0700 workspace,
+and composes exactly one absolute `--workspace` selector with the enrolled
+private profile. Revalidate that profile and the artifact immediately before
+launch. While active, structurally observe one human read-only native tmux
+client attach and detach without reading pane content. After exact registered
+PID halt, verify the receipted vnode and remove only the rule plus empty
+transaction-created directories. Any foreign content, identity drift, or
+interruption fences the activation for controller adjudication.
+
+An activated Cursor receipt is activation-only and cannot promote. A terminal
+qualification must reverify it beside a distinct ordinary Pass B control using
+the same controller, campaign, goal, executable, adapter, protocol, compiler
+policy, unresolved default-model selection, and exact private profile. It also
+requires distinct workspaces, unchanged fixture fingerprints for both runs,
+the structural native-view receipt, exact halts, activated rollback, and no
+activation in the ordinary control. Source-only records and standalone ordinary
+receipts are likewise non-promotable.
+
 The current product baseline is `regular` only. `/goal`, `/loop`,
 `/teamwork-preview`, alternate models, and automatic routing remain separate,
 versioned lifecycle qualifications and must not be silently injected.

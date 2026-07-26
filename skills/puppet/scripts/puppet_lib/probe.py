@@ -76,6 +76,23 @@ from .claude_paired_qualification import (
     build_claude_control_source,
     validate_claude_control_source,
 )
+from .cursor_qualification import (
+    CURSOR_NATIVE_TRIGGER,
+    CURSOR_NATIVE_TRIGGER_SHA256,
+    CURSOR_QUALIFICATION_DESCRIPTOR_ID,
+    CURSOR_QUALIFICATION_REQUEST_SCHEMA,
+    build_cursor_activation_context,
+    build_cursor_qualification_descriptor,
+    cursor_qualification_launch_argv,
+    materialize_cursor_activation,
+    plan_cursor_activation,
+    public_cursor_activation_context,
+    revalidate_cursor_activation_context,
+    rollback_cursor_activation,
+    validate_cursor_qualification_descriptor,
+    validate_cursor_qualification_request,
+    validate_cursor_terminal_activation,
+)
 from .errors import (
     ConflictError,
     IdentityError,
@@ -223,6 +240,7 @@ def _validated_mapping(
     target: str,
     allow_claude_activation: bool = False,
     allow_claude_control: bool = False,
+    allow_cursor_activation: bool = False,
     allow_codex_worktree_probe: bool = False,
     allow_grok_workspace_probe: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
@@ -319,10 +337,26 @@ def _validated_mapping(
             and "--model" not in (mapping.get("launch_argv") or [])
             and "--reasoning-effort" not in (mapping.get("launch_argv") or [])
         )
+        cursor_workspace_exception = (
+            allow_cursor_activation
+            and target == "cursor"
+            and mapping.get("project_isolation_declared") is False
+            and mapping.get("project_isolation_flags") == []
+            and all(
+                mapping.get(name) is True
+                for name in (
+                    "permission_declared",
+                    "prompt_transport_declared",
+                    "sandbox_disable_declared",
+                    "session_profiles_declared",
+                )
+            )
+        )
         if (
             not codex_worktree_exception
             and not claude_control_exception
             and not grok_workspace_exception
+            and not cursor_workspace_exception
             and (
                 not allow_claude_activation
                 or target != "claude"
@@ -360,6 +394,7 @@ def _read_plane_descriptor(path: Path) -> Dict[str, Any]:
     if isinstance(decoded, dict) and decoded.get("schema") in {
         CODEX_WORKTREE_DESCRIPTOR_SCHEMA,
         GROK_WORKSPACE_DESCRIPTOR_SCHEMA,
+        CURSOR_QUALIFICATION_REQUEST_SCHEMA,
     }:
         return decoded
     return parse_instruction_plane_descriptor(text)
@@ -665,6 +700,7 @@ def _wait_for_handoff(
     population_guard: Callable[[], None],
     expected_handoff_names: set[str],
     transient_missing_handoff_names: Optional[set[str]] = None,
+    fixture_excluded_prefixes: tuple[str, ...] = ("handoffs",),
     timeout: float,
     sleep_fn: Callable[[float], None],
 ) -> ValidatedHandoff:
@@ -712,7 +748,13 @@ def _wait_for_handoff(
                 raise IdentityError(
                     "probe handoff directory contains unexpected artifacts"
                 )
-            if tree_fingerprint(fixture) != fixture_fingerprint:
+            if (
+                tree_fingerprint(
+                    fixture,
+                    excluded_prefix=fixture_excluded_prefixes,
+                )
+                != fixture_fingerprint
+            ):
                 raise IdentityError("non-handoff conformance fixture content drifted")
             return handoff
         if time.monotonic() >= deadline:
@@ -978,10 +1020,24 @@ def run_probe(
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema") == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
     )
+    cursor_plane_request = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema")
+        == CURSOR_QUALIFICATION_REQUEST_SCHEMA
+    )
+    cursor_plane_descriptor = (
+        plane_descriptor_value is not None
+        and (
+            cursor_plane_request
+            or plane_descriptor_value.get("descriptor_id")
+            == CURSOR_QUALIFICATION_DESCRIPTOR_ID
+        )
+    )
     claude_plane_descriptor = (
         plane_descriptor_value is not None
         and not codex_worktree_descriptor
         and not grok_workspace_descriptor
+        and not cursor_plane_descriptor
     )
     if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
@@ -1009,12 +1065,20 @@ def run_probe(
         if target != "grok":
             raise ValidationError("Grok workspace descriptor target changed")
         raise UnsupportedError(GROK_QUALIFICATION_NONPROMOTABLE)
+    if cursor_plane_descriptor:
+        if target != "cursor":
+            raise ValidationError("Cursor workspace descriptor target changed")
+        if cursor_plane_request:
+            validate_cursor_qualification_request(plane_descriptor_value)
+        else:
+            validate_cursor_qualification_descriptor(plane_descriptor_value)
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
         allow_claude_activation=claude_plane_descriptor,
         allow_claude_control=claude_control_probe,
+        allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
         allow_grok_workspace_probe=False,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
@@ -1032,6 +1096,12 @@ def run_probe(
         if claude_control_probe
         else None
     )
+    if (
+        cursor_plane_request
+        and plane_descriptor_value["adapter_manifest_sha256"]
+        != manifest.fingerprint
+    ):
+        raise IdentityError("Cursor qualification request manifest changed")
     authorization = validate_campaign_authorization(
         authorization_path,
         target=target,
@@ -1122,6 +1192,9 @@ def run_probe(
         if claude_plane_descriptor
         else activation_lane_root / "unused-config"
     )
+    cursor_activation_transaction_root = (
+        activation_lane_root / "cursor-transaction"
+    )
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -1156,6 +1229,10 @@ def run_probe(
     activation_public_context: Optional[Dict[str, Any]] = None
     activation_receipt: Optional[Dict[str, Any]] = None
     activation_terminal: Optional[Dict[str, Any]] = None
+    cursor_activation_plan: Optional[Dict[str, Any]] = None
+    cursor_activation_receipt: Optional[Dict[str, Any]] = None
+    cursor_activation_context: Optional[Dict[str, Any]] = None
+    cursor_activation_public_context: Optional[Dict[str, Any]] = None
     matched_compiled: Optional[CompiledMarkerInstruction] = None
     matched_activation_attestation: Optional[Dict[str, Any]] = None
     matched_signal_guard: Optional[Any] = None
@@ -1233,7 +1310,7 @@ def run_probe(
                 raise IdentityError(
                     "Claude ordinary control does not use the activation subscription profile"
                 )
-        if plane_descriptor_value is not None:
+        if plane_descriptor_value is not None and not cursor_plane_request:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
                 plane_descriptor_value,
@@ -1242,8 +1319,10 @@ def run_probe(
             authorization_snapshot_path, max_bytes=65536
         )
         atomic_write_json(evidence_path, evidence)
-        if claude_plane_descriptor:
+        if claude_plane_descriptor or cursor_plane_descriptor:
             activation_lane_root.mkdir(mode=0o700)
+        if cursor_plane_descriptor:
+            cursor_activation_transaction_root.mkdir(mode=0o700)
         fixture = (
             run_root / "fixture"
             if not claude_plane_descriptor
@@ -1257,7 +1336,15 @@ def run_probe(
             != manifest.raw["protocol_fingerprint"]
         ):
             raise IdentityError("fixture and manifest protocol fingerprints differ")
-        fixture_fingerprint = tree_fingerprint(fixture)
+        fixture_excluded_prefixes = (
+            ("handoffs", ".cursor")
+            if cursor_plane_descriptor
+            else ("handoffs",)
+        )
+        fixture_fingerprint = tree_fingerprint(
+            fixture,
+            excluded_prefix=fixture_excluded_prefixes,
+        )
         evidence["fixture_fingerprint_before"] = fixture_fingerprint
         controller_contract = _controller_contract(
             fixture=fixture,
@@ -1323,6 +1410,15 @@ def run_probe(
                 ready_task=ready_task,
             )
             compiled = matched_compiled
+        if cursor_plane_request:
+            plane_descriptor_value = build_cursor_qualification_descriptor(
+                adapter_manifest_sha256=manifest.fingerprint,
+                rendered_sha256=compiled.manifest["rendered_sha256"],
+            )
+            atomic_write_json(
+                plane_descriptor_snapshot_path,
+                plane_descriptor_value,
+            )
         atomic_write_json(instruction_path, compiled.manifest)
         instruction_manifest_sha = sha256_file(instruction_path, max_bytes=131072)
         evidence["instruction_wrapper"] = {
@@ -1348,7 +1444,7 @@ def run_probe(
                     argv=argv,
                     source_environment=agy_shared_source_environment(),
                 )
-            else:
+            elif not cursor_plane_descriptor:
                 if subscription_context is None:
                     raise IdentityError(
                         "subscription profile launch context is unavailable"
@@ -1360,6 +1456,12 @@ def run_probe(
                     # binds there; terminal workspace_isolation independently proves
                     # that real process cwd while prompts use absolute fixture paths.
                     launch_repo = Path(plane_descriptor_value["candidate_root"])
+                if target == "cursor":
+                    argv = cursor_qualification_launch_argv(
+                        mapping,
+                        base_argv=argv,
+                        workspace_root=launch_repo,
+                    )
                 launch_environment, launch_identity = build_launch_identity(
                     target=target,
                     repo=launch_repo,
@@ -1368,16 +1470,55 @@ def run_probe(
                     bindings=subscription_context.bindings,
                     admitted_lane_root=admitted_lane_root,
                 )
-            manifest.verify_launch_execution_environment(launch_environment)
-            launch_plan = build_admitted_launch_plan(
-                target=target,
-                session=session,
-                run_id=run_id,
-                repo=launch_repo,
-                argv=argv,
-                environment=launch_environment,
-                admitted_lane_root=admitted_lane_root,
-            )
+            if cursor_plane_descriptor:
+                if subscription_context is None:
+                    raise IdentityError(
+                        "Cursor subscription profile context is unavailable"
+                    )
+                cursor_activation_plan = plan_cursor_activation(
+                    descriptor=plane_descriptor_value,
+                    adapter_manifest=manifest,
+                    effective_contract=compiled.rendered,
+                    workspace_root=fixture,
+                    transaction_root=cursor_activation_transaction_root,
+                )
+                cursor_activation_receipt = materialize_cursor_activation(
+                    cursor_activation_plan,
+                    effective_contract=compiled.rendered,
+                )
+                cursor_activation_context = build_cursor_activation_context(
+                    cursor_activation_plan,
+                    materialization_receipt=cursor_activation_receipt,
+                    adapter_manifest=manifest,
+                    session=session,
+                    run_id=run_id,
+                    source_environment=subscription_context.source_environment,
+                    bindings=subscription_context.bindings,
+                    admitted_lane_root=subscription_context.profile_root,
+                )
+                cursor_activation_public_context = public_cursor_activation_context(
+                    cursor_activation_context
+                )
+                atomic_write_json(
+                    activation_context_path,
+                    cursor_activation_public_context,
+                )
+                argv = cursor_activation_context["argv"]
+                launch_environment = cursor_activation_context["environment"]
+                launch_identity = cursor_activation_context["launch_identity"]
+                launch_plan = cursor_activation_context["admitted_launch_plan"]
+                admitted_lane_root = subscription_context.profile_root
+            else:
+                manifest.verify_launch_execution_environment(launch_environment)
+                launch_plan = build_admitted_launch_plan(
+                    target=target,
+                    session=session,
+                    run_id=run_id,
+                    repo=launch_repo,
+                    argv=argv,
+                    environment=launch_environment,
+                    admitted_lane_root=admitted_lane_root,
+                )
             if target == "agy":
                 status = run_agy_status_preflight(
                     executable_path=Path(
@@ -1560,7 +1701,7 @@ def run_probe(
             server_attempted = True
 
         def admit_before_target_start() -> TargetLaunch:
-            nonlocal activation_context, target_launch_attempted
+            nonlocal activation_context, cursor_activation_context, target_launch_attempted
             if activation_plan is not None:
                 if activation_context is None or activation_public_context is None:
                     raise IdentityError(
@@ -1603,6 +1744,53 @@ def run_probe(
                     argv=activation_context.argv,
                     environment=activation_context.environment,
                     launch_identity=activation_context.launch_identity,
+                )
+            elif cursor_activation_plan is not None:
+                if (
+                    cursor_activation_context is None
+                    or cursor_activation_receipt is None
+                    or subscription_context is None
+                    or subscription_binding is None
+                ):
+                    raise IdentityError(
+                        "Cursor activation launch authority is incomplete"
+                    )
+                refreshed_context, refreshed_status = (
+                    _subscription_profile_preflight_fn(
+                        profile_root=subscription_context.profile_root,
+                        expected_target=target,
+                        expected_executable_path=manifest.raw["executable"][
+                            "resolved_path"
+                        ],
+                    )
+                )
+                refreshed_binding = build_subscription_launch_binding(
+                    refreshed_context, refreshed_status
+                )
+                validate_subscription_launch_binding(
+                    refreshed_binding,
+                    expected_target="cursor",
+                    require_logged_in=True,
+                )
+                if refreshed_binding != subscription_binding:
+                    raise IdentityError(
+                        "Cursor subscription profile changed before target start"
+                    )
+                cursor_activation_context = revalidate_cursor_activation_context(
+                    cursor_activation_context,
+                    cursor_activation_plan,
+                    materialization_receipt=cursor_activation_receipt,
+                    adapter_manifest=manifest,
+                    session=session,
+                    run_id=run_id,
+                    source_environment=refreshed_context.source_environment,
+                    bindings=refreshed_context.bindings,
+                    admitted_lane_root=refreshed_context.profile_root,
+                )
+                refreshed = TargetLaunch(
+                    argv=cursor_activation_context["argv"],
+                    environment=cursor_activation_context["environment"],
+                    launch_identity=cursor_activation_context["launch_identity"],
                 )
             else:
                 if target == "agy":
@@ -1895,7 +2083,7 @@ def run_probe(
         _write_state(state_path, state, "awaiting_ready")
 
         adapter = adapter_for(target)
-        if activation_plan is None:
+        if activation_plan is None and cursor_activation_plan is None:
             initial = adapter.envelope(
                 compiled.rendered.decode("utf-8"),
                 session_profile,
@@ -1906,7 +2094,7 @@ def run_probe(
                 raise IdentityError(
                     "regular profile altered the compiled instruction payload"
                 )
-        else:
+        elif activation_plan is not None:
             initial = CLAUDE_NATIVE_TRIGGER
             initial_payload = _payload(CLAUDE_NATIVE_TRIGGER + "\n")
             if (
@@ -1914,11 +2102,25 @@ def run_probe(
                 or sha256_bytes(initial_payload) == compiled.manifest["rendered_sha256"]
             ):
                 raise IdentityError("native activation trigger identity is invalid")
+        else:
+            initial = CURSOR_NATIVE_TRIGGER
+            initial_payload = _payload(CURSOR_NATIVE_TRIGGER + "\n")
+            if (
+                sha256_bytes(initial_payload) != CURSOR_NATIVE_TRIGGER_SHA256
+                or sha256_bytes(initial_payload)
+                == compiled.manifest["rendered_sha256"]
+            ):
+                raise IdentityError("Cursor native activation trigger identity is invalid")
         if any(
             initial in argument
             or compiled.rendered.decode("utf-8") in argument
             or "PUPPET_REAL_HARNESS" in argument
-            or (activation_plan is None and run_id in argument)
+            or (
+                activation_plan is None
+                and cursor_activation_plan is None
+                and run_id in argument
+                and not (target == "cursor" and argument == str(fixture))
+            )
             or fixture_contract["nonce"] in argument
             for argument in argv
         ):
@@ -1966,15 +2168,18 @@ def run_probe(
             process_alive_fn=_process_alive_fn,
             population_guard=population_guard,
             expected_handoff_names=(
-                {"ready.json"}
-                if activation_plan is None
-                else {"ready.json", Path(MARKER_SIGNAL_RELATIVE_PATH).name}
+                (
+                    {"ready.json", Path(MARKER_SIGNAL_RELATIVE_PATH).name}
+                    if activation_plan is not None
+                    else {"ready.json"}
+                )
             ),
             transient_missing_handoff_names=(
                 None
                 if activation_plan is None
                 else {Path(MARKER_SIGNAL_RELATIVE_PATH).name}
             ),
+            fixture_excluded_prefixes=fixture_excluded_prefixes,
             timeout=timeout,
             sleep_fn=_sleep_fn,
         )
@@ -2077,11 +2282,15 @@ def run_probe(
             process_alive_fn=_process_alive_fn,
             population_guard=population_guard,
             expected_handoff_names={"ready.json", "followup.json"},
+            fixture_excluded_prefixes=fixture_excluded_prefixes,
             timeout=timeout,
             sleep_fn=_sleep_fn,
         )
         evidence["followup"] = followup.reference()
-        evidence["fixture_fingerprint_after"] = tree_fingerprint(fixture)
+        evidence["fixture_fingerprint_after"] = tree_fingerprint(
+            fixture,
+            excluded_prefix=fixture_excluded_prefixes,
+        )
         if evidence["fixture_fingerprint_after"] != fixture_fingerprint:
             raise IdentityError("non-handoff conformance fixture content drifted")
         _assert_executable_identity(manifest)
@@ -2242,6 +2451,75 @@ def run_probe(
                 rollback_intent=activation_rollback_intent,
                 rollback_receipt=activation_rollback,
             )
+        elif cursor_activation_plan is not None:
+            if (
+                plane_descriptor_value is None
+                or cursor_activation_context is None
+                or cursor_activation_public_context is None
+                or cursor_activation_receipt is None
+                or cleanup is None
+            ):
+                raise IdentityError("Cursor activation proof family is incomplete")
+            cursor_rollback = rollback_cursor_activation(
+                cursor_activation_plan,
+                materialization_receipt=cursor_activation_receipt,
+                exact_halt_receipt=cleanup,
+            )
+            cursor_intent_path = (
+                cursor_activation_transaction_root / "activation-intent.json"
+            )
+            cursor_receipt_path = (
+                cursor_activation_transaction_root / "activation-receipt.json"
+            )
+            cursor_rollback_intent_path = (
+                cursor_activation_transaction_root / "rollback-intent.json"
+            )
+            cursor_rollback_path = (
+                cursor_activation_transaction_root / "rollback-receipt.json"
+            )
+            cursor_intent = read_json(cursor_intent_path, max_bytes=131072)
+            cursor_materialization = read_json(
+                cursor_receipt_path, max_bytes=131072
+            )
+            cursor_rollback_intent = read_json(
+                cursor_rollback_intent_path, max_bytes=131072
+            )
+            cursor_rollback = read_json(cursor_rollback_path, max_bytes=131072)
+            activation_terminal = validate_cursor_terminal_activation(
+                {
+                    "schema": PROBE_PLANE_ACTIVATION_SCHEMA,
+                    "qualification_scope": ACTIVATION_LIFECYCLE_SCOPE,
+                    "terminal_state": "rolled_back",
+                    "descriptor_sha256": descriptor_fingerprint(
+                        plane_descriptor_value
+                    ),
+                    "plan_sha256": cursor_activation_plan["plan_sha256"],
+                    "intent_sha256": sha256_bytes(
+                        canonical_json_bytes(cursor_intent)
+                    ),
+                    "materialization_receipt_sha256": sha256_bytes(
+                        canonical_json_bytes(cursor_materialization)
+                    ),
+                    "launch_context_sha256": sha256_bytes(
+                        canonical_json_bytes(cursor_activation_public_context)
+                    ),
+                    "artifact_sha256": cursor_activation_plan["artifact"]["sha256"],
+                    "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
+                    "rollback_intent_sha256": sha256_bytes(
+                        canonical_json_bytes(cursor_rollback_intent)
+                    ),
+                    "rollback_receipt_sha256": sha256_bytes(
+                        canonical_json_bytes(cursor_rollback)
+                    ),
+                },
+                descriptor=plane_descriptor_value,
+                intent=cursor_intent,
+                materialization_receipt=cursor_materialization,
+                context=cursor_activation_public_context,
+                launch_plan=launch_plan,
+                rollback_intent=cursor_rollback_intent,
+                rollback_receipt=cursor_rollback,
+            )
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -2341,6 +2619,45 @@ def run_probe(
                     _proof_reference(
                         "matched_control_signal",
                         matched_signal_path,
+                        run_root,
+                    ),
+                ]
+            )
+        elif cursor_activation_plan is not None:
+            proof_refs.extend(
+                [
+                    _proof_reference(
+                        "plane_descriptor",
+                        plane_descriptor_snapshot_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_intent",
+                        cursor_activation_transaction_root
+                        / "activation-intent.json",
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_receipt",
+                        cursor_activation_transaction_root
+                        / "activation-receipt.json",
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_context",
+                        activation_context_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_rollback_intent",
+                        cursor_activation_transaction_root
+                        / "rollback-intent.json",
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "activation_rollback",
+                        cursor_activation_transaction_root
+                        / "rollback-receipt.json",
                         run_root,
                     ),
                 ]
@@ -2662,6 +2979,9 @@ def recover_probe(
         else None
     )
     persisted_activation_transaction = run_root / "activation-lane" / "transaction"
+    persisted_cursor_transaction = (
+        run_root / "activation-lane" / "cursor-transaction"
+    )
     if (
         persisted_activation_transaction.exists()
         or persisted_activation_transaction.is_symlink()
@@ -2670,8 +2990,37 @@ def recover_probe(
             "activation transaction lacks its canonical descriptor snapshot"
         )
     if (
+        persisted_cursor_transaction.exists()
+        or persisted_cursor_transaction.is_symlink()
+    ) and (
+        persisted_plane_descriptor is None
+        or persisted_plane_descriptor.get("descriptor_id")
+        != CURSOR_QUALIFICATION_DESCRIPTOR_ID
+    ):
+        raise IdentityError(
+            "Cursor activation transaction lacks its canonical descriptor snapshot"
+        )
+    supplied_cursor_request = (
+        supplied_plane_descriptor is not None
+        and supplied_plane_descriptor.get("schema")
+        == CURSOR_QUALIFICATION_REQUEST_SCHEMA
+    )
+    request_matches_persisted_cursor = (
+        supplied_cursor_request
+        and persisted_plane_descriptor is not None
+        and persisted_plane_descriptor.get("descriptor_id")
+        == CURSOR_QUALIFICATION_DESCRIPTOR_ID
+        and validate_cursor_qualification_request(supplied_plane_descriptor)[
+            "adapter_manifest_sha256"
+        ]
+        == validate_cursor_qualification_descriptor(persisted_plane_descriptor)[
+            "target"
+        ]["adapter_manifest_sha256"]
+    )
+    if (
         supplied_plane_descriptor is not None
         and persisted_plane_descriptor is not None
+        and not request_matches_persisted_cursor
         and canonical_json_bytes(supplied_plane_descriptor)
         != canonical_json_bytes(persisted_plane_descriptor)
     ):
@@ -2691,10 +3040,16 @@ def recover_probe(
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema") == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
     )
+    cursor_plane_descriptor = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("descriptor_id")
+        == CURSOR_QUALIFICATION_DESCRIPTOR_ID
+    )
     claude_plane_descriptor = (
         plane_descriptor_value is not None
         and not codex_worktree_descriptor
         and not grok_workspace_descriptor
+        and not cursor_plane_descriptor
     )
     if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
@@ -2719,12 +3074,17 @@ def recover_probe(
         if target != "grok":
             raise ValidationError("Grok workspace descriptor target changed")
         raise UnsupportedError(GROK_QUALIFICATION_NONPROMOTABLE)
+    if cursor_plane_descriptor:
+        if target != "cursor":
+            raise ValidationError("Cursor workspace descriptor target changed")
+        validate_cursor_qualification_descriptor(plane_descriptor_value)
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
         allow_claude_activation=claude_plane_descriptor,
         allow_claude_control=claude_control_probe,
+        allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
         allow_grok_workspace_probe=False,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
@@ -3000,6 +3360,10 @@ def recover_probe(
         complete = (
             state.get("phase") == "complete" and state.get("result") == "accepted"
         )
+        if cursor_plane_descriptor and not complete:
+            raise UnsupportedError(
+                "interrupted Cursor activation remains fenced; preserve it for controller adjudication"
+            )
         lock_descriptor, lock_identity = _acquire_campaign_probe_lock(
             _authority_root,
             target=target,

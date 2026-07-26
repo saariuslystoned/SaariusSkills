@@ -640,6 +640,28 @@ def _validate_qualification_launch_grammar(
             )
         return
 
+    if (harness, plane) == ("cursor", "workspace_addendum"):
+        relative_path = materialize[0]["relative_path"] if materialize else ""
+        if (
+            len(materialize) != 1
+            or materialize[0]["artifact_id"] != CURSOR_WORKSPACE_ARTIFACT_ID
+            or materialize[0]["root_ref"] != "workspace_root"
+            or _CURSOR_WORKSPACE_RULE_RE.fullmatch(relative_path) is None
+            or materialize[0]["content_ref"] != "effective_contract"
+            or materialize[0]["write_mode"] != "create_only"
+            or cwd_ref != "workspace_root"
+            or env
+            or argv
+            != [
+                {"literal": "--workspace"},
+                {"root_ref": "workspace_root"},
+            ]
+        ):
+            raise ValidationError(
+                "Cursor workspace qualification descriptor has an invalid closed launch grammar"
+            )
+        return
+
     raise ValidationError(
         "instruction-plane tuple is not enabled for qualification in descriptor v1"
     )

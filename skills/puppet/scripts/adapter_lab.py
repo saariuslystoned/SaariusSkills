@@ -137,6 +137,13 @@ def _recover(args):
 
 
 def _verified_receipt(path: Path):
+    header = read_json(path, max_bytes=131072, reject_sensitive_fields=True)
+    if header.get("schema") == "puppet.cursor-regular-qualification/v1":
+        from puppet_lib.cursor_qualification import (
+            verify_cursor_terminal_qualification,
+        )
+
+        return verify_cursor_terminal_qualification(path)
     run = verify_qualification_receipt(path)
     if run.get("capabilities") != list(PROBE_CAPABILITIES):
         raise ValidationError(
@@ -149,7 +156,7 @@ def _verify(args):
     run = _verified_receipt(args.run)
     return {
         "ok": True,
-        "result": run["result"],
+        "result": run.get("result", run.get("terminal_state")),
         "target": run["target"],
         "session_profile": run["session_profile"],
     }
@@ -207,6 +214,7 @@ def _qualify(args):
     receipt = _verified_receipt(receipt_path)
     if base.target == "agy":
         require_agy_regular_launch_authority(receipt.get("session_profile"))
+    cursor_terminal = receipt.get("schema") == "puppet.cursor-regular-qualification/v1"
     if receipt.get("plane_activation") is not None:
         raise UnsupportedError(
             "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
@@ -216,6 +224,14 @@ def _qualify(args):
             "ordinary Claude control proof cannot qualify without a controller-verified activation/control pair"
         )
     mapping = read_json(args.mapping, max_bytes=65536)
+    if base.target == "cursor":
+        if not cursor_terminal:
+            raise UnsupportedError(
+                "Cursor qualification requires the terminal paired control receipt"
+            )
+        from puppet_lib.cursor_qualification import cursor_qualified_mapping
+
+        mapping = cursor_qualified_mapping(mapping)
     if base.target == "codex" and mapping.get("complete") is False:
         if receipt.get("workspace_isolation") is None:
             raise UnsupportedError(
@@ -257,6 +273,85 @@ def _qualify(args):
         "session_profile": receipt["session_profile"],
         "manifest_fingerprint": qualified.fingerprint,
         "out": str(args.out),
+    }
+
+
+def _cursor_pair(args):
+    from puppet_lib.cursor_qualification import (
+        build_cursor_terminal_qualification,
+        verify_cursor_terminal_qualification,
+    )
+
+    if args.out.exists() or args.out.is_symlink():
+        raise ValidationError("Cursor terminal receipt output already exists")
+    result = build_cursor_terminal_qualification(
+        activated_receipt_path=args.activated_receipt,
+        ordinary_receipt_path=args.ordinary_receipt,
+        native_view_path=args.native_view,
+    )
+    atomic_write_json(args.out, result)
+    verify_cursor_terminal_qualification(args.out)
+    return {
+        "ok": True,
+        "target": "cursor",
+        "terminal_state": result["terminal_state"],
+        "out": str(args.out),
+    }
+
+
+def _cursor_request(args):
+    from puppet_lib.cursor_qualification import build_cursor_qualification_request
+
+    manifest = AdapterManifest.from_path(args.manifest)
+    if (
+        manifest.target != "cursor"
+        or not manifest.raw["doctor_only"]
+        or manifest.raw["qualification"] is not None
+    ):
+        raise ValidationError(
+            "Cursor qualification request requires a fresh doctor-only manifest"
+        )
+    if args.out.exists() or args.out.is_symlink():
+        raise ValidationError("Cursor qualification request output already exists")
+    request = build_cursor_qualification_request(
+        adapter_manifest_sha256=manifest.fingerprint
+    )
+    atomic_write_json(args.out, request)
+    return {
+        "ok": True,
+        "target": "cursor",
+        "authority": "request_only",
+        "out": str(args.out),
+    }
+
+
+def _cursor_native_view(args):
+    from puppet_lib.cursor_qualification import record_cursor_native_view
+
+    state = read_json(
+        args.run_root.resolve(strict=True) / "state.json",
+        max_bytes=131072,
+        reject_sensitive_fields=True,
+    )
+    attach_command = state.get("attach_command")
+    if not isinstance(attach_command, str) or not attach_command:
+        raise ValidationError("Cursor probe has not published its native attach command")
+    print(
+        json.dumps({"attach_command": attach_command}, sort_keys=True),
+        file=sys.stderr,
+        flush=True,
+    )
+    result = record_cursor_native_view(
+        run_root=args.run_root,
+        timeout=args.timeout,
+    )
+    return {
+        "ok": True,
+        "target": "cursor",
+        "run_id": result["run_id"],
+        "attached": result["attached"],
+        "detached": result["detached"],
+        "receipt": str(args.run_root.resolve() / "cursor-native-view.json"),
     }
 
 
@@ -356,6 +451,29 @@ def build_parser():
     qualify_parser.add_argument("--receipt", required=True, type=Path)
     qualify_parser.add_argument("--out", required=True, type=Path)
     qualify_parser.set_defaults(handler=_qualify)
+    pair_parser = commands.add_parser(
+        "cursor-pair",
+        help="join activated/control Pass B and native-view proof into one terminal Cursor receipt",
+    )
+    pair_parser.add_argument("--activated-receipt", required=True, type=Path)
+    pair_parser.add_argument("--ordinary-receipt", required=True, type=Path)
+    pair_parser.add_argument("--native-view", required=True, type=Path)
+    pair_parser.add_argument("--out", required=True, type=Path)
+    pair_parser.set_defaults(handler=_cursor_pair)
+    request_parser = commands.add_parser(
+        "cursor-request",
+        help="build a body-free activation request from a fresh Cursor doctor manifest",
+    )
+    request_parser.add_argument("--manifest", required=True, type=Path)
+    request_parser.add_argument("--out", required=True, type=Path)
+    request_parser.set_defaults(handler=_cursor_request)
+    view_parser = commands.add_parser(
+        "cursor-native-view",
+        help="observe one human read-only native Cursor TUI attach and detach",
+    )
+    view_parser.add_argument("--run-root", required=True, type=Path)
+    view_parser.add_argument("--timeout", type=float, default=120.0)
+    view_parser.set_defaults(handler=_cursor_native_view)
     return parser
 
 

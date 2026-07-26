@@ -349,6 +349,14 @@ ACTIVATION_QUALIFICATION_PROOF_KINDS = (
     "matched_control_attestation",
     "matched_control_signal",
 )
+CURSOR_ACTIVATION_QUALIFICATION_PROOF_KINDS = (
+    "plane_descriptor",
+    "activation_intent",
+    "activation_receipt",
+    "activation_context",
+    "activation_rollback_intent",
+    "activation_rollback",
+)
 CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS = (
     "workspace_descriptor",
     "controller_contract",
@@ -703,9 +711,14 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
         workspace_kinds = GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS
     else:
         workspace_kinds = ()
-    expected_kinds = QUALIFICATION_PROOF_KINDS + (
-        ACTIVATION_QUALIFICATION_PROOF_KINDS if activation is not None else ()
-    ) + workspace_kinds
+    activation_kinds: tuple[str, ...] = ()
+    if activation is not None:
+        activation_kinds = (
+            CURSOR_ACTIVATION_QUALIFICATION_PROOF_KINDS
+            if receipt.get("target") == "cursor"
+            else ACTIVATION_QUALIFICATION_PROOF_KINDS
+        )
+    expected_kinds = QUALIFICATION_PROOF_KINDS + activation_kinds + workspace_kinds
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
         raise ValidationError("qualification proof references are incomplete")
@@ -912,8 +925,11 @@ def verify_qualification_receipt(
     workspace_isolation = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
     )
-    if plane_activation is not None and receipt.get("target") != "claude":
-        raise ValidationError("plane activation is supported only for Claude")
+    if plane_activation is not None and receipt.get("target") not in {
+        "claude",
+        "cursor",
+    }:
+        raise ValidationError("plane activation target is unsupported")
     isolation_target = workspace_isolation_target(workspace_isolation)
     if workspace_isolation is not None and receipt.get("target") != isolation_target:
         raise ValidationError(
@@ -1010,6 +1026,14 @@ def verify_qualification_receipt(
 
         if is_claude_pair_mapping_closure(current_mapping):
             current_mapping = claude_probe_mapping_from_qualified(current_mapping)
+    if (
+        receipt["target"] == "cursor"
+        and plane_activation is not None
+        and current_mapping.get("complete") is True
+    ):
+        from .cursor_qualification import cursor_probe_mapping_from_qualified
+
+        current_mapping = cursor_probe_mapping_from_qualified(current_mapping)
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
         "execution_fingerprint": current["execution"]["execution_fingerprint"],
@@ -1129,11 +1153,6 @@ def verify_qualification_receipt(
     matched_activation_plan = None
     matched_plane_descriptor = None
     if plane_activation is not None:
-        from .plane_activation import (
-            ActivationPlan,
-            validate_terminal_activation_evidence,
-        )
-
         matched_plane_descriptor = read_json(
             artifacts["plane_descriptor"],
             max_bytes=131072,
@@ -1144,57 +1163,82 @@ def verify_qualification_receipt(
             max_bytes=131072,
             reject_sensitive_fields=True,
         )
-        terminal_activation = validate_terminal_activation_evidence(
-            plane_activation,
-            descriptor=matched_plane_descriptor,
-            intent=activation_intent,
-            materialization_receipt=read_json(
-                artifacts["activation_receipt"],
-                max_bytes=131072,
-                reject_sensitive_fields=True,
-            ),
-            public_context=read_json(
-                artifacts["activation_context"],
-                max_bytes=131072,
-                reject_sensitive_fields=True,
-            ),
-            admitted_launch_plan=launch_plan_raw,
-            rollback_intent=read_json(
-                artifacts["activation_rollback_intent"],
-                max_bytes=131072,
-                reject_sensitive_fields=True,
-            ),
-            rollback_receipt=read_json(
-                artifacts["activation_rollback"],
-                max_bytes=131072,
-                reject_sensitive_fields=True,
-            ),
+        materialization_receipt = read_json(
+            artifacts["activation_receipt"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
         )
+        activation_context = read_json(
+            artifacts["activation_context"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        rollback_intent = read_json(
+            artifacts["activation_rollback_intent"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        rollback_receipt = read_json(
+            artifacts["activation_rollback"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        if receipt["target"] == "cursor":
+            from .cursor_qualification import validate_cursor_terminal_activation
+
+            terminal_activation = validate_cursor_terminal_activation(
+                plane_activation,
+                descriptor=matched_plane_descriptor,
+                intent=activation_intent,
+                materialization_receipt=materialization_receipt,
+                context=activation_context,
+                launch_plan=launch_plan_raw,
+                rollback_intent=rollback_intent,
+                rollback_receipt=rollback_receipt,
+            )
+        else:
+            from .plane_activation import (
+                ActivationPlan,
+                validate_terminal_activation_evidence,
+            )
+
+            terminal_activation = validate_terminal_activation_evidence(
+                plane_activation,
+                descriptor=matched_plane_descriptor,
+                intent=activation_intent,
+                materialization_receipt=materialization_receipt,
+                public_context=activation_context,
+                admitted_launch_plan=launch_plan_raw,
+                rollback_intent=rollback_intent,
+                rollback_receipt=rollback_receipt,
+            )
         if terminal_activation != plane_activation:
             raise ValidationError("terminal plane activation binding changed")
         activation_plan = activation_intent.get("plan")
         if not isinstance(activation_plan, dict):
             raise ValidationError("qualification activation plan is unavailable")
-        matched_activation_plan = ActivationPlan.from_dict(activation_plan)
+        if receipt["target"] == "claude":
+            matched_activation_plan = ActivationPlan.from_dict(activation_plan)
         if not isinstance(activation_plan, dict) or evidence.get(
             "manifest_fingerprint"
         ) != activation_plan.get("adapter_manifest_sha256"):
             raise ValidationError("qualification activation manifest binding changed")
-        profile_config = subscription_binding.get("directory_identities", {}).get(
-            "config"
-        )
-        activation_config = activation_plan.get("config_root")
-        if not isinstance(profile_config, dict) or not isinstance(
-            activation_config, dict
-        ):
-            raise ValidationError(
-                "qualification activation lacks private profile config authority"
-            )
-        for name in ("path", "device", "inode", "uid", "mode"):
-            if activation_config.get(name) != profile_config.get(name):
-                raise IdentityError(
-                    "qualification activation config is not the bound private profile"
+        if receipt["target"] == "claude":
+            profile_config = subscription_binding.get(
+                "directory_identities", {}
+            ).get("config")
+            activation_config = activation_plan.get("config_root")
+            if not isinstance(profile_config, dict) or not isinstance(
+                activation_config, dict
+            ):
+                raise ValidationError(
+                    "qualification activation lacks private profile config authority"
                 )
+            for name in ("path", "device", "inode", "uid", "mode"):
+                if activation_config.get(name) != profile_config.get(name):
+                    raise IdentityError(
+                        "qualification activation config is not the bound private profile"
+                    )
     if (
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
@@ -1277,6 +1321,20 @@ def verify_qualification_receipt(
         if not isinstance(activation_argv, list):
             raise ValidationError("qualification activation argv is invalid")
         expected_launch_argv.extend(activation_argv)
+    elif receipt["target"] == "cursor":
+        from .cursor_qualification import (
+            cursor_probe_mapping_from_qualified,
+            cursor_qualification_launch_argv,
+        )
+
+        cursor_mapping = current["yolo_mapping"]
+        if cursor_mapping.get("complete") is True:
+            cursor_mapping = cursor_probe_mapping_from_qualified(cursor_mapping)
+        expected_launch_argv = cursor_qualification_launch_argv(
+            cursor_mapping,
+            base_argv=expected_launch_argv,
+            workspace_root=expected_fixture,
+        )
     if launch_plan["argv"] != expected_launch_argv:
         raise ValidationError("qualification launch argv differs from its authority")
     if workspace_isolation is not None:
@@ -1932,7 +1990,7 @@ def verify_qualification_receipt(
         review=review,
         review_summary=review_summary,
     )
-    if plane_activation is not None:
+    if plane_activation is not None and receipt["target"] == "claude":
         from .matched_control import (
             _compile_claude_marker_ready_instruction,
             claude_marker_ready_task,
@@ -2617,6 +2675,84 @@ class AdapterManifest:
         path = Path(qualification["receipt_path"])
         if sha256_file(path, max_bytes=131072) != qualification["receipt_sha256"]:
             raise ValidationError("qualification receipt fingerprint changed")
+        receipt_header = read_json(
+            path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        if (
+            self.target == "cursor"
+            and receipt_header.get("schema")
+            == "puppet.cursor-regular-qualification/v1"
+        ):
+            from .cursor_qualification import (
+                cursor_probe_mapping_from_qualified,
+                verify_cursor_terminal_qualification,
+            )
+
+            receipt = verify_cursor_terminal_qualification(
+                path,
+                authority_root=_authority_root,
+                current_manifest=_current_manifest,
+            )
+            if receipt.get("session_profile") != qualification["session_profile"]:
+                raise ValidationError("qualification session profile mismatch")
+            if expected_session_profile is not None:
+                expected_session_profile = validate_session_profile(
+                    self.target, expected_session_profile
+                )
+                if receipt.get("session_profile") != expected_session_profile:
+                    raise IdentityError(
+                        "qualification session profile does not match the active contract"
+                    )
+            expected_authority = {
+                "controller": expected_controller,
+                "campaign_id": expected_campaign_id,
+                "goal_fingerprint": expected_goal_fingerprint,
+            }
+            for name, expected in expected_authority.items():
+                if expected is None:
+                    continue
+                if name == "goal_fingerprint":
+                    validate_sha256(expected, "expected goal fingerprint")
+                else:
+                    validate_identifier(expected, "expected qualification %s" % name)
+                if receipt.get(name) != expected:
+                    raise IdentityError(
+                        "qualification %s does not match the active campaign" % name
+                    )
+            if not self.identity_matches(
+                executable=receipt.get("executable_fingerprint"),
+                execution=receipt.get("execution_fingerprint"),
+                adapter=receipt.get("adapter_fingerprint"),
+                protocol=receipt.get("protocol_fingerprint"),
+            ):
+                raise ValidationError("qualification identity mismatch")
+            if receipt.get("version_fingerprint") != self.raw["executable"][
+                "version_sha256"
+            ] or receipt.get("platform_fingerprint") != sha256_bytes(
+                canonical_json_bytes(self.raw["platform"])
+            ):
+                raise ValidationError(
+                    "qualification platform or version identity mismatch"
+                )
+            probe_mapping = cursor_probe_mapping_from_qualified(
+                self.raw["yolo_mapping"]
+            )
+            if receipt.get("yolo_mapping_sha256") != sha256_bytes(
+                canonical_json_bytes(probe_mapping)
+            ):
+                raise ValidationError("qualified YOLO mapping changed")
+            verified_capabilities = [
+                name
+                for name in BEHAVIOR_CAPABILITIES
+                if self.raw["capabilities"][name] == "controller_verified"
+            ]
+            if receipt.get("capabilities") != verified_capabilities:
+                raise ValidationError(
+                    "qualification capability receipt does not match manifest"
+                )
+            return receipt
         receipt = verify_qualification_receipt(
             path,
             _authority_root=_authority_root,
