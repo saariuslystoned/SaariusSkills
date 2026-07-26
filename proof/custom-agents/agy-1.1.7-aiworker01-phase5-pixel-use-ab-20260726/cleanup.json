@@ -1,0 +1,35 @@
+{
+  "schema": "saarius.pixel-use-cleanup.v1",
+  "before": {
+    "roots": 5,
+    "files": 21,
+    "directories": 27,
+    "symlinks": 0,
+    "special_files": 0,
+    "bytes": 236171,
+    "raw_artifacts": 0
+  },
+  "first_removal": {
+    "controller_absent": true,
+    "single_a_absent": true,
+    "single_b_absent": true,
+    "custom_a_residual": "empty mode-fenced .issue15 directories",
+    "custom_b_residual": "empty mode-fenced .issue15 directories"
+  },
+  "bounded_correction": {
+    "targets": [
+      "custom-a/.issue15",
+      "custom-b/.issue15"
+    ],
+    "action": "restore owner write mode on the two exact owned parent directories, then remove the two exact residual roots"
+  },
+  "after": {
+    "controller_absent": true,
+    "single_a_absent": true,
+    "custom_a_absent": true,
+    "single_b_absent": true,
+    "custom_b_absent": true
+  },
+  "recoverable": false,
+  "foreign_state_touched": false
+}
