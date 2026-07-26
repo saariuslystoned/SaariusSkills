@@ -1208,11 +1208,15 @@ def validate_activation_plan_manifest(
     supplied: AdapterManifest,
     plan: ActivationPlan,
 ) -> Tuple[str, str]:
-    """Revalidate a plan-bound manifest without starting any process."""
+    """Revalidate current manifest authority against one saved plan.
 
-    manifest_hash = supplied.fingerprint
-    if manifest_hash != plan.raw["adapter_manifest_sha256"]:
-        raise IdentityError("adapter manifest changed after activation planning")
+    A doctor census carries a factual ``generated_at`` timestamp, so a fresh
+    post-run census cannot reproduce the full saved manifest fingerprint.
+    The plan and descriptor retain that exact original fingerprint while this
+    verifier rechecks every launch-relevant current identity below.
+    """
+
+    manifest_hash = plan.raw["adapter_manifest_sha256"]
     implementation_hash = adapter_implementation_fingerprint()
     if (
         supplied.raw["target"] != "claude"

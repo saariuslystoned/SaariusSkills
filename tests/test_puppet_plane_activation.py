@@ -859,12 +859,18 @@ class PlaneActivationTests(unittest.TestCase):
 
         changed_manifest = copy.deepcopy(self.adapter_manifest)
         changed_manifest["generated_at"] = "2026-07-22T03:00:02Z"
-        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
-            self._launch_context(adapter_manifest=changed_manifest)
+        refreshed = self._launch_context(adapter_manifest=changed_manifest)
+        self.assertEqual(
+            refreshed.to_public_dict(),
+            context.to_public_dict(),
+        )
 
         changed_base_argv = copy.deepcopy(self.adapter_manifest)
         changed_base_argv["yolo_mapping"]["launch_argv"].append("--argv-drift")
-        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            "only the missing project-isolation dimension",
+        ):
             self._launch_context(adapter_manifest=changed_base_argv)
 
         argv = context.argv
@@ -994,11 +1000,11 @@ class PlaneActivationTests(unittest.TestCase):
 
         changed_manifest = copy.deepcopy(self.adapter_manifest)
         changed_manifest["generated_at"] = "2026-07-22T03:00:03Z"
-        with self.assertRaisesRegex(IdentityError, "adapter manifest changed"):
-            self._revalidate_context(
-                context,
-                adapter_manifest=changed_manifest,
-            )
+        refreshed = self._revalidate_context(
+            context,
+            adapter_manifest=changed_manifest,
+        )
+        self.assertEqual(refreshed.to_public_dict(), context.to_public_dict())
         with mock.patch.object(
             activation_module,
             "adapter_implementation_fingerprint",
