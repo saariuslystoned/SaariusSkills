@@ -40,6 +40,9 @@ ssh.pid
 ssh.argv
 ssh.target
 next_seq
+harness_readiness
+caller_text_files
+caller_text_files_removed
 ```
 
 The lease file is updated atomically after a successful `pane.send_input`. A
@@ -64,6 +67,18 @@ reliably half-close stdin, avoid a long canonical-PTY paste: create one private
 task-owned input file, use `--text-file`, require the exact sequence
 acknowledgement, and remove only that file immediately afterward. This proves
 input acceptance only, not shell or harness execution.
+
+New leases begin with `harness_readiness: unverified`. A strict `STATUS`
+checkpoint advances it to `status_verified`; later sends fail closed until
+that transition has occurred. This is controller state, not a claim that
+Herdr itself started or identified a harness. The initial tab-created event
+therefore records only an SSH shell transport with `harness_started: false`.
+
+The private lease may retain normalized paths for caller-owned text files so
+maintenance can distinguish files that still exist from files the caller has
+removed. Send receipts expose only lifecycle booleans and the `caller_owned`
+classification, not those paths or prompt contents. Legacy leases without
+these additive fields remain valid for preservation and exact cleanup.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible

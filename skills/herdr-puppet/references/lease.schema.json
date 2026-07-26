@@ -53,6 +53,9 @@
       "additionalProperties": false
     },
     "next_seq": {"type": "integer", "minimum": 1},
+    "harness_readiness": {
+      "enum": ["unverified", "status_verified"]
+    },
     "source": {
       "type": "object",
       "required": ["repo", "worktree"],
@@ -63,6 +66,16 @@
       "additionalProperties": false
     },
     "proof_root": {"type": "string", "minLength": 1},
+    "caller_text_files": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "caller_text_files_removed": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
     "preserved_reason": {
       "enum": [
         "checkpoint_failed",

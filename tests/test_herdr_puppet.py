@@ -576,9 +576,14 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(lease["terminal_id"], "term_one")
         self.assertEqual(lease["ssh"]["pid"], 4242)
         self.assertEqual(lease["next_seq"], 1)
+        self.assertEqual(lease["harness_readiness"], "unverified")
+        self.assertEqual(lease["caller_text_files"], [])
+        self.assertEqual(lease["caller_text_files_removed"], [])
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertIn('"kind":"qualification.tab-created"', events)
         self.assertIn('"pane_id":"w2:p1"', events)
+        self.assertIn('"shell_transport_only":true', events)
+        self.assertIn('"harness_started":false', events)
 
     def test_create_tab_requires_initialized_journal_before_mutation(self) -> None:
         run_root = self.root / "uninitialized-run"
@@ -1041,6 +1046,7 @@ class QualificationTests(unittest.TestCase):
             allow_live=True,
         )
         self.assertEqual(result["next_seq"], 3)
+        self.assertEqual(result["harness_readiness"], "status_verified")
 
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
         lease = self.create_lease()
@@ -1092,7 +1098,10 @@ class QualificationTests(unittest.TestCase):
             normalized_prompt_path = str(prompt_path.resolve())
             self.assertEqual(updated["caller_text_files"], [normalized_prompt_path])
             self.assertEqual(result["caller_text_file_retained"], True)
-            self.assertEqual(result["prompt_file_tracked"], normalized_prompt_path)
+            self.assertEqual(result["prompt_file_tracked"], True)
+            self.assertEqual(result["controller_prompt_persisted"], False)
+            self.assertEqual(result["caller_input_file_lifecycle"], "caller_owned")
+            self.assertNotIn(normalized_prompt_path, json.dumps(result))
 
     def test_send_does_not_track_missing_prompt_file(self) -> None:
         lease = self.create_lease()
@@ -1110,7 +1119,10 @@ class QualificationTests(unittest.TestCase):
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(result["caller_text_file_retained"], False)
-        self.assertEqual(result["prompt_file_tracked"], str(missing_prompt.resolve()))
+        self.assertEqual(result["prompt_file_tracked"], True)
+        self.assertEqual(result["controller_prompt_persisted"], False)
+        self.assertEqual(result["caller_input_file_lifecycle"], "caller_owned")
+        self.assertNotIn(str(missing_prompt.resolve()), json.dumps(result))
         self.assertEqual(updated["caller_text_files"], [])
 
     def test_partial_send_reconciliation_requires_evidence(self) -> None:
@@ -1421,6 +1433,39 @@ class QualificationTests(unittest.TestCase):
         changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(changed["next_seq"], 2)
         self.assertEqual(changed["state"], "active")
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn('"kind":"qualification.beacon"', events)
+
+    def test_beacon_wait_rejects_readiness_revision_race(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+
+        def race_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
+            changed["harness_readiness"] = "status_verified"
+            self.lease_path.write_text(
+                json.dumps(changed),
+                encoding="utf-8",
+            )
+            return {
+                "type": "output_matched",
+                "revision": 9,
+                "matched_line": "HERDR_PUPPET_STATUS CHECKPOINT-67",
+            }
+
+        self.client.wait_output = race_wait  # type: ignore[method-assign]
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce="CHECKPOINT-67",
+                allow_live=True,
+                lines=20,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "lease_changed_during_wait")
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertNotIn('"kind":"qualification.beacon"', events)
 

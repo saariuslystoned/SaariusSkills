@@ -45,8 +45,11 @@ LEASE_WAIT_REVISION_FIELDS = (
     "terminal_id",
     "ssh",
     "next_seq",
+    "harness_readiness",
     "source",
     "proof_root",
+    "caller_text_files",
+    "caller_text_files_removed",
 )
 PROMPT_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
 
@@ -1039,6 +1042,9 @@ def create_qualification_tab(
                     "pane_id": lease["pane_id"],
                     "terminal_id": lease["terminal_id"],
                     "ssh_pid": lease["ssh"]["pid"],
+                    "shell_transport_only": True,
+                    "harness_started": False,
+                    "harness_readiness": "unverified",
                 },
             ),
         )
@@ -1092,6 +1098,7 @@ def qualification_send(
         normalized_text_file = _normalize_prompt_file(text_file)
         text_file_retained = _is_prompt_file_retained(normalized_text_file)
         tracked_text_file = normalized_text_file
+    readiness = lease_payload.get("harness_readiness", "unverified")
     socket_path = lease_payload["session"]["socket"]
     pane_id = lease_payload["pane_id"]
     client.run_input(socket_path, pane_id, text)
@@ -1119,10 +1126,16 @@ def qualification_send(
                     "transport_acknowledged": True,
                     "acceptance_scope": "herdr_pane_input_only",
                     "outcome": "pane_input_accepted",
-                    "harness_readiness": "unverified",
+                    "harness_readiness": readiness,
                     "harness_acceptance": "unverified",
                     "caller_text_file_retained": text_file_retained,
-                    "prompt_file_tracked": tracked_text_file,
+                    "prompt_file_tracked": tracked_text_file is not None,
+                    "controller_prompt_persisted": False,
+                    "caller_input_file_lifecycle": (
+                        "caller_owned"
+                        if tracked_text_file is not None
+                        else "not_applicable"
+                    ),
                 },
             ),
         )
@@ -1137,10 +1150,14 @@ def qualification_send(
         "transport_acknowledged": True,
         "acceptance_scope": "herdr_pane_input_only",
         "outcome": "pane_input_accepted",
-        "harness_readiness": "unverified",
+        "harness_readiness": readiness,
         "harness_acceptance": "unverified",
         "caller_text_file_retained": text_file_retained,
-        "prompt_file_tracked": tracked_text_file,
+        "prompt_file_tracked": tracked_text_file is not None,
+        "controller_prompt_persisted": False,
+        "caller_input_file_lifecycle": (
+            "caller_owned" if tracked_text_file is not None else "not_applicable"
+        ),
         "prompt_persisted": False,
         "transcript_read": False,
     }

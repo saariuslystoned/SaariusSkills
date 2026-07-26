@@ -165,6 +165,15 @@ class PackagingTests(unittest.TestCase):
                 schema["$schema"],
                 "https://json-schema.org/draft/2020-12/schema",
             )
+        lease_schema = json.loads(
+            (references / "lease.schema.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            lease_schema["properties"]["harness_readiness"]["enum"],
+            ["unverified", "status_verified"],
+        )
+        self.assertIn("caller_text_files", lease_schema["properties"])
+        self.assertIn("caller_text_files_removed", lease_schema["properties"])
 
 
 if __name__ == "__main__":
