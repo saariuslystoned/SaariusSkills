@@ -1546,7 +1546,8 @@ def _current_default_launch_is_exact(
                 "--effort",
             )
         )
-        and launch.get("launch_identity", {}).get("env_names") == ["CODEX_HOME"]
+        and launch.get("launch_identity", {}).get("env_names")
+        == ["CODEX_HOME", "HOME", "LANG", "LC_ALL", "PATH", "TMPDIR"]
     )
 
 

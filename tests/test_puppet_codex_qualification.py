@@ -274,7 +274,14 @@ class PairFixture:
                 "cwd": str(cwd),
                 "argv": ["/opt/codex", "--dangerously-bypass-approvals-and-sandbox"],
                 "launch_identity": {
-                    "env_names": ["CODEX_HOME"],
+                    "env_names": [
+                        "CODEX_HOME",
+                        "HOME",
+                        "LANG",
+                        "LC_ALL",
+                        "PATH",
+                        "TMPDIR",
+                    ],
                     "env_fingerprint": "9f" * 32,
                 },
             },
