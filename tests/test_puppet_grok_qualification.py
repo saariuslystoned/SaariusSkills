@@ -644,6 +644,42 @@ class GrokRuntimeVectorTests(unittest.TestCase):
 
 
 class GrokNativeViewTests(unittest.TestCase):
+    def test_probe_rendezvous_waits_for_and_revalidates_native_view(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = GrokPairFixture(Path(temporary))
+            artifacts = fixture.artifacts[str(fixture.positive_path)]
+            evidence = artifacts["evidence"]
+            receipt = fixture.positive
+            guards = []
+            result = qualification.await_grok_native_view(
+                run_root=fixture.positive_root,
+                receipt=receipt,
+                session=fixture.positive_tmux["session"],
+                evidence=evidence,
+                attach_argv=fixture._attach_argv(artifacts),
+                runtime_guard=lambda: guards.append("guarded"),
+                timeout=1.0,
+            )
+            self.assertTrue(result["read_only"])
+            self.assertEqual(guards, ["guarded", "guarded"])
+
+    def test_probe_rendezvous_fails_closed_without_native_view(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            ticks = iter([0.0, 0.0, 1.0])
+            with self.assertRaisesRegex(UnsupportedError, "was not observed"):
+                qualification.await_grok_native_view(
+                    run_root=root,
+                    receipt={"run_id": "missing-view"},
+                    session="missing-view",
+                    evidence={},
+                    attach_argv=["tmux", "attach"],
+                    runtime_guard=lambda: None,
+                    timeout=0.5,
+                    _sleep_fn=lambda _seconds: None,
+                    _monotonic_fn=lambda: next(ticks),
+                )
+
     def test_structural_read_only_attach_and_detach_without_capture(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

@@ -73,6 +73,8 @@ from .grok_workspace_plane import (
 from .grok_qualification import (
     GROK_NATIVE_TRIGGER,
     GROK_NATIVE_TRIGGER_SHA256,
+    NATIVE_VIEW_NAME as GROK_NATIVE_VIEW_NAME,
+    await_grok_native_view,
     build_grok_control_source,
     build_grok_pair_member_source,
     build_grok_runtime_vector,
@@ -2526,6 +2528,54 @@ def run_probe(
                 else {}
             ),
         )
+        if target == "grok":
+            grok_attach_argv = tmux.attach_argv(
+                socket=socket,
+                session=session,
+                pane=metadata["pane"],
+                server_identity=server_identity,
+            )
+
+            def grok_native_view_runtime_guard() -> None:
+                _assert_runtime(
+                    tmux=tmux,
+                    socket=socket,
+                    session=session,
+                    pane=metadata["pane"],
+                    pane_pid=metadata["pane_pid"],
+                    socket_identity=socket_identity,
+                    server_identity=server_identity,
+                    tmux_binary_identity=tmux_binary_identity,
+                    process=process,
+                    process_alive_fn=_process_alive_fn,
+                )
+                population_guard()
+                _assert_executable_identity(manifest)
+                _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
+
+            grok_native_view = await_grok_native_view(
+                run_root=run_root,
+                receipt={"run_id": run_id},
+                session=session,
+                evidence=evidence,
+                attach_argv=grok_attach_argv,
+                runtime_guard=grok_native_view_runtime_guard,
+                timeout=min(timeout, 120.0),
+                _sleep_fn=_sleep_fn,
+            )
+            grok_native_view_sha256 = sha256_file(
+                run_root / GROK_NATIVE_VIEW_NAME,
+                max_bytes=65536,
+            )
+            evidence["grok_native_view_sha256"] = grok_native_view_sha256
+            atomic_write_json(evidence_path, evidence)
+            _write_state(
+                state_path,
+                state,
+                "ready_validated",
+                grok_native_view_sha256=grok_native_view_sha256,
+                grok_native_view_read_only=grok_native_view["read_only"],
+            )
 
         message_id = validate_identifier(
             "message-%s" % secrets.token_hex(8), "message id"

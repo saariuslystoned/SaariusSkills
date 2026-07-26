@@ -725,6 +725,54 @@ def record_grok_native_view(
     return result
 
 
+def await_grok_native_view(
+    *,
+    run_root: Path,
+    receipt: Mapping[str, Any],
+    session: str,
+    evidence: Mapping[str, Any],
+    attach_argv: Sequence[str],
+    runtime_guard: Callable[[], None],
+    timeout: float = 120.0,
+    poll_interval: float = 0.1,
+    _sleep_fn: Callable[[float], None] = time.sleep,
+    _monotonic_fn: Callable[[], float] = time.monotonic,
+) -> Dict[str, Any]:
+    """Hold a live Grok probe until its structural native-view proof lands."""
+
+    if timeout <= 0 or timeout > 600:
+        raise ValidationError("Grok native-view rendezvous timeout is invalid")
+    if poll_interval <= 0 or poll_interval > 5:
+        raise ValidationError("Grok native-view rendezvous interval is invalid")
+    root = _canonical_directory(run_root, "Grok probe run root")
+    output = root / NATIVE_VIEW_NAME
+    deadline = _monotonic_fn() + timeout
+    while True:
+        runtime_guard()
+        if output.is_symlink():
+            raise IdentityError("Grok native-view receipt cannot be a symlink")
+        if output.exists():
+            value = read_json(
+                output,
+                max_bytes=65536,
+                reject_sensitive_fields=True,
+            )
+            result = validate_grok_native_view(
+                value,
+                receipt=receipt,
+                session=session,
+                evidence=evidence,
+                attach_argv=attach_argv,
+            )
+            runtime_guard()
+            return result
+        if _monotonic_fn() >= deadline:
+            raise UnsupportedError(
+                "Grok native-view receipt was not observed before the live deadline"
+            )
+        _sleep_fn(poll_interval)
+
+
 def validate_grok_native_view(
     value: Any,
     *,
@@ -1547,6 +1595,7 @@ __all__ = [
     "build_grok_terminal_qualification",
     "derive_grok_session_uuid",
     "grok_puppet_rule_count",
+    "await_grok_native_view",
     "record_grok_native_view",
     "validate_grok_control_source",
     "validate_grok_native_view",
