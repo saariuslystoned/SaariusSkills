@@ -460,6 +460,17 @@ class AuthorityTests(unittest.TestCase):
                 "process_executable_identity",
                 side_effect=unavailable,
             ) as exact_identity,
+            patch.object(
+                puppet_campaign,
+                "darwin_process_text_vnodes",
+                return_value=[
+                    {
+                        "executable_path": bundled["path"],
+                        "device": bundled["device"],
+                        "inode": bundled["inode"],
+                    }
+                ],
+            ) as text_vnodes,
             patch.object(puppet_campaign, "_pid_still_exists", return_value=True),
             self.assertRaisesRegex(IdentityError, "live PID"),
         ):
@@ -469,6 +480,63 @@ class AuthorityTests(unittest.TestCase):
             len(puppet_campaign.PROCESS_SELECTION_RETRY_DELAYS) + 1,
         )
         exact_identity.assert_called_with(101)
+        text_vnodes.assert_called_once_with(101)
+
+    def test_darwin_unreadable_unrelated_text_vnode_is_ignored(self):
+        bundled = {
+            "path": "/opt/cursor/node",
+            "device": 41,
+            "inode": 51,
+        }
+        inventory = [
+            {
+                "pid": 101,
+                "uid": os.getuid(),
+                "name": "node",
+                "comm": "node",
+                "command": "node",
+            }
+        ]
+        unavailable = puppet_registry.ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        )
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                side_effect=unavailable,
+            ),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_text_vnodes",
+                return_value=[
+                    {
+                        "executable_path": "/Applications/ChatGPT.app/cua_node/node",
+                        "device": 61,
+                        "inode": 71,
+                    },
+                    {
+                        "executable_path": "/usr/lib/dyld",
+                        "device": 61,
+                        "inode": 72,
+                    },
+                ],
+            ) as text_vnodes,
+            patch.object(puppet_campaign, "_pid_still_exists", return_value=True),
+        ):
+            self.assertEqual(
+                puppet_campaign.active_target_processes(
+                    "cursor", execution_files=[bundled]
+                ),
+                [],
+            )
+        text_vnodes.assert_called_once_with(101)
 
     def test_process_selector_bound_covers_launcher_runtime_and_max_transients(self):
         selectors = [
@@ -2068,6 +2136,89 @@ class AuthorityTests(unittest.TestCase):
                 (4242, puppet_registry._DARWIN_PROC_PIDREGIONPATHINFO, 0x2000),
             ],
         )
+
+    def test_darwin_text_vnode_fallback_is_stable_and_body_free(self):
+        process = {
+            "pid": 4242,
+            "parent_pid": 1,
+            "uid": os.getuid(),
+            "kernel_birth_id": "darwin:100:000001",
+            "start": "darwin:100:000001",
+            "command": "node",
+            "name": "node",
+            "comm": "node",
+        }
+        payload = (
+            b"p4242\x00cnode\x00\n"
+            b"ftxt\x00D0x29\x00i51\x00n/opt/cursor/node\x00\n"
+            b"ftxt\x00D0x29\x00i52\x00n/usr/lib/dyld\x00\n"
+        )
+
+        class FakeHelper:
+            def __str__(self):
+                return "/usr/sbin/lsof"
+
+            @staticmethod
+            def lstat():
+                return SimpleNamespace(
+                    st_mode=0o100755,
+                    st_uid=0,
+                    st_dev=1,
+                    st_ino=2,
+                    st_size=1024,
+                    st_mtime_ns=3,
+                )
+
+        with (
+            patch.object(puppet_registry.sys, "platform", "darwin"),
+            patch.object(puppet_registry, "_DARWIN_LSOF", FakeHelper()),
+            patch.object(
+                puppet_registry,
+                "_darwin_process_bsd_record",
+                side_effect=[process, process],
+            ),
+            patch.object(
+                puppet_registry.subprocess,
+                "run",
+                side_effect=[
+                    SimpleNamespace(returncode=0, stdout=payload),
+                    SimpleNamespace(returncode=0, stdout=payload),
+                ],
+            ) as runner,
+        ):
+            self.assertEqual(
+                puppet_registry.darwin_process_text_vnodes(4242),
+                [
+                    {
+                        "executable_path": "/opt/cursor/node",
+                        "device": 41,
+                        "inode": 51,
+                    },
+                    {
+                        "executable_path": "/usr/lib/dyld",
+                        "device": 41,
+                        "inode": 52,
+                    },
+                ],
+            )
+        self.assertEqual(runner.call_count, 2)
+        for call in runner.call_args_list:
+            arguments = call.args[0]
+            self.assertEqual(
+                arguments,
+                [
+                    "/usr/sbin/lsof",
+                    "-a",
+                    "-p",
+                    "4242",
+                    "-d",
+                    "txt",
+                    "-F0pcfDino",
+                ],
+            )
+            self.assertEqual(call.kwargs["stdin"], subprocess.DEVNULL)
+            self.assertEqual(call.kwargs["stderr"], subprocess.DEVNULL)
+            self.assertNotIn("HOME", call.kwargs["env"])
 
     def test_darwin_executable_identity_revalidates_large_region_inventory(self):
         # A real V8/Node harness (the Cursor agent node runtime) maps far more

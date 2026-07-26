@@ -270,6 +270,8 @@ _DARWIN_PROC_UID_ONLY = 4
 _DARWIN_PID_LIST_RETRIES = 3
 _DARWIN_PID_LIST_SLACK = 64
 _DARWIN_MAX_PROCESS_IDS = 32768
+_DARWIN_LSOF = Path("/usr/sbin/lsof")
+_DARWIN_LSOF_MAX_BYTES = 65536
 # A PID can remain in ``proc_listpids`` briefly after its BSD row becomes
 # unavailable during exit.  Keep the retry window short and finite: only a row
 # whose PID is subsequently absent may be skipped; a row that recovers or
@@ -515,6 +517,191 @@ def darwin_process_inventory(
     if not any(record["pid"] == os.getpid() for record in records):
         raise IdentityError("Darwin process inventory lost the controller process")
     return records
+
+
+def darwin_process_text_vnodes(pid: int) -> list[Dict[str, Any]]:
+    """Return a stable, bounded lsof text-vnode census for an unreadable PID.
+
+    This is a negative-classification fallback only. It never supplies an
+    accepted process identity: callers may use it to prove that an otherwise
+    unreadable same-name process maps none of the exact target vnodes, while a
+    matching or ambiguous result must remain fail-closed.
+    """
+
+    if sys.platform != "darwin":
+        raise ProcessExecutableUnavailable(
+            "Darwin process text-vnode census is unavailable"
+        )
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
+        raise ValidationError("Darwin text-vnode PID is invalid")
+    try:
+        helper = _DARWIN_LSOF.lstat()
+    except OSError as exc:
+        raise ProcessExecutableUnavailable(
+            "Darwin process text-vnode helper is unavailable"
+        ) from exc
+    if (
+        not stat.S_ISREG(helper.st_mode)
+        or helper.st_uid != 0
+        or stat.S_IMODE(helper.st_mode) & 0o022
+        or helper.st_size <= 0
+        or helper.st_size > 16 * 1024 * 1024
+    ):
+        raise ProcessExecutableUnavailable(
+            "Darwin process text-vnode helper identity is invalid"
+        )
+    helper_identity = (
+        helper.st_dev,
+        helper.st_ino,
+        helper.st_size,
+        helper.st_mtime_ns,
+    )
+    process_before = _darwin_process_bsd_record(pid)
+
+    def sample() -> list[Dict[str, Any]]:
+        try:
+            result = subprocess.run(
+                [
+                    str(_DARWIN_LSOF),
+                    "-a",
+                    "-p",
+                    str(pid),
+                    "-d",
+                    "txt",
+                    "-F0pcfDino",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env={
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "LC_ALL": "C",
+                    "LANG": "C",
+                },
+                timeout=2.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode census is unavailable"
+            ) from exc
+        payload = bytes(result.stdout)
+        if (
+            result.returncode != 0
+            or not payload
+            or len(payload) > _DARWIN_LSOF_MAX_BYTES
+        ):
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode census is unavailable"
+            )
+        lines = payload.splitlines()
+        if not lines:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode census is empty"
+            )
+
+        def fields(line: bytes) -> list[bytes]:
+            return [item for item in line.split(b"\x00") if item]
+
+        header = fields(lines[0])
+        if header[:1] != [("p%d" % pid).encode("ascii")]:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode PID changed"
+            )
+        command_fields = [item[1:] for item in header[1:] if item.startswith(b"c")]
+        try:
+            commands = [item.decode("utf-8") for item in command_fields]
+        except UnicodeDecodeError as exc:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode command is invalid"
+            ) from exc
+        if commands != [process_before["command"]]:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode command changed"
+            )
+        records = []
+        observed = set()
+        for line in lines[1:]:
+            row = fields(line)
+            if not row or row[0] != b"ftxt":
+                raise ProcessExecutableUnavailable(
+                    "Darwin process text-vnode record is invalid"
+                )
+            values: Dict[bytes, bytes] = {}
+            for field in row[1:]:
+                if not field or field[:1] not in {b"D", b"i", b"n"}:
+                    raise ProcessExecutableUnavailable(
+                        "Darwin process text-vnode field is invalid"
+                    )
+                if field[:1] in values:
+                    raise ProcessExecutableUnavailable(
+                        "Darwin process text-vnode field is duplicated"
+                    )
+                values[field[:1]] = field[1:]
+            if set(values) != {b"D", b"i", b"n"}:
+                raise ProcessExecutableUnavailable(
+                    "Darwin process text-vnode fields are incomplete"
+                )
+            try:
+                device = int(values[b"D"], 0)
+                inode = int(values[b"i"], 10)
+                path = _validated_process_executable_path(
+                    os.fsdecode(values[b"n"])
+                )
+            except (ValueError, UnicodeError, ProcessExecutableUnavailable) as exc:
+                raise ProcessExecutableUnavailable(
+                    "Darwin process text-vnode identity is invalid"
+                ) from exc
+            identity = (path, device, inode)
+            if device <= 0 or inode <= 0 or identity in observed:
+                raise ProcessExecutableUnavailable(
+                    "Darwin process text-vnode identity is ambiguous"
+                )
+            observed.add(identity)
+            records.append(
+                {
+                    "executable_path": path,
+                    "device": device,
+                    "inode": inode,
+                }
+            )
+        if not records:
+            raise ProcessExecutableUnavailable(
+                "Darwin process text-vnode census is empty"
+            )
+        return sorted(
+            records,
+            key=lambda item: (
+                item["executable_path"],
+                item["device"],
+                item["inode"],
+            ),
+        )
+
+    first = sample()
+    second = sample()
+    process_after = _darwin_process_bsd_record(pid)
+    try:
+        helper_after = _DARWIN_LSOF.lstat()
+    except OSError as exc:
+        raise ProcessExecutableUnavailable(
+            "Darwin process text-vnode helper changed"
+        ) from exc
+    if (
+        process_after != process_before
+        or first != second
+        or (
+            helper_after.st_dev,
+            helper_after.st_ino,
+            helper_after.st_size,
+            helper_after.st_mtime_ns,
+        )
+        != helper_identity
+    ):
+        raise ProcessExecutableUnavailable(
+            "Darwin process text-vnode census changed during sampling"
+        )
+    return first
 
 
 def _darwin_kernel_process_record(pid: int) -> Dict[str, Any]:

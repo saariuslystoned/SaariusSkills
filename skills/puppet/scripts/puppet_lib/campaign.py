@@ -15,6 +15,7 @@ from .registry import (
     ExecTransitionSamplingError,
     ProcessExecutableUnavailable,
     darwin_process_inventory,
+    darwin_process_text_vnodes,
     process_birth_identity,
     process_executable_identity,
     process_tree_alive,
@@ -472,6 +473,18 @@ def _selected_process_identity(
     else:
         if not _pid_still_exists(pid):
             return None
+        if sys.platform == "darwin":
+            text_vnodes = darwin_process_text_vnodes(pid)
+            observed_vnodes = {
+                (
+                    item["executable_path"],
+                    item["device"],
+                    item["inode"],
+                )
+                for item in text_vnodes
+            }
+            if observed_vnodes.isdisjoint(selectors):
+                return None
         raise IdentityError(
             "same-target executable identity is unavailable for a live PID"
         ) from unavailable
