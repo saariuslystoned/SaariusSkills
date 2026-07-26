@@ -1,0 +1,93 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "satisfies_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "76d688fd98501f7b60312cdb056974463ab52413f989c11d6aad269a1bac1ea4",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1E.md",
+    "version": "2026-07-26.phase1e"
+  },
+  "checks": [
+    {
+      "contract_clause": "C1",
+      "status": "pass",
+      "evidence": "guard-evidence.json preserves the exact Phase 1D definition hashes for the unrelated, duplicate, and positive fixtures; all scoped postflight hashes matched.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C2",
+      "status": "pass",
+      "evidence": "The bounded guard observed exact-name counts 0, 2, and 1 from workspace-local absolute --add-dir discovery without retaining raw catalog output.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C3",
+      "status": "pass",
+      "evidence": "Phase 1D committed four of four exact identities; Phase 1E E3 additionally proved the exactly-once guard delegates to the unchanged post-quarantine identity oracle.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "C4",
+      "status": "pass",
+      "evidence": "On the qualified guarded surface, an absent requested name with one unrelated catalog profile returned exit 2 with model_launch_started:false and an unchanged zero-byte result.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C5",
+      "status": "pass",
+      "evidence": "Phase 1D committed malformed-definition primary-discovery rejection; exact-count admission therefore rejects the absent name before model launch.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "C6",
+      "status": "pass",
+      "evidence": "E2 observed two exact occurrences for byte-identical duplicate declarations and rejected before model launch; Phase 1D preserves explicit rename behavior.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C7",
+      "status": "pass",
+      "evidence": "The guarded E3 positive had subagent:false and passed exact primary identity; Phase 1D preserves mainAgent:false primary exclusion.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C8",
+      "status": "pass",
+      "evidence": "Phase 1D committed post-quarantine removal/no-bleed proof, and neither rejected Phase 1E guard created a quarantine, raw artifact, or model session.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "absent and duplicate identities rejected before model launch",
+      "result": "pass: model_launch_started was false, runtime was null, results stayed zero bytes, and no quarantine/raw target appeared"
+    },
+    {
+      "probe": "guard output leaks unrelated discovery content",
+      "result": "pass: only counts, timings, status, byte counts, and SHA-256 digests were retained"
+    },
+    {
+      "probe": "exactly-once guard bypasses hidden-identity oracle",
+      "result": "pass: the positive used the unchanged challenge-only prompt, profile quarantine, exact verifier, and scoped postflight"
+    },
+    {
+      "probe": "ordinary primary execution depends on nested-agent permission",
+      "result": "false: the guarded positive profile set subagent:false and passed"
+    },
+    {
+      "probe": "raw AGY unknown-name behavior silently reclassified",
+      "result": "false: Phase 1D remains a committed contract failure; only guarded selection is qualified"
+    },
+    {
+      "probe": "raw transcript or raw CLI output retained",
+      "result": "false"
+    }
+  ],
+  "blockers": [],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

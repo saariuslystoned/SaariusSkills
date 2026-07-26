@@ -50,10 +50,11 @@ companion stayed unchanged. Phase 2 therefore remains gated on a
 discovery-first exact-count selection guard; the CLI fallback is preserved as
 an upstream compatibility finding rather than normalized away.
 
-Phase 1E qualifies that guard as a distinct controller surface. It requires
-exactly one requested-name occurrence in bounded workspace discovery before
-the existing print runner may start, rejects absent and duplicate names without
-model use, and permits one final positive session with `subagent: false`.
+Phase 1E qualified that guard as a distinct controller surface. Live absent and
+duplicate controls were rejected before model launch; exactly one
+`subagent: false` profile was admitted and passed the unchanged identity
+oracle. This admits a separately bounded 2x2 route while leaving raw direct
+unknown-name selection unqualified.
 
 Files:
 

@@ -41,6 +41,10 @@
     "historical_pr6_head": {
       "const": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de"
     },
+    "predecessor_proof_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
     "surface": {
       "enum": ["cli"]
     },
@@ -156,6 +160,10 @@
         "plugin_name": {"const": "saarius-issue15-observer"},
         "harness_path_mode": {
           "enum": ["absolute-environment", "exact-commit-copy"]
+        },
+        "harness_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "profile_quarantine": {"const": "before-model-write"},
         "raw_output_policy": {"const": "digest-then-unlink"},
