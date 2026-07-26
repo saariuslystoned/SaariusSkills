@@ -45,13 +45,18 @@ the registered root from one bounded discovery pass plus birth-bound per-node
 samples. On Darwin, birth identity is `proc_pidinfo` `(sec, usec)`; on Linux,
 `(kernel.boot_id,
 /proc/<pid>/stat_starttime_ticks)`. Siblings, children of a protected process,
-missing parents, PID reuse, and identity drift fail closed. Keep full ancestry
-history for transient descendants as receipt evidence. Puppet never signals those
-descendants or a process group; non-AGY halt authority is the exact registered
-positive PID and AGY EOF authority is the exact registered private pane. If a
-provisional target cannot be fully controller-bound before input, keep it fenced
-and non-qualifying without any halt action. After halt, the same-target population
-must return to the exact protected baseline before a receipt can be accepted.
+missing parents in an extra's chain, PID reuse, and identity drift fail closed.
+A protected or registered root needs only its own exact node; an unreadable
+foreign parent grants no authority and is not traversed. A same-target row proven
+gone before identity sampling may be omitted, but every protected and registered
+identity must still be present and every surviving extra must still prove its
+complete chain. Keep full ancestry history for observed transient descendants as
+receipt evidence. Puppet never signals those descendants or a process group;
+non-AGY halt authority is the exact registered positive PID and AGY EOF authority
+is the exact registered private pane. If a provisional target cannot be fully
+controller-bound before input, keep it fenced and non-qualifying without any halt
+action. After halt, the same-target population must return to the exact protected
+baseline before a receipt can be accepted.
 
 ## Lifecycle
 
