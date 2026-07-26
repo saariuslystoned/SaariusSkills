@@ -77,8 +77,8 @@ hand-composed Herdr mutations when the script owns the operation.
    `agy --prompt @/exact/task-owned-prompt-file --print-timeout <bounded>`.
    Do not feed the AGY task through positional argv or AGY stdin in this mode.
    Retain that separate AGY prompt file until source-bound readiness or
-   terminal evidence proves the process consumed it, then remove only that
-   exact file during maintenance.
+   terminal evidence proves the process consumed it. The caller must then
+   remove only that exact file; maintenance records whether it remains.
    Treat its success receipt as `herdr_pane_input_only`: it does not prove the
    harness was ready, accepted the prompt, started work, loaded an extension,
    or called a tool.
@@ -108,8 +108,9 @@ hand-composed Herdr mutations when the script owns the operation.
     exact run-owned resources already joined by the lease or named in
     structured harness events: tab, pane, terminal, foreground SSH PID,
     task-owned prompt files, and explicitly recorded child processes. Classify
-    each as active, preserved, stale, or ambiguous. Remove only an acknowledged
-    task-owned prompt file automatically. Never close a pane or reap a process
+    each as active, preserved, stale, or ambiguous. Require the caller to remove
+    only its acknowledged task-owned prompt file, then record its absence.
+    Never close a pane or reap a process
     from its label, name, or age; journal repeat residue as a
     `maintenance_candidate` and route exact cleanup through a separately
     authorized owner-specific maintenance tool.
@@ -149,7 +150,8 @@ python3 scripts/herdr_puppet.py plan \
   --run-id <run-id> \
   --repo <owner/repo> \
   --worktree <path> \
-  --proof-root <path>
+  --proof-root <path> \
+  --live-mutation-authorized
 
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
 

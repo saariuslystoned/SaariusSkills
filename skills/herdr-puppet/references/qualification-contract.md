@@ -32,7 +32,8 @@ explicit bounded `--print-timeout`. Send only the short launcher command
 through Herdr, not the task prompt itself. Do not use positional/argv prompt
 content or AGY stdin payload with `--print` in these modes. Retain the separate
 AGY prompt file until source-bound readiness or terminal evidence proves the
-process consumed it, then remove only that exact task-owned file.
+process consumed it. The caller must then remove only that exact task-owned
+file; maintenance records whether it remains.
 
 `/teamwork-preview` is not a stronger form of an ordinary prompt. It is a
 separate high-fan-out profile for an intentional hierarchy of roughly 4-20

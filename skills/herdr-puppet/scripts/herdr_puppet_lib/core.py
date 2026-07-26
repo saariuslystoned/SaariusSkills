@@ -52,6 +52,30 @@ LEASE_WAIT_REVISION_FIELDS = (
     "caller_text_files_removed",
 )
 PROMPT_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
+LEASE_FIELDS = {
+    "schema",
+    "state",
+    "run_id",
+    "harness",
+    "session",
+    "workspace",
+    "owned_label",
+    "tab_id",
+    "pane_id",
+    "terminal_id",
+    "ssh",
+    "next_seq",
+    "harness_readiness",
+    "source",
+    "proof_root",
+    "caller_text_files",
+    "caller_text_files_removed",
+    "preserved_reason",
+    "preserved_at",
+    "cleanup_state",
+    "cleanup_verified_at",
+    "cleanup_reconciled_absence",
+}
 
 
 def _as_text_file_list(raw_value: Any) -> list[str]:
@@ -151,6 +175,13 @@ def validate_plan(payload: dict[str, Any]) -> None:
 def validate_lease(payload: dict[str, Any]) -> None:
     if payload.get("schema") != "herdr-puppet.lease.v1":
         raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
+    unexpected_fields = sorted(set(payload) - LEASE_FIELDS)
+    if unexpected_fields:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease contains fields outside the normative schema.",
+            details={"unexpected_fields": unexpected_fields},
+        )
     if payload.get("state") not in {"active", "preserved"}:
         raise HerdrPuppetError(
             "invalid_lease_state",
@@ -800,6 +831,19 @@ def cleanup_preserved_tab(
             "Exact tab cleanup requires an unambiguous live or absent identity.",
             details={"blockers": inventory["blockers"]},
         )
+
+    after_maintenance = load_json(lease_path)
+    validate_lease(after_maintenance)
+    for field in LEASE_WAIT_REVISION_FIELDS:
+        if field in PROMPT_FILE_FIELDS:
+            continue
+        if after_maintenance.get(field) != current.get(field):
+            raise HerdrPuppetError(
+                "cleanup_lease_changed_during_maintenance",
+                "Lease identity changed during maintenance.",
+                details={"field": field},
+            )
+    current = after_maintenance
 
     already_absent = inventory["classification"] == "stale"
     if current.get("cleanup_state") == "closed":

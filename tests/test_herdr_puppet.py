@@ -30,6 +30,7 @@ from herdr_puppet_lib.core import (  # noqa: E402
     qualification_send,
     qualification_token_probe,
     structural_status,
+    validate_lease,
 )
 from herdr_puppet_lib.cli import _read_prompt  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
@@ -585,6 +586,17 @@ class QualificationTests(unittest.TestCase):
         self.assertIn('"shell_transport_only":true', events)
         self.assertIn('"harness_started":false', events)
 
+    def test_lease_validation_rejects_unknown_schema_field(self) -> None:
+        lease = self.create_lease()
+        lease["unexpected"] = True
+        with self.assertRaises(HerdrPuppetError) as caught:
+            validate_lease(lease)
+        self.assertEqual(caught.exception.code, "invalid_lease")
+        self.assertEqual(
+            caught.exception.details["unexpected_fields"],
+            ["unexpected"],
+        )
+
     def test_create_tab_requires_initialized_journal_before_mutation(self) -> None:
         run_root = self.root / "uninitialized-run"
         with self.assertRaisesRegex(
@@ -831,6 +843,8 @@ class QualificationTests(unittest.TestCase):
     def test_cleanup_preserved_tab_closes_only_exact_lease(self) -> None:
         lease = self.create_lease()
         lease["state"] = "preserved"
+        removed_prompt = str((self.root / "removed-before-cleanup.txt").resolve())
+        lease["caller_text_files"] = [removed_prompt]
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
@@ -859,6 +873,8 @@ class QualificationTests(unittest.TestCase):
             ["w2:decoy"],
         )
         self.assertEqual(updated["cleanup_state"], "closed")
+        self.assertEqual(updated["caller_text_files"], [])
+        self.assertEqual(updated["caller_text_files_removed"], [removed_prompt])
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertIn('"kind":"cleanup.requested"', events)
         self.assertIn('"kind":"cleanup.closed"', events)
