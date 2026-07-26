@@ -1,0 +1,73 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T04:41:29Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "12bd40ccac16d113e1efdfbfd3cc1c28151eff75",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "tmux-buffer-stdin"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-issue15-recon-v1",
+      "definition_sha256": "eac94a9ff63a5d39b15c5f89a5cbcacaab3a7ddc0a5bb5de288d5f1b3e5d97f5",
+      "role_marker": "recon-7c4e2f91"
+    },
+    {
+      "name": "saarius-issue15-implementation-v1",
+      "definition_sha256": "1514d7488150b265c0b85768c1ea6d231047e0fad2c327dc42394b5ad5c44872",
+      "role_marker": "implementation-19a6d842"
+    },
+    {
+      "name": "saarius-issue15-verification-v1",
+      "definition_sha256": "04a61d4bc41838cd84807011e97a8985bb0db3a543b9121b6b522189d1d763ba",
+      "role_marker": "verification-b3056e7c"
+    },
+    {
+      "name": "saarius-issue15-proof-v1",
+      "definition_sha256": "033cff4a5c02d334110463b2fb4e36dc7d8905f36951ca60b391657ee369a0ec",
+      "role_marker": "proof-e84a1c39"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "run-salted-sha256",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "one-write-to-file-exact-result-all-else-deny"
+  },
+  "budget": {
+    "max_sessions": 8,
+    "max_invocations": 16,
+    "max_wall_seconds": 720,
+    "per_session_seconds": 90
+  }
+}

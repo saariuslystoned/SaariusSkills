@@ -1,0 +1,31 @@
+{
+  "files": [
+    {
+      "path": ".agents/hooks.json",
+      "sha256": "7d51c4c2e6e7a0bae0a243a42c8d7dfddf7d00460cfc8db0133454c90014043f"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-recon-v1/agent.md",
+      "sha256": "eac94a9ff63a5d39b15c5f89a5cbcacaab3a7ddc0a5bb5de288d5f1b3e5d97f5"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-implementation-v1/agent.md",
+      "sha256": "1514d7488150b265c0b85768c1ea6d231047e0fad2c327dc42394b5ad5c44872"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-verification-v1/agent.md",
+      "sha256": "04a61d4bc41838cd84807011e97a8985bb0db3a543b9121b6b522189d1d763ba"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-proof-v1/agent.md",
+      "sha256": "033cff4a5c02d334110463b2fb4e36dc7d8905f36951ca60b391657ee369a0ec"
+    },
+    {
+      "path": ".issue15/phase1_harness.py",
+      "sha256": "9f49aa01b04b64bd0899e5a7a5b7fb0b63c4cb995360a699facd93e0c223f2e8"
+    }
+  ],
+  "matches_materialization": true,
+  "result": "pass",
+  "schema": "saarius.custom-agent-fixture-postflight.v1"
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "saarius-issue15-recon-v1",
+  "passed": true,
+  "reasons": [],
+  "result_sha256": "893c2dbb5b7fee57b185e849b9d91ced4ee7237231769666d566152eeaa859b9",
+  "schema": "saarius.custom-agent-result-verification.v1"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "saarius.custom-agent-runtime-observation.v1",
+  "session_count": 1,
+  "model_invocation_count": "unobserved",
+  "result_artifact_present": true,
+  "result_artifact_verified": true,
+  "hook_event_file_present": false,
+  "fully_idle_observed": false,
+  "agent_metadata_observed": false,
+  "owned_session": "clean",
+  "owned_raw_log": "clean",
+  "owned_workspace": "preserved",
+  "foreign_state_touched": false,
+  "classification": "fail_closed"
+}

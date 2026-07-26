@@ -1,0 +1,20 @@
+{
+  "command_class": "agy --add-dir <disposable-workspace> agents",
+  "exit_code": 0,
+  "inventory": {
+    "expected": {
+      "saarius-issue15-implementation-v1": true,
+      "saarius-issue15-proof-v1": true,
+      "saarius-issue15-recon-v1": true,
+      "saarius-issue15-verification-v1": true
+    },
+    "expected_found_count": 4,
+    "expected_total": 4,
+    "raw_line_count": 5,
+    "raw_sha256": "3c513c7f1769c6be125e87580354a2738c5d47aa1503a242e2c4196a552462de",
+    "schema": "saarius.custom-agent-inventory.v1"
+  },
+  "raw_inventory_retained": false,
+  "result": "pass",
+  "schema": "saarius.custom-agent-discovery-attempt.v1"
+}

@@ -1,0 +1,88 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "75820d729ea5e9bf81a20ff8c0e72da2c02d4f60bf2b6bfa1c1bc162a7674dca",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT.md",
+    "version": "2026-07-26.phase1"
+  },
+  "checks": [
+    {
+      "contract_clause": "C1",
+      "status": "pass",
+      "evidence": "materialization.json and fixture-postflight.json",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C2",
+      "status": "pass",
+      "evidence": "discovery-explicit-workspace.json; cwd-only control in discovery-cwd.json",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C3",
+      "status": "fail",
+      "evidence": "positive-recon-verification.json passed, but attempt-01-runtime.json records no hook events, no fully-idle event, and no agent metadata",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "C4",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after the C3 observer failure",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C5",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after the C3 observer failure",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C6",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after the C3 observer failure",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C7",
+      "status": "blocked",
+      "evidence": "flag controls were not admitted after the C3 observer failure",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C8",
+      "status": "blocked",
+      "evidence": "removal control was not admitted after the C3 observer failure",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "selected profile produced exact bounded identity artifact",
+      "result": "pass"
+    },
+    {
+      "probe": "all tool calls observed and externally gated",
+      "result": "fail: workspace hook produced no event file"
+    },
+    {
+      "probe": "agent profile independently bound by sanitized CLI metadata",
+      "result": "blocked: log contained no parseable allowlisted metadata"
+    },
+    {
+      "probe": "raw CLI log retained",
+      "result": "false; exact-owned raw log was removed after sanitization"
+    }
+  ],
+  "blockers": [
+    "The workspace hook produced no event file, so the one-write permission gate and fully-idle observer were not proven.",
+    "The CLI log exposed no parseable allowlisted agent/profile metadata."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "preserved",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}
