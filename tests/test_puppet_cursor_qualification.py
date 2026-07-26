@@ -35,6 +35,7 @@ from puppet_lib.cursor_qualification import (  # noqa: E402
     rollback_cursor_activation,
     validate_cursor_qualification_descriptor,
     validate_cursor_terminal_activation,
+    verify_cursor_terminal_qualification,
 )
 from puppet_lib.errors import (  # noqa: E402
     ConflictError,
@@ -789,6 +790,113 @@ class CursorTerminalJoinTests(unittest.TestCase):
                 adapter_lab._cursor_request(
                     Namespace(manifest=manifest_path, out=request_path)
                 )
+
+    def test_verify_cursor_terminal_qualification_accepts_v5_ledger_and_rejects_post_attestation_drift(
+        self,
+    ):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            activated_root = root / "activated"
+            ordinary_root = root / "ordinary"
+            activated_root.mkdir()
+            ordinary_root.mkdir()
+            activated_path = activated_root / "receipt.json"
+            ordinary_path = ordinary_root / "receipt.json"
+            atomic_write_json(activated_path, {"placeholder": "activated"})
+            atomic_write_json(ordinary_path, {"placeholder": "ordinary"})
+            activated = self._receipt(run_id="activated-run", activated=True)
+            ordinary = self._receipt(run_id="ordinary-run", activated=False)
+            activated_tmux = {
+                "socket": "/private/cursor.sock",
+                "session": "activated-session",
+            }
+            attach = "tmux -r attach -t activated-session"
+            atomic_write_json(
+                activated_root / "state.json",
+                {
+                    "session": "activated-session",
+                    "attach_command": attach,
+                },
+            )
+            atomic_write_json(
+                activated_root / "evidence.json",
+                {
+                    "tmux": activated_tmux,
+                    "launch_identity": {"cwd": "/private/activated"},
+                    "fixture_fingerprint_before": "e" * 64,
+                    "fixture_fingerprint_after": "e" * 64,
+                },
+            )
+            atomic_write_json(
+                ordinary_root / "evidence.json",
+                {
+                    "launch_identity": {"cwd": "/private/ordinary"},
+                    "fixture_fingerprint_before": "f" * 64,
+                    "fixture_fingerprint_after": "f" * 64,
+                },
+            )
+            native_view_path = activated_root / "cursor-native-view.json"
+            atomic_write_json(
+                native_view_path,
+                {
+                    "schema": NATIVE_VIEW_SCHEMA,
+                    "target": "cursor",
+                    "run_id": "activated-run",
+                    "session": "activated-session",
+                    "tmux_identity_sha256": sha256_bytes(
+                        canonical_json_bytes(activated_tmux)
+                    ),
+                    "attach_command_sha256": sha256_bytes(
+                        canonical_json_bytes(attach)
+                    ),
+                    "viewer": {
+                        "pid": 99,
+                        "tty": "/dev/ttys001",
+                        "read_only": True,
+                        "session": "activated-session",
+                    },
+                    "read_only": True,
+                    "attached": True,
+                    "detached": True,
+                },
+            )
+            authority_root = root / "authority"
+
+            def mock_verify_receipt(p, **kwargs):
+                if "activated" in str(p):
+                    return activated
+                return ordinary
+
+            with mock.patch(
+                "puppet_lib.adapter_manifest.verify_qualification_receipt",
+                side_effect=mock_verify_receipt,
+            ):
+                terminal = build_cursor_terminal_qualification(
+                    activated_receipt_path=activated_path,
+                    ordinary_receipt_path=ordinary_path,
+                    native_view_path=native_view_path,
+                    authority_root=authority_root,
+                )
+                terminal_path = root / "terminal-qualification.json"
+                atomic_write_json(terminal_path, terminal)
+
+                verified = verify_cursor_terminal_qualification(
+                    terminal_path,
+                    authority_root=authority_root,
+                )
+                self.assertEqual(verified, terminal)
+                self.assertEqual(
+                    verified["controller_attestation"]["schema_version"], 5
+                )
+
+                drifted = copy.deepcopy(terminal)
+                drifted["accepted_checkpoint_id"] = "f" * 64
+                atomic_write_json(terminal_path, drifted)
+                with self.assertRaises(IdentityError):
+                    verify_cursor_terminal_qualification(
+                        terminal_path,
+                        authority_root=authority_root,
+                    )
 
 
 if __name__ == "__main__":
