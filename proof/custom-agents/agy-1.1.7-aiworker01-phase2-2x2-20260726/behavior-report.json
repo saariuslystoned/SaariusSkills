@@ -1,0 +1,89 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "satisfies_contract",
+  "overall_confidence": 0.98,
+  "capability_fingerprint_sha256": "4eb904244d67e605ac57e6023c4ccb3b6a85d9d389a21a7f129ea09f18ee0d18",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE2_2X2.md",
+    "version": "2026-07-26.phase2-2x2"
+  },
+  "checks": [
+    {
+      "contract_clause": "F1",
+      "status": "pass",
+      "evidence": "round-a-fixture.json and round-b-fixture.json are byte-identical; each records three exact profile hashes, three empty results, and join gate mode 0o500. The frozen fixture tests prove parent/child marker and path separation.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "F2",
+      "status": "pass",
+      "evidence": "Both runtime reports record one exact parent discovery occurrence, guard_admitted true, model_launch_started true, bounded discovery digests, and no raw discovery retention.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "F3",
+      "status": "pass",
+      "evidence": "round-a-runtime.json, round-a-verification.json, and round-a-postflight.json record two hidden child writes before quarantine, an empty join at release, a valid later join, exact result identities, and an exact scoped inventory.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "F4",
+      "status": "pass",
+      "evidence": "round-b-runtime.json, round-b-verification.json, and round-b-postflight.json pass the same oracle with byte-identical profiles, a fresh challenge, a fresh workspace, and distinct result hashes.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "F5",
+      "status": "pass",
+      "evidence": "Each round produced two independently grounded hidden-marker child artifacts before one gated parent join. This proves functional two-branch fan-out and join; scheduler concurrency and exact tool-call count remain documented semantics, not independently observed internals.",
+      "confidence": 0.97
+    },
+    {
+      "contract_clause": "F6",
+      "status": "pass",
+      "evidence": "The executed frozen harness and profiles use ordinary invoke_subagent semantics and contain no Teamwork Preview dependency; the dedicated no-dependency unit test passed and PR #6 was not changed.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "F7",
+      "status": "pass",
+      "evidence": "Two fresh parent processes and four declared child branches completed within the six-session and timeout caps. Both process exits were 0, timeouts were false, raw artifacts were digested then unlinked, and foreign_state_touched was false.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "F8",
+      "status": "pass",
+      "evidence": "All eight bounded runtime reports were copied into this proof root. The exact three remote roots were inventoried as 23 files / 138132 bytes, removed, and verified absent; no product source or external state was mutated.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "source-blind child identity",
+      "result": "The parent profile contained neither hidden child marker nor child result path; each child contained neither sibling marker nor sibling path."
+    },
+    {
+      "probe": "gated join order",
+      "result": "The join directory and file were OS-unwritable until both child files were non-empty; both runtime reports observed the join empty at release and changed only afterward."
+    },
+    {
+      "probe": "profile removal",
+      "result": "The complete .agents tree was quarantined after both child writes and before the join release in both rounds; postflight matched all three unchanged hashes."
+    },
+    {
+      "probe": "fresh-round replay resistance",
+      "result": "Byte-identical profiles passed two fresh challenges and produced distinct child and join hashes per round."
+    },
+    {
+      "probe": "transcript-blind retention",
+      "result": "Only byte counts and SHA-256 digests of stdout, stderr, and the AGY log were retained; all exact raw files were unlinked without content inspection."
+    }
+  ],
+  "blockers": [],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

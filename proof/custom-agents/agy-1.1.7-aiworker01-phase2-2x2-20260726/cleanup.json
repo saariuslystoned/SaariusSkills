@@ -1,0 +1,21 @@
+{
+  "schema": "saarius.custom-agent-phase2-cleanup.v1",
+  "recorded_at": "2026-07-26T05:55:40Z",
+  "roots": [
+    "/Users/aiworker/Developer/_machine-runs/saariusskills-issue15-phase2-2x2-20260726-controller",
+    "/Users/aiworker/Developer/_machine-runs/saariusskills-issue15-phase2-2x2-20260726-round-a",
+    "/Users/aiworker/Developer/_machine-runs/saariusskills-issue15-phase2-2x2-20260726-round-b"
+  ],
+  "pre_delete": {
+    "file_count": 23,
+    "directory_count": 20,
+    "symlink_count": 0,
+    "special_file_count": 0,
+    "byte_count": 138132,
+    "raw_artifact_count": 0
+  },
+  "exact_targets_validated": true,
+  "all_roots_verified_absent": true,
+  "recoverable": false,
+  "foreign_state_touched": false
+}
