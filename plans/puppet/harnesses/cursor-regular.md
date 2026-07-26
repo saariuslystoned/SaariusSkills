@@ -4,8 +4,8 @@
 
 - File purpose: exact-version design and public operating record for Cursor
   Agent regular-session qualification under `codex-goal-regular-qualification.md`.
-- Current source baseline: integration head
-  `94b303fb9411c8de79a9d24367c916a2f1e465ae`.
+- Current live-proof baseline: integration head
+  `a73624abbcb3b022bca19b8a1f58c3282d0e3914`.
 - Objective: qualify the sole viable workspace plane without granting authority
   to source-only plans or one-sided activation evidence.
 
@@ -66,6 +66,43 @@ current default is intentionally represented as requested `default`, observed
 `unavailable`, with no explicit model selector. Source-only records,
 qualification requests, descriptors, activation-only receipts, and ordinary
 receipts are non-promotable.
+
+### Interim live qualification at `a73624a` (2026-07-26)
+
+The controller completed a subscription-backed activation/control pair at
+exact head `a73624a`. Both regular sessions used the installed
+`2026.07.17-3e2a980` Cursor Agent build with the provider-selected default,
+`--yolo`, `--sandbox disabled`, a shared private profile, and distinct private
+workspaces. The startup reducer cleared each exact two-option workspace-trust
+gate without operator input. Both runs reached structured ready and follow-up
+checkpoints, preserved the same five protected operator processes before and
+after their exact registered-PID halts, and retained no pane body.
+
+The activation session also received one real read-only iTerm/tmux attachment,
+observed structurally on `/dev/ttys017` and detached without input. The
+activation rule rolled back, the ordinary workspace remained unchanged, and
+`cursor-pair` independently joined the two accepted receipts plus native-view
+receipt. `adapter_lab.py verify` then rebuilt the terminal result as
+`paired_control_verified_after_exact_halt_and_rollback`; `qualify` produced
+manifest fingerprint
+`bbc84369e271f3acab85519188676bff6d4317ae1007c3f7ac21e3fef46d46d3`.
+The transcript-free record is
+`plans/puppet/live-proof/cursor-a73624a-20260726.json`.
+
+Live use exposed and forced one additional repair before that result. The
+named Cursor terminal schema had been passed directly to the shared v5
+controller attestor, whose contract requires a `schema_version: 5`
+projection. Unit tests had mocked the attestor and missed the mismatch. Cursor
+now projects its terminal core into the fixed ledger contract for both
+attestation and verification, and the regression exercises the real temporary
+ledger. One later activation attempt was rejected when macOS did not return
+the new PID's process row; Puppet exact-halted only that registered PID and a
+fresh run succeeded. Neither rejected attempt contributes qualification
+authority.
+
+This is an interim qualification checkpoint. A qualified public launcher run
+and a final exact-source rerun remain required after the integrated branch
+stops changing.
 
 Interrupted activation never relaunches and never guesses cleanup. Recovery
 fences and preserves the exact transaction for controller adjudication. Rollback
