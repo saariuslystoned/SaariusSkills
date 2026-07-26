@@ -82,7 +82,12 @@ from the authorization file.
 
 Never kill, rename, attach to, reuse, or repurpose a pre-existing process or
 tmux session. Never inspect `.env`, credentials, auth logs, session stores,
-conversation stores, terminal scrollback, or transcripts.
+conversation stores, terminal scrollback, or transcripts. The one
+ordinary-operation exception to this terminal-capture ban is Claude's narrow
+internal startup-screen reducer described under *Operate a session*: it reads
+only a bounded owned pane before initial prompt delivery, classifies a fixed
+allowlist of startup gates, retains only gate/selection/size/hash/timing
+metadata, and discards the raw bytes.
 
 Puppet ships editable baseline layers under `templates/instructions/`. Prefer a
 bounded per-run user addendum for customization; changing a shipped layer or
@@ -102,7 +107,13 @@ log in. Puppet silently checks native status before each launch and reuses a
 logged-in profile without a human prompt. A human login handoff is allowed only
 for initial enrollment or after the provider reports that the session was
 invalidated, revoked, or logged out. Puppet does not copy an existing
-credential or perform login itself. A harness-native operating-system keyring
+credential or perform login itself. For Claude specifically, an enrolled,
+stable Puppet-owned profile may present the ready startup screen immediately on
+later runs, so the startup-screen reducer reaches ready without navigating
+intermediate gates; a fresh, un-enrolled profile instead shows the logged-out
+screen, which the reducer treats as a fail-closed forbidden gate, so Puppet
+neither copies auth into it nor runs an unattended login and only presents the
+one-time human enrollment handoff. A harness-native operating-system keyring
 may instead be reused only when its non-secret configuration and session state
 remain separately isolated and the exact adapter proves that boundary.
 
@@ -218,7 +229,21 @@ Use this sequence:
    startup settle, rechecks process/pane identity, and then delivers the initial
    prompt through a protected file or literal tmux buffer, never as a process
    argument. The settle reduces startup races; only a validated handoff proves
-   the harness consumed the prompt.
+   the harness consumed the prompt. Claude is the single exception to the
+   terminal-capture ban and does not use the plain structural settle: before the
+   initial prompt it runs a narrow internal startup-screen reducer over the
+   bounded owned pane of the exact registered Claude process. The reducer
+   classifies the pane against a fixed allowlist — the security notice, an
+   exact-workspace trust prompt, the bypass warning, or the ready screen —
+   requires the displayed workspace path to equal the contract worktree exactly,
+   and selects and recaptures the exact authorized `yes` choice before pressing
+   Enter. It retains only gate/selection/size/hash/timing metadata and discards
+   raw bytes, and a login, account, terms, subscription, unknown, ambiguous,
+   oversize, or non-UTF-8 screen fails closed with no retry. It is bounded by the
+   Claude startup-settle and transition deadlines, and immediately before
+   delivery re-verifies process, pane, and executable identity and that the pane
+   is still the ready screen. This is the only ordinary-operation terminal read
+   Puppet performs.
 4. Give the human the exact command from `attach-command`. When the operator
    opts in and the local surface supports visible macOS terminal launch, use
    `open-view` to open that command in a separate iTerm or Terminal window. It
@@ -231,7 +256,9 @@ Use this sequence:
    without changing the target. Do not have the controller attach or read the
    pane.
 5. Use `status` and bounded `wait` calls for structural state and validated
-   checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text.
+   checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text, except
+   for Claude's bounded pre-prompt startup-screen reducer above; after the ready
+   handoff, never capture or read pane text for any target.
 6. Pin one adapter-qualified `session_profile` in the contract. Puppet applies
    that profile's native command only to the initial launch message; later
    `send` calls are ordinary steering messages. For AGY, Puppet also rejects

@@ -1,7 +1,10 @@
 # Claude Code regular-session qualification harness (v0.1)
 
 Scope: static command census, source/test inspection, and no-live-lane planning under
-`plans/puppet/codex-goal-regular-qualification.md`. No live launch is performed in this lane.
+`plans/puppet/codex-goal-regular-qualification.md`. The bounded startup-gate
+reducer and durable-profile ready path are implemented and component/session
+tested; a fully authenticated live matched-pair launch and its promoted Pass-B
+qualification receipt are still pending.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -49,6 +52,11 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 - `session.py` confirms the live contract only allows:
   - launch/send/status/wait/checkpoint/review/accept/halt
   - no public session-rejoin resume command exists in the public session command surface.
+- `profiles.input_readiness_strategy_for("claude")` returns
+  `bounded_claude_startup_gate_reducer`; every other target returns
+  `bounded_structural_settle`. Claude launch therefore drives the bounded
+  startup-gate reducer (`puppet_lib.claude_startup_gates`) before prompt
+  delivery instead of a plain structural settle.
 
 ### Hypotheses / evidence gaps
 
@@ -140,6 +148,34 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
   private profile environment and config identity, with create-only artifact
   materialization, immediate auth/identity revalidation, exact rollback, and a
   joined body-free receipt. Activation-lifecycle proof remains non-promotable.
+- Implemented startup-gate reducer (live component/session evidence):
+  `puppet_lib.claude_startup_gates` is the Claude-only bounded input-readiness
+  strategy. Before the initial prompt it captures only the bounded owned pane
+  (<= 64 KiB) of the exact registered Claude process, decodes strict UTF-8, and
+  classifies it against a fixed allowlist — `security_notice`, an exact-workspace
+  `workspace_trust` prompt, `bypass_warning`, or `ready`. It retains only gate,
+  selection, byte-size, SHA-256, and timing metadata and never keeps raw bytes
+  (`raw_retained` stays false). For the trust prompt it requires the displayed
+  workspace path to equal the contract worktree exactly (space-preserving,
+  duplicate-label and substring-decoy safe). Where a confirmation is required it
+  moves selection to and recaptures the exact authorized `yes` choice (trust
+  choice 1, bypass choice 2) before sending Enter. A login/account/terms/
+  subscription/OAuth/permission, unknown, ambiguous, oversize, or non-UTF-8
+  screen fails closed with no retry, and the reducer is bounded by the Claude
+  startup-settle and transition deadlines with hard poll-iteration caps.
+  Immediately before delivery, `revalidate_claude_ready_process` re-verifies
+  process/pane/executable identity and that the pane is still `ready`. This is
+  unit- and integration-tested (`tests/test_puppet_claude_startup_gates.py`,
+  including the launch ordering gate -> paste -> submit); it is live
+  component/session evidence, not a promoted Pass-B qualification receipt.
+- Implemented durable-profile behavior: an enrolled, stable Puppet-owned Claude
+  profile may present the `ready` screen immediately on later runs, so the
+  reducer reaches `ready` and delivers with no intermediate gate navigation and
+  no keys sent. A fresh, un-enrolled profile instead shows the logged-out
+  screen, which the reducer classifies as a fail-closed forbidden gate; Puppet
+  must not copy auth into it or run an unattended login and may only present the
+  one-time human enrollment handoff. This durable/ready-immediate path is live
+  component evidence and does not by itself promote the lane.
 - Still add and prove immutable `--settings` and `--setting-sources` launch
   deltas when the selected plane requires them.
 - Replace help-absence sandbox inference with observed isolated settings/hook
@@ -296,6 +332,9 @@ a human-gated proposal under
 Claude auth/config state and exercises no observation, matched-control,
 profile, runtime, process, tmux, or viewer path.
 
-Further source glue is **NO_SHIP**. The next admissible work is the live,
-human-approved authenticated matched pair described above; source-only code
-must not stand in for that evidence.
+The bounded startup-gate reducer and durable-profile ready path above are live
+component and session evidence for input readiness and enrollment reuse. They do
+not stand in for the promoted Pass-B qualification receipt. Further source glue
+toward that receipt is **NO_SHIP**: the next admissible work is the live,
+human-approved authenticated matched pair described above, and source-only code
+must not substitute for that evidence.
