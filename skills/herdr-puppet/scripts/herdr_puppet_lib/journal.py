@@ -82,6 +82,7 @@ def make_event(
     *,
     seq: int | None = None,
     prompt_sha256: str | None = None,
+    command_sha256: str | None = None,
     nonce_sha256: str | None = None,
     note: str | None = None,
     data: dict[str, Any] | None = None,
@@ -100,6 +101,8 @@ def make_event(
         event["seq"] = seq
     if prompt_sha256 is not None:
         event["prompt_sha256"] = prompt_sha256
+    if command_sha256 is not None:
+        event["command_sha256"] = command_sha256
     if nonce_sha256 is not None:
         event["nonce_sha256"] = nonce_sha256
     if note:
@@ -109,7 +112,23 @@ def make_event(
     return event
 
 
+def _require_bound_run_root(run_root: Path, plan: dict[str, Any]) -> None:
+    proof_root = plan.get("proof_root")
+    if (
+        not isinstance(proof_root, str)
+        or not proof_root
+        or run_root.expanduser().resolve()
+        != Path(proof_root).expanduser().resolve()
+    ):
+        raise HerdrPuppetError(
+            "journal_root_mismatch",
+            "The controller journal root does not match the plan proof root.",
+            details={"run_root": str(run_root)},
+        )
+
+
 def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    _require_bound_run_root(run_root, plan)
     if run_root.exists():
         raise HerdrPuppetError(
             "journal_root_exists",
@@ -200,7 +219,12 @@ def read_events(run_root: Path, *, maximum: int = 10_000) -> list[dict[str, Any]
     return events
 
 
-def require_initialized_journal(run_root: Path, *, run_id: str) -> None:
+def require_initialized_journal(
+    run_root: Path,
+    *,
+    run_id: str,
+    proof_root: str,
+) -> None:
     plan_path = run_root / "plan.json"
     events_path = run_root / "events.jsonl"
     if not plan_path.exists() or not events_path.exists():
@@ -221,6 +245,18 @@ def require_initialized_journal(run_root: Path, *, run_id: str) -> None:
         raise HerdrPuppetError(
             "journal_run_mismatch",
             "The controller journal belongs to a different run.",
+            details={"run_root": str(run_root)},
+        )
+    _require_bound_run_root(run_root, plan)
+    if (
+        not isinstance(proof_root, str)
+        or not proof_root
+        or run_root.expanduser().resolve()
+        != Path(proof_root).expanduser().resolve()
+    ):
+        raise HerdrPuppetError(
+            "journal_root_mismatch",
+            "The controller journal root does not match the exact lease proof root.",
             details={"run_root": str(run_root)},
         )
     events = read_events(run_root)
@@ -260,6 +296,7 @@ def summarize_journal(run_root: Path, *, recent_limit: int = 20) -> dict[str, An
                 "note",
                 "data",
                 "prompt_sha256",
+                "command_sha256",
                 "nonce_sha256",
             )
             if key in event
@@ -286,6 +323,18 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
             "invalid_journal_plan",
             "The controller journal plan could not be read.",
         ) from exc
+    _require_bound_run_root(run_root, plan)
+    if lease is not None:
+        # Local import avoids a module cycle while keeping this public helper
+        # strict even when it is called outside the CLI.
+        from .core import validate_lease
+
+        validate_lease(lease)
+        if lease["run_id"] != plan.get("run_id"):
+            raise HerdrPuppetError(
+                "journal_run_mismatch",
+                "The lease belongs to a different controller journal run.",
+            )
     events = read_events(run_root)
     last = events[-1] if events else None
     repairs = sum(event.get("result") == "repair" for event in events)

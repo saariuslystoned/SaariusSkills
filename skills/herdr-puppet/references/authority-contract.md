@@ -37,7 +37,7 @@ capability
   -> newly created tab ID
   -> pane ID + terminal ID
   -> foreground SSH PID + argv + target
-  -> monotonically increasing send sequence
+  -> monotonically increasing submission sequence
 ```
 
 A label is never an authority edge. It is checked only as drift evidence after
@@ -54,7 +54,7 @@ different from the capability or lease. Also stop when:
 - the tab or pane moved to another workspace;
 - the connection dropped, handed off, or restarted, or the socket/protocol
   changed;
-- a caller tries to skip or replay a send sequence;
+- a caller tries to skip or replay a submission sequence;
 - an operation would target the parent session or an unleased tab.
 
 ## Separate gates

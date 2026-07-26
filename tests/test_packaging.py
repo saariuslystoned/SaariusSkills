@@ -133,20 +133,28 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Never inject `/teamwork-preview` automatically", skill)
         self.assertIn("lease-preserve", skill)
         self.assertIn("cleanup-preserved-tab", skill)
-        self.assertIn("unique task-owned readiness artifact", skill)
+        self.assertIn("lease-migrate-v1", skill)
+        self.assertIn("qualification-harness-ready", skill)
+        self.assertIn("operator_observed_ready_input", skill)
+        self.assertIn("remote-task-file-register", skill)
+        self.assertIn("--timeout-ms 480000", skill)
+        self.assertIn("--timeout-seconds 510", skill)
         self.assertIn("status --lease-json", skill)
         self.assertIn("must not be rewritten as a", skill)
         self.assertIn('"method": "pane.send_input"', compact_client)
         self.assertIn('"keys": ["enter"]', compact_client)
+        self.assertIn('"pane", "run"', compact_client)
+        self.assertIn('"<redacted-command>"', compact_client)
         self.assertIn("socket.AF_UNIX", client)
         self.assertNotIn('add_argument("--text")', cli)
+        self.assertNotIn('add_argument("--command")', cli)
+        self.assertIn('"qualification-run"', cli)
         self.assertIn('add_argument("--stdin"', cli)
         self.assertIn('"wait", "output"', compact_client)
         self.assertIn('"api", "snapshot"', compact_client)
         self.assertNotIn('"pane", "read"', compact_client)
         self.assertNotIn('"send-text"', compact_client)
         self.assertNotIn('"send-keys"', compact_client)
-        self.assertNotIn('"pane", "run"', compact_client)
         self.assertNotIn('"server", "stop"', compact_client)
         self.assertNotIn('"session", "stop"', compact_client)
         self.assertNotIn('"workspace", "close"', compact_client)
@@ -156,6 +164,9 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("SIGKILL", client)
         self.assertIn('add_argument("--confirm-tab-id"', cli)
         self.assertIn('add_argument("--allow-live-cleanup"', cli)
+        self.assertIn('"qualification-harness-ready"', cli)
+        self.assertIn('"remote-task-file-register"', cli)
+        self.assertIn('"lease-migrate-v1"', cli)
 
     def test_herdr_puppet_schemas_parse(self) -> None:
         references = HERDR_SKILL / "references"
@@ -168,12 +179,55 @@ class PackagingTests(unittest.TestCase):
         lease_schema = json.loads(
             (references / "lease.schema.json").read_text(encoding="utf-8")
         )
+        event_schema = json.loads(
+            (references / "event.schema.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(
             lease_schema["properties"]["harness_readiness"]["enum"],
+            ["unverified", "operator_verified"],
+        )
+        self.assertEqual(
+            lease_schema["properties"]["shell_readiness"]["enum"],
             ["unverified", "status_verified"],
         )
         self.assertIn("caller_text_files", lease_schema["properties"])
         self.assertIn("caller_text_files_removed", lease_schema["properties"])
+        self.assertIn("remote_task_files", lease_schema["properties"])
+        self.assertEqual(
+            set(lease_schema["required"]),
+            {
+                "schema",
+                "state",
+                "run_id",
+                "harness",
+                "session",
+                "workspace",
+                "owned_label",
+                "tab_id",
+                "pane_id",
+                "terminal_id",
+                "ssh",
+                "next_seq",
+                "shell_readiness",
+                "harness_readiness",
+                "source",
+                "proof_root",
+                "caller_text_files",
+                "caller_text_files_removed",
+                "remote_task_files",
+            },
+        )
+        readiness_rule = lease_schema["allOf"][0]
+        self.assertEqual(
+            readiness_rule["then"]["required"],
+            [
+                "harness_readiness_evidence",
+                "harness_readiness_operator",
+                "harness_readiness_verified_at",
+            ],
+        )
+        self.assertIn("else", readiness_rule)
+        self.assertIn("command_sha256", event_schema["properties"])
 
 
 if __name__ == "__main__":

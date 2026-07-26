@@ -5,7 +5,7 @@ Herdr-Puppet uses three versioned JSON records:
 - `herdr-puppet.plan.v1`: source-only intent plus the explicit parent
   capability.
 - `herdr-puppet.lease.v1`: exact owned tab/pane/terminal/SSH identity and the
-  next legal send sequence.
+  next legal submission sequence.
 - `herdr-puppet.event.v1`: append-only controller journal event.
 
 The JSON Schemas in this directory are normative for their public fields:
@@ -13,6 +13,15 @@ The JSON Schemas in this directory are normative for their public fields:
 - [plan.schema.json](plan.schema.json)
 - [lease.schema.json](lease.schema.json)
 - [event.schema.json](event.schema.json)
+
+`herdr-puppet.lease.v1` has one strict canonical shape. Current controller
+operations reject historical lease-v1 files that omit the readiness/file
+fields or use the former `harness_readiness: status_verified` value. Upgrade
+such a file explicitly with `lease-migrate-v1`; ordinary status, probe,
+preservation, cleanup, and journal-refresh paths never perform an implicit
+compatibility migration. Runtime validation enforces the canonical nested
+authority objects, integer fields, safe label, unique arrays, and RFC 3339
+evidence times before migration may write.
 
 ## Plan lifecycle
 
@@ -24,7 +33,11 @@ When `qualification-create-tab` is invoked through the public controller, the
 matching controller journal is a mutation precondition. Its `plan.json`,
 `events.jsonl`, initialization event, and run ID are checked before
 `tab create`. A missing, malformed, empty, or cross-run journal fails before
-any tab, pane, SSH process, or lease is created.
+any tab, pane, SSH process, or lease is created. The plan's canonical
+`proof_root` is also the exact journal `run_root`. Journal initialization and
+later consumers resolve and compare those paths, so copying an otherwise
+matching journal to another root cannot split lease-global event or beacon
+attempt history.
 
 ## Lease lifecycle
 
@@ -40,55 +53,116 @@ ssh.pid
 ssh.argv
 ssh.target
 next_seq
+shell_readiness
 harness_readiness
 caller_text_files
 caller_text_files_removed
+remote_task_files
 ```
 
-The lease file is updated atomically after a successful `pane.send_input`. A
-caller supplies the expected sequence; equality with `next_seq` is mandatory.
-The controller sends `text` plus `keys: ["enter"]` as one newline-delimited
-JSON request to the exact, current-user-owned Unix socket bound in the lease.
-The resulting receipt is scoped to `herdr_pane_input_only`. It proves Herdr
-accepted that pane request; it does not prove the remote harness was ready,
-submitted the prompt, started work, loaded an extension, or called a tool.
-It rechecks the socket file identity after connecting and before dispatch.
-That inode check narrows path-replacement races; it does not prove a native
-Herdr server incarnation. A lost, malformed, or mismatched acknowledgement is
-an unknown delivery outcome. Never retry that sequence: stop and use
-`qualification-reconcile-send` only after independent evidence establishes
-that the original input was applied.
-Non-empty prompt content is accepted only through standard input or a UTF-8
-file, with a 256 KiB limit; empty or whitespace-only input is rejected before
-socket access. Prompt content never appears in the controller or Herdr process
-argument vector. The controller never writes or copies prompt content, so
-callers own the lifecycle of any input file. If an orchestration bridge cannot
-reliably half-close stdin, avoid a long canonical-PTY paste: create one private
-task-owned input file, use `--text-file`, require the exact sequence
-acknowledgement, and remove only that file immediately afterward. This proves
-input acceptance only, not shell or harness execution.
+Every lease mutation uses one exact sibling lock file, reloads the lease from
+disk inside that cross-process lock, and joins immutable lease identity before
+checking mutable state. A caller supplies the expected sequence; equality with
+the reloaded `next_seq` is mandatory. The selected Herdr operation and atomic
+sequence advance occur while the lock is held, so two processes submitting the
+same sequence produce at most one Herdr mutation. Beacon waits durably reserve
+one of the nonce's two allowed attempts in the journal while holding that same
+lease lock, then snapshot and release the lock during the long blocking wait.
+They reacquire it and reject any full-lease revision change or missing/ambiguous
+reservation before finalizing. A run, readiness transition, preservation, or
+cleanup therefore cannot be overwritten by stale wait state, and a third
+concurrent waiter cannot reach Herdr.
 
-New leases begin with `harness_readiness: unverified`. A strict `STATUS`
-checkpoint advances it to `status_verified`; later sends fail closed until
-that transition has occurred. This is controller state, not a claim that
-Herdr itself started or identified a harness. The initial tab-created event
-therefore records only an SSH shell transport with `harness_started: false`.
+The lower-level token probe follows the same no-long-lock wait shape without
+consuming a beacon attempt. Before reading the pane it takes the exact sibling
+lease lock, reloads the canonical lease from disk, and requires the caller
+payload to equal the complete current lease revision. It then snapshots,
+releases the lock for `wait output`, and reacquires it to reject any complete
+revision change before journaling or returning a result. A stale active or
+preserved caller payload therefore cannot authorize a pane read.
 
-The private lease may retain normalized paths for caller-owned text files so
-maintenance can distinguish files that still exist from files the caller has
-removed. Send receipts expose only lifecycle booleans and the `caller_owned`
-classification, not those paths or prompt contents. Legacy leases without
-these additive fields remain valid for preservation and exact cleanup.
+`qualification-send` sends `text` plus `keys: ["enter"]` as one
+newline-delimited JSON request to the exact, current-user-owned Unix socket
+bound in the lease. Its receipt is scoped to `herdr_pane_input_only`. It proves
+Herdr accepted that pane request; it does not prove the remote harness was
+ready, submitted the prompt, started work, loaded an extension, or called a
+tool. The adapter rechecks the socket file identity after connecting and
+before dispatch. That inode check narrows path-replacement races; it does not
+prove a native Herdr server incarnation. A lost, malformed, or mismatched
+acknowledgement is an unknown delivery outcome. Never retry that sequence:
+stop and use `qualification-reconcile-send` only after independent evidence
+establishes that the original input was applied.
+
+`qualification-run` is the shell-command surface. It accepts non-empty UTF-8
+command content only through standard input or a caller-owned `--text-file`,
+with the same 256 KiB limit, then calls Herdr 0.7.3
+`pane run <pane_id> <command>` exactly once. The public controller never
+accepts the command in its own argv. The downstream Herdr CLI necessarily
+receives the command argument defined by that interface, so the adapter passes
+a fully redacted safe command to every error path, discards stdout, and records
+only the command hash. A nonzero or timed-out Herdr call leaves `next_seq`
+unchanged. A zero exit advances the sequence but records
+`submission_mode: atomic_shell_command` and
+`execution_acceptance: unverified`; it does not establish shell, harness, MCP,
+or task readiness.
+
+The controller never writes or copies prompt or command content, so callers
+own the lifecycle of any input file. If an orchestration bridge cannot
+reliably half-close stdin, create one private task-owned input file, use
+`--text-file`, require the exact sequence acknowledgement, and then remove
+only that file. Acceptance of either operation is not execution proof.
+
+New leases begin with both `shell_readiness: unverified` and
+`harness_readiness: unverified`. A strict shell `STATUS` checkpoint advances
+only `shell_readiness` to `status_verified`; later `qualification-run`
+submissions fail closed until that transition. Interactive pane input is
+separate: `qualification-harness-ready` requires the exact leased repo and
+worktree, an explicit operator identity, bounded
+`operator_observed_ready_input` evidence, confirmation, and a fresh structural
+join before advancing `harness_readiness` to `operator_verified`.
+`qualification-send` and send reconciliation require that state even at
+sequence 1. Noninteractive AGY remains on `qualification-run`.
+
+The explicit legacy adapter preserves that split. A historical
+`harness_readiness: status_verified` value migrates to
+`shell_readiness: status_verified` plus `harness_readiness: unverified`; it
+never becomes operator-verified harness readiness. Omitted readiness fields
+default to `unverified`, and omitted caller/remote file arrays default to empty
+arrays. The migration validates the historical baseline, locks and reloads the
+exact lease file, writes the canonical shape atomically, performs no Herdr
+mutation, and reads no transcript. Canonical `operator_verified` readiness is
+valid only with all three bounded evidence fields: the fixed
+`operator_observed_ready_input` class, a safe operator identifier, and an
+RFC 3339 timestamp. Any other readiness state must omit those fields.
+
+The private lease may retain normalized controller-local paths for caller-owned
+command or prompt files, so maintenance can check those files on the
+controller filesystem. Receipts label them `controller_local` and expose only
+lifecycle booleans and the `caller_owned` classification, not paths or content.
+
+A task file referenced by a launcher running over the leased SSH target is
+different. Register its normalized absolute POSIX path through
+`remote-task-file-register` before launch. That operation binds the path to the
+exact SSH target and leased source without calling local filesystem APIs.
+Exact remote paths appear only in the private lease and maintenance output;
+registration receipts and ordinary journal events expose neither the path nor
+a path hash. Final maintenance accepts one exact registered path, explicit
+confirmation, and either `operator_verified_remote_absence` or
+`source_bound_terminal_artifact` before marking `removal_verified`.
+`cleanup-preserved-tab` rejects an unverified registered remote file.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible
 but cannot receive controller input.
 
-A strict `DONE` or `ACTION_REQUIRED` beacon automatically invokes that same
-local preservation transition. `STATUS` and `not_matched` leave the lease
-active. The controller-side subprocess timeout is a hard cap over Herdr's
-native wait; either native or controller timeout returns `not_matched` with a
-sanitized timeout-source field.
+A strict `DONE` or `ACTION_REQUIRED` beacon performs that same local
+preservation transition inside the beacon's final lease lock. `STATUS` and
+`not_matched` leave the lease active. The standard 420-second AGY recipe uses a
+480000 ms native timeout and a 510 s controller cap. One additional bounded
+wait is allowed after the first `not_matched`, using the same nonce and
+submission sequence. Each attempt is consumed by its durable pre-wait
+reservation, including when the controller exits before finalization. A
+matched nonce, cross-sequence reuse, or third reservation is rejected.
 
 Preservation is not tab cleanup. A later tab close requires separately
 authorized `cleanup-preserved-tab`, an initialized journal, a preserved lease,

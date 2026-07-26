@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
+import multiprocessing
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -23,25 +26,33 @@ from herdr_puppet_lib.core import (  # noqa: E402
     create_qualification_tab,
     doctor,
     maintenance_checkpoint,
+    migrate_legacy_lease,
+    migrate_legacy_lease_file,
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_harness_ready,
     qualification_reconcile_send,
+    qualification_run,
     qualification_send,
     qualification_token_probe,
+    register_remote_task_file,
     structural_status,
+    validate_legacy_lease,
     validate_lease,
 )
-from herdr_puppet_lib.cli import _read_prompt  # noqa: E402
+from herdr_puppet_lib.cli import _read_prompt, build_parser  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
 from herdr_puppet_lib.herdr_client import (  # noqa: E402
     MAX_PROMPT_BYTES,
     HerdrClient,
+    load_json,
 )
 from herdr_puppet_lib.journal import (  # noqa: E402
     append_event,
     initialize_journal,
     make_event,
+    read_events,
     refresh_state,
     sha256_text,
     summarize_journal,
@@ -74,6 +85,7 @@ class FakeClient:
         self.pane_rows: list[dict[str, Any]] = []
         self.process_rows: dict[str, dict[str, Any]] = {}
         self.sent: list[tuple[str, str, str]] = []
+        self.ran: list[tuple[str, str, str]] = []
         self.closed_tabs: list[str] = []
         self.read_payload: Any = {"result": {"text": ""}}
 
@@ -187,6 +199,11 @@ class FakeClient:
         self.sent.append(("input", pane_id, text))
         return ""
 
+    def run_command(self, session: str, pane_id: str, command: str) -> str:
+        self._session(session)
+        self.ran.append(("run", pane_id, command))
+        return ""
+
     def wait_output(
         self,
         session: str,
@@ -227,6 +244,45 @@ class FakeClient:
     def _session(self, session: str) -> None:
         if session != self.session:
             raise AssertionError(f"wrong session: {session}")
+
+
+def multiprocessing_same_seq_run(
+    lease_path_text: str,
+    marker_path_text: str,
+    start_event: Any,
+    result_queue: Any,
+) -> None:
+    lease_path = Path(lease_path_text)
+    marker_path = Path(marker_path_text)
+    lease = load_json(lease_path)
+    client = FakeClient()
+    client.create_tab(
+        lease["session"]["name"],
+        lease["workspace"]["id"],
+        lease["owned_label"],
+    )
+
+    def record_run(session: str, pane_id: str, command: str) -> str:
+        client._session(session)
+        with marker_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{pane_id}\n")
+        return ""
+
+    client.run_command = record_run  # type: ignore[method-assign]
+    start_event.wait(5)
+    try:
+        qualification_run(
+            client,
+            lease_payload=lease,
+            lease_path=lease_path,
+            seq=1,
+            command="same-sequence",
+            allow_live=True,
+        )
+    except HerdrPuppetError as exc:
+        result_queue.put(exc.code)
+    else:
+        result_queue.put("ok")
 
 
 def make_plan(
@@ -365,6 +421,203 @@ class HerdrClientTests(unittest.TestCase):
         client = HerdrClient()
         result = client.create_tab("operator-session", "w2", "owned-label")
         self.assertEqual(result, "")
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_run_command_uses_exact_pane_run_argv(self, run: mock.Mock) -> None:
+        run.return_value = mock.Mock(returncode=0, stdout="accepted\n", stderr="")
+        client = HerdrClient()
+        result = client.run_command(
+            "operator-session",
+            "w2:p1",
+            "private shell command",
+        )
+        self.assertEqual(result, "accepted")
+        run.assert_called_once_with(
+            [
+                "herdr",
+                "--session",
+                "operator-session",
+                "pane",
+                "run",
+                "w2:p1",
+                "private shell command",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_run_command_redacts_cli_error(self, run: mock.Mock) -> None:
+        run.return_value = mock.Mock(
+            returncode=1,
+            stdout="",
+            stderr=(
+                '{"error":{"code":"private shell command",'
+                '"message":"rejected private shell command"}}'
+            ),
+        )
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_command(
+                "operator-session",
+                "w2:p1",
+                "private shell command",
+            )
+        serialized = json.dumps(caught.exception.as_json())
+        self.assertNotIn("private shell command", serialized)
+        self.assertEqual(
+            caught.exception.details["command"],
+            [
+                "--session",
+                "operator-session",
+                "pane",
+                "run",
+                "w2:p1",
+                "<redacted-command>",
+            ],
+        )
+        self.assertEqual(caught.exception.details["returncode"], 1)
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_run_command_redacts_controller_timeout(self, run: mock.Mock) -> None:
+        run.side_effect = subprocess.TimeoutExpired(
+            cmd=["herdr", "private shell command"],
+            timeout=10.0,
+        )
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_command(
+                "operator-session",
+                "w2:p1",
+                "private shell command",
+            )
+        serialized = json.dumps(caught.exception.as_json())
+        self.assertNotIn("private shell command", serialized)
+        self.assertEqual(
+            caught.exception.details["command"][-1],
+            "<redacted-command>",
+        )
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_run_command_redacts_process_launch_error(self, run: mock.Mock) -> None:
+        run.side_effect = OSError("failed to launch private shell command")
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_command(
+                "operator-session",
+                "w2:p1",
+                "private shell command",
+            )
+        serialized = json.dumps(caught.exception.as_json())
+        self.assertEqual(caught.exception.code, "herdr_launch_failed")
+        self.assertNotIn("private shell command", serialized)
+        self.assertEqual(
+            caught.exception.details["command"][-1],
+            "<redacted-command>",
+        )
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_run_command_rejects_empty_oversized_and_invalid_utf8(
+        self,
+        run: mock.Mock,
+    ) -> None:
+        client = HerdrClient()
+        for command, code in (
+            (" \r\n\t", "command_empty"),
+            ("x" * (MAX_PROMPT_BYTES + 1), "command_too_large"),
+            ("é" * ((MAX_PROMPT_BYTES // 2) + 1), "command_too_large"),
+            ("\ud800", "invalid_command_encoding"),
+        ):
+            with self.subTest(code=code):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    client.run_command("operator-session", "w2:p1", command)
+                self.assertEqual(caught.exception.code, code)
+        run.assert_not_called()
+
+    def test_qualification_run_parser_requires_non_argv_source(self) -> None:
+        parser = build_parser()
+        from_file = parser.parse_args(
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+                "--text-file",
+                "command.txt",
+            ]
+        )
+        from_stdin = parser.parse_args(
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+                "--stdin",
+            ]
+        )
+        self.assertEqual(from_file.text_file, "command.txt")
+        self.assertTrue(from_stdin.prompt_stdin)
+        invalid_argv = (
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+            ],
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+                "--text-file",
+                "command.txt",
+                "--stdin",
+            ],
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+                "--text",
+                "forbidden",
+            ],
+            [
+                "qualification-run",
+                "--lease-json",
+                "lease.json",
+                "--seq",
+                "1",
+                "--stdin",
+                "forbidden positional command",
+            ],
+        )
+        for argv in invalid_argv:
+            with self.subTest(argv=argv):
+                with mock.patch("sys.stderr", new=io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        parser.parse_args(argv)
+
+    def test_beacon_parser_default_envelope_exceeds_420_seconds(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "qualification-beacon-wait",
+                "--lease-json",
+                "lease.json",
+                "--nonce",
+                "CHECKPOINT-123",
+                "--run-root",
+                "run",
+            ]
+        )
+        self.assertEqual(args.timeout_ms, 480_000)
+        self.assertEqual(args.timeout_seconds, 510.0)
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_wait_output_honors_controller_cap_and_maps_native_timeout(
@@ -518,6 +771,7 @@ class QualificationTests(unittest.TestCase):
         self.plan = make_plan(self.client)
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.plan["proof_root"] = str((self.root / "run").resolve())
         self.lease_path = self.root / "lease.json"
 
     def tearDown(self) -> None:
@@ -531,6 +785,33 @@ class QualificationTests(unittest.TestCase):
             allow_live=True,
             settle_seconds=0.1,
         )
+
+    def persist_lease(self, lease: dict[str, Any]) -> dict[str, Any]:
+        self.lease_path.write_text(
+            json.dumps(lease),
+            encoding="utf-8",
+        )
+        return lease
+
+    def mark_harness_ready(self, lease: dict[str, Any]) -> dict[str, Any]:
+        ready = copy.deepcopy(lease)
+        ready["shell_readiness"] = "status_verified"
+        ready["harness_readiness"] = "operator_verified"
+        ready["harness_readiness_evidence"] = "operator_observed_ready_input"
+        ready["harness_readiness_operator"] = "test-operator"
+        ready["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
+        return self.persist_lease(ready)
+
+    def submit_for_beacon(self, lease: dict[str, Any]) -> dict[str, Any]:
+        qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            command="printf beacon-submission",
+            allow_live=True,
+        )
+        return json.loads(self.lease_path.read_text(encoding="utf-8"))
 
     def test_create_tab_requires_both_live_gates(self) -> None:
         blocked_plan = make_plan(self.client, live_mutation_authorized=False)
@@ -577,9 +858,11 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(lease["terminal_id"], "term_one")
         self.assertEqual(lease["ssh"]["pid"], 4242)
         self.assertEqual(lease["next_seq"], 1)
+        self.assertEqual(lease["shell_readiness"], "unverified")
         self.assertEqual(lease["harness_readiness"], "unverified")
         self.assertEqual(lease["caller_text_files"], [])
         self.assertEqual(lease["caller_text_files_removed"], [])
+        self.assertEqual(lease["remote_task_files"], [])
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertIn('"kind":"qualification.tab-created"', events)
         self.assertIn('"pane_id":"w2:p1"', events)
@@ -595,6 +878,155 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.details["unexpected_fields"],
             ["unexpected"],
+        )
+
+    def test_legacy_lease_requires_explicit_canonical_migration(self) -> None:
+        legacy = self.create_lease()
+        legacy.pop("shell_readiness")
+        legacy["harness_readiness"] = "status_verified"
+        legacy.pop("caller_text_files")
+        legacy.pop("caller_text_files_removed")
+        legacy.pop("remote_task_files")
+        validate_legacy_lease(legacy)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            validate_lease(legacy)
+        self.assertEqual(
+            caught.exception.code,
+            "legacy_lease_requires_migration",
+        )
+        migrated = migrate_legacy_lease(legacy)
+        validate_lease(migrated)
+        self.assertEqual(migrated["shell_readiness"], "status_verified")
+        self.assertEqual(migrated["harness_readiness"], "unverified")
+        self.assertEqual(migrated["caller_text_files"], [])
+        self.assertEqual(migrated["caller_text_files_removed"], [])
+        self.assertEqual(migrated["remote_task_files"], [])
+
+    def test_legacy_lease_file_migration_is_locked_and_idempotent(self) -> None:
+        legacy = self.create_lease()
+        legacy.pop("shell_readiness")
+        legacy["harness_readiness"] = "status_verified"
+        legacy.pop("remote_task_files")
+        self.persist_lease(legacy)
+        first = migrate_legacy_lease_file(
+            lease_payload=legacy,
+            lease_path=self.lease_path,
+        )
+        self.assertTrue(first["migrated"])
+        self.assertEqual(
+            first["changed_fields"],
+            ["harness_readiness", "remote_task_files", "shell_readiness"],
+        )
+        canonical = load_json(self.lease_path)
+        validate_lease(canonical)
+        second = migrate_legacy_lease_file(
+            lease_payload=canonical,
+            lease_path=self.lease_path,
+        )
+        self.assertFalse(second["migrated"])
+        self.assertEqual(second["changed_fields"], [])
+
+    def test_readiness_evidence_is_accepted_only_for_operator_ready(self) -> None:
+        lease = self.create_lease()
+        lease["harness_readiness_evidence"] = "operator_observed_ready_input"
+        lease["harness_readiness_operator"] = "operator-a"
+        lease["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
+        with self.assertRaises(HerdrPuppetError) as unverified:
+            validate_lease(lease)
+        self.assertEqual(unverified.exception.code, "invalid_lease")
+
+        lease["harness_readiness"] = "operator_verified"
+        validate_lease(lease)
+        lease["harness_readiness_operator"] = "operator with spaces"
+        with self.assertRaises(HerdrPuppetError) as invalid_operator:
+            validate_lease(lease)
+        self.assertEqual(invalid_operator.exception.code, "invalid_lease")
+        lease["harness_readiness_operator"] = "operator-a"
+        lease["harness_readiness_verified_at"] = "not-a-date"
+        with self.assertRaises(HerdrPuppetError) as invalid_timestamp:
+            validate_lease(lease)
+        self.assertEqual(invalid_timestamp.exception.code, "invalid_lease")
+
+    def test_canonical_lease_runtime_rejects_normative_schema_mismatches(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+
+        def operator_ready(payload: dict[str, Any]) -> None:
+            payload["harness_readiness"] = "operator_verified"
+            payload["harness_readiness_evidence"] = (
+                "operator_observed_ready_input"
+            )
+            payload["harness_readiness_operator"] = "operator-a"
+            payload["harness_readiness_verified_at"] = (
+                "2026-07-26 00:00:00+00:00"
+            )
+
+        invalid_mutations = {
+            "boolean_next_seq": lambda payload: payload.__setitem__(
+                "next_seq", True
+            ),
+            "invalid_owned_label": lambda payload: payload.__setitem__(
+                "owned_label", "not-owned"
+            ),
+            "missing_session_socket": lambda payload: payload["session"].pop(
+                "socket"
+            ),
+            "extra_workspace_field": lambda payload: payload[
+                "workspace"
+            ].__setitem__("extra", True),
+            "boolean_ssh_pid": lambda payload: payload["ssh"].__setitem__(
+                "pid", True
+            ),
+            "short_ssh_argv": lambda payload: payload["ssh"].__setitem__(
+                "argv", ["ssh"]
+            ),
+            "missing_source_repo": lambda payload: payload["source"].pop(
+                "repo"
+            ),
+            "non_rfc3339_readiness_time": operator_ready,
+            "non_array_caller_files": lambda payload: payload.__setitem__(
+                "caller_text_files", None
+            ),
+            "non_array_remote_files": lambda payload: payload.__setitem__(
+                "remote_task_files", None
+            ),
+        }
+        for name, mutate in invalid_mutations.items():
+            with self.subTest(name=name):
+                malformed = copy.deepcopy(lease)
+                mutate(malformed)
+                with self.assertRaises(HerdrPuppetError):
+                    validate_lease(malformed)
+
+    def test_legacy_migration_never_writes_schema_invalid_nested_identity(
+        self,
+    ) -> None:
+        legacy = self.create_lease()
+        legacy.pop("shell_readiness")
+        legacy["harness_readiness"] = "status_verified"
+        legacy["session"].pop("socket")
+        self.persist_lease(legacy)
+        before = self.lease_path.read_bytes()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            migrate_legacy_lease_file(
+                lease_payload=legacy,
+                lease_path=self.lease_path,
+            )
+        self.assertEqual(caught.exception.code, "invalid_lease")
+        self.assertEqual(self.lease_path.read_bytes(), before)
+
+    def test_journal_refresh_rejects_legacy_lease_until_migrated(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        legacy = copy.deepcopy(lease)
+        legacy.pop("shell_readiness")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            refresh_state(run_root, legacy)
+        self.assertEqual(
+            caught.exception.code,
+            "legacy_lease_requires_migration",
         )
 
     def test_create_tab_requires_initialized_journal_before_mutation(self) -> None:
@@ -621,6 +1053,7 @@ class QualificationTests(unittest.TestCase):
         run_root = self.root / "wrong-run"
         wrong_plan = copy.deepcopy(self.plan)
         wrong_plan["run_id"] = "different-run"
+        wrong_plan["proof_root"] = str(run_root.resolve())
         initialize_journal(run_root, wrong_plan)
         with self.assertRaisesRegex(
             HerdrPuppetError,
@@ -747,6 +1180,106 @@ class QualificationTests(unittest.TestCase):
             [str(removed_prompt.resolve())],
         )
 
+    def test_remote_task_file_lifecycle_never_probes_local_path(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        remote_path = "/srv/agy/tasks/private-prompt.txt"
+        original_exists = Path.exists
+        original_is_file = Path.is_file
+
+        def guarded_exists(path: Path) -> bool:
+            if str(path) == remote_path:
+                raise AssertionError("remote path was probed locally")
+            return original_exists(path)
+
+        def guarded_is_file(path: Path) -> bool:
+            if str(path) == remote_path:
+                raise AssertionError("remote path was probed locally")
+            return original_is_file(path)
+
+        with (
+            mock.patch.object(Path, "exists", guarded_exists),
+            mock.patch.object(Path, "is_file", guarded_is_file),
+        ):
+            receipt = register_remote_task_file(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                remote_path=remote_path,
+                source_repo=lease["source"]["repo"],
+                source_worktree=lease["source"]["worktree"],
+                confirm_caller_owned=True,
+                run_root=run_root,
+            )
+        serialized_receipt = json.dumps(receipt)
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn(remote_path, serialized_receipt)
+        self.assertNotIn(remote_path, events)
+        self.assertFalse(receipt["path_hashed"])
+        registered = load_json(self.lease_path)
+        self.assertEqual(
+            registered["remote_task_files"][0]["path"],
+            remote_path,
+        )
+        self.assertEqual(
+            registered["remote_task_files"][0]["state"],
+            "registered",
+        )
+
+        maintenance = maintenance_checkpoint(
+            self.client,
+            lease_payload=registered,
+            lease_path=self.lease_path,
+            run_root=run_root,
+            remote_removed_path=remote_path,
+            remote_removal_evidence="operator_verified_remote_absence",
+            confirm_remote_removed=True,
+        )
+        self.assertEqual(
+            maintenance["remote_task_files"][0]["path"],
+            remote_path,
+        )
+        self.assertEqual(
+            maintenance["remote_task_files"][0]["state"],
+            "removal_verified",
+        )
+        self.assertFalse(maintenance["remote_removal_verification_required"])
+
+    def test_cleanup_requires_remote_removal_evidence(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        register_remote_task_file(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            remote_path="/srv/agy/tasks/still-present.txt",
+            source_repo=lease["source"]["repo"],
+            source_worktree=lease["source"]["worktree"],
+            confirm_caller_owned=True,
+            run_root=run_root,
+        )
+        current = load_json(self.lease_path)
+        preserve_lease(
+            lease_payload=current,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+            run_root=run_root,
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id=lease["tab_id"],
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "remote_task_file_removal_unverified",
+        )
+        self.assertEqual(self.client.closed_tabs, [])
+
     def test_maintenance_checkpoint_ignores_same_label_decoys(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"
@@ -819,6 +1352,7 @@ class QualificationTests(unittest.TestCase):
     def test_maintenance_checkpoint_retains_live_preserved_lease(self) -> None:
         lease = self.create_lease()
         lease["state"] = "preserved"
+        self.persist_lease(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         tabs_before = copy.deepcopy(self.client.tab_rows)
@@ -1018,6 +1552,401 @@ class QualificationTests(unittest.TestCase):
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertNotIn("cleanup_state", updated)
 
+    def test_run_hashes_command_and_advances_sequence_after_cli_success(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command="private shell command",
+            allow_live=True,
+            run_root=run_root,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(result["next_seq"], 2)
+        self.assertEqual(updated["next_seq"], 2)
+        self.assertEqual(
+            result["command_sha256"],
+            sha256_text("private shell command"),
+        )
+        self.assertTrue(result["herdr_cli_acknowledged"])
+        self.assertEqual(result["submission_mode"], "atomic_shell_command")
+        self.assertEqual(result["execution_acceptance"], "unverified")
+        self.assertFalse(result["readiness_advanced"])
+        self.assertEqual(result["harness_readiness"], "unverified")
+        self.assertFalse(result["transcript_read"])
+        self.assertNotIn("private shell command", json.dumps(result))
+        self.assertNotIn("private shell command", events)
+        self.assertIn('"kind":"qualification.run"', events)
+        self.assertIn('"command_sha256"', events)
+        self.assertIn('"transcript_read":false', events)
+        self.assertEqual(
+            self.client.ran,
+            [("run", "w2:p1", "private shell command")],
+        )
+        self.assertEqual(self.client.sent, [])
+
+    def test_run_failure_does_not_advance_sequence_or_leak_command(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        command_path = self.root / "failing-command.txt"
+        command_path.write_text("private failing command", encoding="utf-8")
+
+        def reject_run(*args: Any, **kwargs: Any) -> str:
+            raise HerdrPuppetError(
+                "herdr_command_failed",
+                "Herdr rejected the requested operation.",
+                details={
+                    "command": [
+                        "--session",
+                        "operator-session",
+                        "pane",
+                        "run",
+                        "w2:p1",
+                        "<redacted-command>",
+                    ],
+                    "returncode": 1,
+                },
+            )
+
+        self.client.run_command = reject_run  # type: ignore[method-assign]
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                command="private failing command",
+                text_file=str(command_path),
+                allow_live=True,
+                run_root=run_root,
+            )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(updated["next_seq"], 1)
+        self.assertEqual(updated["caller_text_files"], [])
+        self.assertNotIn(
+            "private failing command",
+            json.dumps(caught.exception.as_json()),
+        )
+        self.assertNotIn("private failing command", events)
+        self.assertNotIn('"kind":"qualification.run"', events)
+
+    def test_run_tracks_retained_caller_command_file(self) -> None:
+        command_path = self.root / "command.txt"
+        command_path.write_text("private command", encoding="utf-8")
+        lease = self.create_lease()
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command="private command",
+            text_file=str(command_path),
+            allow_live=True,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        normalized_command_path = str(command_path.resolve())
+        self.assertEqual(updated["caller_text_files"], [normalized_command_path])
+        self.assertTrue(result["caller_text_file_retained"])
+        self.assertTrue(result["command_file_tracked"])
+        self.assertFalse(result["controller_command_persisted"])
+        self.assertEqual(result["caller_input_file_lifecycle"], "caller_owned")
+        self.assertNotIn(normalized_command_path, json.dumps(result))
+        self.assertNotIn("private command", json.dumps(result))
+
+    def test_run_does_not_retain_missing_caller_command_file(self) -> None:
+        missing_command_path = self.root / "missing-command.txt"
+        lease = self.create_lease()
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command="private command",
+            text_file=str(missing_command_path),
+            allow_live=True,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(updated["caller_text_files"], [])
+        self.assertFalse(result["caller_text_file_retained"])
+        self.assertTrue(result["command_file_tracked"])
+        self.assertNotIn(str(missing_command_path.resolve()), json.dumps(result))
+
+    def test_run_rejects_live_sequence_and_structural_gate_failures(self) -> None:
+        lease = self.create_lease()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                command="do not run",
+                allow_live=False,
+            )
+        self.assertEqual(caught.exception.code, "live_qualification_not_authorized")
+
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                command="do not run",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "send_sequence_mismatch")
+
+        self.client.pane_rows[0]["terminal_id"] = "replacement"
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                command="do not run",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "prerun_status_blocked")
+        self.assertEqual(self.client.ran, [])
+        self.assertEqual(
+            json.loads(self.lease_path.read_text(encoding="utf-8"))["next_seq"],
+            1,
+        )
+
+    def test_run_preserves_followon_shell_readiness_gate(self) -> None:
+        lease = self.create_lease()
+        lease["next_seq"] = 2
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                command="next command",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "shell_readiness_not_proven")
+        self.assertEqual(self.client.ran, [])
+
+        lease["shell_readiness"] = "status_verified"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            command="next command",
+            allow_live=True,
+        )
+        self.assertEqual(result["next_seq"], 3)
+        self.assertEqual(result["shell_readiness"], "status_verified")
+
+    def test_status_beacon_unlocks_followon_run_in_shared_sequence(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        first = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command="shell status preflight",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(first["next_seq"], 2)
+        self.client.read_payload = "HERDR_PUPPET_STATUS SHELL-READY-1"
+        beacon = qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="SHELL-READY-1",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(beacon["shell_readiness"], "status_verified")
+        self.assertEqual(beacon["harness_readiness"], "unverified")
+        second = qualification_run(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            seq=2,
+            command="agy launcher --print-timeout 420s",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(second["next_seq"], 3)
+        self.assertEqual(
+            self.client.ran,
+            [
+                ("run", "w2:p1", "shell status preflight"),
+                ("run", "w2:p1", "agy launcher --print-timeout 420s"),
+            ],
+        )
+
+    def test_cross_process_same_sequence_mutates_herdr_at_most_once(self) -> None:
+        self.create_lease()
+        marker_path = self.root / "run-marker.txt"
+        marker_path.touch()
+        context = multiprocessing.get_context("fork")
+        start_event = context.Event()
+        result_queue = context.Queue()
+        processes = [
+            context.Process(
+                target=multiprocessing_same_seq_run,
+                args=(
+                    str(self.lease_path),
+                    str(marker_path),
+                    start_event,
+                    result_queue,
+                ),
+            )
+            for _ in range(2)
+        ]
+        for process in processes:
+            process.start()
+        start_event.set()
+        for process in processes:
+            process.join(5)
+            self.assertEqual(process.exitcode, 0)
+        results = sorted(result_queue.get(timeout=1) for _ in processes)
+        self.assertEqual(results, ["ok", "send_sequence_mismatch"])
+        self.assertEqual(
+            marker_path.read_text(encoding="utf-8").splitlines(),
+            ["w2:p1"],
+        )
+        self.assertEqual(load_json(self.lease_path)["next_seq"], 2)
+
+    def test_run_and_preserve_serialize_without_lost_sequence(self) -> None:
+        lease = self.create_lease()
+        run_entered = threading.Event()
+        release_run = threading.Event()
+        preserve_done = threading.Event()
+        errors: list[str] = []
+
+        def blocked_run(*args: Any, **kwargs: Any) -> str:
+            run_entered.set()
+            release_run.wait(2)
+            return ""
+
+        self.client.run_command = blocked_run  # type: ignore[method-assign]
+
+        def run_submission() -> None:
+            try:
+                qualification_run(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    seq=1,
+                    command="bounded",
+                    allow_live=True,
+                )
+            except HerdrPuppetError as exc:
+                errors.append(exc.code)
+
+        def preserve() -> None:
+            try:
+                preserve_lease(
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    reason="operator_stop",
+                )
+            except HerdrPuppetError as exc:
+                errors.append(exc.code)
+            finally:
+                preserve_done.set()
+
+        run_thread = threading.Thread(target=run_submission)
+        preserve_thread = threading.Thread(target=preserve)
+        run_thread.start()
+        self.assertTrue(run_entered.wait(1))
+        preserve_thread.start()
+        self.assertFalse(preserve_done.wait(0.05))
+        release_run.set()
+        run_thread.join(2)
+        preserve_thread.join(2)
+        self.assertEqual(errors, [])
+        updated = load_json(self.lease_path)
+        self.assertEqual(updated["next_seq"], 2)
+        self.assertEqual(updated["state"], "preserved")
+
+    def test_shell_status_does_not_authorize_first_pane_input(self) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        self.persist_lease(lease)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                text="must not send",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "harness_readiness_not_proven")
+        self.assertEqual(self.client.sent, [])
+
+    def test_harness_readiness_binds_operator_and_exact_source(self) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        self.persist_lease(lease)
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_harness_ready(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                source_repo="wrong/repo",
+                source_worktree=lease["source"]["worktree"],
+                operator_id="operator-a",
+                evidence="operator_observed_ready_input",
+                confirm_ready=True,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "harness_readiness_source_mismatch",
+        )
+        result = qualification_harness_ready(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            source_repo=lease["source"]["repo"],
+            source_worktree=lease["source"]["worktree"],
+            operator_id="operator-a",
+            evidence="operator_observed_ready_input",
+            confirm_ready=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(result["harness_readiness"], "operator_verified")
+        updated = load_json(self.lease_path)
+        self.assertEqual(
+            updated["harness_readiness_operator"],
+            "operator-a",
+        )
+        sent = qualification_send(
+            self.client,
+            lease_payload=updated,
+            lease_path=self.lease_path,
+            seq=1,
+            text="bounded prompt",
+            allow_live=True,
+        )
+        self.assertEqual(sent["next_seq"], 2)
+
     def test_send_rejects_replay_before_mutation(self) -> None:
         lease = self.create_lease()
         with self.assertRaisesRegex(HerdrPuppetError, "stale, skipped"):
@@ -1037,7 +1966,7 @@ class QualificationTests(unittest.TestCase):
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         with self.assertRaisesRegex(
             HerdrPuppetError,
-            "status-verified harness readiness",
+            "source/operator-bound harness readiness",
         ):
             qualification_send(
                 self.client,
@@ -1051,8 +1980,7 @@ class QualificationTests(unittest.TestCase):
     def test_send_allows_followup_prompt_after_status_beacon(self) -> None:
         lease = self.create_lease()
         lease["next_seq"] = 2
-        lease["harness_readiness"] = "status_verified"
-        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        lease = self.mark_harness_ready(lease)
         result = qualification_send(
             self.client,
             lease_payload=lease,
@@ -1062,10 +1990,11 @@ class QualificationTests(unittest.TestCase):
             allow_live=True,
         )
         self.assertEqual(result["next_seq"], 3)
-        self.assertEqual(result["harness_readiness"], "status_verified")
+        self.assertEqual(result["harness_readiness"], "operator_verified")
 
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
         lease = self.create_lease()
+        lease = self.mark_harness_ready(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         result = qualification_send(
@@ -1083,8 +2012,8 @@ class QualificationTests(unittest.TestCase):
         self.assertTrue(result["transport_acknowledged"])
         self.assertEqual(result["acceptance_scope"], "herdr_pane_input_only")
         self.assertEqual(result["outcome"], "pane_input_accepted")
-        self.assertEqual(result["harness_readiness"], "unverified")
-        self.assertEqual(result["harness_acceptance"], "unverified")
+        self.assertEqual(result["harness_readiness"], "operator_verified")
+        self.assertEqual(result["harness_acceptance"], "operator_verified")
         self.assertEqual(updated["next_seq"], 2)
         self.assertNotIn("bounded prompt", json.dumps(result))
         self.assertNotIn("bounded prompt", events)
@@ -1098,6 +2027,7 @@ class QualificationTests(unittest.TestCase):
             prompt_path = Path(directory) / "prompt.txt"
             prompt_path.write_text("from file", encoding="utf-8")
             lease = self.create_lease()
+            lease = self.mark_harness_ready(lease)
             run_root = self.root / "run"
             initialize_journal(run_root, self.plan)
             result = qualification_send(
@@ -1121,6 +2051,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_send_does_not_track_missing_prompt_file(self) -> None:
         lease = self.create_lease()
+        lease = self.mark_harness_ready(lease)
         missing_prompt = self.root / "missing.txt"
         if missing_prompt.exists():
             missing_prompt.unlink()
@@ -1160,6 +2091,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_partial_send_reconciliation_advances_without_herdr_mutation(self) -> None:
         lease = self.create_lease()
+        lease = self.mark_harness_ready(lease)
         result = qualification_reconcile_send(
             self.client,
             lease_payload=lease,
@@ -1173,10 +2105,22 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(result["herdr_mutated"])
         self.assertEqual(self.client.sent, [])
 
-    def test_preserved_lease_rejects_send_reconciliation_and_probe(self) -> None:
+    def test_preserved_lease_rejects_run_send_reconciliation_and_waits(
+        self,
+    ) -> None:
         lease = self.create_lease()
         lease["state"] = "preserved"
+        self.persist_lease(lease)
+        initialize_journal(self.root / "run", self.plan)
         for operation in (
+            lambda: qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                command="do not run",
+                allow_live=True,
+            ),
             lambda: qualification_send(
                 self.client,
                 lease_payload=lease,
@@ -1197,6 +2141,7 @@ class QualificationTests(unittest.TestCase):
             lambda: qualification_token_probe(
                 self.client,
                 lease_payload=lease,
+                lease_path=self.lease_path,
                 nonce="DO-NOT-PROBE",
                 allow_live=True,
             ),
@@ -1206,7 +2151,7 @@ class QualificationTests(unittest.TestCase):
                 lease_path=self.lease_path,
                 nonce="DO-NOT-WAIT",
                 allow_live=True,
-                run_root=self.root / "unused",
+                run_root=self.root / "run",
             ),
         ):
             with self.assertRaisesRegex(HerdrPuppetError, "not active"):
@@ -1260,6 +2205,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         self.client.read_payload = (
             "unrelated private-looking output\n"
             "HERDR_PUPPET_ACTION_REQUIRED CHECKPOINT-42"
@@ -1290,6 +2236,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         self.client.read_payload = (
             "HERDR_PUPPET_DONE CHECKPOINT-42 trailing transcript content"
         )
@@ -1315,6 +2262,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         self.client.read_payload = "HERDR_PUPPET_DONE CHECKPOINT-99"
         result = qualification_beacon_wait(
             self.client,
@@ -1336,6 +2284,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         self.client.read_payload = "HERDR_PUPPET_STATUS CHECKPOINT-88"
         result = qualification_beacon_wait(
             self.client,
@@ -1352,13 +2301,16 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(result["auto_preserved"])
         self.assertEqual(result["lease_state"], "active")
         self.assertEqual(updated["state"], "active")
-        self.assertEqual(result["harness_readiness"], "status_verified")
-        self.assertEqual(updated["harness_readiness"], "status_verified")
+        self.assertEqual(result["shell_readiness"], "status_verified")
+        self.assertEqual(updated["shell_readiness"], "status_verified")
+        self.assertEqual(result["harness_readiness"], "unverified")
+        self.assertEqual(updated["harness_readiness"], "unverified")
 
     def test_beacon_wait_rejects_terminal_nonce_replay_before_wait(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         nonce = "CHECKPOINT-77"
         append_event(
             run_root,
@@ -1366,6 +2318,7 @@ class QualificationTests(unittest.TestCase):
                 lease["run_id"],
                 "qualification.beacon",
                 "ok",
+                seq=1,
                 nonce_sha256=sha256_text(nonce),
                 data={"checkpoint": "DONE"},
             ),
@@ -1392,6 +2345,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         nonce = "CHECKPOINT-88"
         append_event(
             run_root,
@@ -1399,6 +2353,7 @@ class QualificationTests(unittest.TestCase):
                 lease["run_id"],
                 "qualification.beacon",
                 "observed",
+                seq=1,
                 nonce_sha256=sha256_text(nonce),
                 data={"checkpoint": "STATUS"},
             ),
@@ -1420,6 +2375,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
 
         def race_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
             changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
@@ -1447,7 +2403,7 @@ class QualificationTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "lease_changed_during_wait")
         changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
-        self.assertEqual(changed["next_seq"], 2)
+        self.assertEqual(changed["next_seq"], 3)
         self.assertEqual(changed["state"], "active")
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertNotIn('"kind":"qualification.beacon"', events)
@@ -1456,10 +2412,11 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
 
         def race_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
             changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
-            changed["harness_readiness"] = "status_verified"
+            changed["shell_readiness"] = "status_verified"
             self.lease_path.write_text(
                 json.dumps(changed),
                 encoding="utf-8",
@@ -1489,6 +2446,7 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
         self.client.wait_output = (  # type: ignore[method-assign]
             lambda *args, **kwargs: {
                 "type": "output_timeout",
@@ -1511,6 +2469,412 @@ class QualificationTests(unittest.TestCase):
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(updated["state"], "active")
 
+    def test_beacon_rewait_is_nonce_and_submission_bound(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        nonce = "REWAIT-NONCE-1"
+        self.client.read_payload = "no strict checkpoint"
+        first = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(first["attempt"], 1)
+        self.assertEqual(first["result"], "not_matched")
+        self.client.read_payload = f"HERDR_PUPPET_STATUS {nonce}"
+        second = qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(second["attempt"], 2)
+        self.assertEqual(second["checkpoint"], "STATUS")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                nonce=nonce,
+                allow_live=True,
+                timeout_ms=1,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "terminal_beacon_nonce_reused")
+
+    def test_beacon_rewait_rejects_third_not_matched_attempt(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        self.client.read_payload = "no strict checkpoint"
+        for expected_attempt in (1, 2):
+            result = qualification_beacon_wait(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                nonce="REWAIT-NONCE-2",
+                allow_live=True,
+                timeout_ms=1,
+                run_root=run_root,
+            )
+            self.assertEqual(result["attempt"], expected_attempt)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                nonce="REWAIT-NONCE-2",
+                allow_live=True,
+                timeout_ms=1,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "beacon_rewait_limit")
+
+    def test_beacon_attempts_are_reserved_before_concurrent_waits(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        release_waits = threading.Event()
+        two_waits_entered = threading.Event()
+        calls_lock = threading.Lock()
+        wait_calls = 0
+        results: list[tuple[str, int | str]] = []
+
+        def blocked_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal wait_calls
+            with calls_lock:
+                wait_calls += 1
+                if wait_calls == 2:
+                    two_waits_entered.set()
+            release_waits.wait(2)
+            return {
+                "type": "output_timeout",
+                "timeout_source": "controller",
+            }
+
+        self.client.wait_output = blocked_wait  # type: ignore[method-assign]
+
+        def invoke_wait() -> None:
+            try:
+                receipt = qualification_beacon_wait(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce="CONCURRENT-WAIT-1",
+                    allow_live=True,
+                    timeout_ms=1,
+                    run_root=run_root,
+                )
+            except HerdrPuppetError as exc:
+                results.append(("error", exc.code))
+            else:
+                results.append(("ok", receipt["attempt"]))
+
+        first_two = [threading.Thread(target=invoke_wait) for _ in range(2)]
+        for waiter in first_two:
+            waiter.start()
+        self.assertTrue(two_waits_entered.wait(1))
+        third = threading.Thread(target=invoke_wait)
+        third.start()
+        third.join(1)
+        self.assertFalse(third.is_alive())
+        self.assertIn(("error", "beacon_rewait_limit"), results)
+        self.assertEqual(wait_calls, 2)
+        release_waits.set()
+        for waiter in first_two:
+            waiter.join(2)
+        self.assertEqual(
+            sorted(item for item in results if item[0] == "ok"),
+            [("ok", 1), ("ok", 2)],
+        )
+        reservations = [
+            event
+            for event in read_events(run_root)
+            if event.get("kind") == "qualification.beacon-wait-reserved"
+        ]
+        self.assertEqual(len(reservations), 2)
+
+    def test_beacon_rejects_copied_alternate_journal_before_wait(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        alternate_root = self.root / "copied-run"
+        shutil.copytree(run_root, alternate_root)
+        copied_plan = load_json(alternate_root / "plan.json")
+        copied_plan["proof_root"] = str(alternate_root.resolve())
+        (alternate_root / "plan.json").write_text(
+            json.dumps(copied_plan),
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce="SPLIT-JOURNAL-WAIT",
+                    allow_live=True,
+                    timeout_ms=1,
+                    run_root=alternate_root,
+                )
+        self.assertEqual(caught.exception.code, "journal_root_mismatch")
+        wait_output.assert_not_called()
+
+    def test_beacon_rewait_rejects_cross_submission_nonce_reuse(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        self.client.read_payload = "no strict checkpoint"
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="REWAIT-NONCE-3",
+            allow_live=True,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        advanced = load_json(self.lease_path)
+        advanced["shell_readiness"] = "status_verified"
+        self.persist_lease(advanced)
+        qualification_run(
+            self.client,
+            lease_payload=advanced,
+            lease_path=self.lease_path,
+            seq=2,
+            command="next submission",
+            allow_live=True,
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                nonce="REWAIT-NONCE-3",
+                allow_live=True,
+                timeout_ms=1,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "beacon_nonce_submission_mismatch",
+        )
+
+    def test_beacon_wait_does_not_hold_lease_lock_or_overwrite_preserve(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        wait_entered = threading.Event()
+        release_wait = threading.Event()
+        errors: list[str] = []
+
+        def blocked_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            wait_entered.set()
+            release_wait.wait(2)
+            return {
+                "type": "output_matched",
+                "revision": 10,
+                "matched_line": "HERDR_PUPPET_STATUS LOCK-FREE-WAIT",
+            }
+
+        self.client.wait_output = blocked_wait  # type: ignore[method-assign]
+
+        def wait_for_beacon() -> None:
+            try:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce="LOCK-FREE-WAIT",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+            except HerdrPuppetError as exc:
+                errors.append(exc.code)
+
+        waiter = threading.Thread(target=wait_for_beacon)
+        waiter.start()
+        self.assertTrue(wait_entered.wait(1))
+        preserved = preserve_lease(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+            run_root=run_root,
+        )
+        self.assertEqual(preserved["state"], "preserved")
+        release_wait.set()
+        waiter.join(2)
+        self.assertEqual(errors, ["lease_changed_during_wait"])
+        updated = load_json(self.lease_path)
+        self.assertEqual(updated["state"], "preserved")
+        self.assertEqual(updated["shell_readiness"], "unverified")
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn('"kind":"qualification.beacon"', events)
+
+    def test_beacon_wait_does_not_overwrite_harness_readiness(self) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        self.persist_lease(lease)
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        wait_entered = threading.Event()
+        release_wait = threading.Event()
+        errors: list[str] = []
+
+        def blocked_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            wait_entered.set()
+            release_wait.wait(2)
+            return {
+                "type": "output_matched",
+                "revision": 11,
+                "matched_line": "HERDR_PUPPET_STATUS READY-RACE-1",
+            }
+
+        self.client.wait_output = blocked_wait  # type: ignore[method-assign]
+
+        def wait_for_beacon() -> None:
+            try:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce="READY-RACE-1",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+            except HerdrPuppetError as exc:
+                errors.append(exc.code)
+
+        waiter = threading.Thread(target=wait_for_beacon)
+        waiter.start()
+        self.assertTrue(wait_entered.wait(1))
+        qualification_harness_ready(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            source_repo=lease["source"]["repo"],
+            source_worktree=lease["source"]["worktree"],
+            operator_id="operator-race",
+            evidence="operator_observed_ready_input",
+            confirm_ready=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        release_wait.set()
+        waiter.join(2)
+        self.assertEqual(errors, ["lease_changed_during_wait"])
+        updated = load_json(self.lease_path)
+        self.assertEqual(updated["harness_readiness"], "operator_verified")
+        self.assertEqual(
+            updated["harness_readiness_operator"],
+            "operator-race",
+        )
+
+    def test_token_probe_rejects_stale_active_payload_after_preserve(self) -> None:
+        lease = self.create_lease()
+        stale_active = copy.deepcopy(lease)
+        preserve_lease(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+        )
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_token_probe(
+                    self.client,
+                    lease_payload=stale_active,
+                    lease_path=self.lease_path,
+                    nonce="TOKEN-STALE-ACTIVE",
+                    allow_live=True,
+                )
+        self.assertEqual(caught.exception.code, "stale_lease_payload")
+        wait_output.assert_not_called()
+
+    def test_token_probe_rejects_stale_preserved_caller_payload(self) -> None:
+        lease = self.create_lease()
+        stale_preserved = copy.deepcopy(lease)
+        stale_preserved["state"] = "preserved"
+        stale_preserved["preserved_reason"] = "operator_stop"
+        stale_preserved["preserved_at"] = "2026-07-26T00:00:00Z"
+        validate_lease(stale_preserved)
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_token_probe(
+                    self.client,
+                    lease_payload=stale_preserved,
+                    lease_path=self.lease_path,
+                    nonce="TOKEN-STALE-PRESERVED",
+                    allow_live=True,
+                )
+        self.assertEqual(caught.exception.code, "stale_lease_payload")
+        wait_output.assert_not_called()
+
+    def test_token_probe_rejects_lease_change_during_wait_before_journal(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+
+        def preserve_during_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            preserve_lease(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                reason="operator_stop",
+            )
+            return {
+                "type": "output_timeout",
+                "timeout_source": "native",
+            }
+
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            side_effect=preserve_during_wait,
+        ):
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_token_probe(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce="TOKEN-LEASE-RACE",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "lease_changed_during_probe")
+        self.assertEqual(load_json(self.lease_path)["state"], "preserved")
+        self.assertNotIn(
+            "qualification.token-probe",
+            [event["kind"] for event in read_events(run_root)],
+        )
+
     def test_token_probe_never_emits_pane_text(self) -> None:
         lease = self.create_lease()
         self.client.read_payload = {
@@ -1521,6 +2885,7 @@ class QualificationTests(unittest.TestCase):
         result = qualification_token_probe(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             nonce="TOKEN-12345",
             allow_live=True,
             lines=20,
@@ -1537,6 +2902,7 @@ class QualificationTests(unittest.TestCase):
         result = qualification_token_probe(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             nonce="TOKEN-RAW",
             allow_live=True,
             lines=20,
@@ -1551,6 +2917,7 @@ class QualificationTests(unittest.TestCase):
             qualification_token_probe(
                 self.client,
                 lease_payload=lease,
+                lease_path=self.lease_path,
                 nonce="TOKEN",
                 allow_live=True,
                 lines=81,
@@ -1558,6 +2925,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_journal_summary_and_state_are_transcript_blind(self) -> None:
         lease = self.create_lease()
+        lease = self.mark_harness_ready(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         qualification_send(
@@ -1588,15 +2956,23 @@ class ContractDocTests(unittest.TestCase):
             ROOT / "skills" / "herdr-puppet" / "SKILL.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "agy --prompt @/exact/task-owned-prompt-file --print-timeout <bounded>",
+            "agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s",
             text,
         )
-        self.assertIn("should carry only a short launcher command", text)
+        self.assertIn("qualification-run", text)
+        self.assertIn("qualification-beacon-wait", text)
+        self.assertIn("--lines 80", text)
+        self.assertIn("Use `qualification-send` only for ordinary interactive", text)
         self.assertIn("terminal evidence proves the process consumed it", text)
+        self.assertIn("Keep the controller plan file outside the intended run root", text)
 
     def test_qualification_contract_keeps_prompt_mode_narrow(self) -> None:
         text = (
-            ROOT / "skills" / "herdr-puppet" / "references" / "qualification-contract.md"
+            ROOT
+            / "skills"
+            / "herdr-puppet"
+            / "references"
+            / "qualification-contract.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "For AGY 1.1.7 noninteractive `--print`, launch task prompts through a",
@@ -1606,7 +2982,16 @@ class ContractDocTests(unittest.TestCase):
             "Do not use positional/argv prompt",
             text,
         )
-        self.assertIn("Send only the short launcher command", text)
+        self.assertIn(
+            "Submit only the short launcher command through `qualification-run`",
+            text,
+        )
+        self.assertIn("execution_acceptance: unverified", text)
+        self.assertIn(
+            "Ordinary interactive harness prompts remain on `qualification-send`",
+            text,
+        )
+        self.assertIn("`journal-init` owns creating", text)
 
 
 if __name__ == "__main__":

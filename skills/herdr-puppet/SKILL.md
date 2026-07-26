@@ -35,53 +35,64 @@ hand-composed Herdr mutations when the script owns the operation.
 4. Initialize a controller journal before any live tab mutation. Record
    structural events, prompt hashes, sequence numbers, checkpoint results,
    failures, and concise observations; never copy pane output into the
-   journal. `qualification-create-tab` preflights the matching initialized
-   journal and refuses to create a tab or lease when it is absent or belongs
-   to another run.
+   journal. The plan's exact `proof_root` is the one allowed journal
+   `run_root`; initialization and every later journal use reject any alternate
+   or copied root. `qualification-create-tab` preflights that matching
+   initialized journal and refuses to create a tab or lease when it is absent
+   or belongs to another run.
 5. Run structural `status --plan-json` before tab creation. Once a lease
    exists, stop rechecking the now-consumed plan: its owned label is expected
    to exist and plan status must reject it. Use `status --lease-json` or
    `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
+   Current operations accept only the canonical lease-v1 shape. If a historical
+   lease lacks the additive readiness/file fields or carries the former
+   `harness_readiness: status_verified` value, run the explicit
+   `lease-migrate-v1` adapter before status, journal refresh, probe,
+   preservation, or cleanup.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. Never adopt an existing tab or process.
-7. Start the harness, then prove its input surface is ready before sending the
-   real task. Accept the operator's explicit observation of the exact leased
-   tab's ready input surface, a bounded harness-specific token that can appear
-   only after input readiness, or a unique task-owned readiness artifact
-   written by a harmless no-target preflight and bound to the run nonce and
-   source identity. A product name, banner, startup text, fixed delay, process
-   liveness, and successful Herdr input acknowledgement do not prove harness
-   readiness or prompt submission. If an artifact preflight is used, absence
-   is not permission to resend it; reconcile or supersede the run.
-8. Send ordinary AGY steering as a plain message with no slash-command prefix.
+7. Use `qualification-run` for shell commands, including the harmless shell
+   STATUS preflight and an AGY noninteractive launcher. Supply the command
+   through `--stdin` or a bounded UTF-8 `--text-file`; never place it in the
+   controller's arguments. The adapter invokes Herdr 0.7.3 `pane run` once and
+   records only the command hash. Its acknowledgement proves only that the
+   Herdr CLI returned success. It does not prove shell execution, harness
+   readiness, prompt acceptance, MCP readiness, task start, or task completion.
+8. Follow the qualification order exactly: atomic shell STATUS preflight,
+   strict STATUS beacon wait with `--lines 80 --timeout-ms 480000`, atomic AGY
+   launcher, then the terminal beacon wait with
+   `--lines 80 --timeout-ms 480000`. Give the controller process a larger
+   `--timeout-seconds 510` envelope. The matching STATUS checkpoint advances
+   shell readiness only and is the follow-on `qualification-run` gate; a
+   successful API acknowledgement is not.
+   For AGY noninteractive `--print` runs (notably 1.1.7), put the actual task in
+   a separate private file on the leased remote SSH target, register its exact
+   remote path before launch, and reference only that path from the launcher:
+   `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`.
+   The duration requires a Go unit such as `s`. Do not feed the AGY task
+   through positional argv or AGY stdin. Retain that task file until
+   source-bound or terminal evidence proves the process consumed it, then
+   remove only that exact file and record bounded remote-removal evidence in
+   the final maintenance checkpoint. The controller never tests a remote path
+   with its local filesystem.
+9. Use `qualification-send` only for ordinary interactive harness prompts
+   after `qualification-harness-ready` records explicit operator confirmation
+   against the exact leased source and ready input surface. Shell STATUS never
+   authorizes pane input, including sequence 1. Noninteractive AGY remains on
+   `qualification-run`.
+   Serialize sends and let the lease reject stale, skipped, duplicate, or
+   replayed sequences. Send ordinary AGY steering as a plain message with no
+   slash-command prefix.
    Never inject `/teamwork-preview` automatically. Use it only when the
    operator explicitly requests a separately bounded 4-20-helper fan-out; one
    AGY root remains the integration writer, and that experimental hierarchy
-   requires its own topology, accounting, timeout, and cleanup proof.
-   Preserve any operator-selected slash command verbatim; do not add, remove,
-   or replace a plugin prefix chosen for that turn.
-9. Drive only that leased pane through `qualification-send`. Serialize sends
-   and let the lease reject stale, skipped, duplicate, or replayed sequences.
-   Supply a non-empty prompt through `--stdin` or a bounded UTF-8 `--text-file`;
-   never place prompt content in process arguments. Treat
-   `herdr_input_outcome_unknown` as a hard stop: reconcile the same sequence
-   from independent structural evidence before any later send, and never retry
-   the prompt speculatively. When an orchestration bridge cannot reliably
-   half-close standard input, do not paste a long prompt into its canonical PTY.
-   Use a private task-owned `--text-file`, require the exact sequence
-   acknowledgement, and then remove only that local transport file.
-   For AGY noninteractive `--print` runs (notably 1.1.7),
-   `qualification-send` should carry only a short launcher command. Put the
-   actual AGY task in a separate private file and reference only its path:
-   `agy --prompt @/exact/task-owned-prompt-file --print-timeout <bounded>`.
-   Do not feed the AGY task through positional argv or AGY stdin in this mode.
-   Retain that separate AGY prompt file until source-bound readiness or
-   terminal evidence proves the process consumed it. The caller must then
-   remove only that exact file; maintenance records whether it remains.
-   Treat its success receipt as `herdr_pane_input_only`: it does not prove the
-   harness was ready, accepted the prompt, started work, loaded an extension,
-   or called a tool.
+   requires its own topology, accounting, timeout, and cleanup proof. Preserve
+   an operator-selected slash command verbatim. Supply prompts through
+   `--stdin` or a bounded UTF-8 `--text-file`, never controller argv. Treat
+   `herdr_input_outcome_unknown` as a hard stop and never retry speculatively.
+   A send receipt remains scoped to `herdr_pane_input_only` and proves no
+   shell, harness, prompt, MCP, or task readiness.
 10. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
@@ -89,7 +100,11 @@ hand-composed Herdr mutations when the script owns the operation.
    `qualification-token-probe` only for lower-level transport diagnosis. A
     `not_matched` result proves only that the strict line was absent from the
     bounded window; it does not prove the worker, SSH process, harness, or tab
-    went offline and is not itself a human gate.
+    went offline and is not itself a human gate. The same submission nonce may
+    receive one bounded re-wait after its first `not_matched`; a matched nonce
+    is terminal and any third attempt or cross-sequence reuse is rejected.
+    Each attempt is durably reserved under the exact lease lock before Herdr
+    receives the wait request, so concurrent callers cannot exceed the cap.
     A separately validated terminal artifact may prove the task result and
     justify explicit `lease-preserve`, but it must not be rewritten as a
     matched `DONE` checkpoint.
@@ -101,15 +116,18 @@ hand-composed Herdr mutations when the script owns the operation.
     override it.
 11. Preserve the owned tab with `lease-preserve` at a superseded route,
     operator stop, or a terminal checkpoint reported outside the waiter.
-    Preservation changes only the controller lease and rejects further input;
-    it does not close the tab.
+    Preservation changes only the controller lease and rejects further
+    submissions; it does not close the tab.
 12. Run `maintenance-checkpoint` at every milestone boundary and before
     leaving the run. Inventory only
     exact run-owned resources already joined by the lease or named in
     structured harness events: tab, pane, terminal, foreground SSH PID,
-    task-owned prompt files, and explicitly recorded child processes. Classify
+    controller-local caller text files, registered remote task files, and
+    explicitly recorded child processes. Classify
     each as active, preserved, stale, or ambiguous. Require the caller to remove
-    only its acknowledged task-owned prompt file, then record its absence.
+    only its acknowledged task-owned prompt file. For a remote file, final
+    maintenance records the exact registered path and one bounded removal
+    evidence class; public receipts emit neither that path nor a path hash.
     Never close a pane or reap a process
     from its label, name, or age; journal repeat residue as a
     `maintenance_candidate` and route exact cleanup through a separately
@@ -138,6 +156,10 @@ post-close process-exit proof. Never infer either behavior from "puppet",
 
 Run from the skill directory:
 
+Keep the controller plan file outside the intended run root. `journal-init`
+creates that run root atomically and refuses any pre-existing directory,
+including one created early merely to hold `plan.json`.
+
 ```bash
 python3 scripts/herdr_puppet.py doctor \
   --session <session>
@@ -150,10 +172,13 @@ python3 scripts/herdr_puppet.py plan \
   --run-id <run-id> \
   --repo <owner/repo> \
   --worktree <path> \
-  --proof-root <path> \
+  --proof-root <run-root> \
   --live-mutation-authorized
 
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
+
+python3 scripts/herdr_puppet.py lease-migrate-v1 \
+  --lease-json <historical-lease.json>
 
 python3 scripts/herdr_puppet.py journal-init \
   --plan-json <plan.json> \
@@ -168,9 +193,29 @@ python3 scripts/herdr_puppet.py qualification-create-tab \
   --run-root <run-root> \
   --allow-live-qualification
 
+python3 scripts/herdr_puppet.py qualification-run \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --text-file <task-owned-command-file> \
+  --run-root <run-root> \
+  --allow-live-qualification
+
 python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --lease-json <lease.json> \
   --nonce <unique-checkpoint-nonce> \
+  --lines 80 \
+  --timeout-ms 480000 \
+  --timeout-seconds 510 \
+  --run-root <run-root> \
+  --allow-live-qualification
+
+python3 scripts/herdr_puppet.py qualification-harness-ready \
+  --lease-json <lease.json> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --operator-id <operator-id> \
+  --evidence operator_observed_ready_input \
+  --confirm-ready \
   --run-root <run-root> \
   --allow-live-qualification
 
@@ -181,13 +226,24 @@ python3 scripts/herdr_puppet.py qualification-send \
   --run-root <run-root> \
   --allow-live-qualification
 
+python3 scripts/herdr_puppet.py remote-task-file-register \
+  --lease-json <lease.json> \
+  --remote-path </exact/remote/task-file> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --confirm-caller-owned \
+  --run-root <run-root>
+
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <human_gate|route_superseded|milestone_complete|operator_stop>
 
 python3 scripts/herdr_puppet.py maintenance-checkpoint \
   --lease-json <lease.json> \
-  --run-root <run-root>
+  --run-root <run-root> \
+  --remote-task-file-removed </exact/remote/task-file> \
+  --remote-removal-evidence operator_verified_remote_absence \
+  --confirm-remote-removed
 
 python3 scripts/herdr_puppet.py cleanup-preserved-tab \
   --lease-json <lease.json> \
@@ -195,6 +251,40 @@ python3 scripts/herdr_puppet.py cleanup-preserved-tab \
   --confirm-tab-id <exact-tab-id> \
   --allow-live-cleanup
 ```
+
+For a bounded noninteractive AGY qualification, use this ordered recipe:
+
+```bash
+python3 scripts/herdr_puppet.py qualification-run \
+  --lease-json <lease.json> --seq 1 \
+  --text-file <shell-status-command-file> \
+  --run-root <run-root> --allow-live-qualification
+
+python3 scripts/herdr_puppet.py qualification-beacon-wait \
+  --lease-json <lease.json> --nonce <shell-status-nonce> --lines 80 \
+  --timeout-ms 480000 --timeout-seconds 510 \
+  --run-root <run-root> --allow-live-qualification
+
+python3 scripts/herdr_puppet.py remote-task-file-register \
+  --lease-json <lease.json> --remote-path </exact/remote/task-file> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --confirm-caller-owned --run-root <run-root>
+
+python3 scripts/herdr_puppet.py qualification-run \
+  --lease-json <lease.json> --seq 2 \
+  --text-file <agy-launcher-command-file> \
+  --run-root <run-root> --allow-live-qualification
+
+python3 scripts/herdr_puppet.py qualification-beacon-wait \
+  --lease-json <lease.json> --nonce <terminal-task-nonce> --lines 80 \
+  --timeout-ms 480000 --timeout-seconds 510 \
+  --run-root <run-root> --allow-live-qualification
+```
+
+The launcher command file references the separate task file and uses a
+unit-bearing timeout, for example
+`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`.
 
 Live qualification commands additionally require
 `--allow-live-qualification`. That flag confirms transport mutation only. It

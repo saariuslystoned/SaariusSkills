@@ -7,16 +7,22 @@ from pathlib import Path
 from typing import Any
 
 from .core import (
+    DEFAULT_BEACON_TIMEOUT_MS,
+    REMOTE_REMOVAL_EVIDENCE,
     cleanup_preserved_tab,
     create_qualification_tab,
     doctor,
     maintenance_checkpoint,
+    migrate_legacy_lease_file,
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_harness_ready,
     qualification_reconcile_send,
+    qualification_run,
     qualification_send,
     qualification_token_probe,
+    register_remote_task_file,
     structural_status,
 )
 from .errors import HerdrPuppetError
@@ -140,6 +146,9 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--lease-json")
     _common_live(status_parser)
 
+    migrate_lease = subparsers.add_parser("lease-migrate-v1")
+    migrate_lease.add_argument("--lease-json", required=True)
+
     journal_init = subparsers.add_parser("journal-init")
     journal_init.add_argument("--plan-json", required=True)
     journal_init.add_argument("--run-root", required=True)
@@ -168,6 +177,41 @@ def build_parser() -> argparse.ArgumentParser:
     create_tab.add_argument("--settle-seconds", type=float, default=10.0)
     create_tab.add_argument("--run-root", required=True)
     _common_live(create_tab)
+
+    run_command = subparsers.add_parser(
+        "qualification-run",
+        allow_abbrev=False,
+    )
+    run_command.add_argument("--lease-json", required=True)
+    run_command.add_argument("--seq", type=int, required=True)
+    run_source = run_command.add_mutually_exclusive_group(required=True)
+    run_source.add_argument("--text-file")
+    run_source.add_argument(
+        "--stdin",
+        action="store_true",
+        dest="prompt_stdin",
+    )
+    run_command.add_argument("--run-root")
+    run_command.add_argument("--allow-live-qualification", action="store_true")
+    _common_live(run_command)
+
+    harness_ready = subparsers.add_parser("qualification-harness-ready")
+    harness_ready.add_argument("--lease-json", required=True)
+    harness_ready.add_argument("--source-repo", required=True)
+    harness_ready.add_argument("--source-worktree", required=True)
+    harness_ready.add_argument("--operator-id", required=True)
+    harness_ready.add_argument(
+        "--evidence",
+        choices=["operator_observed_ready_input"],
+        required=True,
+    )
+    harness_ready.add_argument("--confirm-ready", action="store_true")
+    harness_ready.add_argument("--run-root", required=True)
+    harness_ready.add_argument(
+        "--allow-live-qualification",
+        action="store_true",
+    )
+    _common_live(harness_ready)
 
     send = subparsers.add_parser("qualification-send")
     send.add_argument("--lease-json", required=True)
@@ -207,14 +251,32 @@ def build_parser() -> argparse.ArgumentParser:
     beacon.add_argument("--lease-json", required=True)
     beacon.add_argument("--nonce", required=True)
     beacon.add_argument("--lines", type=int, default=40)
-    beacon.add_argument("--timeout-ms", type=int, default=300_000)
+    beacon.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=DEFAULT_BEACON_TIMEOUT_MS,
+    )
     beacon.add_argument("--run-root", required=True)
     beacon.add_argument("--allow-live-qualification", action="store_true")
-    _common_live(beacon, default_timeout_seconds=305.0)
+    _common_live(beacon, default_timeout_seconds=510.0)
+
+    remote_file = subparsers.add_parser("remote-task-file-register")
+    remote_file.add_argument("--lease-json", required=True)
+    remote_file.add_argument("--remote-path", required=True)
+    remote_file.add_argument("--source-repo", required=True)
+    remote_file.add_argument("--source-worktree", required=True)
+    remote_file.add_argument("--confirm-caller-owned", action="store_true")
+    remote_file.add_argument("--run-root", required=True)
 
     maintenance = subparsers.add_parser("maintenance-checkpoint")
     maintenance.add_argument("--lease-json", required=True)
     maintenance.add_argument("--run-root", required=True)
+    maintenance.add_argument("--remote-task-file-removed")
+    maintenance.add_argument(
+        "--remote-removal-evidence",
+        choices=sorted(REMOTE_REMOVAL_EVIDENCE),
+    )
+    maintenance.add_argument("--confirm-remote-removed", action="store_true")
     _common_live(maintenance)
 
     cleanup = subparsers.add_parser("cleanup-preserved-tab")
@@ -279,6 +341,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             plan_payload=load_json(args.plan_json) if args.plan_json else None,
             lease_payload=load_json(args.lease_json) if args.lease_json else None,
         )
+    if args.command == "lease-migrate-v1":
+        return migrate_legacy_lease_file(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+        )
     if args.command == "journal-init":
         return initialize_journal(Path(args.run_root), load_json(args.plan_json))
     if args.command == "journal-append":
@@ -316,6 +383,34 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             settle_seconds=args.settle_seconds,
             run_root=Path(args.run_root) if args.run_root else None,
         )
+    if args.command == "qualification-run":
+        command = _read_prompt(
+            text_file=args.text_file,
+            prompt_stdin=args.prompt_stdin,
+        )
+        return qualification_run(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            seq=args.seq,
+            command=command,
+            text_file=args.text_file,
+            run_root=Path(args.run_root) if args.run_root else None,
+            allow_live=args.allow_live_qualification,
+        )
+    if args.command == "qualification-harness-ready":
+        return qualification_harness_ready(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            source_repo=args.source_repo,
+            source_worktree=args.source_worktree,
+            operator_id=args.operator_id,
+            evidence=args.evidence,
+            confirm_ready=args.confirm_ready,
+            allow_live=args.allow_live_qualification,
+            run_root=Path(args.run_root),
+        )
     if args.command == "qualification-send":
         text = _read_prompt(
             text_file=args.text_file,
@@ -350,6 +445,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return qualification_token_probe(
             _client(args),
             lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
             nonce=args.nonce,
             lines=args.lines,
             timeout_ms=args.timeout_ms,
@@ -367,12 +463,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
         )
+    if args.command == "remote-task-file-register":
+        return register_remote_task_file(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            remote_path=args.remote_path,
+            source_repo=args.source_repo,
+            source_worktree=args.source_worktree,
+            confirm_caller_owned=args.confirm_caller_owned,
+            run_root=Path(args.run_root),
+        )
     if args.command == "maintenance-checkpoint":
         return maintenance_checkpoint(
             _client(args),
             lease_payload=load_json(args.lease_json),
             lease_path=Path(args.lease_json),
             run_root=Path(args.run_root),
+            remote_removed_path=args.remote_task_file_removed,
+            remote_removal_evidence=args.remote_removal_evidence,
+            confirm_remote_removed=args.confirm_remote_removed,
         )
     if args.command == "cleanup-preserved-tab":
         return cleanup_preserved_tab(

@@ -16,8 +16,13 @@
     "terminal_id",
     "ssh",
     "next_seq",
+    "shell_readiness",
+    "harness_readiness",
     "source",
-    "proof_root"
+    "proof_root",
+    "caller_text_files",
+    "caller_text_files_removed",
+    "remote_task_files"
   ],
   "properties": {
     "schema": {"const": "herdr-puppet.lease.v1"},
@@ -53,9 +58,20 @@
       "additionalProperties": false
     },
     "next_seq": {"type": "integer", "minimum": 1},
-    "harness_readiness": {
+    "shell_readiness": {
       "enum": ["unverified", "status_verified"]
     },
+    "harness_readiness": {
+      "enum": ["unverified", "operator_verified"]
+    },
+    "harness_readiness_evidence": {
+      "const": "operator_observed_ready_input"
+    },
+    "harness_readiness_operator": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@:-]{1,128}$"
+    },
+    "harness_readiness_verified_at": {"type": "string", "format": "date-time"},
     "source": {
       "type": "object",
       "required": ["repo", "worktree"],
@@ -76,6 +92,10 @@
       "items": {"type": "string", "minLength": 1},
       "uniqueItems": true
     },
+    "remote_task_files": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/remoteTaskFile"}
+    },
     "preserved_reason": {
       "enum": [
         "checkpoint_failed",
@@ -91,6 +111,18 @@
     "cleanup_reconciled_absence": {"type": "boolean"}
   },
   "dependentRequired": {
+    "harness_readiness_evidence": [
+      "harness_readiness_operator",
+      "harness_readiness_verified_at"
+    ],
+    "harness_readiness_operator": [
+      "harness_readiness_evidence",
+      "harness_readiness_verified_at"
+    ],
+    "harness_readiness_verified_at": [
+      "harness_readiness_evidence",
+      "harness_readiness_operator"
+    ],
     "cleanup_state": [
       "cleanup_verified_at",
       "cleanup_reconciled_absence"
@@ -105,6 +137,51 @@
     ]
   },
   "$defs": {
+    "remoteTaskFile": {
+      "type": "object",
+      "required": ["path", "ssh_target", "state", "registered_at"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/[^\\u0000]*$"},
+        "ssh_target": {"type": "string", "minLength": 1},
+        "state": {"enum": ["registered", "removal_verified"]},
+        "registered_at": {"type": "string", "format": "date-time"},
+        "removal_verified_at": {"type": "string", "format": "date-time"},
+        "removal_evidence": {
+          "enum": [
+            "operator_verified_remote_absence",
+            "source_bound_terminal_artifact"
+          ]
+        }
+      },
+      "dependentRequired": {
+        "removal_verified_at": ["removal_evidence"],
+        "removal_evidence": ["removal_verified_at"]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "removal_verified"}}
+          },
+          "then": {
+            "required": ["removal_verified_at", "removal_evidence"]
+          }
+        },
+        {
+          "if": {
+            "properties": {"state": {"const": "registered"}}
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["removal_verified_at"]},
+                {"required": ["removal_evidence"]}
+              ]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
     "session": {
       "type": "object",
       "required": ["name", "version", "protocol", "socket", "incarnation_proven"],
@@ -118,5 +195,30 @@
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "harness_readiness": {"const": "operator_verified"}
+        }
+      },
+      "then": {
+        "required": [
+          "harness_readiness_evidence",
+          "harness_readiness_operator",
+          "harness_readiness_verified_at"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {"required": ["harness_readiness_evidence"]},
+            {"required": ["harness_readiness_operator"]},
+            {"required": ["harness_readiness_verified_at"]}
+          ]
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

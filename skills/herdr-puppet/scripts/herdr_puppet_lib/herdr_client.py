@@ -216,6 +216,76 @@ class HerdrClient:
                 return False
             time.sleep(0.05)
 
+    def run_command(self, session: str, pane_id: str, command: str) -> Any:
+        if not isinstance(command, str):
+            raise HerdrPuppetError(
+                "invalid_command",
+                "The shell command must be text.",
+            )
+        if not command.strip():
+            raise HerdrPuppetError(
+                "command_empty",
+                "The shell command must contain non-whitespace text.",
+            )
+        try:
+            command_bytes = command.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise HerdrPuppetError(
+                "invalid_command_encoding",
+                "The shell command must be valid UTF-8.",
+            ) from exc
+        if len(command_bytes) > MAX_PROMPT_BYTES:
+            raise HerdrPuppetError(
+                "command_too_large",
+                "The shell command exceeds the bounded input size.",
+                details={"max_prompt_bytes": MAX_PROMPT_BYTES},
+            )
+        if "\x00" in command:
+            raise HerdrPuppetError(
+                "invalid_command",
+                "The shell command contains an unsupported null byte.",
+            )
+        args = [
+            "--session",
+            session,
+            "pane",
+            "run",
+            pane_id,
+            command,
+        ]
+        safe_command = [
+            "--session",
+            session,
+            "pane",
+            "run",
+            pane_id,
+            "<redacted-command>",
+        ]
+        try:
+            return self._run(
+                args,
+                json_output=False,
+                safe_command=safe_command,
+            )
+        except HerdrPuppetError as exc:
+            if exc.code != "herdr_command_failed":
+                raise
+            details: dict[str, Any] = {"command": safe_command}
+            if isinstance(exc.details.get("returncode"), int):
+                details["returncode"] = exc.details["returncode"]
+            raise HerdrPuppetError(
+                exc.code,
+                exc.message,
+                details=details,
+                exit_code=exc.exit_code,
+            ) from exc
+        except OSError as exc:
+            raise HerdrPuppetError(
+                "herdr_launch_failed",
+                "The Herdr process could not be launched.",
+                details={"command": safe_command},
+            ) from exc
+
     def run_input(self, socket_path: str, pane_id: str, text: str) -> Any:
         if not text.strip():
             raise HerdrPuppetError(

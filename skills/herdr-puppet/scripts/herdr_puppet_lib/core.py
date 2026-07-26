@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import os
+import posixpath
 import re
 import time
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .errors import HerdrPuppetError
 from .herdr_client import HerdrClient, load_json
@@ -24,7 +29,19 @@ from .journal import (
 SUPPORTED_HERDR_VERSION = "0.7.3"
 SUPPORTED_HERDR_PROTOCOL = 16
 CHECKPOINT_KINDS = ("STATUS", "ACTION_REQUIRED", "DONE")
-STATUS_READY = "status_verified"
+SHELL_READY = "status_verified"
+HARNESS_READY = "operator_verified"
+LEGACY_HARNESS_STATUS = "status_verified"
+DEFAULT_BEACON_TIMEOUT_MS = 480_000
+MAX_BEACON_TIMEOUT_MS = 3_600_000
+MAX_BEACON_WAIT_ATTEMPTS = 2
+BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
+REMOTE_FILE_REGISTERED = "registered"
+REMOTE_FILE_REMOVED = "removal_verified"
+REMOTE_REMOVAL_EVIDENCE = {
+    "operator_verified_remote_absence",
+    "source_bound_terminal_artifact",
+}
 PRESERVE_REASONS = {
     "checkpoint_failed",
     "human_gate",
@@ -32,8 +49,12 @@ PRESERVE_REASONS = {
     "operator_stop",
     "route_superseded",
 }
+RFC3339_TIMESTAMP = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
 
-LEASE_WAIT_REVISION_FIELDS = (
+LEASE_IDENTITY_FIELDS = (
     "schema",
     "run_id",
     "harness",
@@ -44,14 +65,10 @@ LEASE_WAIT_REVISION_FIELDS = (
     "pane_id",
     "terminal_id",
     "ssh",
-    "next_seq",
-    "harness_readiness",
     "source",
     "proof_root",
-    "caller_text_files",
-    "caller_text_files_removed",
 )
-PROMPT_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
+CONTROLLER_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
 LEASE_FIELDS = {
     "schema",
     "state",
@@ -65,28 +82,129 @@ LEASE_FIELDS = {
     "terminal_id",
     "ssh",
     "next_seq",
+    "shell_readiness",
     "harness_readiness",
+    "harness_readiness_evidence",
+    "harness_readiness_operator",
+    "harness_readiness_verified_at",
     "source",
     "proof_root",
     "caller_text_files",
     "caller_text_files_removed",
+    "remote_task_files",
     "preserved_reason",
     "preserved_at",
     "cleanup_state",
     "cleanup_verified_at",
     "cleanup_reconciled_absence",
 }
+CANONICAL_LEASE_REQUIRED_FIELDS = {
+    "schema",
+    "state",
+    "run_id",
+    "harness",
+    "session",
+    "workspace",
+    "owned_label",
+    "tab_id",
+    "pane_id",
+    "terminal_id",
+    "ssh",
+    "next_seq",
+    "shell_readiness",
+    "harness_readiness",
+    "source",
+    "proof_root",
+    "caller_text_files",
+    "caller_text_files_removed",
+    "remote_task_files",
+}
+LEGACY_OPTIONAL_CANONICAL_FIELDS = {
+    "shell_readiness",
+    "harness_readiness",
+    "caller_text_files",
+    "caller_text_files_removed",
+    "remote_task_files",
+}
+LEGACY_LEASE_REQUIRED_FIELDS = (
+    CANONICAL_LEASE_REQUIRED_FIELDS - LEGACY_OPTIONAL_CANONICAL_FIELDS
+)
+
+
+@contextmanager
+def _lease_lock(lease_path: Path) -> Iterator[Path]:
+    canonical_lease_path = lease_path.expanduser().resolve()
+    canonical_lease_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = canonical_lease_path.with_name(
+        f".{canonical_lease_path.name}.lock"
+    )
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise HerdrPuppetError(
+            "lease_lock_unavailable",
+            "The exact lease mutation lock could not be opened.",
+        ) from exc
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield canonical_lease_path
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _assert_same_lease_identity(
+    expected: dict[str, Any],
+    current: dict[str, Any],
+) -> None:
+    drifted = [
+        field
+        for field in LEASE_IDENTITY_FIELDS
+        if (field in current) != (field in expected)
+        or current.get(field) != expected.get(field)
+    ]
+    if drifted:
+        raise HerdrPuppetError(
+            "lease_path_identity_mismatch",
+            "The lease path resolves to a different exact lease identity.",
+            details={"fields": drifted},
+        )
+
+
+def _reload_locked_lease(
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+) -> dict[str, Any]:
+    current = load_json(lease_path)
+    validate_lease(current)
+    _assert_same_lease_identity(lease_payload, current)
+    return current
+
+
+def _require_optional_lease_journal(
+    run_root: Path | None,
+    lease_payload: dict[str, Any],
+) -> None:
+    if run_root is not None:
+        require_initialized_journal(
+            run_root,
+            run_id=lease_payload["run_id"],
+            proof_root=lease_payload["proof_root"],
+        )
 
 
 def _as_text_file_list(raw_value: Any) -> list[str]:
-    if not raw_value:
-        return []
     if not isinstance(raw_value, list):
         raise HerdrPuppetError(
             "invalid_lease",
             "Unexpected prompt-file tracking field type.",
             details={"field": "caller_text_files"},
         )
+    if not raw_value:
+        return []
     values: list[str] = []
     for value in raw_value:
         if isinstance(value, str) and value.strip():
@@ -97,6 +215,116 @@ def _as_text_file_list(raw_value: Any) -> list[str]:
                 "Prompt-file tracking requires non-empty string paths.",
                 details={"value": value},
             )
+    if len(set(values)) != len(values):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Prompt-file tracking paths must be unique.",
+        )
+    return values
+
+
+def _normalize_remote_task_path(path: str) -> str:
+    try:
+        encoded_path = path.encode("utf-8") if isinstance(path, str) else b""
+    except UnicodeEncodeError as exc:
+        raise HerdrPuppetError(
+            "invalid_remote_task_path",
+            "A remote task file path must be valid UTF-8.",
+        ) from exc
+    if (
+        not isinstance(path, str)
+        or not path
+        or path == "/"
+        or len(encoded_path) > 4096
+        or "\x00" in path
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+        or not path.startswith("/")
+        or posixpath.normpath(path) != path
+    ):
+        raise HerdrPuppetError(
+            "invalid_remote_task_path",
+            "A remote task file requires one normalized absolute POSIX path.",
+        )
+    return path
+
+
+def _as_remote_task_files(
+    raw_value: Any,
+    *,
+    expected_ssh_target: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_value, list):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Remote task-file tracking must be a list.",
+        )
+    if not raw_value:
+        return []
+    values: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_entry in raw_value:
+        if not isinstance(raw_entry, dict):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file entries must be objects.",
+            )
+        allowed = {
+            "path",
+            "ssh_target",
+            "state",
+            "registered_at",
+            "removal_verified_at",
+            "removal_evidence",
+        }
+        if set(raw_entry) - allowed:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file entry has unexpected fields.",
+            )
+        path = _normalize_remote_task_path(raw_entry.get("path"))
+        if path in seen:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file paths must be unique.",
+            )
+        seen.add(path)
+        if raw_entry.get("ssh_target") != expected_ssh_target:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file target does not match the leased SSH target.",
+            )
+        state = raw_entry.get("state")
+        if state not in {REMOTE_FILE_REGISTERED, REMOTE_FILE_REMOVED}:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file state is unsupported.",
+            )
+        if not _is_rfc3339_timestamp(raw_entry.get("registered_at")):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Remote task-file registration time must be RFC 3339.",
+            )
+        if state == REMOTE_FILE_REMOVED:
+            if (
+                not _is_rfc3339_timestamp(
+                    raw_entry.get("removal_verified_at")
+                )
+                or raw_entry.get("removal_evidence")
+                not in REMOTE_REMOVAL_EVIDENCE
+            ):
+                raise HerdrPuppetError(
+                    "invalid_lease",
+                    "Verified remote removal requires bounded evidence and time.",
+                )
+        elif (
+            "removal_verified_at" in raw_entry
+            or "removal_evidence" in raw_entry
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Registered remote files may not claim removal evidence.",
+            )
+        values.append(json.loads(json.dumps(raw_entry)))
     return values
 
 
@@ -119,12 +347,55 @@ def _is_prompt_file_retained(path: str) -> bool:
     return Path(path).is_file()
 
 
+def _shell_readiness(payload: dict[str, Any]) -> str:
+    if "shell_readiness" in payload:
+        return payload["shell_readiness"]
+    if payload.get("harness_readiness") == LEGACY_HARNESS_STATUS:
+        return SHELL_READY
+    return "unverified"
+
+
 def _require_string(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
         raise HerdrPuppetError(
             "invalid_record",
             f"Required string field is missing: {key}",
+        )
+    return value
+
+
+def _is_rfc3339_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or RFC3339_TIMESTAMP.fullmatch(value) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(
+            value[:-1] + "+00:00" if value.endswith("Z") else value
+        )
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _require_exact_object_fields(
+    payload: dict[str, Any],
+    key: str,
+    fields: set[str],
+) -> dict[str, Any]:
+    value = payload.get(key)
+    if not isinstance(value, dict) or set(value) != fields:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            f"Lease {key} must contain exactly the normative fields.",
+            details={
+                "field": key,
+                "missing_fields": sorted(
+                    fields - set(value) if isinstance(value, dict) else fields
+                ),
+                "unexpected_fields": sorted(
+                    set(value) - fields if isinstance(value, dict) else set()
+                ),
+            },
         )
     return value
 
@@ -173,6 +444,18 @@ def validate_plan(payload: dict[str, Any]) -> None:
 
 
 def validate_lease(payload: dict[str, Any]) -> None:
+    _validate_lease(payload, allow_legacy=False)
+
+
+def validate_legacy_lease(payload: dict[str, Any]) -> None:
+    _validate_lease(payload, allow_legacy=True)
+
+
+def _validate_lease(
+    payload: dict[str, Any],
+    *,
+    allow_legacy: bool,
+) -> None:
     if payload.get("schema") != "herdr-puppet.lease.v1":
         raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
     unexpected_fields = sorted(set(payload) - LEASE_FIELDS)
@@ -182,6 +465,24 @@ def validate_lease(payload: dict[str, Any]) -> None:
             "Lease contains fields outside the normative schema.",
             details={"unexpected_fields": unexpected_fields},
         )
+    missing_baseline_fields = sorted(LEGACY_LEASE_REQUIRED_FIELDS - set(payload))
+    if missing_baseline_fields:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease is missing required fields.",
+            details={"missing_fields": missing_baseline_fields},
+        )
+    canonical_missing = sorted(CANONICAL_LEASE_REQUIRED_FIELDS - set(payload))
+    legacy_readiness = payload.get("harness_readiness") == LEGACY_HARNESS_STATUS
+    if not allow_legacy and (canonical_missing or legacy_readiness):
+        raise HerdrPuppetError(
+            "legacy_lease_requires_migration",
+            "Historical lease-v1 shape requires explicit canonical migration.",
+            details={
+                "missing_fields": canonical_missing,
+                "legacy_harness_readiness": legacy_readiness,
+            },
+        )
     if payload.get("state") not in {"active", "preserved"}:
         raise HerdrPuppetError(
             "invalid_lease_state",
@@ -190,44 +491,166 @@ def validate_lease(payload: dict[str, Any]) -> None:
     for key in (
         "run_id",
         "harness",
-        "owned_label",
         "tab_id",
         "pane_id",
         "terminal_id",
         "proof_root",
     ):
         _require_string(payload, key)
-    if not isinstance(payload.get("next_seq"), int) or payload["next_seq"] < 1:
-        raise HerdrPuppetError("invalid_next_seq", "Lease next_seq must be positive.")
-    for key in ("session", "workspace", "ssh", "source"):
-        if not isinstance(payload.get(key), dict):
-            raise HerdrPuppetError(
-                "invalid_lease",
-                f"Required object field is missing: {key}",
-            )
+    owned_label = _require_string(payload, "owned_label")
+    if re.fullmatch(r"puppet-[a-z0-9-]+", owned_label) is None:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease owned_label does not match the canonical pattern.",
+        )
     if (
-        "harness_readiness" in payload
-        and payload["harness_readiness"] not in {"unverified", STATUS_READY}
+        not isinstance(payload.get("next_seq"), int)
+        or isinstance(payload["next_seq"], bool)
+        or payload["next_seq"] < 1
+    ):
+        raise HerdrPuppetError("invalid_next_seq", "Lease next_seq must be positive.")
+    session = _require_exact_object_fields(
+        payload,
+        "session",
+        {"name", "version", "protocol", "socket", "incarnation_proven"},
+    )
+    for key in ("name", "version", "socket"):
+        _require_string(session, key)
+    if (
+        not isinstance(session.get("protocol"), int)
+        or isinstance(session["protocol"], bool)
+        or session["protocol"] < 1
     ):
         raise HerdrPuppetError(
             "invalid_lease",
-            "Unexpected harness readiness state.",
-            details={"harness_readiness": payload["harness_readiness"]},
+            "Lease session protocol must be a positive integer.",
         )
-    for field in PROMPT_FILE_FIELDS:
-        if field in payload:
-            _as_text_file_list(payload[field])
-    if payload["session"].get("incarnation_proven") is not False:
+    if session.get("incarnation_proven") is not False:
         raise HerdrPuppetError(
             "server_incarnation_claim_forbidden",
             "Herdr 0.7.3 does not expose a server-incarnation authority field.",
         )
-    if "cleanup_state" in payload:
+    workspace = _require_exact_object_fields(
+        payload,
+        "workspace",
+        {"id", "label"},
+    )
+    for key in ("id", "label"):
+        _require_string(workspace, key)
+    ssh = _require_exact_object_fields(
+        payload,
+        "ssh",
+        {"pid", "argv", "target"},
+    )
+    if (
+        not isinstance(ssh.get("pid"), int)
+        or isinstance(ssh["pid"], bool)
+        or ssh["pid"] < 1
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease SSH pid must be a positive integer.",
+        )
+    argv = ssh.get("argv")
+    if (
+        not isinstance(argv, list)
+        or len(argv) < 2
+        or any(not isinstance(value, str) for value in argv)
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease SSH argv must contain at least two string values.",
+        )
+    ssh_target = _require_string(ssh, "target")
+    source = _require_exact_object_fields(
+        payload,
+        "source",
+        {"repo", "worktree"},
+    )
+    for key in ("repo", "worktree"):
+        _require_string(source, key)
+    if payload.get("shell_readiness", "unverified") not in {
+        "unverified",
+        SHELL_READY,
+    }:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unexpected shell readiness state.",
+            details={"shell_readiness": payload.get("shell_readiness")},
+        )
+    harness_readiness = payload.get("harness_readiness", "unverified")
+    allowed_harness_readiness = {"unverified", HARNESS_READY}
+    if allow_legacy:
+        allowed_harness_readiness.add(LEGACY_HARNESS_STATUS)
+    if harness_readiness not in allowed_harness_readiness:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unexpected harness readiness state.",
+            details={"harness_readiness": harness_readiness},
+        )
+    if harness_readiness == HARNESS_READY:
         if (
-            payload["state"] != "preserved"
+            payload.get("harness_readiness_evidence")
+            != "operator_observed_ready_input"
+            or not isinstance(payload.get("harness_readiness_operator"), str)
+            or not re.fullmatch(
+                r"[A-Za-z0-9._@:-]{1,128}",
+                payload["harness_readiness_operator"],
+            )
+            or not _is_rfc3339_timestamp(
+                payload.get("harness_readiness_verified_at")
+            )
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Operator-verified harness readiness requires bounded evidence "
+                "and a verification time.",
+            )
+    elif (
+        "harness_readiness_evidence" in payload
+        or "harness_readiness_operator" in payload
+        or "harness_readiness_verified_at" in payload
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unverified or legacy readiness may not carry operator evidence.",
+        )
+    for field in CONTROLLER_FILE_FIELDS:
+        if field in payload:
+            _as_text_file_list(payload[field])
+    _as_remote_task_files(
+        payload.get("remote_task_files", []),
+        expected_ssh_target=ssh_target,
+    )
+    if (
+        "preserved_reason" in payload
+        and payload["preserved_reason"] not in PRESERVE_REASONS
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease preservation reason is unsupported.",
+        )
+    if (
+        "preserved_at" in payload
+        and not _is_rfc3339_timestamp(payload["preserved_at"])
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease preservation time must be RFC 3339.",
+        )
+    cleanup_fields = {
+        "cleanup_state",
+        "cleanup_verified_at",
+        "cleanup_reconciled_absence",
+    }
+    if cleanup_fields.intersection(payload):
+        if (
+            not cleanup_fields.issubset(payload)
+            or payload["state"] != "preserved"
             or payload.get("cleanup_state") != "closed"
-            or not isinstance(payload.get("cleanup_verified_at"), str)
-            or not payload["cleanup_verified_at"]
+            or not _is_rfc3339_timestamp(
+                payload.get("cleanup_verified_at")
+            )
             or not isinstance(payload.get("cleanup_reconciled_absence"), bool)
         ):
             raise HerdrPuppetError(
@@ -235,6 +658,60 @@ def validate_lease(payload: dict[str, Any]) -> None:
                 "A closed cleanup record requires a preserved lease and "
                 "complete verification fields.",
             )
+
+
+def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
+    validate_legacy_lease(payload)
+    migrated = json.loads(json.dumps(payload))
+    legacy_status_ready = (
+        migrated.get("harness_readiness") == LEGACY_HARNESS_STATUS
+    )
+    if "shell_readiness" not in migrated or legacy_status_ready:
+        migrated["shell_readiness"] = (
+            SHELL_READY if legacy_status_ready else "unverified"
+        )
+    if (
+        "harness_readiness" not in migrated
+        or migrated["harness_readiness"] == LEGACY_HARNESS_STATUS
+    ):
+        migrated["harness_readiness"] = "unverified"
+    migrated.setdefault("caller_text_files", [])
+    migrated.setdefault("caller_text_files_removed", [])
+    migrated.setdefault("remote_task_files", [])
+    validate_lease(migrated)
+    return migrated
+
+
+def migrate_legacy_lease_file(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+) -> dict[str, Any]:
+    validate_legacy_lease(lease_payload)
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = load_json(locked_lease_path)
+        validate_legacy_lease(current)
+        _assert_same_lease_identity(lease_payload, current)
+        migrated = migrate_legacy_lease(current)
+        changed_fields = sorted(
+            field
+            for field in LEASE_FIELDS
+            if (field in current) != (field in migrated)
+            or current.get(field) != migrated.get(field)
+        )
+        if changed_fields:
+            atomic_json(locked_lease_path, migrated)
+    return {
+        "schema": "herdr-puppet.lease-migrate-v1.v1",
+        "result": "ok",
+        "run_id": migrated["run_id"],
+        "migrated": bool(changed_fields),
+        "changed_fields": changed_fields,
+        "shell_readiness": migrated["shell_readiness"],
+        "harness_readiness": migrated["harness_readiness"],
+        "herdr_mutated": False,
+        "transcript_read": False,
+    }
 
 
 def _version_from_text(version_text: str) -> str:
@@ -546,15 +1023,180 @@ def structural_status(
     }
 
 
+def register_remote_task_file(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    remote_path: str,
+    source_repo: str,
+    source_worktree: str,
+    confirm_caller_owned: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not confirm_caller_owned:
+        raise HerdrPuppetError(
+            "remote_task_file_ownership_not_confirmed",
+            "Remote task-file registration requires caller ownership confirmation.",
+        )
+    normalized_path = _normalize_remote_task_path(remote_path)
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if (
+            current["source"].get("repo") != source_repo
+            or current["source"].get("worktree") != source_worktree
+        ):
+            raise HerdrPuppetError(
+                "remote_task_file_source_mismatch",
+                "Remote task-file registration must bind to the exact leased source.",
+            )
+        remote_files = _as_remote_task_files(
+            current.get("remote_task_files", []),
+            expected_ssh_target=current["ssh"]["target"],
+        )
+        matches = [item for item in remote_files if item["path"] == normalized_path]
+        if matches and matches[0]["state"] == REMOTE_FILE_REMOVED:
+            raise HerdrPuppetError(
+                "remote_task_file_already_removed",
+                "A removal-verified remote task file may not be re-registered.",
+            )
+        already_registered = bool(matches)
+        if not already_registered:
+            remote_files.append(
+                {
+                    "path": normalized_path,
+                    "ssh_target": current["ssh"]["target"],
+                    "state": REMOTE_FILE_REGISTERED,
+                    "registered_at": now(),
+                }
+            )
+            updated = json.loads(json.dumps(current))
+            updated["remote_task_files"] = remote_files
+            atomic_json(locked_lease_path, updated)
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "qualification.remote-task-file-registered",
+                    "observed",
+                    data={
+                        "remote_task_file_location": "remote",
+                        "remote_task_file_registered": True,
+                        "remote_task_file_count": len(remote_files),
+                        "path_emitted": False,
+                        "path_hashed": False,
+                        "source_binding_verified": True,
+                    },
+                ),
+            )
+        else:
+            updated = current
+    return {
+        "schema": "herdr-puppet.remote-task-file-register.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "remote_task_file_location": "remote",
+        "remote_task_file_registered": True,
+        "remote_task_file_count": len(remote_files),
+        "already_registered": already_registered,
+        "path_emitted": False,
+        "path_hashed": False,
+        "source_binding_verified": True,
+    }
+
+
 def maintenance_checkpoint(
     client: HerdrClient,
     *,
     lease_payload: dict[str, Any],
     lease_path: Path,
     run_root: Path,
+    remote_removed_path: str | None = None,
+    remote_removal_evidence: str | None = None,
+    confirm_remote_removed: bool = False,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    removal_requested = any(
+        (
+            remote_removed_path is not None,
+            remote_removal_evidence is not None,
+            confirm_remote_removed,
+        )
+    )
+    if removal_requested and (
+        remote_removed_path is None
+        or remote_removal_evidence not in REMOTE_REMOVAL_EVIDENCE
+        or not confirm_remote_removed
+    ):
+        raise HerdrPuppetError(
+            "remote_removal_evidence_incomplete",
+            "Remote removal requires an exact registered path, bounded evidence, "
+            "and explicit confirmation.",
+        )
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
+    )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        return _maintenance_checkpoint_locked(
+            client,
+            lease_payload=current,
+            lease_path=locked_lease_path,
+            run_root=run_root,
+            remote_removed_path=remote_removed_path,
+            remote_removal_evidence=remote_removal_evidence,
+            confirm_remote_removed=confirm_remote_removed,
+        )
+
+
+def _maintenance_checkpoint_locked(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    run_root: Path,
+    remote_removed_path: str | None,
+    remote_removal_evidence: str | None,
+    confirm_remote_removed: bool,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
     current_from_disk = load_json(lease_path)
+    validate_lease(current_from_disk)
+    _assert_same_lease_identity(lease_payload, current_from_disk)
+    remote_files = _as_remote_task_files(
+        current_from_disk.get("remote_task_files", []),
+        expected_ssh_target=current_from_disk["ssh"]["target"],
+    )
+    if remote_removed_path is not None:
+        normalized_remote_path = _normalize_remote_task_path(remote_removed_path)
+        matches = [
+            item for item in remote_files if item["path"] == normalized_remote_path
+        ]
+        if len(matches) != 1:
+            raise HerdrPuppetError(
+                "remote_task_file_not_registered",
+                "Remote removal evidence must name one exact registered task file.",
+            )
+        remote_entry = matches[0]
+        if remote_entry["state"] == REMOTE_FILE_REMOVED:
+            if remote_entry["removal_evidence"] != remote_removal_evidence:
+                raise HerdrPuppetError(
+                    "remote_removal_evidence_conflict",
+                    "Remote removal is already recorded with different evidence.",
+                )
+        else:
+            remote_entry["state"] = REMOTE_FILE_REMOVED
+            remote_entry["removal_verified_at"] = now()
+            remote_entry["removal_evidence"] = remote_removal_evidence
+            current_from_disk = json.loads(json.dumps(current_from_disk))
+            current_from_disk["remote_task_files"] = remote_files
+            atomic_json(lease_path, current_from_disk)
+    lease_payload = current_from_disk
     prompt_files = _as_text_file_list(current_from_disk.get("caller_text_files", []))
     prompt_files_removed = _as_text_file_list(
         current_from_disk.get("caller_text_files_removed", [])
@@ -577,10 +1219,6 @@ def maintenance_checkpoint(
     if updated_prompt_file_state != current_from_disk:
         atomic_json(lease_path, updated_prompt_file_state)
         lease_payload = updated_prompt_file_state
-    require_initialized_journal(
-        run_root,
-        run_id=lease_payload["run_id"],
-    )
     session = lease_payload["session"]["name"]
     doctor_result = doctor(client, session)
     blockers: list[str] = list(doctor_result["blockers"])
@@ -753,6 +1391,13 @@ def maintenance_checkpoint(
                     "caller_text_files_removed",
                     [],
                 ),
+                "caller_text_file_location": "controller_local",
+                "remote_task_files": lease_payload.get("remote_task_files", []),
+                "remote_task_file_location": "remote",
+                "remote_removal_verification_required": any(
+                    item["state"] == REMOTE_FILE_REGISTERED
+                    for item in lease_payload.get("remote_task_files", [])
+                ),
             },
         ),
     )
@@ -775,10 +1420,39 @@ def maintenance_checkpoint(
             "caller_text_files_removed",
             [],
         ),
+        "caller_text_file_location": "controller_local",
+        "remote_task_files": lease_payload.get("remote_task_files", []),
+        "remote_task_file_location": "remote",
+        "remote_removal_verification_required": any(
+            item["state"] == REMOTE_FILE_REGISTERED
+            for item in lease_payload.get("remote_task_files", [])
+        ),
     }
 
 
 def cleanup_preserved_tab(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    run_root: Path,
+    confirm_tab_id: str,
+    allow_live_cleanup: bool,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        return _cleanup_preserved_tab_locked(
+            client,
+            lease_payload=current,
+            lease_path=locked_lease_path,
+            run_root=run_root,
+            confirm_tab_id=confirm_tab_id,
+            allow_live_cleanup=allow_live_cleanup,
+        )
+
+
+def _cleanup_preserved_tab_locked(
     client: HerdrClient,
     *,
     lease_payload: dict[str, Any],
@@ -810,20 +1484,25 @@ def cleanup_preserved_tab(
     require_initialized_journal(
         run_root,
         run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
     )
     current = load_json(lease_path)
-    _assert_wait_lease_revision(lease_payload, current)
+    validate_lease(current)
+    _assert_same_lease_identity(lease_payload, current)
     if current["state"] != "preserved":
         raise HerdrPuppetError(
             "cleanup_lease_not_preserved",
             "The on-disk lease is not preserved.",
         )
 
-    inventory = maintenance_checkpoint(
+    inventory = _maintenance_checkpoint_locked(
         client,
         lease_payload=current,
         lease_path=lease_path,
         run_root=run_root,
+        remote_removed_path=None,
+        remote_removal_evidence=None,
+        confirm_remote_removed=False,
     )
     if inventory["classification"] == "ambiguous":
         raise HerdrPuppetError(
@@ -834,16 +1513,17 @@ def cleanup_preserved_tab(
 
     after_maintenance = load_json(lease_path)
     validate_lease(after_maintenance)
-    for field in LEASE_WAIT_REVISION_FIELDS:
-        if field in PROMPT_FILE_FIELDS:
-            continue
-        if after_maintenance.get(field) != current.get(field):
-            raise HerdrPuppetError(
-                "cleanup_lease_changed_during_maintenance",
-                "Lease identity changed during maintenance.",
-                details={"field": field},
-            )
+    _assert_same_lease_identity(current, after_maintenance)
     current = after_maintenance
+    if any(
+        item["state"] == REMOTE_FILE_REGISTERED
+        for item in current.get("remote_task_files", [])
+    ):
+        raise HerdrPuppetError(
+            "remote_task_file_removal_unverified",
+            "Final maintenance must record exact remote task-file removal "
+            "evidence before tab cleanup.",
+        )
 
     already_absent = inventory["classification"] == "stale"
     if current.get("cleanup_state") == "closed":
@@ -978,10 +1658,33 @@ def create_qualification_tab(
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
     _live_gate(plan_payload, allow_live)
+    with _lease_lock(lease_path) as locked_lease_path:
+        return _create_qualification_tab_locked(
+            client,
+            plan_payload=plan_payload,
+            lease_path=locked_lease_path,
+            allow_live=allow_live,
+            settle_seconds=settle_seconds,
+            run_root=run_root,
+        )
+
+
+def _create_qualification_tab_locked(
+    client: HerdrClient,
+    *,
+    plan_payload: dict[str, Any],
+    lease_path: Path,
+    allow_live: bool,
+    settle_seconds: float = 10.0,
+    run_root: Path | None = None,
+) -> dict[str, Any]:
+    validate_plan(plan_payload)
+    _live_gate(plan_payload, allow_live)
     if run_root is not None:
         require_initialized_journal(
             run_root,
             run_id=plan_payload["run_id"],
+            proof_root=plan_payload["proof_root"],
         )
     before_status = structural_status(client, plan_payload=plan_payload)
     if before_status["result"] != "ok":
@@ -1066,11 +1769,13 @@ def create_qualification_tab(
             "target": plan_payload["expected_ssh_target"],
         },
         "next_seq": 1,
+        "shell_readiness": "unverified",
         "harness_readiness": "unverified",
         "source": plan_payload["source"],
         "proof_root": plan_payload["proof_root"],
         "caller_text_files": [],
         "caller_text_files_removed": [],
+        "remote_task_files": [],
     }
     validate_lease(lease)
     atomic_json(lease_path, lease)
@@ -1088,11 +1793,252 @@ def create_qualification_tab(
                     "ssh_pid": lease["ssh"]["pid"],
                     "shell_transport_only": True,
                     "harness_started": False,
+                    "shell_readiness": "unverified",
                     "harness_readiness": "unverified",
                 },
             ),
         )
     return lease
+
+
+def qualification_run(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    seq: int,
+    command: str,
+    text_file: str | None = None,
+    allow_live: bool,
+    run_root: Path | None = None,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize live qualification.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if seq != current["next_seq"]:
+            raise HerdrPuppetError(
+                "send_sequence_mismatch",
+                "Send sequence is stale, skipped, duplicate, or replayed.",
+                details={"expected": current["next_seq"], "received": seq},
+            )
+        shell_readiness = _shell_readiness(current)
+        if seq > 1 and shell_readiness != SHELL_READY:
+            raise HerdrPuppetError(
+                "shell_readiness_not_proven",
+                "Further shell submissions require a STATUS-verified shell.",
+                details={
+                    "expected": SHELL_READY,
+                    "actual": shell_readiness,
+                },
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "prerun_status_blocked",
+                "Structural status blocked the atomic shell command.",
+                details={"blockers": status["blockers"]},
+            )
+        text_file_retained = False
+        tracked_text_file: str | None = None
+        if text_file is not None:
+            tracked_text_file = _normalize_prompt_file(text_file)
+            text_file_retained = _is_prompt_file_retained(tracked_text_file)
+        session = current["session"]["name"]
+        pane_id = current["pane_id"]
+        harness_readiness = current.get("harness_readiness", "unverified")
+        client.run_command(session, pane_id, command)
+        digest = sha256_text(command)
+        updated = json.loads(json.dumps(current))
+        updated["next_seq"] = seq + 1
+        if tracked_text_file is not None and text_file_retained:
+            updated["caller_text_files"] = _dedupe_preserve_order(
+                _as_text_file_list(updated.get("caller_text_files", []))
+                + [tracked_text_file]
+            )
+        atomic_json(locked_lease_path, updated)
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "qualification.run",
+                    "ok",
+                    seq=seq,
+                    command_sha256=digest,
+                    data={
+                        "pane_id": pane_id,
+                        "input_request": "pane run",
+                        "herdr_cli_acknowledged": True,
+                        "acceptance_scope": "herdr_pane_run_cli_only",
+                        "submission_mode": "atomic_shell_command",
+                        "execution_acceptance": "unverified",
+                        "transcript_read": False,
+                        "readiness_advanced": False,
+                        "shell_readiness": shell_readiness,
+                        "harness_readiness": harness_readiness,
+                        "caller_text_file_retained": text_file_retained,
+                        "command_file_tracked": tracked_text_file is not None,
+                        "controller_command_persisted": False,
+                        "caller_input_file_location": (
+                            "controller_local"
+                            if tracked_text_file is not None
+                            else "not_applicable"
+                        ),
+                        "caller_input_file_lifecycle": (
+                            "caller_owned"
+                            if tracked_text_file is not None
+                            else "not_applicable"
+                        ),
+                    },
+                ),
+            )
+    return {
+        "schema": "herdr-puppet.qualification-run.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "pane_id": pane_id,
+        "seq": seq,
+        "next_seq": updated["next_seq"],
+        "command_sha256": digest,
+        "herdr_cli_acknowledged": True,
+        "acceptance_scope": "herdr_pane_run_cli_only",
+        "submission_mode": "atomic_shell_command",
+        "execution_acceptance": "unverified",
+        "readiness_advanced": False,
+        "shell_readiness": shell_readiness,
+        "harness_readiness": harness_readiness,
+        "caller_text_file_retained": text_file_retained,
+        "command_file_tracked": tracked_text_file is not None,
+        "controller_command_persisted": False,
+        "caller_input_file_location": (
+            "controller_local"
+            if tracked_text_file is not None
+            else "not_applicable"
+        ),
+        "caller_input_file_lifecycle": (
+            "caller_owned" if tracked_text_file is not None else "not_applicable"
+        ),
+        "command_persisted": False,
+        "transcript_read": False,
+    }
+
+
+def qualification_harness_ready(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    source_repo: str,
+    source_worktree: str,
+    operator_id: str,
+    evidence: str,
+    confirm_ready: bool,
+    allow_live: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize harness readiness verification.",
+        )
+    if not confirm_ready:
+        raise HerdrPuppetError(
+            "harness_readiness_not_confirmed",
+            "Harness readiness requires explicit operator confirmation.",
+        )
+    if evidence != "operator_observed_ready_input":
+        raise HerdrPuppetError(
+            "harness_readiness_evidence_invalid",
+            "Harness readiness requires the bounded operator-observed evidence.",
+        )
+    if (
+        not isinstance(operator_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9._@:-]{1,128}", operator_id)
+    ):
+        raise HerdrPuppetError(
+            "harness_readiness_operator_missing",
+            "Harness readiness requires one bounded operator identifier.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if (
+            current["source"].get("repo") != source_repo
+            or current["source"].get("worktree") != source_worktree
+        ):
+            raise HerdrPuppetError(
+                "harness_readiness_source_mismatch",
+                "Harness readiness must bind to the exact leased source.",
+            )
+        if _shell_readiness(current) != SHELL_READY:
+            raise HerdrPuppetError(
+                "shell_readiness_not_proven",
+                "Harness readiness may be verified only after a shell STATUS beacon.",
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "harness_readiness_status_blocked",
+                "Structural status blocked harness readiness verification.",
+                details={"blockers": status["blockers"]},
+            )
+        already_ready = current.get("harness_readiness") == HARNESS_READY
+        if already_ready and (
+            current.get("harness_readiness_operator") != operator_id
+            or current.get("harness_readiness_evidence") != evidence
+        ):
+            raise HerdrPuppetError(
+                "harness_readiness_binding_conflict",
+                "Harness readiness is already bound to another operator or evidence.",
+            )
+        updated = json.loads(json.dumps(current))
+        operator_digest = sha256_text(operator_id)
+        if not already_ready:
+            updated["harness_readiness"] = HARNESS_READY
+            updated["harness_readiness_evidence"] = evidence
+            updated["harness_readiness_operator"] = operator_id
+            updated["harness_readiness_verified_at"] = now()
+            atomic_json(locked_lease_path, updated)
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "qualification.harness-ready",
+                    "observed",
+                    data={
+                        "operator_id_sha256": operator_digest,
+                        "source_binding_verified": True,
+                        "operator_confirmation": True,
+                        "evidence": evidence,
+                        "shell_readiness": _shell_readiness(updated),
+                        "harness_readiness": HARNESS_READY,
+                        "transcript_read": False,
+                    },
+                ),
+            )
+    return {
+        "schema": "herdr-puppet.qualification-harness-ready.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "operator_id_sha256": operator_digest,
+        "source_binding_verified": True,
+        "operator_confirmation": True,
+        "shell_readiness": _shell_readiness(updated),
+        "harness_readiness": HARNESS_READY,
+        "already_ready": already_ready,
+        "transcript_read": False,
+    }
 
 
 def qualification_send(
@@ -1107,82 +2053,87 @@ def qualification_send(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
             "The command flag must authorize live qualification.",
         )
-    if lease_payload["state"] != "active":
-        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
-    if seq != lease_payload["next_seq"]:
-        raise HerdrPuppetError(
-            "send_sequence_mismatch",
-            "Send sequence is stale, skipped, duplicate, or replayed.",
-            details={"expected": lease_payload["next_seq"], "received": seq},
-        )
-    if seq > 1 and lease_payload.get("harness_readiness") != STATUS_READY:
-        raise HerdrPuppetError(
-            "harness_readiness_not_proven",
-            "Further prompts require status-verified harness readiness.",
-            details={
-                "expected": STATUS_READY,
-                "actual": lease_payload.get("harness_readiness"),
-            },
-        )
-    status = structural_status(client, lease_payload=lease_payload)
-    if status["result"] != "ok":
-        raise HerdrPuppetError(
-            "presend_status_blocked",
-            "Structural status blocked the send.",
-            details={"blockers": status["blockers"]},
-        )
-    text_file_retained = False
-    tracked_text_file: str | None = None
-    if text_file is not None:
-        normalized_text_file = _normalize_prompt_file(text_file)
-        text_file_retained = _is_prompt_file_retained(normalized_text_file)
-        tracked_text_file = normalized_text_file
-    readiness = lease_payload.get("harness_readiness", "unverified")
-    socket_path = lease_payload["session"]["socket"]
-    pane_id = lease_payload["pane_id"]
-    client.run_input(socket_path, pane_id, text)
-    digest = sha256_text(text)
-    updated = json.loads(json.dumps(lease_payload))
-    updated["next_seq"] = seq + 1
-    if tracked_text_file is not None and text_file_retained:
-        updated["caller_text_files"] = _dedupe_preserve_order(
-            _as_text_file_list(updated.get("caller_text_files", []))
-            + [tracked_text_file]
-        )
-    atomic_json(lease_path, updated)
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                updated["run_id"],
-                "qualification.send",
-                "ok",
-                seq=seq,
-                prompt_sha256=digest,
-                data={
-                    "pane_id": pane_id,
-                    "input_request": "pane.send_input",
-                    "transport_acknowledged": True,
-                    "acceptance_scope": "herdr_pane_input_only",
-                    "outcome": "pane_input_accepted",
-                    "harness_readiness": readiness,
-                    "harness_acceptance": "unverified",
-                    "caller_text_file_retained": text_file_retained,
-                    "prompt_file_tracked": tracked_text_file is not None,
-                    "controller_prompt_persisted": False,
-                    "caller_input_file_lifecycle": (
-                        "caller_owned"
-                        if tracked_text_file is not None
-                        else "not_applicable"
-                    ),
-                },
-            ),
-        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if seq != current["next_seq"]:
+            raise HerdrPuppetError(
+                "send_sequence_mismatch",
+                "Send sequence is stale, skipped, duplicate, or replayed.",
+                details={"expected": current["next_seq"], "received": seq},
+            )
+        readiness = current.get("harness_readiness", "unverified")
+        if readiness != HARNESS_READY:
+            raise HerdrPuppetError(
+                "harness_readiness_not_proven",
+                "Pane input requires explicit source/operator-bound harness readiness.",
+                details={"expected": HARNESS_READY, "actual": readiness},
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "presend_status_blocked",
+                "Structural status blocked the send.",
+                details={"blockers": status["blockers"]},
+            )
+        text_file_retained = False
+        tracked_text_file: str | None = None
+        if text_file is not None:
+            tracked_text_file = _normalize_prompt_file(text_file)
+            text_file_retained = _is_prompt_file_retained(tracked_text_file)
+        socket_path = current["session"]["socket"]
+        pane_id = current["pane_id"]
+        client.run_input(socket_path, pane_id, text)
+        digest = sha256_text(text)
+        updated = json.loads(json.dumps(current))
+        updated["next_seq"] = seq + 1
+        if tracked_text_file is not None and text_file_retained:
+            updated["caller_text_files"] = _dedupe_preserve_order(
+                _as_text_file_list(updated.get("caller_text_files", []))
+                + [tracked_text_file]
+            )
+        atomic_json(locked_lease_path, updated)
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "qualification.send",
+                    "ok",
+                    seq=seq,
+                    prompt_sha256=digest,
+                    data={
+                        "pane_id": pane_id,
+                        "input_request": "pane.send_input",
+                        "transport_acknowledged": True,
+                        "acceptance_scope": "herdr_pane_input_only",
+                        "outcome": "pane_input_accepted",
+                        "shell_readiness": _shell_readiness(current),
+                        "harness_readiness": readiness,
+                        "harness_acceptance": "operator_verified",
+                        "caller_text_file_retained": text_file_retained,
+                        "prompt_file_tracked": tracked_text_file is not None,
+                        "controller_prompt_persisted": False,
+                        "caller_input_file_location": (
+                            "controller_local"
+                            if tracked_text_file is not None
+                            else "not_applicable"
+                        ),
+                        "caller_input_file_lifecycle": (
+                            "caller_owned"
+                            if tracked_text_file is not None
+                            else "not_applicable"
+                        ),
+                    },
+                ),
+            )
     return {
         "schema": "herdr-puppet.qualification-send.v1",
         "result": "ok",
@@ -1194,11 +2145,17 @@ def qualification_send(
         "transport_acknowledged": True,
         "acceptance_scope": "herdr_pane_input_only",
         "outcome": "pane_input_accepted",
+        "shell_readiness": _shell_readiness(updated),
         "harness_readiness": readiness,
-        "harness_acceptance": "unverified",
+        "harness_acceptance": "operator_verified",
         "caller_text_file_retained": text_file_retained,
         "prompt_file_tracked": tracked_text_file is not None,
         "controller_prompt_persisted": False,
+        "caller_input_file_location": (
+            "controller_local"
+            if tracked_text_file is not None
+            else "not_applicable"
+        ),
         "caller_input_file_lifecycle": (
             "caller_owned" if tracked_text_file is not None else "not_applicable"
         ),
@@ -1219,51 +2176,60 @@ def qualification_reconcile_send(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    if lease_payload["state"] != "active":
-        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+    _require_optional_lease_journal(run_root, lease_payload)
     if not confirm_applied:
         raise HerdrPuppetError(
             "partial_send_not_confirmed",
             "Reconciliation requires explicit evidence that the text was applied.",
-        )
-    if seq != lease_payload["next_seq"]:
-        raise HerdrPuppetError(
-            "send_sequence_mismatch",
-            "Send sequence is stale, skipped, duplicate, or replayed.",
-            details={"expected": lease_payload["next_seq"], "received": seq},
         )
     if not evidence.strip():
         raise HerdrPuppetError(
             "partial_send_evidence_missing",
             "Reconciliation requires a concise structural evidence label.",
         )
-    status = structural_status(client, lease_payload=lease_payload)
-    if status["result"] != "ok":
-        raise HerdrPuppetError(
-            "reconcile_status_blocked",
-            "Structural status blocked partial-send reconciliation.",
-            details={"blockers": status["blockers"]},
-        )
-    digest = sha256_text(text)
-    updated = json.loads(json.dumps(lease_payload))
-    updated["next_seq"] = seq + 1
-    atomic_json(lease_path, updated)
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                updated["run_id"],
-                "qualification.send-reconciled",
-                "observed",
-                seq=seq,
-                prompt_sha256=digest,
-                data={
-                    "pane_id": updated["pane_id"],
-                    "evidence": evidence,
-                    "herdr_mutated": False,
-                },
-            ),
-        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if seq != current["next_seq"]:
+            raise HerdrPuppetError(
+                "send_sequence_mismatch",
+                "Send sequence is stale, skipped, duplicate, or replayed.",
+                details={"expected": current["next_seq"], "received": seq},
+            )
+        if current.get("harness_readiness") != HARNESS_READY:
+            raise HerdrPuppetError(
+                "harness_readiness_not_proven",
+                "Pane-input reconciliation requires explicit harness readiness.",
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "reconcile_status_blocked",
+                "Structural status blocked partial-send reconciliation.",
+                details={"blockers": status["blockers"]},
+            )
+        digest = sha256_text(text)
+        updated = json.loads(json.dumps(current))
+        updated["next_seq"] = seq + 1
+        atomic_json(locked_lease_path, updated)
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "qualification.send-reconciled",
+                    "observed",
+                    seq=seq,
+                    prompt_sha256=digest,
+                    data={
+                        "pane_id": updated["pane_id"],
+                        "evidence": evidence,
+                        "harness_readiness": HARNESS_READY,
+                        "herdr_mutated": False,
+                    },
+                ),
+            )
     return {
         "schema": "herdr-puppet.qualification-send-reconciled.v1",
         "result": "ok",
@@ -1282,6 +2248,7 @@ def qualification_token_probe(
     client: HerdrClient,
     *,
     lease_payload: dict[str, Any],
+    lease_path: Path,
     nonce: str,
     allow_live: bool,
     lines: int = 40,
@@ -1289,8 +2256,7 @@ def qualification_token_probe(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    if lease_payload["state"] != "active":
-        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+    _require_optional_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -1306,16 +2272,28 @@ def qualification_token_probe(
             "invalid_probe_timeout",
             "Qualification token probe timeout must be between 1 and 300000 ms.",
         )
-    status = structural_status(client, lease_payload=lease_payload)
-    if status["result"] != "ok":
-        raise HerdrPuppetError(
-            "preprobe_status_blocked",
-            "Structural status blocked the token probe.",
-            details={"blockers": status["blockers"]},
-        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        drifted = _lease_revision_drifted_fields(lease_payload, current)
+        if drifted:
+            raise HerdrPuppetError(
+                "stale_lease_payload",
+                "Token probe requires the caller's exact current lease revision.",
+                details={"fields": drifted},
+            )
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "preprobe_status_blocked",
+                "Structural status blocked the token probe.",
+                details={"blockers": status["blockers"]},
+            )
+        expected_after_probe = json.loads(json.dumps(current))
     wait_result = client.wait_output(
-        lease_payload["session"]["name"],
-        lease_payload["pane_id"],
+        current["session"]["name"],
+        current["pane_id"],
         nonce,
         lines,
         timeout_ms,
@@ -1332,28 +2310,43 @@ def qualification_token_probe(
         else None
     )
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                lease_payload["run_id"],
-                "qualification.token-probe",
-                "ok" if matched else "failed",
-                nonce_sha256=nonce_digest,
-                data={
-                    "pane_id": lease_payload["pane_id"],
-                    "matched": matched,
-                    "revision": revision,
-                    "timeout_source": timeout_source,
-                    "wait": "herdr.wait.output",
-                },
-            ),
+    with _lease_lock(lease_path) as locked_lease_path:
+        current_after_probe = _reload_locked_lease(
+            expected_after_probe,
+            locked_lease_path,
         )
+        drifted = _lease_revision_drifted_fields(
+            expected_after_probe,
+            current_after_probe,
+        )
+        if drifted:
+            raise HerdrPuppetError(
+                "lease_changed_during_probe",
+                "The lease changed while the token probe was active.",
+                details={"fields": drifted},
+            )
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    current_after_probe["run_id"],
+                    "qualification.token-probe",
+                    "ok" if matched else "failed",
+                    nonce_sha256=nonce_digest,
+                    data={
+                        "pane_id": current_after_probe["pane_id"],
+                        "matched": matched,
+                        "revision": revision,
+                        "timeout_source": timeout_source,
+                        "wait": "herdr.wait.output",
+                    },
+                ),
+            )
     return {
         "schema": "herdr-puppet.qualification-token-probe.v1",
         "result": "ok" if matched else "not_matched",
-        "run_id": lease_payload["run_id"],
-        "pane_id": lease_payload["pane_id"],
+        "run_id": current_after_probe["run_id"],
+        "pane_id": current_after_probe["pane_id"],
         "matched": matched,
         "nonce_sha256": nonce_digest,
         "pane_text_emitted": False,
@@ -1364,16 +2357,24 @@ def qualification_token_probe(
     }
 
 
+def _lease_revision_drifted_fields(
+    expected: dict[str, Any],
+    current: dict[str, Any],
+) -> list[str]:
+    validate_lease(current)
+    return [
+        field
+        for field in sorted(LEASE_FIELDS)
+        if (field in current) != (field in expected)
+        or current.get(field) != expected.get(field)
+    ]
+
+
 def _assert_wait_lease_revision(
     expected: dict[str, Any],
     current: dict[str, Any],
 ) -> None:
-    validate_lease(current)
-    drifted = [
-        field
-        for field in LEASE_WAIT_REVISION_FIELDS
-        if current.get(field) != expected.get(field)
-    ]
+    drifted = _lease_revision_drifted_fields(expected, current)
     if drifted:
         raise HerdrPuppetError(
             "lease_changed_during_wait",
@@ -1382,16 +2383,129 @@ def _assert_wait_lease_revision(
         )
 
 
-def _reject_terminal_nonce_replay(run_root: Path, nonce_digest: str) -> None:
+def _beacon_wait_usage(
+    run_root: Path,
+    nonce_digest: str,
+    submission_seq: int,
+) -> int:
+    numbered_attempts: set[int] = set()
+    legacy_completed_attempts = 0
     for event in read_events(run_root):
         if (
+            event.get("kind")
+            not in {"qualification.beacon", BEACON_RESERVATION_KIND}
+            or event.get("nonce_sha256") != nonce_digest
+        ):
+            continue
+        checkpoint = (event.get("data") or {}).get("checkpoint")
+        if event.get("kind") == "qualification.beacon" and checkpoint is not None:
+            raise HerdrPuppetError(
+                "terminal_beacon_nonce_reused",
+                "A matched beacon nonce may not be waited again.",
+            )
+        if event.get("seq") != submission_seq:
+            raise HerdrPuppetError(
+                "beacon_nonce_submission_mismatch",
+                "A beacon nonce may be re-waited only for the same submission.",
+            )
+        attempt = (event.get("data") or {}).get("attempt")
+        if attempt is None and event.get("kind") == "qualification.beacon":
+            legacy_completed_attempts += 1
+            continue
+        if (
+            not isinstance(attempt, int)
+            or isinstance(attempt, bool)
+            or attempt < 1
+            or attempt > MAX_BEACON_WAIT_ATTEMPTS
+        ):
+            raise HerdrPuppetError(
+                "invalid_beacon_attempt_journal",
+                "Beacon attempt history contains an invalid reservation.",
+            )
+        numbered_attempts.add(attempt)
+    return max(
+        max(numbered_attempts, default=0),
+        len(numbered_attempts) + legacy_completed_attempts,
+    )
+
+
+def _reserve_beacon_wait_attempt(
+    run_root: Path,
+    *,
+    run_id: str,
+    pane_id: str,
+    nonce_digest: str,
+    submission_seq: int,
+) -> int:
+    used_attempts = _beacon_wait_usage(
+        run_root,
+        nonce_digest,
+        submission_seq,
+    )
+    if used_attempts >= MAX_BEACON_WAIT_ATTEMPTS:
+        raise HerdrPuppetError(
+            "beacon_rewait_limit",
+            "A submission nonce permits at most two bounded wait attempts.",
+        )
+    attempt = used_attempts + 1
+    append_event(
+        run_root,
+        make_event(
+            run_id,
+            BEACON_RESERVATION_KIND,
+            "observed",
+            seq=submission_seq,
+            nonce_sha256=nonce_digest,
+            data={
+                "pane_id": pane_id,
+                "attempt": attempt,
+                "reservation": "durable_before_wait",
+                "transcript_read": False,
+            },
+        ),
+    )
+    return attempt
+
+
+def _validate_beacon_wait_reservation(
+    run_root: Path,
+    *,
+    nonce_digest: str,
+    submission_seq: int,
+    attempt: int,
+) -> None:
+    reservation_matches = 0
+    for event in read_events(run_root):
+        if (
+            event.get("kind")
+            not in {"qualification.beacon", BEACON_RESERVATION_KIND}
+            or event.get("nonce_sha256") != nonce_digest
+        ):
+            continue
+        data = event.get("data") or {}
+        if (
             event.get("kind") == "qualification.beacon"
-            and event.get("nonce_sha256") == nonce_digest
+            and data.get("checkpoint") is not None
         ):
             raise HerdrPuppetError(
                 "terminal_beacon_nonce_reused",
-                "A beacon nonce may not be waited again.",
+                "A matched beacon nonce may not be waited again.",
             )
+        if event.get("seq") != submission_seq:
+            raise HerdrPuppetError(
+                "beacon_nonce_submission_mismatch",
+                "A beacon nonce may be re-waited only for the same submission.",
+            )
+        if (
+            event.get("kind") == BEACON_RESERVATION_KIND
+            and data.get("attempt") == attempt
+        ):
+            reservation_matches += 1
+    if reservation_matches != 1:
+        raise HerdrPuppetError(
+            "beacon_attempt_reservation_invalid",
+            "The exact beacon wait attempt reservation is missing or ambiguous.",
+        )
 
 
 def qualification_beacon_wait(
@@ -1402,12 +2516,10 @@ def qualification_beacon_wait(
     nonce: str,
     allow_live: bool,
     lines: int = 40,
-    timeout_ms: int = 300_000,
+    timeout_ms: int = DEFAULT_BEACON_TIMEOUT_MS,
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    if lease_payload["state"] != "active":
-        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -1423,7 +2535,7 @@ def qualification_beacon_wait(
             "invalid_probe_window",
             "Qualification beacon lines must be between 1 and 80.",
         )
-    if timeout_ms < 1 or timeout_ms > 3_600_000:
+    if timeout_ms < 1 or timeout_ms > MAX_BEACON_TIMEOUT_MS:
         raise HerdrPuppetError(
             "invalid_beacon_timeout",
             "Qualification beacon timeout must be between 1 and 3600000 ms.",
@@ -1431,20 +2543,37 @@ def qualification_beacon_wait(
     require_initialized_journal(
         run_root,
         run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
     )
     nonce_digest = sha256_text(nonce)
-    _reject_terminal_nonce_replay(run_root, nonce_digest)
-    current_before_wait = load_json(lease_path)
-    _assert_wait_lease_revision(lease_payload, current_before_wait)
-    if current_before_wait["state"] != "active":
-        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
-    status = structural_status(client, lease_payload=lease_payload)
-    if status["result"] != "ok":
-        raise HerdrPuppetError(
-            "prewait_status_blocked",
-            "Structural status blocked the beacon wait.",
-            details={"blockers": status["blockers"]},
+    with _lease_lock(lease_path) as locked_lease_path:
+        current_before_wait = _reload_locked_lease(
+            lease_payload,
+            locked_lease_path,
         )
+        if current_before_wait["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        submission_seq = current_before_wait["next_seq"] - 1
+        if submission_seq < 1:
+            raise HerdrPuppetError(
+                "beacon_submission_missing",
+                "Beacon waits require a prior sequenced submission.",
+            )
+        status = structural_status(client, lease_payload=current_before_wait)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "prewait_status_blocked",
+                "Structural status blocked the beacon wait.",
+                details={"blockers": status["blockers"]},
+            )
+        attempt = _reserve_beacon_wait_attempt(
+            run_root,
+            run_id=current_before_wait["run_id"],
+            pane_id=current_before_wait["pane_id"],
+            nonce_digest=nonce_digest,
+            submission_seq=submission_seq,
+        )
+        expected_after_wait = json.loads(json.dumps(current_before_wait))
     pattern = (
         r"^HERDR_PUPPET_("
         + "|".join(CHECKPOINT_KINDS)
@@ -1453,8 +2582,8 @@ def qualification_beacon_wait(
         + r"$"
     )
     wait_result = client.wait_output(
-        lease_payload["session"]["name"],
-        lease_payload["pane_id"],
+        current_before_wait["session"]["name"],
+        current_before_wait["pane_id"],
         pattern,
         lines,
         timeout_ms,
@@ -1489,48 +2618,76 @@ def qualification_beacon_wait(
         if checkpoint == "STATUS"
         else "failed"
     )
-    current_after_wait = load_json(lease_path)
-    _assert_wait_lease_revision(lease_payload, current_after_wait)
-    readiness = current_after_wait.get("harness_readiness", "unverified")
-    if checkpoint == "STATUS" and readiness != STATUS_READY:
-        readiness = STATUS_READY
-        current_after_wait = json.loads(json.dumps(current_after_wait))
-        current_after_wait["harness_readiness"] = readiness
-        atomic_json(lease_path, current_after_wait)
-    append_event(
-        run_root,
-        make_event(
-            lease_payload["run_id"],
-            "qualification.beacon",
-            result,
-            nonce_sha256=nonce_digest,
-            data={
-                "pane_id": lease_payload["pane_id"],
-                "checkpoint": checkpoint,
-                "revision": revision,
-                "timeout_source": timeout_source,
-                "wait": "herdr.wait.output.regex",
-                "harness_readiness": readiness,
-            },
-        ),
-    )
     auto_preserved = checkpoint in {"ACTION_REQUIRED", "DONE"}
-    if auto_preserved:
-        preserve_lease(
-            lease_payload=current_after_wait,
-            lease_path=lease_path,
-            reason=(
+    with _lease_lock(lease_path) as locked_lease_path:
+        current_after_wait = _reload_locked_lease(
+            expected_after_wait,
+            locked_lease_path,
+        )
+        _assert_wait_lease_revision(expected_after_wait, current_after_wait)
+        _validate_beacon_wait_reservation(
+            run_root,
+            nonce_digest=nonce_digest,
+            submission_seq=submission_seq,
+            attempt=attempt,
+        )
+        updated = json.loads(json.dumps(current_after_wait))
+        if checkpoint == "STATUS":
+            updated["shell_readiness"] = SHELL_READY
+        preserve_reason: str | None = None
+        if auto_preserved:
+            preserve_reason = (
                 "human_gate"
                 if checkpoint == "ACTION_REQUIRED"
                 else "milestone_complete"
+            )
+            updated["state"] = "preserved"
+            updated["preserved_reason"] = preserve_reason
+            updated["preserved_at"] = now()
+        if updated != current_after_wait:
+            atomic_json(locked_lease_path, updated)
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "qualification.beacon",
+                result,
+                seq=submission_seq,
+                nonce_sha256=nonce_digest,
+                data={
+                    "pane_id": updated["pane_id"],
+                    "checkpoint": checkpoint,
+                    "revision": revision,
+                    "timeout_source": timeout_source,
+                    "wait": "herdr.wait.output.regex",
+                    "attempt": attempt,
+                    "shell_readiness": _shell_readiness(updated),
+                    "harness_readiness": updated.get(
+                        "harness_readiness",
+                        "unverified",
+                    ),
+                },
             ),
-            run_root=run_root,
         )
+        if preserve_reason is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "lease.preserved",
+                    "human_gate"
+                    if preserve_reason == "human_gate"
+                    else "observed",
+                    data={"reason": preserve_reason, "herdr_mutated": False},
+                ),
+            )
     return {
         "schema": "herdr-puppet.qualification-beacon-wait.v1",
         "result": result if checkpoint else "not_matched",
-        "run_id": lease_payload["run_id"],
-        "pane_id": lease_payload["pane_id"],
+        "run_id": updated["run_id"],
+        "pane_id": updated["pane_id"],
+        "seq": submission_seq,
+        "attempt": attempt,
         "checkpoint": checkpoint,
         "matched": checkpoint is not None,
         "nonce_sha256": nonce_digest,
@@ -1540,10 +2697,9 @@ def qualification_beacon_wait(
         "timeout_source": timeout_source,
         "revision": revision,
         "auto_preserved": auto_preserved,
-        "harness_readiness": readiness,
-        "lease_state": (
-            "preserved" if auto_preserved else current_after_wait["state"]
-        ),
+        "shell_readiness": _shell_readiness(updated),
+        "harness_readiness": updated.get("harness_readiness", "unverified"),
+        "lease_state": updated["state"],
     }
 
 
@@ -1555,37 +2711,40 @@ def preserve_lease(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
     if reason not in PRESERVE_REASONS:
         raise HerdrPuppetError(
             "invalid_preserve_reason",
             "Lease preservation requires a supported bounded reason.",
             details={"supported": sorted(PRESERVE_REASONS)},
         )
-    if lease_payload["state"] == "preserved":
-        return {
-            "schema": "herdr-puppet.lease-preserve.v1",
-            "result": "ok",
-            "run_id": lease_payload["run_id"],
-            "state": "preserved",
-            "reason": lease_payload.get("preserved_reason", reason),
-            "already_preserved": True,
-            "herdr_mutated": False,
-        }
-    updated = json.loads(json.dumps(lease_payload))
-    updated["state"] = "preserved"
-    updated["preserved_reason"] = reason
-    updated["preserved_at"] = now()
-    atomic_json(lease_path, updated)
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                updated["run_id"],
-                "lease.preserved",
-                "human_gate" if reason == "human_gate" else "observed",
-                data={"reason": reason, "herdr_mutated": False},
-            ),
-        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] == "preserved":
+            return {
+                "schema": "herdr-puppet.lease-preserve.v1",
+                "result": "ok",
+                "run_id": current["run_id"],
+                "state": "preserved",
+                "reason": current.get("preserved_reason", reason),
+                "already_preserved": True,
+                "herdr_mutated": False,
+            }
+        updated = json.loads(json.dumps(current))
+        updated["state"] = "preserved"
+        updated["preserved_reason"] = reason
+        updated["preserved_at"] = now()
+        atomic_json(locked_lease_path, updated)
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "lease.preserved",
+                    "human_gate" if reason == "human_gate" else "observed",
+                    data={"reason": reason, "herdr_mutated": False},
+                ),
+            )
     return {
         "schema": "herdr-puppet.lease-preserve.v1",
         "result": "ok",
