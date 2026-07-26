@@ -878,6 +878,113 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(snapshot["processes"], [identity])
         self.assertEqual(snapshot["ancestry_nodes"], [node])
 
+    def test_target_process_snapshot_skips_only_a_proven_vanished_row(self):
+        identity = {
+            "identity_version": 2,
+            "pid": 4242,
+            "start": "darwin:100:1",
+            "kernel_birth_id": "darwin:100:1",
+            "command": "node",
+            "executable_path": "/opt/cursor/node",
+            "device": 1,
+            "inode": 2,
+        }
+        inventory = [
+            {
+                "pid": 4242,
+                "uid": os.getuid(),
+                "name": "node",
+                "comm": "node",
+                "command": "node",
+            }
+        ]
+        exact = {
+            "pid": 4242,
+            "kernel_birth_id": identity["kernel_birth_id"],
+            "executable_path": identity["executable_path"],
+            "device": identity["device"],
+            "inode": identity["inode"],
+        }
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                return_value=exact,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                return_value=identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_identity",
+                side_effect=puppet_registry.ProcessVanished(
+                    "snapshotted PID vanished before BSD identity sampling"
+                ),
+            ),
+            patch.object(
+                puppet_campaign,
+                "_pid_still_exists",
+                return_value=False,
+            ),
+        ):
+            snapshot = puppet_campaign.target_process_snapshot(
+                "cursor",
+                execution_files=[
+                    {
+                        "path": identity["executable_path"],
+                        "device": identity["device"],
+                        "inode": identity["inode"],
+                    }
+                ],
+            )
+        self.assertEqual(snapshot, {"processes": [], "ancestry_nodes": []})
+
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=inventory,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                return_value=exact,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                return_value=identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_identity",
+                side_effect=puppet_registry.ProcessVanished(
+                    "snapshotted PID vanished before BSD identity sampling"
+                ),
+            ),
+            patch.object(puppet_campaign, "_pid_still_exists", return_value=True),
+            self.assertRaisesRegex(IdentityError, "changed during exact snapshot"),
+        ):
+            puppet_campaign.target_process_snapshot(
+                "cursor",
+                execution_files=[
+                    {
+                        "path": identity["executable_path"],
+                        "device": identity["device"],
+                        "inode": identity["inode"],
+                    }
+                ],
+            )
+
     def test_duplicate_session_identity_cannot_change_state_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

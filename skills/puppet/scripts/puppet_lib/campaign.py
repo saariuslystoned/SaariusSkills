@@ -14,6 +14,7 @@ from .errors import IdentityError, ValidationError
 from .registry import (
     ExecTransitionSamplingError,
     ProcessExecutableUnavailable,
+    ProcessVanished,
     darwin_process_inventory,
     darwin_process_text_vnodes,
     process_birth_identity,
@@ -652,7 +653,14 @@ def target_process_snapshot(
             selected = _selected_process_identity(pid, selectors)
             if selected is None:
                 continue
-        node = process_tree_identity(pid)
+        try:
+            node = process_tree_identity(pid)
+        except ProcessVanished as exc:
+            if _pid_still_exists(pid):
+                raise IdentityError(
+                    "same-target process changed during exact snapshot"
+                ) from exc
+            continue
         if selectors and node["process"] != selected:
             raise IdentityError("same-target process changed during exact snapshot")
         if not selectors and node["process"]["command"] != command:
