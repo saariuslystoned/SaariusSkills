@@ -1,0 +1,65 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "grok",
+  "source_head": "f153f18cc9749ed1b40b1420d6b60f5da4b9a6d3",
+  "observed_at": "2026-07-26T12:13:21Z",
+  "scope": "terminal_pair_qualified_pending_public_session_and_final_source_stable_rerun",
+  "runtime": {
+    "name": "Grok Build",
+    "version": "0.2.111",
+    "executable_sha256": "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe",
+    "authentication": "subscription_backed_private_profile",
+    "model_selection": "current_provider_default",
+    "observed_model": "grok-4.5",
+    "session_profile": "regular",
+    "permission_mode": "always_approve",
+    "sandbox_mode": "off",
+    "leader_mode": "standalone_no_leader"
+  },
+  "positive": {
+    "run_id": "grok-positive-f153f18-20260726",
+    "target_pid": 3942,
+    "receipt_sha256": "1f716d2b921c5e49ab9871309e51eed8c4ab36a855d6fac7917c6f813d59ddaf",
+    "native_view_sha256": "6d6e55a024941dc4b1389216153839f6d5ea1ec3890b8a2bf8221a5ce663e257",
+    "halt_sha256": "a8d4490d69314b68fb4fab09e88ec3b1e8a37622753351455da096b3cf271f7b",
+    "workspace_materialization_sha256": "37833d453046f7da2073c021e20420601d5b9ebbc8b356d7591bd7228a8f3dfc",
+    "workspace_rollback_sha256": "71b34c876db137907abbe40edb4f11a2f5f63d2cc8c88990937794dbbdace708",
+    "parent_restoration_verified": true,
+    "post_halt_population": []
+  },
+  "ordinary_control": {
+    "run_id": "grok-ordinary-f153f18-20260726",
+    "target_pid": 9202,
+    "receipt_sha256": "57c2c9d75294e75fe6ef8223892a11699d647ae22a94aebaa87b817d69b4f1e8",
+    "native_view_sha256": "33c70a21061e1b08316434a305301ac9b887e5198928b97d3315f8d2680e1fd2",
+    "halt_sha256": "7750b048ef27cec024f714262292a04877c65d4a16b59d5e9b05094d89abe437",
+    "ordinary_absence_sha256": "63f3341a74a376f5d4820d37097245f96e8aa7e6d8f708ac41e4f0bf737aa0bc",
+    "ordinary_instruction_absent": true,
+    "post_halt_population": []
+  },
+  "pair": {
+    "result": "paired_runtime_verified_after_views_exact_tree_halts_and_positive_rollback",
+    "no_bleed_verified": true,
+    "protected_baseline_equal": true,
+    "body_capture_performed": false,
+    "pair_attestation_sha256": "619f02da72466ad3c9e53fe1df9cb206b941c5dc808d8b5642075c96dc73b5a8",
+    "paired_receipt_sha256": "502a2090b6587a287613f551981ba3b61553fddef2896849a557f82559a6ffb6",
+    "qualified_manifest_sha256": "f9c87fe75f9d5e147784f944b5018662915e3f5445a603586884f7ae1337fd9f",
+    "qualification_authorized": true,
+    "public_launch_authorized": true
+  },
+  "controller_verification": {
+    "pair_reverified": true,
+    "distinct_process_tmux_workspace_socket_uuid_and_viewer_identities": true,
+    "native_read_only_views": 2,
+    "sequenced_steering": true,
+    "exact_owned_tree_halts": true,
+    "zero_residual_target_population": true,
+    "transcript_or_body_retained": false
+  },
+  "non_claims": [
+    "The public regular-session launcher has not yet been exercised from the qualified manifest.",
+    "The public source checkout is 0.2.112 while the installed live binary is 0.2.111; source-derived behavior was accepted only where the installed binary independently demonstrated it.",
+    "A final rerun is required after later qualifying source changes."
+  ]
+}

@@ -403,14 +403,22 @@ recheck before its standalone private-socket runtime starts.
   receipt closes the mapping. Help/parser facts alone never complete the mapping.
 - Public qualification and launch remain fenced for doctor-only manifests.
   They clear only after `pair-grok`, `verify-grok-pair`, and `qualify`
-  independently rebuild a terminal receipt from both real members. Live
-  semantics of `--sandbox off`, `--always-approve`, and authenticated
-  leader/child topology remain unproved until that campaign runs.
+  independently rebuild a terminal receipt from both real members.
+- Live-qualified at exact source head `f153f18cc9749ed1b40b1420d6b60f5da4b9a6d3`:
+  one positive and one linked ordinary-control Grok 0.2.111 session used the
+  authenticated private profile and provider-default `grok-4.5`, explicit
+  `--always-approve`, `--sandbox off`, `--no-leader`, `--trust`, private
+  socket/UUID/cwd bindings, two native read-only tmux/iTerm views, two
+  sequenced steering checkpoints, exact dual tree halts, equal protected
+  baselines, and positive-only parent-restoring rule rollback. The pair
+  independently reverified and produced a qualified manifest with public
+  launch authority. The curated transcript-free record is
+  `plans/puppet/live-proof/grok-f153f18-20260726.json`.
 - `session.py` derives a fresh canonical socket/UUID/explicit-cwd vector for
   every qualified Grok session and rebinds the exact enrolled profile status.
-- Remaining for promotion: controller-owned paired positive/control sessions,
-  independent checkpoints, native read-only attach evidence, exact dual halts,
-  then terminal isolation and mapping closure under root authority.
+- Remaining for final campaign closeout: exercise the public regular-session
+  launcher from the qualified manifest, rerun after the last source change,
+  and include Grok in the five-harness concurrent lifecycle proof.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
   launcher/runtime separation, path containment, no live-home fallback,
   distinct lane sockets/UUIDs/workspaces/processes/tmux/viewers, exact
