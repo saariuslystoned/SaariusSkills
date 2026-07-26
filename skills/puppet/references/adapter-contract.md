@@ -136,6 +136,47 @@ against the current doctor-only manifest and profile. Neither command promotes,
 qualifies, or authorizes public launch. Independent root-run live sessions,
 review, and explicit integration remain outside this source substrate.
 
+Grok uses a promotable paired-runtime contract, not its older filesystem-only
+matched-control precheck. Build one body-free positive request with
+`grok-request`; it binds the fresh doctor manifest, candidate worktree,
+cockpit/common-repository identity, controller/campaign/goal, exact executable,
+and enrolled private profile without carrying the eventual rule path or body.
+Positive Pass B compiles the randomized conformance task, derives and persists
+the exact `.grok/rules/puppet-<rendered-sha256>.md` descriptor before target
+start, materializes create-only, and sends only the fixed opaque native trigger.
+The later ordinary Pass B supplies
+`--paired-grok-positive-receipt POSITIVE_RECEIPT`, carries no positive
+descriptor, uses a distinct workspace, and proves zero namespaced Puppet rules
+before and after its normal direct task delivery.
+
+Each member's canonical runtime vector is:
+
+```text
+grok-0.2.111-macos-aarch64 --always-approve --sandbox off \
+  --cwd ABSOLUTE_WORKSPACE --leader-socket NEW_PRIVATE_SOCKET \
+  --session-id CANONICAL_UUIDV4
+```
+
+The vector is rebuilt from the exact logged-in private-profile binding; its
+status must report default `grok-4.5`. Model and effort selectors are forbidden.
+The two members share controller/campaign/goal/executable/adapter/protocol/
+compiler/profile/mapping authority but must have distinct run, session,
+workspace, process, tmux, socket, UUID, checkpoint, and viewer identities.
+Both runs require the normal sequenced follow-up checkpoint and exact
+registered-root halt, retained descendant ancestry, and identical protected
+pre/post populations. The positive rule must be hash-guardedly rolled back.
+
+Record each live read-only view with
+`observe-grok-view --run-root RUN_ROOT`; it observes one tmux client attach and
+detach structurally and performs no pane capture. Build the terminal receipt
+with `pair-grok`, then use `verify-grok-pair` to reopen both receipts, views,
+profile/launch/evidence/halt artifacts, positive materialization/rollback, and
+ordinary absence proof and to rebuild the matched-control digest and
+controller-ledger projection. Only that exact terminal schema may close Grok's
+mapping through `qualify`. A positive receipt, ordinary receipt, boolean absence
+claim, sibling filesystem check, source-only shared-leader plan, or forged
+doctor result is non-promotable.
+
 On interruption, replace `probe --profile ...` with `recover`, retain the
 shared identity arguments, omit `--subscription-profile-root`, and supply the
 original required `--run-id`. Recovery never relaunches a target. There is no
@@ -147,6 +188,11 @@ non-qualifying, or remains fenced when control delivery or identity is
 ambiguous.
 Claude ordinary-control recovery must also repeat the exact
 `--paired-activation-receipt`.
+Grok positive recovery repeats the exact `--plane-descriptor` request. Grok
+ordinary recovery repeats the exact `--paired-grok-positive-receipt`. If a
+positive rule had been materialized, recovery hash-verifies and removes only
+that namespaced rule after the exact owned process is gone; ambiguity remains
+fenced.
 
 Qualification is capability-granular. The shared two-turn probe verifies
 `launch`, `send`, `status`, `wait`, `checkpoint`, and `halt`. It does not prove

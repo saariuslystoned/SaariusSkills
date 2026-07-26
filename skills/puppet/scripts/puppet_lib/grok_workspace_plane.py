@@ -48,6 +48,7 @@ from .safety import (
 
 
 DESCRIPTOR_SCHEMA = "puppet.grok-workspace-entry-descriptor/v1"
+QUALIFICATION_REQUEST_SCHEMA = "puppet.grok-qualification-request/v1"
 TERMINAL_SCHEMA = "puppet.grok-workspace-isolation-receipt/v1"
 MATERIALIZATION_RECEIPT_SCHEMA = "puppet.grok-workspace-materialization/v1"
 ROLLBACK_RECEIPT_SCHEMA = "puppet.grok-workspace-rollback/v1"
@@ -105,6 +106,28 @@ _DESCRIPTOR_FIELDS = {
     "subscription_profile_root",
     "artifact_relative_path",
     "descriptor_sha256",
+}
+_QUALIFICATION_REQUEST_FIELDS = {
+    "schema",
+    "kind",
+    "target",
+    "target_version",
+    "workspace_root",
+    "workspace_identity_sha256",
+    "direct_repository_root",
+    "cockpit_root",
+    "candidate_branch",
+    "candidate_head",
+    "controller",
+    "campaign_id",
+    "goal_fingerprint",
+    "executable_sha256",
+    "adapter_manifest_sha256",
+    "subscription_profile_root",
+    "materialization_authorized",
+    "launch_authorized",
+    "qualification_authorized",
+    "request_sha256",
 }
 
 _MATERIALIZATION_FIELDS = {
@@ -418,6 +441,145 @@ def validate_grok_entry_descriptor(
     if supplied != sha256_bytes(canonical_json_bytes(unsigned)):
         raise IdentityError("Grok workspace entry descriptor is stale")
     return result
+
+
+def validate_grok_qualification_request(
+    value: Any,
+    *,
+    expected_controller: str,
+    expected_campaign_id: str,
+    expected_goal_fingerprint: str,
+    expected_executable_sha256: str,
+    expected_adapter_manifest_sha256: str,
+    expected_subscription_profile_root: Path | str,
+) -> Dict[str, Any]:
+    """Rejoin a body-free request to current source, profile, and manifest."""
+
+    if not isinstance(value, Mapping) or set(value) != _QUALIFICATION_REQUEST_FIELDS:
+        raise ValidationError("Grok qualification request fields are invalid")
+    if (
+        value.get("schema") != QUALIFICATION_REQUEST_SCHEMA
+        or value.get("kind") != "grok_workspace_positive_request"
+        or value.get("target") != "grok"
+        or value.get("target_version") != GROK_BUILD_VERSION
+        or any(
+            value.get(name) is not False
+            for name in (
+                "materialization_authorized",
+                "launch_authorized",
+                "qualification_authorized",
+            )
+        )
+    ):
+        raise ValidationError("Grok qualification request is not source-only")
+    result = dict(value)
+    supplied = validate_sha256(value.get("request_sha256"), "request fingerprint")
+    unsigned = {name: result[name] for name in result if name != "request_sha256"}
+    if supplied != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise IdentityError("Grok qualification request is stale")
+    if (
+        validate_identifier(value.get("controller"), "request controller")
+        != expected_controller
+        or validate_identifier(value.get("campaign_id"), "request campaign")
+        != expected_campaign_id
+        or validate_sha256(value.get("goal_fingerprint"), "request goal")
+        != expected_goal_fingerprint
+        or validate_sha256(value.get("executable_sha256"), "request executable")
+        != expected_executable_sha256
+        or validate_sha256(
+            value.get("adapter_manifest_sha256"), "request adapter manifest"
+        )
+        != expected_adapter_manifest_sha256
+    ):
+        raise IdentityError("Grok qualification request authority changed")
+    workspace = _canonical_directory(value.get("workspace_root"), "workspace root")
+    direct = _canonical_directory(
+        value.get("direct_repository_root"), "direct repository root"
+    )
+    cockpit = _canonical_directory(value.get("cockpit_root"), "cockpit root")
+    profile = _canonical_directory(
+        value.get("subscription_profile_root"), "subscription profile root"
+    )
+    expected_profile = Path(expected_subscription_profile_root).resolve(strict=True)
+    if profile != expected_profile:
+        raise IdentityError("Grok qualification request profile changed")
+    if (
+        workspace != direct
+        or paths_overlap(workspace, profile)
+        or paths_overlap(cockpit, profile)
+    ):
+        raise IdentityError("Grok qualification request root isolation changed")
+    workspace_identity = _directory_identity(workspace, label="workspace root")
+    if value.get("workspace_identity_sha256") != _identity_sha256(
+        workspace_identity
+    ):
+        raise IdentityError("Grok qualification request workspace identity changed")
+    cockpit_identity = _repository_identity(cockpit, require_linked_clean=False)
+    direct_repo = _repository_identity(direct, require_linked_clean=True)
+    if (
+        direct_repo["git_common_dir"] != cockpit_identity["git_common_dir"]
+        or direct_repo["branch"] != value.get("candidate_branch")
+        or direct_repo["head"]
+        != validate_sha1(value.get("candidate_head"), "request head")
+        or cockpit_identity["dirty"]
+    ):
+        raise IdentityError("Grok qualification request repository identity changed")
+    return result
+
+
+def build_grok_qualification_request(
+    *,
+    workspace_root: Path | str,
+    cockpit_root: Path | str,
+    controller: str,
+    campaign_id: str,
+    goal_fingerprint: str,
+    executable_sha256: str,
+    adapter_manifest_sha256: str,
+    subscription_profile_root: Path | str,
+) -> Dict[str, Any]:
+    """Build a body-free request; the probe derives its hash-named descriptor."""
+
+    workspace = Path(workspace_root).resolve(strict=True)
+    cockpit = Path(cockpit_root).resolve(strict=True)
+    profile = Path(subscription_profile_root).resolve(strict=True)
+    workspace_identity = _directory_identity(workspace, label="workspace root")
+    repository = _repository_identity(workspace, require_linked_clean=True)
+    value = {
+        "schema": QUALIFICATION_REQUEST_SCHEMA,
+        "kind": "grok_workspace_positive_request",
+        "target": "grok",
+        "target_version": GROK_BUILD_VERSION,
+        "workspace_root": str(workspace),
+        "workspace_identity_sha256": _identity_sha256(workspace_identity),
+        "direct_repository_root": str(workspace),
+        "cockpit_root": str(cockpit),
+        "candidate_branch": repository["branch"],
+        "candidate_head": repository["head"],
+        "controller": validate_identifier(controller, "request controller"),
+        "campaign_id": validate_identifier(campaign_id, "request campaign"),
+        "goal_fingerprint": validate_sha256(goal_fingerprint, "request goal"),
+        "executable_sha256": validate_sha256(
+            executable_sha256, "request executable"
+        ),
+        "adapter_manifest_sha256": validate_sha256(
+            adapter_manifest_sha256, "request adapter manifest"
+        ),
+        "subscription_profile_root": str(profile),
+        "materialization_authorized": False,
+        "launch_authorized": False,
+        "qualification_authorized": False,
+    }
+    value["request_sha256"] = sha256_bytes(canonical_json_bytes(value))
+    return validate_grok_qualification_request(
+        value,
+        expected_controller=controller,
+        expected_campaign_id=campaign_id,
+        expected_goal_fingerprint=goal_fingerprint,
+        expected_executable_sha256=executable_sha256,
+        expected_adapter_manifest_sha256=adapter_manifest_sha256,
+        expected_subscription_profile_root=profile,
+    )
 
 
 def build_grok_entry_descriptor(
@@ -1074,11 +1236,13 @@ __all__ = [
     "MATCHED_CONTROL_SCHEMA",
     "MATERIALIZATION_RECEIPT_SCHEMA",
     "PAIRED_RUNTIME_PROOF",
+    "QUALIFICATION_REQUEST_SCHEMA",
     "ROLLBACK_RECEIPT_SCHEMA",
     "TERMINAL_SCHEMA",
     "attest_grok_matched_control",
     "build_artifact_relative_path",
     "build_grok_entry_descriptor",
+    "build_grok_qualification_request",
     "build_grok_terminal_workspace_isolation",
     "descriptor_for_effective_contract",
     "grok_probe_mapping_from_qualified",
@@ -1094,6 +1258,7 @@ __all__ = [
     "rollback_grok_workspace_rule",
     "source_authority_blockers",
     "validate_grok_entry_descriptor",
+    "validate_grok_qualification_request",
     "validate_grok_workspace_isolation",
     "validate_plane_descriptor",
     "verify_grok_workspace_rule",

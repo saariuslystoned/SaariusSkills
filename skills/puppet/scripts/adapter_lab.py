@@ -28,6 +28,11 @@ from puppet_lib.codex_qualification import (
     observe_codex_native_view,
     verify_codex_regular_pair_receipt,
 )
+from puppet_lib.grok_qualification import (
+    build_grok_terminal_qualification,
+    record_grok_native_view,
+    verify_grok_terminal_qualification,
+)
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
 from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
 from puppet_lib.claude_paired_qualification import (
@@ -112,6 +117,7 @@ def _probe(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        paired_grok_positive_receipt=args.paired_grok_positive_receipt,
         codex_entry_plan=args.codex_entry_plan,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
@@ -140,6 +146,7 @@ def _recover(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        paired_grok_positive_receipt=args.paired_grok_positive_receipt,
         codex_entry_plan=args.codex_entry_plan,
         halt_timeout=args.halt_timeout,
     )
@@ -153,6 +160,11 @@ def _verified_receipt(path: Path):
         )
 
         return verify_cursor_terminal_qualification(path)
+    if header.get("schema") == "puppet.grok-regular-qualification/v1":
+        return verify_grok_terminal_qualification(
+            path,
+            expected_private_profile_root=header.get("private_profile_root"),
+        )
     run = verify_qualification_receipt(path)
     if run.get("capabilities") != list(PROBE_CAPABILITIES):
         raise ValidationError(
@@ -229,6 +241,7 @@ def _qualify(args):
     if base.target == "agy":
         require_agy_regular_launch_authority(receipt.get("session_profile"))
     cursor_terminal = receipt.get("schema") == "puppet.cursor-regular-qualification/v1"
+    grok_terminal = receipt.get("schema") == "puppet.grok-regular-qualification/v1"
     if receipt.get("plane_activation") is not None:
         raise UnsupportedError(
             "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
@@ -257,11 +270,13 @@ def _qualify(args):
     if base.target == "claude" and mapping.get("complete") is False:
         mapping = claude_qualified_mapping(mapping)
     if base.target == "grok":
-        # Filesystem-only ordinary-control absence cannot promote Grok. Paired
-        # subscription-backed runtime matched control is still required.
-        from puppet_lib.grok_workspace_plane import require_grok_qualification_promotion
+        if not grok_terminal:
+            raise UnsupportedError(
+                "Grok qualification requires the terminal paired-runtime receipt"
+            )
+        from puppet_lib.grok_workspace_plane import grok_qualified_mapping
 
-        require_grok_qualification_promotion()
+        mapping = grok_qualified_mapping(mapping)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {
@@ -413,6 +428,92 @@ def _verify_codex_pair(args):
     }
 
 
+def _observe_grok_view(args):
+    result = record_grok_native_view(
+        run_root=args.run_root,
+        timeout=args.timeout,
+    )
+    return {
+        "ok": True,
+        "target": "grok",
+        "run_id": result["run_id"],
+        "attached": result["attached"],
+        "detached": result["detached"],
+        "receipt": str(args.run_root.resolve() / "grok-native-view.json"),
+    }
+
+
+def _grok_request(args):
+    from puppet_lib.grok_workspace_plane import build_grok_qualification_request
+
+    manifest = AdapterManifest.from_path(args.manifest)
+    if (
+        manifest.target != "grok"
+        or not manifest.raw["doctor_only"]
+        or manifest.raw["qualification"] is not None
+    ):
+        raise ValidationError(
+            "Grok qualification request requires a fresh doctor-only manifest"
+        )
+    if args.out.exists() or args.out.is_symlink():
+        raise ValidationError("Grok qualification request output already exists")
+    value = build_grok_qualification_request(
+        workspace_root=args.workspace_root,
+        cockpit_root=args.cockpit_root,
+        controller=args.controller,
+        campaign_id=args.campaign_id,
+        goal_fingerprint=args.goal_fingerprint,
+        executable_sha256=manifest.raw["executable"]["sha256"],
+        adapter_manifest_sha256=manifest.fingerprint,
+        subscription_profile_root=args.private_profile_root,
+    )
+    atomic_write_json(args.out, value)
+    return {
+        "ok": True,
+        "target": "grok",
+        "authority": "request_only",
+        "out": str(args.out),
+    }
+
+
+def _pair_grok(args):
+    if args.out.exists() or args.out.is_symlink():
+        raise ValidationError("Grok terminal receipt output already exists")
+    value = build_grok_terminal_qualification(
+        positive_receipt_path=args.positive_receipt,
+        ordinary_receipt_path=args.ordinary_control_receipt,
+        positive_native_view_path=args.positive_native_view,
+        ordinary_native_view_path=args.ordinary_native_view,
+        private_profile_root=args.private_profile_root,
+    )
+    atomic_write_json(args.out, value)
+    verify_grok_terminal_qualification(
+        args.out,
+        expected_private_profile_root=args.private_profile_root,
+    )
+    return {
+        "ok": True,
+        "target": "grok",
+        "terminal_state": value["terminal_state"],
+        "out": str(args.out),
+    }
+
+
+def _verify_grok_pair(args):
+    value = verify_grok_terminal_qualification(
+        args.receipt,
+        expected_private_profile_root=args.private_profile_root,
+    )
+    return {
+        "ok": True,
+        "target": "grok",
+        "terminal_state": value["terminal_state"],
+        "independently_verified": True,
+        "public_launch_authorized": True,
+        "raw_retained": False,
+    }
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Build fingerprinted doctor-only Puppet adapter manifests without launching agents."
@@ -467,6 +568,11 @@ def build_parser():
         ),
     )
     probe_parser.add_argument(
+        "--paired-grok-positive-receipt",
+        type=Path,
+        help="terminal positive Grok receipt that binds this ordinary control",
+    )
+    probe_parser.add_argument(
         "--codex-entry-plan",
         type=Path,
         help="exact prelaunch operator plan required by a positive Codex worktree probe",
@@ -493,6 +599,7 @@ def build_parser():
     recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.add_argument("--paired-activation-receipt", type=Path)
     recover_parser.add_argument("--paired-codex-positive-receipt", type=Path)
+    recover_parser.add_argument("--paired-grok-positive-receipt", type=Path)
     recover_parser.add_argument("--codex-entry-plan", type=Path)
     recover_parser.set_defaults(handler=_recover)
     observe_parser = commands.add_parser(
@@ -544,6 +651,56 @@ def build_parser():
         "--private-profile-root", required=True, type=Path
     )
     verify_pair_parser.set_defaults(handler=_verify_codex_pair)
+    grok_view_parser = commands.add_parser(
+        "observe-grok-view",
+        help="observe one real read-only Grok native-view attach and detach",
+    )
+    grok_view_parser.add_argument("--run-root", required=True, type=Path)
+    grok_view_parser.add_argument("--timeout", type=float, default=120.0)
+    grok_view_parser.set_defaults(handler=_observe_grok_view)
+    grok_request_parser = commands.add_parser(
+        "grok-request",
+        help="build a body-free positive Grok request from a fresh doctor manifest",
+    )
+    grok_request_parser.add_argument("--manifest", required=True, type=Path)
+    grok_request_parser.add_argument("--workspace-root", required=True, type=Path)
+    grok_request_parser.add_argument("--cockpit-root", required=True, type=Path)
+    grok_request_parser.add_argument("--controller", required=True)
+    grok_request_parser.add_argument("--campaign-id", required=True)
+    grok_request_parser.add_argument("--goal-fingerprint", required=True)
+    grok_request_parser.add_argument(
+        "--private-profile-root", required=True, type=Path
+    )
+    grok_request_parser.add_argument("--out", required=True, type=Path)
+    grok_request_parser.set_defaults(handler=_grok_request)
+    grok_pair_parser = commands.add_parser(
+        "pair-grok",
+        help="join one positive and one ordinary Grok runtime into terminal qualification",
+    )
+    grok_pair_parser.add_argument("--positive-receipt", required=True, type=Path)
+    grok_pair_parser.add_argument(
+        "--ordinary-control-receipt", required=True, type=Path
+    )
+    grok_pair_parser.add_argument(
+        "--positive-native-view", required=True, type=Path
+    )
+    grok_pair_parser.add_argument(
+        "--ordinary-native-view", required=True, type=Path
+    )
+    grok_pair_parser.add_argument(
+        "--private-profile-root", required=True, type=Path
+    )
+    grok_pair_parser.add_argument("--out", required=True, type=Path)
+    grok_pair_parser.set_defaults(handler=_pair_grok)
+    verify_grok_parser = commands.add_parser(
+        "verify-grok-pair",
+        help="independently rebuild a terminal Grok paired qualification",
+    )
+    verify_grok_parser.add_argument("--receipt", required=True, type=Path)
+    verify_grok_parser.add_argument(
+        "--private-profile-root", required=True, type=Path
+    )
+    verify_grok_parser.set_defaults(handler=_verify_grok_pair)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)
     verify_parser.set_defaults(handler=_verify)

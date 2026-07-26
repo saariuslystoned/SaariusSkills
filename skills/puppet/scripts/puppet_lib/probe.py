@@ -62,7 +62,22 @@ from .codex_workspace_plane import (
 )
 from .grok_workspace_plane import (
     DESCRIPTOR_SCHEMA as GROK_WORKSPACE_DESCRIPTOR_SCHEMA,
-    GROK_QUALIFICATION_NONPROMOTABLE,
+    QUALIFICATION_REQUEST_SCHEMA as GROK_QUALIFICATION_REQUEST_SCHEMA,
+    build_artifact_relative_path as build_grok_artifact_relative_path,
+    build_grok_entry_descriptor,
+    materialize_grok_workspace_rule,
+    rollback_grok_workspace_rule,
+    validate_grok_entry_descriptor,
+    validate_grok_qualification_request,
+)
+from .grok_qualification import (
+    GROK_NATIVE_TRIGGER,
+    GROK_NATIVE_TRIGGER_SHA256,
+    build_grok_control_source,
+    build_grok_pair_member_source,
+    build_grok_runtime_vector,
+    derive_grok_session_uuid,
+    grok_puppet_rule_count,
 )
 from .contracts import (
     Contract,
@@ -974,6 +989,7 @@ def run_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
@@ -1039,6 +1055,11 @@ def run_probe(
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema") == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
     )
+    grok_qualification_request = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema") == GROK_QUALIFICATION_REQUEST_SCHEMA
+    )
+    grok_positive_probe = grok_workspace_descriptor or grok_qualification_request
     cursor_plane_request = (
         plane_descriptor_value is not None
         and plane_descriptor_value.get("schema")
@@ -1055,7 +1076,7 @@ def run_probe(
     claude_plane_descriptor = (
         plane_descriptor_value is not None
         and not codex_worktree_descriptor
-        and not grok_workspace_descriptor
+        and not grok_positive_probe
         and not cursor_plane_descriptor
     )
     if claude_plane_descriptor and (
@@ -1077,13 +1098,21 @@ def run_probe(
         paired_activation_receipt = _claude_activation_receipt_path(
             proof_root, paired_activation_receipt
         )
-    if grok_workspace_descriptor:
-        # Filesystem-only ordinary-control absence is non-promotable. Paired
-        # subscription-backed runtime matched control remains required before
-        # any Grok workspace isolation Pass B may run from this controller path.
-        if target != "grok":
-            raise ValidationError("Grok workspace descriptor target changed")
-        raise UnsupportedError(GROK_QUALIFICATION_NONPROMOTABLE)
+    if grok_positive_probe and target != "grok":
+        raise ValidationError("Grok positive entry source target changed")
+    grok_ordinary_control = paired_grok_positive_receipt is not None
+    if grok_ordinary_control and (
+        target != "grok" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired Grok positive source is limited to an ordinary control"
+        )
+    if target == "grok" and not (
+        grok_positive_probe or grok_ordinary_control
+    ):
+        raise UnsupportedError(
+            "Grok qualification requires one positive descriptor or linked ordinary control"
+        )
     if cursor_plane_descriptor:
         if target != "cursor":
             raise ValidationError("Cursor workspace descriptor target changed")
@@ -1110,7 +1139,9 @@ def run_probe(
         allow_claude_control=claude_control_probe,
         allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
-        allow_grok_workspace_probe=False,
+        allow_grok_workspace_probe=(
+            grok_positive_probe or grok_ordinary_control
+        ),
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
@@ -1186,6 +1217,25 @@ def run_probe(
             expected_executable_sha256=manifest.raw["executable"]["sha256"],
             expected_subscription_profile_root=subscription_context.profile_root,
         )
+    if grok_workspace_descriptor:
+        validate_grok_entry_descriptor(
+            plane_descriptor_value,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_subscription_profile_root=subscription_context.profile_root,
+        )
+    if grok_qualification_request:
+        validate_grok_qualification_request(
+            plane_descriptor_value,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_adapter_manifest_sha256=manifest.fingerprint,
+            expected_subscription_profile_root=subscription_context.profile_root,
+        )
     if target != "agy":
         validate_subscription_launch_binding(
             subscription_binding,
@@ -1234,6 +1284,22 @@ def run_probe(
             ),
             workspace_isolation=plane_descriptor_value,
         )
+    grok_control_source = None
+    if grok_ordinary_control:
+        grok_control_source = build_grok_control_source(
+            paired_grok_positive_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+        )
+        if (
+            grok_control_source["controller"] != controller
+            or grok_control_source["campaign_id"] != authorization["campaign_id"]
+            or grok_control_source["goal_fingerprint"]
+            != goal_verification["goal_fingerprint"]
+        ):
+            raise IdentityError(
+                "Grok ordinary-control authority differs from its positive source"
+            )
     probes_root = proof_root / "probes"
     if probes_root.exists() and probes_root.is_symlink():
         raise ValidationError("probe root must not be a symlink")
@@ -1252,6 +1318,7 @@ def run_probe(
     subscription_profile_path = run_root / "subscription-profile.json"
     launch_plan_path = run_root / "launch-plan.json"
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
+    grok_request_snapshot_path = run_root / "grok-qualification-request.json"
     activation_context_path = run_root / "activation-context.json"
     matched_attestation_path = run_root / "matched-control-attestation.json"
     matched_signal_path = run_root / "matched-control-signal.json"
@@ -1266,6 +1333,9 @@ def run_probe(
     cursor_activation_transaction_root = (
         activation_lane_root / "cursor-transaction"
     )
+    grok_materialization_path = run_root / "grok-workspace-materialization.json"
+    grok_rollback_path = run_root / "grok-workspace-rollback.json"
+    grok_ordinary_absence_path = run_root / "grok-ordinary-absence.json"
     halt_path = run_root / "halt.json"
     receipt_path = run_root / "receipt.json"
     halt_control_journal = Journal(run_root / "halt-control")
@@ -1289,6 +1359,8 @@ def run_probe(
         state["codex_control_source"] = codex_control_source
     if codex_entry_source is not None:
         state["codex_entry_source"] = codex_entry_source
+    if grok_control_source is not None:
+        state["grok_control_source"] = grok_control_source
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
@@ -1308,6 +1380,10 @@ def run_probe(
     cursor_activation_receipt: Optional[Dict[str, Any]] = None
     cursor_activation_context: Optional[Dict[str, Any]] = None
     cursor_activation_public_context: Optional[Dict[str, Any]] = None
+    grok_runtime_vector: Optional[Dict[str, Any]] = None
+    grok_materialization: Optional[Dict[str, Any]] = None
+    grok_rollback: Optional[Dict[str, Any]] = None
+    grok_absence_before: Optional[int] = None
     matched_compiled: Optional[CompiledMarkerInstruction] = None
     matched_activation_attestation: Optional[Dict[str, Any]] = None
     matched_signal_guard: Optional[Any] = None
@@ -1393,7 +1469,20 @@ def run_probe(
                 raise IdentityError(
                     "Codex ordinary control does not use the positive subscription profile"
                 )
-        if plane_descriptor_value is not None and not cursor_plane_request:
+            if (
+                grok_control_source is not None
+                and grok_control_source["subscription_profile_sha256"]
+                != evidence["subscription_profile_sha256"]
+            ):
+                raise IdentityError(
+                    "Grok ordinary control does not use the positive subscription profile"
+                )
+        if grok_qualification_request:
+            atomic_write_json(
+                grok_request_snapshot_path,
+                plane_descriptor_value,
+            )
+        elif plane_descriptor_value is not None and not cursor_plane_request:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
                 plane_descriptor_value,
@@ -1463,7 +1552,9 @@ def run_probe(
             _initial_prompt(
                 fixture_contract,
                 ready_value,
-                bind_absolute_fixture=codex_worktree_descriptor,
+                bind_absolute_fixture=(
+                    codex_worktree_descriptor or grok_positive_probe
+                ),
             )
             if not claude_plane_descriptor
             else _matched_initial_prompt(fixture_contract, ready_value)
@@ -1503,8 +1594,43 @@ def run_probe(
                 plane_descriptor_snapshot_path,
                 plane_descriptor_value,
             )
+        if grok_qualification_request:
+            plane_descriptor_value = build_grok_entry_descriptor(
+                workspace_root=plane_descriptor_value["workspace_root"],
+                cockpit_root=plane_descriptor_value["cockpit_root"],
+                controller=controller,
+                campaign_id=authorization["campaign_id"],
+                goal_fingerprint=goal_verification["goal_fingerprint"],
+                executable_sha256=manifest.raw["executable"]["sha256"],
+                subscription_profile_root=subscription_context.profile_root,
+                artifact_relative_path=build_grok_artifact_relative_path(
+                    compiled.manifest["rendered_sha256"]
+                ),
+            )
+            validate_grok_entry_descriptor(
+                plane_descriptor_value,
+                expected_controller=controller,
+                expected_campaign_id=authorization["campaign_id"],
+                expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+                expected_executable_sha256=manifest.raw["executable"]["sha256"],
+                expected_subscription_profile_root=subscription_context.profile_root,
+            )
+            atomic_write_json(
+                plane_descriptor_snapshot_path,
+                plane_descriptor_value,
+            )
         atomic_write_json(instruction_path, compiled.manifest)
         instruction_manifest_sha = sha256_file(instruction_path, max_bytes=131072)
+        if (
+            grok_workspace_descriptor
+            and plane_descriptor_value["artifact_relative_path"]
+            != build_grok_artifact_relative_path(
+                compiled.manifest["rendered_sha256"]
+            )
+        ):
+            raise IdentityError(
+                "Grok positive descriptor does not bind the compiled instruction"
+            )
         evidence["instruction_wrapper"] = {
             "manifest_sha256": instruction_manifest_sha,
             "instruction_policy_fingerprint": compiled.manifest[
@@ -1540,20 +1666,71 @@ def run_probe(
                     # binds there; terminal workspace_isolation independently proves
                     # that real process cwd while prompts use absolute fixture paths.
                     launch_repo = Path(plane_descriptor_value["candidate_root"])
+                if grok_positive_probe:
+                    launch_repo = Path(plane_descriptor_value["workspace_root"])
+                if target == "grok":
+                    leader_socket = (
+                        Path(
+                            subscription_binding["directory_identities"]["tmp"][
+                                "path"
+                            ]
+                        )
+                        / ("puppet-%s.sock" % sha256_bytes(run_id.encode())[:12])
+                    )
+                    grok_runtime_vector = build_grok_runtime_vector(
+                        base_argv=argv,
+                        subscription_binding=subscription_binding,
+                        cwd=launch_repo,
+                        leader_socket=leader_socket,
+                        session_uuid=derive_grok_session_uuid(
+                            session=session, run_id=run_id
+                        ),
+                    )
+                    argv = grok_runtime_vector["argv"]
+                    launch_environment = grok_runtime_vector["environment"]
+                    if grok_positive_probe:
+                        grok_materialization = materialize_grok_workspace_rule(
+                            workspace_root=launch_repo,
+                            relative_path=plane_descriptor_value[
+                                "artifact_relative_path"
+                            ],
+                            content=compiled.rendered,
+                            descriptor_sha256=plane_descriptor_value[
+                                "descriptor_sha256"
+                            ],
+                        )
+                        atomic_write_json(
+                            grok_materialization_path, grok_materialization
+                        )
+                    else:
+                        grok_absence_before = grok_puppet_rule_count(launch_repo)
+                        if grok_absence_before != 0:
+                            raise IdentityError(
+                                "Grok ordinary control contains a Puppet rule"
+                            )
                 if target == "cursor":
                     argv = cursor_qualification_launch_argv(
                         mapping,
                         base_argv=argv,
                         workspace_root=launch_repo,
                     )
-                launch_environment, launch_identity = build_launch_identity(
-                    target=target,
-                    repo=launch_repo,
-                    argv=argv,
-                    source_environment=subscription_context.source_environment,
-                    bindings=subscription_context.bindings,
-                    admitted_lane_root=admitted_lane_root,
-                )
+                if target == "grok":
+                    launch_environment, launch_identity = build_launch_identity(
+                        target=target,
+                        repo=launch_repo,
+                        argv=argv,
+                        source_environment=launch_environment,
+                        admitted_lane_root=admitted_lane_root,
+                    )
+                else:
+                    launch_environment, launch_identity = build_launch_identity(
+                        target=target,
+                        repo=launch_repo,
+                        argv=argv,
+                        source_environment=subscription_context.source_environment,
+                        bindings=subscription_context.bindings,
+                        admitted_lane_root=admitted_lane_root,
+                    )
             if cursor_plane_descriptor:
                 if subscription_context is None:
                     raise IdentityError(
@@ -2167,7 +2344,16 @@ def run_probe(
         _write_state(state_path, state, "awaiting_ready")
 
         adapter = adapter_for(target)
-        if activation_plan is None and cursor_activation_plan is None:
+        if grok_positive_probe:
+            initial = GROK_NATIVE_TRIGGER
+            initial_payload = _payload(GROK_NATIVE_TRIGGER + "\n")
+            if (
+                sha256_bytes(initial_payload) != GROK_NATIVE_TRIGGER_SHA256
+                or sha256_bytes(initial_payload)
+                == compiled.manifest["rendered_sha256"]
+            ):
+                raise IdentityError("Grok native instruction trigger is invalid")
+        elif activation_plan is None and cursor_activation_plan is None:
             initial = adapter.envelope(
                 compiled.rendered.decode("utf-8"),
                 session_profile,
@@ -2203,7 +2389,19 @@ def run_probe(
                 activation_plan is None
                 and cursor_activation_plan is None
                 and run_id in argument
-                and not (target == "cursor" and argument == str(fixture))
+                and not (
+                    target in {"cursor", "grok"}
+                    and argument
+                    in {
+                        str(fixture),
+                        str(launch_repo),
+                        (
+                            grok_runtime_vector["record"]["leader_socket"]
+                            if grok_runtime_vector is not None
+                            else ""
+                        ),
+                    }
+                )
             )
             or fixture_contract["nonce"] in argument
             for argument in argv
@@ -2606,6 +2804,34 @@ def run_probe(
                 rollback_intent=cursor_rollback_intent,
                 rollback_receipt=cursor_rollback,
             )
+        if grok_positive_probe:
+            if grok_materialization is None:
+                raise IdentityError("Grok positive materialization is unavailable")
+            grok_rollback = rollback_grok_workspace_rule(
+                workspace_root=grok_materialization["workspace_root"],
+                relative_path=grok_materialization["relative_path"],
+                expected_content_sha256=grok_materialization["content_sha256"],
+            )
+            if grok_rollback.get("absent_after") is not True:
+                raise IdentityError("Grok positive instruction rollback is incomplete")
+            atomic_write_json(grok_rollback_path, grok_rollback)
+        elif grok_ordinary_control:
+            absence_after = grok_puppet_rule_count(launch_repo)
+            if grok_absence_before != 0 or absence_after != 0:
+                raise IdentityError("Grok ordinary instruction absence changed")
+            atomic_write_json(
+                grok_ordinary_absence_path,
+                {
+                    "schema": "puppet.grok-ordinary-absence/v1",
+                    "target": "grok",
+                    "run_id": run_id,
+                    "workspace_root": str(launch_repo),
+                    "puppet_rule_count_before": grok_absence_before,
+                    "puppet_rule_count_after": absence_after,
+                    "ordinary_instruction_absent": True,
+                    "raw_retained": False,
+                },
+            )
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -2761,6 +2987,73 @@ def run_probe(
                     ),
                 ]
             )
+        if grok_positive_probe:
+            if grok_materialization is None or grok_rollback is None:
+                raise IdentityError("Grok positive proof family is incomplete")
+            proof_refs.extend(
+                [
+                    _proof_reference(
+                        "workspace_descriptor",
+                        plane_descriptor_snapshot_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "controller_contract", controller_contract_path, run_root
+                    ),
+                    _proof_reference(
+                        "workspace_materialization",
+                        grok_materialization_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "workspace_rollback", grok_rollback_path, run_root
+                    ),
+                ]
+            )
+        elif grok_ordinary_control:
+            proof_refs.append(
+                _proof_reference(
+                    "grok_ordinary_absence",
+                    grok_ordinary_absence_path,
+                    run_root,
+                )
+            )
+        grok_pairing = None
+        if target == "grok":
+            if grok_runtime_vector is None:
+                raise IdentityError("Grok runtime vector is unavailable")
+            grok_pairing = build_grok_pair_member_source(
+                role=(
+                    "positive"
+                    if grok_positive_probe
+                    else "ordinary_control"
+                ),
+                runtime_vector=grok_runtime_vector["record"],
+                descriptor_sha256=(
+                    plane_descriptor_value["descriptor_sha256"]
+                    if grok_positive_probe
+                    else None
+                ),
+                positive_receipt_path=(
+                    paired_grok_positive_receipt
+                    if grok_ordinary_control
+                    else None
+                ),
+                instruction_artifact=(
+                    {
+                        "relative_path": grok_materialization["relative_path"],
+                        "sha256": grok_materialization["content_sha256"],
+                    }
+                    if grok_positive_probe
+                    else None
+                ),
+                ordinary_absence_sha256=(
+                    sha256_file(grok_ordinary_absence_path, max_bytes=65536)
+                    if grok_ordinary_control
+                    else None
+                ),
+                ordinary_instruction_absent=grok_ordinary_control,
+            )
         receipt_core = {
             "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
             "kind": "real_harness_conformance",
@@ -2793,6 +3086,9 @@ def run_probe(
             "codex_control_source": codex_control_source,
             "proof_refs": proof_refs,
         }
+        if target == "grok":
+            receipt_core["grok_pairing"] = grok_pairing
+            receipt_core["grok_control_source"] = grok_control_source
         controller_attestation = attest_qualification(
             receipt_core,
             authority_root=_authority_root,
@@ -2946,6 +3242,26 @@ def run_probe(
                         population_exc.__class__.__name__,
                         str(population_exc)[:500],
                     )
+        if (
+            grok_materialization is not None
+            and grok_rollback is None
+            and safe_terminal
+        ):
+            try:
+                grok_rollback = rollback_grok_workspace_rule(
+                    workspace_root=grok_materialization["workspace_root"],
+                    relative_path=grok_materialization["relative_path"],
+                    expected_content_sha256=grok_materialization[
+                        "content_sha256"
+                    ],
+                )
+                atomic_write_json(grok_rollback_path, grok_rollback)
+            except Exception as rollback_exc:
+                safe_terminal = False
+                cleanup_error = cleanup_error or "%s: %s" % (
+                    rollback_exc.__class__.__name__,
+                    str(rollback_exc)[:500],
+                )
         if activation_plan is not None and safe_terminal:
             try:
                 activation_recovery = recover_activation(
@@ -3044,6 +3360,7 @@ def recover_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     halt_timeout: float = 10.0,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
@@ -3078,6 +3395,7 @@ def recover_probe(
         else None
     )
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
+    grok_request_snapshot_path = run_root / "grok-qualification-request.json"
     persisted_plane_descriptor = (
         _read_plane_descriptor(plane_descriptor_snapshot_path)
         if (
@@ -3125,10 +3443,33 @@ def recover_probe(
             "target"
         ]["adapter_manifest_sha256"]
     )
+    supplied_grok_request = (
+        supplied_plane_descriptor is not None
+        and supplied_plane_descriptor.get("schema")
+        == GROK_QUALIFICATION_REQUEST_SCHEMA
+    )
+    persisted_grok_request = (
+        _read_plane_descriptor(grok_request_snapshot_path)
+        if (
+            grok_request_snapshot_path.exists()
+            or grok_request_snapshot_path.is_symlink()
+        )
+        else None
+    )
+    request_matches_persisted_grok = (
+        supplied_grok_request
+        and persisted_grok_request is not None
+        and persisted_plane_descriptor is not None
+        and persisted_plane_descriptor.get("schema")
+        == GROK_WORKSPACE_DESCRIPTOR_SCHEMA
+        and canonical_json_bytes(supplied_plane_descriptor)
+        == canonical_json_bytes(persisted_grok_request)
+    )
     if (
         supplied_plane_descriptor is not None
         and persisted_plane_descriptor is not None
         and not request_matches_persisted_cursor
+        and not request_matches_persisted_grok
         and canonical_json_bytes(supplied_plane_descriptor)
         != canonical_json_bytes(persisted_plane_descriptor)
     ):
@@ -3178,10 +3519,21 @@ def recover_probe(
         paired_activation_receipt = _claude_activation_receipt_path(
             proof_root, paired_activation_receipt
         )
-    if grok_workspace_descriptor:
-        if target != "grok":
-            raise ValidationError("Grok workspace descriptor target changed")
-        raise UnsupportedError(GROK_QUALIFICATION_NONPROMOTABLE)
+    if grok_workspace_descriptor and target != "grok":
+        raise ValidationError("Grok workspace descriptor target changed")
+    grok_ordinary_control = paired_grok_positive_receipt is not None
+    if grok_ordinary_control and (
+        target != "grok" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired Grok positive source is limited to ordinary-control recovery"
+        )
+    if target == "grok" and not (
+        grok_workspace_descriptor or grok_ordinary_control
+    ):
+        raise UnsupportedError(
+            "Grok recovery requires its positive descriptor or linked control source"
+        )
     if cursor_plane_descriptor:
         if target != "cursor":
             raise ValidationError("Cursor workspace descriptor target changed")
@@ -3205,7 +3557,9 @@ def recover_probe(
         allow_claude_control=claude_control_probe,
         allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
-        allow_grok_workspace_probe=False,
+        allow_grok_workspace_probe=(
+            grok_workspace_descriptor or grok_ordinary_control
+        ),
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
@@ -3234,6 +3588,52 @@ def recover_probe(
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
     )
+    if grok_workspace_descriptor:
+        validate_grok_entry_descriptor(
+            plane_descriptor_value,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_subscription_profile_root=plane_descriptor_value[
+                "subscription_profile_root"
+            ],
+        )
+    if supplied_grok_request:
+        validate_grok_qualification_request(
+            supplied_plane_descriptor,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_adapter_manifest_sha256=manifest.fingerprint,
+            expected_subscription_profile_root=supplied_plane_descriptor[
+                "subscription_profile_root"
+            ],
+        )
+        if (
+            persisted_plane_descriptor["workspace_root"]
+            != supplied_plane_descriptor["workspace_root"]
+            or persisted_plane_descriptor["cockpit_root"]
+            != supplied_plane_descriptor["cockpit_root"]
+            or persisted_plane_descriptor["candidate_branch"]
+            != supplied_plane_descriptor["candidate_branch"]
+            or persisted_plane_descriptor["candidate_head"]
+            != supplied_plane_descriptor["candidate_head"]
+            or persisted_plane_descriptor["controller"]
+            != supplied_plane_descriptor["controller"]
+            or persisted_plane_descriptor["campaign_id"]
+            != supplied_plane_descriptor["campaign_id"]
+            or persisted_plane_descriptor["goal_fingerprint"]
+            != supplied_plane_descriptor["goal_fingerprint"]
+            or persisted_plane_descriptor["executable_sha256"]
+            != supplied_plane_descriptor["executable_sha256"]
+            or persisted_plane_descriptor["subscription_profile_root"]
+            != supplied_plane_descriptor["subscription_profile_root"]
+        ):
+            raise IdentityError(
+                "Grok positive request differs from its persisted descriptor"
+            )
     state_path = run_root / "state.json"
     evidence_path = run_root / "evidence.json"
     recovery_path = run_root / "recovery.json"
@@ -3269,6 +3669,28 @@ def recover_probe(
     elif paired_codex_positive_receipt is not None:
         raise IdentityError(
             "supplied Codex positive receipt lacks a persisted control source"
+        )
+    persisted_grok_control_source = state.get("grok_control_source")
+    if persisted_grok_control_source is not None:
+        from .grok_qualification import validate_grok_control_source
+
+        persisted_grok_control_source = validate_grok_control_source(
+            persisted_grok_control_source
+        )
+        if paired_grok_positive_receipt is None:
+            raise IdentityError(
+                "Grok ordinary-control recovery requires its positive receipt"
+            )
+        expected_grok_control_source = build_grok_control_source(
+            paired_grok_positive_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+        )
+        if persisted_grok_control_source != expected_grok_control_source:
+            raise IdentityError("Grok ordinary-control source changed during recovery")
+    elif paired_grok_positive_receipt is not None:
+        raise IdentityError(
+            "supplied Grok positive receipt lacks a persisted control source"
         )
     persisted_codex_entry_source = state.get("codex_entry_source")
     if persisted_codex_entry_source is not None:
@@ -3445,6 +3867,45 @@ def recover_probe(
         if recovered_activation.state not in {"prepared", "active", "rolled_back"}:
             raise IdentityError("activation recovery state is unsupported")
         return recovered_activation.state
+
+    def reconcile_grok_positive_rule() -> Optional[str]:
+        if not grok_workspace_descriptor:
+            return None
+        materialization_path = run_root / "grok-workspace-materialization.json"
+        rollback_path = run_root / "grok-workspace-rollback.json"
+        if not materialization_path.exists() and not materialization_path.is_symlink():
+            return None
+        materialization = read_json(
+            materialization_path,
+            max_bytes=65536,
+            reject_sensitive_fields=True,
+        )
+        if (
+            not isinstance(materialization, dict)
+            or materialization.get("schema")
+            != "puppet.grok-workspace-materialization/v1"
+            or materialization.get("workspace_root")
+            != plane_descriptor_value["workspace_root"]
+            or materialization.get("relative_path")
+            != plane_descriptor_value["artifact_relative_path"]
+            or materialization.get("descriptor_sha256")
+            != plane_descriptor_value["descriptor_sha256"]
+            or materialization.get("content_sha256")
+            != instruction_manifest["rendered_sha256"]
+            or materialization.get("created") is not True
+        ):
+            raise IdentityError(
+                "Grok recovery materialization differs from its descriptor"
+            )
+        rollback = rollback_grok_workspace_rule(
+            workspace_root=materialization["workspace_root"],
+            relative_path=materialization["relative_path"],
+            expected_content_sha256=materialization["content_sha256"],
+        )
+        if rollback.get("absent_after") is not True:
+            raise IdentityError("Grok recovery rollback is incomplete")
+        atomic_write_json(rollback_path, rollback)
+        return "rolled_back"
 
     def reconcile_matched_control_signal(
         *, require_observation: bool
@@ -3668,6 +4129,7 @@ def recover_probe(
                 )
             reconcile_matched_control_signal(require_observation=False)
             activation_state = reconcile_plane_activation(rollback_active=True)
+            grok_rule_state = reconcile_grok_positive_rule()
             if lease is not None:
                 transition_session_lease(
                     session=session,
@@ -3693,6 +4155,7 @@ def recover_probe(
                 "server_attempted": False,
                 "target_launch_attempted": False,
                 "plane_activation_state": activation_state,
+                "grok_workspace_rule_state": grok_rule_state,
                 "cleanup": None,
                 "result": "interrupted_probe_reconciled",
             }
@@ -3916,6 +4379,7 @@ def recover_probe(
             )
         reconcile_matched_control_signal(require_observation=False)
         activation_state = reconcile_plane_activation(rollback_active=True)
+        grok_rule_state = reconcile_grok_positive_rule()
         if lease is not None and lease["state"] in {"launching", "active", "halting"}:
             transition_session_lease(
                 session=session,
@@ -3941,6 +4405,7 @@ def recover_probe(
             "server_attempted": server_attempted,
             "target_launch_attempted": target_launch_attempted,
             "plane_activation_state": activation_state,
+            "grok_workspace_rule_state": grok_rule_state,
             "cleanup": cleanup,
             "result": "interrupted_probe_reconciled",
         }

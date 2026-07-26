@@ -140,10 +140,10 @@ operator-global home merely because it is logged in: that can also import
 unrelated instructions, configuration, plugins, sessions, and logs. When safe
 adoption is unavailable, group the one-time profile enrollments into first-use
 Puppet onboarding instead of interrupting later runs with repeated prompts.
-For Grok 0.2.111, prefer qualification of its native shared-leader/exact-socket
-surface as the no-copy operator-subscription candidate. Its external auth
-provider is not a cached-session export and is not a generic consumer bridge
-without a separately provisioned token provider.
+For Grok 0.2.111, qualify the current standalone private-profile pair first. The
+attended shared-leader/exact-socket surface remains a deferred no-copy
+operator-subscription candidate. Its external auth provider is not a cached
+session export or generic consumer bridge without a provisioned token provider.
 Use `grok_shared_leader.py` only to compile the exact source plan and bind
 structural observations. Require an empty same-target baseline before the
 attended leader starts. Puppet must not start or signal that leader: present
@@ -152,6 +152,9 @@ private socket and process identity. Client halt authority targets only the
 exact client root and must preserve the leader tree and socket unchanged.
 Socket ownership, TUI attach semantics, configuration no-bleed, and live halt
 remain blockers until independently observed.
+Do not mix the deferred shared-leader topology into the promotable standalone
+pair: every current Grok member gets its own new socket and UUID below the same
+exact enrolled private profile.
 Use `onboard` with the current adapter manifest for every selected harness and
 one durable mode-0700 profile shelf. It prepares or rejoins supported profiles,
 runs body-free native status checks, silently marks logged-in profiles ready,
@@ -402,6 +405,55 @@ activation rolls it back only after the controller proves the exact target
 stopped and the protected same-target population returned to baseline. Halt,
 population, artifact, or rollback ambiguity leaves the activation fenced for
 controller adjudication; recovery never relaunches or guesses at cleanup.
+
+Grok qualification uses a positive request and later linked ordinary control.
+Build the body-free request before the positive run:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py grok-request \
+  --manifest <fresh-grok-doctor-manifest> \
+  --workspace-root <positive-worktree> --cockpit-root <cockpit-repo> \
+  --controller <controller> --campaign-id <campaign> \
+  --goal-fingerprint <goal-sha256> \
+  --private-profile-root <exact-enrolled-grok-profile> \
+  --out <private-proof-root>/grok-qualification-request.json
+```
+
+Run positive Pass B with that request as `--plane-descriptor`; it derives the
+contract-hash rule before launch, materializes it create-only, sends only the
+opaque trigger, and rolls it back after exact halt. While each run is live,
+observe one read-only native TUI client without pane capture:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py observe-grok-view \
+  --run-root <proof-root>/probes/<run-id>
+```
+
+Run ordinary Pass B with no descriptor and `--paired-grok-positive-receipt
+<positive-receipt>`. Then build, independently verify, and qualify the pair:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py pair-grok \
+  --positive-receipt <positive-receipt> \
+  --ordinary-control-receipt <ordinary-receipt> \
+  --positive-native-view <positive-view> \
+  --ordinary-native-view <ordinary-view> \
+  --private-profile-root <exact-enrolled-grok-profile> \
+  --out <private-proof-root>/grok-terminal-qualification.json
+python3 <skill-root>/scripts/adapter_lab.py verify-grok-pair \
+  --receipt <private-proof-root>/grok-terminal-qualification.json \
+  --private-profile-root <exact-enrolled-grok-profile>
+python3 <skill-root>/scripts/adapter_lab.py qualify \
+  --manifest <fresh-grok-doctor-manifest> --mapping <fresh-grok-mapping> \
+  --receipt <private-proof-root>/grok-terminal-qualification.json \
+  --out <qualified-grok-manifest>
+```
+
+Both members must report the same logged-in profile and exact `grok-4.5`
+default while using distinct workspaces, processes, tmux identities, sockets,
+UUIDs, checkpoints, and viewers. Both exact tree halts must restore the same
+protected baseline. A standalone member, synthetic absence boolean,
+filesystem-only sibling check, or edited manifest cannot promote or launch.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

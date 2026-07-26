@@ -371,6 +371,13 @@ GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS = (
     "workspace_materialization",
     "workspace_rollback",
 )
+GROK_POSITIVE_MEMBER_PROOF_KINDS = (
+    "workspace_descriptor",
+    "controller_contract",
+    "workspace_materialization",
+    "workspace_rollback",
+)
+GROK_ORDINARY_MEMBER_PROOF_KINDS = ("grok_ordinary_absence",)
 PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
 ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
 _PROBE_PLANE_ACTIVATION_FIELDS = {
@@ -420,6 +427,10 @@ _RECEIPT_FIELDS = {
     "controller_attestation",
 }
 _PAIRED_RECEIPT_FIELDS = _RECEIPT_FIELDS | {"claude_pairing"}
+_GROK_PAIR_RECEIPT_FIELDS = _RECEIPT_FIELDS | {
+    "grok_pairing",
+    "grok_control_source",
+}
 
 _ACCEPTED_EVIDENCE_FIELDS = {
     "schema_version",
@@ -691,7 +702,24 @@ def _verify_qualification_instruction_authority(
         raise ValidationError("qualification instruction authority is incomplete")
     activation = validate_probe_plane_activation(receipt.get("plane_activation"))
     initial_payload_sha256 = review_summary.get("initial_payload_sha256")
-    if activation is None:
+    grok_pairing = receipt.get("grok_pairing")
+    grok_positive = (
+        isinstance(grok_pairing, Mapping)
+        and grok_pairing.get("role") == "positive"
+    )
+    if grok_positive:
+        from .grok_qualification import GROK_NATIVE_TRIGGER_SHA256
+
+        if (
+            initial_payload_sha256 != GROK_NATIVE_TRIGGER_SHA256
+            or initial_payload_sha256 == instruction_manifest.get("rendered_sha256")
+            or grok_pairing.get("instruction_artifact", {}).get("sha256")
+            != instruction_manifest.get("rendered_sha256")
+        ):
+            raise ValidationError(
+                "Grok positive did not use the opaque native instruction trigger"
+            )
+    elif activation is None:
         if initial_payload_sha256 != instruction_manifest.get("rendered_sha256"):
             raise ValidationError(
                 "qualification delivered payload does not match instruction manifest"
@@ -716,6 +744,16 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
         workspace_kinds = GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS
     else:
         workspace_kinds = ()
+    grok_member_kinds: tuple[str, ...] = ()
+    if receipt.get("target") == "grok" and receipt.get("grok_pairing") is not None:
+        from .grok_qualification import validate_grok_pair_member_source
+
+        member = validate_grok_pair_member_source(receipt["grok_pairing"])
+        grok_member_kinds = (
+            GROK_POSITIVE_MEMBER_PROOF_KINDS
+            if member["role"] == "positive"
+            else GROK_ORDINARY_MEMBER_PROOF_KINDS
+        )
     activation_kinds: tuple[str, ...] = ()
     if activation is not None:
         activation_kinds = (
@@ -723,7 +761,12 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
             if receipt.get("target") == "cursor"
             else ACTIVATION_QUALIFICATION_PROOF_KINDS
         )
-    expected_kinds = QUALIFICATION_PROOF_KINDS + activation_kinds + workspace_kinds
+    expected_kinds = (
+        QUALIFICATION_PROOF_KINDS
+        + activation_kinds
+        + workspace_kinds
+        + grok_member_kinds
+    )
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
         raise ValidationError("qualification proof references are incomplete")
@@ -908,7 +951,11 @@ def verify_qualification_receipt(
         )
     if receipt_schema != QUALIFICATION_RECEIPT_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification receipt schema")
-    if set(receipt) not in (_RECEIPT_FIELDS, _PAIRED_RECEIPT_FIELDS):
+    if set(receipt) not in (
+        _RECEIPT_FIELDS,
+        _PAIRED_RECEIPT_FIELDS,
+        _GROK_PAIR_RECEIPT_FIELDS,
+    ):
         raise ValidationError("qualification receipt fields do not match schema")
     claude_pairing = receipt.get("claude_pairing")
     if claude_pairing is not None:
@@ -917,6 +964,22 @@ def verify_qualification_receipt(
         if receipt.get("target") != "claude":
             raise ValidationError("paired qualification is supported only for Claude")
         claude_pairing = validate_pairing_shape(claude_pairing)
+    grok_pairing = receipt.get("grok_pairing")
+    grok_control_source = receipt.get("grok_control_source")
+    if grok_pairing is not None or grok_control_source is not None:
+        from .grok_qualification import (
+            validate_grok_control_source,
+            validate_grok_pair_member_source,
+        )
+
+        if receipt.get("target") != "grok" or grok_pairing is None:
+            raise ValidationError("Grok pair sources are limited to Grok members")
+        grok_pairing = validate_grok_pair_member_source(grok_pairing)
+        if grok_pairing["role"] == "positive":
+            if grok_control_source is not None:
+                raise ValidationError("Grok positive member carries a control source")
+        else:
+            grok_control_source = validate_grok_control_source(grok_control_source)
     if (
         receipt.get("kind") != "real_harness_conformance"
         or receipt.get("result") != "accepted"
@@ -946,7 +1009,7 @@ def verify_qualification_receipt(
             codex_control_source = validate_codex_control_source(
                 codex_control_source
             )
-    if workspace_isolation is not None:
+    if receipt.get("target") == "codex" and workspace_isolation is not None:
         if codex_entry_source is None or codex_control_source is not None:
             raise ValidationError(
                 "Codex positive worktree receipt lacks its prelaunch entry source"
@@ -1027,6 +1090,7 @@ def verify_qualification_receipt(
         receipt["target"] == "grok"
         and current["yolo_mapping"].get("complete") is False
         and workspace_isolation is None
+        and grok_pairing is None
     ):
         raise ValidationError(
             "Grok qualification lacks terminal workspace isolation"
@@ -1384,7 +1448,11 @@ def verify_qualification_receipt(
     expected_cwd = (
         workspace_isolation["startup_cwd"]
         if workspace_isolation is not None
-        else str(expected_fixture)
+        else (
+            grok_pairing["runtime_vector"]["cwd"]
+            if grok_pairing is not None
+            else str(expected_fixture)
+        )
     )
     if launch_plan["cwd"] != expected_cwd:
         raise ValidationError(
@@ -1420,6 +1488,17 @@ def verify_qualification_receipt(
             base_argv=expected_launch_argv,
             workspace_root=expected_fixture,
         )
+    elif receipt["target"] == "grok" and grok_pairing is not None:
+        from .grok_qualification import verify_grok_pair_member_artifacts
+
+        verify_grok_pair_member_artifacts(
+            receipt=receipt,
+            receipt_path=path.resolve(strict=True),
+            artifacts=artifacts,
+            launch_plan=launch_plan,
+            subscription_binding=subscription_binding,
+        )
+        expected_launch_argv = list(launch_plan["argv"])
     if launch_plan["argv"] != expected_launch_argv:
         raise ValidationError("qualification launch argv differs from its authority")
     if workspace_isolation is not None:
@@ -2853,6 +2932,86 @@ class AdapterManifest:
                 if self.raw["capabilities"][name] == "controller_verified"
             ]
             if receipt.get("capabilities") != verified_capabilities:
+                raise ValidationError(
+                    "qualification capability receipt does not match manifest"
+                )
+            return receipt
+        if (
+            self.target == "grok"
+            and receipt_header.get("schema")
+            == "puppet.grok-regular-qualification/v1"
+        ):
+            from .grok_qualification import verify_grok_terminal_qualification
+            from .grok_workspace_plane import grok_qualified_mapping
+
+            receipt = verify_grok_terminal_qualification(
+                path,
+                expected_private_profile_root=receipt_header.get(
+                    "private_profile_root"
+                ),
+                authority_root=_authority_root,
+                current_manifest=_current_manifest,
+            )
+            if receipt.get("session_profile") != qualification["session_profile"]:
+                raise ValidationError("qualification session profile mismatch")
+            if expected_session_profile is not None:
+                expected_session_profile = validate_session_profile(
+                    self.target, expected_session_profile
+                )
+                if receipt.get("session_profile") != expected_session_profile:
+                    raise IdentityError(
+                        "qualification session profile does not match the active contract"
+                    )
+            expected_authority = {
+                "controller": expected_controller,
+                "campaign_id": expected_campaign_id,
+                "goal_fingerprint": expected_goal_fingerprint,
+            }
+            for name, expected in expected_authority.items():
+                if expected is None:
+                    continue
+                if name == "goal_fingerprint":
+                    validate_sha256(expected, "expected goal fingerprint")
+                else:
+                    validate_identifier(expected, "expected qualification %s" % name)
+                if receipt.get(name) != expected:
+                    raise IdentityError(
+                        "qualification %s does not match the active campaign" % name
+                    )
+            if not self.identity_matches(
+                executable=receipt.get("executable_fingerprint"),
+                execution=receipt.get("execution_fingerprint"),
+                adapter=receipt.get("adapter_fingerprint"),
+                protocol=receipt.get("protocol_fingerprint"),
+            ):
+                raise ValidationError("qualification identity mismatch")
+            if (
+                receipt.get("version_fingerprint")
+                != self.raw["executable"]["version_sha256"]
+                or receipt.get("platform_fingerprint")
+                != sha256_bytes(canonical_json_bytes(self.raw["platform"]))
+            ):
+                raise ValidationError(
+                    "qualification platform or version identity mismatch"
+                )
+            probe_mapping = dict(self.raw["yolo_mapping"])
+            probe_mapping["complete"] = False
+            probe_mapping["project_isolation_declared"] = False
+            if grok_qualified_mapping(probe_mapping) != self.raw["yolo_mapping"]:
+                raise ValidationError("Grok qualified mapping closure changed")
+            if receipt.get("yolo_mapping_sha256") != sha256_bytes(
+                canonical_json_bytes(probe_mapping)
+            ):
+                raise ValidationError("qualified YOLO mapping changed")
+            verified_capabilities = [
+                name
+                for name in BEHAVIOR_CAPABILITIES
+                if self.raw["capabilities"][name] == "controller_verified"
+            ]
+            if (
+                receipt.get("capabilities") != verified_capabilities
+                or not set(PROBE_CAPABILITIES) <= set(verified_capabilities)
+            ):
                 raise ValidationError(
                     "qualification capability receipt does not match manifest"
                 )

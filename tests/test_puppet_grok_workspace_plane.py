@@ -48,6 +48,7 @@ from puppet_lib.grok_workspace_plane import (  # noqa: E402
     attest_grok_matched_control,
     build_artifact_relative_path,
     build_grok_entry_descriptor,
+    build_grok_qualification_request,
     build_grok_terminal_workspace_isolation,
     grok_probe_mapping_from_qualified,
     grok_qualified_mapping,
@@ -61,6 +62,7 @@ from puppet_lib.grok_workspace_plane import (  # noqa: E402
     require_source_only_grok_binding,
     rollback_grok_workspace_rule,
     validate_grok_entry_descriptor,
+    validate_grok_qualification_request,
     verify_grok_workspace_rule,
 )
 from puppet_lib.safety import sha256_bytes  # noqa: E402
@@ -142,6 +144,48 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         )
         self.assertNotIn("--model", argv)
         self.assertNotIn("--reasoning-effort", argv)
+
+    def test_body_free_request_binds_source_and_derives_no_rule_path(self) -> None:
+        cockpit, candidate = _init_linked_pair(self.base / "repo-pair")
+        request = build_grok_qualification_request(
+            workspace_root=candidate,
+            cockpit_root=cockpit,
+            controller="codex",
+            campaign_id="campaign-grok-request",
+            goal_fingerprint="1" * 64,
+            executable_sha256="2" * 64,
+            adapter_manifest_sha256="3" * 64,
+            subscription_profile_root=self.profile,
+        )
+        self.assertEqual(
+            validate_grok_qualification_request(
+                request,
+                expected_controller="codex",
+                expected_campaign_id="campaign-grok-request",
+                expected_goal_fingerprint="1" * 64,
+                expected_executable_sha256="2" * 64,
+                expected_adapter_manifest_sha256="3" * 64,
+                expected_subscription_profile_root=self.profile,
+            ),
+            request,
+        )
+        self.assertNotIn("artifact_relative_path", request)
+        self.assertNotIn("content", json.dumps(request, sort_keys=True))
+        self.assertFalse(request["materialization_authorized"])
+        self.assertFalse(request["launch_authorized"])
+        self.assertFalse(request["qualification_authorized"])
+        mutated = copy.deepcopy(request)
+        mutated["candidate_head"] = "4" * 40
+        with self.assertRaisesRegex(IdentityError, "stale|identity"):
+            validate_grok_qualification_request(
+                mutated,
+                expected_controller="codex",
+                expected_campaign_id="campaign-grok-request",
+                expected_goal_fingerprint="1" * 64,
+                expected_executable_sha256="2" * 64,
+                expected_adapter_manifest_sha256="3" * 64,
+                expected_subscription_profile_root=self.profile,
+            )
 
     def test_mapping_closure_helpers_remain_exact_and_fail_closed(self) -> None:
         mapping = _doctor_mapping(self.executable)
@@ -517,7 +561,7 @@ class GrokPromotionFenceTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(
-                    UnsupportedError, "non-promotable|paired subscription-backed"
+                    UnsupportedError, "terminal paired-runtime"
                 ):
                     puppet_adapter_lab._qualify(arguments)
             self.assertFalse(out.exists())
@@ -531,7 +575,7 @@ class GrokPromotionFenceTests(unittest.TestCase):
         self.assertIn("fenced", GROK_PUBLIC_LAUNCH_FENCED)
         self.assertIn("filesystem absence", GROK_NO_BLEED_FS_SHORTCUT_BLOCKER)
 
-    def test_public_launch_remains_fenced_even_when_doctor_reports_ready(self) -> None:
+    def test_forged_ready_doctor_cannot_bypass_terminal_receipt(self) -> None:
         import puppet_lib.session as puppet_session
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -542,10 +586,39 @@ class GrokPromotionFenceTests(unittest.TestCase):
             proof.mkdir()
             state = root / "state"
             state.mkdir()
-            contract = SimpleNamespace(target="grok")
+            contract = SimpleNamespace(
+                target="grok",
+                fingerprint="c" * 64,
+                session_profile="regular",
+            )
+            manifest = SimpleNamespace(
+                fingerprint="d" * 64,
+                verify_qualification=mock.Mock(
+                    side_effect=UnsupportedError(
+                        "terminal paired-runtime receipt required"
+                    )
+                ),
+            )
             with (
                 mock.patch.object(
                     puppet_session.Contract, "from_path", return_value=contract
+                ),
+                mock.patch.object(
+                    puppet_session.AdapterManifest,
+                    "from_path",
+                    return_value=manifest,
+                ),
+                mock.patch.object(
+                    puppet_session, "_authorization", return_value={}
+                ),
+                mock.patch.object(
+                    puppet_session,
+                    "_qualification_authority",
+                    return_value={
+                        "controller": "codex",
+                        "campaign_id": "campaign",
+                        "goal_fingerprint": "e" * 64,
+                    },
                 ),
                 mock.patch.object(
                     puppet_session,
@@ -554,10 +627,14 @@ class GrokPromotionFenceTests(unittest.TestCase):
                         "target": "grok",
                         "launch_ready": True,
                         "doctor_only": False,
+                        "contract_fingerprint": contract.fingerprint,
+                        "manifest_fingerprint": manifest.fingerprint,
                     },
                 ),
             ):
-                with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
+                with self.assertRaisesRegex(
+                    UnsupportedError, "terminal paired-runtime"
+                ):
                     puppet_session.launch(
                         session="grok-fenced",
                         contract_path=root / "unused-contract.json",
@@ -572,37 +649,15 @@ class GrokPromotionFenceTests(unittest.TestCase):
 
 
 class GrokProbeDescriptorFenceTests(unittest.TestCase):
-    def test_probe_rejects_grok_workspace_descriptor_as_nonpromotable(self) -> None:
+    def test_probe_requires_positive_request_or_linked_ordinary_source(self) -> None:
         from puppet_lib import probe as probe_module
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            descriptor = {
-                "schema": DESCRIPTOR_SCHEMA,
-                "target": "grok",
-                "target_version": "0.2.111",
-                "surface": "controller_proved_direct_and_cockpit_join",
-                "qualification_authorized": False,
-                "workspace_root": str(root),
-                "workspace_identity_sha256": "1" * 64,
-                "direct_repository_root": str(root),
-                "cockpit_root": str(root),
-                "candidate_branch": "main",
-                "candidate_head": "2" * 40,
-                "controller": "codex",
-                "campaign_id": "c1",
-                "goal_fingerprint": "3" * 64,
-                "executable_sha256": "4" * 64,
-                "subscription_profile_root": str(root / "profile"),
-                "artifact_relative_path": build_artifact_relative_path("5" * 64),
-                "descriptor_sha256": "6" * 64,
-            }
-            path = root / "descriptor.json"
-            path.write_text(json.dumps(descriptor) + "\n", encoding="utf-8")
             proof = root / "proof"
             proof.mkdir(mode=0o700)
             with self.assertRaisesRegex(
-                UnsupportedError, "non-promotable|paired subscription-backed"
+                UnsupportedError, "positive descriptor|linked ordinary"
             ):
                 probe_module.run_probe(
                     target="grok",
@@ -621,7 +676,6 @@ class GrokProbeDescriptorFenceTests(unittest.TestCase):
                         "path": "g.md",
                         "sha256": "b" * 64,
                     },
-                    plane_descriptor=path,
                 )
 
 

@@ -140,6 +140,29 @@ the structural native-view receipt, exact halts, activated rollback, and no
 activation in the ordinary control. Source-only records and standalone ordinary
 receipts are likewise non-promotable.
 
+Grok qualification similarly begins with a body-free request bound to the
+fresh doctor manifest, exact positive worktree/cockpit repository join,
+controller campaign and goal, executable, and enrolled private profile. Pass B
+derives the exact hash-named `.grok/rules` descriptor after compilation and
+persists it before launch. The positive run receives only the fixed opaque
+native trigger; its rule is create-only and removed by hash-guarded rollback
+after exact halt. The ordinary run is launched later from a distinct fixture,
+is immutably linked to the terminal positive receipt, receives the regular
+compiled task directly, and proves zero namespaced rules before and after.
+
+Every Grok member uses a fresh private-profile-contained leader socket,
+canonical UUIDv4, and explicit absolute cwd. Qualification binds the same exact
+logged-in profile and reported `grok-4.5` default while forbidding model/effort
+selectors. The terminal pair requires distinct process/tmux/session/socket/
+UUID/workspace/checkpoint/viewer identities, normal sequenced steering,
+retained descendant ancestry, exact standalone tree halts, and equality of the
+same protected target population before and after both members. Observe one
+read-only native tmux client per member structurally; never capture its pane.
+Only the independently rebuilt controller-attested terminal pair may close
+Grok's mapping or authorize normal launch. Filesystem-only absence, either
+member alone, a synthetic no-bleed flag, or the deferred shared-leader source
+plan remains non-promotable.
+
 The current product baseline is `regular` only. `/goal`, `/loop`,
 `/teamwork-preview`, alternate models, and automatic routing remain separate,
 versioned lifecycle qualifications and must not be silently injected.

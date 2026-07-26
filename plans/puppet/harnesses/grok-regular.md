@@ -1,6 +1,8 @@
 # Grok Build regular-session qualification harness (v0.1)
 
-Status: exact-version mapping only; no live Grok session is qualified.
+Status: paired-runtime qualification substrate implemented; no live Grok pair
+is qualified until both subscription-backed runs and their native views are
+independently verified.
 
 ## Scope and lane contract
 
@@ -183,14 +185,25 @@ Zero-agent hashes for the exact installed surface:
 - `grok agent leader --help`:
   `5d0199eb0b874a66a899c34e305719e3f52eb816d3799f9b3510301fdf0455d7`
 
-### Plane 2: workspace addendum (strongest candidate, unqualified)
+### Plane 2: workspace addendum (implemented qualification candidate)
 
-Create a unique deepest-scope
-`<fixture-cwd>/.grok/rules/puppet-<contract-sha>.md` artifact with
-`write_mode=create_only`, then launch with explicit
-`--cwd <absolute-fixture-cwd>`. Preserve every existing repository instruction.
-Prove discovery order, built-in/tool retention, repository authority, and exact
-hash-guarded rollback before promotion.
+The positive Pass-B run creates a deepest-scope
+`<candidate-worktree>/.grok/rules/puppet-<contract-sha>.md` artifact with
+`write_mode=create_only`, then launches from that exact worktree with explicit
+`--cwd`, a new socket below the enrolled private profile, and a canonical new
+UUIDv4. The externally prepared request is body-free. After the randomized
+fixture contract is compiled, the controller derives and persists the exact
+hash-named entry descriptor before process launch. Only the positive run
+receives the opaque native trigger; the ordinary control receives the regular
+compiled task directly and must contain zero namespaced Puppet rules before
+and after execution.
+
+Promotion requires both real receipts, distinct workspaces/processes/tmux
+identities/sockets/UUIDs/checkpoints/viewers, the same exact authenticated
+profile and reported `grok-4.5` default, one sequenced steering turn per run,
+two structural read-only native views, two exact standalone tree halts, equal
+protected before/after baselines, and positive hash-guarded rollback.
+Filesystem absence by itself remains explicitly non-promotable.
 
 ### Plane 3: invocation-scoped additive file (unsupported)
 
@@ -264,11 +277,14 @@ absolute directory, and `git` plus `sh` must resolve against that exact PATH.
 loader settings, cloud/API credentials, and all other ambient values are
 absent.
 
-This is planning authority only. The candidate records
-`launch_authorized=false` with blockers for authentication isolation, the
-native instruction plane, and live leader/child halt proof. Normal-session
-doctor also keeps Grok blocked even if a synthetic manifest claims readiness.
-No live Grok session was launched or qualified by this change.
+The older `grok_launch.py` binding remains planning authority only. The
+paired-runtime path composes the same canonical vector from the body-free
+private-profile binding inside Pass B and revalidates it immediately before
+start. A doctor-only manifest remains fenced. A qualified manifest can clear
+the normal-session fence only when it references the independently rebuilt
+terminal pair; a positive member, ordinary member, filesystem-only absence
+record, or edited ready bit cannot clear it. No live Grok session was launched
+or qualified by this source change.
 
 The task remains in the tmux-buffer transport. The wrapper is not native-plane
 proof. Literal/replacement prompt flags, saved/latest sessions, `--continue`,
@@ -276,8 +292,10 @@ Grok-managed worktrees, and inherited operator homes are forbidden.
 
 `HOME` matters separately from `GROK_HOME`: enabled compatibility scanners may
 consult it. Qualification needs a lane-owned `HOME` or an exact complete
-scanner-disable contract. Bind any leader process/socket and spawned children;
-the current single pane-process identity is insufficient for a shared leader.
+scanner-disable contract. The current pair uses a standalone private socket for
+each member and retains complete descendant ancestry until exact halt. The
+attended shared-leader design remains deferred evidence and is not silently
+substituted into this qualification.
 
 Normal-session preflight now retains every current-UID `grok`,
 `grok-macos-aarch64`, or `grok-0.2.111-macos-aarch64` candidate found by the
@@ -290,9 +308,9 @@ cannot match: only the validated final-runtime selector carries matching
 authority.
 An exact current-manifest population still requires the existing exact V2
 parallel override. A same-name different-vnode candidate is a hard blocker and
-cannot be hidden by that override. Because all live Grok launch remains fenced,
-the eventual pre-start population recheck belongs with the future leader-tree
-authority rather than an unreachable launch hook.
+cannot be hidden by that override. Doctor-only and source-only launch remain
+fenced; a terminal paired manifest still performs the pre-start population
+recheck before its standalone private-socket runtime starts.
 
 ## 5) Required proof and rollback
 
@@ -313,17 +331,17 @@ authority rather than an unreachable launch hook.
 
 ## 6) Source status and remaining deltas
 
-- Implemented non-promotable workspace substrate: `grok_workspace_plane.py`
+- Implemented paired qualification substrate: `grok_workspace_plane.py`
   binds create-only `.grok/rules/puppet-<hash>.md` materialization, direct-
   repository and cockpit entry join, hash-guarded rollback, exact regular argv
   without model/effort selectors, and mapping-closure helpers. Ordinary-control
   filesystem absence is only a structural precheck
   (`no_bleed_verified=false`, `proof_strength=filesystem_absence_only_nonpromotable`)
-  and cannot build terminal isolation or clear launch. Paired subscription-backed
-  runtime matched control (independent checkpoints, native read-only attach, and
-  exact halts of both owned processes) remains required before promotion.
-  `adapter_lab.py qualify` and `probe.py` reject Grok workspace promotion in this
-  slice. `puppet.py launch` stays fenced for Grok.
+  and cannot build terminal isolation or clear launch.
+  `grok_qualification.py` now verifies the stronger subscription-backed
+  positive/ordinary runtime pair, two native views, exact independent halt
+  trees, equal protected baselines, positive rollback, exact profile/default
+  model, and immutable ordinary-to-positive linkage.
 - Implemented source-only: the exact 0.2.111 workspace-addendum descriptor and
   a deterministic body-free `binding_only` join rederived from its validated
   instruction manifest, effective contract, current adapter/doctor manifest,
@@ -382,21 +400,53 @@ authority rather than an unreachable launch hook.
 - Intentionally unchanged: zero-agent census remains `doctor_only` with
   incomplete `project_isolation_declared` until a terminal workspace-isolation
   receipt closes the mapping. Help/parser facts alone never complete the mapping.
-- Public Pass-B / qualify / launch remain non-promotable for Grok until paired
-  runtime no-bleed is controller-proved. Live semantics of `--sandbox off` /
-  `--always-approve` and leader/child halt topology remain unproved.
-- `session.py`: Grok public launch stays fenced regardless of doctor_only.
+- Public qualification and launch remain fenced for doctor-only manifests.
+  They clear only after `pair-grok`, `verify-grok-pair`, and `qualify`
+  independently rebuild a terminal receipt from both real members. Live
+  semantics of `--sandbox off`, `--always-approve`, and authenticated
+  leader/child topology remain unproved until that campaign runs.
+- `session.py` derives a fresh canonical socket/UUID/explicit-cwd vector for
+  every qualified Grok session and rebinds the exact enrolled profile status.
 - Remaining for promotion: controller-owned paired positive/control sessions,
   independent checkpoints, native read-only attach evidence, exact dual halts,
   then terminal isolation and mapping closure under root authority.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
   launcher/runtime separation, path containment, no live-home fallback,
-  distinct lane sockets/UUIDs, leader identity, default-model parsing, and
-  rejection of wrapper-only plane claims.
+  distinct lane sockets/UUIDs/workspaces/processes/tmux/viewers, exact
+  default-model binding, positive/control relinking, baseline drift, malformed
+  ancestry, missing views, incomplete halts, rollback, and filesystem-only
+  shortcut rejection.
+
+### Exact controller sequence
+
+```text
+adapter_lab.py grok-request --manifest DOCTOR --workspace-root POSITIVE_WORKTREE \
+  --cockpit-root COCKPIT --controller CONTROLLER --campaign-id CAMPAIGN \
+  --goal-fingerprint GOAL --private-profile-root PROFILE --out REQUEST
+adapter_lab.py probe ... --target grok --plane-descriptor REQUEST
+adapter_lab.py observe-grok-view --run-root POSITIVE_RUN_ROOT
+adapter_lab.py probe ... --target grok \
+  --paired-grok-positive-receipt POSITIVE_RECEIPT
+adapter_lab.py observe-grok-view --run-root ORDINARY_RUN_ROOT
+adapter_lab.py pair-grok --positive-receipt POSITIVE_RECEIPT \
+  --ordinary-control-receipt ORDINARY_RECEIPT \
+  --positive-native-view POSITIVE_VIEW --ordinary-native-view ORDINARY_VIEW \
+  --private-profile-root PROFILE --out TERMINAL_RECEIPT
+adapter_lab.py verify-grok-pair --receipt TERMINAL_RECEIPT \
+  --private-profile-root PROFILE
+adapter_lab.py qualify --manifest DOCTOR --mapping MAPPING \
+  --receipt TERMINAL_RECEIPT --out QUALIFIED
+```
+
+The positive request is body-free; Pass B derives and persists the exact
+hash-named descriptor before launch. Repeat that request on positive recovery,
+or the exact positive receipt on ordinary recovery. Recovery never relaunches.
+No command above adopts, inspects, or mutates the operator-global Grok home.
 
 ## 7) Blockers and stop condition
 
-- The no-copy attended shared-leader route has source admission but still
+- The no-copy attended shared-leader route is deferred. It has source admission
+  but still
   requires the explicit human start action and live proof of socket ownership,
   TUI attach without local auth, and configuration no-bleed. The durable
   private-profile fallback still requires one-time enrollment.
@@ -409,7 +459,9 @@ authority rather than an unreachable launch hook.
 - The direct launcher/runtime vnode and a fail-closed retained-root/descendant
   halt contract are modeled, but Grok's actual authenticated leader/child
   topology and exact completion behavior remain live-unproved.
-- No direct/cockpit lifecycle, control, no-bleed, or rollback proof exists.
+- No live direct/cockpit paired lifecycle, control, no-bleed, or rollback proof
+  exists yet.
 
-Keep Grok at `doctor_only/mapping`. Do not start live Pass B until these gates
-are implemented and a clean exact pushed controller head is available.
+Keep the census manifest at `doctor_only/mapping` until the exact live sequence
+above succeeds at one clean controller head. The substrate is ready for that
+campaign; this source-only slice does not claim its outcome.

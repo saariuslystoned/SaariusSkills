@@ -876,10 +876,8 @@ def doctor(
         )
         candidate_processes = grok_population["candidates"]
         blockers.extend(population_blockers)
-        # Public Grok launch stays fenced until paired-runtime no-bleed and the
-        # remaining Grok-specific gates are controller-proved. Filesystem-only
-        # ordinary-control absence and non-doctor manifests cannot clear this.
-        blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
+        if manifest.raw["doctor_only"]:
+            blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
         active = _active_processes(contract.target, manifest)
         candidate_processes = active
@@ -911,6 +909,23 @@ def doctor(
                 raise IdentityError(
                     "qualification instruction policy does not match the current compiler"
                 )
+            if contract.target == "grok":
+                if profile_context is None or profile_status is None:
+                    raise IdentityError(
+                        "Grok qualification requires its private subscription profile"
+                    )
+                current_binding = build_subscription_launch_binding(
+                    profile_context, profile_status
+                )
+                if (
+                    qualification.get("private_profile_root")
+                    != str(profile_context.profile_root)
+                    or qualification.get("subscription_profile_sha256")
+                    != sha256_bytes(canonical_json_bytes(current_binding) + b"\n")
+                ):
+                    raise IdentityError(
+                        "Grok qualified profile/status/default-model binding changed"
+                    )
         except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
     return {
@@ -977,10 +992,6 @@ def launch(
         profile_root=profile_root,
         require_subscription_profile=require_subscription_profile,
     )
-    if report["target"] == "grok":
-        # Defense in depth: no public Grok launch path may clear until paired
-        # runtime no-bleed and leader/child halt authority are controller-proved.
-        raise UnsupportedError(GROK_LAUNCH_AUTHORITY_BLOCKER)
     if not report["launch_ready"]:
         raise UnsupportedError("adapter remains doctor-only or preflight is blocked")
     contract = Contract.from_path(contract_path)
@@ -1013,11 +1024,12 @@ def launch(
     effective_model = contract.requested_model
     effective_effort = contract.requested_effort
     adapter = adapter_for(contract.target)
-    if contract.target == "cursor" and (
+    if contract.target in {"cursor", "grok"} and (
         effective_model is not None or effective_effort is not None
     ):
         raise UnsupportedError(
-            "Cursor regular qualification covers only the unresolved current default model"
+            "%s regular qualification covers only the current default model"
+            % contract.target.capitalize()
         )
     argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
     if contract.target == "cursor":
@@ -1065,6 +1077,7 @@ def launch(
     )
     manifest = AdapterManifest.from_path(manifest_copy)
     profile_binding_sha: Optional[str] = None
+    profile_binding: Optional[Dict[str, Any]] = None
     if profile_context is not None and profile_status is not None:
         profile_binding = build_subscription_launch_binding(
             profile_context, profile_status
@@ -1077,6 +1090,40 @@ def launch(
         profile_binding_sha = sha256_file(profile_copy, max_bytes=131072)
     supervisor = _supervisor_identity(supervisor_executable, contract.supervisor_root)
     protocol = _protocol_state(contract, manifest, session)
+    if contract.target == "grok":
+        if profile_context is None or profile_binding is None:
+            raise IdentityError("Grok public launch lacks its private profile binding")
+        if (
+            qualification.get("private_profile_root")
+            != str(profile_context.profile_root)
+            or qualification.get("subscription_profile_sha256")
+            != profile_binding_sha
+        ):
+            raise IdentityError("Grok public launch profile binding changed")
+        from .grok_qualification import (
+            build_grok_runtime_vector,
+            derive_grok_session_uuid,
+        )
+
+        leader_socket = (
+            Path(profile_binding["directory_identities"]["tmp"]["path"])
+            / (
+                "puppet-%s.sock"
+                % sha256_bytes(
+                    canonical_json_bytes([session, protocol["run_id"]])
+                )[:12]
+            )
+        )
+        grok_vector = build_grok_runtime_vector(
+            base_argv=argv,
+            subscription_binding=profile_binding,
+            cwd=contract.repo,
+            leader_socket=leader_socket,
+            session_uuid=derive_grok_session_uuid(
+                session=session, run_id=protocol["run_id"]
+            ),
+        )
+        argv = grok_vector["argv"]
     compiled = compile_instruction_wrapper(
         target=contract.target,
         task=_initial_envelope(contract, protocol, session, prompt),

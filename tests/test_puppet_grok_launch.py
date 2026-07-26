@@ -728,7 +728,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
         self.assertFalse(override)
         self.assertTrue(any("different executable" in item for item in blockers))
 
-    def test_doctor_and_launch_keep_grok_fenced(self):
+    def test_doctor_only_manifest_and_forged_ready_report_stay_fenced(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             executable = root / "grok-0.2.111-macos-aarch64"
@@ -818,12 +818,46 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                     puppet_session.Contract, "from_path", return_value=contract
                 ),
                 patch.object(
+                    puppet_session.AdapterManifest,
+                    "from_path",
+                    return_value=manifest,
+                ),
+                patch.object(
+                    manifest,
+                    "verify_qualification",
+                    side_effect=UnsupportedError(
+                        "terminal paired-runtime receipt required"
+                    ),
+                    create=True,
+                ),
+                patch.object(
+                    puppet_session,
+                    "_authorization",
+                    return_value={"authorization": {}},
+                ),
+                patch.object(
+                    puppet_session,
+                    "_qualification_authority",
+                    return_value={
+                        "controller": "codex",
+                        "campaign_id": "campaign",
+                        "goal_fingerprint": "e" * 64,
+                    },
+                ),
+                patch.object(
                     puppet_session,
                     "doctor",
-                    return_value={"target": "grok", "launch_ready": True},
+                    return_value={
+                        "target": "grok",
+                        "launch_ready": True,
+                        "contract_fingerprint": contract.fingerprint,
+                        "manifest_fingerprint": manifest.fingerprint,
+                    },
                 ),
             ):
-                with self.assertRaisesRegex(UnsupportedError, "doctor-only"):
+                with self.assertRaisesRegex(
+                    UnsupportedError, "terminal paired-runtime"
+                ):
                     puppet_session.launch(
                         session="grok-fenced",
                         contract_path=root / "unused-contract.json",
