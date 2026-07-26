@@ -1,0 +1,82 @@
+{
+  "schema": "saarius.pixel-use-runtime-summary.v1",
+  "source_head_sha": "f68771eb63c44db9b21af9cfc95a27da32ec363e",
+  "harness_sha256": "ae07e075ad85252425492b211f21e7d5362af540ad92d1fe5e590a7b2cbc34de",
+  "rounds": [
+    {
+      "run_id": "pixel-b-single-a-8b04a263",
+      "arm": "single",
+      "prompt_sha256": "2874767ea574401c18fff6b967209d9772bc058db3830643bf61d55302797e68",
+      "discovery_exact_name_occurrences": 1,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 10799,
+      "result_changed_after_quarantine": true,
+      "raw_sha256": {
+        "stdout": "2f1e2323cdb8493741a5bdd54916fc804a3a08723f82e47b975aae7d17bade68",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "3cd01d316ea0198c12d56d03a2feea4629c448d966883e9b8756d08520b82036"
+      },
+      "raw_retained": false
+    },
+    {
+      "run_id": "pixel-b-custom-a-8b04a263",
+      "arm": "custom-width-two",
+      "prompt_sha256": "2874767ea574401c18fff6b967209d9772bc058db3830643bf61d55302797e68",
+      "discovery_exact_name_occurrences": 1,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 18535,
+      "children_changed_before_quarantine": true,
+      "join_empty_at_release": true,
+      "join_changed_after_release": true,
+      "raw_sha256": {
+        "stdout": "18fb0dcd8cfc14024d928568769c0c65cb509b6c0308af3069d6ec815e302d8d",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "8d070eb3be425e024b82dfa704d7eb3030c7aac6673a2ac18aa823cfc02ce8e2"
+      },
+      "raw_retained": false
+    },
+    {
+      "run_id": "pixel-b-single-b-8b04a263",
+      "arm": "single",
+      "prompt_sha256": "8af5ff477b7be2a85fd0a2faab4781571ce936cacb5da53399cf41824fd97139",
+      "discovery_exact_name_occurrences": 1,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 9388,
+      "result_changed_after_quarantine": true,
+      "raw_sha256": {
+        "stdout": "cd8ef05a0bcd7d8912f10287c790cd0340040e6a83c38abed83e0f87a9b70bdd",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "bddfa5515d2344f25c68589409ffeb56df658158110dfe5622a08967c379251f"
+      },
+      "raw_retained": false
+    },
+    {
+      "run_id": "pixel-b-custom-b-8b04a263",
+      "arm": "custom-width-two",
+      "prompt_sha256": "8af5ff477b7be2a85fd0a2faab4781571ce936cacb5da53399cf41824fd97139",
+      "discovery_exact_name_occurrences": 1,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 14292,
+      "children_changed_before_quarantine": true,
+      "join_empty_at_release": true,
+      "join_changed_after_release": true,
+      "raw_sha256": {
+        "stdout": "a6d94f0404554ba51bb2af8ea39def89682769f1b4411c0de5bf841a8082eb41",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "4e7710d56fbe15e6d672d12af711b7584401b2a53defea46cc418301700ba395"
+      },
+      "raw_retained": false
+    }
+  ],
+  "budget": {
+    "top_level_processes": 4,
+    "declared_child_branches": 4,
+    "total_declared_sessions": 8,
+    "unexpected_timeouts": 0,
+    "resumes": 0
+  }
+}

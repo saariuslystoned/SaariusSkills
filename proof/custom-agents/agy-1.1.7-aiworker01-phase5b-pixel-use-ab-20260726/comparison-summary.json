@@ -1,0 +1,125 @@
+{
+  "schema": "saarius.pixel-use-product-comparison.v1",
+  "result": "valid_comparison_custom_comparable_accuracy_higher_cost",
+  "pixel_use_source_head": "6474159cc15eafbd2abe602e13017a2754768ce9",
+  "corrected_policy_packet_sha256": "30eb87e927875b4a606a76a882b8fca070b9bfa883c84972a738004ab08cf79e",
+  "unchanged_friction_packet_sha256": "185354a5c64ae236b9d8deaab82f3a3320ac821609bcead3b0a2b252f36ae0ba",
+  "canonical_policy_answer_sha256": "4ac5522583c2e6047c21acb6618dde2d8ee81b8fd5fbc3c68fe049c2453a7551",
+  "canonical_friction_answer_sha256": "c4b3eb0f4c387c97775df27807214816ef315e1343574e9723c905abcff17148",
+  "execution_order": [
+    "single-a",
+    "custom-a",
+    "single-b",
+    "custom-b"
+  ],
+  "rounds": [
+    {
+      "round": "single-a",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 10799,
+      "policy_exact": true,
+      "friction_exact": true,
+      "complete_result_exact": true,
+      "postflight_passed": true,
+      "declared_sessions": 1,
+      "result_sha256": "835e7ffa817c4d76adfbf8eff67d612d2ea7efba6f9b603cfe88da7308c05903"
+    },
+    {
+      "round": "custom-a",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 18535,
+      "policy_exact": true,
+      "friction_exact": true,
+      "join_fidelity_exact": true,
+      "complete_result_exact": true,
+      "postflight_passed": true,
+      "declared_sessions": 3,
+      "result_sha256": {
+        "policy": "094deff5eb502dcc1c5484d2ccf5b97898d9de201be5ef1473fdad25fd6230b6",
+        "friction": "6d48303ae6f1c73bf3e10c24bcd370a7e343e3c48075365aeddf97ec7c9236fe",
+        "join": "b5a2c8c4c6588847ed2d33d183aa45eae75ad57a2ce4c00689cc33d7d1b43126"
+      }
+    },
+    {
+      "round": "single-b",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 9388,
+      "policy_exact": true,
+      "friction_exact": false,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 1,
+      "result_sha256": "fb0b2f47a9428f0c50892bb087754e695adcfb57c46651c4132878498a0ee6d5"
+    },
+    {
+      "round": "custom-b",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 14292,
+      "policy_exact": true,
+      "friction_exact": false,
+      "join_fidelity_exact": true,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 3,
+      "result_sha256": {
+        "policy": "54b62f6bf484e98078e959856e26bc312830853b31a47c7ae199724991969442",
+        "friction": "a74549656497325a49eba434bb3c2754b959580239a38ee59e418ef1bb3772dc",
+        "join": "007e8584c6f9807b4f3d45bea280ea1bc1d9e699baf1e7eba6b4c845ddd56f72"
+      }
+    }
+  ],
+  "arm_summary": {
+    "single": {
+      "rounds": 2,
+      "complete_result_exact": 1,
+      "policy_exact": 2,
+      "friction_exact": 1,
+      "total_duration_ms": 20187,
+      "mean_duration_ms": 10093.5,
+      "declared_sessions": 2
+    },
+    "custom_width_two": {
+      "rounds": 2,
+      "complete_result_exact": 1,
+      "policy_exact": 2,
+      "friction_exact": 1,
+      "join_fidelity_exact": 2,
+      "total_duration_ms": 32827,
+      "mean_duration_ms": 16413.5,
+      "declared_sessions": 6
+    }
+  },
+  "shared_round_b_error": {
+    "expected": "beta target_missing human_intervention_count 1 ranks before alpha transport_failed",
+    "observed": "both arms set beta human_intervention_count to 0 and ranked alpha before beta",
+    "other_policy_and_friction_values_exact": true
+  },
+  "cost_comparison": {
+    "custom_session_multiple": 3,
+    "custom_total_duration_multiple": 1.626,
+    "custom_a_added_duration_ms": 7736,
+    "custom_b_added_duration_ms": 4904,
+    "token_or_monetary_cost_inferred": false
+  },
+  "disposition": {
+    "comparative_accuracy": "comparable",
+    "pixel_use_specific_skill": "reject",
+    "reusable_plugin": "reject",
+    "ordinary_width_two_reference": "keep",
+    "reason": "The custom arm tied exact accuracy, reproduced the same reasoning miss, consumed three times the sessions, and was slower in both paired rounds."
+  },
+  "raw_content_retained": false,
+  "foreign_state_touched": false
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "saarius.pixel-use-cleanup.v1",
+  "before": {
+    "roots": 5,
+    "files": 19,
+    "directories": 26,
+    "symlinks": 0,
+    "special_files": 0,
+    "bytes": 140716,
+    "raw_artifacts": 0
+  },
+  "bounded_mode_restore": {
+    "targets": [
+      "custom-a/.issue15",
+      "custom-b/.issue15"
+    ],
+    "reason": "fixture parent directories intentionally remained owner-read/execute only after postflight"
+  },
+  "after": {
+    "controller_absent": true,
+    "single_a_absent": true,
+    "custom_a_absent": true,
+    "single_b_absent": true,
+    "custom_b_absent": true
+  },
+  "recoverable": false,
+  "foreign_state_touched": false
+}
