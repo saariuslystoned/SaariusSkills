@@ -34,10 +34,10 @@ from .safety import (
 
 
 _PANE_FORMAT = (
-    "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_dead}"
+    "#{session_name},#{pane_id},#{pane_pid},#{pane_current_command},#{pane_dead}"
 )
-_PANE_RUNTIME_FORMAT = "#{pane_dead}\t#{pane_pid}\t#{pane_current_path}"
-_CLIENT_FORMAT = "#{client_pid}\t#{client_tty}\t#{client_readonly}\t#{session_name}"
+_PANE_RUNTIME_FORMAT = "#{pane_dead},#{pane_pid},#{pane_current_path}"
+_CLIENT_FORMAT = "#{client_pid},#{client_tty},#{client_readonly},#{session_name}"
 _PLACEHOLDER_COMMAND = ["/bin/sleep", "2147483647"]
 _SIGNAL_EXEC_HELPER = Path(__file__).resolve(strict=True).with_name("signal_exec.py")
 _MAX_CAPTURE_BYTES = 65536
@@ -45,6 +45,17 @@ _MAX_RUNTIME_METADATA_BYTES = 8192
 _CAPTURE_HISTORY_LINES = 80
 _GATE_NAVIGATION_KEYS = frozenset({"Enter", "Up", "Down"})
 _CAPTURE_PANE_COMMAND = "-".join(("capture", "pane"))
+
+
+def _split_tmux_format_line(line: str, expected_parts: int) -> List[str]:
+    """Split one tmux -F line; comma separators survive tmux 3.6a."""
+
+    stripped = line.rstrip("\n")
+    for separator in (",", "\t"):
+        parts = stripped.split(separator)
+        if len(parts) == expected_parts:
+            return parts
+    raise IdentityError("tmux structural identity is ambiguous")
 
 
 @dataclass(frozen=True)
@@ -363,6 +374,51 @@ class TmuxController:
             args=result.args, returncode=result.returncode, stdout=stdout, stderr=stderr
         )
 
+    @staticmethod
+    def _run_raw_bytes(
+        command: List[str],
+        *,
+        check: bool = True,
+        env: Mapping[str, str],
+        admitted_lane_root: Path | None = None,
+        before_run: Optional[Callable[[], None]] = None,
+    ) -> subprocess.CompletedProcess:
+        """Bounded subprocess path that preserves stdout/stderr as bytes."""
+
+        closed_environment = validate_subprocess_environment(
+            env,
+            admitted_lane_root=admitted_lane_root,
+        )
+        if before_run is not None:
+            before_run()
+        run_options = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "check": False,
+            "env": closed_environment,
+            "stdin": subprocess.DEVNULL,
+        }
+        result = subprocess.run(command, **run_options)
+        stdout = result.stdout
+        stderr = result.stderr
+        if not isinstance(stdout, (bytes, bytearray)):
+            stdout = b"" if stdout is None else str(stdout).encode("utf-8")
+        if not isinstance(stderr, (bytes, bytearray)):
+            stderr = b"" if stderr is None else str(stderr).encode("utf-8")
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                returncode=result.returncode,
+                cmd=result.args,
+                output=stdout,
+                stderr=stderr,
+            )
+        return subprocess.CompletedProcess(
+            args=result.args,
+            returncode=result.returncode,
+            stdout=bytes(stdout),
+            stderr=bytes(stderr),
+        )
+
     def _pane_rows(
         self,
         socket: Path,
@@ -379,9 +435,7 @@ class TmuxController:
             raise IdentityError("registered tmux session has no panes")
         rows = []
         for line in text.splitlines():
-            parts = line.split("\t")
-            if len(parts) != 5:
-                raise IdentityError("tmux structural identity is ambiguous")
+            parts = _split_tmux_format_line(line, 5)
             try:
                 pane_pid = int(parts[2])
             except ValueError as exc:
@@ -685,7 +739,7 @@ class TmuxController:
         if metadata["pane_pid"] != expected_pane_pid:
             raise IdentityError("tmux pane process identity changed")
         target = "%s:%s" % (session, pane)
-        result = self._run_raw(
+        result = self._run_raw_bytes(
             self._tmux_command(
                 socket,
                 [
@@ -701,12 +755,14 @@ class TmuxController:
         )
         if (
             result.returncode != 0
-            or not isinstance(result.stdout, (bytes, bytearray))
             or len(result.stdout) > _MAX_RUNTIME_METADATA_BYTES
         ):
             raise IdentityError("owned pane metadata is unavailable")
         try:
-            fields = result.stdout.decode("utf-8", "strict").rstrip("\n").split("\t")
+            fields = _split_tmux_format_line(
+                result.stdout.decode("utf-8", "strict"),
+                3,
+            )
         except UnicodeDecodeError as exc:
             raise IdentityError("owned pane metadata is not strict UTF-8") from exc
         if len(fields) != 3 or fields[0] != "0":
@@ -763,7 +819,7 @@ class TmuxController:
             raise IdentityError("tmux pane is unavailable")
         if metadata["pane_pid"] != expected_pane_pid:
             raise IdentityError("tmux pane process identity changed")
-        result = self._run_raw(
+        result = self._run_raw_bytes(
             self._tmux_command(
                 socket,
                 [
@@ -779,11 +835,12 @@ class TmuxController:
             check=False,
             env=control_environment(),
         )
-        if result.returncode != 0 or not isinstance(result.stdout, (bytes, bytearray)):
+        if result.returncode != 0:
             raise IdentityError("bounded pane screen is unavailable")
-        if len(result.stdout) > _MAX_CAPTURE_BYTES:
+        captured = bytes(result.stdout)
+        if len(captured) > _MAX_CAPTURE_BYTES:
             raise IdentityError("bounded pane screen exceeds the cap")
-        return bytes(result.stdout)
+        return captured
 
     def send_keys_verified(
         self,
@@ -871,8 +928,8 @@ class TmuxController:
             return []
         clients = []
         for line in text.splitlines():
-            parts = line.split("\t")
-            if len(parts) != 4 or parts[2] not in {"0", "1"}:
+            parts = _split_tmux_format_line(line, 4)
+            if parts[2] not in {"0", "1"}:
                 raise IdentityError("tmux client identity is ambiguous")
             try:
                 client_pid = int(parts[0])

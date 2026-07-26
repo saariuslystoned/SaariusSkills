@@ -527,9 +527,12 @@ def _await_input_ready(
     strategy = input_readiness_strategy_for(target)
     alive_fn = process_alive_fn or (lambda: process_alive(process))
     if strategy == CLAUDE_STARTUP_GATE_REDUCER:
-        from .claude_startup_gates import await_claude_input_ready
+        from .claude_startup_gates import (
+            await_claude_input_ready,
+            revalidate_claude_ready_process,
+        )
 
-        return await_claude_input_ready(
+        result = await_claude_input_ready(
             tmux,
             manifest=manifest,
             socket=socket,
@@ -542,6 +545,20 @@ def _await_input_ready(
             process_alive_fn=alive_fn,
             sleep_fn=sleep_fn,
         )
+        revalidate_claude_ready_process(
+            manifest=manifest,
+            tmux=tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_pane_pid=pane_pid,
+            expected_worktree=repo,
+            process=process,
+            server_identity=server_identity,
+            process_alive_fn=alive_fn,
+        )
+        result["process_revalidated"] = True
+        return result
     settle_seconds = startup_settle_seconds_for(target)
     sleep_fn(settle_seconds)
     if verify_structural_settle:

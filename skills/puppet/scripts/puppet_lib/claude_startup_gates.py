@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .errors import IdentityError, ValidationError
-from .profiles import CLAUDE_STARTUP_GATE_REDUCER
+from .profiles import CLAUDE_STARTUP_GATE_REDUCER, claude_gate_timing_policy
 from .tmux import TmuxController
 
 
@@ -24,11 +24,21 @@ MAX_SCREEN_BYTES = 65536
 MAX_METADATA_BYTES = 8192
 CAPTURE_HISTORY_LINES = 80
 MAX_GATE_STEPS = 8
+_MAX_POLL_ITERATIONS = 512
 
 _ALLOWLISTED_GATES = frozenset(
     {"security_notice", "workspace_trust", "bypass_warning", "ready"}
 )
 _SELECTED_VALUES = frozenset({"yes", "no", "unresolved"})
+_FATAL_REDUCTION_ERRORS = frozenset(
+    {
+        "pane screen is not strict UTF-8",
+        "bounded pane screen exceeds the cap",
+        "screen matches a forbidden non-allowlisted gate",
+        "screen contains an unresolved confirmation gate",
+        "screen matches multiple allowlisted startup states",
+    }
+)
 
 _SECURITY_MARKERS = (
     "Security notes:",
@@ -37,8 +47,7 @@ _SECURITY_MARKERS = (
     "Press Enter to continue",
     "https://code.claude.com/docs/en/security",
 )
-_TRUST_MARKERS = (
-    "Accessing workspace:",
+_TRUST_TAIL_MARKERS = (
     "Quick safety check:",
     "1. Yes, I trust this folder",
     "2. No, exit",
@@ -54,10 +63,11 @@ _BYPASS_MARKERS = (
 )
 _READY_MARKERS = (
     "? for shortcuts",
-    'Bypass permissions on',
+    "Bypass permissions on",
     "bypass permissions on",
     'Try "',
 )
+_WORKSPACE_LINE = re.compile(r"Accessing workspace:\s*(\S+)")
 _FORBIDDEN_SCREEN_MARKERS = (
     "Log in",
     "Sign in",
@@ -95,6 +105,17 @@ def _absolute_normalized_worktree(path: Path | str, *, label: str) -> str:
 
 def _normalize_screen_text(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text)
+
+
+def _displayed_workspace_path(normalized: str) -> Optional[str]:
+    match = _WORKSPACE_LINE.search(normalized)
+    if match is None:
+        return None
+    candidate = match.group(1)
+    try:
+        return _absolute_normalized_worktree(candidate, label="displayed workspace")
+    except ValidationError:
+        return None
 
 
 def _public_reduction(
@@ -144,34 +165,55 @@ def _selected_choice(normalized: str, gate: str) -> Optional[str]:
     return None
 
 
-def _gate_matches(normalized: str, *, expected_worktree: str) -> Tuple[str, ...]:
-    security = all(marker in normalized for marker in _SECURITY_MARKERS)
-    trust = all(
-        marker in normalized
-        for marker in (
-            *_TRUST_MARKERS[:1],
-            expected_worktree,
-            *_TRUST_MARKERS[1:],
-        )
+def _security_matches(normalized: str) -> bool:
+    return all(marker in normalized for marker in _SECURITY_MARKERS)
+
+
+def _trust_matches(normalized: str, *, expected_worktree: str) -> Tuple[bool, bool]:
+    displayed = _displayed_workspace_path(normalized)
+    worktree_match = displayed == expected_worktree
+    matched = (
+        "Accessing workspace:" in normalized
+        and worktree_match
+        and all(marker in normalized for marker in _TRUST_TAIL_MARKERS)
     )
-    bypass = all(marker in normalized for marker in _BYPASS_MARKERS)
-    ready = (
+    return matched, worktree_match
+
+
+def _bypass_matches(normalized: str) -> bool:
+    return all(marker in normalized for marker in _BYPASS_MARKERS)
+
+
+def _trust_screen_present(normalized: str) -> bool:
+    return "Accessing workspace:" in normalized and all(
+        marker in normalized for marker in _TRUST_TAIL_MARKERS
+    )
+
+
+def _ready_matches(normalized: str) -> bool:
+    return (
         "Claude Code" in normalized
-        and not any((security, trust, bypass))
+        and not _security_matches(normalized)
+        and not _trust_screen_present(normalized)
+        and not _bypass_matches(normalized)
         and "Enter to confirm" not in normalized
         and "Press Enter to continue" not in normalized
         and any(marker in normalized for marker in _READY_MARKERS)
     )
-    return tuple(
-        name
-        for name, matched in (
-            ("security_notice", security),
-            ("workspace_trust", trust),
-            ("bypass_warning", bypass),
-            ("ready", ready),
-        )
-        if matched
-    )
+
+
+def _gate_matches(normalized: str, *, expected_worktree: str) -> Tuple[str, ...]:
+    trust, _worktree_match = _trust_matches(normalized, expected_worktree=expected_worktree)
+    matches = []
+    if _security_matches(normalized):
+        matches.append("security_notice")
+    if trust:
+        matches.append("workspace_trust")
+    if _bypass_matches(normalized):
+        matches.append("bypass_warning")
+    if _ready_matches(normalized):
+        matches.append("ready")
+    return tuple(matches)
 
 
 def _forbidden_screen_reason(normalized: str) -> Optional[str]:
@@ -250,21 +292,56 @@ def reduce_captured_claude_startup_screen(
             screen_sha256=screen_sha256,
             error=forbidden,
         )
+    if _trust_screen_present(normalized):
+        displayed = _displayed_workspace_path(normalized)
+        if displayed != worktree:
+            return _public_reduction(
+                ok=False,
+                gate="workspace_trust",
+                selected=_selected_choice(normalized, "workspace_trust"),
+                pane_pid=pane_pid,
+                worktree_match=False,
+                screen_bytes=len(captured),
+                screen_sha256=screen_sha256,
+                error="displayed workspace path does not match contract",
+            )
     matches = _gate_matches(normalized, expected_worktree=worktree)
+    if len(matches) > 1:
+        return _public_reduction(
+            ok=False,
+            gate="unknown",
+            selected=None,
+            pane_pid=pane_pid,
+            worktree_match=False,
+            screen_bytes=len(captured),
+            screen_sha256=screen_sha256,
+            error="screen matches multiple allowlisted startup states",
+        )
     if len(matches) != 1:
         return _public_reduction(
             ok=False,
             gate="unknown",
             selected=None,
             pane_pid=pane_pid,
-            worktree_match=worktree in normalized,
+            worktree_match=False,
             screen_bytes=len(captured),
             screen_sha256=screen_sha256,
-            error="screen does not match exactly one allowlisted startup state",
+            error="startup screen is not yet classifiable",
         )
     gate = matches[0]
     selected = _selected_choice(normalized, gate)
-    worktree_match = gate != "workspace_trust" or worktree in normalized
+    _, worktree_match = _trust_matches(normalized, expected_worktree=worktree)
+    if gate == "workspace_trust" and not worktree_match:
+        return _public_reduction(
+            ok=False,
+            gate="workspace_trust",
+            selected=selected,
+            pane_pid=pane_pid,
+            worktree_match=False,
+            screen_bytes=len(captured),
+            screen_sha256=screen_sha256,
+            error="displayed workspace path does not match contract",
+        )
     return _public_reduction(
         ok=True,
         gate=gate,
@@ -293,6 +370,9 @@ def validate_claude_gate_manifest(manifest: AdapterManifest) -> None:
         raise ValidationError("Claude launch argv is unavailable")
     if not all(flag in argv for flag in permission_flags):
         raise IdentityError("Claude launch argv does not authorize bypass permissions")
+    timing = claude_gate_timing_policy()
+    if mapping.get("startup_settle_seconds") != timing["startup_deadline_seconds"]:
+        raise ValidationError("Claude gate startup deadline is not bound to startup settle")
 
 
 def _authorize_bypass(
@@ -300,8 +380,7 @@ def _authorize_bypass(
 ) -> bool:
     if not permission_flags:
         return False
-    argv = list(launch_argv)
-    return all(flag in argv for flag in permission_flags)
+    return all(flag in launch_argv for flag in permission_flags)
 
 
 def _assert_process_alive(process_alive_fn: Callable[[], bool]) -> None:
@@ -344,6 +423,125 @@ def _capture_and_reduce(
         )
     finally:
         del captured
+
+
+def _reduction_is_transient(reduction: Mapping[str, Any]) -> bool:
+    error = reduction.get("error")
+    if error in _FATAL_REDUCTION_ERRORS:
+        return False
+    return error in {
+        "bounded pane screen is unavailable",
+        "startup screen is not yet classifiable",
+    }
+
+
+def _poll_iteration_bound(timing: Mapping[str, float], *, phase: str) -> int:
+    if phase == "startup":
+        deadline = timing["startup_deadline_seconds"]
+        interval = timing["poll_interval_seconds"]
+    else:
+        deadline = timing["transition_deadline_seconds"]
+        interval = timing["transition_poll_interval_seconds"]
+    if interval <= 0:
+        return min(_MAX_POLL_ITERATIONS, max(16, int(deadline * 1000) + 8))
+    return min(_MAX_POLL_ITERATIONS, int(deadline / interval) + 8)
+
+
+def _poll_startup_reduction(
+    tmux: TmuxController,
+    *,
+    socket: Path,
+    session: str,
+    pane: str,
+    expected_pane_pid: int,
+    expected_worktree: str,
+    server_identity: Optional[Mapping[str, Any]],
+    process_alive_fn: Callable[[], bool],
+    timing: Mapping[str, float],
+    sleep_fn: Callable[[float], None],
+    monotonic_fn: Callable[[], float],
+) -> Dict[str, Any]:
+    deadline = monotonic_fn() + timing["startup_deadline_seconds"]
+    iteration_bound = _poll_iteration_bound(timing, phase="startup")
+    iterations = 0
+    while monotonic_fn() < deadline:
+        iterations += 1
+        if iterations > iteration_bound:
+            raise IdentityError("Claude startup gate poll iteration bound exceeded")
+        reduction = _capture_and_reduce(
+            tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_pane_pid=expected_pane_pid,
+            expected_worktree=expected_worktree,
+            server_identity=server_identity,
+            process_alive_fn=process_alive_fn,
+        )
+        if reduction["ok"]:
+            return reduction
+        if not _reduction_is_transient(reduction):
+            raise IdentityError(
+                reduction.get("error", "Claude startup gate is ambiguous")
+            )
+        sleep_fn(timing["poll_interval_seconds"])
+    raise IdentityError("Claude startup gate startup deadline exceeded")
+
+
+def _poll_transition(
+    tmux: TmuxController,
+    *,
+    socket: Path,
+    session: str,
+    pane: str,
+    expected_pane_pid: int,
+    expected_worktree: str,
+    server_identity: Optional[Mapping[str, Any]],
+    process_alive_fn: Callable[[], bool],
+    timing: Mapping[str, float],
+    sleep_fn: Callable[[float], None],
+    monotonic_fn: Callable[[], float],
+    expect_gate: Optional[str] = None,
+    expect_selected: Optional[str] = None,
+    reject_gate: Optional[str] = None,
+) -> Dict[str, Any]:
+    deadline = monotonic_fn() + timing["transition_deadline_seconds"]
+    iteration_bound = _poll_iteration_bound(timing, phase="transition")
+    iterations = 0
+    while monotonic_fn() < deadline:
+        iterations += 1
+        if iterations > iteration_bound:
+            raise IdentityError(
+                "Claude startup gate transition poll iteration bound exceeded"
+            )
+        reduction = _capture_and_reduce(
+            tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_pane_pid=expected_pane_pid,
+            expected_worktree=expected_worktree,
+            server_identity=server_identity,
+            process_alive_fn=process_alive_fn,
+        )
+        if not reduction["ok"]:
+            if _reduction_is_transient(reduction):
+                sleep_fn(timing["transition_poll_interval_seconds"])
+                continue
+            raise IdentityError(
+                reduction.get("error", "Claude startup gate transition failed")
+            )
+        if reject_gate is not None and reduction["gate"] == reject_gate:
+            sleep_fn(timing["transition_poll_interval_seconds"])
+            continue
+        if expect_gate is not None and reduction["gate"] != expect_gate:
+            sleep_fn(timing["transition_poll_interval_seconds"])
+            continue
+        if expect_selected is not None and reduction.get("selected") != expect_selected:
+            sleep_fn(timing["transition_poll_interval_seconds"])
+            continue
+        return reduction
+    raise IdentityError("Claude startup gate transition deadline exceeded")
 
 
 def _send_gate_input(
@@ -391,11 +589,13 @@ def navigate_claude_startup_gates(
     server_identity: Optional[Mapping[str, Any]] = None,
     process_alive_fn: Callable[[], bool],
     sleep_fn: Callable[[float], None] = time.sleep,
-    settle_after_input_seconds: float = 0.05,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+    timing: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, Any]:
     """Navigate allowlisted Claude startup gates until a ready screen is confirmed."""
 
     validate_claude_gate_manifest(manifest)
+    timing_policy = dict(timing or claude_gate_timing_policy())
     worktree = _absolute_normalized_worktree(expected_worktree, label="expected worktree")
     permission_flags = list(manifest.raw["yolo_mapping"]["permission_flags"])
     if not _authorize_bypass(launch_argv, permission_flags):
@@ -404,21 +604,22 @@ def navigate_claude_startup_gates(
         )
     steps: List[Dict[str, Any]] = []
     security_enter_sent = False
+    poll_kwargs = {
+        "tmux": tmux,
+        "socket": socket,
+        "session": session,
+        "pane": pane,
+        "expected_pane_pid": expected_pane_pid,
+        "expected_worktree": worktree,
+        "server_identity": server_identity,
+        "process_alive_fn": process_alive_fn,
+        "timing": timing_policy,
+        "sleep_fn": sleep_fn,
+        "monotonic_fn": monotonic_fn,
+    }
 
     for _ in range(MAX_GATE_STEPS):
-        reduction = _capture_and_reduce(
-            tmux,
-            socket=socket,
-            session=session,
-            pane=pane,
-            expected_pane_pid=expected_pane_pid,
-            expected_worktree=worktree,
-            server_identity=server_identity,
-            process_alive_fn=process_alive_fn,
-        )
-        if not reduction["ok"]:
-            raise IdentityError(reduction.get("error", "Claude startup gate is ambiguous"))
-
+        reduction = _poll_startup_reduction(**poll_kwargs)
         gate = reduction["gate"]
         steps.append(_body_free_step(reduction))
 
@@ -427,6 +628,7 @@ def navigate_claude_startup_gates(
                 "strategy": CLAUDE_STARTUP_GATE_REDUCER,
                 "final_gate": "ready",
                 "steps": steps,
+                "timing_policy": timing_policy,
                 "raw_retained": False,
             }
 
@@ -444,7 +646,7 @@ def navigate_claude_startup_gates(
                 process_alive_fn=process_alive_fn,
             )
             security_enter_sent = True
-            sleep_fn(settle_after_input_seconds)
+            _poll_transition(**poll_kwargs, reject_gate="security_notice")
             continue
 
         if gate == "workspace_trust":
@@ -462,25 +664,11 @@ def navigate_claude_startup_gates(
                     server_identity=server_identity,
                     process_alive_fn=process_alive_fn,
                 )
-                sleep_fn(settle_after_input_seconds)
-                selected_reduction = _capture_and_reduce(
-                    tmux,
-                    socket=socket,
-                    session=session,
-                    pane=pane,
-                    expected_pane_pid=expected_pane_pid,
-                    expected_worktree=worktree,
-                    server_identity=server_identity,
-                    process_alive_fn=process_alive_fn,
+                _poll_transition(
+                    **poll_kwargs,
+                    expect_gate="workspace_trust",
+                    expect_selected="yes",
                 )
-                if (
-                    not selected_reduction["ok"]
-                    or selected_reduction["gate"] != "workspace_trust"
-                    or selected_reduction.get("selected") != "yes"
-                ):
-                    raise IdentityError(
-                        "Claude workspace trust yes selection is not confirmed"
-                    )
             elif selected != "yes":
                 raise IdentityError("Claude workspace trust selection is unresolved")
             _send_gate_input(
@@ -493,7 +681,7 @@ def navigate_claude_startup_gates(
                 server_identity=server_identity,
                 process_alive_fn=process_alive_fn,
             )
-            sleep_fn(settle_after_input_seconds)
+            _poll_transition(**poll_kwargs, reject_gate="workspace_trust")
             continue
 
         if gate == "bypass_warning":
@@ -509,25 +697,11 @@ def navigate_claude_startup_gates(
                     server_identity=server_identity,
                     process_alive_fn=process_alive_fn,
                 )
-                sleep_fn(settle_after_input_seconds)
-                selected_reduction = _capture_and_reduce(
-                    tmux,
-                    socket=socket,
-                    session=session,
-                    pane=pane,
-                    expected_pane_pid=expected_pane_pid,
-                    expected_worktree=worktree,
-                    server_identity=server_identity,
-                    process_alive_fn=process_alive_fn,
+                _poll_transition(
+                    **poll_kwargs,
+                    expect_gate="bypass_warning",
+                    expect_selected="yes",
                 )
-                if (
-                    not selected_reduction["ok"]
-                    or selected_reduction["gate"] != "bypass_warning"
-                    or selected_reduction.get("selected") != "yes"
-                ):
-                    raise IdentityError(
-                        "Claude bypass warning yes selection is not confirmed"
-                    )
             elif selected != "yes":
                 raise IdentityError("Claude bypass warning selection is unresolved")
             _send_gate_input(
@@ -540,12 +714,56 @@ def navigate_claude_startup_gates(
                 server_identity=server_identity,
                 process_alive_fn=process_alive_fn,
             )
-            sleep_fn(settle_after_input_seconds)
+            _poll_transition(**poll_kwargs, reject_gate="bypass_warning")
             continue
 
         raise IdentityError("Claude startup gate is outside the allowlist")
 
     raise IdentityError("Claude startup gate navigation exceeded the step bound")
+
+
+def revalidate_claude_ready_process(
+    *,
+    manifest: AdapterManifest,
+    tmux: TmuxController,
+    socket: Path,
+    session: str,
+    pane: str,
+    expected_pane_pid: int,
+    expected_worktree: Path | str,
+    process: Mapping[str, Any],
+    server_identity: Optional[Mapping[str, Any]],
+    process_alive_fn: Callable[[], bool],
+) -> None:
+    """Revalidate manifest/process/pane lease immediately before prompt delivery."""
+
+    validate_claude_gate_manifest(manifest)
+    if not process_alive_fn():
+        raise IdentityError("Claude target process is unavailable before prompt delivery")
+    worktree = _absolute_normalized_worktree(expected_worktree, label="expected worktree")
+    runtime = tmux.pane_runtime_identity(
+        socket=socket,
+        session=session,
+        pane=pane,
+        expected_pane_pid=expected_pane_pid,
+        expected_worktree=worktree,
+        server_identity=server_identity,
+    )
+    if runtime["pane_pid"] != process["pid"]:
+        raise IdentityError("Claude target process identity changed before prompt delivery")
+    manifest.verify_process_executable(process)
+    ready = _capture_and_reduce(
+        tmux,
+        socket=socket,
+        session=session,
+        pane=pane,
+        expected_pane_pid=expected_pane_pid,
+        expected_worktree=worktree,
+        server_identity=server_identity,
+        process_alive_fn=process_alive_fn,
+    )
+    if not ready["ok"] or ready["gate"] != "ready":
+        raise IdentityError("Claude startup screen is not ready before prompt delivery")
 
 
 def await_claude_input_ready(
@@ -561,6 +779,8 @@ def await_claude_input_ready(
     server_identity: Optional[Mapping[str, Any]] = None,
     process_alive_fn: Callable[[], bool],
     sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+    timing: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, Any]:
     """Fail-closed Claude-only readiness gate before any prompt may enter the pane."""
 
@@ -576,4 +796,6 @@ def await_claude_input_ready(
         server_identity=server_identity,
         process_alive_fn=process_alive_fn,
         sleep_fn=sleep_fn,
+        monotonic_fn=monotonic_fn,
+        timing=timing,
     )

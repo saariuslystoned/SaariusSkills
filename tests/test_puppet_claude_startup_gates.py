@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -23,27 +25,109 @@ from puppet_lib.claude_startup_gates import (  # noqa: E402
     MAX_SCREEN_BYTES,
     navigate_claude_startup_gates,
     reduce_captured_claude_startup_screen,
+    revalidate_claude_ready_process,
     validate_claude_gate_manifest,
 )
 from puppet_lib.errors import IdentityError  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
+    CLAUDE_GATE_POLL_INTERVAL_SECONDS,
+    CLAUDE_GATE_TRANSITION_DEADLINE_SECONDS,
+    CLAUDE_GATE_TRANSITION_POLL_INTERVAL_SECONDS,
     CLAUDE_STARTUP_GATE_REDUCER,
     SUBMIT_SETTLE_SECONDS,
+    claude_gate_timing_policy,
     input_readiness_strategy_for,
     session_profiles_for,
     startup_settle_seconds_for,
 )
 from puppet_lib.profiles import PROMPT_TRANSPORT  # noqa: E402
 from puppet_lib.session import _await_input_ready  # noqa: E402
-from puppet_lib.tmux import TmuxController  # noqa: E402
+from puppet_lib.tmux import TmuxController, control_environment  # noqa: E402
 
 
 WORKTREE = "/tmp/puppet-claude-gate-worktree"
 PANE_PID = 4242
+FAST_TIMING = {
+    "startup_deadline_seconds": 1.0,
+    "poll_interval_seconds": 0.0,
+    "transition_poll_interval_seconds": 0.0,
+    "transition_deadline_seconds": 1.0,
+}
 ADAPTER_IMPLEMENTATION_SHA256 = "a" * 64
 VERSION_OBSERVATION_SHA256 = (
     "3c95eff850dac10d40c5692a73957f526b54a74767163913dc858c4f8d4c8c63"
 )
+
+
+class AdvancingMonotonicClock:
+    """Fake monotonic clock that advances on sleep and cannot spin forever."""
+
+    def __init__(self, *, start: float = 0.0, max_calls: int = 10_000) -> None:
+        self.now = start
+        self.max_calls = max_calls
+        self.calls = 0
+
+    def monotonic(self) -> float:
+        self.calls += 1
+        if self.calls > self.max_calls:
+            raise AssertionError("monotonic_fn call bound exceeded in test")
+        return self.now
+
+    def sleep(self, interval: float) -> None:
+        self.now += interval
+
+
+class FakeGateTmux:
+    """Stable pane captures until a key or startup sleep advances the script."""
+
+    def __init__(
+        self,
+        screens: list[bytes],
+        *,
+        startup_sleep_advances: int = 0,
+    ) -> None:
+        self._screens = list(screens)
+        self._index = 0
+        self.keys_sent: list[str] = []
+        self._startup_sleep_advances = startup_sleep_advances
+        self._startup_sleeps_seen = 0
+        self.capture_calls = 0
+
+    def _advance(self) -> None:
+        if self._index < len(self._screens) - 1:
+            self._index += 1
+
+    def notify_startup_sleep(self, interval: float) -> None:
+        del interval
+        if self._startup_sleeps_seen < self._startup_sleep_advances:
+            self._startup_sleeps_seen += 1
+            self._advance()
+
+    def pane_runtime_identity(self, **kwargs):
+        return {
+            "session": kwargs["session"],
+            "pane": kwargs["pane"],
+            "pane_pid": kwargs["expected_pane_pid"],
+            "pane_current_path": kwargs["expected_worktree"],
+            "pane_dead": False,
+        }
+
+    def capture_pane_bytes(self, **kwargs):
+        del kwargs
+        if not self._screens:
+            raise IdentityError("no scripted pane capture remains")
+        self.capture_calls += 1
+        if self.capture_calls > 10_000:
+            raise AssertionError("capture_pane_bytes call bound exceeded in test")
+        return self._screens[min(self._index, len(self._screens) - 1)]
+
+    def send_keys_verified(self, **kwargs):
+        self.keys_sent.append(kwargs["keys"])
+        self._advance()
+
+
+def _gate_sleep(tmux: FakeGateTmux, interval: float) -> None:
+    tmux.notify_startup_sleep(interval)
 
 
 def _security_screen() -> str:
@@ -163,33 +247,6 @@ def _adapter_manifest(*, argv=None, permission_flags=None) -> AdapterManifest:
     return AdapterManifest.from_dict(raw)
 
 
-class FakeGateTmux:
-    def __init__(self, screens: list[bytes]):
-        self._screens = list(screens)
-        self._index = 0
-        self.keys_sent: list[str] = []
-
-    def pane_runtime_identity(self, **kwargs):
-        return {
-            "session": kwargs["session"],
-            "pane": kwargs["pane"],
-            "pane_pid": kwargs["expected_pane_pid"],
-            "pane_current_path": kwargs["expected_worktree"],
-            "pane_dead": False,
-        }
-
-    def capture_pane_bytes(self, **kwargs):
-        del kwargs
-        if self._index >= len(self._screens):
-            raise IdentityError("no scripted pane capture remains")
-        screen = self._screens[self._index]
-        self._index += 1
-        return screen
-
-    def send_keys_verified(self, **kwargs):
-        self.keys_sent.append(kwargs["keys"])
-
-
 class ClaudeStartupGateReducerTests(unittest.TestCase):
     def test_each_gate_classifies_exactly_once(self):
         cases = (
@@ -230,7 +287,19 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             pane_pid=PANE_PID,
         )
         self.assertFalse(result["ok"])
-        self.assertEqual(result["gate"], "unknown")
+        self.assertIn("displayed workspace path", result["error"])
+
+    def test_substring_worktree_elsewhere_does_not_match(self):
+        decoy = (
+            "note about %s during boot\n" % WORKTREE
+        ) + _trust_screen(worktree="/tmp/decoy-worktree")
+        result = reduce_captured_claude_startup_screen(
+            decoy.encode("utf-8"),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("displayed workspace path", result["error"])
 
     def test_ambiguous_screen_fails_closed(self):
         combined = _security_screen() + _trust_screen()
@@ -240,7 +309,78 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             pane_pid=PANE_PID,
         )
         self.assertFalse(result["ok"])
-        self.assertIn("exactly one", result["error"])
+        self.assertIn("multiple allowlisted", result["error"])
+
+    def test_transient_empty_then_gate(self):
+        tmux = FakeGateTmux(
+            [
+                b"",
+                _security_screen().encode("utf-8"),
+                _trust_screen(selected="yes").encode("utf-8"),
+                _bypass_screen(selected="yes").encode("utf-8"),
+                _ready_screen().encode("utf-8"),
+            ],
+            startup_sleep_advances=1,
+        )
+        manifest = _adapter_manifest()
+        result = navigate_claude_startup_gates(
+            tmux,
+            manifest=manifest,
+            socket=Path("/tmp/fake.sock"),
+            session="probe-claude",
+            pane="%0",
+            expected_worktree=WORKTREE,
+            expected_pane_pid=PANE_PID,
+            launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+            process_alive_fn=lambda: True,
+            sleep_fn=lambda interval: _gate_sleep(tmux, interval),
+            timing=FAST_TIMING,
+        )
+        self.assertEqual(result["final_gate"], "ready")
+
+    def test_startup_deadline_exhaustion_fails_closed(self):
+        tmux = FakeGateTmux([b""])
+        manifest = _adapter_manifest()
+        clock = AdvancingMonotonicClock(max_calls=64)
+        timing = {
+            "startup_deadline_seconds": 1.0,
+            "poll_interval_seconds": 0.25,
+            "transition_poll_interval_seconds": 0.25,
+            "transition_deadline_seconds": 1.0,
+        }
+        with self.assertRaisesRegex(IdentityError, "startup deadline exceeded"):
+            navigate_claude_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+                process_alive_fn=lambda: True,
+                sleep_fn=clock.sleep,
+                monotonic_fn=clock.monotonic,
+                timing=timing,
+            )
+
+    def test_forbidden_screen_fails_immediately_without_retry(self):
+        tmux = FakeGateTmux([b"Claude Code\nLog in to continue\n"])
+        manifest = _adapter_manifest()
+        with self.assertRaisesRegex(IdentityError, "forbidden"):
+            navigate_claude_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+                process_alive_fn=lambda: True,
+                sleep_fn=lambda _interval: None,
+                timing=FAST_TIMING,
+            )
 
     def test_oversize_and_non_utf8_fail_closed(self):
         oversized = b"x" * (MAX_SCREEN_BYTES + 1)
@@ -322,6 +462,7 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
             process_alive_fn=lambda: True,
             sleep_fn=lambda _interval: None,
+            timing=FAST_TIMING,
         )
         self.assertEqual(result["final_gate"], "ready")
         self.assertEqual(result["strategy"], CLAUDE_STARTUP_GATE_REDUCER)
@@ -344,6 +485,7 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
             process_alive_fn=lambda: True,
             sleep_fn=lambda _interval: None,
+            timing=FAST_TIMING,
         )
         self.assertEqual(result["final_gate"], "ready")
         self.assertEqual(tmux.keys_sent, [])
@@ -392,6 +534,179 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             "bounded_structural_settle",
         )
 
+    def test_timing_policy_is_public_and_bound(self):
+        policy = claude_gate_timing_policy()
+        self.assertEqual(
+            policy["startup_deadline_seconds"],
+            startup_settle_seconds_for("claude"),
+        )
+        self.assertEqual(
+            policy["poll_interval_seconds"], CLAUDE_GATE_POLL_INTERVAL_SECONDS
+        )
+        self.assertEqual(
+            policy["transition_poll_interval_seconds"],
+            CLAUDE_GATE_TRANSITION_POLL_INTERVAL_SECONDS,
+        )
+        self.assertEqual(
+            policy["transition_deadline_seconds"],
+            CLAUDE_GATE_TRANSITION_DEADLINE_SECONDS,
+        )
+
+    def test_transition_deadline_exhaustion_fails_closed(self):
+        tmux = FakeGateTmux([_security_screen().encode("utf-8")])
+        manifest = _adapter_manifest()
+        clock = AdvancingMonotonicClock(max_calls=64)
+        timing = {
+            **FAST_TIMING,
+            "transition_poll_interval_seconds": 0.25,
+        }
+        with self.assertRaisesRegex(IdentityError, "transition deadline exceeded"):
+            navigate_claude_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+                process_alive_fn=lambda: True,
+                sleep_fn=clock.sleep,
+                monotonic_fn=clock.monotonic,
+                timing=timing,
+            )
+
+    def test_post_ready_revalidation_requires_ready_screen(self):
+        tmux = FakeGateTmux([_ready_screen().encode("utf-8")])
+        manifest = _adapter_manifest()
+        with mock.patch.object(AdapterManifest, "verify_process_executable", autospec=True):
+            revalidate_claude_ready_process(
+                manifest=manifest,
+                tmux=tmux,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_pane_pid=PANE_PID,
+                expected_worktree=WORKTREE,
+                process={"pid": PANE_PID, "identity_version": 1},
+                server_identity={},
+                process_alive_fn=lambda: True,
+            )
+
+    def test_post_ready_revalidation_fails_when_screen_is_not_ready(self):
+        tmux = FakeGateTmux([_security_screen().encode("utf-8")])
+        manifest = _adapter_manifest()
+        with mock.patch.object(AdapterManifest, "verify_process_executable", autospec=True):
+            with self.assertRaisesRegex(IdentityError, "not ready before prompt delivery"):
+                revalidate_claude_ready_process(
+                    manifest=manifest,
+                    tmux=tmux,
+                    socket=Path("/tmp/fake.sock"),
+                    session="probe-claude",
+                    pane="%0",
+                    expected_pane_pid=PANE_PID,
+                    expected_worktree=WORKTREE,
+                    process={"pid": PANE_PID, "identity_version": 1},
+                    server_identity={},
+                    process_alive_fn=lambda: True,
+                )
+
+
+class ClaudeTmuxIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def _tmux_run(socket: Path, arguments: list[str]) -> subprocess.CompletedProcess:
+        import os
+        import subprocess
+
+        return subprocess.run(
+            ["tmux", "-f", os.devnull, "-S", str(socket)] + arguments,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    def test_run_raw_bytes_and_capture_pane_use_bytes_on_real_tmux(self):
+        import os
+        import subprocess
+
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        marker = "PUPPET_GATE_FIXTURE_MARKER_7c2a"
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            registry = root / "registry"
+            registry.mkdir()
+            controller = TmuxController(registry)
+            socket = root / "sock"
+            session = "gate-fixture"
+            launch_command = (
+                "printf '%%s\\n' %s; exec sleep 999" % shlex.quote(marker)
+            )
+            try:
+                created = self._tmux_run(
+                    socket,
+                    [
+                        "new-session",
+                        "-d",
+                        "-s",
+                        session,
+                        "-c",
+                        str(repo),
+                        "sh",
+                        "-c",
+                        launch_command,
+                    ],
+                )
+                self.assertEqual(created.returncode, 0, created.stderr)
+                listed = self._tmux_run(
+                    socket,
+                    ["list-panes", "-t", session, "-F", "#{pane_id},#{pane_pid}"],
+                )
+                self.assertEqual(listed.returncode, 0, listed.stderr)
+                pane, pid_text = listed.stdout.decode("utf-8").strip().split(",")
+                pane_pid = int(pid_text)
+                expected_worktree = str(repo.resolve())
+                capture_command = controller._tmux_command(
+                    socket,
+                    [
+                        "capture-pane",
+                        "-p",
+                        "-t",
+                        "%s:%s" % (session, pane),
+                        "-S",
+                        "-256",
+                    ],
+                )
+                raw_capture = controller._run_raw_bytes(
+                    capture_command,
+                    check=False,
+                    env=control_environment(),
+                )
+                self.assertIsInstance(raw_capture.stdout, bytes)
+                runtime = controller.pane_runtime_identity(
+                    socket=socket,
+                    session=session,
+                    pane=pane,
+                    expected_pane_pid=pane_pid,
+                    expected_worktree=expected_worktree,
+                )
+                self.assertEqual(runtime["pane_current_path"], expected_worktree)
+                captured = controller.capture_pane_bytes(
+                    socket=socket,
+                    session=session,
+                    pane=pane,
+                    expected_pane_pid=pane_pid,
+                )
+                self.assertIsInstance(captured, bytes)
+                digest = hashlib.sha256(captured).hexdigest()
+                self.assertIn(marker.encode("utf-8"), captured)
+                self.assertNotIn(marker, json.dumps({"screen_sha256": digest}))
+            finally:
+                self._tmux_run(socket, ["kill-server"])
+
 
 class ClaudeLaunchOrderingTests(unittest.TestCase):
     def test_gate_ready_precedes_paste_settle_and_submit(self):
@@ -434,6 +749,10 @@ class ClaudeLaunchOrderingTests(unittest.TestCase):
                 "puppet_lib.claude_startup_gates.await_claude_input_ready",
                 side_effect=fake_await_claude_input_ready,
             ),
+            mock.patch(
+                "puppet_lib.claude_startup_gates.revalidate_claude_ready_process",
+                autospec=True,
+            ),
             mock.patch.object(controller, "metadata", return_value={
                 "pane": pane,
                 "pane_pid": PANE_PID,
@@ -442,7 +761,7 @@ class ClaudeLaunchOrderingTests(unittest.TestCase):
             mock.patch("puppet_lib.tmux.subprocess.run", side_effect=fake_run),
             mock.patch.object(controller, "assert_tmux_binary_identity"),
         ):
-            _await_input_ready(
+            result = _await_input_ready(
                 target="claude",
                 tmux=controller,
                 manifest=manifest,
@@ -455,7 +774,9 @@ class ClaudeLaunchOrderingTests(unittest.TestCase):
                 process=process,
                 server_identity={},
                 sleep_fn=lambda _interval: None,
+                process_alive_fn=lambda: True,
             )
+            self.assertTrue(result["process_revalidated"])
             controller.paste_bytes(
                 socket=socket,
                 session=session,
