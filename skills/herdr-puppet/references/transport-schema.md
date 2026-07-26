@@ -46,6 +46,9 @@ The lease file is updated atomically after a successful `pane.send_input`. A
 caller supplies the expected sequence; equality with `next_seq` is mandatory.
 The controller sends `text` plus `keys: ["enter"]` as one newline-delimited
 JSON request to the exact, current-user-owned Unix socket bound in the lease.
+The resulting receipt is scoped to `herdr_pane_input_only`. It proves Herdr
+accepted that pane request; it does not prove the remote harness was ready,
+submitted the prompt, started work, loaded an extension, or called a tool.
 It rechecks the socket file identity after connecting and before dispatch.
 That inode check narrows path-replacement races; it does not prove a native
 Herdr server incarnation. A lost, malformed, or mismatched acknowledgement is
@@ -66,10 +69,19 @@ input acceptance only, not shell or harness execution.
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible
 but cannot receive controller input.
 
-Preservation is not tab cleanup. Any later tab close or process reap belongs
-to a separately authorized maintenance surface that must target the exact
-leased identity and verify the affected processes exited. Herdr-Puppet does
-not infer cleanup authority from a milestone, label, age, or failed beacon.
+A strict `DONE` or `ACTION_REQUIRED` beacon automatically invokes that same
+local preservation transition. `STATUS` and `not_matched` leave the lease
+active. The controller-side subprocess timeout is a hard cap over Herdr's
+native wait; either native or controller timeout returns `not_matched` with a
+sanitized timeout-source field.
+
+Preservation is not tab cleanup. A later tab close requires separately
+authorized `cleanup-preserved-tab`, an initialized journal, a preserved lease,
+and exact repeated tab-ID confirmation. The command verifies the exact tab and
+pane disappeared and the leased foreground SSH PID is absent. PID reuse blocks
+verification rather than being accepted as success. It sends no direct
+process termination signal and does not infer cleanup authority from a
+milestone, label, ordinal, age, focus, or failed beacon.
 
 Do not infer a missing ID or repair a mismatch by searching labels. Recovery
 remains disabled until remote-process adoption and crash behavior are
@@ -88,6 +100,16 @@ The controller journal is append-only JSONL. Store:
 - prompt or nonce hashes rather than prompt/response content;
 - strict checkpoint classes rather than contract-beacon text;
 - concise operator observations and improvement candidates.
+
+`maintenance-checkpoint` joins live structure through the exact lease,
+classifies the run as `active`, `preserved`, `stale`, or `ambiguous`, and
+records per-resource state plus the next maintenance route. It never reads pane
+text, closes a tab, or reaps a process.
+
+`cleanup-preserved-tab` journals request and verified-close events, then adds
+`cleanup_state: closed` and the verification timestamp to the lease. Repeated
+cleanup is idempotent only when exact tab/pane and foreground SSH PID absence
+remain verified.
 
 Do not store pane text, scrollback, environment values, credentials, account
 identifiers, or auth logs. Curate and redact a separate public proof before

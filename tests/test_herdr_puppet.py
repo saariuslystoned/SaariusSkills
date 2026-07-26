@@ -4,6 +4,7 @@ import copy
 import json
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,8 +19,10 @@ LIB = ROOT / "skills" / "herdr-puppet" / "scripts"
 sys.path.insert(0, str(LIB))
 
 from herdr_puppet_lib.core import (  # noqa: E402
+    cleanup_preserved_tab,
     create_qualification_tab,
     doctor,
+    maintenance_checkpoint,
     plan,
     preserve_lease,
     qualification_beacon_wait,
@@ -35,8 +38,11 @@ from herdr_puppet_lib.herdr_client import (  # noqa: E402
     HerdrClient,
 )
 from herdr_puppet_lib.journal import (  # noqa: E402
+    append_event,
     initialize_journal,
+    make_event,
     refresh_state,
+    sha256_text,
     summarize_journal,
 )
 
@@ -67,6 +73,7 @@ class FakeClient:
         self.pane_rows: list[dict[str, Any]] = []
         self.process_rows: dict[str, dict[str, Any]] = {}
         self.sent: list[tuple[str, str, str]] = []
+        self.closed_tabs: list[str] = []
         self.read_payload: Any = {"result": {"text": ""}}
 
     def version_text(self) -> str:
@@ -147,6 +154,31 @@ class FakeClient:
             ],
         }
         return {"result": {"tab_id": tab_id}}
+
+    def close_tab(self, session: str, tab_id: str) -> dict[str, Any]:
+        self._session(session)
+        self.closed_tabs.append(tab_id)
+        pane_ids = {
+            item["pane_id"]
+            for item in self.pane_rows
+            if item.get("tab_id") == tab_id
+        }
+        self.tab_rows = [
+            item for item in self.tab_rows if item.get("tab_id") != tab_id
+        ]
+        self.pane_rows = [
+            item for item in self.pane_rows if item.get("tab_id") != tab_id
+        ]
+        for pane_id in pane_ids:
+            self.process_rows.pop(pane_id, None)
+        return {"result": {"type": "ok"}}
+
+    def wait_pid_absence(self, pid: int, timeout_seconds: float = 5.0) -> bool:
+        return not any(
+            process.get("pid") == pid
+            for row in self.process_rows.values()
+            for process in row.get("foreground_processes", [])
+        )
 
     def run_input(self, socket_path: str, pane_id: str, text: str) -> str:
         if socket_path != self.server["socket"]:
@@ -334,7 +366,7 @@ class HerdrClientTests(unittest.TestCase):
         self.assertEqual(result, "")
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
-    def test_wait_output_extends_process_timeout_and_maps_native_timeout(
+    def test_wait_output_honors_controller_cap_and_maps_native_timeout(
         self,
         run: mock.Mock,
     ) -> None:
@@ -351,8 +383,34 @@ class HerdrClientTests(unittest.TestCase):
             20,
             30_000,
         )
-        self.assertIsNone(result)
-        self.assertEqual(run.call_args.kwargs["timeout"], 32.0)
+        self.assertEqual(
+            result,
+            {"type": "output_timeout", "timeout_source": "herdr"},
+        )
+        self.assertEqual(run.call_args.kwargs["timeout"], 10.0)
+
+    @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
+    def test_wait_output_maps_controller_hard_timeout_without_hanging(
+        self,
+        run: mock.Mock,
+    ) -> None:
+        run.side_effect = subprocess.TimeoutExpired(
+            cmd=["herdr", "wait", "output"],
+            timeout=20.0,
+        )
+        client = HerdrClient(timeout_seconds=20.0)
+        result = client.wait_output(
+            "operator-session",
+            "w2:p1",
+            "NONCE",
+            20,
+            300_000,
+        )
+        self.assertEqual(
+            result,
+            {"type": "output_timeout", "timeout_source": "controller"},
+        )
+        self.assertEqual(run.call_args.kwargs["timeout"], 20.0)
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_input_uses_atomic_socket_request_and_never_process_argv(
@@ -580,6 +638,320 @@ class QualificationTests(unittest.TestCase):
         self.assertIn("server_socket_drift", status["blockers"])
         self.assertFalse(lease["session"]["incarnation_proven"])
 
+    def test_maintenance_checkpoint_classifies_exact_live_lease(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(result["classification"], "active")
+        self.assertEqual(result["resources"]["tab"]["state"], "present")
+        self.assertEqual(result["resources"]["pane"]["state"], "present")
+        self.assertEqual(result["resources"]["ssh"]["state"], "present")
+        self.assertFalse(result["maintenance_candidate"])
+        self.assertFalse(result["cleanup_authorized"])
+        self.assertFalse(result["cleanup_performed"])
+        self.assertFalse(result["herdr_mutated"])
+        self.assertFalse(result["transcript_read"])
+        self.assertIn('"kind":"maintenance.checkpoint"', events)
+
+    def test_maintenance_checkpoint_routes_missing_active_lease_to_preserve(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.tab_rows = []
+        self.client.pane_rows = []
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        self.assertEqual(result["classification"], "stale")
+        self.assertTrue(result["maintenance_candidate"])
+        self.assertEqual(result["recommended_action"], "preserve_lease")
+        self.assertEqual(
+            result["resources"]["tab"]["state"],
+            "missing",
+        )
+        self.assertEqual(
+            result["resources"]["pane"]["state"],
+            "missing",
+        )
+        self.assertEqual(result["resources"]["ssh"]["state"], "unverified")
+        self.assertFalse(result["cleanup_performed"])
+        self.assertEqual(
+            json.loads(self.lease_path.read_text(encoding="utf-8"))["state"],
+            "active",
+        )
+
+    def test_maintenance_checkpoint_ignores_same_label_decoys(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.tab_rows = [
+            {
+                "workspace_id": "w2",
+                "tab_id": "w2:decoy",
+                "label": lease["owned_label"],
+            }
+        ]
+        self.client.pane_rows = [
+            {
+                "workspace_id": "w2",
+                "tab_id": "w2:decoy",
+                "pane_id": "w2:decoy-pane",
+                "terminal_id": "decoy-terminal",
+            }
+        ]
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        self.assertEqual(result["classification"], "stale")
+        self.assertEqual(result["resources"]["tab"]["state"], "missing")
+        self.assertEqual(result["resources"]["pane"]["state"], "missing")
+        self.assertEqual(self.client.sent, [])
+
+    def test_maintenance_checkpoint_marks_moved_exact_ids_ambiguous(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.tab_rows[0]["workspace_id"] = "w9"
+        self.client.pane_rows[0]["workspace_id"] = "w9"
+        self.client.pane_rows[0]["tab_id"] = lease["tab_id"]
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        self.assertEqual(result["classification"], "ambiguous")
+        self.assertEqual(result["resources"]["tab"]["state"], "moved")
+        self.assertEqual(result["resources"]["pane"]["state"], "moved")
+        self.assertIn("leased_tab_moved", result["blockers"])
+        self.assertIn("leased_pane_moved", result["blockers"])
+
+    def test_maintenance_checkpoint_marks_duplicate_exact_ids_ambiguous(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.tab_rows.append(copy.deepcopy(self.client.tab_rows[0]))
+        self.client.pane_rows.append(copy.deepcopy(self.client.pane_rows[0]))
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        self.assertEqual(result["classification"], "ambiguous")
+        self.assertEqual(result["resources"]["tab"]["state"], "duplicate")
+        self.assertEqual(result["resources"]["pane"]["state"], "duplicate")
+        self.assertIn("leased_tab_duplicate", result["blockers"])
+        self.assertIn("leased_pane_duplicate", result["blockers"])
+
+    def test_maintenance_checkpoint_retains_live_preserved_lease(self) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        tabs_before = copy.deepcopy(self.client.tab_rows)
+        panes_before = copy.deepcopy(self.client.pane_rows)
+        result = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            run_root=run_root,
+        )
+        self.assertEqual(result["classification"], "preserved")
+        self.assertEqual(
+            result["recommended_action"],
+            "retain_or_route_exact_cleanup",
+        )
+        self.assertEqual(self.client.tab_rows, tabs_before)
+        self.assertEqual(self.client.pane_rows, panes_before)
+        self.assertEqual(self.client.sent, [])
+        self.assertFalse(result["cleanup_performed"])
+        self.assertFalse(result["herdr_mutated"])
+
+    def test_cleanup_preserved_tab_closes_only_exact_lease(self) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.tab_rows.append(
+            {
+                "workspace_id": "w2",
+                "tab_id": "w2:decoy",
+                "label": lease["owned_label"],
+            }
+        )
+        result = cleanup_preserved_tab(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            run_root=run_root,
+            confirm_tab_id=lease["tab_id"],
+            allow_live_cleanup=True,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertTrue(result["cleanup_performed"])
+        self.assertTrue(result["absence_verified"])
+        self.assertTrue(result["ssh_pid_absence_verified"])
+        self.assertEqual(self.client.closed_tabs, [lease["tab_id"]])
+        self.assertEqual(
+            [item["tab_id"] for item in self.client.tab_rows],
+            ["w2:decoy"],
+        )
+        self.assertEqual(updated["cleanup_state"], "closed")
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"kind":"cleanup.requested"', events)
+        self.assertIn('"kind":"cleanup.closed"', events)
+        maintenance = maintenance_checkpoint(
+            self.client,
+            lease_payload=updated,
+            run_root=run_root,
+        )
+        self.assertEqual(maintenance["classification"], "stale")
+        self.assertFalse(maintenance["maintenance_candidate"])
+        self.assertEqual(maintenance["recommended_action"], "none")
+
+    def test_cleanup_preserved_tab_rejects_active_or_wrong_confirmation(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        with self.assertRaises(HerdrPuppetError) as active:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id=lease["tab_id"],
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(active.exception.code, "cleanup_lease_not_preserved")
+        lease["state"] = "preserved"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        with self.assertRaises(HerdrPuppetError) as mismatch:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id="w2:wrong",
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(
+            mismatch.exception.code,
+            "cleanup_tab_confirmation_mismatch",
+        )
+        self.assertEqual(self.client.closed_tabs, [])
+
+    def test_cleanup_preserved_tab_reconciles_already_absent_identity(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        self.client.tab_rows = []
+        self.client.pane_rows = []
+        self.client.process_rows = {}
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = cleanup_preserved_tab(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            run_root=run_root,
+            confirm_tab_id=lease["tab_id"],
+            allow_live_cleanup=True,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertFalse(result["cleanup_performed"])
+        self.assertTrue(result["already_closed"])
+        self.assertEqual(self.client.closed_tabs, [])
+        self.assertEqual(updated["cleanup_state"], "closed")
+        self.assertTrue(updated["cleanup_reconciled_absence"])
+
+    def test_cleanup_preserved_tab_rejects_closed_record_with_live_identity(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        lease["cleanup_state"] = "closed"
+        lease["cleanup_verified_at"] = "2026-07-26T00:00:00Z"
+        lease["cleanup_reconciled_absence"] = False
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id=lease["tab_id"],
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(caught.exception.code, "cleanup_record_conflict")
+        self.assertEqual(self.client.closed_tabs, [])
+
+    def test_cleanup_preserved_tab_rechecks_pid_absence_on_replay(self) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        lease["cleanup_state"] = "closed"
+        lease["cleanup_verified_at"] = "2026-07-26T00:00:00Z"
+        lease["cleanup_reconciled_absence"] = False
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        self.client.tab_rows = []
+        self.client.pane_rows = []
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id=lease["tab_id"],
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "cleanup_ssh_pid_absence_not_verified",
+        )
+        self.assertEqual(self.client.closed_tabs, [])
+
+    def test_cleanup_preserved_tab_rejects_unverified_close(self) -> None:
+        lease = self.create_lease()
+        lease["state"] = "preserved"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.close_tab = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: {"result": {"type": "ok"}}
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            cleanup_preserved_tab(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                run_root=run_root,
+                confirm_tab_id=lease["tab_id"],
+                allow_live_cleanup=True,
+            )
+        self.assertEqual(caught.exception.code, "cleanup_close_not_verified")
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertNotIn("cleanup_state", updated)
+
     def test_send_rejects_replay_before_mutation(self) -> None:
         lease = self.create_lease()
         with self.assertRaisesRegex(HerdrPuppetError, "stale, skipped"):
@@ -609,6 +981,11 @@ class QualificationTests(unittest.TestCase):
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertEqual(result["next_seq"], 2)
+        self.assertTrue(result["transport_acknowledged"])
+        self.assertEqual(result["acceptance_scope"], "herdr_pane_input_only")
+        self.assertEqual(result["outcome"], "pane_input_accepted")
+        self.assertEqual(result["harness_readiness"], "unverified")
+        self.assertEqual(result["harness_acceptance"], "unverified")
         self.assertEqual(updated["next_seq"], 2)
         self.assertNotIn("bounded prompt", json.dumps(result))
         self.assertNotIn("bounded prompt", events)
@@ -679,8 +1056,10 @@ class QualificationTests(unittest.TestCase):
             lambda: qualification_beacon_wait(
                 self.client,
                 lease_payload=lease,
+                lease_path=self.lease_path,
                 nonce="DO-NOT-WAIT",
                 allow_live=True,
+                run_root=self.root / "unused",
             ),
         ):
             with self.assertRaisesRegex(HerdrPuppetError, "not active"):
@@ -741,6 +1120,7 @@ class QualificationTests(unittest.TestCase):
         result = qualification_beacon_wait(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             nonce="CHECKPOINT-42",
             allow_live=True,
             lines=20,
@@ -749,6 +1129,11 @@ class QualificationTests(unittest.TestCase):
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertEqual(result["result"], "human_gate")
         self.assertEqual(result["checkpoint"], "ACTION_REQUIRED")
+        self.assertTrue(result["auto_preserved"])
+        self.assertEqual(result["lease_state"], "preserved")
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(updated["state"], "preserved")
+        self.assertEqual(updated["preserved_reason"], "human_gate")
         self.assertNotIn("CHECKPOINT-42", json.dumps(result))
         self.assertNotIn("private-looking", json.dumps(result))
         self.assertNotIn("CHECKPOINT-42", events)
@@ -756,19 +1141,167 @@ class QualificationTests(unittest.TestCase):
 
     def test_beacon_wait_rejects_untrusted_line_shape(self) -> None:
         lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
         self.client.read_payload = (
             "HERDR_PUPPET_DONE CHECKPOINT-42 trailing transcript content"
         )
         result = qualification_beacon_wait(
             self.client,
             lease_payload=lease,
+            lease_path=self.lease_path,
             nonce="CHECKPOINT-42",
             allow_live=True,
             lines=20,
             timeout_ms=1,
+            run_root=run_root,
         )
         self.assertEqual(result["result"], "not_matched")
         self.assertIsNone(result["checkpoint"])
+        self.assertFalse(result["auto_preserved"])
+        self.assertEqual(
+            json.loads(self.lease_path.read_text(encoding="utf-8"))["state"],
+            "active",
+        )
+
+    def test_done_beacon_auto_preserves_milestone_lease(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.read_payload = "HERDR_PUPPET_DONE CHECKPOINT-99"
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-99",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(result["checkpoint"], "DONE")
+        self.assertTrue(result["auto_preserved"])
+        self.assertEqual(updated["state"], "preserved")
+        self.assertEqual(updated["preserved_reason"], "milestone_complete")
+
+    def test_status_beacon_keeps_active_lease(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.read_payload = "HERDR_PUPPET_STATUS CHECKPOINT-88"
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(result["result"], "observed")
+        self.assertEqual(result["checkpoint"], "STATUS")
+        self.assertFalse(result["auto_preserved"])
+        self.assertEqual(result["lease_state"], "active")
+        self.assertEqual(updated["state"], "active")
+
+    def test_beacon_wait_rejects_terminal_nonce_replay_before_wait(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        nonce = "CHECKPOINT-77"
+        append_event(
+            run_root,
+            make_event(
+                lease["run_id"],
+                "qualification.beacon",
+                "ok",
+                nonce_sha256=sha256_text(nonce),
+                data={"checkpoint": "DONE"},
+            ),
+        )
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    nonce=nonce,
+                    allow_live=True,
+                    lines=20,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "terminal_beacon_nonce_reused")
+        wait_output.assert_not_called()
+
+    def test_beacon_wait_rejects_lease_revision_race_before_journaling(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+
+        def race_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
+            changed["next_seq"] += 1
+            self.lease_path.write_text(
+                json.dumps(changed),
+                encoding="utf-8",
+            )
+            return {
+                "type": "output_matched",
+                "revision": 8,
+                "matched_line": "HERDR_PUPPET_DONE CHECKPOINT-66",
+            }
+
+        self.client.wait_output = race_wait  # type: ignore[method-assign]
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce="CHECKPOINT-66",
+                allow_live=True,
+                lines=20,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "lease_changed_during_wait")
+        changed = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(changed["next_seq"], 2)
+        self.assertEqual(changed["state"], "active")
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn('"kind":"qualification.beacon"', events)
+
+    def test_controller_timeout_is_reported_and_keeps_active_lease(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        self.client.wait_output = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: {
+                "type": "output_timeout",
+                "timeout_source": "controller",
+            }
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-55",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "not_matched")
+        self.assertEqual(result["timeout_source"], "controller")
+        self.assertFalse(result["auto_preserved"])
+        self.assertEqual(result["lease_state"], "active")
+        updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
+        self.assertEqual(updated["state"], "active")
 
     def test_token_probe_never_emits_pane_text(self) -> None:
         lease = self.create_lease()

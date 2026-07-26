@@ -33,9 +33,15 @@ The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
 append-only dogfood journals, gated qualification tab creation,
 sequence-checked input, partial-send reconciliation, and a bounded exact-nonce
 wait with strict `STATUS` / `ACTION_REQUIRED` / `DONE` checkpoint
-classification. Ordinary status never reads pane text. Parent-session mutation,
-pre-existing-tab adoption, generic transcript capture, halt, and recovery remain
-disabled.
+classification. Pane input receipts explicitly do not claim harness readiness
+or task submission. Waits have an independent controller hard timeout,
+terminal checkpoints preserve the lease automatically, and
+`maintenance-checkpoint` inventories exact run-owned structure without closing
+anything. Separately authorized `cleanup-preserved-tab` closes only an exact
+confirmed preserved tab and verifies tab, pane, and foreground-SSH-PID absence.
+Ordinary status never reads pane text.
+Parent-session mutation, pre-existing-tab adoption, generic transcript capture,
+halt, and recovery remain disabled.
 
 The first live dogfood lane uses one newly owned, persistently visible AGY pane
 on a remote worker. Its machine-local controller journal is deliberately not a

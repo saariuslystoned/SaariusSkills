@@ -72,7 +72,24 @@
         "route_superseded"
       ]
     },
-    "preserved_at": {"type": "string", "format": "date-time"}
+    "preserved_at": {"type": "string", "format": "date-time"},
+    "cleanup_state": {"const": "closed"},
+    "cleanup_verified_at": {"type": "string", "format": "date-time"},
+    "cleanup_reconciled_absence": {"type": "boolean"}
+  },
+  "dependentRequired": {
+    "cleanup_state": [
+      "cleanup_verified_at",
+      "cleanup_reconciled_absence"
+    ],
+    "cleanup_verified_at": [
+      "cleanup_state",
+      "cleanup_reconciled_absence"
+    ],
+    "cleanup_reconciled_absence": [
+      "cleanup_state",
+      "cleanup_verified_at"
+    ]
   },
   "$defs": {
     "session": {

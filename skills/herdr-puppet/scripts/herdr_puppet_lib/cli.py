@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from .core import (
+    cleanup_preserved_tab,
     create_qualification_tab,
     doctor,
+    maintenance_checkpoint,
     plan,
     preserve_lease,
     qualification_beacon_wait,
@@ -51,9 +53,17 @@ def _client(args: argparse.Namespace) -> HerdrClient:
     return HerdrClient(args.herdr_bin, args.timeout_seconds)
 
 
-def _common_live(parser: argparse.ArgumentParser) -> None:
+def _common_live(
+    parser: argparse.ArgumentParser,
+    *,
+    default_timeout_seconds: float = 10.0,
+) -> None:
     parser.add_argument("--herdr-bin", default="herdr")
-    parser.add_argument("--timeout-seconds", type=float, default=10.0)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=default_timeout_seconds,
+    )
 
 
 def _read_prompt(*, text_file: str | None, prompt_stdin: bool) -> str:
@@ -191,16 +201,28 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--timeout-ms", type=int, default=30_000)
     probe.add_argument("--run-root")
     probe.add_argument("--allow-live-qualification", action="store_true")
-    _common_live(probe)
+    _common_live(probe, default_timeout_seconds=35.0)
 
     beacon = subparsers.add_parser("qualification-beacon-wait")
     beacon.add_argument("--lease-json", required=True)
     beacon.add_argument("--nonce", required=True)
     beacon.add_argument("--lines", type=int, default=40)
     beacon.add_argument("--timeout-ms", type=int, default=300_000)
-    beacon.add_argument("--run-root")
+    beacon.add_argument("--run-root", required=True)
     beacon.add_argument("--allow-live-qualification", action="store_true")
-    _common_live(beacon)
+    _common_live(beacon, default_timeout_seconds=305.0)
+
+    maintenance = subparsers.add_parser("maintenance-checkpoint")
+    maintenance.add_argument("--lease-json", required=True)
+    maintenance.add_argument("--run-root", required=True)
+    _common_live(maintenance)
+
+    cleanup = subparsers.add_parser("cleanup-preserved-tab")
+    cleanup.add_argument("--lease-json", required=True)
+    cleanup.add_argument("--run-root", required=True)
+    cleanup.add_argument("--confirm-tab-id", required=True)
+    cleanup.add_argument("--allow-live-cleanup", action="store_true")
+    _common_live(cleanup)
 
     preserve = subparsers.add_parser("lease-preserve")
     preserve.add_argument("--lease-json", required=True)
@@ -337,11 +359,27 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return qualification_beacon_wait(
             _client(args),
             lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
             nonce=args.nonce,
             lines=args.lines,
             timeout_ms=args.timeout_ms,
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
+        )
+    if args.command == "maintenance-checkpoint":
+        return maintenance_checkpoint(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            run_root=Path(args.run_root),
+        )
+    if args.command == "cleanup-preserved-tab":
+        return cleanup_preserved_tab(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            run_root=Path(args.run_root),
+            confirm_tab_id=args.confirm_tab_id,
+            allow_live_cleanup=args.allow_live_cleanup,
         )
     if args.command == "lease-preserve":
         return preserve_lease(

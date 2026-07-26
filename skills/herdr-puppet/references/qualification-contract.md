@@ -12,16 +12,19 @@ The first useful dogfood run should:
 3. create exactly one new tab in the authorized workspace;
 4. verify the exact tab, pane, terminal, and foreground SSH target;
 5. start one harness only after its own runtime posture is separately approved;
-6. send one bounded task prompt with the next lease sequence;
-7. use one generated nonce checkpoint;
-8. prove client detach/reattach without changing the leased identities;
-9. preserve the tab when persistence is requested;
-10. record gaps and improvement candidates without copying transcript text.
+6. independently prove the harness input surface is ready;
+7. send one bounded task prompt with the next lease sequence;
+8. use one generated nonce checkpoint;
+9. prove client detach/reattach without changing the leased identities;
+10. preserve and inventory the tab at the terminal milestone;
+11. record gaps and improvement candidates without copying transcript text.
 
 ## Prompt mode
 
 Ordinary AGY turns are plain messages. Herdr-Puppet must not add a slash command
 unless the operator chose that command for the specific turn.
+When the operator chooses a plugin slash command, preserve that exact prefix
+for the turn. Do not infer plugin activation from earlier turns.
 
 `/teamwork-preview` is not a stronger form of an ordinary prompt. It is a
 separate high-fan-out profile for an intentional hierarchy of roughly 4-20
@@ -29,6 +32,20 @@ helpers. Use it only with an explicit helper cap, one AGY root/integration
 writer, disjoint helper contracts, terminal/accounted joins, timeouts, and
 exact cleanup proof. Never use it for a single-owner preflight, routine
 follow-up, status request, or gate acknowledgement.
+
+## Harness readiness
+
+Treat a successful `qualification-send` receipt as pane transport acceptance
+only. Before the first real task, require independent readiness evidence from
+either the operator observing the exact leased tab's ready input surface or a
+bounded harness-specific token probe. Waiting a fixed number of seconds,
+counting a process, seeing an SSH client, or finding no receipt file does not
+prove readiness.
+
+If a launch send lands before the harness is ready, do not immediately resend
+the task. Reconcile from independent operator or structural evidence, then use
+the next sequence only when duplicate execution is ruled out. Journal the
+lesson without copying the prompt or pane.
 
 ## Checkpoint and token waits
 
@@ -62,6 +79,10 @@ again, emits only the checkpoint class, and journals only that class, the
 revision, and a nonce hash. `ACTION_REQUIRED` is a human gate. The lower-level
 token probe is for transport diagnosis and reports only match/no-match.
 
+The controller subprocess timeout is a hard cap independent of Herdr's native
+wait timeout. A native or controller timeout returns `not_matched` and records
+only which timeout boundary fired.
+
 `not_matched` is narrowly scoped evidence: no strict checkpoint line matched
 inside the bounded wait. It does not mean input delivery failed, the remote
 worker went offline, SSH exited, the harness stopped, or a human gate exists.
@@ -73,6 +94,12 @@ prompt.
 The native waiter scans existing recent content before subscribing to new
 output, so every checkpoint nonce must be unique per send. Matching is
 line-based and does not itself prove output happened after the wait began.
+
+`DONE` and `ACTION_REQUIRED` are terminal for the lease and automatically
+preserve it. An operator who directly reports the exact nonce line from the
+exact owned tab is also terminal authority: journal that bounded observation
+and preserve immediately. Process liveness, receipt polling, or the absence of
+a receipt cannot override the checkpoint.
 
 ## Dogfood review
 
@@ -89,9 +116,10 @@ Do not treat an AGY response or a clean visual tab as sufficient proof. Join
 behavior to the exact lease, sequence, nonce checkpoint, source commit, and
 redacted run packet.
 
-At a human gate or other terminal controller stop, run `lease-preserve`.
-Preservation is local and non-destructive: it keeps the Herdr tab visible while
-making all later send, reconcile, probe, and beacon operations fail closed.
+At every terminal controller stop, run `maintenance-checkpoint`. Preservation
+is local and non-destructive: it keeps the Herdr tab visible while making all
+later send, reconcile, probe, and beacon operations fail closed. Maintenance
+classifies exact leased resources and routes cleanup; it does not perform it.
 
 ## Harness posture and tab lifecycle
 
@@ -103,7 +131,10 @@ secret, account, device, or cleanup authority.
 
 Closing a completed, failed, or gated tab is also separate from
 `lease-preserve`. When the operator authorizes closure, first preserve the
-lease, then route the exact leased tab through an owner-specific maintenance
-surface and verify its foreground SSH and recorded harness descendants exit.
-Do not add generic close/reap behavior to qualification, and do not target by
-label, process name, age, or focus.
+lease, then use `cleanup-preserved-tab` with the exact leased tab ID repeated
+as confirmation. The command verifies exact tab and pane absence plus absence
+of the leased foreground SSH PID. PID reuse blocks verification. It does not
+claim independent proof for remote
+harness descendants that were never recorded. Do not add generic close/reap
+behavior to qualification, and do not target by label, process name, age, or
+focus.

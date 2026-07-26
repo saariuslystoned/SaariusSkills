@@ -5,6 +5,7 @@ import os
 import socket
 import stat
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -186,6 +187,34 @@ class HerdrClient:
             ],
             json_output=False,
         )
+
+    def close_tab(self, session: str, tab_id: str) -> Any:
+        return self._run(
+            [
+                "--session",
+                session,
+                "tab",
+                "close",
+                tab_id,
+            ]
+        )
+
+    def wait_pid_absence(self, pid: int, timeout_seconds: float = 5.0) -> bool:
+        """Return true only when no process occupies the exact leased PID.
+
+        A reused PID remains present and therefore blocks cleanup verification.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
 
     def run_input(self, socket_path: str, pane_id: str, text: str) -> Any:
         if not text.strip():
@@ -371,7 +400,7 @@ class HerdrClient:
         try:
             payload = self._run(
                 args,
-                timeout_seconds=max(self.timeout_seconds, timeout_ms / 1000 + 2.0),
+                timeout_seconds=self.timeout_seconds,
                 safe_command=[
                     "--session",
                     session,
@@ -384,7 +413,15 @@ class HerdrClient:
             )
         except HerdrPuppetError as exc:
             if exc.details.get("api_error_code") == "timeout":
-                return None
+                return {
+                    "type": "output_timeout",
+                    "timeout_source": "herdr",
+                }
+            if exc.code == "herdr_timeout":
+                return {
+                    "type": "output_timeout",
+                    "timeout_source": "controller",
+                }
             raise
         result = payload.get("result")
         if not isinstance(result, dict) or result.get("type") != "output_matched":

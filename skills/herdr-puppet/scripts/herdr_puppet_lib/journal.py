@@ -314,6 +314,13 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
                 f"- next_seq: `{lease['next_seq']}`",
             ]
         )
+        if lease.get("cleanup_state") == "closed":
+            lines.extend(
+                [
+                    "- cleanup_state: `closed`",
+                    f"- cleanup_verified_at: `{lease['cleanup_verified_at']}`",
+                ]
+            )
     lines.extend(
         [
             "",
@@ -327,6 +334,7 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
         "result": "ok",
         "run_id": plan["run_id"],
         "state": state,
+        "cleanup_state": lease.get("cleanup_state") if lease else None,
         "event_count": len(events),
         "state_path": str(run_root / "STATE.md"),
     }

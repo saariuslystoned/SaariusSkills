@@ -103,3 +103,41 @@ The journal precondition is now checked before live tab creation, with negative
 tests for an absent and cross-run journal. The other findings are contract
 clarifications; this PR still does not add generic tab cleanup, process reaping,
 remote harness adoption, or a transcript-reading fallback.
+
+## Follow-up Dogfood Findings — 2026-07-26
+
+A later completion run exposed three additional repeatable failures:
+
+- a successful Herdr `pane.send_input` acknowledgement arrived before the
+  interactive harness was ready, so the real task was not submitted even
+  though transport had acknowledged the keystrokes;
+- process and receipt polling distracted the controller from the exact visible
+  nonce checkpoint that the operator later reported; and
+- milestone maintenance remained prose-only, leaving preserved and stale lease
+  records without one deterministic inventory command.
+
+The source skill and installed dogfood copy also differed by one commit. Future
+qualification must name the source revision being exercised and must not treat
+an older installed copy as proof of the current PR head.
+
+This repair narrows every send receipt to `herdr_pane_input_only`, requires
+independent harness-readiness evidence before a real task, adds a controller
+hard cap around native output waits, automatically preserves terminal
+checkpoints, and adds transcript-blind `maintenance-checkpoint` classification.
+The operator clarified that maintenance must also remove completed owned tabs,
+not only inventory them. The separately gated `cleanup-preserved-tab` adapter
+therefore requires a preserved exact lease, repeated tab-ID confirmation, and
+post-close tab, pane, and foreground-SSH-PID absence. Unit tests cover controller
+timeout, terminal preservation, live exact-resource inventory, stale-lease
+routing, exact-only cleanup, and already-absent reconciliation. Live cleanup
+dogfood then closed and verified four exact preserved leases (`wC:t13`,
+`wC:t15`, `wC:t16`, and `wG:t4`) and reconciled two exact already-absent
+leases (`wC:t12` and `wC:t14`). Each close verified exact tab and pane absence
+plus leased foreground SSH PID absence without reading transcript text or
+directly signaling a process.
+
+Four older `puppet-*` tabs remained visible without any discoverable lease or
+journal (`wC:tX`, `wC:tY`, `wC:tZ`, and `wC:t0`). The controller left them
+untouched: a familiar label is not cleanup authority. They require a separate
+operator decision naming the exact IDs or recovery of their original lease
+records.

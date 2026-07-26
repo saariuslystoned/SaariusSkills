@@ -42,12 +42,19 @@ hand-composed Herdr mutations when the script owns the operation.
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. Never adopt an existing tab or process.
-7. Send ordinary AGY steering as a plain message with no slash-command prefix.
+7. Start the harness, then prove its input surface is ready before sending the
+   real task. Accept either the operator's explicit observation of the exact
+   leased tab's ready input surface or a bounded harness-specific token probe.
+   A fixed delay, process liveness, and a successful Herdr input
+   acknowledgement do not prove harness readiness or prompt submission.
+8. Send ordinary AGY steering as a plain message with no slash-command prefix.
    Never inject `/teamwork-preview` automatically. Use it only when the
    operator explicitly requests a separately bounded 4-20-helper fan-out; one
    AGY root remains the integration writer, and that experimental hierarchy
    requires its own topology, accounting, timeout, and cleanup proof.
-8. Drive only that leased pane through `qualification-send`. Serialize sends
+   Preserve any operator-selected slash command verbatim; do not add, remove,
+   or replace a plugin prefix chosen for that turn.
+9. Drive only that leased pane through `qualification-send`. Serialize sends
    and let the lease reject stale, skipped, duplicate, or replayed sequences.
    Supply a non-empty prompt through `--stdin` or a bounded UTF-8
    `--text-file`; never place prompt content in process arguments. Treat
@@ -57,7 +64,10 @@ hand-composed Herdr mutations when the script owns the operation.
    reliably half-close standard input, do not paste a long prompt into its
    canonical PTY. Use a private task-owned `--text-file`, require the exact
    sequence acknowledgement, and then remove only that temporary file.
-9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
+   Treat its success receipt as `herdr_pane_input_only`: it does not prove the
+   harness was ready, accepted the prompt, started work, loaded an extension,
+   or called a tool.
+10. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
    only the checkpoint class and hashes, never pane text. Use
@@ -65,10 +75,18 @@ hand-composed Herdr mutations when the script owns the operation.
    `not_matched` result proves only that the strict line was absent from the
    bounded window; it does not prove the worker, SSH process, harness, or tab
    went offline and is not itself a human gate.
-10. Preserve the owned tab with `lease-preserve` at a human gate, superseded
-    route, completed milestone, or operator stop. Preservation changes only
-    the controller lease and rejects further input; it does not close the tab.
-11. Run a maintenance checkpoint at milestone boundaries. Inventory only
+    The waiter has an independent controller hard timeout. `DONE` and
+    `ACTION_REQUIRED` automatically preserve the lease while leaving the tab
+    visible. When the operator reports the exact nonce line directly from the
+    exact owned tab, treat that checkpoint as terminal, journal the
+    observation, and preserve immediately; process or receipt polling cannot
+    override it.
+11. Preserve the owned tab with `lease-preserve` at a superseded route,
+    operator stop, or a terminal checkpoint reported outside the waiter.
+    Preservation changes only the controller lease and rejects further input;
+    it does not close the tab.
+12. Run `maintenance-checkpoint` at every milestone boundary and before
+    leaving the run. Inventory only
     exact run-owned resources already joined by the lease or named in
     structured harness events: tab, pane, terminal, foreground SSH PID,
     task-owned prompt files, and explicitly recorded child processes. Classify
@@ -77,7 +95,15 @@ hand-composed Herdr mutations when the script owns the operation.
     from its label, name, or age; journal repeat residue as a
     `maintenance_candidate` and route exact cleanup through a separately
     authorized owner-specific maintenance tool.
-12. Review the journal after each useful checkpoint. Promote only repeatable
+13. When the operator explicitly authorizes cleanup, run
+    `cleanup-preserved-tab` with the exact leased tab ID repeated through
+    `--confirm-tab-id`. It accepts only a preserved lease and initialized
+    journal, closes no other tab, verifies the exact tab and pane disappeared
+    and the leased foreground SSH PID is absent, then records the closed state.
+    A stale but unrecorded lease may be reconciled only after the same absence
+    and PID-absence checks. PID reuse blocks cleanup rather than being treated
+    as success. Never target a display ordinal or label.
+14. Review the journal after each useful checkpoint. Promote only repeatable
     lessons into this skill; keep transient incident detail in the run packet.
 
 Herdr-Puppet does not select a harness permission posture. Transport
@@ -139,6 +165,16 @@ python3 scripts/herdr_puppet.py qualification-send \
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <human_gate|route_superseded|milestone_complete|operator_stop>
+
+python3 scripts/herdr_puppet.py maintenance-checkpoint \
+  --lease-json <lease.json> \
+  --run-root <run-root>
+
+python3 scripts/herdr_puppet.py cleanup-preserved-tab \
+  --lease-json <lease.json> \
+  --run-root <run-root> \
+  --confirm-tab-id <exact-tab-id> \
+  --allow-live-cleanup
 ```
 
 Live qualification commands additionally require
@@ -163,8 +199,9 @@ changes, tab closure, process reaping, or destructive cleanup.
   memory and must discard it without emitting or persisting it.
 - Treat the journal as review input, not automatic permission to broaden the
   skill.
-- Treat maintenance as an inventory and routing layer, not deletion authority.
-  A recurring residue class justifies a deterministic adapter only after exact
-  identity and cleanup behavior have independent proof.
+- Treat maintenance inventory as routing evidence, not deletion authority.
+  `cleanup-preserved-tab` is the only close adapter: it still requires explicit
+  operator authority, a preserved exact lease, repeated tab-ID confirmation,
+  and verified tab, pane, and foreground-SSH-PID absence.
 - Leave `halt` and `recover` unavailable until exact remote-process identity
   and fail-closed recovery have independent qualification.

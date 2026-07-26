@@ -132,6 +132,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("transcript-blind", skill)
         self.assertIn("Never inject `/teamwork-preview` automatically", skill)
         self.assertIn("lease-preserve", skill)
+        self.assertIn("cleanup-preserved-tab", skill)
         self.assertIn('"method": "pane.send_input"', compact_client)
         self.assertIn('"keys": ["enter"]', compact_client)
         self.assertIn("socket.AF_UNIX", client)
@@ -146,7 +147,12 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('"server", "stop"', compact_client)
         self.assertNotIn('"session", "stop"', compact_client)
         self.assertNotIn('"workspace", "close"', compact_client)
-        self.assertNotIn('"tab", "close"', compact_client)
+        self.assertIn('"tab", "close"', compact_client)
+        self.assertNotIn('"pane", "close"', compact_client)
+        self.assertNotIn("SIGTERM", client)
+        self.assertNotIn("SIGKILL", client)
+        self.assertIn('add_argument("--confirm-tab-id"', cli)
+        self.assertIn('add_argument("--allow-live-cleanup"', cli)
 
     def test_herdr_puppet_schemas_parse(self) -> None:
         references = HERDR_SKILL / "references"

@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from .errors import HerdrPuppetError
-from .herdr_client import HerdrClient
+from .herdr_client import HerdrClient, load_json
 from .journal import (
     append_event,
     atomic_json,
     make_event,
     now,
+    read_events,
+    refresh_state,
     require_initialized_journal,
     sha256_text,
 )
@@ -29,6 +31,22 @@ PRESERVE_REASONS = {
     "operator_stop",
     "route_superseded",
 }
+
+LEASE_WAIT_REVISION_FIELDS = (
+    "schema",
+    "run_id",
+    "harness",
+    "session",
+    "workspace",
+    "owned_label",
+    "tab_id",
+    "pane_id",
+    "terminal_id",
+    "ssh",
+    "next_seq",
+    "source",
+    "proof_root",
+)
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -115,6 +133,19 @@ def validate_lease(payload: dict[str, Any]) -> None:
             "server_incarnation_claim_forbidden",
             "Herdr 0.7.3 does not expose a server-incarnation authority field.",
         )
+    if "cleanup_state" in payload:
+        if (
+            payload["state"] != "preserved"
+            or payload.get("cleanup_state") != "closed"
+            or not isinstance(payload.get("cleanup_verified_at"), str)
+            or not payload["cleanup_verified_at"]
+            or not isinstance(payload.get("cleanup_reconciled_absence"), bool)
+        ):
+            raise HerdrPuppetError(
+                "invalid_cleanup_record",
+                "A closed cleanup record requires a preserved lease and "
+                "complete verification fields.",
+            )
 
 
 def _version_from_text(version_text: str) -> str:
@@ -426,6 +457,371 @@ def structural_status(
     }
 
 
+def maintenance_checkpoint(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+    )
+    session = lease_payload["session"]["name"]
+    doctor_result = doctor(client, session)
+    blockers: list[str] = list(doctor_result["blockers"])
+    tab_state = "unverified"
+    pane_state = "unverified"
+    terminal_state = "unverified"
+    ssh_state = "unverified"
+
+    if doctor_result["result"] == "ok":
+        snapshot = client.snapshot(session)
+        if doctor_result["socket"] != lease_payload["session"]["socket"]:
+            blockers.append("server_socket_drift")
+        if snapshot.get("version") != lease_payload["session"]["version"]:
+            blockers.append("snapshot_version_drift")
+        if snapshot.get("protocol") != lease_payload["session"]["protocol"]:
+            blockers.append("snapshot_protocol_drift")
+
+        workspace_matches = [
+            item
+            for item in snapshot["workspaces"]
+            if item.get("workspace_id") == lease_payload["workspace"]["id"]
+        ]
+        if (
+            len(workspace_matches) != 1
+            or workspace_matches[0].get("label")
+            != lease_payload["workspace"]["label"]
+        ):
+            blockers.append("workspace_capability_mismatch")
+
+        tab_matches = [
+            item
+            for item in snapshot["tabs"]
+            if item.get("tab_id") == lease_payload["tab_id"]
+        ]
+        pane_matches = [
+            item
+            for item in snapshot["panes"]
+            if item.get("pane_id") == lease_payload["pane_id"]
+        ]
+
+        if not tab_matches:
+            tab_state = "missing"
+        elif len(tab_matches) > 1:
+            tab_state = "duplicate"
+            blockers.append("leased_tab_duplicate")
+        elif tab_matches[0].get("workspace_id") != lease_payload["workspace"]["id"]:
+            tab_state = "moved"
+            blockers.append("leased_tab_moved")
+        elif tab_matches[0].get("label") != lease_payload["owned_label"]:
+            tab_state = "label_drift"
+            blockers.append("leased_tab_label_drift")
+        else:
+            tab_state = "present"
+
+        if not pane_matches:
+            pane_state = "missing"
+        elif len(pane_matches) > 1:
+            pane_state = "duplicate"
+            blockers.append("leased_pane_duplicate")
+        elif (
+            pane_matches[0].get("workspace_id")
+            != lease_payload["workspace"]["id"]
+            or pane_matches[0].get("tab_id") != lease_payload["tab_id"]
+        ):
+            pane_state = "moved"
+            blockers.append("leased_pane_moved")
+        elif pane_matches[0].get("terminal_id") != lease_payload["terminal_id"]:
+            pane_state = "present"
+            terminal_state = "drifted"
+            blockers.append("leased_terminal_drift")
+        else:
+            pane_state = "present"
+            terminal_state = "present"
+
+        exact_structure_present = (
+            tab_state == "present"
+            and pane_state == "present"
+            and terminal_state == "present"
+        )
+        if exact_structure_present and not blockers:
+            try:
+                process = _expected_ssh_process(
+                    client.process_info(session, lease_payload["pane_id"]),
+                    lease_payload["ssh"]["target"],
+                )
+            except HerdrPuppetError as exc:
+                blockers.append(exc.code)
+            else:
+                if (
+                    process.get("pid") != lease_payload["ssh"]["pid"]
+                    or process.get("argv") != lease_payload["ssh"]["argv"]
+                ):
+                    blockers.append("leased_ssh_process_drift")
+                    ssh_state = "drifted"
+                else:
+                    ssh_state = "present"
+
+    stale_structure = (
+        doctor_result["result"] == "ok"
+        and not blockers
+        and tab_state == "missing"
+        and pane_state == "missing"
+    )
+    exact_live_structure = (
+        doctor_result["result"] == "ok"
+        and not blockers
+        and tab_state == "present"
+        and pane_state == "present"
+        and terminal_state == "present"
+        and ssh_state == "present"
+    )
+    if stale_structure:
+        classification = "stale"
+    elif exact_live_structure:
+        classification = lease_payload["state"]
+    else:
+        classification = "ambiguous"
+
+    cleanup_recorded = lease_payload.get("cleanup_state") == "closed"
+    maintenance_candidate = (
+        classification == "ambiguous"
+        or classification == "stale"
+        and not cleanup_recorded
+    )
+    recommended_action = (
+        "none"
+        if classification == "stale" and cleanup_recorded
+        else
+        "preserve_lease"
+        if classification == "stale" and lease_payload["state"] == "active"
+        else "owner_specific_cleanup_review"
+        if classification == "stale"
+        else "human_review"
+        if classification == "ambiguous"
+        else "retain_or_route_exact_cleanup"
+        if classification == "preserved"
+        else "continue_bounded_run"
+    )
+    resources = {
+        "tab": {"id": lease_payload["tab_id"], "state": tab_state},
+        "pane": {"id": lease_payload["pane_id"], "state": pane_state},
+        "terminal": {
+            "id": lease_payload["terminal_id"],
+            "state": terminal_state,
+        },
+        "ssh": {
+            "pid": lease_payload["ssh"]["pid"],
+            "state": ssh_state,
+        },
+    }
+    append_event(
+        run_root,
+        make_event(
+            lease_payload["run_id"],
+            "maintenance.checkpoint",
+            "repair" if maintenance_candidate else "observed",
+            data={
+                "classification": classification,
+                "lease_state": lease_payload["state"],
+                "resources": resources,
+                "blockers": blockers,
+                "maintenance_candidate": maintenance_candidate,
+                "recommended_action": recommended_action,
+                "cleanup_authorized": False,
+                "cleanup_performed": False,
+                "herdr_mutated": False,
+                "transcript_read": False,
+            },
+        ),
+    )
+    return {
+        "schema": "herdr-puppet.maintenance-checkpoint.v1",
+        "result": "ok",
+        "run_id": lease_payload["run_id"],
+        "classification": classification,
+        "lease_state": lease_payload["state"],
+        "resources": resources,
+        "blockers": blockers,
+        "maintenance_candidate": maintenance_candidate,
+        "recommended_action": recommended_action,
+        "cleanup_authorized": False,
+        "cleanup_performed": False,
+        "herdr_mutated": False,
+        "transcript_read": False,
+    }
+
+
+def cleanup_preserved_tab(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    run_root: Path,
+    confirm_tab_id: str,
+    allow_live_cleanup: bool,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    if lease_payload["state"] != "preserved":
+        raise HerdrPuppetError(
+            "cleanup_lease_not_preserved",
+            "Exact tab cleanup requires a preserved lease.",
+        )
+    if not allow_live_cleanup:
+        raise HerdrPuppetError(
+            "live_cleanup_not_authorized",
+            "The command flag must explicitly authorize live tab cleanup.",
+        )
+    if confirm_tab_id != lease_payload["tab_id"]:
+        raise HerdrPuppetError(
+            "cleanup_tab_confirmation_mismatch",
+            "The confirmed tab ID does not match the exact leased tab.",
+            details={
+                "confirmed_tab_id": confirm_tab_id,
+                "leased_tab_id": lease_payload["tab_id"],
+            },
+        )
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+    )
+    current = load_json(lease_path)
+    _assert_wait_lease_revision(lease_payload, current)
+    if current["state"] != "preserved":
+        raise HerdrPuppetError(
+            "cleanup_lease_not_preserved",
+            "The on-disk lease is not preserved.",
+        )
+
+    inventory = maintenance_checkpoint(
+        client,
+        lease_payload=current,
+        run_root=run_root,
+    )
+    if inventory["classification"] == "ambiguous":
+        raise HerdrPuppetError(
+            "cleanup_identity_ambiguous",
+            "Exact tab cleanup requires an unambiguous live or absent identity.",
+            details={"blockers": inventory["blockers"]},
+        )
+
+    already_absent = inventory["classification"] == "stale"
+    if current.get("cleanup_state") == "closed":
+        if already_absent:
+            if not client.wait_pid_absence(current["ssh"]["pid"]):
+                raise HerdrPuppetError(
+                    "cleanup_ssh_pid_absence_not_verified",
+                    "The leased foreground SSH PID is not absent.",
+                    details={"ssh_pid": current["ssh"]["pid"]},
+                )
+            refresh_state(run_root, current)
+            return {
+                "schema": "herdr-puppet.cleanup-preserved-tab.v1",
+                "result": "ok",
+                "run_id": current["run_id"],
+                "tab_id": current["tab_id"],
+                "pane_id": current["pane_id"],
+                "cleanup_performed": False,
+                "already_closed": True,
+                "absence_verified": True,
+                "ssh_pid_absence_verified": True,
+                "transcript_read": False,
+            }
+        raise HerdrPuppetError(
+            "cleanup_record_conflict",
+            "A lease recorded as closed resolved to a live exact identity.",
+        )
+
+    append_event(
+        run_root,
+        make_event(
+            current["run_id"],
+            "cleanup.requested",
+            "observed",
+            data={
+                "tab_id": current["tab_id"],
+                "pane_id": current["pane_id"],
+                "confirmed_tab_id": confirm_tab_id,
+                "cleanup_authorized": True,
+                "transcript_read": False,
+            },
+        ),
+    )
+
+    cleanup_performed = False
+    if not already_absent:
+        client.close_tab(
+            current["session"]["name"],
+            current["tab_id"],
+        )
+        cleanup_performed = True
+        after = client.snapshot(current["session"]["name"])
+        tab_matches = [
+            item
+            for item in after["tabs"]
+            if item.get("tab_id") == current["tab_id"]
+        ]
+        pane_matches = [
+            item
+            for item in after["panes"]
+            if item.get("pane_id") == current["pane_id"]
+        ]
+        if tab_matches or pane_matches:
+            raise HerdrPuppetError(
+                "cleanup_close_not_verified",
+                "Herdr accepted tab close but the exact leased identity remains.",
+                details={
+                    "tab_present": bool(tab_matches),
+                    "pane_present": bool(pane_matches),
+                },
+            )
+    if not client.wait_pid_absence(current["ssh"]["pid"]):
+        raise HerdrPuppetError(
+            "cleanup_ssh_pid_absence_not_verified",
+            "The leased foreground SSH PID is not absent after tab cleanup.",
+            details={"ssh_pid": current["ssh"]["pid"]},
+        )
+
+    updated = json.loads(json.dumps(current))
+    updated["cleanup_state"] = "closed"
+    updated["cleanup_verified_at"] = now()
+    updated["cleanup_reconciled_absence"] = already_absent
+    atomic_json(lease_path, updated)
+    append_event(
+        run_root,
+        make_event(
+            updated["run_id"],
+            "cleanup.closed",
+            "ok",
+            data={
+                "tab_id": updated["tab_id"],
+                "pane_id": updated["pane_id"],
+                "cleanup_performed": cleanup_performed,
+                "already_absent": already_absent,
+                "absence_verified": True,
+                "ssh_pid_absence_verified": True,
+                "transcript_read": False,
+            },
+        ),
+    )
+    refresh_state(run_root, updated)
+    return {
+        "schema": "herdr-puppet.cleanup-preserved-tab.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "tab_id": updated["tab_id"],
+        "pane_id": updated["pane_id"],
+        "cleanup_performed": cleanup_performed,
+        "already_closed": already_absent,
+        "absence_verified": True,
+        "ssh_pid_absence_verified": True,
+        "transcript_read": False,
+    }
+
+
 def _live_gate(plan_payload: dict[str, Any], allow_live: bool) -> None:
     if not allow_live or plan_payload["safety"].get("live_mutation_authorized") is not True:
         raise HerdrPuppetError(
@@ -603,7 +999,15 @@ def qualification_send(
                 "ok",
                 seq=seq,
                 prompt_sha256=digest,
-                data={"pane_id": pane_id, "input_request": "pane.send_input"},
+                data={
+                    "pane_id": pane_id,
+                    "input_request": "pane.send_input",
+                    "transport_acknowledged": True,
+                    "acceptance_scope": "herdr_pane_input_only",
+                    "outcome": "pane_input_accepted",
+                    "harness_readiness": "unverified",
+                    "harness_acceptance": "unverified",
+                },
             ),
         )
     return {
@@ -614,6 +1018,11 @@ def qualification_send(
         "seq": seq,
         "next_seq": updated["next_seq"],
         "prompt_sha256": digest,
+        "transport_acknowledged": True,
+        "acceptance_scope": "herdr_pane_input_only",
+        "outcome": "pane_input_accepted",
+        "harness_readiness": "unverified",
+        "harness_acceptance": "unverified",
         "prompt_persisted": False,
         "transcript_read": False,
     }
@@ -732,8 +1141,17 @@ def qualification_token_probe(
         lines,
         timeout_ms,
     )
-    matched = wait_result is not None
-    revision = wait_result.get("revision") if wait_result else None
+    matched = (
+        wait_result is not None
+        and wait_result.get("type") == "output_matched"
+    )
+    revision = wait_result.get("revision") if matched else None
+    timeout_source = (
+        wait_result.get("timeout_source")
+        if wait_result is not None
+        and wait_result.get("type") == "output_timeout"
+        else None
+    )
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
     if run_root is not None:
         append_event(
@@ -747,6 +1165,7 @@ def qualification_token_probe(
                     "pane_id": lease_payload["pane_id"],
                     "matched": matched,
                     "revision": revision,
+                    "timeout_source": timeout_source,
                     "wait": "herdr.wait.output",
                 },
             ),
@@ -761,19 +1180,57 @@ def qualification_token_probe(
         "pane_text_emitted": False,
         "bounded_lines": lines,
         "timeout_ms": timeout_ms,
+        "timeout_source": timeout_source,
         "revision": revision,
     }
+
+
+def _assert_wait_lease_revision(
+    expected: dict[str, Any],
+    current: dict[str, Any],
+) -> None:
+    validate_lease(current)
+    drifted = [
+        field
+        for field in LEASE_WAIT_REVISION_FIELDS
+        if current.get(field) != expected.get(field)
+    ]
+    if drifted:
+        raise HerdrPuppetError(
+            "lease_changed_during_wait",
+            "The lease changed while the checkpoint wait was active.",
+            details={"fields": drifted},
+        )
+
+
+def _reject_terminal_nonce_replay(run_root: Path, nonce_digest: str) -> None:
+    for event in read_events(run_root):
+        checkpoint = (
+            event.get("data", {}).get("checkpoint")
+            if isinstance(event.get("data"), dict)
+            else None
+        )
+        if (
+            event.get("kind") == "qualification.beacon"
+            and event.get("nonce_sha256") == nonce_digest
+            and checkpoint in {"ACTION_REQUIRED", "DONE"}
+        ):
+            raise HerdrPuppetError(
+                "terminal_beacon_nonce_reused",
+                "A terminal checkpoint nonce may not be waited again.",
+            )
 
 
 def qualification_beacon_wait(
     client: HerdrClient,
     *,
     lease_payload: dict[str, Any],
+    lease_path: Path,
     nonce: str,
     allow_live: bool,
     lines: int = 40,
     timeout_ms: int = 300_000,
-    run_root: Path | None = None,
+    run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
     if lease_payload["state"] != "active":
@@ -798,6 +1255,16 @@ def qualification_beacon_wait(
             "invalid_beacon_timeout",
             "Qualification beacon timeout must be between 1 and 3600000 ms.",
         )
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+    )
+    nonce_digest = sha256_text(nonce)
+    _reject_terminal_nonce_replay(run_root, nonce_digest)
+    current_before_wait = load_json(lease_path)
+    _assert_wait_lease_revision(lease_payload, current_before_wait)
+    if current_before_wait["state"] != "active":
+        raise HerdrPuppetError("lease_not_active", "The lease is not active.")
     status = structural_status(client, lease_payload=lease_payload)
     if status["result"] != "ok":
         raise HerdrPuppetError(
@@ -820,11 +1287,26 @@ def qualification_beacon_wait(
         timeout_ms,
         regex=True,
     )
-    matched_line = wait_result.get("matched_line") if wait_result else None
+    matched_line = (
+        wait_result.get("matched_line")
+        if wait_result is not None
+        and wait_result.get("type") == "output_matched"
+        else None
+    )
     match = re.fullmatch(pattern, matched_line) if isinstance(matched_line, str) else None
     checkpoint = match.group(1) if match else None
-    revision = wait_result.get("revision") if wait_result else None
-    nonce_digest = sha256_text(nonce)
+    revision = (
+        wait_result.get("revision")
+        if wait_result is not None
+        and wait_result.get("type") == "output_matched"
+        else None
+    )
+    timeout_source = (
+        wait_result.get("timeout_source")
+        if wait_result is not None
+        and wait_result.get("type") == "output_timeout"
+        else None
+    )
     result = (
         "human_gate"
         if checkpoint == "ACTION_REQUIRED"
@@ -834,21 +1316,35 @@ def qualification_beacon_wait(
         if checkpoint == "STATUS"
         else "failed"
     )
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                lease_payload["run_id"],
-                "qualification.beacon",
-                result,
-                nonce_sha256=nonce_digest,
-                data={
-                    "pane_id": lease_payload["pane_id"],
-                    "checkpoint": checkpoint,
-                    "revision": revision,
-                    "wait": "herdr.wait.output.regex",
-                },
+    current_after_wait = load_json(lease_path)
+    _assert_wait_lease_revision(lease_payload, current_after_wait)
+    append_event(
+        run_root,
+        make_event(
+            lease_payload["run_id"],
+            "qualification.beacon",
+            result,
+            nonce_sha256=nonce_digest,
+            data={
+                "pane_id": lease_payload["pane_id"],
+                "checkpoint": checkpoint,
+                "revision": revision,
+                "timeout_source": timeout_source,
+                "wait": "herdr.wait.output.regex",
+            },
+        ),
+    )
+    auto_preserved = checkpoint in {"ACTION_REQUIRED", "DONE"}
+    if auto_preserved:
+        preserve_lease(
+            lease_payload=current_after_wait,
+            lease_path=lease_path,
+            reason=(
+                "human_gate"
+                if checkpoint == "ACTION_REQUIRED"
+                else "milestone_complete"
             ),
+            run_root=run_root,
         )
     return {
         "schema": "herdr-puppet.qualification-beacon-wait.v1",
@@ -861,7 +1357,12 @@ def qualification_beacon_wait(
         "pane_text_emitted": False,
         "bounded_lines": lines,
         "timeout_ms": timeout_ms,
+        "timeout_source": timeout_source,
         "revision": revision,
+        "auto_preserved": auto_preserved,
+        "lease_state": (
+            "preserved" if auto_preserved else current_after_wait["state"]
+        ),
     }
 
 

@@ -71,3 +71,16 @@ and familiar paths are insufficient cleanup identity. Preserve ambiguous
 resources, journal recurring residue as a maintenance candidate, and require a
 separately authorized owner-specific reaper before closing panes or terminating
 processes.
+
+`maintenance-checkpoint` is the transcript-blind inventory surface. Its
+classification and recommendation do not authorize the recommended action.
+Report exact tab, pane, and terminal IDs beside any human-facing ordinal or
+label so a display position is never mistaken for authority.
+
+`cleanup-preserved-tab` is the bounded owner-specific close surface. It
+requires separate operator authority, an initialized journal, a preserved
+lease, an exact repeated tab-ID confirmation, and post-close proof that the
+leased tab, pane, and foreground SSH PID are absent. PID reuse fails closed
+rather than being accepted as absence. It does not close by
+label, ordinal, age, focus, or search result, and it never sends a process
+termination signal directly.
