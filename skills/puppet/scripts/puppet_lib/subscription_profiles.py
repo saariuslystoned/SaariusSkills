@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
 
 from .adapter_manifest import (
+    CLOSED_LAUNCH_PATH,
     execution_file_identity,
     validate_execution_file_identity,
 )
@@ -205,7 +206,7 @@ def _legacy_claude_profile_environment(
     return {
         "HOME": directories["home"]["path"],
         "TMPDIR": directories["tmp"]["path"],
-        "PATH": "/usr/bin:/bin",
+        "PATH": CLOSED_LAUNCH_PATH,
         "LANG": "C",
         "LC_ALL": "C",
         "CLAUDE_CONFIG_DIR": directories["config"]["path"],
@@ -258,7 +259,7 @@ def _profile_environment(
     values = {
         "HOME": str(real_home["path"]),
         "TMPDIR": directories["tmp"]["path"],
-        "PATH": "/usr/bin:/bin",
+        "PATH": CLOSED_LAUNCH_PATH,
         "LANG": "C",
         "LC_ALL": "C",
     }
@@ -312,7 +313,7 @@ def _manifest_public(value: Mapping[str, Any]) -> Dict[str, Any]:
     clean_helper_environment = [
         "HOME=" + value["bindings"]["HOME"],
         "TMPDIR=" + value["bindings"]["TMPDIR"],
-        "PATH=/usr/bin:/bin",
+        "PATH=" + CLOSED_LAUNCH_PATH,
         "LANG=C",
         "LC_ALL=C",
     ]

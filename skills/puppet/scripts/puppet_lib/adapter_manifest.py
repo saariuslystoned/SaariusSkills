@@ -84,6 +84,7 @@ QUALIFICATION_PROFILE = "source-free-pass-b-v2"
 LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS = frozenset({1})
 LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4})
 CURSOR_REQUIRED_PATH_TOOLS = ("bash", "basename", "dirname", "realpath", "readlink")
+CLOSED_LAUNCH_PATH = "/usr/bin:/bin"
 _EXECUTION_FILE_CHUNK_BYTES = 1024 * 1024
 
 

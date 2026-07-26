@@ -15,6 +15,7 @@ from .adapter_manifest import (
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     AdapterManifest,
     BEHAVIOR_CAPABILITIES,
+    CLOSED_LAUNCH_PATH,
     CURSOR_REQUIRED_PATH_TOOLS,
     build_execution_bundle,
     direct_execution_bundle,
@@ -318,9 +319,7 @@ def _cursor_execution_bundle(
     runtime = execution_file_identity(directory / "node")
     entrypoint = execution_file_identity(directory / "index.js")
     env_path = Path("/usr/bin/env")
-    path_value = os.environ.get("PATH")
-    if not isinstance(path_value, str) or not path_value:
-        raise ValidationError("cursor launcher PATH is unavailable")
+    path_value = CLOSED_LAUNCH_PATH
     path_entries = path_value.split(os.pathsep)
     if any(not item or not Path(item).is_absolute() for item in path_entries):
         raise ValidationError("cursor launcher PATH is cwd-dependent")

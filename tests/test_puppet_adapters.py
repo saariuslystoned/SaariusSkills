@@ -25,6 +25,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     ACTIVATION_QUALIFICATION_PROOF_KINDS,
     ACTIVATION_LIFECYCLE_SCOPE,
     AdapterManifest,
+    CLOSED_LAUNCH_PATH,
     CURSOR_REQUIRED_PATH_TOOLS,
     QUALIFICATION_EVIDENCE_SCHEMA_VERSION,
     QUALIFICATION_PROFILE,
@@ -537,7 +538,7 @@ class AdapterTests(unittest.TestCase):
                 for item in execution["transient_executables"]
                 if Path(item["path"]).name == "bash"
             )
-            cursor_path = os.environ["PATH"]
+            cursor_path = CLOSED_LAUNCH_PATH
             cursor_manifest.verify_launch_execution_environment({"PATH": cursor_path})
             with self.assertRaisesRegex(IdentityError, "cwd-dependent"):
                 cursor_manifest.verify_launch_execution_environment(
@@ -557,9 +558,9 @@ class AdapterTests(unittest.TestCase):
                     os.environ,
                     {"PATH": "bin" + os.pathsep + str(bash_path.parent)},
                 ),
-                self.assertRaisesRegex(ValidationError, "cwd-dependent"),
             ):
-                _cursor_execution_bundle(launcher, executable)
+                repeated = _cursor_execution_bundle(launcher, executable)
+            self.assertEqual(repeated, execution)
 
     def test_cursor_census_validates_before_probe_and_never_executes_wrapper(self):
         with tempfile.TemporaryDirectory() as temporary:
