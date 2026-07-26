@@ -2181,23 +2181,15 @@ class AdapterManifest:
                 "submit settle mapping does not match the adapter policy"
             )
         if value["target"] == "agy":
-            expected_argv = [resolved_path]
-            for flag in mapping["permission_flags"] + mapping["sandbox_flags"]:
-                if flag not in expected_argv:
-                    expected_argv.append(flag)
-            for flag in mapping["project_isolation_flags"]:
-                if flag not in expected_argv:
-                    expected_argv.append(flag)
-            if "--log-file" in argv:
-                log_idx = argv.index("--log-file")
-                if log_idx + 1 >= len(argv) or argv[log_idx + 1] != "/dev/null":
-                    raise ValidationError("manifest launch_argv log destination must be /dev/null")
-                if "--log-file" not in expected_argv:
-                    expected_argv.extend(["--log-file", "/dev/null"])
+            expected_argv = [
+                resolved_path,
+                "--dangerously-skip-permissions",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ]
             if argv != expected_argv:
-                raise ValidationError(
-                    "manifest launch_argv does not match declared flags"
-                )
+                raise ValidationError("manifest launch_argv is invalid for AGY")
         if mapping["complete"] and not all(
             mapping[name]
             for name in (

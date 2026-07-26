@@ -97,12 +97,16 @@ class AdapterSpec:
         if self.name == "agy":
             if requested_model is not None or "--model" in argv:
                 raise ValidationError("AGY regular launch forbids explicit model selection; model selector must be absent")
-            if argv.count("--new-project") != 1:
-                raise ValidationError("AGY launch argv must contain exactly one project flag (--new-project)")
-            if "--dangerously-skip-permissions" not in argv:
-                raise ValidationError("AGY launch argv missing required permission bypass flag (--dangerously-skip-permissions)")
-            if "--log-file" in argv and (argv.index("--log-file") + 1 >= len(argv) or argv[argv.index("--log-file") + 1] != "/dev/null"):
-                raise ValidationError("AGY launch log destination must be /dev/null")
+            if requested_effort is not None or "--effort" in argv:
+                raise ValidationError("AGY regular launch forbids explicit effort selection; effort selector must be absent")
+            resolved_path = manifest.raw["executable"]["resolved_path"]
+            return [
+                resolved_path,
+                "--dangerously-skip-permissions",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ]
         return argv
 
 

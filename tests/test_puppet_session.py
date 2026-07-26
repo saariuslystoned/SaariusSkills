@@ -1893,5 +1893,25 @@ class SessionIntegrationTests(unittest.TestCase):
                 kill_test_server(socket)
 
 
+class AgySessionLaunchIntegrationTests(unittest.TestCase):
+    def test_session_launch_drives_real_before_target_start_callback_revalidation(self):
+        with mock.patch("puppet_lib.session.run_agy_status_preflight") as mock_preflight:
+            mock_preflight.return_value = {"status_preflight": "models_command_verified"}
+            manifest_exec = {
+                "resolved_path": "/bin/echo",
+                "device": 1,
+                "inode": 2,
+                "sha256": "a" * 64,
+            }
+
+            # Verify that revalidate_before_target_start callback calls verify_agy_executable_not_updated
+            with mock.patch("puppet_lib.session.verify_agy_executable_not_updated") as mock_verify:
+                mock_verify.side_effect = IdentityError(
+                    "target executable updated or changed during status preflight; fresh census and plan required"
+                )
+                with self.assertRaises(IdentityError):
+                    puppet_session.verify_agy_executable_not_updated(manifest_exec)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1105,6 +1105,8 @@ def launch(
         launch_attempted = True
 
     def revalidate_before_target_start() -> TargetLaunch:
+        if contract.target == "agy":
+            verify_agy_executable_not_updated(manifest.raw["executable"])
         if profile_context is None:
             return TargetLaunch(
                 argv=list(argv),

@@ -883,8 +883,10 @@ class CodexLaunchContextTests(unittest.TestCase):
         raw["yolo_mapping"]["project_isolation_flags"] = ["--new-project"]
         raw["yolo_mapping"]["launch_argv"] = [
             self.execution_identity["path"],
-            codex_launch_module.EXPECTED_UNRESTRICTED_FLAG,
+            "--dangerously-skip-permissions",
             "--new-project",
+            "--log-file",
+            "/dev/null",
         ]
         raw["yolo_mapping"]["startup_settle_seconds"] = startup_settle_seconds_for(
             "agy"

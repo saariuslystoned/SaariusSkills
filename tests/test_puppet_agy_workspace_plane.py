@@ -86,15 +86,16 @@ def _adapter_manifest(
                 "launch_argv": [
                     path,
                     "--dangerously-skip-permissions",
-                    "--sandbox=false",
                     "--new-project",
+                    "--log-file",
+                    "/dev/null",
                 ],
                 "permission_declared": True,
                 "permission_flags": ["--dangerously-skip-permissions"],
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
                 "sandbox_disable_declared": True,
-                "sandbox_flags": ["--sandbox=false"],
+                "sandbox_flags": [],
                 "project_isolation_declared": True,
                 "project_isolation_flags": ["--new-project"],
                 "session_profiles": session_profiles_for("agy"),
@@ -373,13 +374,13 @@ class AgyWorkspacePlaneBindingTests(unittest.TestCase):
         for label, mutate in cases:
             raw = copy.deepcopy(self.manifest)
             mutate(raw)
-            changed_manifest = AdapterManifest.from_dict(raw).raw
-            changed_hash = AdapterManifest.from_dict(changed_manifest).fingerprint
-            changed_descriptor = build_agy_workspace_agent_descriptor(
-                adapter_manifest_sha256=changed_hash,
-                rendered_sha256=self.compiled.manifest["rendered_sha256"],
-            )
-            with self.subTest(label=label), self.assertRaises(IdentityError):
+            with self.subTest(label=label), self.assertRaises((IdentityError, ValidationError)):
+                changed_manifest = AdapterManifest.from_dict(raw).raw
+                changed_hash = AdapterManifest.from_dict(changed_manifest).fingerprint
+                changed_descriptor = build_agy_workspace_agent_descriptor(
+                    adapter_manifest_sha256=changed_hash,
+                    rendered_sha256=self.compiled.manifest["rendered_sha256"],
+                )
                 self._bind(
                     descriptor=changed_descriptor,
                     adapter_manifest=changed_manifest,

@@ -747,6 +747,39 @@ class AgyRegularLaunchValidationTests(unittest.TestCase):
                 argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "bare_arg"],
             )
 
+    def test_unproved_sandbox_false_flag_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--sandbox=false", "--new-project", "--log-file", "/dev/null"],
+            )
+
+    def test_unproved_agent_flag_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "--agent", "puppet-1234"],
+            )
+
+    def test_reordered_flags_fail_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--new-project", "--dangerously-skip-permissions", "--log-file", "/dev/null"],
+            )
+
+    def test_duplicate_flags_fail_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+            )
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "--log-file", "/dev/null"],
+            )
+
     def test_slash_commands_fail_closed(self):
         with self.assertRaises(ValidationError):
             agy_launch_module.validate_agy_regular_launch_params(

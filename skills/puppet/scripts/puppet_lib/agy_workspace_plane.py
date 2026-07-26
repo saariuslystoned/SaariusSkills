@@ -408,8 +408,9 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
     expected_argv = [
         executable["resolved_path"],
         "--dangerously-skip-permissions",
-        "--sandbox=false",
         "--new-project",
+        "--log-file",
+        "/dev/null",
     ]
     if (
         mapping["complete"] is not True
@@ -417,7 +418,7 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
         or mapping["permission_declared"] is not True
         or mapping["permission_flags"] != ["--dangerously-skip-permissions"]
         or mapping["sandbox_disable_declared"] is not True
-        or mapping["sandbox_flags"] != ["--sandbox=false"]
+        or mapping["sandbox_flags"] != []
         or mapping["project_isolation_declared"] is not True
         or mapping["project_isolation_flags"] != ["--new-project"]
         or mapping["prompt_transport"] != PROMPT_TRANSPORT

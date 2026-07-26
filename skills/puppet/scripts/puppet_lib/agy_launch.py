@@ -124,9 +124,8 @@ def validate_agy_regular_launch_params(
     log_destination: Optional[str] = None,
     profile_root: Optional[Any] = None,
     executable_path: Optional[str] = None,
-    allow_workspace_agent: bool = False,
 ) -> None:
-    """Validate that AGY launch parameters strictly conform to the regular-session shared auth/config route grammar."""
+    """Validate that AGY launch parameters strictly conform to the exact live-proved regular-session argv grammar."""
 
     if session_profile != "regular":
         raise UnsupportedError(AGY_NON_REGULAR_AUTHORITY_BLOCKER)
@@ -146,30 +145,14 @@ def validate_agy_regular_launch_params(
             "AGY regular launch forbids explicit effort selection; effort selector must be absent"
         )
 
-    if argv.count("--new-project") != 1:
-        raise ValidationError(
-            "AGY launch argv must contain exactly one project flag (--new-project)"
-        )
-
-    if "--dangerously-skip-permissions" not in argv:
-        raise ValidationError(
-            "AGY launch argv missing required permission bypass flag (--dangerously-skip-permissions)"
-        )
-
-    if "--log-file" not in argv:
-        raise ValidationError(
-            "AGY launch argv missing required log file flag (--log-file)"
-        )
-
-    log_file_idx = argv.index("--log-file")
-    if log_file_idx + 1 >= len(argv) or argv[log_file_idx + 1] != "/dev/null":
-        raise ValidationError(
-            "AGY launch log destination must be /dev/null"
-        )
-
     if log_destination is not None and log_destination != "/dev/null":
         raise ValidationError(
             "AGY launch log destination must be /dev/null"
+        )
+
+    if not isinstance(argv, (list, tuple)) or len(argv) != 5:
+        raise ValidationError(
+            "AGY regular launch argv must be exactly 5 tokens: [executable, --dangerously-skip-permissions, --new-project, --log-file, /dev/null]"
         )
 
     if executable_path is not None and argv[0] != executable_path:
@@ -177,34 +160,8 @@ def validate_agy_regular_launch_params(
             "AGY launch argv executable does not match fingerprinted executable"
         )
 
-    allowed_single_flags = {
-        "--dangerously-skip-permissions",
-        "--new-project",
-        "--sandbox=false",
-    }
-    allowed_valued_flags = {"--log-file"}
-    if allow_workspace_agent:
-        allowed_valued_flags.add("--agent")
-
-    idx = 1
-    n = len(argv)
-    while idx < n:
-        item = argv[idx]
-        if item in allowed_single_flags:
-            idx += 1
-            continue
-        elif item in allowed_valued_flags:
-            if idx + 1 >= n:
-                raise ValidationError(f"flag {item} missing required value in AGY launch argv")
-            val = argv[idx + 1]
-            if item == "--log-file" and val != "/dev/null":
-                raise ValidationError("AGY launch log destination must be /dev/null")
-            if item == "--agent":
-                if not val.startswith("puppet-"):
-                    raise ValidationError("AGY agent name must match contract hash naming")
-            idx += 2
-            continue
-        else:
-            if item.startswith("/") and not Path(item).is_absolute():
-                raise ValidationError("caller-supplied slash commands are forbidden in AGY launch argv")
-            raise ValidationError(f"disallowed argument in AGY launch argv: {item}")
+    expected_tail = ["--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"]
+    if list(argv[1:]) != expected_tail:
+        raise ValidationError(
+            "AGY regular launch argv must match the exact sequence: [executable, --dangerously-skip-permissions, --new-project, --log-file, /dev/null]"
+        )

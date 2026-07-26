@@ -105,7 +105,6 @@ def manifest_raw(target="agy"):
                 [
                     str(executable),
                     "--dangerously-skip-permissions",
-                    AGY_SANDBOX_DISABLE_FLAG,
                     "--new-project",
                     "--log-file",
                     "/dev/null",
@@ -1116,7 +1115,6 @@ class AdapterTests(unittest.TestCase):
             [
                 raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
-                AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",
                 "--log-file",
                 "/dev/null",
@@ -1128,7 +1126,6 @@ class AdapterTests(unittest.TestCase):
             [
                 raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
-                AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",
                 "--log-file",
                 "/dev/null",
