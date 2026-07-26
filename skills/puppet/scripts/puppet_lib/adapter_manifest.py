@@ -2181,20 +2181,22 @@ class AdapterManifest:
             # Launch argv and semantic buckets are one bound claim. Census may
             # still probe parser-only sandbox candidates separately; the regular
             # launch mapping must not claim an unproved --sandbox=false flag.
-            if mapping["permission_flags"] != ["--dangerously-skip-permissions"]:
+            from .agy_launch import (
+                AGY_REGULAR_PERMISSION_FLAGS,
+                AGY_REGULAR_PROJECT_ISOLATION_FLAGS,
+                AGY_REGULAR_SANDBOX_FLAGS,
+                agy_regular_launch_argv,
+            )
+
+            if mapping["permission_flags"] != list(AGY_REGULAR_PERMISSION_FLAGS):
                 raise ValidationError("agy permission flags are invalid")
-            if mapping["sandbox_flags"] != []:
+            if mapping["sandbox_flags"] != list(AGY_REGULAR_SANDBOX_FLAGS):
                 raise ValidationError("agy sandbox flags are invalid")
-            if mapping["project_isolation_flags"] != ["--new-project"]:
+            if mapping["project_isolation_flags"] != list(
+                AGY_REGULAR_PROJECT_ISOLATION_FLAGS
+            ):
                 raise ValidationError("agy project isolation flags are invalid")
-            expected_argv = [
-                resolved_path,
-                "--dangerously-skip-permissions",
-                "--new-project",
-                "--log-file",
-                "/dev/null",
-            ]
-            if argv != expected_argv:
+            if argv != agy_regular_launch_argv(resolved_path):
                 raise ValidationError("manifest launch_argv is invalid for AGY")
         if mapping["complete"] and not all(
             mapping[name]

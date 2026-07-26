@@ -118,6 +118,8 @@ def _manifest(target: str) -> dict:
             str(executable),
             "--dangerously-skip-permissions",
             "--new-project",
+            "--log-file",
+            "/dev/null",
         ]
         permission_flags = ["--dangerously-skip-permissions"]
         sandbox_flags = []

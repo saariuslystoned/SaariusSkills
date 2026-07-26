@@ -19,6 +19,7 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
     BEHAVIOR_CAPABILITIES,
     direct_execution_bundle,
 )
+from puppet_lib.agy_launch import agy_regular_launch_argv  # noqa: E402
 from puppet_lib.census import (  # noqa: E402
     DECLARED_MAPPINGS,
     adapter_implementation_fingerprint,
@@ -59,27 +60,33 @@ class SubscriptionOnboardingTests(unittest.TestCase):
             "help_sha256": "b" * 64,
         }
         declared = DECLARED_MAPPINGS[target]
-        launch_flags = []
-        for flag in (
-            declared["permission_flags"]
-            + declared["sandbox_flags"]
-            + declared["project_isolation_flags"]
-        ):
-            if flag not in launch_flags:
-                launch_flags.append(flag)
+        if target == "agy":
+            launch_argv = agy_regular_launch_argv(str(executable))
+        else:
+            launch_flags = []
+            for flag in (
+                declared["permission_flags"]
+                + declared["sandbox_flags"]
+                + declared["project_isolation_flags"]
+            ):
+                if flag not in launch_flags:
+                    launch_flags.append(flag)
+            launch_argv = [str(executable), *launch_flags]
         mapping = {
             "complete": False,
-            "launch_argv": [str(executable), *launch_flags],
+            "launch_argv": launch_argv,
             "permission_declared": True,
-            "permission_flags": declared["permission_flags"],
+            "permission_flags": list(declared["permission_flags"]),
             "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
+            # AGY regular mapping keeps sandbox_flags empty; parser-only
+            # --sandbox=false evidence is not launch authority.
             "sandbox_disable_declared": bool(declared["sandbox_flags"]),
-            "sandbox_flags": declared["sandbox_flags"],
+            "sandbox_flags": list(declared["sandbox_flags"]),
             "project_isolation_declared": bool(
                 declared["project_isolation_flags"]
             ),
-            "project_isolation_flags": declared["project_isolation_flags"],
+            "project_isolation_flags": list(declared["project_isolation_flags"]),
             "session_profiles": session_profiles_for(target),
             "session_profiles_declared": True,
             "startup_settle_seconds": startup_settle_seconds_for(target),

@@ -22,6 +22,12 @@ from .adapter_manifest import (
     execution_file_snapshot,
     launcher_execution_identity,
 )
+from .agy_launch import (
+    AGY_REGULAR_PERMISSION_FLAGS,
+    AGY_REGULAR_PROJECT_ISOLATION_FLAGS,
+    AGY_REGULAR_SANDBOX_FLAGS,
+    agy_regular_launch_argv,
+)
 from .errors import ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .profiles import (
@@ -101,9 +107,11 @@ COMMANDS: Dict[str, Tuple[str, ...]] = {
 
 DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "agy": {
-        "permission_flags": ["--dangerously-skip-permissions"],
-        "project_isolation_flags": ["--new-project"],
-        "sandbox_flags": [AGY_SANDBOX_DISABLE_FLAG],
+        # Regular launch buckets match the live-proved exact argv. The
+        # parser-only --sandbox=false candidate stays out of this mapping.
+        "permission_flags": list(AGY_REGULAR_PERMISSION_FLAGS),
+        "project_isolation_flags": list(AGY_REGULAR_PROJECT_ISOLATION_FLAGS),
+        "sandbox_flags": list(AGY_REGULAR_SANDBOX_FLAGS),
         "prompt_transport": PROMPT_TRANSPORT,
         "model_flag": "--model",
         "effort_flag": "--effort",
@@ -231,6 +239,11 @@ def _sandbox_disable_declared(
 ) -> bool:
     flags = mapping["sandbox_flags"]
     if target == "agy":
+        # Regular-session mapping uses empty sandbox_flags. A claimed
+        # --sandbox=false bucket is parser-oriented evidence only and must not
+        # be treated as regular launch sandbox-off authority by itself.
+        if flags == list(AGY_REGULAR_SANDBOX_FLAGS):
+            return False
         return (
             flags == [AGY_SANDBOX_DISABLE_FLAG]
             and re.search(r"(?m)^\s*--sandbox(?:[=,\s]|$)", help_text) is not None
@@ -250,7 +263,11 @@ def _sandbox_disable_declared(
 
 
 def _agy_sandbox_false_parser_proved(command_prefix: List[str]) -> bool:
-    """Prove the exact negative boolean form without launching a model."""
+    """Prove the exact negative boolean form without launching a model.
+
+    This is parser-only evidence. It must never be copied into the regular
+    launch sandbox_flags bucket or launch argv.
+    """
 
     accepted, _accepted_output = _bounded_run_result(
         command_prefix + [AGY_SANDBOX_DISABLE_FLAG, "help"]
@@ -282,6 +299,14 @@ def _launch_flags(mapping: Dict[str, Any]) -> List[str]:
         if flag not in combined:
             combined.append(flag)
     return combined
+
+
+def _regular_launch_argv(target: str, resolved_path: str, mapping: Dict[str, Any]) -> List[str]:
+    """Build the target's regular census launch argv from declared buckets."""
+
+    if target == "agy":
+        return agy_regular_launch_argv(resolved_path)
+    return [resolved_path] + _launch_flags(mapping)
 
 
 def _cursor_execution_bundle(
@@ -459,12 +484,15 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     mapping = dict(DECLARED_MAPPINGS[target])
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
-    sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
     if target == "agy":
-        sandbox_declared = (
-            sandbox_declared
-            and _agy_sandbox_false_parser_proved(command_prefix)
-        )
+        # Keep the parser-only --sandbox=false sweep available as evidence, but
+        # never promote it into regular launch sandbox_flags, launch argv, or
+        # sandbox-off authority for the complete YOLO mapping.
+        if not isinstance(_agy_sandbox_false_parser_proved(command_prefix), bool):
+            raise ValidationError("agy sandbox parser probe is invalid")
+        sandbox_declared = False
+    else:
+        sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
     isolation_declared = _project_isolation_declared(mapping, help_text)
     prompt_declared = mapping["prompt_transport"].endswith("_declared")
     session_profiles = session_profiles_for(target)
@@ -489,7 +517,9 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
             "session_profiles_declared": session_profiles_declared,
             "startup_settle_seconds": startup_settle_seconds,
             "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
-            "launch_argv": [executable["resolved_path"]] + _launch_flags(mapping),
+            "launch_argv": _regular_launch_argv(
+                target, executable["resolved_path"], mapping
+            ),
         }
     )
     executable.update(

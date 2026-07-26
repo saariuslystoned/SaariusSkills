@@ -39,6 +39,24 @@ AGY_NON_REGULAR_AUTHORITY_BLOCKER = (
     "goal, and teamwork-preview authority must qualify independently"
 )
 
+# Live-proved regular-session launch mapping. Semantic buckets and argv must
+# stay bound; parser-only --sandbox=false evidence is never part of this claim.
+AGY_REGULAR_PERMISSION_FLAGS: Tuple[str, ...] = ("--dangerously-skip-permissions",)
+AGY_REGULAR_SANDBOX_FLAGS: Tuple[str, ...] = ()
+AGY_REGULAR_PROJECT_ISOLATION_FLAGS: Tuple[str, ...] = ("--new-project",)
+AGY_REGULAR_LAUNCH_ARGV_TAIL: Tuple[str, ...] = (
+    "--dangerously-skip-permissions",
+    "--new-project",
+    "--log-file",
+    "/dev/null",
+)
+
+
+def agy_regular_launch_argv(executable_path: str | Path) -> list[str]:
+    """Return the exact live-proved AGY regular launch argv for one executable."""
+
+    return [str(executable_path), *AGY_REGULAR_LAUNCH_ARGV_TAIL]
+
 
 def agy_regular_verdict() -> Dict[str, Any]:
     """Return the immutable source-only AGY regular-session decision."""
@@ -160,8 +178,10 @@ def validate_agy_regular_launch_params(
             "AGY launch argv executable does not match fingerprinted executable"
         )
 
-    expected_tail = ["--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"]
-    if list(argv[1:]) != expected_tail:
+    expected = agy_regular_launch_argv(
+        executable_path if executable_path is not None else argv[0]
+    )
+    if list(argv) != expected:
         raise ValidationError(
             "AGY regular launch argv must match the exact sequence: [executable, --dangerously-skip-permissions, --new-project, --log-file, /dev/null]"
         )
