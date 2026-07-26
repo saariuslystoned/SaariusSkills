@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import stat
@@ -69,11 +70,21 @@ from puppet_lib.profiles import (  # noqa: E402
     session_profiles_for,
     startup_settle_seconds_for,
 )
-from puppet_lib.safety import sha256_file  # noqa: E402
+from puppet_lib.safety import (  # noqa: E402
+    canonical_json_bytes,
+    sha256_bytes,
+    sha256_file,
+)
 from puppet_lib.subscription_profiles import (  # noqa: E402
+    build_subscription_launch_binding,
     initialize_subscription_profile,
+    subscription_profile_preflight,
 )
 from tests.puppet_test_receipt import write_qualification_receipt  # noqa: E402
+from tests.test_puppet_codex_qualification import PairFixture  # noqa: E402
+
+
+REAL_VERIFY_QUALIFICATION = AdapterManifest.verify_qualification
 
 
 HARD_GATES = [
@@ -98,6 +109,15 @@ def launch(**kwargs):
     kwargs.setdefault("_sleep_fn", lambda _interval: None)
     kwargs.setdefault("_execution_sleep_fn", lambda _interval: None)
     kwargs.setdefault("require_subscription_profile", False)
+    if (
+        not kwargs["require_subscription_profile"]
+        and "_allow_test_profile_bypass" not in kwargs
+        and json.loads(
+            Path(kwargs["contract_path"]).read_text(encoding="utf-8")
+        ).get("target")
+        == "codex"
+    ):
+        kwargs["_allow_test_profile_bypass"] = True
     return _launch(**kwargs)
 
 
@@ -254,6 +274,7 @@ def controller_files(
     session: str,
     task_profile: str,
     protocol_fingerprint: str,
+    target: str = "codex",
 ):
     supervisor = initialize_repo(root / "supervisor", "main", "supervisor")
     supervisor_executable = supervisor / "puppet.py"
@@ -264,7 +285,7 @@ def controller_files(
     write_json(
         manifest_path,
         manifest(
-            "codex",
+            target,
             executable,
             protocol_fingerprint,
             root / "qualification-receipt.json",
@@ -279,7 +300,7 @@ def controller_files(
         "objective": "Exercise the composed Puppet controller kernel",
         "campaign_authorization_id": "campaign-test",
         "controller": "tester",
-        "target": "codex",
+        "target": target,
         "task_profile": task_profile,
         "harness_trust": "unrestricted_required",
         "mutation_owner": "none" if task_profile == "conformance" else "target",
@@ -328,7 +349,7 @@ def controller_files(
             "acknowledged_at": "2026-07-22T03:00:00Z",
             "authorization": {
                 "trust_profile": "unrestricted_required",
-                "harnesses": ["codex"],
+                "harnesses": [target],
                 "disable_harness_sandbox_where_exposed": True,
                 "ordinary_configured_model_provider_traffic": True,
                 "scope": "bounded Puppet implementation and conformance campaign only",
@@ -345,6 +366,7 @@ def controller_files(
         "proof": proof,
         "state": state_root,
         "session": session,
+        "target": target,
     }
 
 
@@ -447,6 +469,7 @@ class SessionIntegrationTests(unittest.TestCase):
                 session=session,
                 task_profile="implementation",
                 protocol_fingerprint="e" * 64,
+                target="codex",
             )
             missing = puppet_session.doctor(
                 contract_path=files["contract"],
@@ -473,32 +496,82 @@ class SessionIntegrationTests(unittest.TestCase):
                     "puppet_lib.subscription_profiles._bounded_status_run",
                     return_value=self._logged_in_codex_status(),
                 ):
-                    ready = puppet_session.doctor(
-                        contract_path=files["contract"],
-                        manifest_path=files["manifest"],
-                        authorization_path=files["authorization"],
-                        proof_root=files["proof"],
-                        state_root=files["state"],
+                    profile_context, profile_status = subscription_profile_preflight(
                         profile_root=profile,
-                        require_subscription_profile=True,
+                        expected_target="codex",
+                        expected_executable_path=Path("/bin/cat").resolve(strict=True),
                     )
-                    self.assertTrue(ready["launch_ready"], ready["blockers"])
-                    self.assertEqual(
-                        ready["subscription_profile"]["status"]["login_state"],
-                        "logged_in",
+                    profile_binding = build_subscription_launch_binding(
+                        profile_context, profile_status
                     )
-                    launched = launch(
-                        session=session,
-                        contract_path=files["contract"],
-                        manifest_path=files["manifest"],
-                        authorization_path=files["authorization"],
-                        proof_root=files["proof"],
-                        state_root=files["state"],
-                        supervisor_executable=files["supervisor_executable"],
-                        prompt="Exercise the exact private profile.",
-                        profile_root=profile,
-                        require_subscription_profile=True,
+                    qualification = {
+                        "result": "accepted",
+                        "test_only": True,
+                        "instruction_policy_fingerprint": (
+                            instruction_policy_fingerprint(target="codex")
+                        ),
+                        "private_profile_root": str(profile),
+                        "subscription_profile_sha256": hashlib.sha256(
+                            json.dumps(
+                                profile_binding,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+                            + b"\n"
+                        ).hexdigest(),
+                    }
+                    drifted_qualification = dict(qualification)
+                    drifted_qualification["subscription_profile_sha256"] = "0" * 64
+                    with patch.object(
+                        AdapterManifest,
+                        "verify_qualification",
+                        return_value=drifted_qualification,
+                    ):
+                        drifted = puppet_session.doctor(
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            profile_root=profile,
+                            require_subscription_profile=True,
+                        )
+                    self.assertFalse(drifted["launch_ready"])
+                    self.assertIn(
+                        "real-harness qualification receipt is missing or invalid",
+                        drifted["blockers"],
                     )
+                    with patch.object(
+                        AdapterManifest,
+                        "verify_qualification",
+                        return_value=qualification,
+                    ):
+                        ready = puppet_session.doctor(
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            profile_root=profile,
+                            require_subscription_profile=True,
+                        )
+                        self.assertTrue(ready["launch_ready"], ready["blockers"])
+                        self.assertEqual(
+                            ready["subscription_profile"]["status"]["login_state"],
+                            "logged_in",
+                        )
+                        launched = launch(
+                            session=session,
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files["supervisor_executable"],
+                            prompt="Exercise the exact private profile.",
+                            profile_root=profile,
+                            require_subscription_profile=True,
+                        )
                 self.assertEqual(launched["state"], "ACTIVE")
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
@@ -520,6 +593,225 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertIsNotNone(started["subscription_profile_sha256"])
             finally:
                 kill_test_server(socket)
+
+    def test_real_codex_pair_joins_qualified_doctor_and_launch_profile_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/pair-session-join", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/pair-session-join",
+                session="codex-pair-session-join",
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+                target="codex",
+            )
+            contract = json.loads(files["contract"].read_text(encoding="utf-8"))
+            contract["controller"] = "controller-worker"
+            contract["campaign_authorization_id"] = "campaign-codex-pair"
+            write_json(files["contract"], contract)
+            authorization = json.loads(
+                files["authorization"].read_text(encoding="utf-8")
+            )
+            authorization["campaign_id"] = "campaign-codex-pair"
+            authorization["operator_identity"] = "controller-worker"
+            authorization["controller"] = "controller-worker"
+            write_json(files["authorization"], authorization)
+            goal_fingerprint = sha256_bytes(
+                canonical_json_bytes(authorization["goal"])
+            )
+
+            doctor_raw = json.loads(
+                files["manifest"].read_text(encoding="utf-8")
+            )
+            unrestricted = "--dangerously-bypass-approvals-and-sandbox"
+            doctor_raw["yolo_mapping"]["launch_argv"] = [
+                doctor_raw["executable"]["resolved_path"],
+                unrestricted,
+            ]
+            doctor_raw["yolo_mapping"]["permission_flags"] = [unrestricted]
+            doctor_raw["yolo_mapping"]["sandbox_flags"] = [unrestricted]
+            doctor_raw["yolo_mapping"]["complete"] = False
+            doctor_raw["yolo_mapping"]["project_isolation_declared"] = False
+            doctor_raw["capabilities"] = {
+                name: "declared" for name in doctor_raw["capabilities"]
+            }
+            doctor_raw["doctor_only"] = True
+            doctor_raw["qualification"] = None
+
+            pair_root = root / "pair-fixture"
+            pair_root.mkdir(mode=0o700)
+            pair_fixture = PairFixture(pair_root)
+            pair_fixture.profile.rmdir()
+            initialize_subscription_profile(
+                target="codex",
+                profile_root=pair_fixture.profile,
+                executable_path=Path("/bin/cat").resolve(strict=True),
+            )
+            with patch(
+                "puppet_lib.subscription_profiles._bounded_status_run",
+                return_value=self._logged_in_codex_status(),
+            ):
+                profile_context, profile_status = subscription_profile_preflight(
+                    profile_root=pair_fixture.profile,
+                    expected_target="codex",
+                    expected_executable_path=Path("/bin/cat").resolve(strict=True),
+                )
+            profile_binding = build_subscription_launch_binding(
+                profile_context, profile_status
+            )
+            profile_sha256 = sha256_bytes(
+                canonical_json_bytes(profile_binding) + b"\n"
+            )
+            pair_fixture.rebind_manifest(
+                doctor_raw,
+                subscription_profile_sha256=profile_sha256,
+                instruction_policy_fingerprint=instruction_policy_fingerprint(
+                    target="codex"
+                ),
+                controller="controller-worker",
+                campaign_id="campaign-codex-pair",
+                goal_fingerprint=goal_fingerprint,
+            )
+            pair_fixture.create()
+            pair_fixture.verify()
+
+            qualified_raw = copy.deepcopy(doctor_raw)
+            qualified_raw["yolo_mapping"]["complete"] = True
+            qualified_raw["yolo_mapping"]["project_isolation_declared"] = True
+            qualified_raw["capabilities"] = {
+                name: (
+                    "controller_verified"
+                    if name
+                    in {"launch", "send", "status", "wait", "checkpoint", "halt"}
+                    else "unsupported"
+                )
+                for name in qualified_raw["capabilities"]
+            }
+            qualified_raw["doctor_only"] = False
+            qualified_raw["qualification"] = {
+                "receipt_path": str(pair_fixture.out),
+                "receipt_sha256": sha256_file(
+                    pair_fixture.out, max_bytes=131072
+                ),
+                "session_profile": "regular",
+            }
+            qualified = AdapterManifest.from_dict(qualified_raw)
+            qualified.save(files["manifest"])
+            def verify_real_pair(selected, **kwargs):
+                return REAL_VERIFY_QUALIFICATION(
+                    selected,
+                    **kwargs,
+                    _authority_root=pair_fixture.authority,
+                    _verify_receipt_fn=pair_fixture.verify_receipt,
+                    _terminal_lease_fn=pair_fixture.terminal_lease,
+                )
+
+            with (
+                pair_fixture.patches(),
+                patch(
+                    "puppet_lib.authority.canonical_authority_root",
+                    return_value=pair_fixture.authority,
+                ),
+                patch(
+                    "puppet_lib.codex_workspace_plane."
+                    "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                    doctor_raw["executable"]["resolved_path"],
+                ),
+                patch.object(
+                    AdapterManifest,
+                    "verify_qualification",
+                    new=verify_real_pair,
+                ),
+                patch(
+                    "puppet_lib.subscription_profiles._bounded_status_run",
+                    return_value=self._logged_in_codex_status(),
+                ),
+            ):
+                verify_real_pair(
+                    qualified,
+                    expected_controller="controller-worker",
+                    expected_campaign_id="campaign-codex-pair",
+                    expected_goal_fingerprint=goal_fingerprint,
+                    expected_session_profile="regular",
+                )
+                ready = puppet_session.doctor(
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    profile_root=pair_fixture.profile,
+                    require_subscription_profile=True,
+                )
+                self.assertTrue(ready["launch_ready"], ready["blockers"])
+                unprofiled = puppet_session.doctor(
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    require_subscription_profile=False,
+                )
+                self.assertFalse(unprofiled["launch_ready"])
+                self.assertIn(
+                    "real-harness qualification receipt is missing or invalid",
+                    unprofiled["blockers"],
+                )
+                with patch.object(TmuxController, "launch") as bypass_tmux:
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "preflight is blocked"
+                    ):
+                        _launch(
+                            session="codex-pair-session-unprofiled",
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files[
+                                "supervisor_executable"
+                            ],
+                            prompt="Never launch without the qualified profile.",
+                            require_subscription_profile=False,
+                            _sleep_fn=lambda _interval: None,
+                            _execution_sleep_fn=lambda _interval: None,
+                        )
+                bypass_tmux.assert_not_called()
+
+                drifted_binding = copy.deepcopy(profile_binding)
+                drifted_binding["status"]["method"] = "drifted-test-status"
+                with (
+                    patch.object(
+                        puppet_session,
+                        "build_subscription_launch_binding",
+                        side_effect=[profile_binding, drifted_binding],
+                    ),
+                    patch.object(TmuxController, "launch") as tmux_launch,
+                ):
+                    with self.assertRaisesRegex(
+                        IdentityError, "public launch profile binding changed"
+                    ):
+                        _launch(
+                            session="codex-pair-session-join",
+                            contract_path=files["contract"],
+                            manifest_path=files["manifest"],
+                            authorization_path=files["authorization"],
+                            proof_root=files["proof"],
+                            state_root=files["state"],
+                            supervisor_executable=files[
+                                "supervisor_executable"
+                            ],
+                            prompt="Do not reach the target after profile drift.",
+                            profile_root=pair_fixture.profile,
+                            require_subscription_profile=True,
+                            _sleep_fn=lambda _interval: None,
+                            _execution_sleep_fn=lambda _interval: None,
+                        )
+                tmux_launch.assert_not_called()
 
     def test_conformance_contract_v2_rejects_legacy_future_and_mixed_protocol(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -818,7 +1110,7 @@ class SessionIntegrationTests(unittest.TestCase):
             tmux_launch.assert_not_called()
             self.assertFalse(SessionRegistry(files["state"]).exists(session))
             self.assertIsNone(
-                current_session_lease(self.authority_root, target="codex")
+                current_session_lease(self.authority_root, target=files["target"])
             )
             with (
                 patch.object(
@@ -842,7 +1134,7 @@ class SessionIntegrationTests(unittest.TestCase):
             build_tmux_launch.assert_not_called()
             self.assertFalse(SessionRegistry(files["state"]).exists(session))
             self.assertIsNone(
-                current_session_lease(self.authority_root, target="codex")
+                current_session_lease(self.authority_root, target=files["target"])
             )
 
             with patch.object(
@@ -864,7 +1156,7 @@ class SessionIntegrationTests(unittest.TestCase):
             validation_tmux_launch.assert_called_once()
             self.assertFalse(SessionRegistry(files["state"]).exists(session))
             self.assertIsNone(
-                current_session_lease(self.authority_root, target="codex")
+                current_session_lease(self.authority_root, target=files["target"])
             )
 
     def test_instruction_drift_during_settle_prevents_first_delivery(self):
@@ -904,13 +1196,16 @@ class SessionIntegrationTests(unittest.TestCase):
                         supervisor_executable=files["supervisor_executable"],
                         prompt="Never deliver this after instruction drift.",
                         require_subscription_profile=False,
+                        _allow_test_profile_bypass=True,
                         _sleep_fn=tamper,
                     )
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 self.assertEqual(record["state"], "BLOCKED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "halting",
                 )
                 events = [
@@ -1269,7 +1564,9 @@ class SessionIntegrationTests(unittest.TestCase):
                         halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(registry.load(session)["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "halting",
                 )
                 replay = halt(state_root=files["state"], session=session, timeout=1)
@@ -1277,7 +1574,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertFalse(replay["signal_sent"])
                 self.assertTrue(replay["tmux_preserved"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "halted",
                 )
                 later_owner = lease_owner(
@@ -1343,13 +1642,17 @@ class SessionIntegrationTests(unittest.TestCase):
                 self.assertEqual(record["state"], "BLOCKED")
                 self.assertTrue(record["blocker"]["cleanup_stopped"])
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "halting",
                 )
                 result = halt(state_root=files["state"], session=session, timeout=1)
                 self.assertEqual(result["state"], "HALTED")
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "halted",
                 )
             finally:
@@ -1443,7 +1746,9 @@ class SessionIntegrationTests(unittest.TestCase):
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "active",
                 )
                 self.assertEqual(
@@ -1507,7 +1812,9 @@ class SessionIntegrationTests(unittest.TestCase):
                     (files["state"] / "reservations" / (session + ".json")).is_file()
                 )
                 self.assertEqual(
-                    current_session_lease(self.authority_root, target="codex")["state"],
+                    current_session_lease(
+                        self.authority_root, target=files["target"]
+                    )["state"],
                     "launching",
                 )
                 metadata = TmuxController(files["state"]).metadata_for_session(

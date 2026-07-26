@@ -83,8 +83,11 @@ security, secrets, spending, and destructive actions separately gated.
    read-only native-view attach/detach observation, and exact terminal halts.
    `adapter_lab.py pair-codex` writes that body-free evidence create-only and
    controller-attests it; `verify-codex-pair` independently rebuilds it.
-   Both commands report `paired_evidence_only`. They do not enable
-   `adapter_lab.py qualify`, a runtime manifest, or public launch.
+   Both commands report `paired_evidence_only`, and the pair itself never
+   authorizes launch. `adapter_lab.py qualify` must independently rebuild that
+   exact terminal pair against the current doctor manifest before it can write
+   a qualified runtime manifest. Public doctor and launch then reverify the
+   pair and require the same exact private subscription-profile binding.
 6. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
    invalid, unauthenticated, or adapter-mismatched private profile; an active
    target/store lock; ambiguous executable identity; incomplete unrestricted

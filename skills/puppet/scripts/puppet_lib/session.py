@@ -840,6 +840,31 @@ def _profile_doctor_state(
     return context, public_status, blockers
 
 
+def _test_profile_bypass_allowed(
+    *,
+    requested: bool,
+    require_subscription_profile: bool,
+    contract: Contract,
+    manifest: AdapterManifest,
+    qualification: Dict[str, Any],
+) -> bool:
+    """Limit the no-profile test seam to the inert session-kernel fixture."""
+
+    if not requested:
+        return False
+    if (
+        require_subscription_profile
+        or contract.target != "codex"
+        or contract.controller != "tester"
+        or contract.campaign_authorization_id != "campaign-test"
+        or qualification.get("test_only") is not True
+        or Path(manifest.raw["executable"]["resolved_path"])
+        != Path("/bin/cat").resolve(strict=True)
+    ):
+        raise ValidationError("test-only subscription profile bypass is unavailable")
+    return True
+
+
 def doctor(
     *,
     contract_path: Path,
@@ -849,6 +874,7 @@ def doctor(
     state_root: Path,
     profile_root: Optional[Path] = None,
     require_subscription_profile: bool = True,
+    _allow_test_profile_bypass: bool = False,
 ) -> Dict[str, Any]:
     contract = Contract.from_path(contract_path)
     if contract.target == "agy":
@@ -962,10 +988,21 @@ def doctor(
                 raise IdentityError(
                     "qualification instruction policy does not match the current compiler"
                 )
-            if contract.target == "grok":
+            test_profile_bypass = _test_profile_bypass_allowed(
+                requested=_allow_test_profile_bypass,
+                require_subscription_profile=require_subscription_profile,
+                contract=contract,
+                manifest=manifest,
+                qualification=qualification,
+            )
+            if (
+                contract.target in {"codex", "grok"}
+                and not test_profile_bypass
+            ):
                 if profile_context is None or profile_status is None:
                     raise IdentityError(
-                        "Grok qualification requires its private subscription profile"
+                        "%s qualification requires its private subscription profile"
+                        % contract.target.capitalize()
                     )
                 current_binding = build_subscription_launch_binding(
                     profile_context, profile_status
@@ -977,7 +1014,8 @@ def doctor(
                     != sha256_bytes(canonical_json_bytes(current_binding) + b"\n")
                 ):
                     raise IdentityError(
-                        "Grok qualified profile/status/default-model binding changed"
+                        "%s qualified profile/status binding changed"
+                        % contract.target.capitalize()
                     )
         except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
@@ -1031,6 +1069,7 @@ def launch(
     _execution_sleep_fn: Any = time.sleep,
     _execution_monotonic_fn: Any = time.monotonic,
     _process_birth_fn: Any = None,
+    _allow_test_profile_bypass: bool = False,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     initial_contract = Contract.from_path(contract_path)
@@ -1044,6 +1083,7 @@ def launch(
         state_root=state_root,
         profile_root=profile_root,
         require_subscription_profile=require_subscription_profile,
+        _allow_test_profile_bypass=_allow_test_profile_bypass,
     )
     if not report["launch_ready"]:
         raise UnsupportedError("adapter remains doctor-only or preflight is blocked")
@@ -1061,6 +1101,13 @@ def launch(
         expected_campaign_id=qualification_authority["campaign_id"],
         expected_goal_fingerprint=qualification_authority["goal_fingerprint"],
         expected_session_profile=contract.session_profile,
+    )
+    test_profile_bypass = _test_profile_bypass_allowed(
+        requested=_allow_test_profile_bypass,
+        require_subscription_profile=require_subscription_profile,
+        contract=contract,
+        manifest=manifest,
+        qualification=qualification,
     )
     current_instruction_policy = instruction_policy_fingerprint(target=contract.target)
     if (
@@ -1143,16 +1190,23 @@ def launch(
         profile_binding_sha = sha256_file(profile_copy, max_bytes=131072)
     supervisor = _supervisor_identity(supervisor_executable, contract.supervisor_root)
     protocol = _protocol_state(contract, manifest, session)
-    if contract.target == "grok":
+    if contract.target in {"codex", "grok"} and not test_profile_bypass:
         if profile_context is None or profile_binding is None:
-            raise IdentityError("Grok public launch lacks its private profile binding")
+            raise IdentityError(
+                "%s public launch lacks its private profile binding"
+                % contract.target.capitalize()
+            )
         if (
             qualification.get("private_profile_root")
             != str(profile_context.profile_root)
             or qualification.get("subscription_profile_sha256")
             != profile_binding_sha
         ):
-            raise IdentityError("Grok public launch profile binding changed")
+            raise IdentityError(
+                "%s public launch profile binding changed"
+                % contract.target.capitalize()
+            )
+    if contract.target == "grok":
         from .grok_qualification import (
             build_grok_runtime_vector,
             derive_grok_session_uuid,

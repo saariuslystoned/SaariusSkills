@@ -24,6 +24,8 @@ from puppet_lib.census import (
     census_target,
 )
 from puppet_lib.codex_qualification import (
+    PAIR_KIND as CODEX_PAIR_KIND,
+    PAIR_SCHEMA_VERSION as CODEX_PAIR_SCHEMA_VERSION,
     create_codex_regular_pair_receipt,
     observe_codex_native_view,
     verify_codex_regular_pair_receipt,
@@ -237,13 +239,28 @@ def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
     if not base.raw["doctor_only"]:
         raise ValidationError("qualification input must be a doctor-only manifest")
-    if base.target == "codex":
-        raise UnsupportedError(
-            "Codex public qualification remains fenced; neither a positive "
-            "receipt nor the evidence-only paired substrate can promote it"
-        )
     receipt_path = args.receipt.resolve(strict=True)
-    receipt = _verified_receipt(receipt_path)
+    if base.target == "codex":
+        header = read_json(
+            receipt_path,
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        if (
+            header.get("schema_version") != CODEX_PAIR_SCHEMA_VERSION
+            or header.get("kind") != CODEX_PAIR_KIND
+        ):
+            raise UnsupportedError(
+                "Codex qualification requires its independently verifiable "
+                "terminal paired receipt"
+            )
+        receipt = verify_codex_regular_pair_receipt(
+            receipt_path,
+            expected_private_profile_root=header.get("private_profile_root"),
+            _current_manifest=base,
+        )
+    else:
+        receipt = _verified_receipt(receipt_path)
     if base.target == "agy":
         require_agy_regular_launch_authority(receipt.get("session_profile"))
     cursor_terminal = receipt.get("schema") == "puppet.cursor-regular-qualification/v1"
@@ -663,7 +680,7 @@ def build_parser():
     codex_pair_parser.set_defaults(handler=_pair_codex)
     verify_pair_parser = commands.add_parser(
         "verify-codex-pair",
-        help="independently rebuild a non-promotable Codex pair",
+        help="independently rebuild a non-launchable Codex evidence pair",
     )
     verify_pair_parser.add_argument("--manifest", required=True, type=Path)
     verify_pair_parser.add_argument("--receipt", required=True, type=Path)

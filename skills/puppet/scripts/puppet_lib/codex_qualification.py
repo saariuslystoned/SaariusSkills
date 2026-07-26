@@ -1,11 +1,12 @@
-"""Non-promotable Codex regular-session paired qualification substrate.
+"""Codex regular-session paired qualification substrate.
 
 One accepted Codex worktree receipt is never public launch authority.  This
 module can bind that positive run to a later ordinary-control run, one
 structurally observed read-only native viewer, exact terminal lease history,
 and the same private subscription profile.  The resulting create-only paired
-receipt is controller-attested but deliberately has no manifest, launch, or
-promotion consumer.
+receipt is controller-attested and remains non-launchable by itself.  A
+separately verified qualified manifest may consume it as evidence and is the
+public-launch authority boundary.
 
 No function in this module reads a pane, transcript, prompt, auth value, or
 configuration content.
@@ -55,8 +56,8 @@ ORDINARY_REPOSITORY_SCHEMA = "puppet.codex-ordinary-repository/v3"
 
 PAIR_BLOCKERS = (
     "paired receipt requires independent controller verification",
-    "paired receipt is not accepted by adapter qualification",
-    "public Codex launch remains fenced",
+    "paired receipt alone is not public launch authority",
+    "qualified manifest and exact private profile binding are required",
 )
 
 _PROCESS_FIELDS = {

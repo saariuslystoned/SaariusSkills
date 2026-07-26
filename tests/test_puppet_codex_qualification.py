@@ -381,6 +381,94 @@ class PairFixture:
         )
         write_json(self.native_path, record)
 
+    def rebind_manifest(
+        self,
+        raw: dict,
+        *,
+        subscription_profile_sha256: str,
+        instruction_policy_fingerprint: str,
+        controller: str = "controller-worker",
+        campaign_id: str = "campaign-codex-pair",
+        goal_fingerprint: str = "a" * 64,
+    ) -> None:
+        """Rebind the structural pair fixture to one real manifest identity."""
+
+        mapping_sha256 = sha256_bytes(
+            canonical_json_bytes(raw["yolo_mapping"])
+        )
+        platform_sha256 = sha256_bytes(canonical_json_bytes(raw["platform"]))
+        shared = {
+            "executable_fingerprint": raw["executable"]["sha256"],
+            "execution_fingerprint": raw["execution"]["execution_fingerprint"],
+            "version_fingerprint": raw["executable"]["version_sha256"],
+            "platform_fingerprint": platform_sha256,
+            "adapter_fingerprint": raw["adapter_fingerprint"],
+            "protocol_fingerprint": raw["protocol_fingerprint"],
+            "yolo_mapping_sha256": mapping_sha256,
+            "subscription_profile_sha256": subscription_profile_sha256,
+            "instruction_policy_fingerprint": instruction_policy_fingerprint,
+            "controller": controller,
+            "campaign_id": campaign_id,
+            "goal_fingerprint": goal_fingerprint,
+        }
+        self.workspace_receipt["executable_sha256"] = raw["executable"]["sha256"]
+        self.workspace_receipt[
+            "subscription_profile_sha256"
+        ] = subscription_profile_sha256
+        self.entry_source["controller"] = controller
+        self.entry_source["campaign_id"] = campaign_id
+        self.entry_source["goal_fingerprint"] = goal_fingerprint
+        self.entry_source["profile"]["sha256"] = subscription_profile_sha256
+        for path, receipt in (
+            (self.positive_path, self.positive),
+            (self.control_path, self.control),
+        ):
+            receipt.update(shared)
+            artifacts = self.artifacts[str(path)]
+            artifacts["launch"]["argv"] = list(raw["yolo_mapping"]["launch_argv"])
+            artifacts["launch"]["launch_identity"]["env_names"] = [
+                "CODEX_HOME",
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "PATH",
+                "TMPDIR",
+            ]
+
+        self.positive["workspace_isolation"] = copy.deepcopy(
+            self.workspace_receipt
+        )
+        self.positive["codex_entry_source"] = copy.deepcopy(self.entry_source)
+        self.positive.pop("controller_attestation", None)
+        self.positive["controller_attestation"] = attest_qualification(
+            self.positive, authority_root=self.authority
+        )
+        write_json(self.positive_path, self.positive)
+        write_json(
+            self.positive_root / "state.json",
+            {
+                **self._state("positive-run", "positive-session"),
+                "codex_entry_source": self.entry_source,
+            },
+        )
+        self._write_native()
+        with self.patches():
+            source = qualification.build_codex_control_source(
+                self.positive_path,
+                authority_root=self.authority,
+                _verify_receipt_fn=self.verify_receipt,
+                _terminal_lease_fn=self.terminal_lease,
+            )
+        self.control["codex_control_source"] = copy.deepcopy(source)
+        self.control.pop("controller_attestation", None)
+        self.control["controller_attestation"] = attest_qualification(
+            self.control, authority_root=self.authority
+        )
+        write_json(self.control_path, self.control)
+        state = self._state("control-run", "control-session")
+        state["codex_control_source"] = source
+        write_json(self.control_root / "state.json", state)
+
     def terminal_lease(self, **kwargs):
         positive = Path(kwargs["receipt_path"]) == self.positive_path
         return {

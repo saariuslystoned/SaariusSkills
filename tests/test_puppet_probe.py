@@ -1378,7 +1378,9 @@ class ProbeTests(unittest.TestCase):
                     side_effect=verify_receipt_at_test_authority,
                 ) as verifier:
                     with self.assertRaisesRegex(
-                        UnsupportedError, "Codex public qualification remains fenced"
+                        UnsupportedError,
+                        "Codex qualification requires its independently "
+                        "verifiable terminal paired receipt",
                     ):
                         puppet_adapter_lab._qualify(arguments)
                 verifier.assert_not_called()
@@ -3633,7 +3635,8 @@ class ProbeTests(unittest.TestCase):
             manifest = AdapterManifest.from_dict(raw)
             self.assertEqual(manifest.raw["capabilities"]["resume"], "unsupported")
             with self.assertRaisesRegex(
-                UnsupportedError, "Codex public qualification remains fenced"
+                UnsupportedError,
+                "Codex qualification requires its terminal paired receipt",
             ):
                 manifest.verify_qualification(
                     _authority_root=files["authority"],
@@ -4126,14 +4129,16 @@ class ProbeTests(unittest.TestCase):
                 "_tmux_factory": lambda selected: fake,
             }
             with self.assertRaisesRegex(
-                UnsupportedError, "Codex public qualification remains fenced"
+                UnsupportedError,
+                "Codex qualification requires its terminal paired receipt",
             ):
                 manifest.verify_qualification(
                     expected_controller="other-controller",
                     **common,
                 )
             with self.assertRaisesRegex(
-                UnsupportedError, "Codex public qualification remains fenced"
+                UnsupportedError,
+                "Codex qualification requires its terminal paired receipt",
             ):
                 manifest.verify_qualification(
                     expected_controller="tester",

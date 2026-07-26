@@ -1,9 +1,10 @@
 # Codex regular-session qualification harness (v0.1)
 
-Status: exact-head live pair independently verified at
+Status: historical live pair independently verified at
 `57175e31212eaefdbb8564cbcf4d0ade09c6423c` as body-free
-`paired_evidence_only`; public launch and promotion remain intentionally
-fenced.
+`paired_evidence_only`. Current source permits that pair to qualify a manifest
+only after independent exact-head re-verification and exact private-profile
+binding; a fresh public lifecycle at the new head remains pending.
 
 ## Scope and lane contract
 
@@ -33,7 +34,9 @@ fenced.
 - `pair-codex` created body-free paired receipt SHA-256
   `e67adce0a728fc8fe42f3cd55f8782d89398f8880e1f0737bfbc2889eaa4e718`;
   `verify-codex-pair` independently rebuilt it. Its result remains
-  `paired_evidence_only`, with public launch and promotion false by contract.
+  `paired_evidence_only`, with its own public-launch and promotion flags false
+  by contract. A separately verified qualified manifest is the launch
+  authority boundary.
 
 - Requested command path: `command -v codex` -> `/opt/homebrew/bin/codex`, which is
   a symlink and is not the execution-file identity.

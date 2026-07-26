@@ -103,9 +103,8 @@ process, tmux, workspace, default-model-unavailable, structural view, and empty
 pre/post population evidence. It captures no bodies. Activation-only and
 unpaired-control receipts are intentionally non-promotable.
 
-The final `qualify` step above does not apply to Codex. Codex public launch and
-manifest qualification remain fenced even after a positive worktree receipt or
-an evidence-only pair. The bounded Codex source substrate requires:
+Codex never accepts a positive worktree receipt by itself. Its bounded paired
+qualification substrate requires:
 
 - a positive direct-worktree run and a later ordinary-control run, both
   `regular`, using the same exact Puppet-owned subscription profile and the
@@ -137,9 +136,13 @@ so a completed control cannot be relinked by editing `state.json`. After both
 exact halts, `pair-codex` creates one new controller-attested
 `paired_evidence_only` receipt and refuses any existing destination.
 `verify-codex-pair` reopens both terminal receipts and all bound artifacts
-against the current doctor-only manifest and profile. Neither command promotes,
-qualifies, or authorizes public launch. Independent root-run live sessions,
-review, and explicit integration remain outside this source substrate.
+against the current doctor-only manifest and profile. Neither pair command
+authorizes launch. A later `adapter_lab.py qualify` must independently perform
+the same rebuild against the exact current doctor manifest; only the resulting
+qualified manifest may enter public doctor/launch, where the same private
+profile/status binding is checked again. The pair retains
+`public_launch_authorized=false` and `promotion_authorized=false` because it is
+evidence, not runtime authority.
 
 Grok uses a promotable paired-runtime contract, not its older filesystem-only
 matched-control precheck. Build one body-free positive request with

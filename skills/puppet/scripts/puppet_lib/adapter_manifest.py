@@ -2897,6 +2897,8 @@ class AdapterManifest:
         _current_manifest: Optional["AdapterManifest"] = None,
         _server_process_fn: Optional[Any] = None,
         _tmux_factory: Optional[Any] = None,
+        _verify_receipt_fn: Optional[Any] = None,
+        _terminal_lease_fn: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if self.target == "agy":
             # The manifest is evidence, not an authority selector.  In
@@ -2904,11 +2906,6 @@ class AdapterManifest:
             # must not inherit ``regular`` from untrusted qualification
             # metadata if regular authority is enabled in a future release.
             require_agy_regular_launch_authority(expected_session_profile)
-        if self.target == "codex":
-            raise UnsupportedError(
-                "Codex public qualification remains fenced until a paired "
-                "receipt is independently verified and explicitly integrated"
-            )
         if self.raw["doctor_only"]:
             raise UnsupportedError(
                 "doctor-only manifest has no real-harness qualification"
@@ -2922,6 +2919,102 @@ class AdapterManifest:
             max_bytes=131072,
             reject_sensitive_fields=True,
         )
+        if self.target == "codex":
+            from .codex_qualification import (
+                PAIR_KIND as CODEX_PAIR_KIND,
+                PAIR_SCHEMA_VERSION as CODEX_PAIR_SCHEMA_VERSION,
+                verify_codex_regular_pair_receipt,
+            )
+            from .codex_workspace_plane import codex_qualified_mapping
+
+            if (
+                receipt_header.get("schema_version")
+                != CODEX_PAIR_SCHEMA_VERSION
+                or receipt_header.get("kind") != CODEX_PAIR_KIND
+            ):
+                raise UnsupportedError(
+                    "Codex qualification requires its terminal paired receipt"
+                )
+            verifier_kwargs = {
+                "expected_private_profile_root": receipt_header.get(
+                    "private_profile_root"
+                ),
+                "_authority_root": _authority_root,
+                "_current_manifest": _current_manifest,
+                "_server_process_fn": _server_process_fn,
+                "_tmux_factory": _tmux_factory,
+            }
+            if _verify_receipt_fn is not None:
+                verifier_kwargs["_verify_receipt_fn"] = _verify_receipt_fn
+            if _terminal_lease_fn is not None:
+                verifier_kwargs["_terminal_lease_fn"] = _terminal_lease_fn
+            receipt = verify_codex_regular_pair_receipt(path, **verifier_kwargs)
+            if receipt.get("session_profile") != qualification["session_profile"]:
+                raise ValidationError("qualification session profile mismatch")
+            if expected_session_profile is not None:
+                expected_session_profile = validate_session_profile(
+                    self.target, expected_session_profile
+                )
+                if receipt.get("session_profile") != expected_session_profile:
+                    raise IdentityError(
+                        "qualification session profile does not match the active contract"
+                    )
+            expected_authority = {
+                "controller": expected_controller,
+                "campaign_id": expected_campaign_id,
+                "goal_fingerprint": expected_goal_fingerprint,
+            }
+            for name, expected in expected_authority.items():
+                if expected is None:
+                    continue
+                if name == "goal_fingerprint":
+                    validate_sha256(expected, "expected goal fingerprint")
+                else:
+                    validate_identifier(
+                        expected, "expected qualification %s" % name
+                    )
+                if receipt.get(name) != expected:
+                    raise IdentityError(
+                        "qualification %s does not match the active campaign" % name
+                    )
+            if not self.identity_matches(
+                executable=receipt.get("executable_fingerprint"),
+                execution=receipt.get("execution_fingerprint"),
+                adapter=receipt.get("adapter_fingerprint"),
+                protocol=receipt.get("protocol_fingerprint"),
+            ):
+                raise ValidationError("qualification identity mismatch")
+            if (
+                receipt.get("version_fingerprint")
+                != self.raw["executable"]["version_sha256"]
+                or receipt.get("platform_fingerprint")
+                != sha256_bytes(canonical_json_bytes(self.raw["platform"]))
+            ):
+                raise ValidationError(
+                    "qualification platform or version identity mismatch"
+                )
+            probe_mapping = dict(self.raw["yolo_mapping"])
+            probe_mapping["complete"] = False
+            probe_mapping["project_isolation_declared"] = False
+            if codex_qualified_mapping(probe_mapping) != self.raw["yolo_mapping"]:
+                raise ValidationError("Codex qualified mapping closure changed")
+            if receipt.get("yolo_mapping_sha256") != sha256_bytes(
+                canonical_json_bytes(probe_mapping)
+            ):
+                raise ValidationError("qualified YOLO mapping changed")
+            verified_capabilities = [
+                name
+                for name in BEHAVIOR_CAPABILITIES
+                if self.raw["capabilities"][name] == "controller_verified"
+            ]
+            if (
+                receipt.get("capabilities") != verified_capabilities
+                or not set(PROBE_CAPABILITIES) <= set(verified_capabilities)
+            ):
+                raise ValidationError(
+                    "qualification capability receipt does not match manifest"
+                )
+            return receipt
         if (
             self.target == "cursor"
             and receipt_header.get("schema")

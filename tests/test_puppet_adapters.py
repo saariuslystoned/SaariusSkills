@@ -20,6 +20,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import adapter_lab as puppet_adapter_lab  # noqa: E402
 from puppet_lib import codex_workspace_plane as codex_workspace_module  # noqa: E402
+from puppet_lib import codex_qualification as codex_qualification_module  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
     ACTIVATION_QUALIFICATION_PROOF_KINDS,
@@ -1275,7 +1276,11 @@ class AdapterTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 3, result.stdout)
             self.assertFalse(out.exists())
-            self.assertIn("Codex public qualification remains fenced", result.stderr)
+            self.assertIn(
+                "Codex qualification requires its independently verifiable "
+                "terminal paired receipt",
+                result.stderr,
+            )
 
     def test_adapter_lab_refuses_activation_lifecycle_only_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1304,7 +1309,8 @@ class AdapterTests(unittest.TestCase):
             ) as verifier:
                 with self.assertRaisesRegex(
                     UnsupportedError,
-                    "Codex public qualification remains fenced",
+                    "Codex qualification requires its independently "
+                    "verifiable terminal paired receipt",
                 ):
                     puppet_adapter_lab._qualify(arguments)
             verifier.assert_not_called()
@@ -1420,10 +1426,112 @@ class AdapterTests(unittest.TestCase):
             )
             with patches[0], patches[1], patches[2], patches[3]:
                 with self.assertRaisesRegex(
-                    UnsupportedError, "Codex public qualification remains fenced"
+                    UnsupportedError,
+                    "Codex qualification requires its independently "
+                    "verifiable terminal paired receipt",
                 ):
                     puppet_adapter_lab._qualify(arguments)
             self.assertFalse(out.exists())
+
+    def test_codex_terminal_pair_qualifies_only_the_exact_mapping_closure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profile = root / "profile"
+            profile.mkdir()
+            raw = manifest_raw(target="codex")
+            probe_mapping = copy.deepcopy(raw["yolo_mapping"])
+            probe_mapping["complete"] = False
+            probe_mapping["project_isolation_declared"] = False
+            raw["yolo_mapping"] = probe_mapping
+            manifest_path = root / "doctor.json"
+            mapping_path = root / "mapping.json"
+            receipt_path = root / "pair.json"
+            out = root / "qualified.json"
+            manifest_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            mapping_path.write_text(json.dumps(probe_mapping) + "\n", encoding="utf-8")
+            receipt = {
+                "schema_version": codex_qualification_module.PAIR_SCHEMA_VERSION,
+                "kind": codex_qualification_module.PAIR_KIND,
+                "target": "codex",
+                "session_profile": "regular",
+                "private_profile_root": str(profile.resolve()),
+                "workspace_isolation": {
+                    "terminal_state": "controller_verified_after_exact_halt"
+                },
+                "executable_fingerprint": raw["executable"]["sha256"],
+                "execution_fingerprint": raw["execution"]["execution_fingerprint"],
+                "adapter_fingerprint": raw["adapter_fingerprint"],
+                "protocol_fingerprint": raw["protocol_fingerprint"],
+                "version_fingerprint": raw["executable"]["version_sha256"],
+                "platform_fingerprint": hashlib.sha256(
+                    json.dumps(
+                        raw["platform"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "yolo_mapping_sha256": hashlib.sha256(
+                    json.dumps(
+                        probe_mapping,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "capabilities": [
+                    "launch",
+                    "send",
+                    "status",
+                    "wait",
+                    "checkpoint",
+                    "halt",
+                ],
+            }
+            receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+            arguments = SimpleNamespace(
+                manifest=manifest_path,
+                mapping=mapping_path,
+                receipt=receipt_path,
+                out=out,
+            )
+            with (
+                patch.object(
+                    codex_workspace_module,
+                    "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                    raw["executable"]["resolved_path"],
+                ),
+                patch.object(
+                    puppet_adapter_lab,
+                    "verify_codex_regular_pair_receipt",
+                    return_value=receipt,
+                ) as initial_verifier,
+                patch.object(
+                    codex_qualification_module,
+                    "verify_codex_regular_pair_receipt",
+                    return_value=receipt,
+                ) as manifest_verifier,
+            ):
+                result = puppet_adapter_lab._qualify(arguments)
+                qualified = AdapterManifest.from_path(out)
+                qualified.verify_qualification(expected_session_profile="regular")
+                drifted = copy.deepcopy(qualified.raw)
+                drifted["yolo_mapping"]["project_isolation_flags"] = [
+                    "--unproved-worktree"
+                ]
+                with self.assertRaisesRegex(
+                    IdentityError, "exact incomplete tuple"
+                ):
+                    AdapterManifest.from_dict(drifted).verify_qualification(
+                        expected_session_profile="regular"
+                    )
+            self.assertTrue(result["ok"])
+            self.assertFalse(qualified.raw["doctor_only"])
+            self.assertTrue(qualified.raw["yolo_mapping"]["complete"])
+            self.assertTrue(
+                qualified.raw["yolo_mapping"]["project_isolation_declared"]
+            )
+            self.assertFalse(receipt.get("public_launch_authorized", False))
+            self.assertGreaterEqual(initial_verifier.call_count, 1)
+            self.assertGreaterEqual(manifest_verifier.call_count, 2)
 
     def test_adapter_lab_probe_and_recover_accept_optional_plane_descriptor(self):
         descriptor = Path("claude-plane.json")
