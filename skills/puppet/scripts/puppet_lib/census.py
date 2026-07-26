@@ -107,8 +107,8 @@ COMMANDS: Dict[str, Tuple[str, ...]] = {
 
 DECLARED_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "agy": {
-        # Regular launch buckets match the live-proved exact argv. The
-        # parser-only --sandbox=false candidate stays out of this mapping.
+        # Regular launch buckets match the controller-proved exact argv,
+        # including the explicit negative sandbox override.
         "permission_flags": list(AGY_REGULAR_PERMISSION_FLAGS),
         "project_isolation_flags": list(AGY_REGULAR_PROJECT_ISOLATION_FLAGS),
         "sandbox_flags": list(AGY_REGULAR_SANDBOX_FLAGS),
@@ -239,13 +239,8 @@ def _sandbox_disable_declared(
 ) -> bool:
     flags = mapping["sandbox_flags"]
     if target == "agy":
-        # Regular-session mapping uses empty sandbox_flags. A claimed
-        # --sandbox=false bucket is parser-oriented evidence only and must not
-        # be treated as regular launch sandbox-off authority by itself.
-        if flags == list(AGY_REGULAR_SANDBOX_FLAGS):
-            return False
         return (
-            flags == [AGY_SANDBOX_DISABLE_FLAG]
+            flags == list(AGY_REGULAR_SANDBOX_FLAGS)
             and re.search(r"(?m)^\s*--sandbox(?:[=,\s]|$)", help_text) is not None
         )
     if target == "grok":
@@ -265,8 +260,8 @@ def _sandbox_disable_declared(
 def _agy_sandbox_false_parser_proved(command_prefix: List[str]) -> bool:
     """Prove the exact negative boolean form without launching a model.
 
-    This is parser-only evidence. It must never be copied into the regular
-    launch sandbox_flags bucket or launch argv.
+    Parser acceptance is necessary but not independently sufficient: census
+    also requires the exact flag in the semantic bucket and regular argv.
     """
 
     accepted, _accepted_output = _bounded_run_result(
@@ -485,12 +480,14 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     help_text = help_output.decode("utf-8", errors="replace")
     permission_declared = all(flag in help_text for flag in mapping["permission_flags"])
     if target == "agy":
-        # Keep the parser-only --sandbox=false sweep available as evidence, but
-        # never promote it into regular launch sandbox_flags, launch argv, or
-        # sandbox-off authority for the complete YOLO mapping.
-        if not isinstance(_agy_sandbox_false_parser_proved(command_prefix), bool):
+        parser_proved = _agy_sandbox_false_parser_proved(command_prefix)
+        if not isinstance(parser_proved, bool):
             raise ValidationError("agy sandbox parser probe is invalid")
-        sandbox_declared = False
+        sandbox_declared = parser_proved and _sandbox_disable_declared(
+            target,
+            mapping,
+            help_text,
+        )
     else:
         sandbox_declared = _sandbox_disable_declared(target, mapping, help_text)
     isolation_declared = _project_isolation_declared(mapping, help_text)

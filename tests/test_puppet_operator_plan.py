@@ -117,12 +117,13 @@ def _manifest(target: str) -> dict:
         launch_argv = [
             str(executable),
             "--dangerously-skip-permissions",
+            "--sandbox=false",
             "--new-project",
             "--log-file",
             "/dev/null",
         ]
         permission_flags = ["--dangerously-skip-permissions"]
-        sandbox_flags = []
+        sandbox_flags = ["--sandbox=false"]
         project_flags = ["--new-project"]
     else:
         launch_argv = [str(executable), "--dangerously-bypass-approvals-and-sandbox"]
@@ -1227,7 +1228,7 @@ class OperatorPlanTests(unittest.TestCase):
             for blocker in (*SOURCE_ONLY_BLOCKERS, MAPPING_INCOMPLETE_BLOCKER):
                 self.assertIn(blocker, plan["blockers"])
 
-    def test_agy_plan_exposes_native_reuse_without_claiming_runtime_isolation(self):
+    def test_agy_plan_exposes_shared_vendor_route_without_private_profile_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = OperatorPlanFixture(Path(temporary), target="agy")
             with (
@@ -1252,28 +1253,31 @@ class OperatorPlanTests(unittest.TestCase):
                     side_effect=AssertionError("viewer must not prepare"),
                 ) as viewer,
             ):
-                plan = compile_operator_plan(**fixture.kwargs(), repo=fixture.repo)
+                kwargs = fixture.kwargs()
+                kwargs["profile_root"] = None
+                plan = compile_operator_plan(**kwargs, repo=fixture.repo)
             self.assertEqual(
                 plan["commands"]["profile"],
                 {
                     "supported": False,
-                    "state": "native_reuse_candidate",
+                    "state": "shared_vendor_auth_config_route",
+                    "route": "shared_vendor_auth_config_route",
                     "reason": (
-                        "agy_native_keyring_reuse_discovered_"
-                        "runtime_isolation_unqualified"
+                        "AGY regular sessions run under an explicit "
+                        "shared-vendor-auth/config route using the real user "
+                        "HOME because no config-root selector exists; private "
+                        "profile isolation is not claimed"
                     ),
-                    "authentication_mechanism": "operating_system_native_keyring",
-                    "current_operator_auth_state": "unobserved",
+                    "authentication_mechanism": "shared_vendor_auth_config_uninspected",
+                    "current_operator_auth_state": "models_preflight_required_at_execution_time",
                     "profile_material_copied": False,
                     "human_action_required": False,
-                    "next_action": (
-                        "qualify_agy_runtime_isolation_without_credential_copy"
-                    ),
                 },
             )
+            self.assertIsNone(plan["roots"]["profile"])
             self.assertNotIn("target_gate", plan)
-            self.assertIn(
-                "agy_runtime_isolation_without_credential_copy_unqualified",
+            self.assertNotIn(
+                "private_profile_must_be_authenticated_at_execution_time",
                 plan["blockers"],
             )
             for blocker in AGY_REGULAR_AUTHORITY_BLOCKERS:
@@ -1282,19 +1286,8 @@ class OperatorPlanTests(unittest.TestCase):
                 plan["commands"]["doctor"][3],
                 "doctor",
             )
-            unsupported = {
-                "supported": False,
-                "reason": "agy_regular_session_unsupported_planner_only",
-            }
-            for command in (
-                "launch",
-                "status",
-                "waits",
-                "attach_command",
-                "open_view",
-                "halt",
-            ):
-                self.assertEqual(plan["commands"][command], unsupported)
+            self.assertEqual(plan["commands"]["launch"][3], "launch")
+            self.assertNotIn("--profile-root", plan["commands"]["launch"])
             encoded = json.dumps(plan, sort_keys=True)
             self.assertNotIn(fixture.prompt_body.strip(), encoded)
             digest_plan = dict(plan)

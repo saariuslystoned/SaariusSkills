@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from puppet_lib.agy_launch import reject_agy_private_profile_root
+from puppet_lib.contracts import Contract
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
 from puppet_lib.operator_plan import compile_operator_plan
 from puppet_lib.promotions import close_bootstrap, promote_bootstrap
@@ -38,7 +40,22 @@ def _path(value: str) -> Path:
     return Path(value)
 
 
+def _target_and_profile_requirement(
+    contract_path: Path,
+    profile_root: Path | None,
+) -> str:
+    target = Contract.from_path(contract_path).target
+    if target == "agy":
+        reject_agy_private_profile_root(profile_root)
+    elif profile_root is None:
+        raise ValidationError(
+            "an explicit private subscription profile root is required"
+        )
+    return target
+
+
 def _doctor(args):
+    target = _target_and_profile_requirement(args.contract, args.profile_root)
     return doctor(
         contract_path=args.contract,
         manifest_path=args.manifest,
@@ -46,11 +63,12 @@ def _doctor(args):
         proof_root=args.proof_root,
         state_root=args.state_root,
         profile_root=args.profile_root,
-        require_subscription_profile=True,
+        require_subscription_profile=target != "agy",
     )
 
 
 def _plan(args):
+    _target_and_profile_requirement(args.contract, args.profile_root)
     return compile_operator_plan(
         contract_path=args.contract,
         manifest_path=args.manifest,
@@ -64,6 +82,7 @@ def _plan(args):
 
 
 def _launch(args):
+    target = _target_and_profile_requirement(args.contract, args.profile_root)
     if args.prompt_file.is_symlink() or not args.prompt_file.is_file():
         raise ValidationError("prompt file must be a regular non-symlink file")
     prompt = args.prompt_file.read_text(encoding="utf-8")
@@ -79,7 +98,7 @@ def _launch(args):
         requested_model=args.model,
         requested_effort=args.effort,
         profile_root=args.profile_root,
-        require_subscription_profile=True,
+        require_subscription_profile=target != "agy",
     )
 
 
@@ -231,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--contract", required=True, type=_path)
     plan_parser.add_argument("--manifest", required=True, type=_path)
     plan_parser.add_argument("--authorization", required=True, type=_path)
-    plan_parser.add_argument("--profile-root", required=True, type=_path)
+    plan_parser.add_argument("--profile-root", type=_path)
     plan_parser.add_argument("--prompt-file", required=True, type=_path)
     plan_parser.add_argument("--session", required=True)
     plan_parser.add_argument("--run-root", required=True, type=_path)
@@ -250,9 +269,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--state-root", required=True, type=_path)
     doctor_parser.add_argument(
         "--profile-root",
-        required=True,
         type=_path,
-        help="exact Puppet-owned private subscription profile",
+        help="exact Puppet-owned private subscription profile (for non-AGY targets)",
     )
     doctor_parser.set_defaults(handler=_doctor)
 
@@ -266,9 +284,8 @@ def build_parser() -> argparse.ArgumentParser:
     launch_parser.add_argument("--prompt-file", required=True, type=_path)
     launch_parser.add_argument(
         "--profile-root",
-        required=True,
         type=_path,
-        help="exact authenticated Puppet-owned private subscription profile",
+        help="exact authenticated Puppet-owned private subscription profile (for non-AGY targets)",
     )
     launch_parser.add_argument("--model")
     launch_parser.add_argument("--effort")

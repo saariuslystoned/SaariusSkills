@@ -146,17 +146,17 @@ def _verify(args):
 
 def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
-    if base.target == "agy":
-        require_agy_regular_launch_authority(None)
     if not base.raw["doctor_only"]:
         raise ValidationError("qualification input must be a doctor-only manifest")
-    mapping = read_json(args.mapping, max_bytes=65536)
     receipt_path = args.receipt.resolve(strict=True)
     receipt = _verified_receipt(receipt_path)
+    if base.target == "agy":
+        require_agy_regular_launch_authority(receipt.get("session_profile"))
     if receipt.get("plane_activation") is not None:
         raise UnsupportedError(
             "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
         )
+    mapping = read_json(args.mapping, max_bytes=65536)
     if base.target == "codex" and mapping.get("complete") is False:
         if receipt.get("workspace_isolation") is None:
             raise UnsupportedError(
@@ -180,7 +180,9 @@ def _qualify(args):
         "session_profile": receipt["session_profile"],
     }
     qualified = AdapterManifest.from_dict(raw)
-    qualified.verify_qualification()
+    qualified.verify_qualification(
+        expected_session_profile=receipt["session_profile"]
+    )
     qualified.save(args.out)
     return {
         "ok": True,
@@ -224,10 +226,9 @@ def build_parser():
     probe_parser.add_argument("--run-id")
     probe_parser.add_argument(
         "--subscription-profile-root",
-        required=True,
         type=Path,
         help=(
-            "exact authenticated Puppet-owned private profile for every regular probe"
+            "exact authenticated Puppet-owned private profile (required for non-AGY probes)"
         ),
     )
     probe_parser.add_argument("--plane-descriptor", type=Path)

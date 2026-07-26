@@ -881,12 +881,13 @@ class CodexLaunchContextTests(unittest.TestCase):
         raw["target"] = "agy"
         raw["yolo_mapping"]["session_profiles"] = session_profiles_for("agy")
         raw["yolo_mapping"]["permission_flags"] = ["--dangerously-skip-permissions"]
-        raw["yolo_mapping"]["sandbox_flags"] = []
+        raw["yolo_mapping"]["sandbox_flags"] = ["--sandbox=false"]
         raw["yolo_mapping"]["project_isolation_flags"] = ["--new-project"]
         raw["yolo_mapping"]["project_isolation_declared"] = True
         raw["yolo_mapping"]["launch_argv"] = [
             self.execution_identity["path"],
             "--dangerously-skip-permissions",
+            "--sandbox=false",
             "--new-project",
             "--log-file",
             "/dev/null",

@@ -73,14 +73,12 @@ class SubscriptionOnboardingTests(unittest.TestCase):
                     launch_flags.append(flag)
             launch_argv = [str(executable), *launch_flags]
         mapping = {
-            "complete": False,
+            "complete": target == "agy",
             "launch_argv": launch_argv,
             "permission_declared": True,
             "permission_flags": list(declared["permission_flags"]),
             "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
-            # AGY regular mapping keeps sandbox_flags empty; parser-only
-            # --sandbox=false evidence is not launch authority.
             "sandbox_disable_declared": bool(declared["sandbox_flags"]),
             "sandbox_flags": list(declared["sandbox_flags"]),
             "project_isolation_declared": bool(

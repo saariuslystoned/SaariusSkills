@@ -107,6 +107,7 @@ def manifest_raw(target="agy"):
                 [
                     str(executable),
                     "--dangerously-skip-permissions",
+                    "--sandbox=false",
                     "--new-project",
                     "--log-file",
                     "/dev/null",
@@ -124,7 +125,7 @@ def manifest_raw(target="agy"):
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": (
-                []
+                ["--sandbox=false"]
                 if target == "agy"
                 else ["--dangerously-bypass-approvals-and-sandbox"]
             ),
@@ -305,17 +306,19 @@ class AdapterTests(unittest.TestCase):
             _launch_flags(DECLARED_MAPPINGS["codex"]),
             ["--dangerously-bypass-approvals-and-sandbox"],
         )
-        # AGY regular mapping keeps sandbox_flags empty; exact launch argv adds
-        # the proved --log-file /dev/null sink outside the sandbox bucket.
-        self.assertEqual(DECLARED_MAPPINGS["agy"]["sandbox_flags"], [])
+        # AGY binds the negative sandbox override in both its bucket and argv.
+        self.assertEqual(
+            DECLARED_MAPPINGS["agy"]["sandbox_flags"],
+            [AGY_SANDBOX_DISABLE_FLAG],
+        )
         self.assertEqual(
             _launch_flags(DECLARED_MAPPINGS["agy"]),
             [
                 "--dangerously-skip-permissions",
+                "--sandbox=false",
                 "--new-project",
             ],
         )
-        self.assertNotIn(AGY_SANDBOX_DISABLE_FLAG, _launch_flags(DECLARED_MAPPINGS["agy"]))
         self.assertEqual(
             _launch_flags(DECLARED_MAPPINGS["grok"]),
             ["--always-approve", "--sandbox", "off"],
@@ -378,9 +381,11 @@ class AdapterTests(unittest.TestCase):
 
     def test_sandbox_disable_mapping_distinguishes_omission_from_unknown(self):
         agy_help = "  --sandbox  Run in a sandbox with terminal restrictions enabled"
-        # Regular AGY declared mapping does not claim sandbox-off authority.
-        self.assertEqual(DECLARED_MAPPINGS["agy"]["sandbox_flags"], [])
-        self.assertFalse(
+        self.assertEqual(
+            DECLARED_MAPPINGS["agy"]["sandbox_flags"],
+            [AGY_SANDBOX_DISABLE_FLAG],
+        )
+        self.assertTrue(
             _sandbox_disable_declared("agy", DECLARED_MAPPINGS["agy"], agy_help)
         )
         # A parser-oriented claimed bucket is recognized as help-backed, but is
@@ -1134,6 +1139,7 @@ class AdapterTests(unittest.TestCase):
             [
                 raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
+                "--sandbox=false",
                 "--new-project",
                 "--log-file",
                 "/dev/null",
@@ -1145,6 +1151,7 @@ class AdapterTests(unittest.TestCase):
             [
                 raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
+                "--sandbox=false",
                 "--new-project",
                 "--log-file",
                 "/dev/null",
@@ -1532,14 +1539,17 @@ class AdapterTests(unittest.TestCase):
                 ):
                     AdapterManifest.from_dict(duplicate)
 
-    def test_agy_semantic_buckets_bind_exact_launch_argv_without_sandbox_false(self):
+    def test_agy_semantic_buckets_bind_exact_launch_argv_with_sandbox_false(self):
         raw = manifest_raw()
         accepted = AdapterManifest.from_dict(raw)
         self.assertEqual(
             accepted.raw["yolo_mapping"]["permission_flags"],
             ["--dangerously-skip-permissions"],
         )
-        self.assertEqual(accepted.raw["yolo_mapping"]["sandbox_flags"], [])
+        self.assertEqual(
+            accepted.raw["yolo_mapping"]["sandbox_flags"],
+            [AGY_SANDBOX_DISABLE_FLAG],
+        )
         self.assertEqual(
             accepted.raw["yolo_mapping"]["project_isolation_flags"],
             ["--new-project"],
@@ -1549,16 +1559,14 @@ class AdapterTests(unittest.TestCase):
             [
                 raw["executable"]["resolved_path"],
                 "--dangerously-skip-permissions",
+                "--sandbox=false",
                 "--new-project",
                 "--log-file",
                 "/dev/null",
             ],
         )
-        self.assertNotIn(
+        self.assertIn(
             AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["launch_argv"]
-        )
-        self.assertNotIn(
-            AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["sandbox_flags"]
         )
 
     def test_agy_census_declared_mapping_builds_valid_regular_manifest(self):
@@ -1568,13 +1576,13 @@ class AdapterTests(unittest.TestCase):
         declared = DECLARED_MAPPINGS["agy"]
         resolved = raw["executable"]["resolved_path"]
         raw["yolo_mapping"] = {
-            "complete": False,
+            "complete": True,
             "launch_argv": _regular_launch_argv("agy", resolved, declared),
             "permission_declared": True,
             "permission_flags": list(declared["permission_flags"]),
             "prompt_transport": PROMPT_TRANSPORT,
             "prompt_transport_declared": True,
-            "sandbox_disable_declared": False,
+            "sandbox_disable_declared": True,
             "sandbox_flags": list(declared["sandbox_flags"]),
             "project_isolation_declared": True,
             "project_isolation_flags": list(declared["project_isolation_flags"]),
@@ -1586,29 +1594,28 @@ class AdapterTests(unittest.TestCase):
             "effort_flag": declared["effort_flag"],
         }
         accepted = AdapterManifest.from_dict(raw)
-        self.assertEqual(accepted.raw["yolo_mapping"]["sandbox_flags"], [])
+        self.assertEqual(
+            accepted.raw["yolo_mapping"]["sandbox_flags"],
+            [AGY_SANDBOX_DISABLE_FLAG],
+        )
         self.assertEqual(
             accepted.raw["yolo_mapping"]["launch_argv"],
             agy_regular_launch_argv(resolved),
         )
-        self.assertNotIn(
+        self.assertIn(
             AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["launch_argv"]
         )
-        self.assertNotIn(
-            AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["sandbox_flags"]
-        )
-        # Parser-only claimed bucket must not be accepted as the regular mapping.
-        claimed = dict(raw)
-        claimed["yolo_mapping"] = dict(raw["yolo_mapping"])
-        claimed["yolo_mapping"]["sandbox_flags"] = [AGY_SANDBOX_DISABLE_FLAG]
+        omitted = copy.deepcopy(raw)
+        omitted["yolo_mapping"]["sandbox_flags"] = []
+        omitted["yolo_mapping"]["launch_argv"].remove(AGY_SANDBOX_DISABLE_FLAG)
         with self.assertRaisesRegex(ValidationError, "agy sandbox flags are invalid"):
-            AdapterManifest.from_dict(claimed)
+            AdapterManifest.from_dict(omitted)
 
         cases = (
             (
-                "claimed_sandbox_false_bucket",
+                "missing_sandbox_false_bucket",
                 {
-                    "sandbox_flags": [AGY_SANDBOX_DISABLE_FLAG],
+                    "sandbox_flags": [],
                 },
                 "agy sandbox flags are invalid",
             ),
@@ -1668,12 +1675,11 @@ class AdapterTests(unittest.TestCase):
                 "agy sandbox flags are invalid",
             ),
             (
-                "argv_claims_sandbox_false",
+                "argv_omits_sandbox_false",
                 {
                     "launch_argv": [
                         raw["executable"]["resolved_path"],
                         "--dangerously-skip-permissions",
-                        AGY_SANDBOX_DISABLE_FLAG,
                         "--new-project",
                         "--log-file",
                         "/dev/null",

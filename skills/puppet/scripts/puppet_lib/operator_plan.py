@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 from .adapter_manifest import AdapterManifest
-from .agy_launch import AGY_REGULAR_AUTHORITY_BLOCKERS
+from .agy_launch import (
+    AGY_REGULAR_AUTHORITY_BLOCKERS,
+    AGY_SHARED_VENDOR_AUTH_LIMITATION,
+    reject_agy_private_profile_root,
+)
 from .campaign import validate_campaign_authorization
 from .census import adapter_implementation_fingerprint
 from .codex_launch import MAPPING_INCOMPLETE_BLOCKER, SOURCE_ONLY_BLOCKERS
@@ -55,13 +59,6 @@ _GIT_TIMEOUT_SECONDS = 5.0
 _GIT_OUTPUT_BYTES = 65536
 _PRIVATE_MODE = 0o700
 _WAIT_SECONDS = 60.0
-_AGY_LIFECYCLE_UNSUPPORTED_REASON = "agy_regular_session_unsupported_planner_only"
-_AGY_RUNTIME_ISOLATION_BLOCKER = (
-    "agy_runtime_isolation_without_credential_copy_unqualified"
-)
-_AGY_NATIVE_REUSE_REASON = (
-    "agy_native_keyring_reuse_discovered_runtime_isolation_unqualified"
-)
 _CODEX_LIFECYCLE_UNSUPPORTED_REASON = "codex_regular_session_source_only_unqualified"
 _CODEX_FAILED_INVARIANT = (
     "approved_authentication_preserving_private_codex_home_route_unavailable"
@@ -317,7 +314,7 @@ def _commands(
     manifest_path: Path,
     authorization_path: Path,
     prompt_path: Path,
-    profile_root: Path,
+    profile_root: Path | None,
     proof_root: Path,
     state_root: Path,
     session: str,
@@ -338,9 +335,9 @@ def _commands(
         str(proof_root),
         "--state-root",
         str(state_root),
-        "--profile-root",
-        str(profile_root),
     ]
+    if profile_root is not None:
+        common.extend(["--profile-root", str(profile_root)])
     launch = [
         *base,
         "launch",
@@ -382,9 +379,7 @@ def _commands(
         "halt": [*base, "halt", *session_base, "--timeout", "10.0"],
     }
     lifecycle_unsupported_reason = None
-    if contract.target == "agy":
-        lifecycle_unsupported_reason = _AGY_LIFECYCLE_UNSUPPORTED_REASON
-    elif codex_source_only:
+    if codex_source_only:
         lifecycle_unsupported_reason = _CODEX_LIFECYCLE_UNSUPPORTED_REASON
     elif claude_source_only:
         lifecycle_unsupported_reason = _CLAUDE_LIFECYCLE_UNSUPPORTED_REASON
@@ -409,13 +404,13 @@ def _commands(
     if contract.target == "agy":
         result["profile"] = {
             "supported": False,
-            "state": "native_reuse_candidate",
-            "reason": _AGY_NATIVE_REUSE_REASON,
-            "authentication_mechanism": "operating_system_native_keyring",
-            "current_operator_auth_state": "unobserved",
+            "state": "shared_vendor_auth_config_route",
+            "route": "shared_vendor_auth_config_route",
+            "reason": AGY_SHARED_VENDOR_AUTH_LIMITATION,
+            "authentication_mechanism": "shared_vendor_auth_config_uninspected",
+            "current_operator_auth_state": "models_preflight_required_at_execution_time",
             "profile_material_copied": False,
             "human_action_required": False,
-            "next_action": "qualify_agy_runtime_isolation_without_credential_copy",
         }
     else:
         result["profile"] = {
@@ -625,7 +620,7 @@ def compile_operator_plan(
     contract_path: Path | str,
     manifest_path: Path | str,
     authorization_path: Path | str,
-    profile_root: Path | str,
+    profile_root: Path | str | None,
     prompt_path: Path | str,
     session: str,
     run_root: Path | str,
@@ -692,12 +687,24 @@ def compile_operator_plan(
     run = _private_root(run_root, label="run root")
     proof = _private_root(run / "proof", label="proof root")
     state = _private_root(run / "state", label="state root")
-    profile = _future_profile_root(profile_root)
-    if paths_overlap(selected, run) or paths_overlap(selected, profile):
+    if contract.target == "agy":
+        reject_agy_private_profile_root(profile_root)
+        profile = None
+    else:
+        if profile_root is None:
+            raise ValidationError(
+                "operator plan requires an explicit private subscription profile root"
+            )
+        profile = _future_profile_root(profile_root)
+    if paths_overlap(selected, run) or (
+        profile is not None and paths_overlap(selected, profile)
+    ):
         raise ValidationError(
             "operator roots must remain outside the target repository"
         )
-    if paths_overlap(profile, run) or paths_overlap(proof, state):
+    if (profile is not None and paths_overlap(profile, run)) or paths_overlap(
+        proof, state
+    ):
         raise ValidationError(
             "profile, proof, and state ownership roots must not overlap"
         )
@@ -746,8 +753,13 @@ def compile_operator_plan(
     adapter_sha256 = adapter_implementation_fingerprint()
     blockers = list(_LAUNCH_BLOCKERS)
     if contract.target == "agy":
-        blockers.append(_AGY_RUNTIME_ISOLATION_BLOCKER)
-        blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
+        blockers = [
+            blocker
+            for blocker in blockers
+            if blocker != "private_profile_must_be_authenticated_at_execution_time"
+        ]
+        if manifest.raw["doctor_only"]:
+            blockers.extend(AGY_REGULAR_AUTHORITY_BLOCKERS)
     if codex_source_only:
         blockers.extend(SOURCE_ONLY_BLOCKERS)
         blockers.append(MAPPING_INCOMPLETE_BLOCKER)
@@ -787,7 +799,7 @@ def compile_operator_plan(
             "run": str(run),
             "proof": str(proof),
             "state": str(state),
-            "profile": str(profile),
+            "profile": str(profile) if profile is not None else None,
         },
         "artifacts": {
             "contract": contract_artifact,

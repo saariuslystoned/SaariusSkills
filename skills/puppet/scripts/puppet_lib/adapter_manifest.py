@@ -790,6 +790,32 @@ def _validate_ancestry_node_coherence(
             nodes_by_pid[pid] = node
 
 
+def _validate_qualification_subscription_authority(
+    value: Any,
+    *,
+    target: str,
+    current_executable: Dict[str, Any],
+    admitted_launch_identity: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Join auth evidence to the independently admitted launch environment."""
+
+    if target == "agy":
+        from .agy_launch import validate_agy_shared_auth_launch_binding
+
+        return validate_agy_shared_auth_launch_binding(
+            value,
+            expected_executable_path=current_executable["resolved_path"],
+            expected_launch_identity=admitted_launch_identity,
+        )
+    from .subscription_profiles import validate_subscription_launch_binding
+
+    return validate_subscription_launch_binding(
+        value,
+        expected_target=target,
+        require_logged_in=True,
+    )
+
+
 def verify_qualification_receipt(
     path: Path,
     *,
@@ -972,19 +998,18 @@ def verify_qualification_receipt(
         raise ValidationError("qualification plane activation identity mismatch")
     if evidence.get("workspace_isolation") != workspace_isolation:
         raise ValidationError("qualification workspace isolation identity mismatch")
-    from .subscription_profiles import (
-        subscription_binding_environment,
-        validate_subscription_launch_binding,
-    )
+    from .subscription_profiles import subscription_binding_environment
 
-    subscription_binding = validate_subscription_launch_binding(
-        read_json(
-            artifacts["subscription_profile"],
-            max_bytes=131072,
-            reject_sensitive_fields=True,
-        ),
-        expected_target=receipt["target"],
-        require_logged_in=True,
+    subscription_profile_raw = read_json(
+        artifacts["subscription_profile"],
+        max_bytes=131072,
+        reject_sensitive_fields=True,
+    )
+    subscription_binding = _validate_qualification_subscription_authority(
+        subscription_profile_raw,
+        target=receipt["target"],
+        current_executable=current["executable"],
+        admitted_launch_identity=launch_plan["launch_identity"],
     )
     subscription_sha256 = sha256_file(
         artifacts["subscription_profile"], max_bytes=131072
@@ -992,7 +1017,16 @@ def verify_qualification_receipt(
     if (
         evidence.get("subscription_profile_sha256") != subscription_sha256
         or receipt.get("subscription_profile_sha256") != subscription_sha256
-        or subscription_binding["executable"]
+    ):
+        raise IdentityError("qualification subscription profile authority changed")
+    if receipt["target"] == "agy":
+        if (
+            subscription_binding["executable"]["sha256"]
+            != current["executable"]["sha256"]
+        ):
+            raise IdentityError("AGY shared-auth executable authority changed")
+    elif (
+        subscription_binding["executable"]
         != launcher_execution_identity(current["executable"])
     ):
         raise IdentityError("qualification subscription profile authority changed")
@@ -1087,25 +1121,29 @@ def verify_qualification_receipt(
         raise ValidationError(
             "qualification launch identity differs from its admitted plan"
         )
-    source_environment, profile_bindings, _profile_root = (
-        subscription_binding_environment(
-            subscription_binding, expected_target=receipt["target"]
+    if receipt["target"] != "agy":
+        source_environment, profile_bindings, _profile_root = (
+            subscription_binding_environment(
+                subscription_binding, expected_target=receipt["target"]
+            )
         )
-    )
-    expected_environment = {**source_environment, **profile_bindings}
-    expected_environment_names = sorted(expected_environment)
-    expected_environment_fingerprint = sha256_bytes(
-        canonical_json_bytes(
-            [(name, expected_environment[name]) for name in expected_environment_names]
+        expected_environment = {**source_environment, **profile_bindings}
+        expected_environment_names = sorted(expected_environment)
+        expected_environment_fingerprint = sha256_bytes(
+            canonical_json_bytes(
+                [
+                    (name, expected_environment[name])
+                    for name in expected_environment_names
+                ]
+            )
         )
-    )
-    if (
-        launch_identity["env_names"] != expected_environment_names
-        or launch_identity["env_fingerprint"] != expected_environment_fingerprint
-    ):
-        raise IdentityError(
-            "qualification launch environment is not the bound subscription profile"
-        )
+        if (
+            launch_identity["env_names"] != expected_environment_names
+            or launch_identity["env_fingerprint"] != expected_environment_fingerprint
+        ):
+            raise IdentityError(
+                "qualification launch environment is not the bound subscription profile"
+            )
     observed_plan_sha = sha256_file(artifacts["launch_plan"], max_bytes=131072)
     if (
         evidence.get("launch_plan_sha256") != observed_plan_sha
@@ -2179,9 +2217,9 @@ class AdapterManifest:
                 "submit settle mapping does not match the adapter policy"
             )
         if value["target"] == "agy":
-            # Launch argv and semantic buckets are one bound claim. Census may
-            # still probe parser-only sandbox candidates separately; the regular
-            # launch mapping must not claim an unproved --sandbox=false flag.
+            # Launch argv and semantic buckets are one bound claim. Parser
+            # acceptance alone cannot complete the mapping, and omission of the
+            # controller-proved --sandbox=false override fails closed.
             from .agy_launch import (
                 AGY_REGULAR_PERMISSION_FLAGS,
                 AGY_REGULAR_PROJECT_ISOLATION_FLAGS,

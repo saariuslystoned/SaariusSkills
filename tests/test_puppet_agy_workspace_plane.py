@@ -86,6 +86,7 @@ def _adapter_manifest(
                 "launch_argv": [
                     path,
                     "--dangerously-skip-permissions",
+                    "--sandbox=false",
                     "--new-project",
                     "--log-file",
                     "/dev/null",
@@ -95,7 +96,7 @@ def _adapter_manifest(
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
                 "sandbox_disable_declared": True,
-                "sandbox_flags": [],
+                "sandbox_flags": ["--sandbox=false"],
                 "project_isolation_declared": True,
                 "project_isolation_flags": ["--new-project"],
                 "session_profiles": session_profiles_for("agy"),

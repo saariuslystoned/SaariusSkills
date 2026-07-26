@@ -28,7 +28,15 @@ from .adapter_manifest import (
     verify_qualification_receipt,
 )
 from .adapters import adapter_for
-from .agy_launch import require_agy_regular_launch_authority
+from .agy_launch import (
+    agy_shared_source_environment,
+    build_agy_shared_auth_launch_binding,
+    revalidate_agy_shared_auth_before_start,
+    reject_agy_private_profile_root,
+    require_agy_regular_launch_authority,
+    run_agy_status_preflight,
+    validate_agy_shared_auth_launch_binding,
+)
 from .authority import (
     acquire_real_harness_lock,
     admit_session_lease,
@@ -918,18 +926,28 @@ def run_probe(
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
     )
-    if subscription_profile_root is None:
-        raise ValidationError(
-            "regular qualification requires an explicit private subscription profile"
+    subscription_binding: Optional[Dict[str, Any]]
+    if target == "agy":
+        reject_agy_private_profile_root(subscription_profile_root)
+        subscription_context = None
+        subscription_status = None
+        subscription_binding = None
+    else:
+        if subscription_profile_root is None:
+            raise ValidationError(
+                "regular qualification requires an explicit private subscription profile"
+            )
+        subscription_context, subscription_status = _subscription_profile_preflight_fn(
+            profile_root=subscription_profile_root,
+            expected_target=target,
+            expected_executable_path=manifest.raw["executable"]["resolved_path"],
         )
-    subscription_context, subscription_status = _subscription_profile_preflight_fn(
-        profile_root=subscription_profile_root,
-        expected_target=target,
-        expected_executable_path=manifest.raw["executable"]["resolved_path"],
-    )
-    if subscription_status.get("login_state") != "logged_in":
-        raise IdentityError(
-            "private subscription profile is not authenticated for qualification"
+        if subscription_status.get("login_state") != "logged_in":
+            raise IdentityError(
+                "private subscription profile is not authenticated for qualification"
+            )
+        subscription_binding = build_subscription_launch_binding(
+            subscription_context, subscription_status
         )
     if codex_worktree_descriptor:
         validate_codex_worktree_descriptor(
@@ -940,14 +958,12 @@ def run_probe(
             expected_executable_sha256=manifest.raw["executable"]["sha256"],
             expected_subscription_profile_root=subscription_context.profile_root,
         )
-    subscription_binding = build_subscription_launch_binding(
-        subscription_context, subscription_status
-    )
-    validate_subscription_launch_binding(
-        subscription_binding,
-        expected_target=target,
-        require_logged_in=True,
-    )
+    if target != "agy":
+        validate_subscription_launch_binding(
+            subscription_binding,
+            expected_target=target,
+            require_logged_in=True,
+        )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
     probes_root = proof_root / "probes"
@@ -1075,10 +1091,11 @@ def run_probe(
     try:
         atomic_write_json(state_path, state)
         atomic_write_json(authorization_snapshot_path, authorization)
-        atomic_write_json(subscription_profile_path, subscription_binding)
-        evidence["subscription_profile_sha256"] = sha256_file(
-            subscription_profile_path, max_bytes=131072
-        )
+        if subscription_binding is not None:
+            atomic_write_json(subscription_profile_path, subscription_binding)
+            evidence["subscription_profile_sha256"] = sha256_file(
+                subscription_profile_path, max_bytes=131072
+            )
         if plane_descriptor_value is not None:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
@@ -1187,25 +1204,33 @@ def run_probe(
         admitted_lane_root: Optional[Path] = None
         launch_repo = fixture
         if not claude_plane_descriptor:
-            if subscription_context is None:
-                raise IdentityError(
-                    "subscription profile launch context is unavailable"
+            if target == "agy":
+                launch_environment, launch_identity = build_launch_identity(
+                    target=target,
+                    repo=launch_repo,
+                    argv=argv,
+                    source_environment=agy_shared_source_environment(),
                 )
-            admitted_lane_root = subscription_context.profile_root
-            if codex_worktree_descriptor:
-                # The fixture remains the bounded conformance task workspace.
-                # Codex starts in the candidate worktree so its workspace plane
-                # binds there; terminal workspace_isolation independently proves
-                # that real process cwd while prompts use absolute fixture paths.
-                launch_repo = Path(plane_descriptor_value["candidate_root"])
-            launch_environment, launch_identity = build_launch_identity(
-                target=target,
-                repo=launch_repo,
-                argv=argv,
-                source_environment=subscription_context.source_environment,
-                bindings=subscription_context.bindings,
-                admitted_lane_root=admitted_lane_root,
-            )
+            else:
+                if subscription_context is None:
+                    raise IdentityError(
+                        "subscription profile launch context is unavailable"
+                    )
+                admitted_lane_root = subscription_context.profile_root
+                if codex_worktree_descriptor:
+                    # The fixture remains the bounded conformance task workspace.
+                    # Codex starts in the candidate worktree so its workspace plane
+                    # binds there; terminal workspace_isolation independently proves
+                    # that real process cwd while prompts use absolute fixture paths.
+                    launch_repo = Path(plane_descriptor_value["candidate_root"])
+                launch_environment, launch_identity = build_launch_identity(
+                    target=target,
+                    repo=launch_repo,
+                    argv=argv,
+                    source_environment=subscription_context.source_environment,
+                    bindings=subscription_context.bindings,
+                    admitted_lane_root=admitted_lane_root,
+                )
             manifest.verify_launch_execution_environment(launch_environment)
             launch_plan = build_admitted_launch_plan(
                 target=target,
@@ -1216,6 +1241,37 @@ def run_probe(
                 environment=launch_environment,
                 admitted_lane_root=admitted_lane_root,
             )
+            if target == "agy":
+                status = run_agy_status_preflight(
+                    executable_path=Path(
+                        manifest.raw["executable"]["resolved_path"]
+                    ),
+                    cwd=launch_repo,
+                    environment=launch_environment,
+                )
+                subscription_binding = build_agy_shared_auth_launch_binding(
+                    executable_path=Path(
+                        manifest.raw["executable"]["resolved_path"]
+                    ),
+                    cwd=launch_repo,
+                    environment=launch_environment,
+                    status=status,
+                )
+                validate_agy_shared_auth_launch_binding(
+                    subscription_binding,
+                    expected_executable_path=manifest.raw["executable"][
+                        "resolved_path"
+                    ],
+                    expected_launch_identity=launch_identity,
+                )
+                atomic_write_json(
+                    subscription_profile_path,
+                    subscription_binding,
+                )
+                evidence["subscription_profile_sha256"] = sha256_file(
+                    subscription_profile_path,
+                    max_bytes=131072,
+                )
         else:
             for activation_root in (
                 activation_ephemeral_root,
@@ -1412,7 +1468,29 @@ def run_probe(
                     launch_identity=activation_context.launch_identity,
                 )
             else:
-                if subscription_context is None or subscription_binding is None:
+                if target == "agy":
+                    if subscription_binding is None:
+                        raise IdentityError(
+                            "AGY shared-auth binding is unavailable before target start"
+                        )
+                    refreshed_environment, refreshed_identity = (
+                        revalidate_agy_shared_auth_before_start(
+                            executable_path=Path(
+                                manifest.raw["executable"]["resolved_path"]
+                            ),
+                            cwd=launch_repo,
+                            argv=argv,
+                            admitted_environment=launch_environment,
+                            admitted_launch_identity=launch_identity,
+                            admitted_binding=subscription_binding,
+                        )
+                    )
+                    refreshed = TargetLaunch(
+                        argv=list(argv),
+                        environment=refreshed_environment,
+                        launch_identity=refreshed_identity,
+                    )
+                elif subscription_context is None or subscription_binding is None:
                     raise IdentityError(
                         "subscription profile authority is unavailable before target start"
                     )

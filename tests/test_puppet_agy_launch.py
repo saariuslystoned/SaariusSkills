@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import io
 import inspect
 import json
@@ -25,17 +26,29 @@ from puppet_lib import adapter_manifest as adapter_manifest_module  # noqa: E402
 from puppet_lib import agy_launch as agy_launch_module  # noqa: E402
 from puppet_lib import probe as puppet_probe  # noqa: E402
 from puppet_lib import session as puppet_session  # noqa: E402
-from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+from puppet_lib.adapter_manifest import (  # noqa: E402
+    AdapterManifest,
+    _validate_qualification_subscription_authority,
+)
 from puppet_lib.agy_launch import (  # noqa: E402
     AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,
     AGY_REGULAR_AUTHORITY_BLOCKERS,
+    AGY_REGULAR_SANDBOX_FLAGS,
     AGY_REGULAR_VERDICT_SCHEMA,
+    AGY_SHARED_AUTH_LAUNCH_BINDING_SCHEMA,
     AGY_SHARED_VENDOR_AUTH_LIMITATION,
+    agy_shared_source_environment,
     agy_authority_blockers,
+    agy_regular_launch_argv,
     agy_regular_verdict,
+    build_agy_shared_auth_launch_binding,
+    revalidate_agy_shared_auth_before_start,
     require_agy_regular_launch_authority,
+    run_agy_status_preflight,
+    validate_agy_shared_auth_launch_binding,
 )
 from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError  # noqa: E402
+from puppet_lib.launch import build_launch_identity  # noqa: E402
 from puppet_lib.probe import PROBE_PROFILE, run_probe  # noqa: E402
 
 
@@ -72,6 +85,12 @@ class AgyRegularFenceTests(unittest.TestCase):
                 "launch_authorized": True,
                 "qualification_authorized": False,
                 "blockers": AGY_REGULAR_AUTHORITY_BLOCKERS,
+                "accepted_limitations": (
+                    "agy_shared_vendor_auth_config_without_private_isolation",
+                    "agy_tmux_buffer_transport_with_native_agent_deferred",
+                    "agy_provider_default_model_identity_unclaimed",
+                    "agy_explicit_model_effort_and_resume_deferred",
+                ),
                 "route": "shared_vendor_auth_config_route",
                 "limitation": AGY_SHARED_VENDOR_AUTH_LIMITATION,
             },
@@ -80,11 +99,9 @@ class AgyRegularFenceTests(unittest.TestCase):
         self.assertEqual(
             verdict["blockers"],
             (
-                "agy_config_root_isolation_unproved",
-                "agy_sandbox_off_unproved",
-                "agy_native_instruction_plane_unqualified",
-                "agy_default_model_unobserved",
-                "agy_ordinary_session_no_bleed_unproved",
+                "agy_fresh_pass_b_required",
+                "agy_regular_receipt_promotion_required",
+                "agy_clean_doctor_required",
             ),
         )
         serialized = json.dumps(verdict, sort_keys=True)
@@ -106,9 +123,24 @@ class AgyRegularFenceTests(unittest.TestCase):
                 )
             elif isinstance(node, ast.ImportFrom):
                 imported_roots.add((node.module or "").split(".", 1)[0])
-        self.assertTrue(imported_roots <= {"", "__future__", "typing", "errors", "os", "pathlib", "subprocess", "adapter_manifest"})
+        self.assertTrue(
+            imported_roots
+            <= {
+                "",
+                "__future__",
+                "typing",
+                "errors",
+                "os",
+                "pathlib",
+                "pwd",
+                "stat",
+                "subprocess",
+                "adapter_manifest",
+                "launch",
+                "safety",
+            }
+        )
         for forbidden in (
-            "os.environ",
             "active_target_processes",
             "process_birth_identity",
             "SessionRegistry",
@@ -456,8 +488,6 @@ class AgyRegularFenceTests(unittest.TestCase):
                     "/does/not/matter/proof",
                     "--state-root",
                     "/does/not/matter/state",
-                    "--profile-root",
-                    "/does/not/matter/profile",
                 ]
             )
         self.assertEqual(exit_code, 3)
@@ -598,42 +628,69 @@ class AgyRegularFenceTests(unittest.TestCase):
                 sentinel.assert_not_called()
             self.assertFalse(proof_root.exists())
 
-    def test_manifest_and_qualify_reject_fallback_wrapper_agy(self):
+    def test_public_qualify_verifies_then_admits_explicit_regular_agy_receipt(self):
         synthetic_qualified = AdapterManifest(
             raw={"target": "agy", "doctor_only": False}
         )
         with self.assertRaisesRegex(UnsupportedError, "non-regular"):
             synthetic_qualified.verify_qualification(expected_session_profile="goal")
 
+        events = []
         base = SimpleNamespace(target="agy", raw={"doctor_only": True})
-        fallback_receipt = {
+        receipt = {
             "target": "agy",
+            "session_profile": "regular",
             "plane_activation": None,
-            "instruction_wrapper": {
-                "delivery_transport": "interactive_fallback_wrapper"
-            },
+            "capabilities": ["launch", "send", "status", "wait", "checkpoint", "halt"],
         }
-        verified = mock.Mock(return_value=fallback_receipt)
-        population = mock.Mock(
-            side_effect=AssertionError("AGY population census must not run")
+        verified = mock.Mock(
+            side_effect=lambda _path: events.append("receipt") or receipt
         )
-        args = SimpleNamespace(
-            manifest=Path("/does/not/matter/manifest.json"),
-            mapping=Path("/does/not/matter/mapping.json"),
-            receipt=Path("/does/not/matter/receipt.json"),
-            out=Path("/does/not/matter/out.json"),
+        qualified = mock.Mock(target="agy", fingerprint="f" * 64)
+        qualified.verify_qualification.side_effect = (
+            lambda **_kwargs: events.append("manifest")
         )
-        with (
-            mock.patch.object(
-                adapter_lab.AdapterManifest, "from_path", return_value=base
-            ),
-            mock.patch.object(adapter_lab, "_verified_receipt", verified),
-            mock.patch.object(puppet_session, "_agy_population", population),
-        ):
-            with self.assertRaisesRegex(UnsupportedError, "non-regular"):
-                adapter_lab._qualify(args)
-        verified.assert_not_called()
-        population.assert_not_called()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt_path = root / "receipt.json"
+            receipt_path.write_text("{}\n", encoding="utf-8")
+            args = SimpleNamespace(
+                manifest=root / "manifest.json",
+                mapping=root / "mapping.json",
+                receipt=receipt_path,
+                out=root / "out.json",
+            )
+            with (
+                mock.patch.object(
+                    adapter_lab.AdapterManifest, "from_path", return_value=base
+                ),
+                mock.patch.object(adapter_lab, "_verified_receipt", verified),
+                mock.patch.object(
+                    adapter_lab, "read_json", return_value={"complete": True}
+                ),
+                mock.patch.object(
+                    adapter_lab.AdapterManifest,
+                    "from_dict",
+                    return_value=qualified,
+                ),
+                mock.patch.object(adapter_lab, "sha256_file", return_value="a" * 64),
+                mock.patch.object(
+                    adapter_lab,
+                    "require_agy_regular_launch_authority",
+                    side_effect=lambda profile: events.append(
+                        "authority:%s" % profile
+                    ),
+                ) as authority,
+            ):
+                result = adapter_lab._qualify(args)
+
+        self.assertEqual(events, ["receipt", "authority:regular", "manifest"])
+        authority.assert_called_once_with("regular")
+        qualified.verify_qualification.assert_called_once_with(
+            expected_session_profile="regular"
+        )
+        qualified.save.assert_called_once_with(args.out)
+        self.assertEqual(result["session_profile"], "regular")
 
     def test_manifest_authority_requires_explicit_regular_profile_before_receipt_io(
         self,
@@ -683,6 +740,149 @@ class AgyRegularFenceTests(unittest.TestCase):
 
 
 class AgyRegularLaunchValidationTests(unittest.TestCase):
+    def _launch_context(self, root: Path):
+        executable = Path("/bin/echo").resolve(strict=True)
+        source_environment = agy_shared_source_environment(
+            {
+            "PATH": "/usr/bin:/bin",
+            "LANG": "C",
+            }
+        )
+        argv = agy_regular_launch_argv(executable)
+        environment, identity = build_launch_identity(
+            target="agy",
+            repo=root,
+            argv=argv,
+            source_environment=source_environment,
+        )
+        return executable, argv, environment, identity
+
+    def test_regular_mapping_binds_sandbox_flag_into_exact_argv(self):
+        self.assertEqual(AGY_REGULAR_SANDBOX_FLAGS, ("--sandbox=false",))
+        self.assertEqual(
+            agy_regular_launch_argv("/usr/bin/agy"),
+            [
+                "/usr/bin/agy",
+                "--dangerously-skip-permissions",
+                "--sandbox=false",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ],
+        )
+
+    def test_status_preflight_uses_exact_closed_launch_environment_and_cwd(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            executable, _argv, environment, identity = self._launch_context(root)
+            ambient_canary = "PUPPET_AMBIENT_MUST_NOT_REACH_AGY"
+            with (
+                mock.patch.dict(os.environ, {ambient_canary: "present"}, clear=False),
+                mock.patch.object(
+                    agy_launch_module.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=0),
+                ) as run,
+            ):
+                status = run_agy_status_preflight(
+                    executable_path=executable,
+                    cwd=root,
+                    environment=environment,
+                )
+            self.assertEqual(run.call_args.kwargs["cwd"], str(root))
+            self.assertEqual(run.call_args.kwargs["env"], environment)
+            self.assertNotIn(ambient_canary, run.call_args.kwargs["env"])
+            self.assertEqual(status["launch_identity"], identity)
+            self.assertEqual(status["home_identity"]["path"], environment["HOME"])
+
+    def test_shared_binding_joins_home_and_environment_to_admitted_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            executable, _argv, environment, identity = self._launch_context(root)
+            with mock.patch.object(
+                agy_launch_module.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0),
+            ) as run:
+                status = run_agy_status_preflight(
+                    executable_path=executable,
+                    cwd=root,
+                    environment=environment,
+                )
+            binding = build_agy_shared_auth_launch_binding(
+                executable_path=executable,
+                cwd=root,
+                environment=environment,
+                status=status,
+            )
+            self.assertEqual(
+                binding["schema"],
+                AGY_SHARED_AUTH_LAUNCH_BINDING_SCHEMA,
+            )
+            self.assertEqual(
+                validate_agy_shared_auth_launch_binding(
+                    binding,
+                    expected_executable_path=executable,
+                    expected_launch_identity=identity,
+                ),
+                binding,
+            )
+
+            unrelated_identity = dict(identity, env_fingerprint="f" * 64)
+            with self.assertRaisesRegex(IdentityError, "admitted launch environment"):
+                _validate_qualification_subscription_authority(
+                    binding,
+                    target="agy",
+                    current_executable={"resolved_path": str(executable)},
+                    admitted_launch_identity=unrelated_identity,
+                )
+
+            drifted_home = copy.deepcopy(binding)
+            drifted_home["home_identity"]["inode"] += 1
+            drifted_home["status"]["home_identity"]["inode"] += 1
+            with self.assertRaisesRegex(IdentityError, "HOME identity changed"):
+                validate_agy_shared_auth_launch_binding(
+                    drifted_home,
+                    expected_executable_path=executable,
+                    expected_launch_identity=identity,
+                )
+
+    def test_pre_start_revalidation_rejects_closed_environment_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            executable, argv, environment, identity = self._launch_context(root)
+            with mock.patch.object(
+                agy_launch_module.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=0),
+            ) as run:
+                status = run_agy_status_preflight(
+                    executable_path=executable,
+                    cwd=root,
+                    environment=environment,
+                )
+                binding = build_agy_shared_auth_launch_binding(
+                    executable_path=executable,
+                    cwd=root,
+                    environment=environment,
+                    status=status,
+                )
+                drifted_source = dict(environment, PATH="/usr/local/bin:/usr/bin:/bin")
+                with self.assertRaisesRegex(
+                    IdentityError,
+                    "changed before target start",
+                ):
+                    revalidate_agy_shared_auth_before_start(
+                        executable_path=executable,
+                        cwd=root,
+                        argv=argv,
+                        admitted_environment=environment,
+                        admitted_launch_identity=identity,
+                        admitted_binding=binding,
+                        source_environment=drifted_source,
+                    )
+            self.assertEqual(run.call_count, 1)
+
     def test_regular_profile_admitted_without_error(self):
         self.assertIsNone(require_agy_regular_launch_authority("regular"))
 
@@ -747,11 +947,11 @@ class AgyRegularLaunchValidationTests(unittest.TestCase):
                 argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "bare_arg"],
             )
 
-    def test_unproved_sandbox_false_flag_fails_closed(self):
+    def test_sandbox_flag_omission_fails_closed(self):
         with self.assertRaises(ValidationError):
             agy_launch_module.validate_agy_regular_launch_params(
                 session_profile="regular",
-                argv=["agy", "--dangerously-skip-permissions", "--sandbox=false", "--new-project", "--log-file", "/dev/null"],
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
             )
 
     def test_unproved_agent_flag_fails_closed(self):
@@ -791,7 +991,7 @@ class AgyRegularLaunchValidationTests(unittest.TestCase):
         self.assertIsNone(
             agy_launch_module.validate_agy_regular_launch_params(
                 session_profile="regular",
-                argv=["/usr/bin/agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                argv=["/usr/bin/agy", "--dangerously-skip-permissions", "--sandbox=false", "--new-project", "--log-file", "/dev/null"],
                 executable_path="/usr/bin/agy",
             )
         )
@@ -805,10 +1005,20 @@ class AgyRegularLaunchValidationTests(unittest.TestCase):
             )
 
     def test_status_preflight_failure_fails_closed(self):
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.return_value = mock.Mock(returncode=1)
-            with self.assertRaises(IdentityError):
-                agy_launch_module.run_agy_status_preflight(executable_path=Path("/bin/echo"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            executable, _argv, environment, _identity = self._launch_context(root)
+            with mock.patch.object(
+                agy_launch_module.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=1),
+            ):
+                with self.assertRaises(IdentityError):
+                    agy_launch_module.run_agy_status_preflight(
+                        executable_path=executable,
+                        cwd=root,
+                        environment=environment,
+                    )
 
     def test_updater_replacement_between_preflight_and_start_fails_closed(self):
         manifest_exec = {

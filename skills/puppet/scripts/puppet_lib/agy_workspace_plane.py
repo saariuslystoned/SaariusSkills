@@ -408,6 +408,7 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
     expected_argv = [
         executable["resolved_path"],
         "--dangerously-skip-permissions",
+        "--sandbox=false",
         "--new-project",
         "--log-file",
         "/dev/null",
@@ -418,7 +419,7 @@ def _exact_agy_manifest(value: AdapterManifest | Mapping[str, Any]) -> AdapterMa
         or mapping["permission_declared"] is not True
         or mapping["permission_flags"] != ["--dangerously-skip-permissions"]
         or mapping["sandbox_disable_declared"] is not True
-        or mapping["sandbox_flags"] != []
+        or mapping["sandbox_flags"] != ["--sandbox=false"]
         or mapping["project_isolation_declared"] is not True
         or mapping["project_isolation_flags"] != ["--new-project"]
         or mapping["prompt_transport"] != PROMPT_TRANSPORT
@@ -589,7 +590,6 @@ def _derive_agy_workspace_binding_record(
         or verdict.get("launch_authorized") is not True
         or verdict.get("qualification_authorized") is not False
         or tuple(verdict.get("blockers", ())) != AGY_REGULAR_AUTHORITY_BLOCKERS
-        or sorted(verdict["blockers"]) != sorted(AGY_WORKSPACE_BLOCKERS)
     ):
         raise IdentityError("AGY regular authority fence changed")
 

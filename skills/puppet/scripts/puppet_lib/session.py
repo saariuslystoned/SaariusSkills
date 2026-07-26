@@ -14,10 +14,14 @@ from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
 from .agy_launch import (
     AGY_SHARED_VENDOR_AUTH_LIMITATION,
+    agy_shared_source_environment,
+    build_agy_shared_auth_launch_binding,
+    revalidate_agy_shared_auth_before_start,
+    reject_agy_private_profile_root,
     require_agy_regular_launch_authority,
     run_agy_status_preflight,
+    validate_agy_shared_auth_launch_binding,
     validate_agy_regular_launch_params,
-    verify_agy_executable_not_updated,
 )
 from .authority import (
     admit_session_lease,
@@ -1014,15 +1018,9 @@ def launch(
             profile_root=profile_root,
             executable_path=manifest.raw["executable"]["resolved_path"],
         )
-        profile_status = run_agy_status_preflight(
-            executable_path=Path(manifest.raw["executable"]["resolved_path"])
-        )
-        verify_agy_executable_not_updated(manifest.raw["executable"])
     if profile_root is not None:
         if contract.target == "agy":
-            raise ValidationError(
-                "AGY does not support private profile isolation; any claim of private config isolation fails closed"
-            )
+            reject_agy_private_profile_root(profile_root)
         profile_context, profile_status = subscription_profile_preflight(
             profile_root=profile_root,
             expected_target=contract.target,
@@ -1116,7 +1114,13 @@ def launch(
         repo=contract.repo,
         argv=argv,
         source_environment=(
-            profile_context.source_environment if profile_context is not None else None
+            profile_context.source_environment
+            if profile_context is not None
+            else (
+                agy_shared_source_environment()
+                if contract.target == "agy"
+                else None
+            )
         ),
         bindings=(profile_context.bindings if profile_context is not None else None),
         admitted_lane_root=(
@@ -1124,6 +1128,31 @@ def launch(
         ),
     )
     manifest.verify_launch_execution_environment(launch_environment)
+    agy_shared_binding: Optional[Dict[str, Any]] = None
+    if contract.target == "agy":
+        executable_path = Path(manifest.raw["executable"]["resolved_path"])
+        profile_status = run_agy_status_preflight(
+            executable_path=executable_path,
+            cwd=contract.repo,
+            environment=launch_environment,
+        )
+        agy_shared_binding = build_agy_shared_auth_launch_binding(
+            executable_path=executable_path,
+            cwd=contract.repo,
+            environment=launch_environment,
+            status=profile_status,
+        )
+        validate_agy_shared_auth_launch_binding(
+            agy_shared_binding,
+            expected_executable_path=executable_path,
+            expected_launch_identity=launch_identity,
+        )
+        profile_copy = _bind_json(
+            proof_root / "subscription-profile.json",
+            agy_shared_binding,
+            "AGY shared-auth launch binding",
+        )
+        profile_binding_sha = sha256_file(profile_copy, max_bytes=131072)
     instruction_copy = _bind_json(
         proof_root / "effective-instructions.json",
         compiled.manifest,
@@ -1186,7 +1215,27 @@ def launch(
 
     def revalidate_before_target_start() -> TargetLaunch:
         if contract.target == "agy":
-            verify_agy_executable_not_updated(manifest.raw["executable"])
+            if agy_shared_binding is None:
+                raise IdentityError(
+                    "AGY shared-auth launch binding is unavailable before target start"
+                )
+            refreshed_environment, refreshed_identity = (
+                revalidate_agy_shared_auth_before_start(
+                    executable_path=Path(
+                        manifest.raw["executable"]["resolved_path"]
+                    ),
+                    cwd=contract.repo,
+                    argv=argv,
+                    admitted_environment=launch_environment,
+                    admitted_launch_identity=launch_identity,
+                    admitted_binding=agy_shared_binding,
+                )
+            )
+            return TargetLaunch(
+                argv=list(argv),
+                environment=refreshed_environment,
+                launch_identity=refreshed_identity,
+            )
         if profile_context is None:
             return TargetLaunch(
                 argv=list(argv),

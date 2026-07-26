@@ -1975,6 +1975,7 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
             launch_argv = [
                 str(executable),
                 "--dangerously-skip-permissions",
+                "--sandbox=false",
                 "--new-project",
                 "--log-file",
                 "/dev/null",
@@ -1987,7 +1988,7 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
                 "sandbox_disable_declared": True,
-                "sandbox_flags": [],
+                "sandbox_flags": ["--sandbox=false"],
                 "project_isolation_declared": True,
                 "project_isolation_flags": ["--new-project"],
                 "session_profiles": session_profiles_for("agy"),
@@ -2104,13 +2105,17 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
             original_tmux_launch = TmuxController.launch
             original_admit = puppet_session.admit_session_lease
             original_run = TmuxController._run
+            replacement_executed = root / "replacement-executed"
 
             def admit_then_replace_executable(**kwargs):
                 result = original_admit(**kwargs)
                 # Simulate auto-updater race after body-free status preflight and
                 # the early identity check, immediately before target start.
                 executable.write_text(
-                    "#!/bin/sh\n# replaced-by-updater\nexit 0\n",
+                    "#!/bin/sh\n"
+                    "# replaced-by-updater\n"
+                    f"printf replaced > '{replacement_executed}'\n"
+                    "exit 0\n",
                     encoding="utf-8",
                 )
                 executable.chmod(0o755)
@@ -2152,7 +2157,7 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                 ):
                     with self.assertRaisesRegex(
                         IdentityError,
-                        "target executable updated or changed during status preflight",
+                        "executable identity changed",
                     ):
                         launch(
                             session=session,
@@ -2169,17 +2174,19 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
 
                 self.assertEqual(observed["before_target_start_calls"], 1)
                 self.assertEqual(observed["respawn_pane_calls"], 0)
+                self.assertFalse(replacement_executed.exists())
                 self.assertEqual(
                     observed["argv"],
                     [
                         str(executable),
                         "--dangerously-skip-permissions",
+                        "--sandbox=false",
                         "--new-project",
                         "--log-file",
                         "/dev/null",
                     ],
                 )
-                self.assertNotIn("--sandbox=false", observed["argv"])
+                self.assertEqual(observed["argv"].count("--sandbox=false"), 1)
                 self.assertNotIn("--agent", observed["argv"])
                 self.assertNotIn("--model", observed["argv"])
                 self.assertNotIn("--effort", observed["argv"])
@@ -2232,7 +2239,10 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                 bound_manifest = json.loads(
                     (proof / "adapter-manifest.json").read_text(encoding="utf-8")
                 )
-                self.assertEqual(bound_manifest["yolo_mapping"]["sandbox_flags"], [])
+                self.assertEqual(
+                    bound_manifest["yolo_mapping"]["sandbox_flags"],
+                    ["--sandbox=false"],
+                )
                 self.assertEqual(
                     bound_manifest["yolo_mapping"]["permission_flags"],
                     ["--dangerously-skip-permissions"],
@@ -2241,11 +2251,27 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                     bound_manifest["yolo_mapping"]["project_isolation_flags"],
                     ["--new-project"],
                 )
-                self.assertNotIn(
-                    "--sandbox=false", bound_manifest["yolo_mapping"]["launch_argv"]
+                self.assertEqual(
+                    bound_manifest["yolo_mapping"]["launch_argv"].count(
+                        "--sandbox=false"
+                    ),
+                    1,
                 )
-                # Shared-vendor route: no private subscription profile binding.
-                self.assertFalse((proof / "subscription-profile.json").exists())
+                binding_path = proof / "subscription-profile.json"
+                self.assertTrue(binding_path.exists())
+                binding = json.loads(binding_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    binding["schema"],
+                    "puppet.agy-shared-auth-launch-binding/v1",
+                )
+                self.assertEqual(
+                    binding["launch_identity"]["env_fingerprint"],
+                    binding["status"]["launch_identity"]["env_fingerprint"],
+                )
+                self.assertEqual(
+                    binding["launch_identity"]["cwd"],
+                    str(candidate),
+                )
                 self.assertIsNone(Contract.from_path(contract_path).requested_model)
                 self.assertIsNone(Contract.from_path(contract_path).requested_effort)
                 # Preflight completed (callback reached) without retaining body.

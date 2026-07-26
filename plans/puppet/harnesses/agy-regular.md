@@ -2,10 +2,10 @@
 
 Parent: regular-lane packet `plans/puppet/codex-goal-regular-qualification.md`.
 Scope: static census, authoritative documentation, source/tests inspection, and
-fixture/test design. The regular route is now launch-authorized at the source
-level on an explicit shared-vendor-auth/config basis; full qualification (a
-promoted Pass-B receipt) is still pending and no promoted qualification receipt
-is claimed here.
+fixture/test design. The source now describes a promotable regular route on an
+explicit shared-vendor-auth/config basis. Source state is never launch
+authority: a fresh Pass B, promotion of its accepted receipt, and a clean
+execution-time doctor remain required.
 
 ## Current controller verdict: shared-vendor-auth/config regular route
 
@@ -16,21 +16,19 @@ are not yet fully qualified. The body-free `regular` verdict reports:
 - `route: shared_vendor_auth_config_route`
 - `launch_authorized: true`
 - `qualification_authorized: false`
-- `agy_config_root_isolation_unproved`
-- `agy_sandbox_off_unproved`
-- `agy_native_instruction_plane_unqualified`
-- `agy_default_model_unobserved`
-- `agy_ordinary_session_no_bleed_unproved`
+- `agy_fresh_pass_b_required`
+- `agy_regular_receipt_promotion_required`
+- `agy_clean_doctor_required`
 
 The route runs under the operator's real `HOME` because AGY exposes no
-config-root selector; private-profile isolation is explicitly not claimed. The
-five blockers are now qualification limitations, not launch fences: launch is
-authorized, but a promoted qualification receipt is withheld until config-root
-isolation, sandbox-off behavior, a native instruction plane, the default model,
-and ordinary-session no-bleed are independently proved.
+admitted config-root selector; private-profile isolation is explicitly not
+claimed. Shared vendor auth/config, tmux-buffer instruction transport with
+native `--agent` deferred, an unclaimed provider-default model identity, and
+deferred explicit model/effort/resume are accepted limitations rather than
+launch gates.
 
 Every authority fence is profile-aware. `regular` is admitted on the shared
-route and carries the five qualification blockers. `goal`, `teamwork-preview`,
+route and carries the three source-only blockers. `goal`, `teamwork-preview`,
 invalid, and unbound profiles fail closed with the additional
 `agy_non_regular_profile_deferred` blocker and cannot borrow regular-session
 authority. The user-facing doctor reads only the contract target and rejects a
@@ -39,10 +37,10 @@ executable, profile, workspace, tmux, process, parallel-override, or
 qualification-receipt access. Generic launch rejects a non-regular profile
 before doctor, process census, launch-environment construction, or proof/tmux
 setup; the Pass-B probe rejects it before mapping validation, fresh census,
-process lookup, proof-root creation, or tmux construction; and qualification and
-manifest promotion reject a non-regular or fallback-wrapper receipt. Promotion
-keeps an unbound profile fenced until a receipt is verified through a separately
-authorized path.
+process lookup, proof-root creation, or tmux construction. Public qualification
+first verifies the receipt, then requires its explicit `session_profile` to be
+`regular`, and verifies the qualified manifest again with that explicit
+profile. Promotion keeps an unbound profile fenced.
 
 This verdict does not alter status, halt, or recovery for an already registered
 Puppet-owned AGY session. Puppet must not inspect, steer, halt, or otherwise
@@ -50,9 +48,27 @@ intervene in an ordinary non-Puppet AGY session.
 
 ## 1) Exact-version discovery facts vs hypotheses
 
-### Facts (from read-only census + source/tests)
+### Current AGY 1.1.7 controller facts
 
-- Executable discovered by `census_target`/command checks:
+- Exact executable:
+  `/Users/bobbybones/.local/bin/agy`
+- SHA-256:
+  `48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8`
+- Exact regular launch argv:
+  `/Users/bobbybones/.local/bin/agy --dangerously-skip-permissions
+  --sandbox=false --new-project --log-file /dev/null`
+- A bounded semantic write, exact executable/birth/cwd lease, read-only native
+  attach, sequenced steering, clean head, and exact process-tree halt were
+  independently controller-checked through a Puppet-owned private tmux lane.
+- Same-user `agy models` succeeded with its body discarded. No auth store was
+  copied or inspected.
+
+These facts repair the source route; they are not a reusable qualification
+receipt.
+
+### Preserved historical AGY 1.1.5 census facts
+
+- The earlier read-only census recorded:
   - Requested path: `agy` (the exact operator-local absolute path is retained
     in the machine-private lane proof)
   - SHA-256: `6509d6ca54a66e3eaf61dfe35308ba1dfa1e6b552ef5c4f5f861562c6811ecaf`
@@ -69,20 +85,18 @@ intervene in an ordinary non-Puppet AGY session.
     - `--add-dir`
     - `--continue`
     - `--conversation`
+
+### Current source mapping
+
 - Manifest-derived control mapping (`census_target`):
   - `permission_flags`: [`--dangerously-skip-permissions`]
   - `project_isolation_flags`: [`--new-project`]
-  - `sandbox_flags`: `[]`. The live-proved regular launch route binds an empty
-    sandbox semantic bucket.
-  - `sandbox_disable_declared`: true only at the parser/declaration layer. The
-    zero-agent census requires exact `--sandbox=false help` acceptance and
-    rejects `--sandbox=puppet-invalid help`; Google documents that command-line
-    overrides supersede persistent preferences and that
-    `enableTerminalSandbox` is a boolean setting. That acceptance is parser-only
-    and carries no launch authority: the regular launch validator rejects
-    `--sandbox=false` in argv, and runtime sandbox-off semantics remain part of
-    the later conformance probe and do not clear the `agy_sandbox_off_unproved`
-    qualification blocker by themselves.
+  - `sandbox_flags`: [`--sandbox=false`]. Parser acceptance alone cannot
+    complete the mapping while omitting this semantic bucket or the exact argv
+    token.
+  - `sandbox_disable_declared`: true only when exact
+    `--sandbox=false help` acceptance, invalid-value rejection, the help
+    surface, semantic bucket, and launch argv agree.
   - `project_isolation_declared`: true
   - `prompt_transport`: `interactive_tmux_load_buffer_stdin_declared`
   - `model_flag`: `--model`
@@ -91,8 +105,8 @@ intervene in an ordinary non-Puppet AGY session.
   - `startup_settle_seconds`: `8.0`
   - `submit_settle_seconds`: `1.0`
   - `launch_argv`: exact resolved executable plus the live-proved regular tail
-    `--dangerously-skip-permissions --new-project --log-file /dev/null` (no
-    `--sandbox=false`, no `--model`/`--effort`, and `--log-file` pinned to
+    `--dangerously-skip-permissions --sandbox=false --new-project --log-file
+    /dev/null` (no `--model`/`--effort`, and `--log-file` pinned to
     `/dev/null`).
   - declared capabilities map currently `declared` for launch/send/status/wait/checkpoint/resume/halt
     but manifest is `doctor_only: true` until qualification/receipt.
@@ -100,13 +114,16 @@ intervene in an ordinary non-Puppet AGY session.
   - Runs on the shared vendor auth/config route under the operator's real
     `HOME`; `validate_agy_regular_launch_params` fails closed on any private
     `profile_root` claim, on non-regular profiles, on explicit `--model`/
-    `--effort`, on `--sandbox=false`, on `--agent`, on a non-`/dev/null` log
-    destination, and on reordered, duplicated, extra, or slash-prefixed argv.
+    `--effort`, on omission or drift of `--sandbox=false`, on `--agent`, on a
+    non-`/dev/null` log destination, and on reordered, duplicated, extra, or
+    slash-prefixed argv.
   - `run_agy_status_preflight` runs a body-free `agy models` preflight before
-    start, discarding raw stdout/stderr and retaining only a route/status
-    marker; a non-zero or failed invocation fails closed.
-  - `verify_agy_executable_not_updated` re-derives the executable
-    device/inode/SHA-256 immediately before start and fails closed on any
+    start under the exact closed target environment and cwd, discarding raw
+    stdout/stderr. Its binding joins executable identity, same-user account
+    `HOME` identity, cwd, argv hash, environment names/fingerprint, and status.
+    All are rebuilt immediately before target exec; drift fails closed.
+  - Pre-start shared-auth revalidation re-derives the executable
+    device/inode/SHA-256 before the second status probe and fails closed on any
     auto-updater replacement race between preflight and launch.
 - Source evidence at the admitted lane base:
   - `profiles.default_session_profile("agy")` returned `"teamwork-preview"`.
@@ -119,7 +136,7 @@ intervene in an ordinary non-Puppet AGY session.
     grants no launch authority. Omitted and explicit
     `session_profile: regular` contracts canonicalize to the same identity;
     `/teamwork-preview` is retained only as a deferred explicit mapping.
-- Model list command discovered: `agy models` currently emits:
+- The historical 1.1.5 `agy models` observation emitted:
   `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low`,
   `gemini-3.5-flash-high`, `gemini-3.5-flash-medium`, `gemini-3.5-flash-low`,
   `gemini-3.1-pro-high`, `gemini-3.1-pro-low`, `claude-sonnet-4-6`,
@@ -127,11 +144,11 @@ intervene in an ordinary non-Puppet AGY session.
 
 ### Hypotheses / evidence gaps
 
-- Default model and default effort when `--model/--effort` are omitted are not proved by static census.
-- The regular route binds no sandbox flag. Exact parser acceptance and
-  documented preference precedence keep `--sandbox=false` a parser-only
-  negative-override candidate with no launch authority, and no Puppet
-  conformance run has yet independently observed any runtime sandbox-off effect.
+- The provider default is used when `--model/--effort` are omitted, but its
+  identity remains intentionally unclaimed.
+- Parser acceptance alone remains insufficient: exact `--sandbox=false` must
+  stay joined to the semantic bucket, launch argv, admitted environment, and
+  fresh Pass-B receipt.
 - Real-world runtime effects of `goal` and `teamwork-preview` profile commands for this lane are deferred
   (must not be enabled/qualified here).
 - Runtime resume behavior remains unsupported for regular lane planning unless a dedicated resume contract is
@@ -182,16 +199,18 @@ unprefixed message. It is not one of the three instruction planes.
   plane. Keep this candidate unsupported unless a native additive path is
   proved without putting instruction bodies in argv.
 
-## 3) Future default-model observation gate
+## 3) Optional future default-model observation
 
-The following is a future proof design, not an executable Puppet path:
+The current regular route does not claim the provider-default model identity.
+The following remains a separate future proof design:
 
 1. Build isolated conformance fixture root and prompt fixture only.
 2. Use `session_profile=regular` in contract and omit `--model`/`--effort` in launch command.
 3. Require first checkpoint/handoff artifact to include an explicit resolved model record if AGY exposes it via the
    proven conformance envelope; this is part of live evidence and may require a source delta if it is currently absent.
-4. If absent, classify as `model_unknown` blocker and promote a separate model-observation variant with explicit
-   model selection (`--model` from `agy models`) before this lane can be promoted as regular-default complete.
+4. If absent, retain the accepted
+   `agy_provider_default_model_identity_unclaimed` limitation. Any explicit
+   model-selection variant requires separate qualification.
 
 ## 4) Future regular qualification matrix (not executable)
 
@@ -202,7 +221,7 @@ The following is a future proof design, not an executable Puppet path:
 | Resume | `resume` API invocation under regular profile | explicit refusal unless capability is requalified | Block and record as `unsupported` unless runtime contract changes |
 | Steer | follow-up via `send` with ordinary text (`initial=False`) | one `send` delivery, no extra prefix injection | Pass if plain message accepted; no profile-prefix in follow-up |
 | Halt | graceful stop with EOF behavior | one EOF when target transitions to stopped, exactly once on already-complete target | Pass if no false repeated halt attempts and no target overrun |
-| No-bleed control | ordinary AGY session not owned by this lease | state isolation + no mutation by Puppet sends/halts on non-registered process | Pass only if ordinary session remains running and unmodified |
+| No-bleed control | ordinary AGY session not owned by this lease | exact private socket/process evidence before and after the Puppet lane | Pass only if the protected ordinary socket/process identity remains running and unchanged |
 
 ## 5) Isolated config-root strategy
 
@@ -213,19 +232,19 @@ The following is a future proof design, not an executable Puppet path:
   while persistent preferences live at
   `~/.gemini/antigravity-cli/settings.json`. This means Puppet should reuse the
   operator's keyring rather than copy credentials or force a second login.
-- AGY exposes no explicit `agy` config-root CLI control in the exact 1.1.5
-  `--help`, so private config isolation is not achievable. The compatible Gemini
-  CLI's `GEMINI_CLI_HOME` is design input only: that selector is absent from the
-  exact AGY 1.1.5 binary surface and cannot be borrowed by name.
+- The preserved 1.1.5 help snapshot exposed no AGY config-root control, and the
+  current 1.1.7 route admits no such selector. The compatible Gemini CLI's
+  `GEMINI_CLI_HOME` is design input only and cannot be borrowed by name.
 - The accepted resolution is the explicit shared-vendor-auth/config route: the
-  regular launch runs under the operator's real `HOME` and reuses the native
-  vendor keyring, and Puppet claims no private-profile isolation. Puppet still
-  does not copy credentials, force a second login, or write global config, and
-  does not override `HOME`, because that could change authentication and
-  unrelated state.
-- `--sandbox=false` is parser-only and carries no launch authority; the regular
-  route binds an empty sandbox bucket. `--new-project` proves project selection
-  only. Neither closes config isolation or live sandbox-off semantics.
+  regular launch runs under the operator's real `HOME` and uses same-user
+  shared vendor auth/config without inspecting its store; Puppet claims no
+  private-profile isolation. Puppet still does not copy credentials, force a
+  second login, or write global config. It pins the closed launch environment's
+  `HOME` to the same-user account HOME and binds that directory identity to the
+  status probe and target launch.
+- `--sandbox=false` is required in the semantic bucket and exact launch argv;
+  parser acceptance alone is not authority. `--new-project` proves project
+  selection only. Neither creates private config isolation.
 - No fixture may read or mutate global config beyond this shared-auth keyring
   reuse, and no config-root override may cross targets.
 
@@ -263,7 +282,8 @@ qualification receipt.
 - Add explicit regular-plane fixture proving steps for
   `session_profile=regular` only after a separately reviewed source change
   makes the live proof lane eligible.
-- Add explicit model-observation handling (or explicit-block strategy) for omitted `--model`.
+- Retain provider-default model identity as unclaimed unless a separate
+  observation route is qualified.
 - Make resume outcome explicit in capability proof (currently not promoted by resume contract).
 - Extend instruction-plane testing for AGY to prove workspace/per-run-plane precedence before allowing any mixed-plane defaulting.
 - Extend no-bleed proof so ordinary AGY session/process is never modified by non-owned lanes.
@@ -273,17 +293,17 @@ qualification receipt.
 - Hard blockers:
   - `/goal` and `/teamwork-preview` must remain deferred and not promoted by this lane.
   - No launch/modify path may write or mutate live AGY global configs; the
-    shared route reuses the native keyring and real `HOME` without claiming
-    private isolation.
-  - No launch may claim YOLO completeness merely from parser acceptance;
-    sandbox-off still must be observed for the exact run.
-  - Default model/effect remains unresolved without live default-observation evidence.
+    shared route uses same-user vendor auth/config and real `HOME` without
+    inspecting the store or claiming private isolation.
+  - No launch may claim YOLO completeness merely from parser acceptance or
+    while omitting `--sandbox=false` from either semantic bucket or exact argv.
+  - Provider-default model identity, explicit model/effort, resume, and native
+    `--agent` remain accepted/deferred limitations, not regular-route claims.
 - Stop criteria:
   - the current lane admits the regular shared-vendor-auth/config route as
     launch-authorized but withholds a promoted qualification receipt; it makes
     no fully-qualified claim.
-  - a future lane may remove the qualification fence only after one native
-    instruction plane wins, config and sandbox isolation are exact, the default
-    model is observed, and regular lifecycle shows clean `launch -> steer ->
-    halt` plus an ordinary non-Puppet no-bleed control and explicit
-    unsupported-resume handling.
+  - the qualification fence may be removed only by a fresh accepted Pass B,
+    explicit regular-profile promotion, and clean doctor. Pass B must show
+    `launch -> steer -> halt` plus controller-observed exact private
+    socket/process no-bleed evidence for an ordinary non-Puppet session.
