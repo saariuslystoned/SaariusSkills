@@ -406,54 +406,17 @@ stopped and the protected same-target population returned to baseline. Halt,
 population, artifact, or rollback ambiguity leaves the activation fenced for
 controller adjudication; recovery never relaunches or guesses at cleanup.
 
-Grok qualification uses a positive request and later linked ordinary control.
-Build the body-free request before the positive run:
-
-```bash
-python3 <skill-root>/scripts/adapter_lab.py grok-request \
-  --manifest <fresh-grok-doctor-manifest> \
-  --workspace-root <positive-worktree> --cockpit-root <cockpit-repo> \
-  --controller <controller> --campaign-id <campaign> \
-  --goal-fingerprint <goal-sha256> \
-  --private-profile-root <exact-enrolled-grok-profile> \
-  --out <private-proof-root>/grok-qualification-request.json
-```
-
-Run positive Pass B with that request as `--plane-descriptor`; it derives the
-contract-hash rule before launch, materializes it create-only, sends only the
-opaque trigger, and rolls it back after exact halt. While each run is live,
-observe one read-only native TUI client without pane capture:
-
-```bash
-python3 <skill-root>/scripts/adapter_lab.py observe-grok-view \
-  --run-root <proof-root>/probes/<run-id>
-```
-
-Run ordinary Pass B with no descriptor and `--paired-grok-positive-receipt
-<positive-receipt>`. Then build, independently verify, and qualify the pair:
-
-```bash
-python3 <skill-root>/scripts/adapter_lab.py pair-grok \
-  --positive-receipt <positive-receipt> \
-  --ordinary-control-receipt <ordinary-receipt> \
-  --positive-native-view <positive-view> \
-  --ordinary-native-view <ordinary-view> \
-  --private-profile-root <exact-enrolled-grok-profile> \
-  --out <private-proof-root>/grok-terminal-qualification.json
-python3 <skill-root>/scripts/adapter_lab.py verify-grok-pair \
-  --receipt <private-proof-root>/grok-terminal-qualification.json \
-  --private-profile-root <exact-enrolled-grok-profile>
-python3 <skill-root>/scripts/adapter_lab.py qualify \
-  --manifest <fresh-grok-doctor-manifest> --mapping <fresh-grok-mapping> \
-  --receipt <private-proof-root>/grok-terminal-qualification.json \
-  --out <qualified-grok-manifest>
-```
-
-Both members must report the same logged-in profile and exact `grok-4.5`
-default while using distinct workspaces, processes, tmux identities, sockets,
-UUIDs, checkpoints, and viewers. Both exact tree halts must restore the same
-protected baseline. A standalone member, synthetic absence boolean,
-filesystem-only sibling check, or edited manifest cannot promote or launch.
+Grok qualification uses `grok-request`, one positive Pass B, one linked
+ordinary control, `observe-grok-view` for each real read-only TUI, `pair-grok`,
+`verify-grok-pair`, and only then `qualify`. The positive request is compiled
+before launch, derives a hash-named rule, sends only an opaque trigger, and
+rolls back after exact halt. Both members must bind the same logged-in private
+profile and `grok-4.5` default while using distinct workspaces, process/tmux
+identities, sockets, UUIDs, checkpoints, and viewers. Both exact tree halts
+must restore the same protected baseline. One member, synthetic or
+filesystem-only absence, or an edited manifest cannot promote or launch. The
+exact CLI forms and receipt joins live in
+[adapter-contract.md](references/adapter-contract.md).
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before
