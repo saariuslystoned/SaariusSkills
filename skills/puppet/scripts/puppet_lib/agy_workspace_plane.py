@@ -584,8 +584,8 @@ def _derive_agy_workspace_binding_record(
     if (
         verdict.get("target") != "agy"
         or verdict.get("session_profile") != "regular"
-        or verdict.get("status") != "unsupported_planner_only"
-        or verdict.get("launch_authorized") is not False
+        or verdict.get("status") != "shared_vendor_auth_config_route"
+        or verdict.get("launch_authorized") is not True
         or verdict.get("qualification_authorized") is not False
         or tuple(verdict.get("blockers", ())) != AGY_REGULAR_AUTHORITY_BLOCKERS
         or sorted(verdict["blockers"]) != sorted(AGY_WORKSPACE_BLOCKERS)

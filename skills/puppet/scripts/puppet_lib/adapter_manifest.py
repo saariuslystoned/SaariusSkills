@@ -2188,6 +2188,12 @@ class AdapterManifest:
             for flag in mapping["project_isolation_flags"]:
                 if flag not in expected_argv:
                     expected_argv.append(flag)
+            if "--log-file" in argv:
+                log_idx = argv.index("--log-file")
+                if log_idx + 1 >= len(argv) or argv[log_idx + 1] != "/dev/null":
+                    raise ValidationError("manifest launch_argv log destination must be /dev/null")
+                if "--log-file" not in expected_argv:
+                    expected_argv.extend(["--log-file", "/dev/null"])
             if argv != expected_argv:
                 raise ValidationError(
                     "manifest launch_argv does not match declared flags"

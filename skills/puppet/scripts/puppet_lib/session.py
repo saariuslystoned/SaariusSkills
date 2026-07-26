@@ -12,7 +12,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
-from .agy_launch import require_agy_regular_launch_authority
+from .agy_launch import (
+    AGY_SHARED_VENDOR_AUTH_LIMITATION,
+    require_agy_regular_launch_authority,
+    run_agy_status_preflight,
+    validate_agy_regular_launch_params,
+    verify_agy_executable_not_updated,
+)
 from .authority import (
     admit_session_lease,
     lease_owner as build_lease_owner,
@@ -645,6 +651,17 @@ def _profile_doctor_state(
     """Return body-free profile state and blockers without leaking status output."""
 
     if profile_root is None:
+        if contract.target == "agy":
+            return (
+                None,
+                {
+                    "schema": "puppet.agy-shared-auth-status/v1",
+                    "target": "agy",
+                    "route": "shared_vendor_auth_config_route",
+                    "limitation": AGY_SHARED_VENDOR_AUTH_LIMITATION,
+                },
+                [],
+            )
         return (
             None,
             None,
@@ -659,8 +676,7 @@ def _profile_doctor_state(
             None,
             None,
             [
-                "AGY has no proved authentication-preserving private "
-                "subscription profile"
+                "AGY does not support private profile isolation; any claim of private config isolation fails closed"
             ],
         )
     try:
@@ -909,7 +925,24 @@ def launch(
     argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
+    if contract.target == "agy":
+        validate_agy_regular_launch_params(
+            session_profile=contract.session_profile,
+            argv=argv,
+            requested_model=effective_model,
+            requested_effort=effective_effort,
+            profile_root=profile_root,
+            executable_path=manifest.raw["executable"]["resolved_path"],
+        )
+        profile_status = run_agy_status_preflight(
+            executable_path=Path(manifest.raw["executable"]["resolved_path"])
+        )
+        verify_agy_executable_not_updated(manifest.raw["executable"])
     if profile_root is not None:
+        if contract.target == "agy":
+            raise ValidationError(
+                "AGY does not support private profile isolation; any claim of private config isolation fails closed"
+            )
         profile_context, profile_status = subscription_profile_preflight(
             profile_root=profile_root,
             expected_target=contract.target,
@@ -919,6 +952,8 @@ def launch(
             raise IdentityError(
                 "private subscription profile authentication changed after preflight"
             )
+    elif contract.target == "agy":
+        profile_context = None
     elif require_subscription_profile:
         raise UnsupportedError("an explicit private subscription profile is required")
     proof_root = absolute_root(str(proof_root), "proof root")

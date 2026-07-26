@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import stat
+import tempfile
 from pathlib import Path
 
 from puppet_lib.contracts import MANDATORY_HARD_GATES
@@ -256,7 +257,8 @@ def write_qualification_receipt(
         "device": executable_details.st_dev,
         "inode": executable_details.st_ino,
     }
-    socket_path = proof_root / "s"
+    short_dir = Path(tempfile.mkdtemp(dir="/tmp", prefix="ps_"))
+    socket_path = short_dir / "s"
     socket_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     socket_server.bind(str(socket_path))
     os.chmod(socket_path, 0o600)

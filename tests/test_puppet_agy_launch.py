@@ -30,11 +30,12 @@ from puppet_lib.agy_launch import (  # noqa: E402
     AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,
     AGY_REGULAR_AUTHORITY_BLOCKERS,
     AGY_REGULAR_VERDICT_SCHEMA,
+    AGY_SHARED_VENDOR_AUTH_LIMITATION,
     agy_authority_blockers,
     agy_regular_verdict,
     require_agy_regular_launch_authority,
 )
-from puppet_lib.errors import IdentityError, UnsupportedError  # noqa: E402
+from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.probe import PROBE_PROFILE, run_probe  # noqa: E402
 
 
@@ -67,10 +68,12 @@ class AgyRegularFenceTests(unittest.TestCase):
                 "schema": AGY_REGULAR_VERDICT_SCHEMA,
                 "target": "agy",
                 "session_profile": "regular",
-                "status": "unsupported_planner_only",
-                "launch_authorized": False,
+                "status": "shared_vendor_auth_config_route",
+                "launch_authorized": True,
                 "qualification_authorized": False,
                 "blockers": AGY_REGULAR_AUTHORITY_BLOCKERS,
+                "route": "shared_vendor_auth_config_route",
+                "limitation": AGY_SHARED_VENDOR_AUTH_LIMITATION,
             },
         )
         self.assertIsInstance(verdict["blockers"], tuple)
@@ -103,9 +106,8 @@ class AgyRegularFenceTests(unittest.TestCase):
                 )
             elif isinstance(node, ast.ImportFrom):
                 imported_roots.add((node.module or "").split(".", 1)[0])
-        self.assertTrue(imported_roots <= {"__future__", "typing", "errors"})
+        self.assertTrue(imported_roots <= {"", "__future__", "typing", "errors", "os", "pathlib", "subprocess", "adapter_manifest"})
         for forbidden in (
-            "subprocess",
             "os.environ",
             "active_target_processes",
             "process_birth_identity",
@@ -333,7 +335,7 @@ class AgyRegularFenceTests(unittest.TestCase):
         self.assertTrue(any("different executable" in item for item in blockers))
 
     def test_doctor_rejects_after_contract_before_manifest_or_machine_state(self):
-        contract = SimpleNamespace(target="agy", session_profile="regular")
+        contract = SimpleNamespace(target="agy", session_profile="goal")
         forbidden = {
             "manifest": mock.Mock(side_effect=AssertionError("manifest must not read")),
             "authorization": mock.Mock(
@@ -413,7 +415,7 @@ class AgyRegularFenceTests(unittest.TestCase):
             ),
             mock.patch.object(puppet_session.os, "access", forbidden["access"]),
         ):
-            with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+            with self.assertRaisesRegex(UnsupportedError, "non-regular"):
                 puppet_session.doctor(
                     contract_path=Path("/does/not/matter/contract.json"),
                     manifest_path=Path("/does/not/matter/manifest.json"),
@@ -427,7 +429,7 @@ class AgyRegularFenceTests(unittest.TestCase):
             sentinel.assert_not_called()
 
     def test_cli_doctor_returns_structured_unsupported_before_manifest(self):
-        contract = SimpleNamespace(target="agy", session_profile="regular")
+        contract = SimpleNamespace(target="agy", session_profile="goal")
         manifest = mock.Mock(side_effect=AssertionError("manifest must not read"))
         stderr = io.StringIO()
         with (
@@ -462,7 +464,7 @@ class AgyRegularFenceTests(unittest.TestCase):
         payload = json.loads(stderr.getvalue())
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "unsupported")
-        self.assertIn("planner-only", payload["detail"])
+        self.assertIn("non-regular", payload["detail"])
         manifest.assert_not_called()
 
     def test_non_regular_profiles_cannot_borrow_regular_authority(self):
@@ -475,14 +477,13 @@ class AgyRegularFenceTests(unittest.TestCase):
                     AGY_REGULAR_AUTHORITY_BLOCKERS
                     + (AGY_NON_REGULAR_AUTHORITY_BLOCKER_ID,),
                 )
-        with self.assertRaisesRegex(UnsupportedError, "planner-only"):
-            require_agy_regular_launch_authority("regular")
+        self.assertIsNone(require_agy_regular_launch_authority("regular"))
         self.assertEqual(
             agy_authority_blockers("regular"), AGY_REGULAR_AUTHORITY_BLOCKERS
         )
 
     def test_launch_rejects_before_doctor_process_environment_or_tmux(self):
-        contract = SimpleNamespace(target="agy", session_profile="regular")
+        contract = SimpleNamespace(target="agy", session_profile="goal")
         doctor = mock.Mock(side_effect=AssertionError("doctor must not run"))
         process_query = mock.Mock(
             side_effect=AssertionError("process query must not run")
@@ -514,7 +515,7 @@ class AgyRegularFenceTests(unittest.TestCase):
             mock.patch.object(puppet_session, "build_launch_identity", environment),
             mock.patch.object(puppet_session, "TmuxController", tmux),
         ):
-            with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+            with self.assertRaisesRegex(UnsupportedError, "non-regular"):
                 puppet_session.launch(
                     session="puppet-agy-fenced",
                     contract_path=Path("/does/not/matter/contract.json"),
@@ -559,11 +560,11 @@ class AgyRegularFenceTests(unittest.TestCase):
                 side_effect=AssertionError("process callback must not run")
             )
             with mock.patch.object(puppet_probe, "_validated_mapping", mapping):
-                with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+                with self.assertRaisesRegex(UnsupportedError, "non-regular"):
                     run_probe(
                         target="agy",
                         profile=PROBE_PROFILE,
-                        session_profile="regular",
+                        session_profile="goal",
                         proof_root=proof_root,
                         manifest_path=Path("/does/not/matter/manifest.json"),
                         mapping_path=Path("/does/not/matter/mapping.json"),
@@ -601,8 +602,8 @@ class AgyRegularFenceTests(unittest.TestCase):
         synthetic_qualified = AdapterManifest(
             raw={"target": "agy", "doctor_only": False}
         )
-        with self.assertRaisesRegex(UnsupportedError, "planner-only"):
-            synthetic_qualified.verify_qualification()
+        with self.assertRaisesRegex(UnsupportedError, "non-regular"):
+            synthetic_qualified.verify_qualification(expected_session_profile="goal")
 
         base = SimpleNamespace(target="agy", raw={"doctor_only": True})
         fallback_receipt = {
@@ -629,7 +630,7 @@ class AgyRegularFenceTests(unittest.TestCase):
             mock.patch.object(adapter_lab, "_verified_receipt", verified),
             mock.patch.object(puppet_session, "_agy_population", population),
         ):
-            with self.assertRaisesRegex(UnsupportedError, "planner-only"):
+            with self.assertRaisesRegex(UnsupportedError, "non-regular"):
                 adapter_lab._qualify(args)
         verified.assert_not_called()
         population.assert_not_called()
@@ -679,6 +680,119 @@ class AgyRegularFenceTests(unittest.TestCase):
             ):
                 manifest.verify_qualification(expected_session_profile="regular")
             receipt_read.assert_called_once()
+
+
+class AgyRegularLaunchValidationTests(unittest.TestCase):
+    def test_regular_profile_admitted_without_error(self):
+        self.assertIsNone(require_agy_regular_launch_authority("regular"))
+
+    def test_non_regular_profiles_fail_closed(self):
+        for profile in ("goal", "teamwork-preview", "loop", "/goal", "unbound"):
+            with self.subTest(profile=profile):
+                with self.assertRaises(UnsupportedError):
+                    agy_launch_module.validate_agy_regular_launch_params(
+                        session_profile=profile,
+                        argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                    )
+
+    def test_explicit_model_flag_or_selection_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                requested_model="gemini-3.6-flash",
+            )
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "--model", "gemini-3.6-flash"],
+            )
+
+    def test_non_null_log_destination_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/tmp/agy.log"],
+            )
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                log_destination="/tmp/agy.log",
+            )
+
+    def test_missing_new_project_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--log-file", "/dev/null"],
+            )
+
+    def test_missing_permission_bypass_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--new-project", "--log-file", "/dev/null"],
+            )
+
+    def test_extra_argv_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "--extra-flag"],
+            )
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "bare_arg"],
+            )
+
+    def test_slash_commands_fail_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null", "/goal"],
+            )
+
+    def test_valid_argv_grammar_with_dev_null_passes(self):
+        self.assertIsNone(
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["/usr/bin/agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                executable_path="/usr/bin/agy",
+            )
+        )
+
+    def test_profile_root_claim_fails_closed(self):
+        with self.assertRaises(ValidationError):
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
+                profile_root=Path("/some/profile/root"),
+            )
+
+    def test_status_preflight_failure_fails_closed(self):
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=1)
+            with self.assertRaises(IdentityError):
+                agy_launch_module.run_agy_status_preflight(executable_path=Path("/bin/echo"))
+
+    def test_updater_replacement_between_preflight_and_start_fails_closed(self):
+        manifest_exec = {
+            "resolved_path": "/bin/echo",
+            "device": 1,
+            "inode": 2,
+            "sha256": "a" * 64,
+        }
+        with mock.patch("puppet_lib.adapter_manifest.execution_file_identity") as mock_ident:
+            mock_ident.return_value = {
+                "resolved_path": "/bin/echo",
+                "device": 1,
+                "inode": 9999,  # Inode changed! Updater race detected!
+                "sha256": "b" * 64,
+            }
+            with self.assertRaises(IdentityError):
+                agy_launch_module.verify_agy_executable_not_updated(manifest_exec)
 
 
 if __name__ == "__main__":

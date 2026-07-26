@@ -107,6 +107,8 @@ def manifest_raw(target="agy"):
                     "--dangerously-skip-permissions",
                     AGY_SANDBOX_DISABLE_FLAG,
                     "--new-project",
+                    "--log-file",
+                    "/dev/null",
                 ]
                 if target == "agy"
                 else [str(executable), "--dangerously-bypass-approvals-and-sandbox"]
@@ -1116,6 +1118,8 @@ class AdapterTests(unittest.TestCase):
                 "--dangerously-skip-permissions",
                 AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",
+                "--log-file",
+                "/dev/null",
             ],
         )
         self.assertNotIn("Do the task", argv)
@@ -1126,6 +1130,8 @@ class AdapterTests(unittest.TestCase):
                 "--dangerously-skip-permissions",
                 AGY_SANDBOX_DISABLE_FLAG,
                 "--new-project",
+                "--log-file",
+                "/dev/null",
             ],
         )
 

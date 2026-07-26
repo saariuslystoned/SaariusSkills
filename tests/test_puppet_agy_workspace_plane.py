@@ -407,7 +407,7 @@ class AgyWorkspacePlaneBindingTests(unittest.TestCase):
 
     def test_regular_fence_is_rederived_and_constructor_has_no_record_injection(self):
         changed_verdict = agy_module.agy_regular_verdict()
-        changed_verdict["launch_authorized"] = True
+        changed_verdict["launch_authorized"] = False
         with (
             mock.patch.object(
                 agy_module,
