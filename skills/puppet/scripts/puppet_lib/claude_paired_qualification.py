@@ -407,7 +407,11 @@ def observe_native_view(
         or evidence.get("run_id") != run_id
         or state.get("target") != "claude"
         or evidence.get("target") != "claude"
-        or state.get("result") != "running"
+        # Probe state stays nonterminal with ``result: null`` while the
+        # evidence envelope carries the explicit live ``running`` marker.
+        or state.get("result") is not None
+        or state.get("blocker") is not None
+        or evidence.get("result") != "running"
         or state.get("phase")
         not in {
             "settling_input",

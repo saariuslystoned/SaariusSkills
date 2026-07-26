@@ -205,7 +205,8 @@ class ClaudePairedQualificationTests(unittest.TestCase):
                 "run_id": "control-run",
                 "target": "claude",
                 "controller": "tester",
-                "result": "running",
+                "result": None,
+                "blocker": None,
                 "phase": "settling_input",
                 "tmux": tmux,
                 "process": target,
@@ -215,6 +216,7 @@ class ClaudePairedQualificationTests(unittest.TestCase):
                 "target": "claude",
                 "campaign_id": "campaign-one",
                 "goal_fingerprint": "4" * 64,
+                "result": "running",
                 "tmux": tmux,
                 "process": target,
             }
