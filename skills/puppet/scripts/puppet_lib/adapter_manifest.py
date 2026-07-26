@@ -364,6 +364,7 @@ CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS = (
     "workspace_descriptor",
     "controller_contract",
 )
+CODEX_ORDINARY_QUALIFICATION_PROOF_KINDS = ("codex_ordinary_repository",)
 GROK_WORKSPACE_QUALIFICATION_PROOF_KINDS = (
     "workspace_descriptor",
     "controller_contract",
@@ -754,6 +755,12 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
             if member["role"] == "positive"
             else GROK_ORDINARY_MEMBER_PROOF_KINDS
         )
+    codex_ordinary_kinds: tuple[str, ...] = ()
+    if (
+        receipt.get("target") == "codex"
+        and receipt.get("codex_control_source") is not None
+    ):
+        codex_ordinary_kinds = CODEX_ORDINARY_QUALIFICATION_PROOF_KINDS
     activation_kinds: tuple[str, ...] = ()
     if activation is not None:
         activation_kinds = (
@@ -766,6 +773,7 @@ def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, P
         + activation_kinds
         + workspace_kinds
         + grok_member_kinds
+        + codex_ordinary_kinds
     )
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
@@ -1220,6 +1228,28 @@ def verify_qualification_receipt(
         expected_session=terminal_state.get("session"),
         expected_run_id=receipt["run_id"],
     )
+    if codex_control_source is not None:
+        from .codex_qualification import (
+            revalidate_codex_ordinary_repository,
+            validate_codex_ordinary_repository,
+        )
+
+        ordinary_repository = validate_codex_ordinary_repository(
+            read_json(
+                artifacts["codex_ordinary_repository"],
+                max_bytes=65536,
+                reject_sensitive_fields=True,
+            )
+        )
+        if (
+            ordinary_repository["run_id"] != receipt["run_id"]
+            or ordinary_repository["workspace_root"]["path"]
+            != launch_plan["cwd"]
+        ):
+            raise IdentityError(
+                "Codex ordinary repository differs from its admitted launch"
+            )
+        revalidate_codex_ordinary_repository(ordinary_repository)
     if codex_entry_source is not None:
         workspace = receipt["workspace_isolation"]
         if (

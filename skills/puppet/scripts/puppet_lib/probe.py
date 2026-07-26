@@ -1317,6 +1317,9 @@ def run_probe(
     state_path = run_root / "state.json"
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
+    codex_ordinary_repository_path = (
+        run_root / "codex-ordinary-repository.json"
+    )
     instruction_path = run_root / "effective-instructions.json"
     controller_contract_path = run_root / "controller-contract.json"
     subscription_profile_path = run_root / "subscription-profile.json"
@@ -1507,6 +1510,19 @@ def run_probe(
         fixture_contract = create_fixture(
             fixture, run_id=run_id, session=session, target=target
         )
+        codex_ordinary_repository = None
+        if codex_ordinary_control:
+            from .codex_qualification import (
+                initialize_codex_ordinary_repository,
+            )
+
+            codex_ordinary_repository = initialize_codex_ordinary_repository(
+                fixture, run_id=run_id
+            )
+            atomic_write_json(
+                codex_ordinary_repository_path,
+                codex_ordinary_repository,
+            )
         if (
             fixture_contract["protocol_fingerprint"]
             != manifest.raw["protocol_fingerprint"]
@@ -2897,6 +2913,12 @@ def run_probe(
                     "raw_retained": False,
                 },
             )
+        if codex_ordinary_control:
+            from .codex_qualification import (
+                revalidate_codex_ordinary_repository,
+            )
+
+            revalidate_codex_ordinary_repository(codex_ordinary_repository)
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -3080,6 +3102,14 @@ def run_probe(
                 _proof_reference(
                     "grok_ordinary_absence",
                     grok_ordinary_absence_path,
+                    run_root,
+                )
+            )
+        if codex_ordinary_control:
+            proof_refs.append(
+                _proof_reference(
+                    "codex_ordinary_repository",
+                    codex_ordinary_repository_path,
                     run_root,
                 )
             )

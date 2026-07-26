@@ -914,6 +914,7 @@ def execute(
     expected_goal=None,
     sleep_fn=None,
     plane_descriptor=None,
+    paired_codex_positive_receipt=None,
     subscription_preflight_fn=None,
 ):
     subscription_root = files["subscription_profile"]
@@ -1012,6 +1013,7 @@ def execute(
                 None if target == "agy" else subscription_root
             ),
             plane_descriptor=plane_descriptor,
+            paired_codex_positive_receipt=paired_codex_positive_receipt,
             codex_entry_plan=(
                 files.get("entry_plan") if plane_descriptor is not None else None
             ),
@@ -1348,6 +1350,111 @@ class ProbeTests(unittest.TestCase):
                         puppet_adapter_lab._qualify(arguments)
                 verifier.assert_not_called()
                 self.assertFalse(out.exists())
+
+    def test_codex_ordinary_control_uses_unchanged_source_free_git_boundary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = codex_worktree_inputs(root)
+            executable = files["raw"]["executable"]["resolved_path"]
+            positive_fake = FakeTmux(root / "fake-positive-tmux")
+
+            with patch.object(
+                codex_workspace_module,
+                "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                executable,
+            ):
+                positive = execute(
+                    files,
+                    positive_fake,
+                    run_id="probe-codex-worktree",
+                    plane_descriptor=files["descriptor"],
+                )
+
+                class PairedFakeTmux(FakeTmux):
+                    def metadata(
+                        self,
+                        *,
+                        socket,
+                        session,
+                        pane=None,
+                        server_identity=None,
+                    ):
+                        if session == positive_fake.session:
+                            return {
+                                "session": session,
+                                "pane": positive_fake.pane,
+                                "pane_pid": positive_fake.pid,
+                                "current_command": "cat",
+                                "pane_dead": True,
+                            }
+                        return super().metadata(
+                            socket=socket,
+                            session=session,
+                            pane=pane,
+                            server_identity=server_identity,
+                        )
+
+                ordinary_fake = PairedFakeTmux(root / "fake-ordinary-tmux")
+                ordinary_fake.pid = positive_fake.pid + 1
+                ordinary = execute(
+                    files,
+                    ordinary_fake,
+                    run_id="probe-codex-ordinary",
+                    paired_codex_positive_receipt=Path(positive["receipt"]),
+                )
+
+            self.assertEqual(ordinary["result"], "accepted")
+            ordinary_root = Path(ordinary["run_root"])
+            fixture = ordinary_root / "fixture"
+            self.assertEqual(ordinary_fake.repo, fixture)
+            self.assertTrue((fixture / ".git").is_dir())
+            self.assertFalse((fixture / "AGENTS.md").exists())
+            repository = json.loads(
+                (ordinary_root / "codex-ordinary-repository.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                repository["schema"],
+                "puppet.codex-ordinary-repository/v1",
+            )
+            self.assertEqual(repository["role"], "ordinary_control")
+            self.assertEqual(repository["head_state"], "unborn")
+            self.assertTrue(repository["agents_md_absent"])
+            self.assertTrue(repository["system_config_disabled"])
+            self.assertTrue(repository["global_config_disabled"])
+            self.assertTrue(repository["templates_disabled"])
+            self.assertFalse(repository["raw_retained"])
+            self.assertEqual(
+                repository["workspace_root"]["path"],
+                str(fixture),
+            )
+            receipt = verify_qualification_receipt(
+                Path(ordinary["receipt"]),
+                _authority_root=files["authority"],
+                _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                _server_process_fn=lambda pid: ordinary_fake.server_process,
+                _tmux_factory=lambda selected: ordinary_fake,
+            )
+            self.assertIn(
+                "codex_ordinary_repository",
+                {reference["kind"] for reference in receipt["proof_refs"]},
+            )
+            (fixture / ".git" / "HEAD").write_text(
+                "ref: refs/heads/tampered-control\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                IdentityError,
+                "Codex ordinary repository metadata changed",
+            ):
+                verify_qualification_receipt(
+                    Path(ordinary["receipt"]),
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
+                    _server_process_fn=lambda pid: ordinary_fake.server_process,
+                    _tmux_factory=lambda selected: ordinary_fake,
+                )
 
     def test_codex_positive_rejects_posthoc_or_unrelated_entry_plan(self):
         for label, mutate in (

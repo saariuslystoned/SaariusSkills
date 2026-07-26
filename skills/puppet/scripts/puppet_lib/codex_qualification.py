@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from .conformance import tree_fingerprint
 from .authority import (
     AUTHORITY_ID,
     attest_qualification,
@@ -51,6 +53,8 @@ NATIVE_VIEW_SCHEMA = "puppet.codex-native-view-observation/v1"
 NATIVE_VIEW_STATE = "read_only_attached_and_detached"
 NATIVE_VIEW_NAME = "codex-native-view.json"
 NATIVE_VIEW_ATTESTATION_SCHEMA_VERSION = 1
+ORDINARY_REPOSITORY_SCHEMA = "puppet.codex-ordinary-repository/v1"
+ORDINARY_REPOSITORY_BRANCH = "puppet-ordinary-control"
 
 PAIR_BLOCKERS = (
     "paired receipt requires independent controller verification",
@@ -188,6 +192,262 @@ _PAIR_FIELDS = {
     "blockers",
     "controller_attestation",
 }
+_ORDINARY_REPOSITORY_FIELDS = {
+    "schema",
+    "target",
+    "role",
+    "run_id",
+    "workspace_root",
+    "git_directory",
+    "branch",
+    "head_state",
+    "git_metadata_sha256",
+    "agents_md_absent",
+    "system_config_disabled",
+    "global_config_disabled",
+    "templates_disabled",
+    "raw_retained",
+}
+
+
+def _ordinary_repository_directory_identity(
+    path: Path, *, label: str, private: bool
+) -> Dict[str, Any]:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise ValidationError("%s must be absolute" % label)
+    try:
+        lexical = candidate.lstat()
+        resolved = candidate.resolve(strict=True)
+        details = resolved.stat()
+    except OSError as exc:
+        raise ValidationError("%s is unavailable" % label) from exc
+    if (
+        candidate != resolved
+        or stat.S_ISLNK(lexical.st_mode)
+        or not stat.S_ISDIR(lexical.st_mode)
+        or (lexical.st_dev, lexical.st_ino) != (details.st_dev, details.st_ino)
+    ):
+        raise IdentityError("%s must be one canonical non-symlink directory" % label)
+    mode = stat.S_IMODE(details.st_mode)
+    if details.st_uid != os.getuid() or (private and mode != 0o700):
+        raise IdentityError(
+            "%s must be current-UID%s"
+            % (label, " 0700" if private else "")
+        )
+    return {
+        "path": str(resolved),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "uid": details.st_uid,
+        "mode": mode,
+    }
+
+
+def _ordinary_repository_git(
+    workspace_root: Path,
+    arguments: list[str],
+    *,
+    accepted_returncodes: tuple[int, ...] = (0,),
+) -> tuple[int, str]:
+    from .operator_plan import _git_executable
+
+    git = _git_executable()
+    try:
+        result = subprocess.run(
+            [
+                str(git),
+                "-c",
+                "core.fsmonitor=false",
+                "-C",
+                str(workspace_root),
+                *arguments,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "LC_ALL": "C",
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_OPTIONAL_LOCKS": "0",
+            },
+            timeout=10.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationError("Codex ordinary repository operation failed") from exc
+    if (
+        result.returncode not in accepted_returncodes
+        or len(result.stdout) > 8192
+        or len(result.stderr) > 8192
+    ):
+        raise ValidationError("Codex ordinary repository operation failed")
+    try:
+        return result.returncode, result.stdout.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise ValidationError(
+            "Codex ordinary repository output is not UTF-8"
+        ) from exc
+
+
+def validate_codex_ordinary_repository(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _ORDINARY_REPOSITORY_FIELDS:
+        raise ValidationError("Codex ordinary repository fields are invalid")
+    result = dict(value)
+    if (
+        result.get("schema") != ORDINARY_REPOSITORY_SCHEMA
+        or result.get("target") != "codex"
+        or result.get("role") != "ordinary_control"
+        or result.get("branch") != ORDINARY_REPOSITORY_BRANCH
+        or result.get("head_state") != "unborn"
+        or result.get("agents_md_absent") is not True
+        or result.get("system_config_disabled") is not True
+        or result.get("global_config_disabled") is not True
+        or result.get("templates_disabled") is not True
+        or result.get("raw_retained") is not False
+    ):
+        raise ValidationError("Codex ordinary repository contract is invalid")
+    validate_identifier(result.get("run_id"), "Codex ordinary repository run id")
+    validate_sha256(
+        result.get("git_metadata_sha256"),
+        "Codex ordinary git metadata fingerprint",
+    )
+    workspace = result.get("workspace_root")
+    git_directory = result.get("git_directory")
+    expected_identity_fields = {"path", "device", "inode", "uid", "mode"}
+    if (
+        not isinstance(workspace, Mapping)
+        or set(workspace) != expected_identity_fields
+        or not isinstance(git_directory, Mapping)
+        or set(git_directory) != expected_identity_fields
+    ):
+        raise ValidationError("Codex ordinary repository identity is invalid")
+    for label, identity in (
+        ("workspace root", workspace),
+        ("git directory", git_directory),
+    ):
+        if (
+            not isinstance(identity.get("path"), str)
+            or not Path(identity["path"]).is_absolute()
+            or isinstance(identity.get("device"), bool)
+            or not isinstance(identity.get("device"), int)
+            or identity["device"] <= 0
+            or isinstance(identity.get("inode"), bool)
+            or not isinstance(identity.get("inode"), int)
+            or identity["inode"] <= 0
+            or identity.get("uid") != os.getuid()
+            or isinstance(identity.get("mode"), bool)
+            or not isinstance(identity.get("mode"), int)
+        ):
+            raise ValidationError("Codex ordinary %s identity is invalid" % label)
+    if Path(git_directory["path"]) != Path(workspace["path"]) / ".git":
+        raise IdentityError("Codex ordinary git directory escaped its workspace")
+    return result
+
+
+def initialize_codex_ordinary_repository(
+    workspace_root: Path, *, run_id: str
+) -> Dict[str, Any]:
+    """Create the minimal source-free git boundary required by the Codex TUI."""
+
+    workspace = _ordinary_repository_directory_identity(
+        workspace_root, label="Codex ordinary workspace", private=True
+    )
+    if (workspace_root / "AGENTS.md").exists():
+        raise ConflictError("Codex ordinary workspace contains AGENTS.md")
+    git_directory = workspace_root / ".git"
+    if git_directory.exists() or git_directory.is_symlink():
+        raise ConflictError("Codex ordinary workspace is already a repository")
+    _ordinary_repository_git(
+        workspace_root,
+        [
+            "init",
+            "--quiet",
+            "--initial-branch=" + ORDINARY_REPOSITORY_BRANCH,
+            "--template=",
+        ],
+    )
+    git_directory.chmod(0o700)
+    git_identity = _ordinary_repository_directory_identity(
+        git_directory, label="Codex ordinary git directory", private=True
+    )
+    _, top = _ordinary_repository_git(
+        workspace_root, ["rev-parse", "--show-toplevel"]
+    )
+    _, branch = _ordinary_repository_git(
+        workspace_root, ["symbolic-ref", "--short", "HEAD"]
+    )
+    head_returncode, head = _ordinary_repository_git(
+        workspace_root,
+        ["rev-parse", "--verify", "HEAD"],
+        accepted_returncodes=(0, 128),
+    )
+    if (
+        Path(top).resolve(strict=True) != workspace_root.resolve(strict=True)
+        or branch != ORDINARY_REPOSITORY_BRANCH
+        or head_returncode == 0
+        or head
+    ):
+        raise IdentityError("Codex ordinary repository initialization changed")
+    return validate_codex_ordinary_repository(
+        {
+            "schema": ORDINARY_REPOSITORY_SCHEMA,
+            "target": "codex",
+            "role": "ordinary_control",
+            "run_id": validate_identifier(run_id, "run id"),
+            "workspace_root": workspace,
+            "git_directory": git_identity,
+            "branch": branch,
+            "head_state": "unborn",
+            "git_metadata_sha256": tree_fingerprint(
+                git_directory, excluded_prefix=()
+            ),
+            "agents_md_absent": True,
+            "system_config_disabled": True,
+            "global_config_disabled": True,
+            "templates_disabled": True,
+            "raw_retained": False,
+        }
+    )
+
+
+def revalidate_codex_ordinary_repository(
+    value: Mapping[str, Any],
+) -> Dict[str, Any]:
+    result = validate_codex_ordinary_repository(value)
+    workspace_root = Path(result["workspace_root"]["path"])
+    git_directory = Path(result["git_directory"]["path"])
+    if (
+        _ordinary_repository_directory_identity(
+            workspace_root, label="Codex ordinary workspace", private=True
+        )
+        != result["workspace_root"]
+        or _ordinary_repository_directory_identity(
+            git_directory, label="Codex ordinary git directory", private=True
+        )
+        != result["git_directory"]
+        or (workspace_root / "AGENTS.md").exists()
+    ):
+        raise IdentityError("Codex ordinary repository identity changed")
+    _, branch = _ordinary_repository_git(
+        workspace_root, ["symbolic-ref", "--short", "HEAD"]
+    )
+    head_returncode, head = _ordinary_repository_git(
+        workspace_root,
+        ["rev-parse", "--verify", "HEAD"],
+        accepted_returncodes=(0, 128),
+    )
+    if (
+        branch != ORDINARY_REPOSITORY_BRANCH
+        or head_returncode == 0
+        or head
+        or tree_fingerprint(git_directory, excluded_prefix=())
+        != result["git_metadata_sha256"]
+    ):
+        raise IdentityError("Codex ordinary repository metadata changed")
+    return result
 
 
 def _pair_sha(first: Any, second: Any) -> str:
