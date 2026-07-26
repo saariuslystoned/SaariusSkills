@@ -82,8 +82,11 @@
         "sandbox": {"const": true},
         "skip_permissions": {"const": false},
         "fresh_session": {"const": true},
-        "prompt_transport": {"const": "tmux-buffer-stdin"},
-        "workspace_binding": {"const": "add-dir-absolute"}
+        "prompt_transport": {
+          "enum": ["tmux-buffer-stdin", "print-stdin"]
+        },
+        "workspace_binding": {"const": "add-dir-absolute"},
+        "execution_mode": {"const": "accept-edits"}
       }
     },
     "isolation": {
@@ -132,15 +135,26 @@
       ],
       "properties": {
         "schema": {"const": "saarius.custom-agent-event.v1"},
-        "actor_ids": {"const": "run-salted-sha256"},
+        "actor_ids": {
+          "enum": ["run-salted-sha256", "not-collected"]
+        },
         "raw_transcript_read": {"const": false},
         "raw_log_retained": {"const": false},
         "tool_policy": {
-          "const": "one-write-to-file-exact-result-all-else-deny"
+          "enum": [
+            "one-write-to-file-exact-result-all-else-deny",
+            "profile-write-only-plus-external-quarantine-postflight"
+          ]
         },
-        "packaging": {"const": "workspace-plugin"},
+        "packaging": {
+          "enum": ["workspace-plugin", "external-controller"]
+        },
         "plugin_name": {"const": "saarius-issue15-observer"},
-        "harness_path_mode": {"const": "absolute-environment"}
+        "harness_path_mode": {
+          "enum": ["absolute-environment", "exact-commit-copy"]
+        },
+        "profile_quarantine": {"const": "before-model-write"},
+        "raw_output_policy": {"const": "digest-then-unlink"}
       }
     },
     "budget": {

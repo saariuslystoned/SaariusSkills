@@ -27,6 +27,16 @@ the observer as the CLI's documented plugin shape under the disposable
 workspace, uses an absolute environment-provided harness path, and assigns new
 v2 agent identities. Plugin discovery must pass before another model session.
 
+Phase 1B also failed its pre-model gate: AGY 1.1.7 discovered all four v2
+agents but did not list the workspace observer plugin. Its zero-model proof is
+preserved at
+`proof/custom-agents/agy-1.1.7-aiworker01-phase1b-20260726/`.
+
+Phase 1C removes hooks from the identity oracle. It uses one-time runtime agent
+names and role markers, stdin print mode, immediate profile quarantine,
+write-only agent tools, a disposable sandbox, complete scoped filesystem
+postflight, process exit, and digest-then-unlink raw-output handling.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -35,6 +45,8 @@ Files:
   probes;
 - `BEHAVIOR_CONTRACT_PHASE1B.md` — CLI workspace-plugin observer correction;
 - `ROUTE_PHASE_1B.md` — bounded retry route and remaining budget;
+- `BEHAVIOR_CONTRACT_PHASE1C.md` — external filesystem identity oracle;
+- `ROUTE_PHASE_1C.md` — bounded C1–C8 route without hook dependence;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe

@@ -120,6 +120,168 @@ class CustomAgentPhase1HarnessTests(unittest.TestCase):
             self.assertTrue((plugin_root / "hooks.json").is_file())
             self.assertFalse((workspace / ".agents/hooks.json").exists())
 
+    def test_runtime_fixture_print_run_and_postflight_are_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            controller = root / "controller"
+            controller.mkdir()
+            agent = "saarius-i15-testagent"
+            marker = "test-marker"
+            challenge = "test-challenge"
+            fixture = self.run_harness(
+                "build-runtime-fixture",
+                "--workspace",
+                str(workspace),
+                "--agent",
+                agent,
+                "--role",
+                "reconnaissance",
+                "--role-marker",
+                marker,
+            )
+            self.assertEqual(fixture.returncode, 0, fixture.stderr)
+            fixture_payload = json.loads(fixture.stdout)
+
+            fake_agy = root / "fake-agy"
+            fake_agy.write_text(
+                """#!/usr/bin/env python3
+import json
+import pathlib
+import re
+import sys
+import time
+
+prompt = sys.stdin.read()
+challenge = re.search(r"challenge: ([A-Za-z0-9_-]+)", prompt).group(1)
+workspace = pathlib.Path(sys.argv[sys.argv.index("--add-dir") + 1])
+agent = sys.argv[sys.argv.index("--agent") + 1]
+log = pathlib.Path(sys.argv[sys.argv.index("--log-file") + 1])
+log.write_text("private raw log", encoding="utf-8")
+time.sleep(0.25)
+(workspace / ".issue15/result.json").write_text(
+    json.dumps(
+        {
+            "schema": "saarius.custom-agent.identity.v1",
+            "agent": agent,
+            "challenge": challenge,
+            "role_marker": "test-marker",
+            "status": "identity_ready",
+        }
+    ),
+    encoding="utf-8",
+)
+print("private model response")
+print("private diagnostic", file=sys.stderr)
+""",
+                encoding="utf-8",
+            )
+            fake_agy.chmod(0o755)
+
+            runtime = self.run_harness(
+                "run-print",
+                "--agy",
+                str(fake_agy),
+                "--workspace",
+                str(workspace),
+                "--controller",
+                str(controller),
+                "--run-id",
+                "runtime-test",
+                "--agent",
+                agent,
+                "--challenge",
+                challenge,
+                "--model",
+                "test-model",
+                "--effort",
+                "low",
+                "--quarantine-delay-ms",
+                "100",
+                "--timeout-seconds",
+                "3",
+            )
+            self.assertEqual(runtime.returncode, 0, runtime.stderr)
+            runtime_payload = json.loads(runtime.stdout)
+            self.assertEqual(runtime_payload["process_exit"], 0)
+            self.assertTrue(runtime_payload["result_changed_after_quarantine"])
+            self.assertFalse(runtime_payload["raw_artifacts_retained"])
+            self.assertNotIn("private model response", runtime.stdout)
+            self.assertNotIn("private diagnostic", runtime.stdout)
+            self.assertNotIn("private raw log", runtime.stdout)
+            for suffix in ("stdout.raw", "stderr.raw", "agy.raw"):
+                self.assertFalse((controller / f"runtime-test-{suffix}").exists())
+
+            verification = self.run_harness(
+                "verify-result",
+                "--result",
+                str(workspace / ".issue15/result.json"),
+                "--agent",
+                agent,
+                "--challenge",
+                challenge,
+                "--role-marker",
+                marker,
+            )
+            self.assertEqual(verification.returncode, 0, verification.stderr)
+            self.assertTrue(json.loads(verification.stdout)["passed"])
+
+            postflight = self.run_harness(
+                "runtime-postflight",
+                "--workspace",
+                str(workspace),
+                "--quarantine",
+                str(controller / "runtime-test-agents-quarantine"),
+                "--agent",
+                agent,
+                "--expected-profile-sha256",
+                fixture_payload["profile_sha256"],
+            )
+            self.assertEqual(postflight.returncode, 0, postflight.stderr)
+            self.assertTrue(json.loads(postflight.stdout)["passed"])
+
+    def test_runtime_negative_postflight_accepts_unchanged_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            controller = root / "controller"
+            controller.mkdir()
+            profile_agent = "saarius-i15-decoyagent"
+            launched_agent = "saarius-i15-unknownagent"
+            fixture = self.run_harness(
+                "build-runtime-fixture",
+                "--workspace",
+                str(workspace),
+                "--agent",
+                profile_agent,
+                "--role",
+                "verification",
+                "--role-marker",
+                "negative-marker",
+            )
+            self.assertEqual(fixture.returncode, 0, fixture.stderr)
+            fixture_payload = json.loads(fixture.stdout)
+            quarantine = controller / "negative-agents-quarantine"
+            (workspace / ".agents").rename(quarantine)
+
+            postflight = self.run_harness(
+                "runtime-postflight",
+                "--workspace",
+                str(workspace),
+                "--quarantine",
+                str(quarantine),
+                "--agent",
+                launched_agent,
+                "--profile-agent",
+                profile_agent,
+                "--expected-profile-sha256",
+                fixture_payload["profile_sha256"],
+                "--result-state",
+                "unchanged",
+            )
+            self.assertEqual(postflight.returncode, 0, postflight.stderr)
+            self.assertTrue(json.loads(postflight.stdout)["passed"])
+
     def test_hook_denies_reads_and_redacts_sensitive_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

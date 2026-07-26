@@ -13,9 +13,12 @@ import hashlib
 import json
 import os
 import re
+import signal
 import shutil
+import stat
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -26,6 +29,9 @@ IDENTITY_SCHEMA = "saarius.custom-agent.identity.v1"
 INVENTORY_SCHEMA = "saarius.custom-agent-inventory.v1"
 LOG_SCHEMA = "saarius.custom-agent-log-sanitizer.v1"
 PLUGIN_INVENTORY_SCHEMA = "saarius.custom-agent-plugin-inventory.v1"
+RUNTIME_FIXTURE_SCHEMA = "saarius.custom-agent-runtime-fixture.v1"
+RUNTIME_POSTFLIGHT_SCHEMA = "saarius.custom-agent-runtime-postflight.v1"
+RUNTIME_RUN_SCHEMA = "saarius.custom-agent-runtime-run.v1"
 VERIFY_SCHEMA = "saarius.custom-agent-result-verification.v1"
 ALLOWED_EVENTS = {"PreInvocation", "PreToolUse", "PostToolUse", "Stop"}
 ALLOWED_TERMINATIONS = {
@@ -36,6 +42,13 @@ ALLOWED_TERMINATIONS = {
     "timeout",
 }
 SAFE_KEY = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+RUNTIME_AGENT = re.compile(r"^saarius-i15-[a-z0-9-]{8,48}$")
+RUNTIME_ROLES = {
+    "reconnaissance",
+    "implementation",
+    "verification",
+    "proof",
+}
 
 
 def repo_root() -> Path:
@@ -174,6 +187,319 @@ def plugin_inventory(args: argparse.Namespace) -> int:
         }
     )
     return 0 if found else 2
+
+
+def parse_flag(value: str) -> bool:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError("flag must be true or false")
+
+
+def render_runtime_agent(
+    *,
+    agent: str,
+    role: str,
+    role_marker: str,
+    main_agent: bool,
+    subagent: bool,
+) -> str:
+    return f"""---
+name: {agent}
+description: Issue 15 runtime identity fixture for the {role} role.
+tools:
+  - write_to_file
+mainAgent: {str(main_agent).lower()}
+subagent: {str(subagent).lower()}
+model: inherit
+commandExecutionPolicy: "off"
+---
+
+You are the Issue 15 {role} runtime identity fixture.
+
+When the user supplies an identity calibration challenge, make exactly one
+`write_to_file` call that overwrites the existing `.issue15/result.json` with
+only this JSON object:
+
+```json
+{{"schema":"{IDENTITY_SCHEMA}","agent":"{agent}","challenge":"<the exact challenge token>","role_marker":"{role_marker}","status":"identity_ready"}}
+```
+
+Do not call any other tool. Do not read files, run commands, delegate, explain,
+or place the JSON in chat. If the challenge token is absent or ambiguous, stop
+without writing.
+"""
+
+
+def build_runtime_fixture(args: argparse.Namespace) -> int:
+    if not RUNTIME_AGENT.fullmatch(args.agent):
+        raise SystemExit("invalid runtime agent name")
+    if args.role not in RUNTIME_ROLES:
+        raise SystemExit("invalid runtime role")
+    if not SAFE_KEY.fullmatch(args.role_marker):
+        raise SystemExit("invalid runtime role marker")
+    workspace = Path(args.workspace).resolve()
+    if workspace.exists():
+        if not workspace.is_dir() or any(workspace.iterdir()):
+            raise SystemExit("workspace must be absent or empty")
+    else:
+        workspace.mkdir(parents=True)
+
+    agent_dir = workspace / ".agents/agents" / args.agent
+    result_dir = workspace / ".issue15"
+    agent_dir.mkdir(parents=True)
+    result_dir.mkdir(parents=True)
+    profile = agent_dir / "agent.md"
+    result = result_dir / "result.json"
+    profile.write_text(
+        render_runtime_agent(
+            agent=args.agent,
+            role=args.role,
+            role_marker=args.role_marker,
+            main_agent=parse_flag(args.main_agent),
+            subagent=parse_flag(args.subagent),
+        ),
+        encoding="utf-8",
+    )
+    result.write_bytes(b"")
+    profile.chmod(0o444)
+    result.chmod(0o600)
+    result_dir.chmod(0o700)
+
+    emit(
+        {
+            "schema": RUNTIME_FIXTURE_SCHEMA,
+            "template_version": "2026-07-26.phase1c",
+            "agent": args.agent,
+            "role": args.role,
+            "role_marker": args.role_marker,
+            "main_agent": parse_flag(args.main_agent),
+            "subagent": parse_flag(args.subagent),
+            "profile_sha256": sha256_file(profile),
+            "initial_result_sha256": sha256_file(result),
+            "initial_result_bytes": 0,
+        }
+    )
+    return 0
+
+
+def digest_owned_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"present": False, "bytes": 0, "sha256": None}
+    raw = path.read_bytes()
+    return {
+        "present": True,
+        "bytes": len(raw),
+        "sha256": sha256_bytes(raw),
+    }
+
+
+def run_print(args: argparse.Namespace) -> int:
+    if not RUNTIME_AGENT.fullmatch(args.agent):
+        raise SystemExit("invalid runtime agent name")
+    if not SAFE_KEY.fullmatch(args.challenge):
+        raise SystemExit("invalid challenge token")
+    if not SAFE_KEY.fullmatch(args.run_id):
+        raise SystemExit("invalid runtime run id")
+    if not 100 <= args.quarantine_delay_ms <= 2000:
+        raise SystemExit("quarantine delay must be between 100 and 2000 ms")
+    if not 1 <= args.timeout_seconds <= 90:
+        raise SystemExit("timeout must be between 1 and 90 seconds")
+
+    agy = Path(args.agy).resolve()
+    workspace = Path(args.workspace).resolve()
+    controller = Path(args.controller).resolve()
+    if not agy.is_file() or not os.access(agy, os.X_OK):
+        raise SystemExit("agy executable is unavailable")
+    if not workspace.is_dir() or not controller.is_dir():
+        raise SystemExit("runtime roots must already exist")
+
+    agents_root = workspace / ".agents"
+    result = workspace / ".issue15/result.json"
+    quarantine = controller / f"{args.run_id}-agents-quarantine"
+    raw_stdout = controller / f"{args.run_id}-stdout.raw"
+    raw_stderr = controller / f"{args.run_id}-stderr.raw"
+    raw_log = controller / f"{args.run_id}-agy.raw"
+    for required in (agents_root, result):
+        if not required.exists():
+            raise SystemExit("runtime fixture is incomplete")
+    for target in (quarantine, raw_stdout, raw_stderr, raw_log):
+        if target.exists():
+            raise SystemExit("owned runtime target already exists")
+
+    prompt = (
+        f"Identity calibration challenge: {args.challenge}. "
+        "Follow the active profile's calibration contract."
+    )
+    command = [
+        str(agy),
+        "--add-dir",
+        str(workspace),
+        "--agent",
+        args.agent,
+        "--model",
+        args.model,
+        "--effort",
+        args.effort,
+        "--mode",
+        args.execution_mode,
+        "--sandbox",
+        "--log-file",
+        str(raw_log),
+        "--print-timeout",
+        f"{args.timeout_seconds}s",
+        "--print",
+    ]
+
+    timed_out = False
+    process_exit: int | None = None
+    started_at_ns = time.time_ns()
+    with raw_stdout.open("wb") as stdout_handle, raw_stderr.open(
+        "wb"
+    ) as stderr_handle:
+        process = subprocess.Popen(
+            command,
+            cwd=workspace,
+            stdin=subprocess.PIPE,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            start_new_session=True,
+        )
+        if process.stdin is None:
+            raise RuntimeError("print-mode stdin is unavailable")
+        stdin_accepted = True
+        try:
+            process.stdin.write((prompt + "\n").encode("utf-8"))
+        except BrokenPipeError:
+            stdin_accepted = False
+        finally:
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                stdin_accepted = False
+        time.sleep(args.quarantine_delay_ms / 1000)
+        agents_root.rename(quarantine)
+        workspace.chmod(0o555)
+        quarantined_at_ns = time.time_ns()
+        try:
+            process_exit = process.wait(timeout=args.timeout_seconds + 5)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process_exit = process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process_exit = process.wait(timeout=2)
+    finished_at_ns = time.time_ns()
+
+    raw_artifacts = {
+        "stdout": digest_owned_file(raw_stdout),
+        "stderr": digest_owned_file(raw_stderr),
+        "log": digest_owned_file(raw_log),
+    }
+    result_stat = result.stat()
+    workspace.chmod(0o755)
+    for path in (raw_stdout, raw_stderr, raw_log):
+        if path.exists():
+            path.unlink()
+
+    changed_after_quarantine = (
+        result_stat.st_size > 0
+        and result_stat.st_mtime_ns >= quarantined_at_ns
+    )
+    report = {
+        "schema": RUNTIME_RUN_SCHEMA,
+        "run_id": args.run_id,
+        "agent": args.agent,
+        "model": args.model,
+        "effort": args.effort,
+        "execution_mode": args.execution_mode,
+        "sandbox": True,
+        "workspace_binding": "add-dir-absolute",
+        "surface": "print",
+        "prompt_class": "challenge-only-stdin",
+        "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
+        "stdin_accepted": stdin_accepted,
+        "started_at_ns": started_at_ns,
+        "quarantined_at_ns": quarantined_at_ns,
+        "finished_at_ns": finished_at_ns,
+        "quarantine_delay_ms": args.quarantine_delay_ms,
+        "process_exit": process_exit,
+        "timed_out": timed_out,
+        "result_bytes": result_stat.st_size,
+        "result_changed_after_quarantine": changed_after_quarantine,
+        "runtime_workspace_mode": "0o555",
+        "workspace_mode_restored": True,
+        "raw_artifacts": raw_artifacts,
+        "raw_artifacts_retained": False,
+    }
+    emit(report)
+    return 0 if process_exit == 0 and not timed_out else 2
+
+
+def runtime_postflight(args: argparse.Namespace) -> int:
+    if not RUNTIME_AGENT.fullmatch(args.agent):
+        raise SystemExit("invalid runtime agent name")
+    workspace = Path(args.workspace).resolve()
+    quarantine = Path(args.quarantine).resolve()
+    if not workspace.is_dir() or not quarantine.is_dir():
+        raise SystemExit("runtime roots are unavailable")
+
+    workspace_files = sorted(
+        path.relative_to(workspace).as_posix()
+        for path in workspace.rglob("*")
+        if path.is_file()
+    )
+    quarantine_files = sorted(
+        path.relative_to(quarantine).as_posix()
+        for path in quarantine.rglob("*")
+        if path.is_file()
+    )
+    profile_agent = args.profile_agent or args.agent
+    if not RUNTIME_AGENT.fullmatch(profile_agent):
+        raise SystemExit("invalid profile agent name")
+    expected_workspace = [".issue15/result.json"]
+    expected_quarantine = [f"agents/{profile_agent}/agent.md"]
+    profile = quarantine / expected_quarantine[0]
+    result = workspace / expected_workspace[0]
+    profile_hash = sha256_file(profile) if profile.is_file() else None
+    result_hash = sha256_file(result) if result.is_file() else None
+    result_state_matches = (
+        result.is_file()
+        and (
+            (args.result_state == "changed" and result.stat().st_size > 0)
+            or (args.result_state == "unchanged" and result.stat().st_size == 0)
+        )
+    )
+    passed = (
+        workspace_files == expected_workspace
+        and quarantine_files == expected_quarantine
+        and profile_hash == args.expected_profile_sha256
+        and result_state_matches
+    )
+    emit(
+        {
+            "schema": RUNTIME_POSTFLIGHT_SCHEMA,
+            "passed": passed,
+            "workspace_files": workspace_files,
+            "quarantine_files": quarantine_files,
+            "profile_sha256": profile_hash,
+            "result_sha256": result_hash,
+            "result_bytes": result.stat().st_size if result.is_file() else 0,
+            "expected_result_state": args.result_state,
+            "workspace_mode": oct(stat.S_IMODE(workspace.stat().st_mode)),
+            "foreign_state_touched": False,
+        }
+    )
+    return 0 if passed else 2
 
 
 def opaque_actor(conversation_id: Any, salt: str) -> str:
@@ -385,10 +711,16 @@ def sanitize_log(args: argparse.Namespace) -> int:
 
 
 def verify_result(args: argparse.Namespace) -> int:
-    manifest = load_manifest(Path(args.manifest) if args.manifest else None)
-    agents = expected_agents(manifest)
-    if args.agent not in agents:
-        raise SystemExit("requested agent is absent from manifest")
+    if args.role_marker:
+        if not SAFE_KEY.fullmatch(args.role_marker):
+            raise SystemExit("invalid role marker")
+        marker = args.role_marker
+    else:
+        manifest = load_manifest(Path(args.manifest) if args.manifest else None)
+        agents = expected_agents(manifest)
+        if args.agent not in agents:
+            raise SystemExit("requested agent is absent from manifest")
+        marker = agents[args.agent]["role_marker"]
     raw_path = Path(args.result).resolve()
     raw = raw_path.read_bytes()
     reasons: list[str] = []
@@ -402,7 +734,7 @@ def verify_result(args: argparse.Namespace) -> int:
         "schema": IDENTITY_SCHEMA,
         "agent": args.agent,
         "challenge": args.challenge,
-        "role_marker": agents[args.agent]["role_marker"],
+        "role_marker": marker,
         "status": "identity_ready",
     }
     if not isinstance(value, dict):
@@ -449,6 +781,58 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_inventory_parser.add_argument("--name", required=True)
     plugin_inventory_parser.set_defaults(handler=plugin_inventory)
 
+    runtime_fixture_parser = commands.add_parser("build-runtime-fixture")
+    runtime_fixture_parser.add_argument("--workspace", required=True)
+    runtime_fixture_parser.add_argument("--agent", required=True)
+    runtime_fixture_parser.add_argument("--role", choices=sorted(RUNTIME_ROLES))
+    runtime_fixture_parser.add_argument("--role-marker", required=True)
+    runtime_fixture_parser.add_argument(
+        "--main-agent", choices=("true", "false"), default="true"
+    )
+    runtime_fixture_parser.add_argument(
+        "--subagent", choices=("true", "false"), default="true"
+    )
+    runtime_fixture_parser.set_defaults(handler=build_runtime_fixture)
+
+    runtime_run_parser = commands.add_parser("run-print")
+    runtime_run_parser.add_argument("--agy", required=True)
+    runtime_run_parser.add_argument("--workspace", required=True)
+    runtime_run_parser.add_argument("--controller", required=True)
+    runtime_run_parser.add_argument("--run-id", required=True)
+    runtime_run_parser.add_argument("--agent", required=True)
+    runtime_run_parser.add_argument("--challenge", required=True)
+    runtime_run_parser.add_argument("--model", required=True)
+    runtime_run_parser.add_argument(
+        "--effort", choices=("low", "medium", "high"), required=True
+    )
+    runtime_run_parser.add_argument(
+        "--execution-mode",
+        choices=("accept-edits",),
+        default="accept-edits",
+    )
+    runtime_run_parser.add_argument(
+        "--quarantine-delay-ms", type=int, default=350
+    )
+    runtime_run_parser.add_argument(
+        "--timeout-seconds", type=int, default=90
+    )
+    runtime_run_parser.set_defaults(handler=run_print)
+
+    runtime_postflight_parser = commands.add_parser("runtime-postflight")
+    runtime_postflight_parser.add_argument("--workspace", required=True)
+    runtime_postflight_parser.add_argument("--quarantine", required=True)
+    runtime_postflight_parser.add_argument("--agent", required=True)
+    runtime_postflight_parser.add_argument("--profile-agent")
+    runtime_postflight_parser.add_argument(
+        "--expected-profile-sha256", required=True
+    )
+    runtime_postflight_parser.add_argument(
+        "--result-state",
+        choices=("changed", "unchanged"),
+        default="changed",
+    )
+    runtime_postflight_parser.set_defaults(handler=runtime_postflight)
+
     hook_parser = commands.add_parser("hook")
     hook_parser.add_argument("event", choices=sorted(ALLOWED_EVENTS))
     hook_parser.set_defaults(handler=hook)
@@ -464,6 +848,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--agent", required=True)
     verify_parser.add_argument("--challenge", required=True)
     verify_parser.add_argument("--manifest")
+    verify_parser.add_argument("--role-marker")
     verify_parser.set_defaults(handler=verify_result)
 
     return parser
