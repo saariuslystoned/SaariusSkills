@@ -414,6 +414,8 @@ _RECEIPT_FIELDS = {
     "halt_receipt_sha256",
     "plane_activation",
     "workspace_isolation",
+    "codex_entry_source",
+    "codex_control_source",
     "proof_refs",
     "controller_attestation",
 }
@@ -890,7 +892,6 @@ def verify_qualification_receipt(
     _current_manifest: Optional["AdapterManifest"] = None,
     _server_process_fn: Optional[Any] = None,
     _tmux_factory: Optional[Any] = None,
-    _codex_control_source: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Verify an accepted receipt and every immutable proof artifact it binds."""
 
@@ -929,21 +930,31 @@ def verify_qualification_receipt(
     workspace_isolation = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
     )
-    codex_control_source = None
-    if _codex_control_source is not None:
-        from .codex_qualification import validate_codex_control_source
-
-        codex_control_source = validate_codex_control_source(
-            _codex_control_source
+    codex_entry_source = receipt.get("codex_entry_source")
+    codex_control_source = receipt.get("codex_control_source")
+    if codex_entry_source is not None or codex_control_source is not None:
+        from .codex_qualification import (
+            validate_codex_control_source,
+            validate_codex_entry_source,
         )
-        if (
-            receipt.get("target") != "codex"
-            or workspace_isolation is not None
-            or receipt.get("plane_activation") is not None
-        ):
-            raise ValidationError(
-                "Codex ordinary-control source is limited to an unactivated control"
+
+        if receipt.get("target") != "codex":
+            raise ValidationError("Codex source bindings are limited to Codex")
+        if codex_entry_source is not None:
+            codex_entry_source = validate_codex_entry_source(codex_entry_source)
+        if codex_control_source is not None:
+            codex_control_source = validate_codex_control_source(
+                codex_control_source
             )
+    if workspace_isolation is not None:
+        if codex_entry_source is None or codex_control_source is not None:
+            raise ValidationError(
+                "Codex positive worktree receipt lacks its prelaunch entry source"
+            )
+    elif receipt.get("target") == "codex" and codex_entry_source is not None:
+        raise ValidationError(
+            "Codex positive-entry source requires terminal workspace isolation"
+        )
     if plane_activation is not None and receipt.get("target") not in {
         "claude",
         "cursor",
@@ -1070,6 +1081,33 @@ def verify_qualification_receipt(
             raise IdentityError(
                 "qualification is stale for the current controller identity: %s" % name
             )
+    if codex_control_source is not None:
+        from .codex_qualification import build_codex_control_source
+
+        if (
+            codex_control_source["controller"] != receipt["controller"]
+            or codex_control_source["campaign_id"] != receipt["campaign_id"]
+            or codex_control_source["goal_fingerprint"]
+            != receipt["goal_fingerprint"]
+            or codex_control_source["subscription_profile_sha256"]
+            != receipt["subscription_profile_sha256"]
+            or codex_control_source["yolo_mapping_sha256"]
+            != receipt["yolo_mapping_sha256"]
+        ):
+            raise IdentityError(
+                "Codex ordinary-control source differs from its accepted receipt"
+            )
+        expected_codex_control_source = build_codex_control_source(
+            codex_control_source["positive_receipt"]["path"],
+            authority_root=_authority_root,
+            current_manifest=current_manifest,
+            server_process_fn=_server_process_fn,
+            tmux_factory=_tmux_factory,
+        )
+        if codex_control_source != expected_codex_control_source:
+            raise IdentityError(
+                "Codex completed ordinary control cannot be relinked"
+            )
 
     state_path = path.resolve(strict=True).parent / "state.json"
     terminal_state = validate_qualification_state_schema(
@@ -1093,6 +1131,7 @@ def verify_qualification_receipt(
             if claude_pairing is not None
             else sha256_file(path, max_bytes=131072)
         )
+        or terminal_state.get("codex_entry_source") != codex_entry_source
         or terminal_state.get("codex_control_source") != codex_control_source
     ):
         raise ValidationError(
@@ -1117,6 +1156,31 @@ def verify_qualification_receipt(
         expected_session=terminal_state.get("session"),
         expected_run_id=receipt["run_id"],
     )
+    if codex_entry_source is not None:
+        workspace = receipt["workspace_isolation"]
+        if (
+            codex_entry_source["run_id"] != receipt["run_id"]
+            or codex_entry_source["session"] != terminal_state.get("session")
+            or codex_entry_source["controller"] != receipt["controller"]
+            or codex_entry_source["campaign_id"] != receipt["campaign_id"]
+            or codex_entry_source["goal_fingerprint"]
+            != receipt["goal_fingerprint"]
+            or codex_entry_source["manifest"]["fingerprint"]
+            != current_manifest.fingerprint
+            or codex_entry_source["profile"]["sha256"]
+            != receipt["subscription_profile_sha256"]
+            or codex_entry_source["workspace"]["descriptor_sha256"]
+            != workspace["descriptor_sha256"]
+            or codex_entry_source["workspace"]["candidate_root"]
+            != workspace["candidate_root"]
+            or codex_entry_source["workspace"]["candidate_branch"]
+            != workspace["candidate_branch"]
+            or codex_entry_source["workspace"]["candidate_head"]
+            != workspace["candidate_head"]
+        ):
+            raise IdentityError(
+                "Codex positive-entry source differs from its accepted receipt"
+            )
     instruction_manifest = validate_instruction_manifest(
         read_json(
             artifacts["instructions"],

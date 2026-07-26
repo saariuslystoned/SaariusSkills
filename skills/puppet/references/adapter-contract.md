@@ -70,7 +70,7 @@ adapter_lab.py probe --profile source-free-pass-b-v2 \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
   --goal-path PATH --goal-sha256 SHA256 \
   --subscription-profile-root PRIVATE_PROFILE \
-  [--plane-descriptor DESCRIPTOR] [--run-id RUN]
+  [--plane-descriptor DESCRIPTOR] [--codex-entry-plan PLAN] [--run-id RUN]
 adapter_lab.py verify --run ROOT/probes/RUN/receipt.json
 adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
@@ -108,7 +108,8 @@ an evidence-only pair. The bounded Codex source substrate requires:
 
 - a positive direct-worktree run and a later ordinary-control run, both
   `regular`, using the same exact Puppet-owned subscription profile and the
-  same provider-default/no-selector launch vector;
+  the same current-default/no-selector launch vector, while resolved model and
+  effort remain explicitly unavailable;
 - distinct run, accepted checkpoint, workspace, target process, tmux
   socket/session/server, and controller lease identities, with empty
   same-target populations before both launches and after both exact halts;
@@ -116,19 +117,24 @@ an evidence-only pair. The bounded Codex source substrate requires:
   target is alive, with distinct target process, tmux server, and viewer
   client/process identity and no pane body, prompt, transcript, scrollback, or
   auth/config content retained; and
-- the hash-verified prelaunch operator plan, whose exact `direct_git_root` or
+- the hash-verified operator plan supplied to the positive probe before launch,
+  recompiled against its exact full field set and persisted in the positive
+  receipt/controller attestation, whose exact `direct_git_root` or
   `cockpit_explicit` entry mode, repository, branch, and head match the positive
   worktree receipt.
 
 Run the ordinary control with
 `--paired-codex-positive-receipt POSITIVE_RECEIPT`; recovery must receive that
-same option and receipt. After both exact halts, `pair-codex` creates one new
-controller-attested `paired_evidence_only` receipt and refuses any existing
-destination. `verify-codex-pair` reopens both terminal receipts and all bound
-artifacts against the current doctor-only manifest and profile. Neither command
-promotes, qualifies, or authorizes public launch. Independent root-run live
-sessions, review, and explicit integration remain outside this source
-substrate.
+same option and receipt. Positive recovery must also receive the same persisted
+`--codex-entry-plan`; pair-time entry-plan input is rejected. The ordinary
+receipt core and controller attestation bind the exact positive source, so a
+completed control cannot be relinked by editing `state.json`. After both exact
+halts, `pair-codex` creates one new controller-attested
+`paired_evidence_only` receipt and refuses any existing destination.
+`verify-codex-pair` reopens both terminal receipts and all bound artifacts
+against the current doctor-only manifest and profile. Neither command promotes,
+qualifies, or authorizes public launch. Independent root-run live sessions,
+review, and explicit integration remain outside this source substrate.
 
 On interruption, replace `probe --profile ...` with `recover`, retain the
 shared identity arguments, omit `--subscription-profile-root`, and supply the

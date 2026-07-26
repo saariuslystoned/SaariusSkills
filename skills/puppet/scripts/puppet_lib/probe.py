@@ -973,6 +973,7 @@ def run_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    codex_entry_plan: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
@@ -1096,6 +1097,10 @@ def run_probe(
         raise ValidationError(
             "paired Codex positive source is limited to an ordinary control"
         )
+    if codex_worktree_descriptor != (codex_entry_plan is not None):
+        raise ValidationError(
+            "positive Codex worktree probes require exactly one prelaunch entry plan"
+        )
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -1186,6 +1191,8 @@ def run_probe(
             expected_target=target,
             require_logged_in=True,
         )
+    run_id = validate_identifier(run_id or _new_run_id(target), "run id")
+    session = _session_id(target, run_id)
     codex_control_source = None
     if codex_ordinary_control:
         from .codex_qualification import build_codex_control_source
@@ -1206,8 +1213,26 @@ def run_probe(
             raise IdentityError(
                 "Codex ordinary-control authority differs from its positive source"
             )
-    run_id = validate_identifier(run_id or _new_run_id(target), "run id")
-    session = _session_id(target, run_id)
+    codex_entry_source = None
+    if codex_worktree_descriptor:
+        from .codex_qualification import build_codex_entry_source
+
+        codex_entry_source = build_codex_entry_source(
+            codex_entry_plan,
+            run_id=run_id,
+            session=session,
+            controller=controller,
+            campaign_id=authorization["campaign_id"],
+            goal_fingerprint=goal_verification["goal_fingerprint"],
+            manifest_path=manifest_path,
+            manifest_fingerprint=manifest.fingerprint,
+            authorization_path=authorization_path,
+            profile_root=subscription_context.profile_root,
+            subscription_profile_sha256=sha256_bytes(
+                canonical_json_bytes(subscription_binding) + b"\n"
+            ),
+            workspace_isolation=plane_descriptor_value,
+        )
     probes_root = proof_root / "probes"
     if probes_root.exists() and probes_root.is_symlink():
         raise ValidationError("probe root must not be a symlink")
@@ -1261,6 +1286,8 @@ def run_probe(
         state["claude_control_source"] = claude_control_source
     if codex_control_source is not None:
         state["codex_control_source"] = codex_control_source
+    if codex_entry_source is not None:
+        state["codex_entry_source"] = codex_entry_source
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
@@ -2758,6 +2785,8 @@ def run_probe(
             "halt_receipt_sha256": halt_sha,
             "plane_activation": activation_terminal,
             "workspace_isolation": evidence["workspace_isolation"],
+            "codex_entry_source": codex_entry_source,
+            "codex_control_source": codex_control_source,
             "proof_refs": proof_refs,
         }
         controller_attestation = attest_qualification(
@@ -2783,7 +2812,6 @@ def run_probe(
             _current_manifest=manifest,
             _server_process_fn=_server_process_birth_fn,
             _tmux_factory=_tmux_factory,
-            _codex_control_source=codex_control_source,
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
@@ -2994,6 +3022,7 @@ def recover_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    codex_entry_plan: Optional[Path] = None,
     halt_timeout: float = 10.0,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -3142,6 +3171,10 @@ def recover_probe(
         raise ValidationError(
             "paired Codex positive source is limited to ordinary-control recovery"
         )
+    if codex_worktree_descriptor != (codex_entry_plan is not None):
+        raise ValidationError(
+            "positive Codex worktree recovery requires its persisted entry plan"
+        )
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -3214,6 +3247,51 @@ def recover_probe(
     elif paired_codex_positive_receipt is not None:
         raise IdentityError(
             "supplied Codex positive receipt lacks a persisted control source"
+        )
+    persisted_codex_entry_source = state.get("codex_entry_source")
+    if persisted_codex_entry_source is not None:
+        from .codex_qualification import validate_codex_entry_source
+
+        persisted_codex_entry_source = validate_codex_entry_source(
+            persisted_codex_entry_source
+        )
+        if codex_entry_plan is None:
+            raise IdentityError(
+                "positive Codex recovery requires its persisted entry plan"
+            )
+        supplied_entry_path = Path(codex_entry_plan).resolve(strict=True)
+        persisted_workspace = persisted_codex_entry_source["workspace"]
+        if (
+            str(supplied_entry_path)
+            != persisted_codex_entry_source["operator_plan"]["path"]
+            or persisted_codex_entry_source["run_id"] != run_id
+            or persisted_codex_entry_source["session"] != state.get("session")
+            or persisted_codex_entry_source["controller"] != controller
+            or persisted_codex_entry_source["campaign_id"]
+            != authorization["campaign_id"]
+            or persisted_codex_entry_source["goal_fingerprint"]
+            != goal_verification["goal_fingerprint"]
+            or persisted_codex_entry_source["manifest"]["fingerprint"]
+            != manifest.fingerprint
+            or Path(
+                persisted_codex_entry_source["authorization"]["path"]
+            ).resolve(strict=True)
+            != Path(authorization_path).resolve(strict=True)
+            or persisted_workspace["descriptor_sha256"]
+            != plane_descriptor_value["descriptor_sha256"]
+            or persisted_workspace["candidate_root"]
+            != plane_descriptor_value["candidate_root"]
+            or persisted_workspace["candidate_branch"]
+            != plane_descriptor_value["candidate_branch"]
+            or persisted_workspace["candidate_head"]
+            != plane_descriptor_value["candidate_head"]
+        ):
+            raise IdentityError(
+                "Codex positive-entry source changed during recovery"
+            )
+    elif codex_entry_plan is not None:
+        raise IdentityError(
+            "supplied Codex entry plan lacks a persisted positive-entry source"
         )
     evidence = read_json(evidence_path, max_bytes=131072, reject_sensitive_fields=True)
     evidence = validate_qualification_evidence_schema(evidence)
@@ -3491,7 +3569,6 @@ def recover_probe(
                 _current_manifest=manifest,
                 _server_process_fn=_server_process_birth_fn,
                 _tmux_factory=_tmux_factory,
-                _codex_control_source=persisted_codex_control_source,
             )
             recovered = lease["state"] == "halting"
             if recovered:

@@ -45,6 +45,7 @@ from .safety import (
 
 PAIR_SCHEMA_VERSION = 5
 PAIR_KIND = "codex_regular_paired_qualification_substrate"
+ENTRY_SOURCE_SCHEMA = "puppet.codex-positive-entry-source/v1"
 CONTROL_SOURCE_SCHEMA = "puppet.codex-ordinary-control-source/v1"
 NATIVE_VIEW_SCHEMA = "puppet.codex-native-view-observation/v1"
 NATIVE_VIEW_STATE = "read_only_attached_and_detached"
@@ -92,6 +93,22 @@ _CONTROL_SOURCE_FIELDS = {
     "tmux_sha256",
     "terminal_lease",
     "receipt_attestation_sequence",
+}
+_ENTRY_SOURCE_FIELDS = {
+    "schema",
+    "target",
+    "entry_mode",
+    "operator_plan",
+    "run_id",
+    "session",
+    "controller",
+    "campaign_id",
+    "goal_fingerprint",
+    "contract",
+    "manifest",
+    "authorization",
+    "profile",
+    "workspace",
 }
 _NATIVE_VIEW_FIELDS = {
     "schema",
@@ -205,28 +222,161 @@ def _current_repository_tree(repository: Path) -> str:
 def _validated_entry_plan(
     path: Path,
     *,
+    run_id: str,
+    session: str,
+    controller: str,
+    campaign_id: str,
+    goal_fingerprint: str,
+    manifest_path: Path,
+    manifest_fingerprint: str,
+    authorization_path: Path,
+    profile_root: Path,
+    subscription_profile_sha256: str,
     workspace_isolation: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """Bind the exact direct-repository/cockpit planning claim to the worktree."""
+    """Recompile and bind the exact prelaunch operator plan to one positive run."""
 
-    from .operator_plan import OPERATOR_PLAN_SCHEMA, OPERATOR_PLAN_STATE
+    from .adapter_manifest import AdapterManifest
+    from .campaign import validate_campaign_authorization
+    from .contracts import Contract
+    from .operator_plan import (
+        OPERATOR_PLAN_SCHEMA,
+        OPERATOR_PLAN_STATE,
+        compile_operator_plan,
+    )
 
+    path = _canonical_file(path, "Codex operator entry plan")
+    manifest_path = _canonical_file(manifest_path, "Codex entry-plan manifest")
+    authorization_path = _canonical_file(
+        authorization_path, "Codex entry-plan authorization"
+    )
+    profile_root = _canonical_directory(
+        profile_root, "Codex entry-plan private profile"
+    )
+    run_id = validate_identifier(run_id, "Codex entry run id")
+    session = validate_identifier(session, "Codex entry session")
+    controller = validate_identifier(controller, "Codex entry controller")
+    campaign_id = validate_identifier(campaign_id, "Codex entry campaign")
+    validate_sha256(goal_fingerprint, "Codex entry goal fingerprint")
+    validate_sha256(manifest_fingerprint, "Codex entry manifest fingerprint")
+    validate_sha256(
+        subscription_profile_sha256,
+        "Codex entry subscription profile fingerprint",
+    )
     plan = read_json(path, max_bytes=1024 * 1024, reject_sensitive_fields=True)
-    if not isinstance(plan, Mapping):
-        raise ValidationError("Codex operator entry plan is invalid")
+    expected_fields = {
+        "schema",
+        "state",
+        "entry_mode",
+        "target",
+        "session_profile",
+        "session",
+        "branch",
+        "launch_authorized",
+        "blockers",
+        "controller",
+        "repository",
+        "supervisor_repository",
+        "roots",
+        "artifacts",
+        "commands",
+        "target_gate",
+        "plan_sha256",
+    }
+    if not isinstance(plan, Mapping) or set(plan) != expected_fields:
+        raise ValidationError("Codex operator entry plan fields do not match schema")
     mode = plan.get("entry_mode")
     repository = plan.get("repository")
-    supplied_sha = plan.get("plan_sha256")
-    unsigned = dict(plan)
-    unsigned.pop("plan_sha256", None)
+    artifacts = plan.get("artifacts")
+    roots = plan.get("roots")
     if (
         plan.get("schema") != OPERATOR_PLAN_SCHEMA
         or plan.get("state") != OPERATOR_PLAN_STATE
         or plan.get("target") != "codex"
         or plan.get("session_profile") != "regular"
+        or plan.get("session") != session
         or plan.get("launch_authorized") is not False
         or mode not in {"direct_git_root", "cockpit_explicit"}
         or not isinstance(repository, Mapping)
+        or not isinstance(artifacts, Mapping)
+        or set(artifacts)
+        != {"contract", "manifest", "authorization", "input_payload"}
+        or not isinstance(roots, Mapping)
+        or set(roots) != {"run", "proof", "state", "profile"}
+    ):
+        raise IdentityError(
+            "Codex direct-repository/cockpit entry evidence is not exact"
+        )
+    for name in ("contract", "manifest", "authorization", "input_payload"):
+        reference = artifacts[name]
+        if (
+            not isinstance(reference, Mapping)
+            or set(reference) != {"path", "sha256", "bytes"}
+            or not isinstance(reference.get("bytes"), int)
+            or isinstance(reference.get("bytes"), bool)
+            or reference["bytes"] < 0
+        ):
+            raise ValidationError("Codex operator entry artifact is invalid")
+        validate_sha256(reference.get("sha256"), "Codex operator entry artifact")
+    plan_manifest_path = _canonical_file(
+        artifacts["manifest"]["path"], "Codex operator-plan manifest"
+    )
+    plan_authorization_path = _canonical_file(
+        artifacts["authorization"]["path"], "Codex operator-plan authorization"
+    )
+    if (
+        plan_manifest_path != manifest_path
+        or plan_authorization_path != authorization_path
+        or roots["profile"] != str(profile_root)
+    ):
+        raise IdentityError("Codex operator entry source identity changed")
+    contract_path = _canonical_file(
+        artifacts["contract"]["path"], "Codex operator-plan contract"
+    )
+    prompt_path = _canonical_file(
+        artifacts["input_payload"]["path"], "Codex operator-plan input payload"
+    )
+    for artifact_path, reference in (
+        (contract_path, artifacts["contract"]),
+        (manifest_path, artifacts["manifest"]),
+        (authorization_path, artifacts["authorization"]),
+        (prompt_path, artifacts["input_payload"]),
+    ):
+        details = artifact_path.stat()
+        if (
+            details.st_size != reference["bytes"]
+            or sha256_file(artifact_path, max_bytes=1024 * 1024)
+            != reference["sha256"]
+        ):
+            raise IdentityError("Codex operator entry artifact fingerprint changed")
+    manifest = AdapterManifest.from_path(manifest_path)
+    contract = Contract.from_path(contract_path)
+    authorization = validate_campaign_authorization(
+        authorization_path,
+        target="codex",
+        controller=controller,
+        campaign_id=campaign_id,
+    )
+    if (
+        manifest.target != "codex"
+        or manifest.fingerprint != manifest_fingerprint
+        or manifest.raw.get("doctor_only") is not True
+        or manifest.raw.get("qualification") is not None
+        or contract.target != "codex"
+        or contract.session_profile != "regular"
+        or contract.controller != controller
+        or contract.campaign_authorization_id != campaign_id
+        or contract.repo != Path(workspace_isolation["candidate_root"])
+        or contract.branch != workspace_isolation["candidate_branch"]
+        or contract.requested_model is not None
+        or contract.requested_effort is not None
+        or (
+            contract.run_id is not None
+            and contract.run_id != run_id
+        )
+        or sha256_bytes(canonical_json_bytes(authorization["goal"]))
+        != goal_fingerprint
+        or plan.get("branch") != workspace_isolation["candidate_branch"]
         or repository.get("repo") != workspace_isolation["candidate_root"]
         or repository.get("branch") != workspace_isolation["candidate_branch"]
         or repository.get("head") != workspace_isolation["candidate_head"]
@@ -234,28 +384,166 @@ def _validated_entry_plan(
         != _current_repository_tree(Path(workspace_isolation["candidate_root"]))
         or repository.get("linked_worktree") is not True
         or repository.get("dirty") is not False
-        or supplied_sha != sha256_bytes(canonical_json_bytes(unsigned))
     ):
         raise IdentityError(
             "Codex direct-repository/cockpit entry evidence is not exact"
         )
-    validate_sha256(supplied_sha, "operator entry plan fingerprint")
+    expected = compile_operator_plan(
+        contract_path=contract_path,
+        manifest_path=manifest_path,
+        authorization_path=authorization_path,
+        profile_root=profile_root,
+        prompt_path=prompt_path,
+        session=session,
+        run_root=roots["run"],
+        repo=Path(workspace_isolation["candidate_root"])
+        if mode == "cockpit_explicit"
+        else None,
+        current_directory=Path(workspace_isolation["candidate_root"]),
+    )
+    if dict(plan) != expected:
+        raise IdentityError("Codex operator entry plan does not recompile exactly")
+    supplied_sha = validate_sha256(
+        plan.get("plan_sha256"), "operator entry plan fingerprint"
+    )
     return {
-        "mode": mode,
+        "schema": ENTRY_SOURCE_SCHEMA,
+        "target": "codex",
+        "entry_mode": mode,
         "operator_plan": {
             "path": str(path),
             "sha256": sha256_file(path, max_bytes=1024 * 1024),
             "plan_sha256": supplied_sha,
         },
-        "repository": {
-            "repo": repository["repo"],
-            "branch": repository["branch"],
-            "head": repository["head"],
-            "tree": repository["tree"],
-            "linked_worktree": True,
-            "dirty": False,
+        "run_id": run_id,
+        "session": session,
+        "controller": controller,
+        "campaign_id": campaign_id,
+        "goal_fingerprint": goal_fingerprint,
+        "contract": {
+            "path": str(contract_path),
+            "sha256": artifacts["contract"]["sha256"],
+            "fingerprint": contract.fingerprint,
+        },
+        "manifest": {
+            "path": str(manifest_path),
+            "sha256": artifacts["manifest"]["sha256"],
+            "fingerprint": manifest_fingerprint,
+        },
+        "authorization": {
+            "path": str(authorization_path),
+            "sha256": artifacts["authorization"]["sha256"],
+        },
+        "profile": {
+            "root": str(profile_root),
+            "sha256": subscription_profile_sha256,
+        },
+        "workspace": {
+            "descriptor_sha256": workspace_isolation["descriptor_sha256"],
+            "candidate_root": workspace_isolation["candidate_root"],
+            "candidate_branch": workspace_isolation["candidate_branch"],
+            "candidate_head": workspace_isolation["candidate_head"],
         },
     }
+
+
+def build_codex_entry_source(
+    entry_plan_path: Path | str,
+    **expected: Any,
+) -> Dict[str, Any]:
+    """Build one exact prelaunch source record for a positive Codex probe."""
+
+    return validate_codex_entry_source(
+        _validated_entry_plan(Path(entry_plan_path), **expected)
+    )
+
+
+def validate_codex_entry_source(value: Any) -> Dict[str, Any]:
+    """Reopen and recompile one persisted positive-entry source record."""
+
+    if not isinstance(value, Mapping) or set(value) != _ENTRY_SOURCE_FIELDS:
+        raise ValidationError("Codex positive-entry source fields are invalid")
+    result = dict(value)
+    if result.get("schema") != ENTRY_SOURCE_SCHEMA or result.get("target") != "codex":
+        raise ValidationError("unsupported Codex positive-entry source schema")
+    for name in ("run_id", "session", "controller", "campaign_id"):
+        validate_identifier(result.get(name), "Codex entry " + name.replace("_", " "))
+    validate_sha256(result.get("goal_fingerprint"), "Codex entry goal fingerprint")
+    if result.get("entry_mode") not in {"direct_git_root", "cockpit_explicit"}:
+        raise ValidationError("Codex positive entry mode is invalid")
+    operator_plan = result.get("operator_plan")
+    if (
+        not isinstance(operator_plan, Mapping)
+        or set(operator_plan) != {"path", "sha256", "plan_sha256"}
+    ):
+        raise ValidationError("Codex operator-plan reference is invalid")
+    for reference_name in ("contract", "manifest"):
+        reference = result.get(reference_name)
+        if (
+            not isinstance(reference, Mapping)
+            or set(reference) != {"path", "sha256", "fingerprint"}
+        ):
+            raise ValidationError("Codex entry %s reference is invalid" % reference_name)
+        validate_sha256(reference.get("fingerprint"), reference_name + " fingerprint")
+    authorization = result.get("authorization")
+    if (
+        not isinstance(authorization, Mapping)
+        or set(authorization) != {"path", "sha256"}
+    ):
+        raise ValidationError("Codex entry authorization reference is invalid")
+    profile = result.get("profile")
+    if not isinstance(profile, Mapping) or set(profile) != {"root", "sha256"}:
+        raise ValidationError("Codex entry profile reference is invalid")
+    workspace = result.get("workspace")
+    if (
+        not isinstance(workspace, Mapping)
+        or set(workspace)
+        != {
+            "descriptor_sha256",
+            "candidate_root",
+            "candidate_branch",
+            "candidate_head",
+        }
+    ):
+        raise ValidationError("Codex entry workspace reference is invalid")
+    for reference in (
+        operator_plan,
+        result["contract"],
+        result["manifest"],
+        authorization,
+    ):
+        if not Path(str(reference.get("path", ""))).is_absolute():
+            raise ValidationError("Codex entry artifact path is invalid")
+        validate_sha256(reference.get("sha256"), "Codex entry artifact fingerprint")
+    validate_sha256(profile.get("sha256"), "Codex entry profile fingerprint")
+    validate_sha256(
+        workspace.get("descriptor_sha256"), "Codex entry workspace descriptor"
+    )
+    validate_sha1(workspace.get("candidate_head"), "Codex entry candidate head")
+    rebuilt = _validated_entry_plan(
+        Path(operator_plan["path"]),
+        run_id=result["run_id"],
+        session=result["session"],
+        controller=result["controller"],
+        campaign_id=result["campaign_id"],
+        goal_fingerprint=result["goal_fingerprint"],
+        manifest_path=Path(result["manifest"]["path"]),
+        manifest_fingerprint=result["manifest"]["fingerprint"],
+        authorization_path=Path(authorization["path"]),
+        profile_root=Path(profile["root"]),
+        subscription_profile_sha256=profile["sha256"],
+        workspace_isolation=workspace,
+    )
+    if result != rebuilt:
+        raise IdentityError("Codex positive-entry source changed")
+    validate_bounded_json(
+        result,
+        max_depth=6,
+        max_items=96,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return result
 
 
 def _canonical_directory(path: Path | str, label: str) -> Path:
@@ -541,6 +829,7 @@ def build_codex_control_source(
         raise ValidationError(
             "Codex ordinary control requires one positive worktree receipt"
         )
+    validate_codex_entry_source(receipt.get("codex_entry_source"))
     artifacts = _receipt_artifacts(path, receipt)
     session = _receipt_session(path, receipt)
     lease = _terminal_lease_fn(
@@ -1062,7 +1351,7 @@ def observe_codex_native_view(
     }
 
 
-def _default_launch_is_exact(
+def _current_default_launch_is_exact(
     launch: Mapping[str, Any],
     instructions: Mapping[str, Any],
 ) -> bool:
@@ -1137,7 +1426,6 @@ def _verify_receipt_pair(
     ordinary_receipt_path: Path,
     private_profile_root: Path,
     native_view_path: Path,
-    entry_plan_path: Path,
     authority_root: Optional[Path],
     current_manifest: Optional[Any],
     server_process_fn: Optional[Any],
@@ -1164,14 +1452,6 @@ def _verify_receipt_pair(
         session=positive_session,
         authority_root=authority_root,
     )
-    control_state = read_json(
-        ordinary_receipt_path.parent / "state.json",
-        max_bytes=131072,
-        reject_sensitive_fields=True,
-    )
-    persisted_source = validate_codex_control_source(
-        control_state.get("codex_control_source")
-    )
     expected_source = build_codex_control_source(
         positive_receipt_path,
         authority_root=authority_root,
@@ -1181,16 +1461,18 @@ def _verify_receipt_pair(
         _verify_receipt_fn=verifier,
         _terminal_lease_fn=terminal_lease_fn,
     )
-    if persisted_source != expected_source:
-        raise IdentityError("Codex ordinary control is not linked to the positive run")
     ordinary = verifier(
         ordinary_receipt_path,
         _authority_root=authority_root,
         _current_manifest=current_manifest,
         _server_process_fn=server_process_fn,
         _tmux_factory=tmux_factory,
-        _codex_control_source=expected_source,
     )
+    persisted_source = validate_codex_control_source(
+        ordinary.get("codex_control_source")
+    )
+    if persisted_source != expected_source:
+        raise IdentityError("Codex ordinary control is not linked to the positive run")
     if (
         positive.get("target") != "codex"
         or positive.get("workspace_isolation") is None
@@ -1268,10 +1550,10 @@ def _verify_receipt_pair(
         != ordinary_launch["launch_identity"]["env_names"]
         or positive_launch["launch_identity"]["env_fingerprint"]
         != ordinary_launch["launch_identity"]["env_fingerprint"]
-        or not _default_launch_is_exact(
+        or not _current_default_launch_is_exact(
             positive_launch, positive_artifacts["instructions"]
         )
-        or not _default_launch_is_exact(
+        or not _current_default_launch_is_exact(
             ordinary_launch, ordinary_artifacts["instructions"]
         )
     ):
@@ -1318,16 +1600,39 @@ def _verify_receipt_pair(
         or descriptor.get("candidate_head") != positive_workspace["candidate_head"]
     ):
         raise IdentityError("Codex direct-worktree entry claim is not evidence-backed")
-    entry_claim = _validated_entry_plan(
-        entry_plan_path,
-        workspace_isolation=positive_workspace,
-    )
-    entry_claim.update(
-        {
-            "surface": descriptor["surface"],
-            "descriptor_sha256": positive_workspace["descriptor_sha256"],
-        }
-    )
+    entry_source = validate_codex_entry_source(positive.get("codex_entry_source"))
+    if (
+        entry_source["run_id"] != positive["run_id"]
+        or entry_source["session"] != positive_session
+        or entry_source["controller"] != positive["controller"]
+        or entry_source["campaign_id"] != positive["campaign_id"]
+        or entry_source["goal_fingerprint"] != positive["goal_fingerprint"]
+        or entry_source["profile"]["root"] != str(private_profile_root)
+        or entry_source["profile"]["sha256"]
+        != positive["subscription_profile_sha256"]
+        or entry_source["workspace"]["descriptor_sha256"]
+        != positive_workspace["descriptor_sha256"]
+        or entry_source["workspace"]["candidate_root"]
+        != positive_workspace["candidate_root"]
+        or entry_source["workspace"]["candidate_branch"]
+        != positive_workspace["candidate_branch"]
+        or entry_source["workspace"]["candidate_head"]
+        != positive_workspace["candidate_head"]
+    ):
+        raise IdentityError(
+            "Codex positive-entry source differs from its accepted run"
+        )
+    entry_claim = {
+        "mode": entry_source["entry_mode"],
+        "operator_plan": dict(entry_source["operator_plan"]),
+        "repository": {
+            "repo": entry_source["workspace"]["candidate_root"],
+            "branch": entry_source["workspace"]["candidate_branch"],
+            "head": entry_source["workspace"]["candidate_head"],
+        },
+        "surface": descriptor["surface"],
+        "descriptor_sha256": positive_workspace["descriptor_sha256"],
+    }
     return {
         "positive": positive,
         "ordinary": ordinary,
@@ -1350,7 +1655,6 @@ def _pair_core(
     positive_path: Path,
     ordinary_path: Path,
     native_path: Path,
-    entry_plan_path: Path,
     profile_root: Path,
 ) -> Dict[str, Any]:
     positive = verified["positive"]
@@ -1379,7 +1683,6 @@ def _pair_core(
                 positive_ref["sha256"],
                 ordinary_ref["sha256"],
                 sha256_file(native_path, max_bytes=65536),
-                sha256_file(entry_plan_path, max_bytes=1024 * 1024),
             ]
         )
     )
@@ -1427,9 +1730,10 @@ def _pair_core(
         ),
         "private_profile_root": str(profile_root),
         "runtime_binding": {
-            "model": "provider_default",
-            "effort": "provider_default",
-            "observed_identity": "unresolved",
+            "model_selection": "current_default",
+            "effort_selection": "current_default",
+            "resolved_model": "unavailable",
+            "resolved_effort": "unavailable",
             "explicit_selector": False,
         },
         "positive": positive_ref,
@@ -1475,7 +1779,6 @@ def create_codex_regular_pair_receipt(
     positive_receipt_path: Path | str,
     ordinary_receipt_path: Path | str,
     native_view_path: Path | str,
-    entry_plan_path: Path | str,
     private_profile_root: Path | str,
     authority_root: Optional[Path] = None,
     _current_manifest: Optional[Any] = None,
@@ -1491,7 +1794,6 @@ def create_codex_regular_pair_receipt(
         ordinary_receipt_path, "ordinary control receipt"
     )
     native_path = _canonical_file(native_view_path, "native-view record")
-    entry_path = _canonical_file(entry_plan_path, "operator entry plan")
     profile_root = _canonical_directory(private_profile_root, "private profile root")
     if positive_path == ordinary_path:
         raise IdentityError("Codex paired receipts must be distinct")
@@ -1500,7 +1802,6 @@ def create_codex_regular_pair_receipt(
         ordinary_receipt_path=ordinary_path,
         private_profile_root=profile_root,
         native_view_path=native_path,
-        entry_plan_path=entry_path,
         authority_root=authority_root,
         current_manifest=_current_manifest,
         server_process_fn=_server_process_fn,
@@ -1513,7 +1814,6 @@ def create_codex_regular_pair_receipt(
         positive_path=positive_path,
         ordinary_path=ordinary_path,
         native_path=native_path,
-        entry_plan_path=entry_path,
         profile_root=profile_root,
     )
     bundle = dict(
@@ -1624,25 +1924,10 @@ def verify_codex_regular_pair_receipt(
         value["ordinary_control"]["path"], "ordinary control receipt"
     )
     native_path = _canonical_file(native_ref["path"], "native-view record")
-    entry_claim = value.get("entry_claim")
-    entry_reference = (
-        entry_claim.get("operator_plan")
-        if isinstance(entry_claim, Mapping)
-        else None
-    )
-    if (
-        not isinstance(entry_reference, Mapping)
-        or set(entry_reference) != {"path", "sha256", "plan_sha256"}
-    ):
-        raise ValidationError("Codex operator entry-plan reference is invalid")
-    entry_path = _canonical_file(
-        entry_reference["path"], "Codex operator entry plan"
-    )
     for path, reference, maximum in (
         (positive_path, value["positive"], 131072),
         (ordinary_path, value["ordinary_control"], 131072),
         (native_path, native_ref, 65536),
-        (entry_path, entry_reference, 1024 * 1024),
     ):
         validate_sha256(reference.get("sha256"), "Codex paired artifact")
         if sha256_file(path, max_bytes=maximum) != reference["sha256"]:
@@ -1652,7 +1937,6 @@ def verify_codex_regular_pair_receipt(
         ordinary_receipt_path=ordinary_path,
         private_profile_root=profile_root,
         native_view_path=native_path,
-        entry_plan_path=entry_path,
         authority_root=_authority_root,
         current_manifest=_current_manifest,
         server_process_fn=_server_process_fn,
@@ -1665,7 +1949,6 @@ def verify_codex_regular_pair_receipt(
         positive_path=positive_path,
         ordinary_path=ordinary_path,
         native_path=native_path,
-        entry_plan_path=entry_path,
         profile_root=profile_root,
     )
     if receipt_core != expected_core:
@@ -1686,14 +1969,17 @@ def verify_codex_regular_pair_receipt(
 
 __all__ = [
     "CONTROL_SOURCE_SCHEMA",
+    "ENTRY_SOURCE_SCHEMA",
     "NATIVE_VIEW_NAME",
     "NATIVE_VIEW_SCHEMA",
     "PAIR_BLOCKERS",
     "PAIR_KIND",
     "build_codex_control_source",
+    "build_codex_entry_source",
     "create_codex_regular_pair_receipt",
     "observe_codex_native_view",
     "validate_codex_control_source",
+    "validate_codex_entry_source",
     "validate_native_view_record",
     "verify_codex_regular_pair_receipt",
 ]

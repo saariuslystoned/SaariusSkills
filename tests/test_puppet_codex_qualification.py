@@ -115,14 +115,6 @@ class PairFixture:
             checkpoint="8" * 64,
             workspace=None,
         )
-        self.positive["controller_attestation"] = attest_qualification(
-            self.positive, authority_root=self.authority
-        )
-        self.control["controller_attestation"] = attest_qualification(
-            self.control, authority_root=self.authority
-        )
-        write_json(self.positive_path, self.positive)
-        write_json(self.control_path, self.control)
         self.artifacts = {
             str(self.positive_path): self._artifacts(
                 self.workspace,
@@ -144,15 +136,60 @@ class PairFixture:
                 descriptor=None,
             ),
         }
+        self._write_entry_plan()
+        self.entry_source = {
+            "schema": qualification.ENTRY_SOURCE_SCHEMA,
+            "target": "codex",
+            "entry_mode": "direct_git_root",
+            "operator_plan": {
+                "path": str(self.entry_path),
+                "sha256": qualification.sha256_file(self.entry_path),
+                "plan_sha256": json.loads(
+                    self.entry_path.read_text(encoding="utf-8")
+                )["plan_sha256"],
+            },
+            "run_id": "positive-run",
+            "session": "positive-session",
+            "controller": "controller-worker",
+            "campaign_id": "campaign-codex-pair",
+            "goal_fingerprint": "a" * 64,
+            "contract": {
+                "path": str(self.root / "contract.json"),
+                "sha256": "41" * 32,
+                "fingerprint": "42" * 32,
+            },
+            "manifest": {
+                "path": str(self.root / "manifest.json"),
+                "sha256": "43" * 32,
+                "fingerprint": "44" * 32,
+            },
+            "authorization": {
+                "path": str(self.root / "authorization.json"),
+                "sha256": "45" * 32,
+            },
+            "profile": {
+                "root": str(self.profile),
+                "sha256": "5" * 64,
+            },
+            "workspace": {
+                "descriptor_sha256": self.workspace_receipt["descriptor_sha256"],
+                "candidate_root": str(self.workspace),
+                "candidate_branch": self.workspace_receipt["candidate_branch"],
+                "candidate_head": self.workspace_receipt["candidate_head"],
+            },
+        }
+        self.positive["codex_entry_source"] = copy.deepcopy(self.entry_source)
+        self.positive["controller_attestation"] = attest_qualification(
+            self.positive, authority_root=self.authority
+        )
+        write_json(self.positive_path, self.positive)
         write_json(
             self.positive_root / "state.json",
-            self._state("positive-run", "positive-session"),
+            {
+                **self._state("positive-run", "positive-session"),
+                "codex_entry_source": self.entry_source,
+            },
         )
-        write_json(
-            self.control_root / "state.json",
-            self._state("control-run", "control-session"),
-        )
-        self._write_entry_plan()
         self._write_native()
         with self.patches():
             source = qualification.build_codex_control_source(
@@ -161,6 +198,11 @@ class PairFixture:
                 _verify_receipt_fn=self.verify_receipt,
                 _terminal_lease_fn=self.terminal_lease,
             )
+        self.control["codex_control_source"] = copy.deepcopy(source)
+        self.control["controller_attestation"] = attest_qualification(
+            self.control, authority_root=self.authority
+        )
+        write_json(self.control_path, self.control)
         state = self._state("control-run", "control-session")
         state["codex_control_source"] = source
         write_json(self.control_root / "state.json", state)
@@ -205,6 +247,8 @@ class PairFixture:
             ),
             "plane_activation": None,
             "workspace_isolation": workspace,
+            "codex_entry_source": None,
+            "codex_control_source": None,
             "proof_refs": [],
         }
 
@@ -344,14 +388,11 @@ class PairFixture:
         }
 
     def verify_receipt(self, path, **kwargs):
+        del kwargs
         selected = Path(path)
         if selected == self.positive_path:
-            if kwargs.get("_codex_control_source") is not None:
-                raise AssertionError("positive verification received control authority")
             return copy.deepcopy(self.positive)
         if selected == self.control_path:
-            if kwargs.get("_codex_control_source") is None:
-                raise ValidationError("ordinary control lacks positive source")
             return copy.deepcopy(self.control)
         raise AssertionError("unexpected receipt")
 
@@ -366,11 +407,20 @@ class PairFixture:
                 ),
             )
         )
+        def validate_entry(value):
+            if value != self.entry_source:
+                raise IdentityError("Codex positive-entry source changed")
+            if qualification.sha256_file(self.entry_path) != value[
+                "operator_plan"
+            ]["sha256"]:
+                raise IdentityError("Codex operator entry artifact fingerprint changed")
+            return copy.deepcopy(value)
+
         stack.enter_context(
             patch.object(
                 qualification,
-                "_current_repository_tree",
-                return_value="2" * 40,
+                "validate_codex_entry_source",
+                side_effect=validate_entry,
             )
         )
         return stack
@@ -382,7 +432,6 @@ class PairFixture:
                 positive_receipt_path=self.positive_path,
                 ordinary_receipt_path=self.control_path,
                 native_view_path=self.native_path,
-                entry_plan_path=self.entry_path,
                 private_profile_root=self.profile,
                 authority_root=self.authority,
                 _verify_receipt_fn=self.verify_receipt,
@@ -413,6 +462,16 @@ class CodexQualificationTests(unittest.TestCase):
             self.assertFalse(result["promotion_authorized"])
             pair = fixture.verify()
             self.assertEqual(pair["entry_claim"]["mode"], "direct_git_root")
+            self.assertEqual(
+                pair["runtime_binding"],
+                {
+                    "model_selection": "current_default",
+                    "effort_selection": "current_default",
+                    "resolved_model": "unavailable",
+                    "resolved_effort": "unavailable",
+                    "explicit_selector": False,
+                },
+            )
             self.assertFalse(pair["raw_retained"])
             with self.assertRaises(ConflictError):
                 fixture.create()
@@ -482,7 +541,7 @@ class CodexQualificationTests(unittest.TestCase):
             with self.assertRaisesRegex(IdentityError, "not attested"):
                 fixture.create()
 
-    def test_pair_requires_same_profile_and_provider_default_vector(self):
+    def test_pair_requires_same_profile_and_current_default_vector(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.fixture(temporary)
             fixture.artifacts[str(fixture.control_path)]["profile"][
@@ -499,7 +558,7 @@ class CodexQualificationTests(unittest.TestCase):
             with self.assertRaisesRegex(IdentityError, "default/no-selector"):
                 fixture.create()
 
-    def test_missing_halt_and_entry_or_mapping_drift_are_rejected(self):
+    def test_missing_halt_entry_source_drift_and_mapping_drift_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.fixture(temporary)
             fixture.positive["halt_receipt_sha256"] = None
@@ -510,7 +569,7 @@ class CodexQualificationTests(unittest.TestCase):
             plan = json.loads(fixture.entry_path.read_text(encoding="utf-8"))
             plan["entry_mode"] = "cockpit_explicit"
             write_json(fixture.entry_path, plan)
-            with self.assertRaisesRegex(IdentityError, "entry evidence"):
+            with self.assertRaisesRegex(IdentityError, "artifact fingerprint"):
                 fixture.create()
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.fixture(temporary)
@@ -520,7 +579,7 @@ class CodexQualificationTests(unittest.TestCase):
             unsigned.pop("plan_sha256")
             plan["plan_sha256"] = sha256_bytes(canonical_json_bytes(unsigned))
             write_json(fixture.entry_path, plan)
-            with self.assertRaisesRegex(IdentityError, "entry evidence"):
+            with self.assertRaisesRegex(IdentityError, "artifact fingerprint"):
                 fixture.create()
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.fixture(temporary)
@@ -541,14 +600,13 @@ class CodexQualificationTests(unittest.TestCase):
                     positive_receipt_path=fixture.positive_path,
                     ordinary_receipt_path=fixture.control_path,
                     native_view_path=fixture.native_path,
-                    entry_plan_path=fixture.entry_path,
                     private_profile_root=fixture.profile,
                     authority_root=fixture.authority,
                     _verify_receipt_fn=stale_verifier,
                     _terminal_lease_fn=fixture.terminal_lease,
                 )
 
-    def test_cockpit_entry_mode_is_preserved_only_with_rehashed_evidence(self):
+    def test_cockpit_entry_mode_is_derived_from_receipt_bound_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self.fixture(temporary)
             plan = json.loads(fixture.entry_path.read_text(encoding="utf-8"))
@@ -557,10 +615,56 @@ class CodexQualificationTests(unittest.TestCase):
             unsigned.pop("plan_sha256")
             plan["plan_sha256"] = sha256_bytes(canonical_json_bytes(unsigned))
             write_json(fixture.entry_path, plan)
+            fixture.entry_source["entry_mode"] = "cockpit_explicit"
+            fixture.entry_source["operator_plan"]["sha256"] = (
+                qualification.sha256_file(fixture.entry_path)
+            )
+            fixture.entry_source["operator_plan"]["plan_sha256"] = plan[
+                "plan_sha256"
+            ]
+            fixture.positive["codex_entry_source"] = copy.deepcopy(
+                fixture.entry_source
+            )
             fixture.create()
             self.assertEqual(
                 fixture.verify()["entry_claim"]["mode"], "cockpit_explicit"
             )
+
+    def test_posthoc_entry_plan_and_unrelated_entry_identities_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.fixture(temporary)
+            fixture.positive["codex_entry_source"] = None
+            with self.assertRaises(IdentityError):
+                fixture.create()
+        for field, value in (
+            ("session", "unrelated-session"),
+            ("controller", "unrelated-controller"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                fixture = self.fixture(temporary)
+                fixture.entry_source[field] = value
+                fixture.positive["codex_entry_source"] = copy.deepcopy(
+                    fixture.entry_source
+                )
+                with self.assertRaisesRegex(IdentityError, "positive-entry"):
+                    fixture.create()
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.fixture(temporary)
+            fixture.entry_source["profile"]["root"] = str(
+                fixture.root / "unrelated-profile"
+            )
+            fixture.positive["codex_entry_source"] = copy.deepcopy(
+                fixture.entry_source
+            )
+            with self.assertRaisesRegex(IdentityError, "positive-entry"):
+                fixture.create()
+
+    def test_completed_control_cannot_be_relinked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.fixture(temporary)
+            fixture.control["codex_control_source"]["run_id"] = "other-positive"
+            with self.assertRaisesRegex(IdentityError, "not linked"):
+                fixture.create()
 
     def test_native_observer_records_only_distinct_structural_identities(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -112,6 +112,7 @@ def _probe(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        codex_entry_plan=args.codex_entry_plan,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
@@ -139,6 +140,7 @@ def _recover(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        codex_entry_plan=args.codex_entry_plan,
         halt_timeout=args.halt_timeout,
     )
 
@@ -384,7 +386,6 @@ def _pair_codex(args):
         positive_receipt_path=args.positive_receipt,
         ordinary_receipt_path=args.ordinary_control_receipt,
         native_view_path=args.native_view,
-        entry_plan_path=args.entry_plan,
         private_profile_root=args.private_profile_root,
         _current_manifest=manifest,
     )
@@ -465,6 +466,11 @@ def build_parser():
             "terminal positive Codex worktree receipt that binds this ordinary control"
         ),
     )
+    probe_parser.add_argument(
+        "--codex-entry-plan",
+        type=Path,
+        help="exact prelaunch operator plan required by a positive Codex worktree probe",
+    )
     probe_parser.set_defaults(handler=_probe)
     recover_parser = commands.add_parser(
         "recover",
@@ -487,6 +493,7 @@ def build_parser():
     recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.add_argument("--paired-activation-receipt", type=Path)
     recover_parser.add_argument("--paired-codex-positive-receipt", type=Path)
+    recover_parser.add_argument("--codex-entry-plan", type=Path)
     recover_parser.set_defaults(handler=_recover)
     observe_parser = commands.add_parser(
         "observe-claude-view",
@@ -522,7 +529,6 @@ def build_parser():
         "--ordinary-control-receipt", required=True, type=Path
     )
     codex_pair_parser.add_argument("--native-view", required=True, type=Path)
-    codex_pair_parser.add_argument("--entry-plan", required=True, type=Path)
     codex_pair_parser.add_argument(
         "--private-profile-root", required=True, type=Path
     )

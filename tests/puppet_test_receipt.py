@@ -456,6 +456,8 @@ def write_qualification_receipt(
         "halt_receipt_sha256": sha256_file(halt_path),
         "plane_activation": None,
         "workspace_isolation": None,
+        "codex_entry_source": None,
+        "codex_control_source": None,
         "proof_refs": [
             reference("authorization", authorization_path),
             reference("subscription_profile", subscription_profile_path),

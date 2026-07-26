@@ -72,6 +72,8 @@ from puppet_lib.probe import (  # noqa: E402
     run_probe,
 )
 from puppet_lib.contracts import TARGET_POPULATION_POLICY  # noqa: E402
+from puppet_lib.contracts import MANDATORY_HARD_GATES  # noqa: E402
+from puppet_lib.operator_plan import compile_operator_plan  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
@@ -350,10 +352,63 @@ def codex_worktree_inputs(root: Path):
     )
     descriptor_path = root / "codex-worktree-descriptor.json"
     write_json(descriptor_path, descriptor)
+    entry_contract = root / "codex-entry-contract.json"
+    candidate_branch = subprocess.run(
+        ["git", "-C", str(candidate), "branch", "--show-current"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    write_json(
+        entry_contract,
+        {
+            "schema_version": 1,
+            "objective": "Bind one positive Codex worktree probe before launch",
+            "campaign_authorization_id": files["campaign_id"],
+            "controller": "tester",
+            "target": "codex",
+            "session_profile": "regular",
+            "task_profile": "conformance",
+            "harness_trust": "unrestricted_required",
+            "mutation_owner": "none",
+            "repo": str(candidate.resolve(strict=True)),
+            "branch": candidate_branch,
+            "allowed_modes": ["read", "test"],
+            "terminal_criteria": [
+                {"id": "probe_ready", "evidence": "operator_plan"}
+            ],
+            "hard_gates": sorted(MANDATORY_HARD_GATES),
+            "run_id": "probe-codex-worktree",
+            "nonce": "probe-codex-worktree-nonce",
+        },
+    )
+    entry_prompt = root / "codex-entry-prompt.txt"
+    entry_prompt.write_text("bounded positive Codex probe\n", encoding="utf-8")
+    entry_run = root / "codex-entry-run"
+    for directory in (entry_run, entry_run / "proof", entry_run / "state"):
+        directory.mkdir(mode=0o700)
+    entry_session = "probe-codex-" + sha256_bytes(
+        b"probe-codex-worktree"
+    )[:16]
+    entry_plan_path = root / "codex-entry-plan.json"
+    write_json(
+        entry_plan_path,
+        compile_operator_plan(
+            contract_path=entry_contract,
+            manifest_path=files["manifest"],
+            authorization_path=files["authorization"],
+            profile_root=files["subscription_profile"],
+            prompt_path=entry_prompt,
+            session=entry_session,
+            run_root=entry_run,
+            repo=candidate,
+        ),
+    )
     files.update(
         candidate=candidate.resolve(strict=True),
         descriptor=descriptor_path,
         descriptor_value=descriptor,
+        entry_plan=entry_plan_path,
     )
     return files
 
@@ -926,6 +981,9 @@ def execute(
                 None if target == "agy" else subscription_root
             ),
             plane_descriptor=plane_descriptor,
+            codex_entry_plan=(
+                files.get("entry_plan") if plane_descriptor is not None else None
+            ),
             timeout=timeout,
             halt_timeout=0.1,
             run_id=run_id,
@@ -1203,6 +1261,19 @@ class ProbeTests(unittest.TestCase):
                 self.assertIn("workspace_descriptor", proof_kinds)
                 self.assertIn("controller_contract", proof_kinds)
                 self.assertEqual(receipt["workspace_isolation"], workspace)
+                self.assertEqual(
+                    receipt["codex_entry_source"],
+                    json.loads(
+                        (run_root / "state.json").read_text(encoding="utf-8")
+                    )["codex_entry_source"],
+                )
+                self.assertEqual(
+                    receipt["codex_entry_source"]["operator_plan"]["path"],
+                    str(files["entry_plan"]),
+                )
+                self.assertEqual(
+                    receipt["codex_entry_source"]["run_id"], run_id
+                )
 
                 out = root / "qualified.json"
                 arguments = SimpleNamespace(
@@ -1231,6 +1302,52 @@ class ProbeTests(unittest.TestCase):
                         puppet_adapter_lab._qualify(arguments)
                 verifier.assert_not_called()
                 self.assertFalse(out.exists())
+
+    def test_codex_positive_rejects_posthoc_or_unrelated_entry_plan(self):
+        for label, mutate in (
+            ("posthoc_field", lambda plan, _root: plan.update(posthoc=True)),
+            (
+                "unrelated_session",
+                lambda plan, _root: plan.update(session="unrelated-session"),
+            ),
+            (
+                "unrelated_profile",
+                lambda plan, root: plan["roots"].update(
+                    profile=str(root / "unrelated-profile")
+                ),
+            ),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                files = codex_worktree_inputs(root)
+                unrelated_profile = root / "unrelated-profile"
+                unrelated_profile.mkdir(mode=0o700)
+                plan = json.loads(
+                    files["entry_plan"].read_text(encoding="utf-8")
+                )
+                mutate(plan, root)
+                unsigned = dict(plan)
+                unsigned.pop("plan_sha256")
+                plan["plan_sha256"] = sha256_bytes(
+                    canonical_json_bytes(unsigned)
+                )
+                write_json(files["entry_plan"], plan)
+                fake = FakeTmux(root / "fake-tmux")
+                with (
+                    patch.object(
+                        codex_workspace_module,
+                        "EXPECTED_RESOLVED_EXECUTABLE_PATH",
+                        files["raw"]["executable"]["resolved_path"],
+                    ),
+                    self.assertRaises((ValidationError, IdentityError)),
+                ):
+                    execute(
+                        files,
+                        fake,
+                        run_id="probe-codex-worktree",
+                        plane_descriptor=files["descriptor"],
+                    )
+                self.assertIsNone(fake.launch_argv)
 
     def test_cursor_request_runs_activation_only_pass_b_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as temporary:

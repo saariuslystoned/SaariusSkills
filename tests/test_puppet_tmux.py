@@ -30,6 +30,7 @@ from puppet_lib.launch import (  # noqa: E402
     validate_admitted_launch_plan,
 )
 from puppet_lib.profiles import SUBMIT_SETTLE_SECONDS  # noqa: E402
+from puppet_lib.probe import _assert_runtime  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
     process_birth_identity,
     send_exact_sigint,
@@ -290,6 +291,29 @@ class TmuxTransportTests(unittest.TestCase):
                     time.sleep(0.02)
                 self.assertEqual(attached_mode, 0o700)
                 self.assertEqual(controller.socket_identity(socket_path), initial)
+                server_identity = controller.server_identity(socket_path)
+                metadata = controller.metadata_for_session(
+                    socket=socket_path,
+                    session=session,
+                    server_identity=server_identity,
+                )
+                target_process = process_birth_identity(metadata["pane_pid"])
+                integrated = _assert_runtime(
+                    tmux=controller,
+                    socket=socket_path,
+                    session=session,
+                    pane=metadata["pane"],
+                    pane_pid=metadata["pane_pid"],
+                    socket_identity=initial,
+                    server_identity=server_identity,
+                    tmux_binary_identity=controller.tmux_binary_identity(),
+                    process=target_process,
+                    process_alive_fn=lambda observed: process_birth_identity(
+                        observed["pid"]
+                    )
+                    == observed,
+                )
+                self.assertEqual(integrated["pane_pid"], target_process["pid"])
             finally:
                 if client is not None and client.poll() is None:
                     client.terminate()

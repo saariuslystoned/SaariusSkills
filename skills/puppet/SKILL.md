@@ -75,7 +75,8 @@ security, secrets, spending, and destructive actions separately gated.
    Codex is stricter: one accepted worktree receipt can never qualify a public
    manifest. A bounded Codex candidate additionally requires a distinct
    ordinary-control run linked to that positive receipt, the same exact private
-   subscription profile, provider-default model and effort with no selectors,
+   subscription profile, the same current-default launch vector with no model
+   or effort selector while resolved model and effort remain unavailable,
    distinct non-overlapping workspace/process/tmux/lease identities, one real
    read-only native-view attach/detach observation, and exact terminal halts.
    `adapter_lab.py pair-codex` writes that body-free evidence create-only and
@@ -168,12 +169,18 @@ This qualifies authentication isolation, not Cursor's remaining workspace,
 default-model, process-population, or lifecycle behavior.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
-When a root-run Codex qualification is separately authorized, preserve the
-operator plan used before launch. Its hash-verified `entry_mode` is the only
+When a root-run Codex qualification is separately authorized, supply the
+operator plan to the positive probe with `--codex-entry-plan` before launch.
+The controller recompiles its exact schema and full field set, persists its
+source binding before target start, and includes that binding in the accepted
+positive receipt and controller attestation. Recovery requires that same exact
+persisted plan. Pairing accepts no new entry-plan argument. Its hash-verified
+`entry_mode` is the only
 accepted claim for direct repository (`direct_git_root`) versus explicit
 cockpit (`cockpit_explicit`) entry, and it must name the exact positive
 worktree branch and head. Static repository file absence, target self-report,
-mocked launch, or doctor-only output is never entry or promotion evidence.
+mocked launch, post-hoc plan synthesis, or doctor-only output is never entry or
+promotion evidence.
 Observe a native viewer only through structural tmux client/process identity:
 never retain pane body, prompt, transcript, scrollback, or authentication or
 configuration content. Keep target process, tmux server, viewer client/process,
