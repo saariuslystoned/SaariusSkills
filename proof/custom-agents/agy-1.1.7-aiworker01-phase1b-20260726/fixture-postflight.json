@@ -1,0 +1,8 @@
+{
+  "hashes_match_materialization": true,
+  "naked_workspace_hook_absent": true,
+  "owned_workspace": "clean",
+  "owned_controller_root": "clean",
+  "foreign_state_touched": false,
+  "schema": "saarius.custom-agent-fixture-postflight.v1"
+}

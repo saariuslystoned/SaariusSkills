@@ -1,0 +1,7 @@
+{
+  "expected_found": false,
+  "expected_plugin": "saarius-issue15-observer",
+  "raw_line_count": 1,
+  "raw_sha256": "4edf25b675388fb3ae0b23a7e56bee72febae66c2678930c8d658b0f260e1494",
+  "schema": "saarius.custom-agent-plugin-inventory.v1"
+}
