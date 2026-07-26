@@ -153,7 +153,8 @@
             "one-write-to-file-exact-result-all-else-deny",
             "profile-write-only-plus-external-quarantine-postflight",
             "parent-invoke-plus-join-children-write-only",
-            "parent-four-invoke-plus-join-children-write-only"
+            "parent-four-invoke-plus-join-children-write-only",
+            "single-write-or-width-two-product-split"
           ]
         },
         "packaging": {
@@ -214,6 +215,23 @@
         },
         "watchdog": {
           "const": "controller-process-group-termination"
+        },
+        "product_probe": {
+          "const": "pixel-use-policy-plus-friction-v1"
+        },
+        "product_source_sha": {
+          "const": "6474159cc15eafbd2abe602e13017a2754768ce9"
+        },
+        "comparison_arms": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "single"},
+            {"const": "custom-width-two"}
+          ],
+          "items": false
+        },
+        "rounds_per_arm": {
+          "const": 2
         },
         "fault_profile": {
           "type": "object",

@@ -70,6 +70,13 @@ Phase 4 is a characterization-only split for the three containment controls.
 It cannot repair the failed width-four join, admit product promotion, or turn a
 prompted retry policy into an observed retry count.
 
+Phase 5 compares the qualified width-two pattern with a single-agent baseline
+on a source-derived, read-only Pixel-use policy and friction task. It uses two
+fresh rounds per arm, exact controller answers, branch-separated custom
+profiles, profile quarantine, an OS-gated join, and transcript-blind scoring.
+The comparison can support a bounded product-specific recommendation; it
+cannot repair width-four joining or establish a universal agent framework.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -94,6 +101,9 @@ Files:
 - `BEHAVIOR_CONTRACT_PHASE4_CONTAINMENT.md` — denial, malformed-child, and
   watchdog characterization without width-four promotion;
 - `ROUTE_PHASE4_CONTAINMENT.md` — bounded containment-only execution route;
+- `BEHAVIOR_CONTRACT_PHASE5_PIXEL_USE_AB.md` — exact two-arm Pixel-use
+  product-utility comparison;
+- `ROUTE_PHASE5_PIXEL_USE_AB.md` — bounded two-round-per-arm execution route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe
@@ -102,6 +112,8 @@ Files:
   runner, gated join observer, verifier, and scoped postflight.
 - `scripts/fanout4_harness.py` — four-child success, join-denial,
   malformed-child, and watchdog oracle.
+- `scripts/product_probe_harness.py` — read-only Pixel-use single-agent and
+  width-two fixtures, guarded runners, exact verifiers, and postflights.
 
 The committed fixture source is
 `fixtures/custom-agents/phase1/`. It is inert in this repository. Runtime
