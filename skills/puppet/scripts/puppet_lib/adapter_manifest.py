@@ -890,6 +890,7 @@ def verify_qualification_receipt(
     _current_manifest: Optional["AdapterManifest"] = None,
     _server_process_fn: Optional[Any] = None,
     _tmux_factory: Optional[Any] = None,
+    _codex_control_source: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Verify an accepted receipt and every immutable proof artifact it binds."""
 
@@ -928,6 +929,21 @@ def verify_qualification_receipt(
     workspace_isolation = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
     )
+    codex_control_source = None
+    if _codex_control_source is not None:
+        from .codex_qualification import validate_codex_control_source
+
+        codex_control_source = validate_codex_control_source(
+            _codex_control_source
+        )
+        if (
+            receipt.get("target") != "codex"
+            or workspace_isolation is not None
+            or receipt.get("plane_activation") is not None
+        ):
+            raise ValidationError(
+                "Codex ordinary-control source is limited to an unactivated control"
+            )
     if plane_activation is not None and receipt.get("target") not in {
         "claude",
         "cursor",
@@ -991,6 +1007,7 @@ def verify_qualification_receipt(
         receipt["target"] == "codex"
         and current["yolo_mapping"].get("complete") is False
         and workspace_isolation is None
+        and codex_control_source is None
     ):
         raise ValidationError(
             "Codex qualification lacks terminal workspace isolation"
@@ -1076,6 +1093,7 @@ def verify_qualification_receipt(
             if claude_pairing is not None
             else sha256_file(path, max_bytes=131072)
         )
+        or terminal_state.get("codex_control_source") != codex_control_source
     ):
         raise ValidationError(
             "qualification receipt lacks its terminal lifecycle commit"
@@ -2672,6 +2690,11 @@ class AdapterManifest:
             # must not inherit ``regular`` from untrusted qualification
             # metadata if regular authority is enabled in a future release.
             require_agy_regular_launch_authority(expected_session_profile)
+        if self.target == "codex":
+            raise UnsupportedError(
+                "Codex public qualification remains fenced until a paired "
+                "receipt is independently verified and explicitly integrated"
+            )
         if self.raw["doctor_only"]:
             raise UnsupportedError(
                 "doctor-only manifest has no real-harness qualification"

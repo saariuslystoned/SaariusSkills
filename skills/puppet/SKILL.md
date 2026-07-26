@@ -72,6 +72,16 @@ security, secrets, spending, and destructive actions separately gated.
    Regular probes require the exact authenticated Puppet-owned private profile
    and bind its closed launch environment; they never borrow an operator-global
    harness home.
+   Codex is stricter: one accepted worktree receipt can never qualify a public
+   manifest. A bounded Codex candidate additionally requires a distinct
+   ordinary-control run linked to that positive receipt, the same exact private
+   subscription profile, provider-default model and effort with no selectors,
+   distinct non-overlapping workspace/process/tmux/lease identities, one real
+   read-only native-view attach/detach observation, and exact terminal halts.
+   `adapter_lab.py pair-codex` writes that body-free evidence create-only and
+   controller-attests it; `verify-codex-pair` independently rebuilds it.
+   Both commands report `paired_evidence_only`. They do not enable
+   `adapter_lab.py qualify`, a runtime manifest, or public launch.
 6. Run `puppet.py doctor --profile-root <private-profile>`. Stop on a missing,
    invalid, unauthenticated, or adapter-mismatched private profile; an active
    target/store lock; ambiguous executable identity; incomplete unrestricted
@@ -158,6 +168,16 @@ This qualifies authentication isolation, not Cursor's remaining workspace,
 default-model, process-population, or lifecycle behavior.
 For an unqualified Codex regular plan, do not execute that proposal until its
 `human_choose_private_codex_auth_route` gate is explicitly resolved.
+When a root-run Codex qualification is separately authorized, preserve the
+operator plan used before launch. Its hash-verified `entry_mode` is the only
+accepted claim for direct repository (`direct_git_root`) versus explicit
+cockpit (`cockpit_explicit`) entry, and it must name the exact positive
+worktree branch and head. Static repository file absence, target self-report,
+mocked launch, or doctor-only output is never entry or promotion evidence.
+Observe a native viewer only through structural tmux client/process identity:
+never retain pane body, prompt, transcript, scrollback, or authentication or
+configuration content. Keep target process, tmux server, viewer client/process,
+and controller lease identities separate in every proof.
 For an unqualified Claude regular plan, profile initialization is only
 preparation for the separately approved authenticated matched-control pair; it
 is not launch or matched-control authority.

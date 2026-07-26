@@ -244,6 +244,7 @@ def _validated_mapping(
     allow_cursor_activation: bool = False,
     allow_codex_worktree_probe: bool = False,
     allow_grok_workspace_probe: bool = False,
+    allow_codex_ordinary_control: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
@@ -296,7 +297,7 @@ def _validated_mapping(
             "effort_flag": "--effort",
         }
         codex_worktree_exception = (
-            allow_codex_worktree_probe
+            (allow_codex_worktree_probe or allow_codex_ordinary_control)
             and target == "codex"
             and mapping.get("project_isolation_declared") is False
             and mapping.get("project_isolation_flags") == []
@@ -963,6 +964,7 @@ def run_probe(
     subscription_profile_root: Optional[Path] = None,
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
+    paired_codex_positive_receipt: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
@@ -1079,6 +1081,13 @@ def run_probe(
             validate_cursor_qualification_request(plane_descriptor_value)
         else:
             validate_cursor_qualification_descriptor(plane_descriptor_value)
+    codex_ordinary_control = paired_codex_positive_receipt is not None
+    if codex_ordinary_control and (
+        target != "codex" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired Codex positive source is limited to an ordinary control"
+        )
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -1088,6 +1097,7 @@ def run_probe(
         allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
         allow_grok_workspace_probe=False,
+        allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -1168,6 +1178,26 @@ def run_probe(
             expected_target=target,
             require_logged_in=True,
         )
+    codex_control_source = None
+    if codex_ordinary_control:
+        from .codex_qualification import build_codex_control_source
+
+        codex_control_source = build_codex_control_source(
+            paired_codex_positive_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+            server_process_fn=_server_process_birth_fn,
+            tmux_factory=_tmux_factory,
+        )
+        if (
+            codex_control_source["controller"] != controller
+            or codex_control_source["campaign_id"] != authorization["campaign_id"]
+            or codex_control_source["goal_fingerprint"]
+            != goal_verification["goal_fingerprint"]
+        ):
+            raise IdentityError(
+                "Codex ordinary-control authority differs from its positive source"
+            )
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
     probes_root = proof_root / "probes"
@@ -1221,6 +1251,8 @@ def run_probe(
     }
     if claude_control_source is not None:
         state["claude_control_source"] = claude_control_source
+    if codex_control_source is not None:
+        state["codex_control_source"] = codex_control_source
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
@@ -1316,6 +1348,14 @@ def run_probe(
             ):
                 raise IdentityError(
                     "Claude ordinary control does not use the activation subscription profile"
+                )
+            if (
+                codex_control_source is not None
+                and codex_control_source["subscription_profile_sha256"]
+                != evidence["subscription_profile_sha256"]
+            ):
+                raise IdentityError(
+                    "Codex ordinary control does not use the positive subscription profile"
                 )
         if plane_descriptor_value is not None and not cursor_plane_request:
             atomic_write_json(
@@ -2737,6 +2777,7 @@ def run_probe(
             _current_manifest=manifest,
             _server_process_fn=_server_process_birth_fn,
             _tmux_factory=_tmux_factory,
+            _codex_control_source=codex_control_source,
         )
         _assert_executable_identity(manifest)
         _assert_adapter_identity(manifest, _adapter_fingerprint_fn)
@@ -2946,6 +2987,7 @@ def recover_probe(
     run_id: str,
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
+    paired_codex_positive_receipt: Optional[Path] = None,
     halt_timeout: float = 10.0,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -3087,6 +3129,13 @@ def recover_probe(
         if target != "cursor":
             raise ValidationError("Cursor workspace descriptor target changed")
         validate_cursor_qualification_descriptor(plane_descriptor_value)
+    codex_ordinary_control = paired_codex_positive_receipt is not None
+    if codex_ordinary_control and (
+        target != "codex" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired Codex positive source is limited to ordinary-control recovery"
+        )
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
@@ -3096,6 +3145,7 @@ def recover_probe(
         allow_cursor_activation=target == "cursor",
         allow_codex_worktree_probe=codex_worktree_descriptor,
         allow_grok_workspace_probe=False,
+        allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -3130,6 +3180,35 @@ def recover_probe(
     state = validate_qualification_state_schema(
         read_json(state_path, max_bytes=131072, reject_sensitive_fields=True)
     )
+    persisted_codex_control_source = state.get("codex_control_source")
+    if persisted_codex_control_source is not None:
+        from .codex_qualification import (
+            build_codex_control_source,
+            validate_codex_control_source,
+        )
+
+        persisted_codex_control_source = validate_codex_control_source(
+            persisted_codex_control_source
+        )
+        if paired_codex_positive_receipt is None:
+            raise IdentityError(
+                "Codex ordinary-control recovery requires its positive receipt"
+            )
+        expected_codex_control_source = build_codex_control_source(
+            paired_codex_positive_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+            server_process_fn=_server_process_birth_fn,
+            tmux_factory=_tmux_factory,
+        )
+        if persisted_codex_control_source != expected_codex_control_source:
+            raise IdentityError(
+                "Codex ordinary-control source changed during recovery"
+            )
+    elif paired_codex_positive_receipt is not None:
+        raise IdentityError(
+            "supplied Codex positive receipt lacks a persisted control source"
+        )
     evidence = read_json(evidence_path, max_bytes=131072, reject_sensitive_fields=True)
     evidence = validate_qualification_evidence_schema(evidence)
     persisted_control_source = state.get("claude_control_source")
@@ -3406,6 +3485,7 @@ def recover_probe(
                 _current_manifest=manifest,
                 _server_process_fn=_server_process_birth_fn,
                 _tmux_factory=_tmux_factory,
+                _codex_control_source=persisted_codex_control_source,
             )
             recovered = lease["state"] == "halting"
             if recovered:

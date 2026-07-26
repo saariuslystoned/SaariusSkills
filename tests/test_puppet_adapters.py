@@ -1273,9 +1273,9 @@ class AdapterTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertEqual(result.returncode, 3, result.stdout)
             self.assertFalse(out.exists())
-            self.assertIn("authority", result.stderr)
+            self.assertIn("Codex public qualification remains fenced", result.stderr)
 
     def test_adapter_lab_refuses_activation_lifecycle_only_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1301,15 +1301,16 @@ class AdapterTests(unittest.TestCase):
                 puppet_adapter_lab,
                 "_verified_receipt",
                 return_value={"plane_activation": {"terminal_state": "rolled_back"}},
-            ):
+            ) as verifier:
                 with self.assertRaisesRegex(
                     UnsupportedError,
-                    "cannot qualify a live adapter without matched no-bleed",
+                    "Codex public qualification remains fenced",
                 ):
                     puppet_adapter_lab._qualify(arguments)
+            verifier.assert_not_called()
             self.assertFalse(out.exists())
 
-    def test_codex_terminal_workspace_receipt_qualifies_and_reverifies(self):
+    def test_codex_terminal_workspace_receipt_cannot_self_promote(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             raw = manifest_raw(target="codex")
@@ -1418,21 +1419,11 @@ class AdapterTests(unittest.TestCase):
                 ),
             )
             with patches[0], patches[1], patches[2], patches[3]:
-                result = puppet_adapter_lab._qualify(arguments)
-                self.assertTrue(result["ok"])
-                qualified = AdapterManifest.from_path(out)
-                self.assertTrue(qualified.raw["yolo_mapping"]["complete"])
-                self.assertTrue(
-                    qualified.raw["yolo_mapping"]["project_isolation_declared"]
-                )
-                qualified.verify_qualification()
-
-                drifted = copy.deepcopy(qualified.raw)
-                drifted["yolo_mapping"]["permission_flags"].append("--drift")
                 with self.assertRaisesRegex(
-                    ValidationError, "qualified YOLO mapping changed"
+                    UnsupportedError, "Codex public qualification remains fenced"
                 ):
-                    AdapterManifest.from_dict(drifted).verify_qualification()
+                    puppet_adapter_lab._qualify(arguments)
+            self.assertFalse(out.exists())
 
     def test_adapter_lab_probe_and_recover_accept_optional_plane_descriptor(self):
         descriptor = Path("claude-plane.json")

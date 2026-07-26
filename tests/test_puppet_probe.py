@@ -40,7 +40,6 @@ from puppet_lib.adapter_manifest import (  # noqa: E402
 from puppet_lib.codex_launch import EXPECTED_UNRESTRICTED_FLAG  # noqa: E402
 from puppet_lib.codex_workspace_plane import (  # noqa: E402
     build_codex_worktree_descriptor,
-    codex_probe_mapping_from_qualified,
 )
 from puppet_lib.cursor_qualification import (  # noqa: E402
     CURSOR_NATIVE_TRIGGER,
@@ -51,7 +50,12 @@ from puppet_lib.authority import (  # noqa: E402
     current_session_lease,
     transition_session_lease,
 )
-from puppet_lib.errors import ConflictError, IdentityError, ValidationError  # noqa: E402
+from puppet_lib.errors import (  # noqa: E402
+    ConflictError,
+    IdentityError,
+    UnsupportedError,
+    ValidationError,
+)
 from puppet_lib.halt_control import deliver_halt_actions  # noqa: E402
 from puppet_lib.handoffs import PROTOCOL_FINGERPRINT  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
@@ -1162,8 +1166,6 @@ class ProbeTests(unittest.TestCase):
                     receipt=receipt_path,
                     out=out,
                 )
-                original_verify = AdapterManifest.verify_qualification
-
                 def verify_receipt_at_test_authority(path):
                     return verify_qualification_receipt(
                         path,
@@ -1173,57 +1175,17 @@ class ProbeTests(unittest.TestCase):
                         _tmux_factory=lambda selected: fake,
                     )
 
-                def verify_qualified_at_test_authority(manifest, **_kwargs):
-                    return original_verify(
-                        manifest,
-                        _authority_root=files["authority"],
-                        _current_manifest=manifest,
-                        _server_process_fn=lambda pid: fake.server_process,
-                        _tmux_factory=lambda selected: fake,
-                    )
-
-                with (
-                    patch.object(
-                        puppet_adapter_lab,
-                        "_verified_receipt",
-                        side_effect=verify_receipt_at_test_authority,
-                    ),
-                    patch.object(
-                        AdapterManifest,
-                        "verify_qualification",
-                        new=verify_qualified_at_test_authority,
-                    ),
-                ):
-                    qualified_result = puppet_adapter_lab._qualify(arguments)
-                self.assertTrue(qualified_result["ok"])
-                qualified = AdapterManifest.from_path(out)
-                self.assertTrue(qualified.raw["yolo_mapping"]["complete"])
-                self.assertTrue(
-                    qualified.raw["yolo_mapping"]["project_isolation_declared"]
-                )
-                self.assertEqual(
-                    codex_probe_mapping_from_qualified(
-                        qualified.raw["yolo_mapping"],
-                        workspace_isolation=receipt["workspace_isolation"],
-                    ),
-                    files["raw"]["yolo_mapping"],
-                )
-
-                nonexact = json.loads(json.dumps(qualified.raw))
-                nonexact["yolo_mapping"]["project_isolation_declared"] = False
-                with self.assertRaisesRegex(
-                    IdentityError, "qualified mapping closure changed"
-                ):
-                    verify_qualification_receipt(
-                        receipt_path,
-                        _authority_root=files["authority"],
-                        _current_manifest=SimpleNamespace(
-                            target="codex",
-                            raw=nonexact,
-                        ),
-                        _server_process_fn=lambda pid: fake.server_process,
-                        _tmux_factory=lambda selected: fake,
-                    )
+                with patch.object(
+                    puppet_adapter_lab,
+                    "_verified_receipt",
+                    side_effect=verify_receipt_at_test_authority,
+                ) as verifier:
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "Codex public qualification remains fenced"
+                    ):
+                        puppet_adapter_lab._qualify(arguments)
+                verifier.assert_not_called()
+                self.assertFalse(out.exists())
 
     def test_cursor_request_runs_activation_only_pass_b_and_rolls_back(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -3150,7 +3112,7 @@ class ProbeTests(unittest.TestCase):
                 "failed",
             )
 
-    def test_accepted_receipt_qualifies_probe_capabilities_but_not_resume(self):
+    def test_accepted_codex_receipt_cannot_authorize_public_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             files = controller_inputs(root)
@@ -3172,22 +3134,14 @@ class ProbeTests(unittest.TestCase):
             }
             manifest = AdapterManifest.from_dict(raw)
             self.assertEqual(manifest.raw["capabilities"]["resume"], "unsupported")
-            self.assertEqual(
+            with self.assertRaisesRegex(
+                UnsupportedError, "Codex public qualification remains fenced"
+            ):
                 manifest.verify_qualification(
                     _authority_root=files["authority"],
                     _current_manifest=AdapterManifest.from_dict(files["raw"]),
                     _server_process_fn=lambda pid: fake.server_process,
                     _tmux_factory=lambda root: fake,
-                )["result"],
-                "accepted",
-            )
-            with self.assertRaisesRegex(IdentityError, "session profile"):
-                manifest.verify_qualification(
-                    expected_session_profile="goal",
-                    _authority_root=files["authority"],
-                    _current_manifest=AdapterManifest.from_dict(files["raw"]),
-                    _server_process_fn=lambda pid: fake.server_process,
-                    _tmux_factory=lambda selected: fake,
                 )
 
     def test_active_same_target_blocks_without_exact_override(self):
@@ -3640,7 +3594,7 @@ class ProbeTests(unittest.TestCase):
                     _tmux_factory=lambda selected: fake,
                 )
 
-    def test_qualified_manifest_is_bound_to_campaign_controller_and_goal(self):
+    def test_unpaired_codex_manifest_stays_fenced_for_every_controller(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             files = controller_inputs(root)
@@ -3673,12 +3627,16 @@ class ProbeTests(unittest.TestCase):
                 "_server_process_fn": lambda pid: fake.server_process,
                 "_tmux_factory": lambda selected: fake,
             }
-            with self.assertRaisesRegex(IdentityError, "active campaign"):
+            with self.assertRaisesRegex(
+                UnsupportedError, "Codex public qualification remains fenced"
+            ):
                 manifest.verify_qualification(
                     expected_controller="other-controller",
                     **common,
                 )
-            with self.assertRaisesRegex(IdentityError, "active campaign"):
+            with self.assertRaisesRegex(
+                UnsupportedError, "Codex public qualification remains fenced"
+            ):
                 manifest.verify_qualification(
                     expected_controller="tester",
                     **dict(common, expected_goal_fingerprint="0" * 64),

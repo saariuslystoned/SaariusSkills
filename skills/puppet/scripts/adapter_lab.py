@@ -23,6 +23,11 @@ from puppet_lib.census import (
     census_many,
     census_target,
 )
+from puppet_lib.codex_qualification import (
+    create_codex_regular_pair_receipt,
+    observe_codex_native_view,
+    verify_codex_regular_pair_receipt,
+)
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
 from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
 from puppet_lib.claude_paired_qualification import (
@@ -106,6 +111,7 @@ def _probe(args):
         subscription_profile_root=args.subscription_profile_root,
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
+        paired_codex_positive_receipt=args.paired_codex_positive_receipt,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
@@ -132,6 +138,7 @@ def _recover(args):
         run_id=args.run_id,
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
+        paired_codex_positive_receipt=args.paired_codex_positive_receipt,
         halt_timeout=args.halt_timeout,
     )
 
@@ -210,6 +217,11 @@ def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
     if not base.raw["doctor_only"]:
         raise ValidationError("qualification input must be a doctor-only manifest")
+    if base.target == "codex":
+        raise UnsupportedError(
+            "Codex public qualification remains fenced; neither a positive "
+            "receipt nor the evidence-only paired substrate can promote it"
+        )
     receipt_path = args.receipt.resolve(strict=True)
     receipt = _verified_receipt(receipt_path)
     if base.target == "agy":
@@ -355,6 +367,51 @@ def _cursor_native_view(args):
     }
 
 
+def _observe_codex_view(args):
+    return observe_codex_native_view(
+        proof_root=args.proof_root,
+        run_id=args.run_id,
+        timeout=args.timeout,
+    )
+
+
+def _pair_codex(args):
+    manifest = AdapterManifest.from_path(args.manifest)
+    if manifest.target != "codex" or not manifest.raw["doctor_only"]:
+        raise ValidationError("Codex pair input must be a doctor-only Codex manifest")
+    return create_codex_regular_pair_receipt(
+        out=args.out.resolve(),
+        positive_receipt_path=args.positive_receipt,
+        ordinary_receipt_path=args.ordinary_control_receipt,
+        native_view_path=args.native_view,
+        entry_plan_path=args.entry_plan,
+        private_profile_root=args.private_profile_root,
+        _current_manifest=manifest,
+    )
+
+
+def _verify_codex_pair(args):
+    manifest = AdapterManifest.from_path(args.manifest)
+    if manifest.target != "codex" or not manifest.raw["doctor_only"]:
+        raise ValidationError(
+            "Codex pair verification requires the current doctor-only manifest"
+        )
+    value = verify_codex_regular_pair_receipt(
+        args.receipt,
+        expected_private_profile_root=args.private_profile_root,
+        _current_manifest=manifest,
+    )
+    return {
+        "ok": True,
+        "target": "codex",
+        "result": value["result"],
+        "public_launch_authorized": False,
+        "promotion_authorized": False,
+        "independently_verified": True,
+        "raw_retained": False,
+    }
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Build fingerprinted doctor-only Puppet adapter manifests without launching agents."
@@ -401,6 +458,13 @@ def build_parser():
             "accepted activation-only Claude receipt that authorizes this ordinary control"
         ),
     )
+    probe_parser.add_argument(
+        "--paired-codex-positive-receipt",
+        type=Path,
+        help=(
+            "terminal positive Codex worktree receipt that binds this ordinary control"
+        ),
+    )
     probe_parser.set_defaults(handler=_probe)
     recover_parser = commands.add_parser(
         "recover",
@@ -422,6 +486,7 @@ def build_parser():
     recover_parser.add_argument("--halt-timeout", type=float, default=10.0)
     recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.add_argument("--paired-activation-receipt", type=Path)
+    recover_parser.add_argument("--paired-codex-positive-receipt", type=Path)
     recover_parser.set_defaults(handler=_recover)
     observe_parser = commands.add_parser(
         "observe-claude-view",
@@ -439,6 +504,40 @@ def build_parser():
     pair_parser.add_argument("--activation-receipt", required=True, type=Path)
     pair_parser.add_argument("--control-receipt", required=True, type=Path)
     pair_parser.set_defaults(handler=_pair_claude)
+    codex_view_parser = commands.add_parser(
+        "observe-codex-view",
+        help="observe one real read-only Codex native-view attach and detach",
+    )
+    codex_view_parser.add_argument("--proof-root", required=True, type=Path)
+    codex_view_parser.add_argument("--run-id", required=True)
+    codex_view_parser.add_argument("--timeout", type=float, default=30.0)
+    codex_view_parser.set_defaults(handler=_observe_codex_view)
+    codex_pair_parser = commands.add_parser(
+        "pair-codex",
+        help="create a non-promotable controller-attested Codex pair",
+    )
+    codex_pair_parser.add_argument("--manifest", required=True, type=Path)
+    codex_pair_parser.add_argument("--positive-receipt", required=True, type=Path)
+    codex_pair_parser.add_argument(
+        "--ordinary-control-receipt", required=True, type=Path
+    )
+    codex_pair_parser.add_argument("--native-view", required=True, type=Path)
+    codex_pair_parser.add_argument("--entry-plan", required=True, type=Path)
+    codex_pair_parser.add_argument(
+        "--private-profile-root", required=True, type=Path
+    )
+    codex_pair_parser.add_argument("--out", required=True, type=Path)
+    codex_pair_parser.set_defaults(handler=_pair_codex)
+    verify_pair_parser = commands.add_parser(
+        "verify-codex-pair",
+        help="independently rebuild a non-promotable Codex pair",
+    )
+    verify_pair_parser.add_argument("--manifest", required=True, type=Path)
+    verify_pair_parser.add_argument("--receipt", required=True, type=Path)
+    verify_pair_parser.add_argument(
+        "--private-profile-root", required=True, type=Path
+    )
+    verify_pair_parser.set_defaults(handler=_verify_codex_pair)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)
     verify_parser.set_defaults(handler=_verify)

@@ -1,14 +1,16 @@
 # Codex regular-session qualification harness (v0.1)
 
-Status: launch-disabled workspace-plane planning only; no live Codex session is
-qualified.
+Status: paired qualification source substrate implemented but explicitly
+non-promotable; no live Codex pair is qualified and public launch remains
+fenced.
 
 ## Scope and lane contract
 
 - File purpose: planning and proof-prep for Codex regular-session qualification under
   `codex-goal-regular-qualification.md`.
-- Current source lane: `codex/puppet-codex-workspace-plan` from exact integrated
-  base `8f64210dccad81377ec33e482c79703c6c7a8806`.
+- Current bounded candidate lane:
+  `codex/puppet-codex-public-qualification-20260726` from exact base
+  `94b303fb9411c8de79a9d24367c916a2f1e465ae`.
 - Objective: map exact Codex regular-session behavior for the three instruction planes,
   select a winner for the exact installed version, and define deterministic evidence and
   fixture deltas so the lane can qualify with no transcript bleed.
@@ -148,9 +150,12 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
      and fixture `ready.json` ready-phase acknowledgment.
 
 2. **Instruction-plane control**
-   - Input: selected candidate plane plus a matched ordinary control without it.
-   - Expected: exact contract marker only in the Puppet-owned checkpoint and no
-     activation in the control session.
+   - Input: one controller-linked positive direct-worktree run plus a distinct
+     ordinary-control run using the same exact Puppet-owned subscription
+     profile and the same provider-default/no-selector launch vector.
+   - Expected: distinct accepted checkpoints, workspaces, target processes,
+     tmux servers/sockets/sessions, and controller leases; exact terminal halts;
+     and no population bleed. A single positive receipt never promotes.
 
 3. **Follow-up steering**
    - Input: second message via controller send (non-prefix) on same session.
@@ -170,15 +175,19 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
      evidence retained.
 
 6. **No-bleed ordinary control**
-   - Start control session in ordinary `CODEX_HOME` and one in isolated `CODEX_HOME`;
-     verify launch/ready/follow-up only occurs in the isolated session and ordinary
-     session state remains unchanged.
+   - Start both runs from the same stable Puppet-owned private `CODEX_HOME`
+     profile, but in distinct non-overlapping workspaces and with distinct
+     tmux/process/controller-lease identities.
+   - Require empty same-target populations before each launch and after each
+     exact halt. The control is linked to the earlier positive receipt before
+     launch and cannot run from an operator-global or second profile.
 
 ## 5) Isolated `CODEX_HOME` / config-root strategy
 
-- Use a dedicated temporary root (for example
-  `runs/puppet-v01-regular-qualification-20260722/lanes/codex/tmp/codex-home`)
-  and pass it as environment variable `CODEX_HOME` for all Codex commands in this lane.
+- Use one stable, current-UID mode-0700 Puppet-owned private profile and pass
+  its exact root as `CODEX_HOME` for both members of the pair. Do not create a
+  second control profile or place the profile inside a disposable run/proof
+  root.
 - Keep fixture config minimal and lane-local; never read or write
   `~/.codex/config.toml` during this lane.
 - Launch commands with explicit `-C <absolute-fixture-repo>` and no
@@ -194,6 +203,31 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 
 ## 6) Implemented substrate and remaining Puppet source deltas
 
+- `skills/puppet/scripts/puppet_lib/codex_qualification.py`
+  - links the ordinary control to one earlier controller-attested positive
+    worktree receipt before launch and requires the same subscription-profile
+    hash/root, regular session profile, provider-default model/effort, and
+    identical no-selector argv/closed profile fingerprint;
+  - requires distinct non-overlapping workspaces, target processes, tmux
+    sockets/sessions/servers, accepted checkpoints, and exact halted controller
+    leases, plus empty before-launch and after-halt target populations;
+  - observes a real native tmux viewer only through a distinct read-only client
+    and executable/process identity while the positive target is alive, then
+    requires its detach without ever reading or retaining pane body, prompt,
+    transcript, scrollback, or auth/config content;
+  - accepts only a self-hashed operator plan proving exact `direct_git_root` or
+    `cockpit_explicit` entry for the positive worktree repository, branch, and
+    head; and
+  - creates the paired proof with exclusive create semantics and controller
+    attestation, then independently rebuilds it from terminal artifacts. The
+    result is always `paired_evidence_only` with launch/promotion false.
+- `skills/puppet/scripts/adapter_lab.py`,
+  `skills/puppet/scripts/puppet_lib/probe.py`, and
+  `skills/puppet/scripts/puppet_lib/adapter_manifest.py`
+  - expose the linked ordinary-control, structural viewer, create-only pair,
+    and pair-verification source surfaces;
+  - reject every Codex `qualify` attempt and every Codex runtime-manifest
+    verification. No pair consumer can authorize public launch.
 - `skills/puppet/scripts/puppet_lib/codex_workspace_plane.py`
   - implements the launch-disabled body-free workspace plan described above;
     revalidation rebuilds the exact plan from current source-owned launch,
@@ -291,6 +325,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Unconditional source-only blocker: live doctor/current-default and Pass-B lifecycle
   unproved.
 - Unconditional source-only blocker: launch remains fenced/source-only.
+- Unconditional promotion blocker: the paired receipt is evidence-only until
+  root runs both real subscription-backed sessions, independently verifies the
+  terminal pair, reviews it, and explicitly integrates a separate public
+  authority path. This candidate performs none of those root-owned steps.
 - Mapping blocker while applicable: native-plane mapping remains incomplete because
   project isolation has not been proved.
 - Blocker: any executable/help/help-sha/`CODEX_HOME` drift after this census.
@@ -311,3 +349,5 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Stop condition: no unsupported claims beyond this lane scope; if model/plane/resume
   evidence is inconclusive, defer plane choice and keep harness status as `experimental`
   with blockers recorded.
+- `/goal`, `/loop`, explicit model selection, model pinning, and resume remain
+  deferred and are not implied by this regular provider-default pair.

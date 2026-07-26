@@ -98,6 +98,34 @@ process, tmux, workspace, default-model-unavailable, structural view, and empty
 pre/post population evidence. It captures no bodies. Activation-only and
 unpaired-control receipts are intentionally non-promotable.
 
+The final `qualify` step above does not apply to Codex. Codex public launch and
+manifest qualification remain fenced even after a positive worktree receipt or
+an evidence-only pair. The bounded Codex source substrate requires:
+
+- a positive direct-worktree run and a later ordinary-control run, both
+  `regular`, using the same exact Puppet-owned subscription profile and the
+  same provider-default/no-selector launch vector;
+- distinct run, accepted checkpoint, workspace, target process, tmux
+  socket/session/server, and controller lease identities, with empty
+  same-target populations before both launches and after both exact halts;
+- a real read-only native TUI client observed structurally while the positive
+  target is alive, with distinct target process, tmux server, and viewer
+  client/process identity and no pane body, prompt, transcript, scrollback, or
+  auth/config content retained; and
+- the hash-verified prelaunch operator plan, whose exact `direct_git_root` or
+  `cockpit_explicit` entry mode, repository, branch, and head match the positive
+  worktree receipt.
+
+Run the ordinary control with
+`--paired-codex-positive-receipt POSITIVE_RECEIPT`; recovery must receive that
+same option and receipt. After both exact halts, `pair-codex` creates one new
+controller-attested `paired_evidence_only` receipt and refuses any existing
+destination. `verify-codex-pair` reopens both terminal receipts and all bound
+artifacts against the current doctor-only manifest and profile. Neither command
+promotes, qualifies, or authorizes public launch. Independent root-run live
+sessions, review, and explicit integration remain outside this source
+substrate.
+
 On interruption, replace `probe --profile ...` with `recover`, retain the
 shared identity arguments, omit `--subscription-profile-root`, and supply the
 original required `--run-id`. Recovery never relaunches a target. There is no
