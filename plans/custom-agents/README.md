@@ -61,6 +61,11 @@ child markers and child-only paths ground each branch; the parent join remains
 OS-locked until both child files exist. This proves functional fan-out and join
 without reading tool traces or transcripts.
 
+Phase 3 widens that oracle to four children across four fresh success rounds,
+then exercises a locked-join denial, one malformed child, and a one-second
+controller watchdog. Permission containment and bounded termination are
+observable; retry-attempt count remains unqualified without a tool trace.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -79,12 +84,17 @@ Files:
 - `BEHAVIOR_CONTRACT_PHASE2_2X2.md` — two-round, two-child nested fan-out
   oracle;
 - `ROUTE_PHASE2_2X2.md` — bounded 2x2 execution route;
+- `BEHAVIOR_CONTRACT_PHASE3_4X4.md` — four-round width-four reliability and
+  containment contract;
+- `ROUTE_PHASE3_4X4.md` — bounded 4x4 and containment execution route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe
   hook observer, inventory filter, CLI-log filter, and bounded result verifier.
 - `scripts/fanout_harness.py` — hidden-child fixture builder, guarded fan-out
   runner, gated join observer, verifier, and scoped postflight.
+- `scripts/fanout4_harness.py` — four-child success, join-denial,
+  malformed-child, and watchdog oracle.
 
 The committed fixture source is
 `fixtures/custom-agents/phase1/`. It is inert in this repository. Runtime
