@@ -132,7 +132,7 @@ def followup():
     }
 
 
-def qualification_receipt_core(schema_version=4):
+def qualification_receipt_core(schema_version=5):
     return {
         "schema_version": schema_version,
         "campaign_id": "campaign-test",

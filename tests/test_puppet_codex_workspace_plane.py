@@ -4,6 +4,7 @@ import copy
 import inspect
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,11 +27,14 @@ from puppet_lib.codex_launch import (  # noqa: E402
 )
 from puppet_lib.codex_workspace_plane import (  # noqa: E402
     CodexWorkspacePlan,
+    build_codex_worktree_descriptor,
+    codex_qualified_mapping,
     materialize_codex_workspace_plane,
     plan_codex_workspace_plane,
     recover_codex_workspace_plane,
     revalidate_codex_workspace_plan,
     rollback_codex_workspace_plane,
+    validate_codex_worktree_descriptor,
     verify_codex_workspace_plane,
 )
 from puppet_lib.conformance import tree_fingerprint  # noqa: E402
@@ -542,6 +546,102 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
             "os.kill(",
         ):
             self.assertNotIn(forbidden, source)
+
+    def test_direct_worktree_descriptor_is_source_only_and_exact(self):
+        supervisor = self.base / "supervisor"
+        candidate = self.base / "candidate"
+        profile = self.base / "profile"
+        profile.mkdir(mode=0o700)
+        subprocess.run(["git", "init", "-q", str(supervisor)], check=True)
+        for key, value in (
+            ("user.email", "test@example.invalid"),
+            ("user.name", "Puppet Test"),
+        ):
+            subprocess.run(
+                ["git", "-C", str(supervisor), "config", key, value], check=True
+            )
+        (supervisor / "tracked").write_text("one\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(supervisor), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(supervisor), "commit", "-q", "-m", "initial"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(supervisor),
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "candidate",
+                str(candidate),
+            ],
+            check=True,
+        )
+        descriptor = build_codex_worktree_descriptor(
+            candidate_root=candidate,
+            supervisor_root=supervisor,
+            controller="controller-a",
+            campaign_id="campaign-a",
+            goal_fingerprint="1" * 64,
+            executable_sha256="2" * 64,
+            subscription_profile_root=profile,
+        )
+        verified = validate_codex_worktree_descriptor(
+            descriptor,
+            expected_controller="controller-a",
+            expected_campaign_id="campaign-a",
+            expected_goal_fingerprint="1" * 64,
+            expected_executable_sha256="2" * 64,
+            expected_subscription_profile_root=profile,
+        )
+        self.assertFalse(verified["qualification_authorized"])
+
+        for name, value in (
+            ("candidate_branch", "wrong"),
+            ("candidate_head", "f" * 40),
+            ("controller", "controller-b"),
+            ("subscription_profile_root", str(self.codex_home.resolve())),
+        ):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(descriptor)
+                changed[name] = value
+                changed["descriptor_sha256"] = sha256_bytes(
+                    canonical_json_bytes(
+                        {
+                            key: item
+                            for key, item in changed.items()
+                            if key != "descriptor_sha256"
+                        }
+                    )
+                )
+                with self.assertRaises(IdentityError):
+                    validate_codex_worktree_descriptor(
+                        changed,
+                        expected_controller="controller-a",
+                        expected_campaign_id="campaign-a",
+                        expected_goal_fingerprint="1" * 64,
+                        expected_executable_sha256="2" * 64,
+                        expected_subscription_profile_root=profile,
+                    )
+
+    def test_only_terminal_qualification_can_close_codex_mapping(self):
+        mapping = {
+            "complete": False,
+            "launch_argv": [
+                workspace_module.EXPECTED_RESOLVED_EXECUTABLE_PATH,
+                EXPECTED_UNRESTRICTED_FLAG,
+            ],
+            "project_isolation_declared": False,
+            "project_isolation_flags": [],
+        }
+        qualified = codex_qualified_mapping(mapping)
+        self.assertTrue(qualified["complete"])
+        self.assertTrue(qualified["project_isolation_declared"])
+        self.assertEqual(qualified["launch_argv"], mapping["launch_argv"])
+        self.assertEqual(qualified["project_isolation_flags"], [])
 
 
 if __name__ == "__main__":

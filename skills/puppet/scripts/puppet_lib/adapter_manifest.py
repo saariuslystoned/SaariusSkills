@@ -43,6 +43,7 @@ from .safety import (
     sha256_bytes,
     validate_identifier,
     validate_pane_id,
+    validate_sha1,
     validate_sha256,
 )
 from .verdicts import validate_acceptance_record, validate_review_record
@@ -70,13 +71,13 @@ EXECUTION_TRANSITIONS = frozenset(
 MAX_TRANSIENT_EXECUTABLES = 8
 MAX_EXECUTION_SUPPORT_FILES = 16
 ADAPTER_MANIFEST_SCHEMA_VERSION = 2
-QUALIFICATION_RECEIPT_SCHEMA_VERSION = 4
-QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 4
-QUALIFICATION_STATE_SCHEMA_VERSION = 4
+QUALIFICATION_RECEIPT_SCHEMA_VERSION = 5
+QUALIFICATION_EVIDENCE_SCHEMA_VERSION = 5
+QUALIFICATION_STATE_SCHEMA_VERSION = 5
 # The named Pass B procedure is stable across its versioned evidence envelopes.
 QUALIFICATION_PROFILE = "source-free-pass-b-v2"
 LEGACY_RUNTIME_IDENTITY_SCHEMA_VERSIONS = frozenset({1})
-LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+LEGACY_QUALIFICATION_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4})
 CURSOR_REQUIRED_PATH_TOOLS = ("bash", "basename", "dirname", "realpath", "readlink")
 _EXECUTION_FILE_CHUNK_BYTES = 1024 * 1024
 
@@ -345,6 +346,10 @@ ACTIVATION_QUALIFICATION_PROOF_KINDS = (
     "matched_control_attestation",
     "matched_control_signal",
 )
+CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS = (
+    "workspace_descriptor",
+    "controller_contract",
+)
 PROBE_PLANE_ACTIVATION_SCHEMA = "puppet.probe-plane-activation/v1"
 ACTIVATION_LIFECYCLE_SCOPE = "activation_lifecycle_only"
 _PROBE_PLANE_ACTIVATION_FIELDS = {
@@ -387,6 +392,7 @@ _RECEIPT_FIELDS = {
     "acceptance_sha256",
     "halt_receipt_sha256",
     "plane_activation",
+    "workspace_isolation",
     "proof_refs",
     "controller_attestation",
 }
@@ -420,6 +426,7 @@ _ACCEPTED_EVIDENCE_FIELDS = {
     "payload_argv_absent",
     "instruction_wrapper",
     "plane_activation",
+    "workspace_isolation",
     "active_target_processes_before_launch",
     "active_target_processes_after_halt",
     "target_population_policy",
@@ -467,6 +474,49 @@ def validate_probe_plane_activation(value: Any) -> Optional[Dict[str, Any]]:
     return dict(value)
 
 
+def validate_codex_workspace_isolation(value: Any) -> Optional[Dict[str, Any]]:
+    if value is None:
+        return None
+    fields = {
+        "schema",
+        "terminal_state",
+        "descriptor_sha256",
+        "candidate_root",
+        "candidate_branch",
+        "candidate_head",
+        "startup_cwd",
+        "controller_contract_sha256",
+        "instruction_manifest_sha256",
+        "executable_sha256",
+        "subscription_profile_sha256",
+        "launch_plan_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValidationError("Codex workspace isolation fields do not match schema")
+    if (
+        value.get("schema") != "puppet.codex-direct-worktree-receipt/v1"
+        or value.get("terminal_state") != "controller_verified_after_exact_halt"
+    ):
+        raise ValidationError("Codex workspace isolation is not terminal")
+    for name in fields - {
+        "schema",
+        "terminal_state",
+        "candidate_root",
+        "candidate_branch",
+        "candidate_head",
+        "startup_cwd",
+    }:
+        validate_sha256(value.get(name), name.replace("_", " "))
+    validate_sha1(value.get("candidate_head"), "candidate head")
+    if (
+        value.get("candidate_root") != value.get("startup_cwd")
+        or not isinstance(value.get("candidate_branch"), str)
+        or not value["candidate_branch"]
+    ):
+        raise ValidationError("Codex workspace startup cwd binding is invalid")
+    return dict(value)
+
+
 def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
     """Reject legacy, future, and mixed-shape qualification evidence."""
 
@@ -486,6 +536,7 @@ def validate_qualification_evidence_schema(value: Any) -> Dict[str, Any]:
         "qualification evidence execution fingerprint",
     )
     validate_probe_plane_activation(value.get("plane_activation"))
+    validate_codex_workspace_isolation(value.get("workspace_isolation"))
     if value.get("result") == "accepted":
         validate_sha256(
             value.get("subscription_profile_sha256"),
@@ -575,8 +626,13 @@ def _verify_qualification_instruction_authority(
 
 def _qualification_artifacts(path: Path, receipt: Dict[str, Any]) -> Dict[str, Path]:
     activation = validate_probe_plane_activation(receipt.get("plane_activation"))
+    workspace = validate_codex_workspace_isolation(
+        receipt.get("workspace_isolation")
+    )
     expected_kinds = QUALIFICATION_PROOF_KINDS + (
         ACTIVATION_QUALIFICATION_PROOF_KINDS if activation is not None else ()
+    ) + (
+        CODEX_WORKTREE_QUALIFICATION_PROOF_KINDS if workspace is not None else ()
     )
     refs = receipt.get("proof_refs")
     if not isinstance(refs, list) or len(refs) != len(expected_kinds):
@@ -748,8 +804,13 @@ def verify_qualification_receipt(
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
     plane_activation = validate_probe_plane_activation(receipt.get("plane_activation"))
+    workspace_isolation = validate_codex_workspace_isolation(
+        receipt.get("workspace_isolation")
+    )
     if plane_activation is not None and receipt.get("target") != "claude":
         raise ValidationError("plane activation is supported only for Claude")
+    if workspace_isolation is not None and receipt.get("target") != "codex":
+        raise ValidationError("workspace isolation is supported only for Codex")
     validate_session_profile(receipt["target"], receipt.get("session_profile"))
     validate_identifier(receipt.get("run_id"), "qualification run id")
     validate_identifier(receipt.get("controller"), "qualification controller")
@@ -797,6 +858,19 @@ def verify_qualification_receipt(
     if current_manifest.target != receipt["target"]:
         raise IdentityError("qualification current target identity mismatch")
     current = current_manifest.raw
+    if (
+        receipt["target"] == "codex"
+        and current["yolo_mapping"].get("complete") is False
+        and workspace_isolation is None
+    ):
+        raise ValidationError(
+            "Codex qualification lacks terminal workspace isolation"
+        )
+    current_mapping = current["yolo_mapping"]
+    if workspace_isolation is not None and current_mapping.get("complete") is True:
+        current_mapping = dict(current_mapping)
+        current_mapping["complete"] = False
+        current_mapping["project_isolation_declared"] = False
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
         "execution_fingerprint": current["execution"]["execution_fingerprint"],
@@ -805,7 +879,7 @@ def verify_qualification_receipt(
         "adapter_fingerprint": current["adapter_fingerprint"],
         "protocol_fingerprint": current["protocol_fingerprint"],
         "yolo_mapping_sha256": sha256_bytes(
-            canonical_json_bytes(current["yolo_mapping"])
+            canonical_json_bytes(current_mapping)
         ),
     }
     for name, observed in current_identities.items():
@@ -872,6 +946,8 @@ def verify_qualification_receipt(
     evidence = validate_qualification_evidence_schema(evidence)
     if evidence.get("plane_activation") != plane_activation:
         raise ValidationError("qualification plane activation identity mismatch")
+    if evidence.get("workspace_isolation") != workspace_isolation:
+        raise ValidationError("qualification workspace isolation identity mismatch")
     from .subscription_profiles import (
         subscription_binding_environment,
         validate_subscription_launch_binding,
@@ -1019,7 +1095,12 @@ def verify_qualification_receipt(
             "qualification launch argv differs from its admitted plan"
         )
     expected_fixture = artifacts["ready"].resolve(strict=True).parent.parent
-    if launch_plan["cwd"] != str(expected_fixture):
+    expected_cwd = (
+        workspace_isolation["startup_cwd"]
+        if workspace_isolation is not None
+        else str(expected_fixture)
+    )
+    if launch_plan["cwd"] != expected_cwd:
         raise ValidationError(
             "qualification launch cwd differs from its admitted fixture"
         )
@@ -1041,6 +1122,43 @@ def verify_qualification_receipt(
         expected_launch_argv.extend(activation_argv)
     if launch_plan["argv"] != expected_launch_argv:
         raise ValidationError("qualification launch argv differs from its authority")
+    if workspace_isolation is not None:
+        from .codex_workspace_plane import validate_codex_worktree_descriptor
+
+        descriptor = read_json(
+            artifacts["workspace_descriptor"],
+            max_bytes=131072,
+            reject_sensitive_fields=True,
+        )
+        validated_descriptor = validate_codex_worktree_descriptor(
+            descriptor,
+            expected_controller=receipt["controller"],
+            expected_campaign_id=receipt["campaign_id"],
+            expected_goal_fingerprint=receipt["goal_fingerprint"],
+            expected_executable_sha256=receipt["executable_fingerprint"],
+            expected_subscription_profile_root=subscription_binding["profile_root"],
+        )
+        if (
+            workspace_isolation["descriptor_sha256"]
+            != validated_descriptor["descriptor_sha256"]
+            or workspace_isolation["candidate_root"]
+            != validated_descriptor["candidate_root"]
+            or workspace_isolation["candidate_branch"]
+            != validated_descriptor["candidate_branch"]
+            or workspace_isolation["candidate_head"]
+            != validated_descriptor["candidate_head"]
+            or workspace_isolation["executable_sha256"]
+            != receipt["executable_fingerprint"]
+            or workspace_isolation["subscription_profile_sha256"]
+            != receipt["subscription_profile_sha256"]
+            or workspace_isolation["launch_plan_sha256"]
+            != receipt["launch_plan_sha256"]
+            or workspace_isolation["instruction_manifest_sha256"]
+            != sha256_file(artifacts["instructions"], max_bytes=131072)
+            or workspace_isolation["controller_contract_sha256"]
+            != sha256_file(artifacts["controller_contract"], max_bytes=131072)
+        ):
+            raise IdentityError("Codex terminal workspace receipt binding changed")
     wrapper = evidence.get("instruction_wrapper")
     if not isinstance(wrapper, dict) or set(wrapper) != _INSTRUCTION_WRAPPER_FIELDS:
         raise ValidationError("qualification instruction wrapper fields are invalid")

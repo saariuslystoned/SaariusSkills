@@ -33,7 +33,7 @@ from .safety import (
 
 AUTHORITY_ID = "puppet-local-controller-v1"
 LEASE_SCHEMA_VERSION = 2
-QUALIFICATION_ATTESTATION_SCHEMA_VERSION = 4
+QUALIFICATION_ATTESTATION_SCHEMA_VERSION = 5
 LEASE_TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 ACTIVE_LEASE_STATES = {"launching", "active", "halting"}
 LEGACY_FENCE_CONTROLLER = "per-target-lease-fence-v1"
@@ -1000,7 +1000,7 @@ def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:
         reject_sensitive_fields=True,
     )
     receipt_schema = receipt_core.get("schema_version")
-    if receipt_schema in {1, 2, 3}:
+    if receipt_schema in {1, 2, 3, 4}:
         raise UnsupportedError(
             "legacy qualification receipt cannot authorize a runtime attestation"
         )

@@ -38,17 +38,21 @@ from .launch import (
     select_launch_environment,
     validate_admitted_launch_plan,
 )
+from .operator_plan import _repository_identity
 from .safety import (
     canonical_json_bytes,
     paths_overlap,
     sha256_bytes,
     validate_bounded_json,
     validate_identifier,
+    validate_sha1,
     validate_sha256,
 )
 
 
 PLAN_SCHEMA = "puppet.codex-workspace-plane-plan/v2"
+DESCRIPTOR_SCHEMA = "puppet.codex-direct-worktree-descriptor/v1"
+TERMINAL_SCHEMA = "puppet.codex-direct-worktree-receipt/v1"
 STATUS = {"surface": "hypothesis", "activation": "disabled"}
 PLANNED_ARTIFACT = "AGENTS.md"
 WORKSPACE_BLOCKERS = (
@@ -99,6 +103,163 @@ _PLAN_FIELDS = {
     "planned_artifact",
     "plan_sha256",
 }
+
+_DESCRIPTOR_FIELDS = {
+    "schema",
+    "target",
+    "surface",
+    "qualification_authorized",
+    "candidate_root",
+    "candidate_branch",
+    "candidate_head",
+    "supervisor_root",
+    "controller",
+    "campaign_id",
+    "goal_fingerprint",
+    "executable_sha256",
+    "subscription_profile_root",
+    "descriptor_sha256",
+}
+
+
+def _canonical_directory(value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValidationError("%s is invalid" % label)
+    path = Path(value)
+    if not path.is_absolute() or os.path.normpath(value) != value:
+        raise ValidationError("%s must be canonical and absolute" % label)
+    try:
+        current = path.resolve(strict=True)
+    except OSError as exc:
+        raise IdentityError("%s is unavailable" % label) from exc
+    if current != path or path.is_symlink() or not path.is_dir():
+        raise IdentityError("%s is not a canonical real directory" % label)
+    return path
+
+
+def validate_codex_worktree_descriptor(
+    value: Any,
+    *,
+    expected_controller: str,
+    expected_campaign_id: str,
+    expected_goal_fingerprint: str,
+    expected_executable_sha256: str,
+    expected_subscription_profile_root: Path | str,
+) -> Dict[str, Any]:
+    """Rejoin one non-authorizing descriptor to the current linked worktree."""
+
+    if not isinstance(value, Mapping) or set(value) != _DESCRIPTOR_FIELDS:
+        raise ValidationError("Codex worktree descriptor fields are invalid")
+    if (
+        value.get("schema") != DESCRIPTOR_SCHEMA
+        or value.get("target") != "codex"
+        or value.get("surface") != "controller_proved_direct_worktree_cwd"
+        or value.get("qualification_authorized") is not False
+    ):
+        raise ValidationError("Codex worktree descriptor is not source-only")
+    result = dict(value)
+    controller = validate_identifier(value.get("controller"), "descriptor controller")
+    campaign = validate_identifier(value.get("campaign_id"), "descriptor campaign")
+    goal = validate_sha256(value.get("goal_fingerprint"), "descriptor goal")
+    executable = validate_sha256(
+        value.get("executable_sha256"), "descriptor executable"
+    )
+    if (
+        controller != expected_controller
+        or campaign != expected_campaign_id
+        or goal != expected_goal_fingerprint
+        or executable != expected_executable_sha256
+    ):
+        raise IdentityError("Codex worktree descriptor authority changed")
+    candidate = _canonical_directory(value.get("candidate_root"), "candidate root")
+    supervisor = _canonical_directory(value.get("supervisor_root"), "supervisor root")
+    profile = _canonical_directory(
+        value.get("subscription_profile_root"), "subscription profile root"
+    )
+    expected_profile = Path(expected_subscription_profile_root).resolve(strict=True)
+    if profile != expected_profile:
+        raise IdentityError("Codex worktree descriptor profile changed")
+    if paths_overlap(candidate, supervisor) or paths_overlap(candidate, profile):
+        raise IdentityError("Codex worktree descriptor roots overlap")
+    candidate_identity = _repository_identity(candidate, require_linked_clean=True)
+    supervisor_identity = _repository_identity(supervisor, require_linked_clean=False)
+    branch = candidate_identity["branch"]
+    head = candidate_identity["head"]
+    if (
+        branch != value.get("candidate_branch")
+        or head != validate_sha1(value.get("candidate_head"), "descriptor head")
+    ):
+        raise IdentityError("Codex worktree branch or head changed")
+    if candidate_identity["git_common_dir"] != supervisor_identity["git_common_dir"]:
+        raise IdentityError("Codex candidate is not a linked supervisor worktree")
+    if supervisor_identity["dirty"]:
+        raise IdentityError("Codex supervisor source is mutable")
+    supplied = validate_sha256(value.get("descriptor_sha256"), "descriptor fingerprint")
+    unsigned = {name: result[name] for name in result if name != "descriptor_sha256"}
+    if supplied != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise IdentityError("Codex worktree descriptor is stale")
+    return result
+
+
+def build_codex_worktree_descriptor(
+    *,
+    candidate_root: Path | str,
+    supervisor_root: Path | str,
+    controller: str,
+    campaign_id: str,
+    goal_fingerprint: str,
+    executable_sha256: str,
+    subscription_profile_root: Path | str,
+) -> Dict[str, Any]:
+    """Compile body-free Pass-B input; this record grants no launch authority."""
+
+    candidate = Path(candidate_root).resolve(strict=True)
+    supervisor = Path(supervisor_root).resolve(strict=True)
+    profile = Path(subscription_profile_root).resolve(strict=True)
+    candidate_identity = _repository_identity(candidate, require_linked_clean=True)
+    value = {
+        "schema": DESCRIPTOR_SCHEMA,
+        "target": "codex",
+        "surface": "controller_proved_direct_worktree_cwd",
+        "qualification_authorized": False,
+        "candidate_root": str(candidate),
+        "candidate_branch": candidate_identity["branch"],
+        "candidate_head": candidate_identity["head"],
+        "supervisor_root": str(supervisor),
+        "controller": validate_identifier(controller, "descriptor controller"),
+        "campaign_id": validate_identifier(campaign_id, "descriptor campaign"),
+        "goal_fingerprint": validate_sha256(goal_fingerprint, "descriptor goal"),
+        "executable_sha256": validate_sha256(
+            executable_sha256, "descriptor executable"
+        ),
+        "subscription_profile_root": str(profile),
+    }
+    value["descriptor_sha256"] = sha256_bytes(canonical_json_bytes(value))
+    return validate_codex_worktree_descriptor(
+        value,
+        expected_controller=controller,
+        expected_campaign_id=campaign_id,
+        expected_goal_fingerprint=goal_fingerprint,
+        expected_executable_sha256=executable_sha256,
+        expected_subscription_profile_root=profile,
+    )
+
+
+def codex_qualified_mapping(mapping: Mapping[str, Any]) -> Dict[str, Any]:
+    """Close only the project-isolation bit proved by a terminal receipt."""
+
+    result = json.loads(canonical_json_bytes(mapping).decode("utf-8"))
+    if (
+        result.get("complete") is not False
+        or result.get("project_isolation_declared") is not False
+        or result.get("project_isolation_flags") != []
+        or result.get("launch_argv")
+        != [EXPECTED_RESOLVED_EXECUTABLE_PATH, EXPECTED_UNRESTRICTED_FLAG]
+    ):
+        raise IdentityError("Codex doctor mapping is not the exact incomplete tuple")
+    result["complete"] = True
+    result["project_isolation_declared"] = True
+    return result
 
 
 def _codex_launch_environment(
@@ -688,14 +849,19 @@ def recover_codex_workspace_plane(
 
 
 __all__ = [
+    "DESCRIPTOR_SCHEMA",
     "PLAN_SCHEMA",
     "STATUS",
+    "TERMINAL_SCHEMA",
     "WORKSPACE_BLOCKERS",
     "CodexWorkspacePlan",
+    "build_codex_worktree_descriptor",
+    "codex_qualified_mapping",
     "materialize_codex_workspace_plane",
     "plan_codex_workspace_plane",
     "recover_codex_workspace_plane",
     "revalidate_codex_workspace_plan",
     "rollback_codex_workspace_plane",
+    "validate_codex_worktree_descriptor",
     "verify_codex_workspace_plane",
 ]

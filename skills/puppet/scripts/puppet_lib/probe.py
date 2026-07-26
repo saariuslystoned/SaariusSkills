@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import json
 import secrets
 import time
 from pathlib import Path
@@ -46,6 +47,11 @@ from .campaign import (
     verify_campaign_goal,
 )
 from .conformance import create_fixture, tree_fingerprint
+from .codex_workspace_plane import (
+    DESCRIPTOR_SCHEMA as CODEX_WORKTREE_DESCRIPTOR_SCHEMA,
+    TERMINAL_SCHEMA as CODEX_WORKTREE_TERMINAL_SCHEMA,
+    validate_codex_worktree_descriptor,
+)
 from .contracts import (
     Contract,
     MANDATORY_HARD_GATES,
@@ -185,6 +191,7 @@ def _validated_mapping(
     *,
     target: str,
     allow_claude_activation: bool = False,
+    allow_codex_worktree_probe: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
@@ -236,7 +243,22 @@ def _validated_mapping(
             "model_flag": "--model",
             "effort_flag": "--effort",
         }
-        if (
+        codex_worktree_exception = (
+            allow_codex_worktree_probe
+            and target == "codex"
+            and mapping.get("project_isolation_declared") is False
+            and mapping.get("project_isolation_flags") == []
+            and all(
+                mapping.get(name) is True
+                for name in (
+                    "permission_declared",
+                    "prompt_transport_declared",
+                    "sandbox_disable_declared",
+                    "session_profiles_declared",
+                )
+            )
+        )
+        if not codex_worktree_exception and (
             not allow_claude_activation
             or target != "claude"
             or mapping != expected_activation_mapping
@@ -265,6 +287,12 @@ def _read_plane_descriptor(path: Path) -> Dict[str, Any]:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValidationError("instruction-plane descriptor must be UTF-8") from exc
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        return parse_instruction_plane_descriptor(text)
+    if isinstance(decoded, dict) and decoded.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA:
+        return decoded
     return parse_instruction_plane_descriptor(text)
 
 
@@ -807,17 +835,27 @@ def run_probe(
         if plane_descriptor is not None
         else None
     )
-    if plane_descriptor_value is not None and (
+    codex_worktree_descriptor = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA
+    )
+    claude_plane_descriptor = (
+        plane_descriptor_value is not None and not codex_worktree_descriptor
+    )
+    if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
     ):
         raise ValidationError(
             "native instruction-plane activation is limited to the Claude probe"
         )
+    if codex_worktree_descriptor and target != "codex":
+        raise ValidationError("Codex worktree descriptor target changed")
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
-        allow_claude_activation=plane_descriptor_value is not None,
+        allow_claude_activation=claude_plane_descriptor,
+        allow_codex_worktree_probe=codex_worktree_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -846,6 +884,15 @@ def run_probe(
         raise IdentityError(
             "private subscription profile is not authenticated for qualification"
         )
+    if codex_worktree_descriptor:
+        validate_codex_worktree_descriptor(
+            plane_descriptor_value,
+            expected_controller=controller,
+            expected_campaign_id=authorization["campaign_id"],
+            expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+            expected_executable_sha256=manifest.raw["executable"]["sha256"],
+            expected_subscription_profile_root=subscription_context.profile_root,
+        )
     subscription_binding = build_subscription_launch_binding(
         subscription_context, subscription_status
     )
@@ -870,6 +917,7 @@ def run_probe(
     authorization_snapshot_path = run_root / "authorization.json"
     evidence_path = run_root / "evidence.json"
     instruction_path = run_root / "effective-instructions.json"
+    controller_contract_path = run_root / "controller-contract.json"
     subscription_profile_path = run_root / "subscription-profile.json"
     launch_plan_path = run_root / "launch-plan.json"
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
@@ -881,7 +929,7 @@ def run_probe(
     activation_transaction_root = activation_lane_root / "transaction"
     activation_config_root = (
         Path(subscription_context.bindings["CLAUDE_CONFIG_DIR"])
-        if plane_descriptor_value is not None
+        if claude_plane_descriptor
         else activation_lane_root / "unused-config"
     )
     halt_path = run_root / "halt.json"
@@ -955,6 +1003,7 @@ def run_probe(
         "payload_argv_absent": True,
         "instruction_wrapper": None,
         "plane_activation": None,
+        "workspace_isolation": None,
         "active_target_processes_before_launch": [],
         "active_target_processes_after_halt": None,
         "target_population_policy": TARGET_POPULATION_POLICY,
@@ -992,11 +1041,11 @@ def run_probe(
             authorization_snapshot_path, max_bytes=65536
         )
         atomic_write_json(evidence_path, evidence)
-        if plane_descriptor_value is not None:
+        if claude_plane_descriptor:
             activation_lane_root.mkdir(mode=0o700)
         fixture = (
             run_root / "fixture"
-            if plane_descriptor_value is None
+            if not claude_plane_descriptor
             else activation_lane_root / "workspace"
         )
         fixture_contract = create_fixture(
@@ -1017,9 +1066,7 @@ def run_probe(
             profile=profile,
             session_profile=session_profile,
         )
-        atomic_write_json(
-            run_root / "controller-contract.json", controller_contract.raw
-        )
+        atomic_write_json(controller_contract_path, controller_contract.raw)
         ready_value = _handoff_value(
             phase="ready",
             session=session,
@@ -1043,10 +1090,10 @@ def run_probe(
         }
         ready_task = (
             _initial_prompt(fixture_contract, ready_value)
-            if plane_descriptor_value is None
+            if not claude_plane_descriptor
             else _matched_initial_prompt(fixture_contract, ready_value)
         )
-        if plane_descriptor_value is None:
+        if not claude_plane_descriptor:
             compiled = compile_instruction_wrapper(
                 target=target,
                 task=ready_task,
@@ -1087,15 +1134,20 @@ def run_probe(
             "delivery_transport": compiled.manifest["delivery_transport"],
         }
         admitted_lane_root: Optional[Path] = None
-        if plane_descriptor_value is None:
+        if not claude_plane_descriptor:
             if subscription_context is None:
                 raise IdentityError(
                     "subscription profile launch context is unavailable"
                 )
             admitted_lane_root = subscription_context.profile_root
+            launch_repo = (
+                Path(plane_descriptor_value["candidate_root"])
+                if codex_worktree_descriptor
+                else fixture
+            )
             launch_environment, launch_identity = build_launch_identity(
                 target=target,
-                repo=fixture,
+                repo=launch_repo,
                 argv=argv,
                 source_environment=subscription_context.source_environment,
                 bindings=subscription_context.bindings,
@@ -1106,7 +1158,7 @@ def run_probe(
                 target=target,
                 session=session,
                 run_id=run_id,
-                repo=fixture,
+                repo=launch_repo,
                 argv=argv,
                 environment=launch_environment,
                 admitted_lane_root=admitted_lane_root,
@@ -1907,6 +1959,33 @@ def run_probe(
         evidence["halt_sha256"] = halt_sha
         evidence["active_target_processes_after_halt"] = active_after_halt
         evidence["plane_activation"] = activation_terminal
+        if codex_worktree_descriptor:
+            validate_codex_worktree_descriptor(
+                plane_descriptor_value,
+                expected_controller=controller,
+                expected_campaign_id=authorization["campaign_id"],
+                expected_goal_fingerprint=goal_verification["goal_fingerprint"],
+                expected_executable_sha256=manifest.raw["executable"]["sha256"],
+                expected_subscription_profile_root=subscription_context.profile_root,
+            )
+            evidence["workspace_isolation"] = {
+                "schema": CODEX_WORKTREE_TERMINAL_SCHEMA,
+                "terminal_state": "controller_verified_after_exact_halt",
+                "descriptor_sha256": plane_descriptor_value["descriptor_sha256"],
+                "candidate_root": plane_descriptor_value["candidate_root"],
+                "candidate_branch": plane_descriptor_value["candidate_branch"],
+                "candidate_head": plane_descriptor_value["candidate_head"],
+                "startup_cwd": launch_plan["cwd"],
+                "controller_contract_sha256": sha256_file(
+                    controller_contract_path, max_bytes=131072
+                ),
+                "instruction_manifest_sha256": instruction_manifest_sha,
+                "executable_sha256": manifest.raw["executable"]["sha256"],
+                "subscription_profile_sha256": evidence[
+                    "subscription_profile_sha256"
+                ],
+                "launch_plan_sha256": evidence["launch_plan_sha256"],
+            }
         evidence["result"] = "accepted"
         atomic_write_json(evidence_path, evidence)
         _assert_instruction_artifact(
@@ -1978,6 +2057,19 @@ def run_probe(
                     ),
                 ]
             )
+        if codex_worktree_descriptor:
+            proof_refs.extend(
+                [
+                    _proof_reference(
+                        "workspace_descriptor",
+                        plane_descriptor_snapshot_path,
+                        run_root,
+                    ),
+                    _proof_reference(
+                        "controller_contract", controller_contract_path, run_root
+                    ),
+                ]
+            )
         receipt_core = {
             "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
             "kind": "real_harness_conformance",
@@ -2005,6 +2097,7 @@ def run_probe(
             "acceptance_sha256": evidence["acceptance_sha256"],
             "halt_receipt_sha256": halt_sha,
             "plane_activation": activation_terminal,
+            "workspace_isolation": evidence["workspace_isolation"],
             "proof_refs": proof_refs,
         }
         controller_attestation = attest_qualification(
@@ -2301,17 +2394,27 @@ def recover_probe(
             "supplied instruction-plane descriptor lacks a canonical probe snapshot"
         )
     plane_descriptor_value = persisted_plane_descriptor
-    if plane_descriptor_value is not None and (
+    codex_worktree_descriptor = (
+        plane_descriptor_value is not None
+        and plane_descriptor_value.get("schema") == CODEX_WORKTREE_DESCRIPTOR_SCHEMA
+    )
+    claude_plane_descriptor = (
+        plane_descriptor_value is not None and not codex_worktree_descriptor
+    )
+    if claude_plane_descriptor and (
         target != "claude" or plane_descriptor_value["target"]["harness"] != target
     ):
         raise ValidationError(
             "native instruction-plane activation is limited to Claude recovery"
         )
+    if codex_worktree_descriptor and target != "codex":
+        raise ValidationError("Codex worktree descriptor target changed")
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
-        allow_claude_activation=plane_descriptor_value is not None,
+        allow_claude_activation=claude_plane_descriptor,
+        allow_codex_worktree_probe=codex_worktree_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
     )
@@ -2416,7 +2519,7 @@ def recover_probe(
     matched_signal_path = run_root / "matched-control-signal.json"
     if (
         activation_transaction_root.exists() or activation_transaction_root.is_symlink()
-    ) and plane_descriptor_value is None:
+    ) and not claude_plane_descriptor:
         raise IdentityError(
             "activation transaction exists without descriptor authority"
         )
@@ -2427,7 +2530,7 @@ def recover_probe(
             and not activation_transaction_root.is_symlink()
         ):
             return None
-        if plane_descriptor_value is None:
+        if not claude_plane_descriptor:
             raise IdentityError(
                 "activation transaction exists without descriptor authority"
             )
@@ -2459,7 +2562,7 @@ def recover_probe(
     def reconcile_matched_control_signal(
         *, require_observation: bool
     ) -> Optional[Dict[str, Any]]:
-        if plane_descriptor_value is None:
+        if not claude_plane_descriptor:
             return None
         fixture = run_root / "activation-lane" / "workspace"
         signal_leaf = fixture / MARKER_SIGNAL_RELATIVE_PATH
@@ -2571,7 +2674,7 @@ def recover_probe(
         )
         if complete:
             reconcile_matched_control_signal(require_observation=True)
-            if plane_descriptor_value is not None:
+            if claude_plane_descriptor:
                 if reconcile_plane_activation(rollback_active=False) != "rolled_back":
                     raise IdentityError(
                         "accepted activation probe is not durably rolled back"

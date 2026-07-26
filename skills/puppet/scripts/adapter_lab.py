@@ -157,6 +157,14 @@ def _qualify(args):
         raise UnsupportedError(
             "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
         )
+    if base.target == "codex" and mapping.get("complete") is False:
+        if receipt.get("workspace_isolation") is None:
+            raise UnsupportedError(
+                "Codex qualification requires terminal controller-verified workspace isolation"
+            )
+        from puppet_lib.codex_workspace_plane import codex_qualified_mapping
+
+        mapping = codex_qualified_mapping(mapping)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {

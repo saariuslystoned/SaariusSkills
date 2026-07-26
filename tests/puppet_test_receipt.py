@@ -368,6 +368,7 @@ def write_qualification_receipt(
                 "delivery_transport": compiled.manifest["delivery_transport"],
             },
             "plane_activation": None,
+            "workspace_isolation": None,
             "active_target_processes_before_launch": [],
             "active_target_processes_after_halt": [],
             "target_population_policy": "protected-plus-root-plus-birth-bound-descendants-v2",
@@ -452,6 +453,7 @@ def write_qualification_receipt(
         "acceptance_sha256": sha256_file(acceptance_path),
         "halt_receipt_sha256": sha256_file(halt_path),
         "plane_activation": None,
+        "workspace_isolation": None,
         "proof_refs": [
             reference("authorization", authorization_path),
             reference("subscription_profile", subscription_profile_path),
