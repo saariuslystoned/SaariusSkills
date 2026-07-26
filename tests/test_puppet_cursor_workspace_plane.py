@@ -324,6 +324,10 @@ class CursorWorkspacePlaneTests(unittest.TestCase):
             record["artifact"]["relative_path"],
             ".cursor/rules/puppet-%s.mdc" % record["effective_contract_sha256"],
         )
+        self.assertEqual(
+            record["artifact"]["content_ref"],
+            "cursor_mdc_always_apply_wrapper",
+        )
         plan = self._plan()
         launch_argv = self._launch_argv(plan)
         self.assertEqual(

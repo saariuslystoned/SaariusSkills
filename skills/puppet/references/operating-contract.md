@@ -116,15 +116,20 @@ post-observation recreated leaf.
 
 Cursor qualification activates only from a body-free request bound to the
 fresh doctor manifest. Pass B derives the exact
-`.cursor/rules/puppet-<effective-contract-sha256>.mdc` descriptor after
-compilation, requires an absent `.cursor` root in a create-only 0700 workspace,
-and composes exactly one absolute `--workspace` selector with the enrolled
-private profile. Revalidate that profile and the artifact immediately before
-launch. While active, structurally observe one human read-only native tmux
-client attach and detach without reading pane content. After exact registered
-PID halt, verify the receipted vnode and remove only the rule plus empty
-transaction-created directories. Any foreign content, identity drift, or
-interruption fences the activation for controller adjudication.
+`.cursor/rules/puppet-<mdc-wrapper-sha256>.mdc` descriptor after compilation.
+The create-only mode-0600 artifact is an exact MDC envelope with deterministic
+bounded `description`, `globs: "**/*"`, and `alwaysApply: true` frontmatter.
+Bind its wrapper bytes and the enclosed effective-contract SHA-256 separately
+in the plan and materialization receipt. Require an absent `.cursor` root in a
+create-only 0700 workspace, and compose exactly one absolute `--workspace`
+selector with the enrolled private profile. Revalidate that profile and the
+artifact immediately before launch. While active, structurally observe one
+human read-only native tmux client attach and detach without reading pane
+content. After exact registered-PID halt, verify the receipted vnode and remove
+only the rule plus empty transaction-created directories. Failed or timed-out
+runs may do the same only after exact halt and protected-population baseline
+restoration. Any foreign content, identity drift, halt ambiguity, or rollback
+failure fences the activation for controller adjudication.
 
 An activated Cursor receipt is activation-only and cannot promote. A terminal
 qualification must reverify it beside a distinct ordinary Pass B control using

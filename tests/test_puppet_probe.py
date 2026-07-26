@@ -1410,10 +1410,28 @@ class ProbeTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
+            activation_intent = json.loads(
+                (
+                    run_root
+                    / "activation-lane"
+                    / "cursor-transaction"
+                    / "activation-intent.json"
+                ).read_text(encoding="utf-8")
+            )
             self.assertEqual(
                 descriptor["materialize"][0]["relative_path"],
                 ".cursor/rules/puppet-%s.mdc"
-                % instruction["rendered_sha256"],
+                % activation_intent["plan"]["artifact"]["wrapper_sha256"],
+            )
+            self.assertEqual(
+                activation_intent["plan"]["artifact"][
+                    "effective_contract_sha256"
+                ],
+                instruction["rendered_sha256"],
+            )
+            self.assertNotEqual(
+                activation_intent["plan"]["artifact"]["wrapper_sha256"],
+                instruction["rendered_sha256"],
             )
             receipt = json.loads(
                 (run_root / "receipt.json").read_text(encoding="utf-8")
@@ -1470,6 +1488,132 @@ class ProbeTests(unittest.TestCase):
                 Path(ordinary["receipt"]).read_text(encoding="utf-8")
             )
             self.assertIsNone(ordinary_receipt["plane_activation"])
+
+    def test_failed_cursor_probe_rolls_back_after_exact_halt_and_baseline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = cursor_activation_inputs(root)
+            fake = FakeTmux(root / "fake-tmux", synthesize=False, regular_socket=True)
+            manifest = AdapterManifest.from_dict(files["raw"])
+            manifest_identity = {
+                "manifest": manifest,
+                "manifest_sha256": manifest.fingerprint,
+                "execution_sha256": manifest.execution_fingerprint,
+                "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                "protocol_sha256": manifest.raw["protocol_fingerprint"],
+            }
+            run_id = "probe-cursor-timeout-rollback"
+            with (
+                patch(
+                    "puppet_lib.cursor_qualification._manifest_identity",
+                    return_value=manifest_identity,
+                ),
+                self.assertRaisesRegex(ValidationError, "timed out"),
+            ):
+                execute(
+                    files,
+                    fake,
+                    target="cursor",
+                    run_id=run_id,
+                    plane_descriptor=files["descriptor"],
+                    timeout=0.001,
+                )
+            run_root = files["proof"] / "probes" / run_id
+            self.assertFalse((run_root / "fixture" / ".cursor").exists())
+            rollback = json.loads(
+                (
+                    run_root
+                    / "activation-lane"
+                    / "cursor-transaction"
+                    / "rollback-receipt.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(rollback["halt_reason"], "failed_probe_cleanup")
+            halt = json.loads((run_root / "halt.json").read_text(encoding="utf-8"))
+            self.assertEqual(halt["reason"], "failed_probe_cleanup")
+            self.assertTrue(halt["stopped"])
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertIsNone(evidence["failure"]["cleanup_error"])
+
+    def test_cursor_halt_or_rollback_ambiguity_preserves_rule_and_fence(self):
+        for label in ("halt", "rollback"):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                files = cursor_activation_inputs(root)
+                fake = FakeTmux(
+                    root / "fake-tmux",
+                    synthesize=False,
+                    regular_socket=True,
+                )
+                manifest = AdapterManifest.from_dict(files["raw"])
+                manifest_identity = {
+                    "manifest": manifest,
+                    "manifest_sha256": manifest.fingerprint,
+                    "execution_sha256": manifest.execution_fingerprint,
+                    "adapter_sha256": manifest.raw["adapter_fingerprint"],
+                    "protocol_sha256": manifest.raw["protocol_fingerprint"],
+                }
+                run_id = "probe-cursor-%s-ambiguity" % label
+                patches = [
+                    patch(
+                        "puppet_lib.cursor_qualification._manifest_identity",
+                        return_value=manifest_identity,
+                    )
+                ]
+                if label == "halt":
+                    patches.append(
+                        patch.object(
+                            puppet_probe,
+                            "_halt_exact",
+                            side_effect=IdentityError(
+                                "exact Cursor halt identity ambiguous"
+                            ),
+                        )
+                    )
+                else:
+                    patches.append(
+                        patch.object(
+                            puppet_probe,
+                            "rollback_cursor_activation",
+                            side_effect=IdentityError(
+                                "Cursor rollback identity ambiguous"
+                            ),
+                        )
+                    )
+                with patches[0], patches[1], self.assertRaisesRegex(
+                    ValidationError, "timed out"
+                ):
+                    execute(
+                        files,
+                        fake,
+                        target="cursor",
+                        run_id=run_id,
+                        plane_descriptor=files["descriptor"],
+                        timeout=0.001,
+                    )
+                run_root = files["proof"] / "probes" / run_id
+                rules = list(
+                    (run_root / "fixture" / ".cursor" / "rules").glob(
+                        "puppet-*.mdc"
+                    )
+                )
+                self.assertEqual(len(rules), 1)
+                self.assertFalse(
+                    (
+                        run_root
+                        / "activation-lane"
+                        / "cursor-transaction"
+                        / "rollback-receipt.json"
+                    ).exists()
+                )
+                evidence = json.loads(
+                    (run_root / "evidence.json").read_text(encoding="utf-8")
+                )
+                self.assertIn(
+                    "ambiguous", evidence["failure"]["cleanup_error"]
+                )
 
     def test_incomplete_claude_mapping_requires_plane_descriptor(self):
         with tempfile.TemporaryDirectory() as temporary:

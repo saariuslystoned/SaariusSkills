@@ -393,10 +393,15 @@ Both runs must bind the same exact authenticated private Cursor profile,
 controller, campaign, goal, executable, adapter, protocol, compiler policy, and
 unresolved default-model selection, but must use distinct workspaces and run
 identities. The activated rule is
-`.cursor/rules/puppet-<effective-contract-sha256>.mdc`, created with no
-preimage and removed only after exact registered-PID halt. An interrupted
-Cursor activation is currently fenced and preserved for controller
-adjudication; recovery never relaunches or guesses at cleanup.
+`.cursor/rules/puppet-<mdc-wrapper-sha256>.mdc`. Its deterministic YAML
+frontmatter fixes a bounded description, `globs: "**/*"`, and
+`alwaysApply: true`; the activation plan and receipt bind the wrapper hash and
+underlying effective-contract hash separately. Create it with no preimage and
+remove it only after exact registered-PID halt. A failed or timed-out
+activation rolls it back only after the controller proves the exact target
+stopped and the protected same-target population returned to baseline. Halt,
+population, artifact, or rollback ambiguity leaves the activation fenced for
+controller adjudication; recovery never relaunches or guesses at cleanup.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

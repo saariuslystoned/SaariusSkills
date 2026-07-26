@@ -88,6 +88,7 @@ from .cursor_qualification import (
     plan_cursor_activation,
     public_cursor_activation_context,
     revalidate_cursor_activation_context,
+    render_cursor_mdc_wrapper,
     rollback_cursor_activation,
     validate_cursor_qualification_descriptor,
     validate_cursor_qualification_request,
@@ -1493,9 +1494,10 @@ def run_probe(
             )
             compiled = matched_compiled
         if cursor_plane_request:
+            cursor_mdc_wrapper = render_cursor_mdc_wrapper(compiled.rendered)
             plane_descriptor_value = build_cursor_qualification_descriptor(
                 adapter_manifest_sha256=manifest.fingerprint,
-                rendered_sha256=compiled.manifest["rendered_sha256"],
+                mdc_wrapper_sha256=sha256_bytes(cursor_mdc_wrapper),
             )
             atomic_write_json(
                 plane_descriptor_snapshot_path,
@@ -2585,7 +2587,9 @@ def run_probe(
                     "launch_context_sha256": sha256_bytes(
                         canonical_json_bytes(cursor_activation_public_context)
                     ),
-                    "artifact_sha256": cursor_activation_plan["artifact"]["sha256"],
+                    "artifact_sha256": cursor_activation_plan["artifact"][
+                        "effective_contract_sha256"
+                    ],
                     "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
                     "rollback_intent_sha256": sha256_bytes(
                         canonical_json_bytes(cursor_rollback_intent)
@@ -2956,6 +2960,24 @@ def run_probe(
                     rollback_activation(activation_recovery.plan)
                 elif activation_recovery.state not in {"prepared", "rolled_back"}:
                     raise IdentityError("activation recovery state is unsupported")
+            except Exception as activation_exc:
+                safe_terminal = False
+                cleanup_error = cleanup_error or "%s: %s" % (
+                    activation_exc.__class__.__name__,
+                    str(activation_exc)[:500],
+                )
+        if (
+            cursor_activation_plan is not None
+            and cursor_activation_receipt is not None
+            and isinstance(cleanup, dict)
+            and safe_terminal
+        ):
+            try:
+                rollback_cursor_activation(
+                    cursor_activation_plan,
+                    materialization_receipt=cursor_activation_receipt,
+                    exact_halt_receipt=cleanup,
+                )
             except Exception as activation_exc:
                 safe_terminal = False
                 cleanup_error = cleanup_error or "%s: %s" % (

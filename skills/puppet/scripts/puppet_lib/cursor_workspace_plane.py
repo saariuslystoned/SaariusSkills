@@ -26,6 +26,7 @@ from .census import adapter_implementation_fingerprint
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
 from .instruction_planes import (
+    CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
     CURSOR_WORKSPACE_DESCRIPTOR_ID,
     descriptor_fingerprint,
     validate_cursor_workspace_addendum_descriptor,
@@ -841,7 +842,7 @@ def _validate_binding_record(value: Mapping[str, Any]) -> Dict[str, Any]:
         "relative_path": (
             ".cursor/rules/puppet-%s.mdc" % result["effective_contract_sha256"]
         ),
-        "content_ref": "effective_contract",
+        "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
         "write_mode": "create_only",
     }:
         raise IdentityError("Cursor workspace binding artifact changed")

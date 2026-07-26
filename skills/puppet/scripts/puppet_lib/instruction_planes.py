@@ -60,7 +60,11 @@ _SUPPORTED_ACTIVATIONS = {"qualification_only", "disabled"}
 _SUPPORTED_ROOT_REFS = {"config_root", "workspace_root", "ephemeral_root"}
 _SUPPORTED_CWD_REFS = {"workspace_root"}
 _SUPPORTED_WRITE_MODES = {"create_only", "patch_if_base_sha256"}
-_SUPPORTED_CONTENT_REFS = {"effective_contract"}
+CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF = "cursor_mdc_always_apply_wrapper"
+_SUPPORTED_CONTENT_REFS = {
+    "effective_contract",
+    CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
+}
 _SUPPORTED_LITERAL_FLAGS = {
     "--agent",
     "--append-system-prompt-file",
@@ -647,7 +651,8 @@ def _validate_qualification_launch_grammar(
             or materialize[0]["artifact_id"] != CURSOR_WORKSPACE_ARTIFACT_ID
             or materialize[0]["root_ref"] != "workspace_root"
             or _CURSOR_WORKSPACE_RULE_RE.fullmatch(relative_path) is None
-            or materialize[0]["content_ref"] != "effective_contract"
+            or materialize[0]["content_ref"]
+            != CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF
             or materialize[0]["write_mode"] != "create_only"
             or cwd_ref != "workspace_root"
             or env
@@ -809,7 +814,7 @@ def _cursor_workspace_descriptor_payload(
                 "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
                 "root_ref": "workspace_root",
                 "relative_path": (".cursor/rules/puppet-%s.mdc" % rendered_hash),
-                "content_ref": "effective_contract",
+                "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
                 "write_mode": "create_only",
             }
         ],
@@ -1126,6 +1131,7 @@ __all__ = [
     "AGY_WORKSPACE_BLOCKERS",
     "AGY_WORKSPACE_DESCRIPTOR_ID",
     "CURSOR_AGENT_VERSION",
+    "CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF",
     "CURSOR_WORKSPACE_ARTIFACT_ID",
     "CURSOR_WORKSPACE_ASSERTIONS",
     "CURSOR_WORKSPACE_BLOCKERS",

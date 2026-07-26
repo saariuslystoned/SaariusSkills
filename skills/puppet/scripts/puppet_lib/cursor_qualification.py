@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .instruction_planes import (
     CURSOR_AGENT_VERSION,
+    CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
     CURSOR_WORKSPACE_ARTIFACT_ID,
     descriptor_fingerprint,
     validate_instruction_plane_descriptor,
@@ -47,7 +48,8 @@ CURSOR_QUALIFICATION_REQUEST_SCHEMA = "puppet.cursor-qualification-request/v1"
 CURSOR_QUALIFICATION_ASSERTIONS = (
     "cursor_workspace_context_delta_exact",
     "cursor_workspace_create_only",
-    "cursor_workspace_effective_contract_hash_named",
+    "cursor_workspace_effective_contract_body_hash_bound",
+    "cursor_workspace_mdc_always_apply_wrapper_hash_named",
     "cursor_workspace_rollback_after_exact_halt",
 )
 CURSOR_QUALIFICATION_BLOCKERS = (
@@ -70,6 +72,18 @@ TERMINAL_QUALIFICATION_SCHEMA = "puppet.cursor-regular-qualification/v1"
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
 _MAX_CONTRACT_BYTES = 131072
+_MDC_WRAPPER_DESCRIPTION = (
+    "Puppet-managed qualification contract; remove after the exact owned session halts."
+)
+_MDC_WRAPPER_GLOBS = "**/*"
+_MDC_WRAPPER_FRONTMATTER = (
+    "---\n"
+    'description: "%s"\n'
+    'globs: "%s"\n'
+    "alwaysApply: true\n"
+    "---\n\n"
+    % (_MDC_WRAPPER_DESCRIPTION, _MDC_WRAPPER_GLOBS)
+).encode("utf-8")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC
@@ -94,6 +108,38 @@ def _exact_contract(value: bytes) -> bytes:
     except UnicodeDecodeError as exc:
         raise ValidationError("Cursor effective contract must be UTF-8") from exc
     return bytes(value)
+
+
+def render_cursor_mdc_wrapper(effective_contract: bytes) -> bytes:
+    """Render Cursor's exact always-apply MDC envelope around the contract body."""
+
+    contract = _exact_contract(effective_contract)
+    wrapper = _MDC_WRAPPER_FRONTMATTER + contract
+    if len(wrapper) > _MAX_CONTRACT_BYTES:
+        raise ValidationError("Cursor MDC wrapper exceeds the bounded artifact size")
+    return wrapper
+
+
+def _validate_cursor_mdc_wrapper(
+    value: bytes,
+    *,
+    expected_effective_contract_sha256: str,
+    expected_effective_contract_size: int,
+) -> bytes:
+    wrapper = _exact_contract(value)
+    if not wrapper.startswith(_MDC_WRAPPER_FRONTMATTER):
+        raise IdentityError("Cursor MDC always-apply frontmatter changed")
+    body = wrapper[len(_MDC_WRAPPER_FRONTMATTER) :]
+    if (
+        len(body) != expected_effective_contract_size
+        or sha256_bytes(body)
+        != validate_sha256(
+            expected_effective_contract_sha256,
+            "Cursor effective contract",
+        )
+    ):
+        raise IdentityError("Cursor MDC effective-contract body changed")
+    return wrapper
 
 
 def _root_identity(path: Path | str, *, label: str) -> Dict[str, Any]:
@@ -231,14 +277,16 @@ def validate_cursor_qualification_request(
 def build_cursor_qualification_descriptor(
     *,
     adapter_manifest_sha256: str,
-    rendered_sha256: str,
+    mdc_wrapper_sha256: str,
 ) -> Dict[str, Any]:
     """Build the sole Cursor descriptor accepted by the live qualification lane."""
 
     adapter_sha = validate_sha256(
         adapter_manifest_sha256, "Cursor adapter manifest"
     )
-    rendered_sha = validate_sha256(rendered_sha256, "Cursor rendered contract")
+    wrapper_sha = validate_sha256(
+        mdc_wrapper_sha256, "Cursor MDC always-apply wrapper"
+    )
     value = {
         "schema": "puppet.instruction-plane/v1",
         "descriptor_id": CURSOR_QUALIFICATION_DESCRIPTOR_ID,
@@ -256,8 +304,8 @@ def build_cursor_qualification_descriptor(
             {
                 "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
                 "root_ref": "workspace_root",
-                "relative_path": _artifact_relative_path(rendered_sha),
-                "content_ref": "effective_contract",
+                "relative_path": _artifact_relative_path(wrapper_sha),
+                "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
                 "write_mode": "create_only",
             }
         ],
@@ -309,7 +357,7 @@ def validate_cursor_qualification_descriptor(
         "artifact_id": CURSOR_WORKSPACE_ARTIFACT_ID,
         "root_ref": "workspace_root",
         "relative_path": _artifact_relative_path(rendered_sha),
-        "content_ref": "effective_contract",
+        "content_ref": CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
         "write_mode": "create_only",
     }
     if (
@@ -425,21 +473,32 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
     artifact = result.get("artifact")
     if not isinstance(artifact, dict) or set(artifact) != {
         "relative_path",
-        "sha256",
-        "size",
+        "wrapper_sha256",
+        "wrapper_size",
+        "effective_contract_sha256",
+        "effective_contract_size",
         "mode",
     }:
         raise ValidationError("Cursor activation artifact fields are invalid")
-    expected_path = _artifact_relative_path(artifact.get("sha256"))
+    expected_path = _artifact_relative_path(artifact.get("wrapper_sha256"))
     if (
         artifact.get("relative_path") != expected_path
         or artifact.get("mode") != _FILE_MODE
-        or isinstance(artifact.get("size"), bool)
-        or not isinstance(artifact.get("size"), int)
-        or artifact["size"] <= 0
-        or artifact["size"] > _MAX_CONTRACT_BYTES
+        or any(
+            isinstance(artifact.get(name), bool)
+            or not isinstance(artifact.get(name), int)
+            or artifact[name] <= 0
+            or artifact[name] > _MAX_CONTRACT_BYTES
+            for name in ("wrapper_size", "effective_contract_size")
+        )
+        or artifact["wrapper_size"]
+        != len(_MDC_WRAPPER_FRONTMATTER) + artifact["effective_contract_size"]
     ):
         raise IdentityError("Cursor activation artifact tuple changed")
+    validate_sha256(artifact.get("wrapper_sha256"), "Cursor MDC wrapper")
+    validate_sha256(
+        artifact.get("effective_contract_sha256"), "Cursor effective contract"
+    )
     workspace_path = result["workspace_root"]["path"]
     if result.get("launch") != {
         "cwd": workspace_path,
@@ -469,9 +528,11 @@ def plan_cursor_activation(
     normalized_descriptor = validate_cursor_qualification_descriptor(descriptor)
     contract = _exact_contract(effective_contract)
     contract_sha = sha256_bytes(contract)
+    wrapper = render_cursor_mdc_wrapper(contract)
+    wrapper_sha = sha256_bytes(wrapper)
     artifact = normalized_descriptor["materialize"][0]
-    if artifact["relative_path"] != _artifact_relative_path(contract_sha):
-        raise IdentityError("Cursor descriptor does not name the effective contract")
+    if artifact["relative_path"] != _artifact_relative_path(wrapper_sha):
+        raise IdentityError("Cursor descriptor does not name the MDC wrapper")
     manifest = _manifest_identity(adapter_manifest)
     if (
         normalized_descriptor["target"]["adapter_manifest_sha256"]
@@ -499,8 +560,10 @@ def plan_cursor_activation(
         "transaction_root": transaction,
         "artifact": {
             "relative_path": artifact["relative_path"],
-            "sha256": contract_sha,
-            "size": len(contract),
+            "wrapper_sha256": wrapper_sha,
+            "wrapper_size": len(wrapper),
+            "effective_contract_sha256": contract_sha,
+            "effective_contract_size": len(contract),
             "mode": _FILE_MODE,
         },
         "launch": {
@@ -533,11 +596,11 @@ def _read_exact_file(descriptor: int, *, expected: Mapping[str, Any]) -> bytes:
         not stat.S_ISREG(details.st_mode)
         or details.st_uid != os.getuid()
         or stat.S_IMODE(details.st_mode) != expected["mode"]
-        or details.st_size != expected["size"]
+        or details.st_size != expected["wrapper_size"]
     ):
         raise IdentityError("Cursor workspace rule identity changed")
     chunks = []
-    remaining = expected["size"] + 1
+    remaining = expected["wrapper_size"] + 1
     while remaining:
         chunk = os.read(descriptor, min(65536, remaining))
         if not chunk:
@@ -545,9 +608,18 @@ def _read_exact_file(descriptor: int, *, expected: Mapping[str, Any]) -> bytes:
         chunks.append(chunk)
         remaining -= len(chunk)
     payload = b"".join(chunks)
-    if len(payload) != expected["size"] or sha256_bytes(payload) != expected["sha256"]:
+    if (
+        len(payload) != expected["wrapper_size"]
+        or sha256_bytes(payload) != expected["wrapper_sha256"]
+    ):
         raise IdentityError("Cursor workspace rule content changed")
-    return payload
+    return _validate_cursor_mdc_wrapper(
+        payload,
+        expected_effective_contract_sha256=expected[
+            "effective_contract_sha256"
+        ],
+        expected_effective_contract_size=expected["effective_contract_size"],
+    )
 
 
 def materialize_cursor_activation(
@@ -559,9 +631,13 @@ def materialize_cursor_activation(
 
     normalized = _validate_plan(plan)
     contract = _exact_contract(effective_contract)
+    wrapper = render_cursor_mdc_wrapper(contract)
     if (
-        sha256_bytes(contract) != normalized["artifact"]["sha256"]
-        or len(contract) != normalized["artifact"]["size"]
+        sha256_bytes(contract)
+        != normalized["artifact"]["effective_contract_sha256"]
+        or len(contract) != normalized["artifact"]["effective_contract_size"]
+        or sha256_bytes(wrapper) != normalized["artifact"]["wrapper_sha256"]
+        or len(wrapper) != normalized["artifact"]["wrapper_size"]
     ):
         raise IdentityError("Cursor activation bytes changed after planning")
     _same_root(
@@ -607,8 +683,8 @@ def materialize_cursor_activation(
             dir_fd=rules_fd,
         )
         written = 0
-        while written < len(contract):
-            count = os.write(artifact_fd, contract[written:])
+        while written < len(wrapper):
+            count = os.write(artifact_fd, wrapper[written:])
             if count <= 0:
                 raise IdentityError("Cursor workspace rule write stalled")
             written += count
@@ -620,13 +696,19 @@ def materialize_cursor_activation(
             "uid": details.st_uid,
             "gid": details.st_gid,
             "mode": stat.S_IMODE(details.st_mode),
-            "size": details.st_size,
-            "sha256": normalized["artifact"]["sha256"],
+            "wrapper_size": details.st_size,
+            "wrapper_sha256": normalized["artifact"]["wrapper_sha256"],
+            "effective_contract_size": normalized["artifact"][
+                "effective_contract_size"
+            ],
+            "effective_contract_sha256": normalized["artifact"][
+                "effective_contract_sha256"
+            ],
         }
         if (
             artifact_identity["uid"] != os.getuid()
             or artifact_identity["mode"] != _FILE_MODE
-            or artifact_identity["size"] != len(contract)
+            or artifact_identity["wrapper_size"] != len(wrapper)
         ):
             raise IdentityError("Cursor workspace rule creation identity is invalid")
     except FileExistsError as exc:
@@ -679,14 +761,21 @@ def _validate_materialized(
         "uid",
         "gid",
         "mode",
-        "size",
-        "sha256",
+        "wrapper_size",
+        "wrapper_sha256",
+        "effective_contract_size",
+        "effective_contract_sha256",
     }:
         raise ValidationError("Cursor activation artifact receipt is invalid")
     if (
         artifact["relative_path"] != normalized["artifact"]["relative_path"]
-        or artifact["sha256"] != normalized["artifact"]["sha256"]
-        or artifact["size"] != normalized["artifact"]["size"]
+        or artifact["wrapper_sha256"]
+        != normalized["artifact"]["wrapper_sha256"]
+        or artifact["wrapper_size"] != normalized["artifact"]["wrapper_size"]
+        or artifact["effective_contract_sha256"]
+        != normalized["artifact"]["effective_contract_sha256"]
+        or artifact["effective_contract_size"]
+        != normalized["artifact"]["effective_contract_size"]
         or artifact["mode"] != _FILE_MODE
         or artifact["uid"] != os.getuid()
     ):
@@ -777,7 +866,7 @@ def build_cursor_activation_context(
         "materialization_receipt_sha256": sha256_bytes(
             canonical_json_bytes(receipt)
         ),
-        "artifact_sha256": normalized["artifact"]["sha256"],
+        "artifact_sha256": normalized["artifact"]["wrapper_sha256"],
         "argv": argv,
         "environment": environment,
         "launch_identity": launch_identity,
@@ -886,15 +975,27 @@ def _validate_exact_halt(value: Mapping[str, Any]) -> Dict[str, Any]:
         "cleanup_scope",
     }
     result = _json_copy(value)
+    signal_tuple = (result.get("signal"), result.get("signal_sent"))
+    reason = result.get("reason")
     if (
         set(result) != expected_fields
         or result.get("schema_version") != 1
-        or result.get("signal") != "exact_registered_pid_sigint"
-        or result.get("signal_sent") is not True
+        or (
+            reason == "accepted_probe_halt"
+            and signal_tuple != ("exact_registered_pid_sigint", True)
+        )
+        or (
+            reason == "failed_probe_cleanup"
+            and signal_tuple
+            not in {
+                ("exact_registered_pid_sigint", True),
+                ("none_already_stopped", False),
+            }
+        )
         or result.get("stopped") is not True
         or result.get("tmux_preserved") is not True
         or result.get("cleanup_scope") != "exact_new_target_only"
-        or result.get("reason") != "accepted_probe_halt"
+        or reason not in {"accepted_probe_halt", "failed_probe_cleanup"}
         or isinstance(result.get("target_pid"), bool)
         or not isinstance(result.get("target_pid"), int)
         or result["target_pid"] <= 1
@@ -926,6 +1027,7 @@ def rollback_cursor_activation(
             canonical_json_bytes(receipt)
         ),
         "halt_receipt_sha256": sha256_bytes(canonical_json_bytes(halt)),
+        "halt_reason": halt["reason"],
         "artifact": receipt["artifact"],
     }
     atomic_write_json(paths["rollback_intent"], rollback_intent)
@@ -980,7 +1082,8 @@ def rollback_cursor_activation(
             paths["rollback_intent"], max_bytes=131072
         ),
         "halt_receipt_sha256": rollback_intent["halt_receipt_sha256"],
-        "artifact_sha256": normalized["artifact"]["sha256"],
+        "halt_reason": rollback_intent["halt_reason"],
+        "artifact_sha256": normalized["artifact"]["wrapper_sha256"],
         "removed_artifact": normalized["artifact"]["relative_path"],
         "removed_directories": [".cursor/rules", ".cursor"],
     }
@@ -1035,7 +1138,8 @@ def validate_cursor_terminal_activation(
         }
         or public_context.get("schema") != ACTIVATION_CONTEXT_SCHEMA
         or public_context.get("plan_sha256") != plan["plan_sha256"]
-        or public_context.get("artifact_sha256") != plan["artifact"]["sha256"]
+        or public_context.get("artifact_sha256")
+        != plan["artifact"]["wrapper_sha256"]
         or public_context.get("materialization_receipt_sha256")
         != sha256_bytes(canonical_json_bytes(receipt))
     ):
@@ -1063,6 +1167,7 @@ def validate_cursor_terminal_activation(
             "plan_sha256",
             "materialization_receipt_sha256",
             "halt_receipt_sha256",
+            "halt_reason",
             "artifact",
         }
         or set(rollback_receipt_value)
@@ -1072,6 +1177,7 @@ def validate_cursor_terminal_activation(
             "plan_sha256",
             "rollback_intent_sha256",
             "halt_receipt_sha256",
+            "halt_reason",
             "artifact_sha256",
             "removed_artifact",
             "removed_directories",
@@ -1081,6 +1187,7 @@ def validate_cursor_terminal_activation(
         or rollback_intent_value.get("plan_sha256") != plan["plan_sha256"]
         or rollback_intent_value.get("materialization_receipt_sha256")
         != sha256_bytes(canonical_json_bytes(receipt))
+        or rollback_intent_value.get("halt_reason") != "accepted_probe_halt"
         or rollback_intent_value.get("artifact") != receipt["artifact"]
         or rollback_receipt_value.get("schema") != ROLLBACK_RECEIPT_SCHEMA
         or rollback_receipt_value.get("state") != "rolled_back_after_exact_halt"
@@ -1089,8 +1196,10 @@ def validate_cursor_terminal_activation(
         != sha256_bytes(canonical_json_bytes(rollback_intent_value) + b"\n")
         or rollback_receipt_value.get("halt_receipt_sha256")
         != rollback_intent_value.get("halt_receipt_sha256")
+        or rollback_receipt_value.get("halt_reason")
+        != rollback_intent_value.get("halt_reason")
         or rollback_receipt_value.get("artifact_sha256")
-        != plan["artifact"]["sha256"]
+        != plan["artifact"]["wrapper_sha256"]
         or rollback_receipt_value.get("removed_artifact")
         != plan["artifact"]["relative_path"]
         or rollback_receipt_value.get("removed_directories")
@@ -1108,7 +1217,11 @@ def validate_cursor_terminal_activation(
             canonical_json_bytes(receipt)
         ),
         "launch_context_sha256": sha256_bytes(canonical_json_bytes(public_context)),
-        "artifact_sha256": plan["artifact"]["sha256"],
+        # The shared activation schema names the delivered instruction body.
+        # Cursor's separately bound materialization receipt commits the outer
+        # MDC wrapper bytes, while this field preserves the compiler contract
+        # identity used by the shared qualification verifier.
+        "artifact_sha256": plan["artifact"]["effective_contract_sha256"],
         "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
         "rollback_intent_sha256": sha256_bytes(
             canonical_json_bytes(rollback_intent_value)
@@ -1153,13 +1266,21 @@ def _validate_materialized_shape(
             "uid",
             "gid",
             "mode",
-            "size",
-            "sha256",
+            "wrapper_size",
+            "wrapper_sha256",
+            "effective_contract_size",
+            "effective_contract_sha256",
         }
         or artifact.get("relative_path")
         != normalized["artifact"]["relative_path"]
-        or artifact.get("sha256") != normalized["artifact"]["sha256"]
-        or artifact.get("size") != normalized["artifact"]["size"]
+        or artifact.get("wrapper_sha256")
+        != normalized["artifact"]["wrapper_sha256"]
+        or artifact.get("wrapper_size")
+        != normalized["artifact"]["wrapper_size"]
+        or artifact.get("effective_contract_sha256")
+        != normalized["artifact"]["effective_contract_sha256"]
+        or artifact.get("effective_contract_size")
+        != normalized["artifact"]["effective_contract_size"]
         or artifact.get("mode") != _FILE_MODE
         or artifact.get("uid") != os.getuid()
         or any(
@@ -1172,7 +1293,8 @@ def _validate_materialized_shape(
                 ("uid", 0),
                 ("gid", 0),
                 ("mode", 0),
-                ("size", 1),
+                ("wrapper_size", 1),
+                ("effective_contract_size", 1),
             )
         )
     ):
@@ -1717,6 +1839,7 @@ __all__ = [
     "public_cursor_activation_context",
     "record_cursor_native_view",
     "revalidate_cursor_activation_context",
+    "render_cursor_mdc_wrapper",
     "rollback_cursor_activation",
     "validate_cursor_qualification_descriptor",
     "validate_cursor_qualification_request",

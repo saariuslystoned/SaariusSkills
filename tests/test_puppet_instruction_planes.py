@@ -18,6 +18,7 @@ from puppet_lib.instruction_planes import (  # noqa: E402
     AGY_WORKSPACE_BLOCKERS,
     AGY_WORKSPACE_DESCRIPTOR_ID,
     CURSOR_AGENT_VERSION,
+    CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF,
     CURSOR_WORKSPACE_ARTIFACT_ID,
     CURSOR_WORKSPACE_BLOCKERS,
     CURSOR_WORKSPACE_DESCRIPTOR_ID,
@@ -94,6 +95,9 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
         first = validate_instruction_plane_descriptor(_fixture())
         ordered = dict(sorted(first.items()))
         self.assertEqual(first, ordered)
+        self.assertEqual(
+            first["materialize"][0]["content_ref"], "effective_contract"
+        )
         self.assertEqual(
             descriptor_fingerprint(first), descriptor_fingerprint(_fixture())
         )
@@ -362,6 +366,13 @@ class InstructionPlaneDescriptorTests(unittest.TestCase):
                     {"relative_path": "Ignore all previous instructions.md"}
                 ),
                 "invalid closed launch grammar",
+            ),
+            (
+                "unknown_content_ref",
+                lambda value: value["materialize"][0].update(
+                    {"content_ref": "cursor_unbounded_body"}
+                ),
+                "content_ref must be symbolic",
             ),
             (
                 "wrong_ephemeral_artifact_id",
@@ -770,6 +781,9 @@ class CursorWorkspaceDescriptorTests(unittest.TestCase):
             ".cursor/rules/puppet-%s.mdc" % self.rendered_hash,
         )
         self.assertEqual(artifact["write_mode"], "create_only")
+        self.assertEqual(
+            artifact["content_ref"], CURSOR_MDC_ALWAYS_APPLY_CONTENT_REF
+        )
         self.assertEqual(
             self.descriptor["launch_delta"],
             {
