@@ -46,6 +46,28 @@ binary:
 - `help agent` SHA-256:
   `80eca1cc827e677c5d4310fe60ccaa941627cc688189405742e69e4f4ec734d3`.
 
+The now-public upstream source at
+`https://github.com/xai-org/grok-build` was reviewed read-only at commit
+`47348d13ec4508dcfe440e34c6d511bb02998fb2`. That checkout identifies package
+`0.2.112` / source revision
+`d02693a856a54f1030695b36b91d276e96b30b23`, one release newer than the
+installed subscription binary, so it is design evidence rather than executable
+identity. It confirms three boundaries that were then proved against installed
+0.2.111:
+
+- standalone controller ownership requires `--no-leader`; adopting the ambient
+  shared leader would mix Puppet and non-Puppet authority;
+- `--trust` persists through `$GROK_HOME/trusted_folders.toml`, so trust belongs
+  in the stable private profile rather than the disposable proof root; and
+- both `HOME` and `GROK_HOME` must be isolated because the source loads
+  harness-global state and compatibility rule surfaces from those roots.
+
+The source test support independently uses cleared environments, distinct
+`HOME`/`GROK_HOME`/workspace/temp roots, and updater/telemetry kill switches.
+Puppet does not vendor or execute upstream source and does not treat a newer
+source tree as proof for the installed executable; every promoted behavior
+still requires the exact installed binary, profile, process, and live receipt.
+
 The canonical machine-readable prior-evidence admission input remains the dated
 0.2.106 packet `grok-build-0.2.106-pass-a-evidence.json`, with record SHA-256
 `219f5e5b20a7ea4de65b35c098eeb2a31f287a6e44d8c389857863554b1f6ef4`.
@@ -458,19 +480,21 @@ No command above adopts, inspects, or mutates the operator-global Grok home.
   but still
   requires the explicit human start action and live proof of socket ownership,
   TUI attach without local auth, and configuration no-bleed. The durable
-  private-profile fallback still requires one-time enrollment.
-- The 2026-07-23 CP-1 source census found two exact 0.2.111 Grok processes.
-  Puppet must not reuse, attach to, or stop them; live shared-leader work waits
-  for an empty same-target baseline.
+  private-profile route is the qualified baseline and does not depend on that
+  shared leader.
 - No invocation-scoped additive file plane.
-- Sandbox-off and always-approve semantics are parser-proved but not live-
-  observed in the isolated authenticated tuple.
-- The direct launcher/runtime vnode and a fail-closed retained-root/descendant
-  halt contract are modeled, but Grok's actual authenticated leader/child
-  topology and exact completion behavior remain live-unproved.
-- No live direct/cockpit paired lifecycle, control, no-bleed, or rollback proof
-  exists yet.
+- The exact `f153f18` private-profile pair proved standalone topology,
+  always-approve/sandbox-off behavior, positive-only workspace instruction
+  activation, ordinary-control absence, native views, sequenced steering,
+  exact root/descendant completion, parent-restoring rollback, and public
+  qualification. It remains historical exact-head evidence after later
+  controller edits and is not reused as current-head authority.
+- A later public-launch attempt was rejected before useful work because its
+  viewer state root was mode `0755`. The exact launched target was halted and
+  the live-forced `3e5fddd` repair moved that check into doctor/preflight so a
+  non-private root now blocks before target launch.
 
-Keep the census manifest at `doctor_only/mapping` until the exact live sequence
-above succeeds at one clean controller head. The substrate is ready for that
-campaign; this source-only slice does not claim its outcome.
+The closeout stop condition is therefore a fresh exact-final-head pair and one
+public regular session using its newly qualified manifest, followed by the
+five-harness concurrent lifecycle. Do not promote the historical manifest or
+weaken the source/profile/process/view/rollback bindings to avoid that rerun.

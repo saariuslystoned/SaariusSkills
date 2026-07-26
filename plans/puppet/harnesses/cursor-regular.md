@@ -73,6 +73,33 @@ occurs only after accepted exact registered-PID halt and refuses to remove
 anything when the receipted artifact changed or either created directory gained
 foreign content.
 
+### Live-forced workspace-trust reducer
+
+At source head `3e5fddd1394d28d2701cb7aba9783e556bf575fb`, a fresh
+subscription-backed activation reached the exact registered Cursor process and
+private tmux pane but produced no handoff for 300 seconds. A second, explicitly
+rejected diagnostic captured only the bounded synthetic startup screen in
+memory. It identified the exact blocker as Cursor's two-option
+`Workspace Trust Required` dialog for the exact Puppet fixture. Literal
+lowercase `a`, the displayed `Trust this workspace` shortcut, released the
+already-admitted fixed positional trigger; the ready and sequenced follow-up
+handoffs then passed and PID `42205` was halted without changing the five
+protected operator Cursor identities. No screen bytes, screenshot, prompt, or
+transcript were retained.
+
+The exact installed `2026.07.17-3e2a980` bundled source confirms that the dialog
+dispatches lowercased option keys: `a` trusts, `q` quits, and an additional `w`
+appears only when workspace MCP servers are present. Puppet therefore uses a
+Cursor-only bounded reducer. It requires the exact title, safety wording,
+question, hard-wrap-reconstructed absolute workspace, `a`/`q` options, footer,
+manifest, launch argv, pane PID, cwd, and process lease before sending `a`
+once. An MCP-expanded (`w`), login, account, terms, permission, unknown,
+duplicate, non-UTF-8, oversize, or path-mismatched screen fails closed. After
+the key, the reducer requires Cursor's `Auto` / `Run Everything` footer and the
+exact workspace, then revalidates the process, pane, executable, and cwd.
+Only gate/workspace-match/byte-count/SHA-256/timing metadata survives; raw
+screen bytes are discarded.
+
 ## 1) Exact-version discovery: facts vs hypotheses
 
 ### Facts observed

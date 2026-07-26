@@ -45,7 +45,7 @@ _SIGNAL_EXEC_HELPER = Path(__file__).resolve(strict=True).with_name("signal_exec
 _MAX_CAPTURE_BYTES = 65536
 _MAX_RUNTIME_METADATA_BYTES = 8192
 _CAPTURE_HISTORY_LINES = 80
-_GATE_NAVIGATION_KEYS = frozenset({"Enter", "Up", "Down"})
+_GATE_NAVIGATION_KEYS = frozenset({"Enter", "Up", "Down", "a"})
 _CAPTURE_PANE_COMMAND = "-".join(("capture", "pane"))
 
 

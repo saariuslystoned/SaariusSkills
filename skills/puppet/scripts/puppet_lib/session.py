@@ -52,6 +52,7 @@ from .journal import Journal
 from .launch import build_launch_identity
 from .profiles import (
     CLAUDE_STARTUP_GATE_REDUCER,
+    CURSOR_STARTUP_GATE_REDUCER,
     input_readiness_strategy_for,
     startup_settle_seconds_for,
 )
@@ -558,6 +559,39 @@ def _await_input_ready(
             sleep_fn=sleep_fn,
         )
         revalidate_claude_ready_process(
+            manifest=manifest,
+            tmux=tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_pane_pid=pane_pid,
+            expected_worktree=repo,
+            process=process,
+            server_identity=server_identity,
+            process_alive_fn=alive_fn,
+        )
+        result["process_revalidated"] = True
+        return result
+    if strategy == CURSOR_STARTUP_GATE_REDUCER:
+        from .cursor_startup_gates import (
+            await_cursor_input_ready,
+            revalidate_cursor_ready_process,
+        )
+
+        result = await_cursor_input_ready(
+            tmux,
+            manifest=manifest,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_worktree=repo,
+            expected_pane_pid=pane_pid,
+            launch_argv=argv,
+            server_identity=server_identity,
+            process_alive_fn=alive_fn,
+            sleep_fn=sleep_fn,
+        )
+        revalidate_cursor_ready_process(
             manifest=manifest,
             tmux=tmux,
             socket=socket,

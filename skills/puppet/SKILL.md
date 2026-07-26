@@ -99,12 +99,16 @@ from the authorization file.
 
 Never kill, rename, attach to, reuse, or repurpose a pre-existing process or
 tmux session. Never inspect `.env`, credentials, auth logs, session stores,
-conversation stores, terminal scrollback, or transcripts. The one
-ordinary-operation exception to this terminal-capture ban is Claude's narrow
-internal startup-screen reducer described under *Operate a session*: it reads
-only a bounded owned pane before initial prompt delivery, classifies a fixed
-allowlist of startup gates, retains only gate/selection/size/hash/timing
-metadata, and discards the raw bytes.
+conversation stores, terminal scrollback, or transcripts. The only
+ordinary-operation exceptions to this terminal-capture ban are the narrow
+Claude and Cursor startup-screen reducers described under *Operate a session*.
+Each reads only a bounded owned pane before ordinary prompt delivery, classifies
+a fixed harness-specific allowlist, retains only
+gate/selection/workspace-match/size/hash/timing metadata, and discards the raw
+bytes. Cursor may send literal `a` once only for its exact two-option
+`Workspace Trust Required` screen when the displayed path equals the
+Puppet-owned workspace; an MCP-expanded, login, terms, permission, unknown, or
+ambiguous screen fails closed.
 
 Puppet ships editable baseline layers under `templates/instructions/`. Prefer a
 bounded per-run user addendum for customization; changing a shipped layer or

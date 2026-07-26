@@ -11,11 +11,15 @@ PROMPT_TRANSPORT = "interactive_tmux_load_buffer_stdin_declared"
 OBSERVED_INPUT_TRANSPORT = "tmux_load_buffer_stdin"
 BOUNDED_STRUCTURAL_SETTLE = "bounded_structural_settle"
 CLAUDE_STARTUP_GATE_REDUCER = "bounded_claude_startup_gate_reducer"
+CURSOR_STARTUP_GATE_REDUCER = "bounded_cursor_startup_gate_reducer"
 INPUT_READINESS_STRATEGY = BOUNDED_STRUCTURAL_SETTLE
 SUBMIT_SETTLE_SECONDS = 1.0
 CLAUDE_GATE_POLL_INTERVAL_SECONDS = 0.25
 CLAUDE_GATE_TRANSITION_POLL_INTERVAL_SECONDS = 1.0
 CLAUDE_GATE_TRANSITION_DEADLINE_SECONDS = 5.0
+CURSOR_GATE_POLL_INTERVAL_SECONDS = 0.25
+CURSOR_GATE_TRANSITION_POLL_INTERVAL_SECONDS = 1.0
+CURSOR_GATE_TRANSITION_DEADLINE_SECONDS = 5.0
 
 SESSION_PROFILE_COMMANDS: Dict[str, Dict[str, str]] = {
     "agy": {
@@ -80,6 +84,8 @@ def startup_settle_seconds_for(target: str) -> float:
 def input_readiness_strategy_for(target: str) -> str:
     if target == "claude":
         return CLAUDE_STARTUP_GATE_REDUCER
+    if target == "cursor":
+        return CURSOR_STARTUP_GATE_REDUCER
     return BOUNDED_STRUCTURAL_SETTLE
 
 
@@ -91,4 +97,17 @@ def claude_gate_timing_policy() -> Dict[str, float]:
         "poll_interval_seconds": CLAUDE_GATE_POLL_INTERVAL_SECONDS,
         "transition_poll_interval_seconds": CLAUDE_GATE_TRANSITION_POLL_INTERVAL_SECONDS,
         "transition_deadline_seconds": CLAUDE_GATE_TRANSITION_DEADLINE_SECONDS,
+    }
+
+
+def cursor_gate_timing_policy() -> Dict[str, float]:
+    """Public Cursor gate timing bound to startup settle and positional navigation."""
+
+    return {
+        "startup_deadline_seconds": startup_settle_seconds_for("cursor"),
+        "poll_interval_seconds": CURSOR_GATE_POLL_INTERVAL_SECONDS,
+        "transition_poll_interval_seconds": (
+            CURSOR_GATE_TRANSITION_POLL_INTERVAL_SECONDS
+        ),
+        "transition_deadline_seconds": CURSOR_GATE_TRANSITION_DEADLINE_SECONDS,
     }

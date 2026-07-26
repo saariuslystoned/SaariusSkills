@@ -582,6 +582,7 @@ class FakeTmux:
         self.pane = "%7"
         self.pid = 4242
         self.server = None
+        self.target = None
         executable = Path("/bin/cat").resolve(strict=True)
         executable_details = executable.stat()
         self.tmux_identity = {
@@ -634,6 +635,7 @@ class FakeTmux:
         if before_start is not None:
             before_start()
         self.session = session
+        self.target = target
         self.repo = Path(repo)
         self.launch_argv = list(argv)
         self.launch_environment = dict(environment)
@@ -749,6 +751,14 @@ class FakeTmux:
 
     def capture_pane_bytes(self, **kwargs):
         del kwargs
+        if self.target == "cursor":
+            return (
+                "Synthetic Cursor fixture\n"
+                "Auto · test\n"
+                "Run Everything\n"
+                + str(self.repo)
+                + "\n"
+            ).encode("utf-8")
         return (
             "Claude Code v2.1.215\n"
             "? for shortcuts\n"
