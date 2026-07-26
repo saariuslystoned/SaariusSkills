@@ -288,7 +288,10 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             plan, effective_contract=self.contract.rendered
         )
         artifact = self.workspace / plan["artifact"]["relative_path"]
-        artifact.unlink()
+        # Keep the original inode allocated while creating the replacement.
+        # Some Linux filesystems immediately reuse an unlinked inode, which
+        # makes an unlink/create fixture indistinguishable at the vnode layer.
+        artifact.rename(artifact.with_name(artifact.name + ".replaced"))
         artifact.write_bytes(self.contract.rendered)
         artifact.chmod(0o600)
         with self.assertRaisesRegex(IdentityError, "vnode changed"):
