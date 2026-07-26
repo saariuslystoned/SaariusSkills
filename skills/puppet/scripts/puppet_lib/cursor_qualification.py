@@ -1557,6 +1557,34 @@ def build_cursor_terminal_qualification(
     )
 
 
+def _terminal_attestation_projection(core: Mapping[str, Any]) -> Dict[str, Any]:
+    """Bind the named Cursor terminal schema through the shared v5 ledger."""
+
+    return {
+        "schema_version": 5,
+        "kind": "real_harness_conformance",
+        "run_id": core["run_id"],
+        "target": "cursor",
+        "controller": core["controller"],
+        "campaign_id": core["campaign_id"],
+        "goal_fingerprint": core["goal_fingerprint"],
+        "executable_fingerprint": core["executable_fingerprint"],
+        "execution_fingerprint": core["execution_fingerprint"],
+        "platform_fingerprint": core["platform_fingerprint"],
+        "adapter_fingerprint": core["adapter_fingerprint"],
+        "protocol_fingerprint": core["protocol_fingerprint"],
+        "yolo_mapping_sha256": core["yolo_mapping_sha256"],
+        "launch_plan_sha256": sha256_bytes(canonical_json_bytes(dict(core))),
+        "subscription_profile_sha256": core["subscription_profile_sha256"],
+        "instruction_policy_fingerprint": core[
+            "instruction_policy_fingerprint"
+        ],
+        "accepted_checkpoint_id": core["accepted_checkpoint_id"],
+        "acceptance_sha256": core["acceptance_sha256"],
+        "halt_receipt_sha256": core["halt_receipt_sha256"],
+    }
+
+
 def _build_cursor_terminal_from_verified(
     *,
     activated_receipt_path: Path,
@@ -1693,7 +1721,10 @@ def _build_cursor_terminal_from_verified(
     }
     if not attest:
         return core
-    attestation = attest_qualification(core, authority_root=authority_root)
+    attestation = attest_qualification(
+        _terminal_attestation_projection(core),
+        authority_root=authority_root,
+    )
     return {**core, "controller_attestation": attestation}
 
 
@@ -1770,7 +1801,11 @@ def verify_cursor_terminal_qualification(
         raise ValidationError("Cursor terminal qualification state is invalid")
     core = dict(value)
     attestation = core.pop("controller_attestation")
-    verify_qualification_attestation(core, attestation, authority_root=authority_root)
+    verify_qualification_attestation(
+        _terminal_attestation_projection(core),
+        attestation,
+        authority_root=authority_root,
+    )
     activated_path, _ = _load_ref(
         value["activated_receipt"], label="Cursor activated receipt"
     )

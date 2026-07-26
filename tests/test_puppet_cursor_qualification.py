@@ -672,10 +672,6 @@ class CursorTerminalJoinTests(unittest.TestCase):
                     "puppet_lib.adapter_manifest.verify_qualification_receipt",
                     side_effect=[activated, ordinary],
                 ),
-                mock.patch(
-                    "puppet_lib.authority.attest_qualification",
-                    return_value={"attested": True},
-                ),
             ):
                 terminal = build_cursor_terminal_qualification(
                     activated_receipt_path=activated_path,
@@ -694,6 +690,9 @@ class CursorTerminalJoinTests(unittest.TestCase):
             )
             self.assertTrue(terminal["no_bleed"]["ordinary_activation_absent"])
             self.assertEqual(terminal["default_model"]["observed"], "unavailable")
+            self.assertEqual(
+                terminal["controller_attestation"]["schema_version"], 5
+            )
 
             mismatched = copy.deepcopy(ordinary)
             mismatched["subscription_profile_sha256"] = "0" * 64
