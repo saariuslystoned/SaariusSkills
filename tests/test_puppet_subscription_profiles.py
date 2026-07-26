@@ -17,8 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError  # noqa: E402
+from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.subscription_profiles import (  # noqa: E402
+    CLAUDE_LEGACY_AUTO_MEMORY_BINDING,
     CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER,
     CLAUDE_NATIVE_KEYRING_AUTH_ROUTE,
     LAUNCH_BINDING_SCHEMA,
@@ -43,6 +44,20 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
 class SubscriptionProfileTests(unittest.TestCase):
     def _real_user_home(self) -> Path:
         return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+
+    def _manifest_snapshot(self, manifest_path: Path) -> tuple[bytes, int]:
+        details = manifest_path.stat()
+        return manifest_path.read_bytes(), details.st_ino
+
+    def _legacy_claude_manifest(self, manifest_path: Path) -> dict:
+        legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
+        legacy.pop("auth_route")
+        legacy.pop("real_home")
+        legacy["bindings"]["HOME"] = legacy["directories"]["home"]["path"]
+        legacy["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = (
+            CLAUDE_LEGACY_AUTO_MEMORY_BINDING
+        )
+        return legacy
 
     def _executable(self, temporary: str) -> Path:
         path = Path(temporary) / "fake harness"
@@ -468,11 +483,7 @@ class SubscriptionProfileTests(unittest.TestCase):
                 executable_path=executable,
             )
             manifest_path = profile / "profile.json"
-            legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
-            legacy.pop("auth_route")
-            legacy.pop("real_home")
-            legacy["bindings"]["HOME"] = legacy["directories"]["home"]["path"]
-            legacy["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "true"
+            legacy = self._legacy_claude_manifest(manifest_path)
             manifest_path.write_text(json.dumps(legacy, sort_keys=True) + "\n", encoding="utf-8")
             with self.assertRaises(UnsupportedError) as raised:
                 subscription_profile_status(profile_root=profile)
@@ -549,6 +560,126 @@ class SubscriptionProfileTests(unittest.TestCase):
             )
             with self.assertRaises(IdentityError):
                 subscription_profile_status(profile_root=profile)
+
+    def test_new_shaped_claude_wrong_auth_route_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tampered["auth_route"] = "synthetic_profile_home"
+            manifest_path.write_text(
+                json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            after_write = self._manifest_snapshot(manifest_path)
+            with self.assertRaises(IdentityError):
+                initialize_subscription_profile(
+                    target="claude",
+                    profile_root=profile,
+                    executable_path=executable,
+                )
+            self.assertEqual(self._manifest_snapshot(manifest_path), after_write)
+
+    def test_new_shaped_claude_wrong_home_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tampered["bindings"]["HOME"] = tampered["directories"]["home"]["path"]
+            manifest_path.write_text(
+                json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            snapshot = self._manifest_snapshot(manifest_path)
+            with self.assertRaises(IdentityError):
+                initialize_subscription_profile(
+                    target="claude",
+                    profile_root=profile,
+                    executable_path=executable,
+                )
+            self.assertEqual(self._manifest_snapshot(manifest_path), snapshot)
+
+    def test_new_shaped_claude_wrong_real_home_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tampered["real_home"] = dict(tampered["directories"]["home"])
+            manifest_path.write_text(
+                json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            snapshot = self._manifest_snapshot(manifest_path)
+            with self.assertRaises(IdentityError):
+                initialize_subscription_profile(
+                    target="claude",
+                    profile_root=profile,
+                    executable_path=executable,
+                )
+            self.assertEqual(self._manifest_snapshot(manifest_path), snapshot)
+
+    def test_legacy_claude_tampered_binding_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            legacy = self._legacy_claude_manifest(manifest_path)
+            legacy["bindings"]["HOME"] = "/tmp/not-the-profile-home"
+            manifest_path.write_text(
+                json.dumps(legacy, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            snapshot = self._manifest_snapshot(manifest_path)
+            with self.assertRaises(IdentityError):
+                initialize_subscription_profile(
+                    target="claude",
+                    profile_root=profile,
+                    executable_path=executable,
+                )
+            self.assertEqual(self._manifest_snapshot(manifest_path), snapshot)
+
+    def test_legacy_claude_extra_field_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            legacy = self._legacy_claude_manifest(manifest_path)
+            legacy["unexpected"] = "field"
+            manifest_path.write_text(
+                json.dumps(legacy, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            snapshot = self._manifest_snapshot(manifest_path)
+            with self.assertRaises(ValidationError):
+                initialize_subscription_profile(
+                    target="claude",
+                    profile_root=profile,
+                    executable_path=executable,
+                )
+            self.assertEqual(self._manifest_snapshot(manifest_path), snapshot)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ SYNTHETIC_PROFILE_HOME_AUTH_ROUTE = "synthetic_profile_home"
 CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER = (
     "claude_synthetic_home_profile_migration_required"
 )
+CLAUDE_LEGACY_AUTO_MEMORY_BINDING = "true"
 
 _BASE_LAUNCH_ENVIRONMENT_NAMES = frozenset({"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"})
 _LOGIN_ONLY_ENVIRONMENT_NAMES = frozenset({"NO_OPEN_BROWSER"})
@@ -197,28 +198,26 @@ def _expected_real_home_identity(
     return dict(directories["home"])
 
 
-def _is_legacy_claude_manifest(value: Mapping[str, Any]) -> bool:
-    if value.get("target") != "claude":
-        return False
-    keys = set(value)
-    if keys == _LEGACY_MANIFEST_FIELDS:
-        return True
-    if keys != _MANIFEST_FIELDS:
-        return False
-    if value.get("auth_route") != CLAUDE_NATIVE_KEYRING_AUTH_ROUTE:
-        return True
-    bindings = value.get("bindings")
-    directories = value.get("directories")
-    if not isinstance(bindings, Mapping) or not isinstance(directories, Mapping):
-        return False
-    home_dir = directories.get("home")
-    if isinstance(home_dir, Mapping) and bindings.get("HOME") == home_dir.get("path"):
-        return True
-    real_home = value.get("real_home")
-    if isinstance(real_home, Mapping) and isinstance(home_dir, Mapping):
-        if real_home.get("path") == home_dir.get("path"):
-            return True
-    return False
+def _legacy_claude_profile_environment(
+    directories: Mapping[str, Dict[str, Any]],
+) -> Dict[str, str]:
+    return {
+        "HOME": directories["home"]["path"],
+        "TMPDIR": directories["tmp"]["path"],
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "CLAUDE_CONFIG_DIR": directories["config"]["path"],
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": CLAUDE_LEGACY_AUTO_MEMORY_BINDING,
+    }
+
+
+def _is_exact_legacy_claude_manifest(value: Mapping[str, Any]) -> bool:
+    return (
+        set(value) == _LEGACY_MANIFEST_FIELDS
+        and value.get("schema") == PROFILE_SCHEMA
+        and value.get("target") == "claude"
+    )
 
 
 def _coerce_manifest(
@@ -352,7 +351,7 @@ def _validate_manifest(
 ) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValidationError("subscription profile manifest fields are invalid")
-    if allow_legacy_claude_refresh and _is_legacy_claude_manifest(value):
+    if allow_legacy_claude_refresh and _is_exact_legacy_claude_manifest(value):
         return _validate_legacy_claude_manifest(
             value,
             verify_current=verify_current,
@@ -477,11 +476,9 @@ def _validate_legacy_claude_manifest(
     verify_current: bool = True,
     allow_stale_launch_authority: bool = False,
 ) -> Dict[str, Any]:
-    if not _is_legacy_claude_manifest(value):
+    if not _is_exact_legacy_claude_manifest(value):
         raise ValidationError("subscription profile manifest fields are invalid")
-    target = validate_identifier(value.get("target"), "profile target")
-    if target != "claude":
-        raise ValidationError("subscription profile manifest fields are invalid")
+    target = "claude"
 
     recorded_root = value.get("root")
     if not isinstance(recorded_root, dict):
@@ -548,6 +545,10 @@ def _validate_legacy_claude_manifest(
         "profile login environment executable",
         verify_current=verify_current,
     )
+    bindings = value.get("bindings")
+    expected_bindings = _legacy_claude_profile_environment(checked_directories)
+    if bindings != expected_bindings:
+        raise IdentityError("subscription profile bindings changed")
     commands = _profile_commands(target, executable["path"])
     if value.get("commands") != commands:
         raise IdentityError("subscription profile commands changed")
