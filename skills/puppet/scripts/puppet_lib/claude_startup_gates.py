@@ -37,6 +37,9 @@ _FATAL_REDUCTION_ERRORS = frozenset(
         "screen matches a forbidden non-allowlisted gate",
         "screen contains an unresolved confirmation gate",
         "screen matches multiple allowlisted startup states",
+        "displayed workspace label is duplicated",
+        "displayed workspace path is missing",
+        "displayed workspace path is malformed",
     }
 )
 
@@ -67,7 +70,7 @@ _READY_MARKERS = (
     "bypass permissions on",
     'Try "',
 )
-_WORKSPACE_LINE = re.compile(r"Accessing workspace:\s*(\S+)")
+_WORKSPACE_LABEL = "Accessing workspace:"
 _FORBIDDEN_SCREEN_MARKERS = (
     "Log in",
     "Sign in",
@@ -107,15 +110,48 @@ def _normalize_screen_text(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text)
 
 
-def _displayed_workspace_path(normalized: str) -> Optional[str]:
-    match = _WORKSPACE_LINE.search(normalized)
-    if match is None:
-        return None
-    candidate = match.group(1)
+def _workspace_label_line_indices(lines: Sequence[str]) -> List[int]:
+    indices: List[int] = []
+    for index, line in enumerate(lines):
+        if line.strip().startswith(_WORKSPACE_LABEL):
+            indices.append(index)
+    return indices
+
+
+def _parse_displayed_workspace_path(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Parse exactly one displayed workspace value from raw pane text."""
+
+    lines = text.splitlines()
+    label_indices = _workspace_label_line_indices(lines)
+    if not label_indices:
+        return None, None
+    if len(label_indices) > 1:
+        return None, "displayed workspace label is duplicated"
+    label_index = label_indices[0]
+    label_line = lines[label_index]
+    label_offset = label_line.find(_WORKSPACE_LABEL)
+    if label_offset < 0:
+        return None, "displayed workspace path is malformed"
+    candidate = label_line[label_offset + len(_WORKSPACE_LABEL) :].strip()
+    if not candidate:
+        for follow_line in lines[label_index + 1 :]:
+            display_line = follow_line.strip()
+            if display_line:
+                candidate = display_line
+                break
+    if not candidate:
+        return None, "displayed workspace path is missing"
     try:
-        return _absolute_normalized_worktree(candidate, label="displayed workspace")
+        return _absolute_normalized_worktree(candidate, label="displayed workspace"), None
     except ValidationError:
+        return None, "displayed workspace path is malformed"
+
+
+def _displayed_workspace_path(text: str) -> Optional[str]:
+    displayed, error = _parse_displayed_workspace_path(text)
+    if error is not None:
         return None
+    return displayed
 
 
 def _public_reduction(
@@ -169,11 +205,12 @@ def _security_matches(normalized: str) -> bool:
     return all(marker in normalized for marker in _SECURITY_MARKERS)
 
 
-def _trust_matches(normalized: str, *, expected_worktree: str) -> Tuple[bool, bool]:
-    displayed = _displayed_workspace_path(normalized)
+def _trust_matches(text: str, *, expected_worktree: str) -> Tuple[bool, bool]:
+    normalized = _normalize_screen_text(text)
+    displayed, _ = _parse_displayed_workspace_path(text)
     worktree_match = displayed == expected_worktree
     matched = (
-        "Accessing workspace:" in normalized
+        _WORKSPACE_LABEL in text
         and worktree_match
         and all(marker in normalized for marker in _TRUST_TAIL_MARKERS)
     )
@@ -202,8 +239,10 @@ def _ready_matches(normalized: str) -> bool:
     )
 
 
-def _gate_matches(normalized: str, *, expected_worktree: str) -> Tuple[str, ...]:
-    trust, _worktree_match = _trust_matches(normalized, expected_worktree=expected_worktree)
+def _gate_matches(
+    text: str, normalized: str, *, expected_worktree: str
+) -> Tuple[str, ...]:
+    trust, _worktree_match = _trust_matches(text, expected_worktree=expected_worktree)
     matches = []
     if _security_matches(normalized):
         matches.append("security_notice")
@@ -293,7 +332,18 @@ def reduce_captured_claude_startup_screen(
             error=forbidden,
         )
     if _trust_screen_present(normalized):
-        displayed = _displayed_workspace_path(normalized)
+        displayed, parse_error = _parse_displayed_workspace_path(text)
+        if parse_error is not None:
+            return _public_reduction(
+                ok=False,
+                gate="workspace_trust",
+                selected=_selected_choice(normalized, "workspace_trust"),
+                pane_pid=pane_pid,
+                worktree_match=False,
+                screen_bytes=len(captured),
+                screen_sha256=screen_sha256,
+                error=parse_error,
+            )
         if displayed != worktree:
             return _public_reduction(
                 ok=False,
@@ -305,7 +355,7 @@ def reduce_captured_claude_startup_screen(
                 screen_sha256=screen_sha256,
                 error="displayed workspace path does not match contract",
             )
-    matches = _gate_matches(normalized, expected_worktree=worktree)
+    matches = _gate_matches(text, normalized, expected_worktree=worktree)
     if len(matches) > 1:
         return _public_reduction(
             ok=False,
@@ -330,7 +380,7 @@ def reduce_captured_claude_startup_screen(
         )
     gate = matches[0]
     selected = _selected_choice(normalized, gate)
-    _, worktree_match = _trust_matches(normalized, expected_worktree=worktree)
+    _, worktree_match = _trust_matches(text, expected_worktree=worktree)
     if gate == "workspace_trust" and not worktree_match:
         return _public_reduction(
             ok=False,

@@ -46,6 +46,7 @@ from puppet_lib.tmux import TmuxController, control_environment  # noqa: E402
 
 
 WORKTREE = "/tmp/puppet-claude-gate-worktree"
+WORKTREE_WITH_SPACES = "/tmp/puppet claude gate worktree"
 PANE_PID = 4242
 FAST_TIMING = {
     "startup_deadline_seconds": 1.0,
@@ -300,6 +301,53 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
         )
         self.assertFalse(result["ok"])
         self.assertIn("displayed workspace path", result["error"])
+
+    def test_displayed_workspace_path_with_spaces_matches_exactly(self):
+        cases = (
+            (
+                "same_line",
+                _trust_screen(worktree=WORKTREE_WITH_SPACES, selected="yes"),
+            ),
+            (
+                "following_line",
+                (
+                    "Accessing workspace:\n"
+                    "%s\n"
+                    "Quick safety check:\n"
+                    "❯ 1. Yes, I trust this folder\n"
+                    "  2. No, exit\n"
+                    "Enter to confirm\n"
+                )
+                % WORKTREE_WITH_SPACES,
+            ),
+        )
+        for label, screen in cases:
+            with self.subTest(layout=label):
+                result = reduce_captured_claude_startup_screen(
+                    screen.encode("utf-8"),
+                    expected_worktree=WORKTREE_WITH_SPACES,
+                    pane_pid=PANE_PID,
+                )
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["gate"], "workspace_trust")
+                self.assertTrue(result["worktree_match"])
+
+    def test_duplicate_workspace_label_fails_closed(self):
+        screen = (
+            "Accessing workspace: /tmp/decoy-worktree\n"
+            "Accessing workspace: %s\n"
+            "Quick safety check:\n"
+            "❯ 1. Yes, I trust this folder\n"
+            "  2. No, exit\n"
+            "Enter to confirm\n"
+        ) % WORKTREE
+        result = reduce_captured_claude_startup_screen(
+            screen.encode("utf-8"),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "displayed workspace label is duplicated")
 
     def test_ambiguous_screen_fails_closed(self):
         combined = _security_screen() + _trust_screen()
