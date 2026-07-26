@@ -313,18 +313,17 @@ authority rather than an unreachable launch hook.
 
 ## 6) Source status and remaining deltas
 
-- Implemented public qualification path: `grok_workspace_plane.py` independently
+- Implemented non-promotable workspace substrate: `grok_workspace_plane.py`
   binds create-only `.grok/rules/puppet-<hash>.md` materialization, direct-
-  repository and cockpit entry join to one workspace identity, matched ordinary
-  control with no instruction bleed, hash-guarded rollback, exact regular argv
-  without model/effort selectors, and the terminal
-  `puppet.grok-workspace-isolation-receipt/v1` claim. Census stays incomplete
-  and doctor-only; only a controller-verified terminal receipt may close
-  `project_isolation_declared` via `grok_qualified_mapping`. Activation-only and
-  binding-only records remain non-promotable. `adapter_lab.py qualify` and
-  `AdapterManifest.verify_qualification` reverse the exact mapping closure.
-  `puppet.py launch` still refuses doctor-only Grok and consumes only a verified
-  non-doctor qualified manifest through the public path.
+  repository and cockpit entry join, hash-guarded rollback, exact regular argv
+  without model/effort selectors, and mapping-closure helpers. Ordinary-control
+  filesystem absence is only a structural precheck
+  (`no_bleed_verified=false`, `proof_strength=filesystem_absence_only_nonpromotable`)
+  and cannot build terminal isolation or clear launch. Paired subscription-backed
+  runtime matched control (independent checkpoints, native read-only attach, and
+  exact halts of both owned processes) remains required before promotion.
+  `adapter_lab.py qualify` and `probe.py` reject Grok workspace promotion in this
+  slice. `puppet.py launch` stays fenced for Grok.
 - Implemented source-only: the exact 0.2.111 workspace-addendum descriptor and
   a deterministic body-free `binding_only` join rederived from its validated
   instruction manifest, effective contract, current adapter/doctor manifest,
@@ -383,19 +382,13 @@ authority rather than an unreachable launch hook.
 - Intentionally unchanged: zero-agent census remains `doctor_only` with
   incomplete `project_isolation_declared` until a terminal workspace-isolation
   receipt closes the mapping. Help/parser facts alone never complete the mapping.
-- Public Pass-B path: `probe.py` accepts a Grok entry descriptor, materializes
-  the create-only rule, attests matched ordinary control, records exact halt,
-  rolls the rule back by content hash, and emits terminal workspace isolation
-  with optional `observed_model` (`unavailable` allowed). Live semantics of
-  `--sandbox off` / `--always-approve` remain controller-observed during that
-  approved Pass B, not self-reported.
-- `session.py`: doctor-only Grok stays fenced; a verified non-doctor qualified
-  manifest may proceed through the public `puppet.py launch` path with exact
-  regular argv and no model/effort selector.
-- Remaining: live leader/child halt topology proof under an authenticated
-  private profile during an approved controller-owned Pass B; native read-only
-  tmux attach is already a generic session surface and is recorded by probe
-  evidence, not a separate Grok module.
+- Public Pass-B / qualify / launch remain non-promotable for Grok until paired
+  runtime no-bleed is controller-proved. Live semantics of `--sandbox off` /
+  `--always-approve` and leader/child halt topology remain unproved.
+- `session.py`: Grok public launch stays fenced regardless of doctor_only.
+- Remaining for promotion: controller-owned paired positive/control sessions,
+  independent checkpoints, native read-only attach evidence, exact dual halts,
+  then terminal isolation and mapping closure under root authority.
 - Tests: alias/file/replacement classification, explicit sandbox-off mapping,
   launcher/runtime separation, path containment, no live-home fallback,
   distinct lane sockets/UUIDs, leader identity, default-model parsing, and

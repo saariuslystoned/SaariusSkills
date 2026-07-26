@@ -226,14 +226,12 @@ def _qualify(args):
         mapping = codex_qualified_mapping(mapping)
     if base.target == "claude" and mapping.get("complete") is False:
         mapping = claude_qualified_mapping(mapping)
-    if base.target == "grok" and mapping.get("complete") is False:
-        if receipt.get("workspace_isolation") is None:
-            raise UnsupportedError(
-                "Grok qualification requires terminal controller-verified workspace isolation"
-            )
-        from puppet_lib.grok_workspace_plane import grok_qualified_mapping
+    if base.target == "grok":
+        # Filesystem-only ordinary-control absence cannot promote Grok. Paired
+        # subscription-backed runtime matched control is still required.
+        from puppet_lib.grok_workspace_plane import require_grok_qualification_promotion
 
-        mapping = grok_qualified_mapping(mapping)
+        require_grok_qualification_promotion()
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {

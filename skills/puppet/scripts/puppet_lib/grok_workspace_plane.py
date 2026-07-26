@@ -1,11 +1,16 @@
-"""Controller-owned Grok workspace isolation for regular Pass B qualification.
+"""Controller-owned Grok workspace isolation substrate (non-promotable slice).
 
 Census remains doctor-only with an incomplete mapping because Grok has no CLI
-project-isolation flag.  This module independently binds the create-only
-``.grok/rules/puppet-<hash>.md`` workspace addendum, direct/cockpit entry join,
-matched ordinary control, hash-guarded rollback, and the exact mapping closure
-that a terminal controller-verified receipt may promote.  It never launches
-Grok or reads auth/config-store contents.
+project-isolation flag.  This module binds create-only
+``.grok/rules/puppet-<hash>.md`` materialization, direct/cockpit entry join,
+hash-guarded rollback, and structural ordinary-control *prechecks*.
+
+Filesystem absence of a rule in a sibling directory is never ``no_bleed_verified``
+and never grants terminal qualification or public launch authority.  Paired
+subscription-backed runtime matched control (independent positive/control
+checkpoints, native read-only attach, and exact halts of both owned processes)
+remains required before any promotion.  This module never launches Grok or
+reads auth/config-store contents.
 """
 
 from __future__ import annotations
@@ -47,6 +52,23 @@ TERMINAL_SCHEMA = "puppet.grok-workspace-isolation-receipt/v1"
 MATERIALIZATION_RECEIPT_SCHEMA = "puppet.grok-workspace-materialization/v1"
 ROLLBACK_RECEIPT_SCHEMA = "puppet.grok-workspace-rollback/v1"
 MATCHED_CONTROL_SCHEMA = "puppet.grok-matched-control-attestation/v1"
+MATCHED_CONTROL_PRECHECK_SCHEMA = "puppet.grok-matched-control-precheck/v1"
+FILESYSTEM_ABSENCE_PROOF = "filesystem_absence_only_nonpromotable"
+PAIRED_RUNTIME_PROOF = "paired_subscription_runtime"
+GROK_NO_BLEED_FS_SHORTCUT_BLOCKER = (
+    "Grok no_bleed_verified cannot be claimed from ordinary-control filesystem "
+    "absence alone; paired subscription-backed runtime control with independent "
+    "checkpoints, read-only attach, and exact halts is required"
+)
+GROK_QUALIFICATION_NONPROMOTABLE = (
+    "Grok public qualification remains non-promotable until paired "
+    "subscription-backed runtime matched control is controller-proved"
+)
+GROK_PUBLIC_LAUNCH_FENCED = (
+    "Grok public launch remains fenced until authentication isolation, the native "
+    "instruction plane, paired runtime no-bleed, and leader/child halt authority "
+    "are controller-proved"
+)
 ENTRY_SURFACES = ("direct_repository", "cockpit")
 GROK_REGULAR_PERMISSION_FLAGS: Tuple[str, ...] = ("--always-approve",)
 GROK_REGULAR_SANDBOX_FLAGS: Tuple[str, ...] = ("--sandbox", "off")
@@ -115,6 +137,23 @@ _ROLLBACK_FIELDS = {
     "qualification_authorized",
 }
 
+_MATCHED_CONTROL_PRECHECK_FIELDS = {
+    "schema",
+    "target",
+    "target_version",
+    "positive_workspace_root",
+    "ordinary_workspace_root",
+    "positive_artifact_relative_path",
+    "positive_artifact_sha256",
+    "ordinary_artifact_absent",
+    "workspace_identity_join_sha256",
+    "proof_strength",
+    "no_bleed_verified",
+    "activation_authorized",
+    "launch_authorized",
+    "qualification_authorized",
+    "attestation_sha256",
+}
 _MATCHED_CONTROL_FIELDS = {
     "schema",
     "target",
@@ -125,6 +164,13 @@ _MATCHED_CONTROL_FIELDS = {
     "positive_artifact_sha256",
     "ordinary_artifact_absent",
     "workspace_identity_join_sha256",
+    "proof_strength",
+    "positive_runtime_halt_sha256",
+    "ordinary_runtime_halt_sha256",
+    "positive_checkpoint_sha256",
+    "ordinary_checkpoint_sha256",
+    "positive_attach_sha256",
+    "ordinary_attach_sha256",
     "no_bleed_verified",
     "activation_authorized",
     "launch_authorized",
@@ -634,7 +680,7 @@ def rollback_grok_workspace_rule(
     return receipt
 
 
-def attest_grok_matched_control(
+def precheck_grok_ordinary_control_artifact_absence(
     *,
     positive_workspace_root: Path | str,
     ordinary_workspace_root: Path | str,
@@ -642,7 +688,12 @@ def attest_grok_matched_control(
     positive_content_sha256: str,
     workspace_identity_join_sha256: str,
 ) -> Dict[str, Any]:
-    """Body-free positive/ordinary pair: rule only in the positive workspace."""
+    """Structural FS precheck only. Never verifies no-bleed or qualifies.
+
+    Observing that an ordinary directory lacks ``.grok/rules/puppet-*.md`` does
+    not prove runtime non-activation.  ``no_bleed_verified`` stays false and
+    every authority bit stays false.
+    """
 
     positive = absolute_root(str(positive_workspace_root), "positive workspace")
     ordinary = absolute_root(str(ordinary_workspace_root), "ordinary workspace")
@@ -663,7 +714,6 @@ def attest_grok_matched_control(
         raise IdentityError(
             "Grok ordinary control contains the Puppet rule; instruction bleed"
         )
-    # Also refuse any puppet-*.md under ordinary .grok/rules.
     ordinary_rules = ordinary / ".grok" / "rules"
     if ordinary_rules.is_dir() and not ordinary_rules.is_symlink():
         for child in ordinary_rules.iterdir():
@@ -671,8 +721,8 @@ def attest_grok_matched_control(
                 raise IdentityError(
                     "Grok ordinary control contains a Puppet-namespaced rule"
                 )
-    attestation = {
-        "schema": MATCHED_CONTROL_SCHEMA,
+    precheck = {
+        "schema": MATCHED_CONTROL_PRECHECK_SCHEMA,
         "target": "grok",
         "target_version": GROK_BUILD_VERSION,
         "positive_workspace_root": str(positive),
@@ -681,26 +731,86 @@ def attest_grok_matched_control(
         "positive_artifact_sha256": content_sha,
         "ordinary_artifact_absent": True,
         "workspace_identity_join_sha256": join_sha,
-        "no_bleed_verified": True,
+        "proof_strength": FILESYSTEM_ABSENCE_PROOF,
+        "no_bleed_verified": False,
         "activation_authorized": False,
         "launch_authorized": False,
         "qualification_authorized": False,
     }
-    attestation["attestation_sha256"] = sha256_bytes(
+    precheck["attestation_sha256"] = sha256_bytes(
         canonical_json_bytes(
-            {name: attestation[name] for name in attestation if name != "attestation_sha256"}
+            {
+                name: precheck[name]
+                for name in precheck
+                if name != "attestation_sha256"
+            }
         )
     )
-    if set(attestation) != _MATCHED_CONTROL_FIELDS:
-        raise IdentityError("Grok matched-control attestation fields changed")
+    if set(precheck) != _MATCHED_CONTROL_PRECHECK_FIELDS:
+        raise IdentityError("Grok matched-control precheck fields changed")
     validate_bounded_json(
-        attestation,
+        precheck,
         max_depth=3,
         max_items=32,
         max_string=4096,
         reject_sensitive_fields=True,
     )
-    return attestation
+    return precheck
+
+
+def reject_filesystem_only_no_bleed_claim(value: Any = None) -> None:
+    """Fail closed on the rejected ordinary-workspace filesystem shortcut."""
+
+    if isinstance(value, Mapping):
+        if (
+            value.get("schema") == MATCHED_CONTROL_PRECHECK_SCHEMA
+            or value.get("proof_strength") == FILESYSTEM_ABSENCE_PROOF
+            or (
+                value.get("ordinary_artifact_absent") is True
+                and value.get("no_bleed_verified") is True
+                and value.get("proof_strength") != PAIRED_RUNTIME_PROOF
+            )
+        ):
+            raise UnsupportedError(GROK_NO_BLEED_FS_SHORTCUT_BLOCKER)
+    raise UnsupportedError(GROK_NO_BLEED_FS_SHORTCUT_BLOCKER)
+
+
+def attest_grok_matched_control(
+    *,
+    positive_workspace_root: Path | str,
+    ordinary_workspace_root: Path | str,
+    positive_relative_path: str,
+    positive_content_sha256: str,
+    workspace_identity_join_sha256: str,
+) -> Dict[str, Any]:
+    """Rejected shortcut: never promote FS absence to no-bleed verification.
+
+    Performs the structural precheck, then always fails closed.  Callers that
+    need the non-promotable precheck must use
+    ``precheck_grok_ordinary_control_artifact_absence`` explicitly.
+    """
+
+    precheck = precheck_grok_ordinary_control_artifact_absence(
+        positive_workspace_root=positive_workspace_root,
+        ordinary_workspace_root=ordinary_workspace_root,
+        positive_relative_path=positive_relative_path,
+        positive_content_sha256=positive_content_sha256,
+        workspace_identity_join_sha256=workspace_identity_join_sha256,
+    )
+    reject_filesystem_only_no_bleed_claim(precheck)
+    raise UnsupportedError(GROK_NO_BLEED_FS_SHORTCUT_BLOCKER)
+
+
+def require_grok_qualification_promotion() -> None:
+    """Public qualify remains non-promotable in this slice."""
+
+    raise UnsupportedError(GROK_QUALIFICATION_NONPROMOTABLE)
+
+
+def require_grok_public_launch_authority() -> None:
+    """Public puppet.py launch remains fenced in this slice."""
+
+    raise UnsupportedError(GROK_PUBLIC_LAUNCH_FENCED)
 
 
 def build_grok_terminal_workspace_isolation(
@@ -718,7 +828,12 @@ def build_grok_terminal_workspace_isolation(
     observed_model: str,
     halt_receipt_sha256: str,
 ) -> Dict[str, Any]:
-    """Build the terminal isolation claim after exact halt and hash-guarded rollback."""
+    """Build terminal isolation only from paired-runtime no-bleed proof.
+
+    Filesystem-only prechecks and source-only records cannot construct this
+    claim.  This helper remains for a future controller-owned paired runtime
+    lane; it is unreachable from the FS shortcut path.
+    """
 
     if (
         not isinstance(descriptor, Mapping)
@@ -733,15 +848,33 @@ def build_grok_terminal_workspace_isolation(
         or materialization.get("qualification_authorized") is not False
     ):
         raise ValidationError("Grok terminal isolation requires create-only materialization")
+    if not isinstance(matched_control, Mapping):
+        raise ValidationError(
+            "Grok terminal isolation requires verified matched ordinary control"
+        )
     if (
-        not isinstance(matched_control, Mapping)
-        or matched_control.get("schema") != MATCHED_CONTROL_SCHEMA
+        matched_control.get("schema") == MATCHED_CONTROL_PRECHECK_SCHEMA
+        or matched_control.get("proof_strength") == FILESYSTEM_ABSENCE_PROOF
+    ):
+        reject_filesystem_only_no_bleed_claim(matched_control)
+    if (
+        matched_control.get("schema") != MATCHED_CONTROL_SCHEMA
+        or matched_control.get("proof_strength") != PAIRED_RUNTIME_PROOF
         or matched_control.get("no_bleed_verified") is not True
         or matched_control.get("qualification_authorized") is not False
     ):
         raise ValidationError(
-            "Grok terminal isolation requires verified matched ordinary control"
+            "Grok terminal isolation requires paired-runtime matched ordinary control"
         )
+    for name in (
+        "positive_runtime_halt_sha256",
+        "ordinary_runtime_halt_sha256",
+        "positive_checkpoint_sha256",
+        "ordinary_checkpoint_sha256",
+        "positive_attach_sha256",
+        "ordinary_attach_sha256",
+    ):
+        validate_sha256(matched_control.get(name), name.replace("_", " "))
     if (
         not isinstance(rollback, Mapping)
         or rollback.get("schema") != ROLLBACK_RECEIPT_SCHEMA
@@ -896,7 +1029,11 @@ def source_authority_blockers() -> Tuple[str, ...]:
     return GROK_LAUNCH_AUTHORITY_BLOCKERS + (
         "grok_workspace_project_isolation_requires_terminal_receipt",
         "grok_matched_ordinary_control_required",
+        "grok_paired_runtime_no_bleed_required",
+        "grok_filesystem_absence_is_nonpromotable",
         "grok_hash_guarded_rollback_required",
+        "grok_public_launch_fenced",
+        "grok_public_qualification_nonpromotable",
     )
 
 
@@ -926,11 +1063,17 @@ def validate_plane_descriptor(raw: Mapping[str, Any]) -> Dict[str, Any]:
 
 __all__ = [
     "DESCRIPTOR_SCHEMA",
+    "FILESYSTEM_ABSENCE_PROOF",
+    "GROK_NO_BLEED_FS_SHORTCUT_BLOCKER",
+    "GROK_PUBLIC_LAUNCH_FENCED",
+    "GROK_QUALIFICATION_NONPROMOTABLE",
     "GROK_REGULAR_ARGV_TAIL",
     "GROK_REGULAR_PERMISSION_FLAGS",
     "GROK_REGULAR_SANDBOX_FLAGS",
+    "MATCHED_CONTROL_PRECHECK_SCHEMA",
     "MATCHED_CONTROL_SCHEMA",
     "MATERIALIZATION_RECEIPT_SCHEMA",
+    "PAIRED_RUNTIME_PROOF",
     "ROLLBACK_RECEIPT_SCHEMA",
     "TERMINAL_SCHEMA",
     "attest_grok_matched_control",
@@ -943,6 +1086,10 @@ __all__ = [
     "grok_regular_launch_argv",
     "is_grok_workspace_mapping_closure",
     "materialize_grok_workspace_rule",
+    "precheck_grok_ordinary_control_artifact_absence",
+    "reject_filesystem_only_no_bleed_claim",
+    "require_grok_public_launch_authority",
+    "require_grok_qualification_promotion",
     "require_source_only_grok_binding",
     "rollback_grok_workspace_rule",
     "source_authority_blockers",

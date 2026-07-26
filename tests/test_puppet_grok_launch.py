@@ -820,7 +820,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 patch.object(
                     puppet_session,
                     "doctor",
-                    return_value={"target": "grok", "launch_ready": False},
+                    return_value={"target": "grok", "launch_ready": True},
                 ),
             ):
                 with self.assertRaisesRegex(UnsupportedError, "doctor-only"):

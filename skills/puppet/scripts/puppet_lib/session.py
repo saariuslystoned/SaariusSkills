@@ -869,11 +869,10 @@ def doctor(
         )
         candidate_processes = grok_population["candidates"]
         blockers.extend(population_blockers)
-        # Doctor-only Grok remains fenced. A terminal workspace-isolation receipt
-        # may promote a non-doctor manifest that the generic qualification path
-        # verifies below; incomplete census mapping alone never authorizes launch.
-        if manifest.raw["doctor_only"]:
-            blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
+        # Public Grok launch stays fenced until paired-runtime no-bleed and the
+        # remaining Grok-specific gates are controller-proved. Filesystem-only
+        # ordinary-control absence and non-doctor manifests cannot clear this.
+        blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
         active = _active_processes(contract.target, manifest)
         candidate_processes = active
@@ -971,9 +970,9 @@ def launch(
         profile_root=profile_root,
         require_subscription_profile=require_subscription_profile,
     )
-    if report["target"] == "grok" and not report.get("launch_ready"):
-        # Defense in depth: doctor-only Grok cannot launch through the public path.
-        # A verified, non-doctor qualification receipt may clear launch_ready.
+    if report["target"] == "grok":
+        # Defense in depth: no public Grok launch path may clear until paired
+        # runtime no-bleed and leader/child halt authority are controller-proved.
         raise UnsupportedError(GROK_LAUNCH_AUTHORITY_BLOCKER)
     if not report["launch_ready"]:
         raise UnsupportedError("adapter remains doctor-only or preflight is blocked")
