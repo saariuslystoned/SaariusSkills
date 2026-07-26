@@ -152,7 +152,7 @@ import re
 import sys
 import time
 
-prompt = sys.stdin.read()
+prompt = sys.argv[sys.argv.index("--print") + 1]
 challenge = re.search(r"challenge: ([A-Za-z0-9_-]+)", prompt).group(1)
 workspace = pathlib.Path(sys.argv[sys.argv.index("--add-dir") + 1])
 agent = sys.argv[sys.argv.index("--agent") + 1]

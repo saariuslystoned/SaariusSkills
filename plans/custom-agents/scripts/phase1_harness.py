@@ -350,6 +350,7 @@ def run_print(args: argparse.Namespace) -> int:
         "--print-timeout",
         f"{args.timeout_seconds}s",
         "--print",
+        prompt,
     ]
 
     timed_out = False
@@ -361,23 +362,11 @@ def run_print(args: argparse.Namespace) -> int:
         process = subprocess.Popen(
             command,
             cwd=workspace,
-            stdin=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             stdout=stdout_handle,
             stderr=stderr_handle,
             start_new_session=True,
         )
-        if process.stdin is None:
-            raise RuntimeError("print-mode stdin is unavailable")
-        stdin_accepted = True
-        try:
-            process.stdin.write((prompt + "\n").encode("utf-8"))
-        except BrokenPipeError:
-            stdin_accepted = False
-        finally:
-            try:
-                process.stdin.close()
-            except BrokenPipeError:
-                stdin_accepted = False
         time.sleep(args.quarantine_delay_ms / 1000)
         agents_root.rename(quarantine)
         workspace.chmod(0o555)
@@ -425,9 +414,8 @@ def run_print(args: argparse.Namespace) -> int:
         "sandbox": True,
         "workspace_binding": "add-dir-absolute",
         "surface": "print",
-        "prompt_class": "challenge-only-stdin",
+        "prompt_class": "challenge-only-argument",
         "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
-        "stdin_accepted": stdin_accepted,
         "started_at_ns": started_at_ns,
         "quarantined_at_ns": quarantined_at_ns,
         "finished_at_ns": finished_at_ns,

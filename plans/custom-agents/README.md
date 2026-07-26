@@ -37,6 +37,11 @@ names and role markers, stdin print mode, immediate profile quarantine,
 write-only agent tools, a disposable sandbox, complete scoped filesystem
 postflight, process exit, and digest-then-unlink raw-output handling.
 
+Phase 1C's boundary passed its launch calibration, but AGY rejected a bare
+`--print` flag before model use. Phase 1D preserves the oracle and changes only
+the bounded prompt transport to the officially documented
+`-p "<challenge-only prompt>"` value.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -47,6 +52,8 @@ Files:
 - `ROUTE_PHASE_1B.md` — bounded retry route and remaining budget;
 - `BEHAVIOR_CONTRACT_PHASE1C.md` — external filesystem identity oracle;
 - `ROUTE_PHASE_1C.md` — bounded C1–C8 route without hook dependence;
+- `BEHAVIOR_CONTRACT_PHASE1D.md` — documented print-argument correction;
+- `ROUTE_PHASE_1D.md` — C1–C8 execution route on the corrected transport;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe

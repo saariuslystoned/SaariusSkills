@@ -83,7 +83,11 @@
         "skip_permissions": {"const": false},
         "fresh_session": {"const": true},
         "prompt_transport": {
-          "enum": ["tmux-buffer-stdin", "print-stdin"]
+          "enum": [
+            "tmux-buffer-stdin",
+            "print-stdin",
+            "print-argument-challenge-only"
+          ]
         },
         "workspace_binding": {"const": "add-dir-absolute"},
         "execution_mode": {"const": "accept-edits"}
