@@ -117,6 +117,9 @@ def _probe(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        codex_ordinary_worktree_descriptor=(
+            args.codex_ordinary_worktree_descriptor
+        ),
         paired_grok_positive_receipt=args.paired_grok_positive_receipt,
         codex_entry_plan=args.codex_entry_plan,
         timeout=args.timeout,
@@ -146,6 +149,9 @@ def _recover(args):
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
         paired_codex_positive_receipt=args.paired_codex_positive_receipt,
+        codex_ordinary_worktree_descriptor=(
+            args.codex_ordinary_worktree_descriptor
+        ),
         paired_grok_positive_receipt=args.paired_grok_positive_receipt,
         codex_entry_plan=args.codex_entry_plan,
         halt_timeout=args.halt_timeout,
@@ -568,6 +574,13 @@ def build_parser():
         ),
     )
     probe_parser.add_argument(
+        "--codex-ordinary-worktree-descriptor",
+        type=Path,
+        help=(
+            "second clean linked-worktree descriptor required by a Codex ordinary control"
+        ),
+    )
+    probe_parser.add_argument(
         "--paired-grok-positive-receipt",
         type=Path,
         help="terminal positive Grok receipt that binds this ordinary control",
@@ -599,6 +612,13 @@ def build_parser():
     recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.add_argument("--paired-activation-receipt", type=Path)
     recover_parser.add_argument("--paired-codex-positive-receipt", type=Path)
+    recover_parser.add_argument(
+        "--codex-ordinary-worktree-descriptor",
+        type=Path,
+        help=(
+            "exact linked-worktree descriptor used by a Codex ordinary control"
+        ),
+    )
     recover_parser.add_argument("--paired-grok-positive-receipt", type=Path)
     recover_parser.add_argument("--codex-entry-plan", type=Path)
     recover_parser.set_defaults(handler=_recover)

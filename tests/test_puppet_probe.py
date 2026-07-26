@@ -352,6 +352,32 @@ def codex_worktree_inputs(root: Path):
     )
     descriptor_path = root / "codex-worktree-descriptor.json"
     write_json(descriptor_path, descriptor)
+    control_candidate = root / "control-worktree"
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(files["goal_repo"]),
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "codex-control",
+            str(control_candidate),
+        ],
+        check=True,
+    )
+    control_descriptor = build_codex_worktree_descriptor(
+        candidate_root=control_candidate,
+        supervisor_root=files["goal_repo"],
+        controller="tester",
+        campaign_id=files["campaign_id"],
+        goal_fingerprint=sha256_bytes(canonical_json_bytes(files["expected_goal"])),
+        executable_sha256=files["raw"]["executable"]["sha256"],
+        subscription_profile_root=files["subscription_profile"],
+    )
+    control_descriptor_path = root / "codex-control-worktree-descriptor.json"
+    write_json(control_descriptor_path, control_descriptor)
     entry_contract = root / "codex-entry-contract.json"
     candidate_branch = subprocess.run(
         ["git", "-C", str(candidate), "branch", "--show-current"],
@@ -408,6 +434,9 @@ def codex_worktree_inputs(root: Path):
         candidate=candidate.resolve(strict=True),
         descriptor=descriptor_path,
         descriptor_value=descriptor,
+        control_candidate=control_candidate.resolve(strict=True),
+        control_descriptor=control_descriptor_path,
+        control_descriptor_value=control_descriptor,
         entry_plan=entry_plan_path,
     )
     return files
@@ -915,6 +944,7 @@ def execute(
     sleep_fn=None,
     plane_descriptor=None,
     paired_codex_positive_receipt=None,
+    codex_ordinary_worktree_descriptor=None,
     subscription_preflight_fn=None,
 ):
     subscription_root = files["subscription_profile"]
@@ -1014,6 +1044,9 @@ def execute(
             ),
             plane_descriptor=plane_descriptor,
             paired_codex_positive_receipt=paired_codex_positive_receipt,
+            codex_ordinary_worktree_descriptor=(
+                codex_ordinary_worktree_descriptor
+            ),
             codex_entry_plan=(
                 files.get("entry_plan") if plane_descriptor is not None else None
             ),
@@ -1401,14 +1434,16 @@ class ProbeTests(unittest.TestCase):
                     ordinary_fake,
                     run_id="probe-codex-ordinary",
                     paired_codex_positive_receipt=Path(positive["receipt"]),
+                    codex_ordinary_worktree_descriptor=files[
+                        "control_descriptor"
+                    ],
                 )
 
             self.assertEqual(ordinary["result"], "accepted")
             ordinary_root = Path(ordinary["run_root"])
             fixture = ordinary_root / "fixture"
-            self.assertEqual(ordinary_fake.repo, fixture)
-            self.assertTrue((fixture / ".git").is_dir())
-            self.assertFalse((fixture / "AGENTS.md").exists())
+            self.assertEqual(ordinary_fake.repo, files["control_candidate"])
+            self.assertFalse((files["control_candidate"] / "AGENTS.md").exists())
             repository = json.loads(
                 (ordinary_root / "codex-ordinary-repository.json").read_text(
                     encoding="utf-8"
@@ -1416,23 +1451,15 @@ class ProbeTests(unittest.TestCase):
             )
             self.assertEqual(
                 repository["schema"],
-                "puppet.codex-ordinary-repository/v2",
+                "puppet.codex-ordinary-repository/v3",
             )
             self.assertEqual(repository["role"], "ordinary_control")
             self.assertEqual(
-                repository["head_state"],
-                "controller_seed_commit",
+                repository["worktree_descriptor"],
+                files["control_descriptor_value"],
             )
-            self.assertEqual(repository["tracked_paths"], ["contract.json"])
-            self.assertTrue(repository["agents_md_absent"])
-            self.assertTrue(repository["system_config_disabled"])
-            self.assertTrue(repository["global_config_disabled"])
-            self.assertTrue(repository["templates_disabled"])
+            self.assertTrue(repository["instruction_artifact_absent"])
             self.assertFalse(repository["raw_retained"])
-            self.assertEqual(
-                repository["workspace_root"]["path"],
-                str(fixture),
-            )
             receipt = verify_qualification_receipt(
                 Path(ordinary["receipt"]),
                 _authority_root=files["authority"],
@@ -1444,14 +1471,11 @@ class ProbeTests(unittest.TestCase):
                 "codex_ordinary_repository",
                 {reference["kind"] for reference in receipt["proof_refs"]},
             )
-            (fixture / ".git" / "HEAD").write_text(
-                "ref: refs/heads/tampered-control\n",
+            (files["control_candidate"] / "README.md").write_text(
+                "tampered control\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(
-                IdentityError,
-                "Codex ordinary repository metadata changed",
-            ):
+            with self.assertRaises(IdentityError):
                 verify_qualification_receipt(
                     Path(ordinary["receipt"]),
                     _authority_root=files["authority"],

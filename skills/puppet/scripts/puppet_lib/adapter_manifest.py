@@ -1243,13 +1243,25 @@ def verify_qualification_receipt(
         )
         if (
             ordinary_repository["run_id"] != receipt["run_id"]
-            or ordinary_repository["workspace_root"]["path"]
+            or ordinary_repository["worktree_descriptor"]["candidate_root"]
             != launch_plan["cwd"]
         ):
             raise IdentityError(
                 "Codex ordinary repository differs from its admitted launch"
             )
-        revalidate_codex_ordinary_repository(ordinary_repository)
+        revalidate_codex_ordinary_repository(
+            ordinary_repository,
+            controller=receipt["controller"],
+            campaign_id=receipt["campaign_id"],
+            goal_fingerprint=receipt["goal_fingerprint"],
+            executable_sha256=current["executable"]["sha256"],
+            subscription_profile_root=Path(
+                ordinary_repository["worktree_descriptor"][
+                    "subscription_profile_root"
+                ]
+            ),
+            positive_workspace=codex_control_source["positive_workspace"],
+        )
     if codex_entry_source is not None:
         workspace = receipt["workspace_isolation"]
         if (
@@ -1308,6 +1320,16 @@ def verify_qualification_receipt(
         current_executable=current["executable"],
         admitted_launch_identity=launch_plan["launch_identity"],
     )
+    if (
+        codex_control_source is not None
+        and ordinary_repository["worktree_descriptor"][
+            "subscription_profile_root"
+        ]
+        != subscription_binding["profile_root"]
+    ):
+        raise IdentityError(
+            "Codex ordinary worktree profile authority changed"
+        )
     subscription_sha256 = sha256_file(
         artifacts["subscription_profile"], max_bytes=131072
     )
@@ -1482,9 +1504,13 @@ def verify_qualification_receipt(
         workspace_isolation["startup_cwd"]
         if workspace_isolation is not None
         else (
-            grok_pairing["runtime_vector"]["cwd"]
-            if grok_pairing is not None
-            else str(expected_fixture)
+            ordinary_repository["worktree_descriptor"]["candidate_root"]
+            if codex_control_source is not None
+            else (
+                grok_pairing["runtime_vector"]["cwd"]
+                if grok_pairing is not None
+                else str(expected_fixture)
+            )
         )
     )
     if launch_plan["cwd"] != expected_cwd:

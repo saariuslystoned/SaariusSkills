@@ -993,6 +993,7 @@ def run_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    codex_ordinary_worktree_descriptor: Optional[Path] = None,
     paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     timeout: float = 300.0,
@@ -1049,6 +1050,11 @@ def run_probe(
     plane_descriptor_value = (
         _read_plane_descriptor(plane_descriptor)
         if plane_descriptor is not None
+        else None
+    )
+    codex_ordinary_worktree_value = (
+        _read_plane_descriptor(codex_ordinary_worktree_descriptor)
+        if codex_ordinary_worktree_descriptor is not None
         else None
     )
     codex_worktree_descriptor = (
@@ -1130,6 +1136,20 @@ def run_probe(
     ):
         raise ValidationError(
             "paired Codex positive source is limited to an ordinary control"
+        )
+    if codex_ordinary_control != (
+        codex_ordinary_worktree_value is not None
+    ):
+        raise ValidationError(
+            "Codex ordinary control requires exactly one linked-worktree descriptor"
+        )
+    if (
+        codex_ordinary_worktree_value is not None
+        and codex_ordinary_worktree_value.get("schema")
+        != CODEX_WORKTREE_DESCRIPTOR_SCHEMA
+    ):
+        raise ValidationError(
+            "Codex ordinary-control worktree descriptor schema changed"
         )
     if codex_worktree_descriptor != (codex_entry_plan is not None):
         raise ValidationError(
@@ -1249,8 +1269,12 @@ def run_probe(
     run_id = validate_identifier(run_id or _new_run_id(target), "run id")
     session = _session_id(target, run_id)
     codex_control_source = None
+    codex_ordinary_repository = None
     if codex_ordinary_control:
-        from .codex_qualification import build_codex_control_source
+        from .codex_qualification import (
+            build_codex_control_source,
+            build_codex_ordinary_repository,
+        )
 
         codex_control_source = build_codex_control_source(
             paired_codex_positive_receipt,
@@ -1268,6 +1292,16 @@ def run_probe(
             raise IdentityError(
                 "Codex ordinary-control authority differs from its positive source"
             )
+        codex_ordinary_repository = build_codex_ordinary_repository(
+            codex_ordinary_worktree_value,
+            run_id=run_id,
+            controller=controller,
+            campaign_id=authorization["campaign_id"],
+            goal_fingerprint=goal_verification["goal_fingerprint"],
+            executable_sha256=manifest.raw["executable"]["sha256"],
+            subscription_profile_root=subscription_context.profile_root,
+            positive_workspace=codex_control_source["positive_workspace"],
+        )
     codex_entry_source = None
     if codex_worktree_descriptor:
         from .codex_qualification import build_codex_entry_source
@@ -1510,15 +1544,7 @@ def run_probe(
         fixture_contract = create_fixture(
             fixture, run_id=run_id, session=session, target=target
         )
-        codex_ordinary_repository = None
         if codex_ordinary_control:
-            from .codex_qualification import (
-                initialize_codex_ordinary_repository,
-            )
-
-            codex_ordinary_repository = initialize_codex_ordinary_repository(
-                fixture, run_id=run_id
-            )
             atomic_write_json(
                 codex_ordinary_repository_path,
                 codex_ordinary_repository,
@@ -1573,7 +1599,9 @@ def run_probe(
                 fixture_contract,
                 ready_value,
                 bind_absolute_fixture=(
-                    codex_worktree_descriptor or grok_positive_probe
+                    codex_worktree_descriptor
+                    or codex_ordinary_control
+                    or grok_positive_probe
                 ),
             )
             if not claude_plane_descriptor
@@ -1686,6 +1714,12 @@ def run_probe(
                     # binds there; terminal workspace_isolation independently proves
                     # that real process cwd while prompts use absolute fixture paths.
                     launch_repo = Path(plane_descriptor_value["candidate_root"])
+                if codex_ordinary_control:
+                    launch_repo = Path(
+                        codex_ordinary_repository["worktree_descriptor"][
+                            "candidate_root"
+                        ]
+                    )
                 if grok_positive_probe:
                     launch_repo = Path(plane_descriptor_value["workspace_root"])
                 if target == "grok":
@@ -2596,7 +2630,9 @@ def run_probe(
             _followup_prompt(
                 fixture_contract,
                 followup_value,
-                bind_absolute_fixture=codex_worktree_descriptor,
+                bind_absolute_fixture=(
+                    codex_worktree_descriptor or codex_ordinary_control
+                ),
             ),
             session_profile,
             initial=False,
@@ -2918,7 +2954,15 @@ def run_probe(
                 revalidate_codex_ordinary_repository,
             )
 
-            revalidate_codex_ordinary_repository(codex_ordinary_repository)
+            revalidate_codex_ordinary_repository(
+                codex_ordinary_repository,
+                controller=controller,
+                campaign_id=authorization["campaign_id"],
+                goal_fingerprint=goal_verification["goal_fingerprint"],
+                executable_sha256=manifest.raw["executable"]["sha256"],
+                subscription_profile_root=subscription_context.profile_root,
+                positive_workspace=codex_control_source["positive_workspace"],
+            )
         atomic_write_json(halt_path, cleanup)
         halt_sha = sha256_file(halt_path, max_bytes=65536)
         evidence["halt_sha256"] = halt_sha
@@ -3460,6 +3504,7 @@ def recover_probe(
     plane_descriptor: Optional[Path] = None,
     paired_activation_receipt: Optional[Path] = None,
     paired_codex_positive_receipt: Optional[Path] = None,
+    codex_ordinary_worktree_descriptor: Optional[Path] = None,
     paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     halt_timeout: float = 10.0,
@@ -3494,8 +3539,14 @@ def recover_probe(
         if plane_descriptor is not None
         else None
     )
+    supplied_codex_ordinary_worktree = (
+        _read_plane_descriptor(codex_ordinary_worktree_descriptor)
+        if codex_ordinary_worktree_descriptor is not None
+        else None
+    )
     plane_descriptor_snapshot_path = run_root / "plane-descriptor.json"
     grok_request_snapshot_path = run_root / "grok-qualification-request.json"
+    codex_ordinary_repository_path = run_root / "codex-ordinary-repository.json"
     persisted_plane_descriptor = (
         _read_plane_descriptor(plane_descriptor_snapshot_path)
         if (
@@ -3645,6 +3696,20 @@ def recover_probe(
         raise ValidationError(
             "paired Codex positive source is limited to ordinary-control recovery"
         )
+    if codex_ordinary_control != (
+        supplied_codex_ordinary_worktree is not None
+    ):
+        raise ValidationError(
+            "Codex ordinary-control recovery requires its linked-worktree descriptor"
+        )
+    if (
+        supplied_codex_ordinary_worktree is not None
+        and supplied_codex_ordinary_worktree.get("schema")
+        != CODEX_WORKTREE_DESCRIPTOR_SCHEMA
+    ):
+        raise ValidationError(
+            "Codex ordinary-control recovery descriptor schema changed"
+        )
     if codex_worktree_descriptor != (codex_entry_plan is not None):
         raise ValidationError(
             "positive Codex worktree recovery requires its persisted entry plan"
@@ -3745,7 +3810,9 @@ def recover_probe(
     if persisted_codex_control_source is not None:
         from .codex_qualification import (
             build_codex_control_source,
+            revalidate_codex_ordinary_repository,
             validate_codex_control_source,
+            validate_codex_ordinary_repository,
         )
 
         persisted_codex_control_source = validate_codex_control_source(
@@ -3766,9 +3833,53 @@ def recover_probe(
             raise IdentityError(
                 "Codex ordinary-control source changed during recovery"
             )
+        if not codex_ordinary_repository_path.is_file():
+            raise IdentityError(
+                "Codex ordinary-control recovery lacks its repository artifact"
+            )
+        persisted_codex_ordinary_repository = (
+            validate_codex_ordinary_repository(
+                read_json(
+                    codex_ordinary_repository_path,
+                    max_bytes=65536,
+                    reject_sensitive_fields=True,
+                )
+            )
+        )
+        if (
+            persisted_codex_ordinary_repository["run_id"] != run_id
+            or persisted_codex_ordinary_repository["worktree_descriptor"]
+            != supplied_codex_ordinary_worktree
+        ):
+            raise IdentityError(
+                "Codex ordinary-control worktree changed during recovery"
+            )
+        revalidate_codex_ordinary_repository(
+            persisted_codex_ordinary_repository,
+            controller=controller,
+            campaign_id=authorization["campaign_id"],
+            goal_fingerprint=goal_verification["goal_fingerprint"],
+            executable_sha256=manifest.raw["executable"]["sha256"],
+            subscription_profile_root=Path(
+                supplied_codex_ordinary_worktree[
+                    "subscription_profile_root"
+                ]
+            ),
+            positive_workspace=persisted_codex_control_source[
+                "positive_workspace"
+            ],
+        )
     elif paired_codex_positive_receipt is not None:
         raise IdentityError(
             "supplied Codex positive receipt lacks a persisted control source"
+        )
+    elif (
+        supplied_codex_ordinary_worktree is not None
+        or codex_ordinary_repository_path.exists()
+        or codex_ordinary_repository_path.is_symlink()
+    ):
+        raise IdentityError(
+            "Codex ordinary-control worktree lacks a persisted control source"
         )
     persisted_grok_control_source = state.get("grok_control_source")
     if persisted_grok_control_source is not None:

@@ -15,12 +15,10 @@ from __future__ import annotations
 
 import os
 import stat
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from .conformance import tree_fingerprint
 from .authority import (
     AUTHORITY_ID,
     attest_qualification,
@@ -48,13 +46,12 @@ from .safety import (
 PAIR_SCHEMA_VERSION = 5
 PAIR_KIND = "codex_regular_paired_qualification_substrate"
 ENTRY_SOURCE_SCHEMA = "puppet.codex-positive-entry-source/v1"
-CONTROL_SOURCE_SCHEMA = "puppet.codex-ordinary-control-source/v1"
+CONTROL_SOURCE_SCHEMA = "puppet.codex-ordinary-control-source/v2"
 NATIVE_VIEW_SCHEMA = "puppet.codex-native-view-observation/v1"
 NATIVE_VIEW_STATE = "read_only_attached_and_detached"
 NATIVE_VIEW_NAME = "codex-native-view.json"
 NATIVE_VIEW_ATTESTATION_SCHEMA_VERSION = 1
-ORDINARY_REPOSITORY_SCHEMA = "puppet.codex-ordinary-repository/v2"
-ORDINARY_REPOSITORY_BRANCH = "puppet-ordinary-control"
+ORDINARY_REPOSITORY_SCHEMA = "puppet.codex-ordinary-repository/v3"
 
 PAIR_BLOCKERS = (
     "paired receipt requires independent controller verification",
@@ -92,11 +89,19 @@ _CONTROL_SOURCE_FIELDS = {
     "goal_fingerprint",
     "subscription_profile_sha256",
     "yolo_mapping_sha256",
+    "positive_workspace",
     "candidate_head",
     "process_sha256",
     "tmux_sha256",
     "terminal_lease",
     "receipt_attestation_sequence",
+}
+_POSITIVE_WORKSPACE_FIELDS = {
+    "candidate_root",
+    "candidate_branch",
+    "candidate_head",
+    "supervisor_root",
+    "descriptor_sha256",
 }
 _ENTRY_SOURCE_FIELDS = {
     "schema",
@@ -197,102 +202,10 @@ _ORDINARY_REPOSITORY_FIELDS = {
     "target",
     "role",
     "run_id",
-    "workspace_root",
-    "git_directory",
-    "branch",
-    "head_state",
-    "head",
-    "tree",
-    "tracked_paths",
-    "git_metadata_sha256",
-    "agents_md_absent",
-    "system_config_disabled",
-    "global_config_disabled",
-    "templates_disabled",
+    "worktree_descriptor",
+    "instruction_artifact_absent",
     "raw_retained",
 }
-
-
-def _ordinary_repository_directory_identity(
-    path: Path, *, label: str, private: bool
-) -> Dict[str, Any]:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        raise ValidationError("%s must be absolute" % label)
-    try:
-        lexical = candidate.lstat()
-        resolved = candidate.resolve(strict=True)
-        details = resolved.stat()
-    except OSError as exc:
-        raise ValidationError("%s is unavailable" % label) from exc
-    if (
-        candidate != resolved
-        or stat.S_ISLNK(lexical.st_mode)
-        or not stat.S_ISDIR(lexical.st_mode)
-        or (lexical.st_dev, lexical.st_ino) != (details.st_dev, details.st_ino)
-    ):
-        raise IdentityError("%s must be one canonical non-symlink directory" % label)
-    mode = stat.S_IMODE(details.st_mode)
-    if details.st_uid != os.getuid() or (private and mode != 0o700):
-        raise IdentityError(
-            "%s must be current-UID%s"
-            % (label, " 0700" if private else "")
-        )
-    return {
-        "path": str(resolved),
-        "device": details.st_dev,
-        "inode": details.st_ino,
-        "uid": details.st_uid,
-        "mode": mode,
-    }
-
-
-def _ordinary_repository_git(
-    workspace_root: Path,
-    arguments: list[str],
-    *,
-    accepted_returncodes: tuple[int, ...] = (0,),
-) -> tuple[int, str]:
-    from .operator_plan import _git_executable
-
-    git = _git_executable()
-    try:
-        result = subprocess.run(
-            [
-                str(git),
-                "-c",
-                "core.fsmonitor=false",
-                "-C",
-                str(workspace_root),
-                *arguments,
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={
-                "PATH": "/usr/bin:/bin:/usr/local/bin",
-                "LC_ALL": "C",
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": "/dev/null",
-                "GIT_OPTIONAL_LOCKS": "0",
-            },
-            timeout=10.0,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValidationError("Codex ordinary repository operation failed") from exc
-    if (
-        result.returncode not in accepted_returncodes
-        or len(result.stdout) > 8192
-        or len(result.stderr) > 8192
-    ):
-        raise ValidationError("Codex ordinary repository operation failed")
-    try:
-        return result.returncode, result.stdout.decode("utf-8").strip()
-    except UnicodeDecodeError as exc:
-        raise ValidationError(
-            "Codex ordinary repository output is not UTF-8"
-        ) from exc
 
 
 def validate_codex_ordinary_repository(value: Any) -> Dict[str, Any]:
@@ -303,145 +216,95 @@ def validate_codex_ordinary_repository(value: Any) -> Dict[str, Any]:
         result.get("schema") != ORDINARY_REPOSITORY_SCHEMA
         or result.get("target") != "codex"
         or result.get("role") != "ordinary_control"
-        or result.get("branch") != ORDINARY_REPOSITORY_BRANCH
-        or result.get("head_state") != "controller_seed_commit"
-        or result.get("tracked_paths") != ["contract.json"]
-        or result.get("agents_md_absent") is not True
-        or result.get("system_config_disabled") is not True
-        or result.get("global_config_disabled") is not True
-        or result.get("templates_disabled") is not True
+        or not isinstance(result.get("worktree_descriptor"), Mapping)
+        or result.get("instruction_artifact_absent") is not True
         or result.get("raw_retained") is not False
     ):
         raise ValidationError("Codex ordinary repository contract is invalid")
     validate_identifier(result.get("run_id"), "Codex ordinary repository run id")
-    validate_sha256(
-        result.get("git_metadata_sha256"),
-        "Codex ordinary git metadata fingerprint",
+    validate_bounded_json(
+        result,
+        max_depth=6,
+        max_items=64,
+        max_string=4096,
+        reject_sensitive_fields=True,
     )
-    validate_sha1(result.get("head"), "Codex ordinary repository head")
-    validate_sha1(result.get("tree"), "Codex ordinary repository tree")
-    workspace = result.get("workspace_root")
-    git_directory = result.get("git_directory")
-    expected_identity_fields = {"path", "device", "inode", "uid", "mode"}
-    if (
-        not isinstance(workspace, Mapping)
-        or set(workspace) != expected_identity_fields
-        or not isinstance(git_directory, Mapping)
-        or set(git_directory) != expected_identity_fields
-    ):
-        raise ValidationError("Codex ordinary repository identity is invalid")
-    for label, identity in (
-        ("workspace root", workspace),
-        ("git directory", git_directory),
-    ):
-        if (
-            not isinstance(identity.get("path"), str)
-            or not Path(identity["path"]).is_absolute()
-            or isinstance(identity.get("device"), bool)
-            or not isinstance(identity.get("device"), int)
-            or identity["device"] <= 0
-            or isinstance(identity.get("inode"), bool)
-            or not isinstance(identity.get("inode"), int)
-            or identity["inode"] <= 0
-            or identity.get("uid") != os.getuid()
-            or isinstance(identity.get("mode"), bool)
-            or not isinstance(identity.get("mode"), int)
-        ):
-            raise ValidationError("Codex ordinary %s identity is invalid" % label)
-    if Path(git_directory["path"]) != Path(workspace["path"]) / ".git":
-        raise IdentityError("Codex ordinary git directory escaped its workspace")
     return result
 
 
-def initialize_codex_ordinary_repository(
-    workspace_root: Path, *, run_id: str
-) -> Dict[str, Any]:
-    """Create the minimal source-free git boundary required by the Codex TUI."""
-
-    workspace = _ordinary_repository_directory_identity(
-        workspace_root, label="Codex ordinary workspace", private=True
-    )
-    if (workspace_root / "AGENTS.md").exists():
-        raise ConflictError("Codex ordinary workspace contains AGENTS.md")
-    git_directory = workspace_root / ".git"
-    if git_directory.exists() or git_directory.is_symlink():
-        raise ConflictError("Codex ordinary workspace is already a repository")
-    _ordinary_repository_git(
-        workspace_root,
-        [
-            "init",
-            "--quiet",
-            "--initial-branch=" + ORDINARY_REPOSITORY_BRANCH,
-            "--template=",
-        ],
-    )
-    _ordinary_repository_git(
-        workspace_root,
-        ["add", "--", "contract.json"],
-    )
-    _ordinary_repository_git(
-        workspace_root,
-        [
-            "-c",
-            "user.name=Puppet Controller",
-            "-c",
-            "user.email=puppet-controller@example.invalid",
-            "commit",
-            "--quiet",
-            "--no-gpg-sign",
-            "--no-verify",
-            "-m",
-            "Puppet ordinary control fixture",
-            "--",
-            "contract.json",
-        ],
-    )
-    git_directory.chmod(0o700)
-    git_identity = _ordinary_repository_directory_identity(
-        git_directory, label="Codex ordinary git directory", private=True
-    )
-    _, top = _ordinary_repository_git(
-        workspace_root, ["rev-parse", "--show-toplevel"]
-    )
-    _, branch = _ordinary_repository_git(
-        workspace_root, ["symbolic-ref", "--short", "HEAD"]
-    )
-    head_returncode, head = _ordinary_repository_git(
-        workspace_root,
-        ["rev-parse", "--verify", "HEAD"],
-    )
-    _, tree = _ordinary_repository_git(
-        workspace_root, ["rev-parse", "HEAD^{tree}"]
-    )
-    _, tracked_paths = _ordinary_repository_git(
-        workspace_root, ["ls-tree", "-r", "--name-only", "HEAD"]
-    )
-    metadata_sha256 = tree_fingerprint(git_directory, excluded_prefix=())
+def _validate_positive_workspace(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _POSITIVE_WORKSPACE_FIELDS:
+        raise ValidationError("Codex positive workspace fields are invalid")
+    result = dict(value)
+    for name in ("candidate_root", "supervisor_root"):
+        path = result.get(name)
+        if (
+            not isinstance(path, str)
+            or not Path(path).is_absolute()
+            or os.path.normpath(path) != path
+        ):
+            raise ValidationError("Codex positive workspace path is invalid")
+    branch = result.get("candidate_branch")
     if (
-        Path(top).resolve(strict=True) != workspace_root.resolve(strict=True)
-        or branch != ORDINARY_REPOSITORY_BRANCH
-        or head_returncode != 0
-        or tracked_paths.splitlines() != ["contract.json"]
+        not isinstance(branch, str)
+        or not branch
+        or len(branch) > 255
+        or "\x00" in branch
     ):
-        raise IdentityError("Codex ordinary repository initialization changed")
+        raise ValidationError("Codex positive workspace branch is invalid")
+    validate_sha1(result.get("candidate_head"), "Codex positive workspace head")
+    validate_sha256(
+        result.get("descriptor_sha256"),
+        "Codex positive workspace descriptor fingerprint",
+    )
+    return result
+
+
+def build_codex_ordinary_repository(
+    worktree_descriptor: Mapping[str, Any],
+    *,
+    run_id: str,
+    controller: str,
+    campaign_id: str,
+    goal_fingerprint: str,
+    executable_sha256: str,
+    subscription_profile_root: Path,
+    positive_workspace: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Bind an ordinary control to a second clean linked worktree."""
+
+    from .codex_workspace_plane import validate_codex_worktree_descriptor
+
+    descriptor = validate_codex_worktree_descriptor(
+        worktree_descriptor,
+        expected_controller=controller,
+        expected_campaign_id=campaign_id,
+        expected_goal_fingerprint=goal_fingerprint,
+        expected_executable_sha256=executable_sha256,
+        expected_subscription_profile_root=subscription_profile_root,
+    )
+    workspace_root = Path(descriptor["candidate_root"])
+    positive = _validate_positive_workspace(positive_workspace)
+    positive_root = Path(positive["candidate_root"])
+    if (
+        descriptor["candidate_head"] != positive["candidate_head"]
+        or descriptor["supervisor_root"] != positive["supervisor_root"]
+        or descriptor["candidate_branch"] == positive["candidate_branch"]
+        or paths_overlap(workspace_root, positive_root)
+        or (workspace_root / "AGENTS.md").exists()
+        or (workspace_root / "AGENTS.md").is_symlink()
+    ):
+        raise IdentityError(
+            "Codex ordinary worktree differs from its positive source"
+        )
     return validate_codex_ordinary_repository(
         {
             "schema": ORDINARY_REPOSITORY_SCHEMA,
             "target": "codex",
             "role": "ordinary_control",
             "run_id": validate_identifier(run_id, "run id"),
-            "workspace_root": workspace,
-            "git_directory": git_identity,
-            "branch": branch,
-            "head_state": "controller_seed_commit",
-            "head": head,
-            "tree": tree,
-            "tracked_paths": ["contract.json"],
-            "git_metadata_sha256": metadata_sha256,
-            "agents_md_absent": True,
-            "system_config_disabled": True,
-            "global_config_disabled": True,
-            "templates_disabled": True,
+            "worktree_descriptor": descriptor,
+            "instruction_artifact_absent": True,
             "raw_retained": False,
         }
     )
@@ -449,52 +312,27 @@ def initialize_codex_ordinary_repository(
 
 def revalidate_codex_ordinary_repository(
     value: Mapping[str, Any],
+    *,
+    controller: str,
+    campaign_id: str,
+    goal_fingerprint: str,
+    executable_sha256: str,
+    subscription_profile_root: Path,
+    positive_workspace: Mapping[str, Any],
 ) -> Dict[str, Any]:
     result = validate_codex_ordinary_repository(value)
-    workspace_root = Path(result["workspace_root"]["path"])
-    git_directory = Path(result["git_directory"]["path"])
-    if (
-        _ordinary_repository_directory_identity(
-            workspace_root, label="Codex ordinary workspace", private=True
-        )
-        != result["workspace_root"]
-        or _ordinary_repository_directory_identity(
-            git_directory, label="Codex ordinary git directory", private=True
-        )
-        != result["git_directory"]
-        or (workspace_root / "AGENTS.md").exists()
-    ):
+    expected = build_codex_ordinary_repository(
+        result["worktree_descriptor"],
+        run_id=result["run_id"],
+        controller=controller,
+        campaign_id=campaign_id,
+        goal_fingerprint=goal_fingerprint,
+        executable_sha256=executable_sha256,
+        subscription_profile_root=subscription_profile_root,
+        positive_workspace=positive_workspace,
+    )
+    if expected != result:
         raise IdentityError("Codex ordinary repository identity changed")
-    try:
-        _, branch = _ordinary_repository_git(
-            workspace_root, ["symbolic-ref", "--short", "HEAD"]
-        )
-        head_returncode, head = _ordinary_repository_git(
-            workspace_root,
-            ["rev-parse", "--verify", "HEAD"],
-        )
-        _, tree = _ordinary_repository_git(
-            workspace_root, ["rev-parse", "HEAD^{tree}"]
-        )
-        _, tracked_paths = _ordinary_repository_git(
-            workspace_root, ["ls-tree", "-r", "--name-only", "HEAD"]
-        )
-        metadata_sha256 = tree_fingerprint(
-            git_directory, excluded_prefix=()
-        )
-    except (ValidationError, ValueError) as exc:
-        raise IdentityError(
-            "Codex ordinary repository metadata changed"
-        ) from exc
-    if (
-        branch != ORDINARY_REPOSITORY_BRANCH
-        or head_returncode != 0
-        or head != result["head"]
-        or tree != result["tree"]
-        or tracked_paths.splitlines() != result["tracked_paths"]
-        or metadata_sha256 != result["git_metadata_sha256"]
-    ):
-        raise IdentityError("Codex ordinary repository metadata changed")
     return result
 
 
@@ -1150,6 +988,15 @@ def build_codex_control_source(
     process = artifacts["evidence"].get("process")
     tmux = artifacts["evidence"].get("tmux")
     workspace = receipt["workspace_isolation"]
+    descriptor = artifacts["descriptor"]
+    if (
+        not isinstance(descriptor, Mapping)
+        or descriptor.get("candidate_root") != workspace["candidate_root"]
+        or descriptor.get("candidate_branch") != workspace["candidate_branch"]
+        or descriptor.get("candidate_head") != workspace["candidate_head"]
+        or descriptor.get("descriptor_sha256") != workspace["descriptor_sha256"]
+    ):
+        raise IdentityError("positive Codex workspace descriptor changed")
     value = {
         "schema": CONTROL_SOURCE_SCHEMA,
         "positive_receipt": {
@@ -1163,6 +1010,13 @@ def build_codex_control_source(
         "goal_fingerprint": receipt["goal_fingerprint"],
         "subscription_profile_sha256": receipt["subscription_profile_sha256"],
         "yolo_mapping_sha256": receipt["yolo_mapping_sha256"],
+        "positive_workspace": {
+            "candidate_root": descriptor["candidate_root"],
+            "candidate_branch": descriptor["candidate_branch"],
+            "candidate_head": descriptor["candidate_head"],
+            "supervisor_root": descriptor["supervisor_root"],
+            "descriptor_sha256": descriptor["descriptor_sha256"],
+        },
         "candidate_head": workspace["candidate_head"],
         "process_sha256": sha256_bytes(canonical_json_bytes(process)),
         "tmux_sha256": sha256_bytes(canonical_json_bytes(tmux)),
@@ -1197,6 +1051,12 @@ def validate_codex_control_source(value: Any) -> Dict[str, Any]:
     ):
         validate_sha256(result.get(name), name.replace("_", " "))
     validate_sha1(result.get("candidate_head"), "positive candidate head")
+    positive_workspace = _validate_positive_workspace(
+        result.get("positive_workspace")
+    )
+    if positive_workspace["candidate_head"] != result["candidate_head"]:
+        raise IdentityError("Codex positive workspace head changed")
+    result["positive_workspace"] = positive_workspace
     result["terminal_lease"] = _validate_lease_ref(result.get("terminal_lease"))
     sequence = result.get("receipt_attestation_sequence")
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= 0:

@@ -1427,6 +1427,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_adapter_lab_probe_and_recover_accept_optional_plane_descriptor(self):
         descriptor = Path("claude-plane.json")
+        codex_control_descriptor = Path("codex-control-worktree.json")
         subscription_profile = Path("claude-subscription-profile")
         shared = [
             "--target",
@@ -1465,15 +1466,32 @@ class AdapterTests(unittest.TestCase):
                 "regular",
                 "--subscription-profile-root",
                 str(subscription_profile),
+                "--codex-ordinary-worktree-descriptor",
+                str(codex_control_descriptor),
                 *shared,
             ]
         )
         recovery = puppet_adapter_lab.build_parser().parse_args(
-            ["recover", "--run-id", "probe-1", *shared]
+            [
+                "recover",
+                "--run-id",
+                "probe-1",
+                "--codex-ordinary-worktree-descriptor",
+                str(codex_control_descriptor),
+                *shared,
+            ]
         )
         self.assertEqual(probe.plane_descriptor, descriptor)
         self.assertEqual(probe.subscription_profile_root, subscription_profile)
         self.assertEqual(recovery.plane_descriptor, descriptor)
+        self.assertEqual(
+            probe.codex_ordinary_worktree_descriptor,
+            codex_control_descriptor,
+        )
+        self.assertEqual(
+            recovery.codex_ordinary_worktree_descriptor,
+            codex_control_descriptor,
+        )
 
     def test_agy_project_isolation_flag_set_is_required(self):
         raw = manifest_raw()

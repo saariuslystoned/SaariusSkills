@@ -84,6 +84,8 @@ class PairFixture:
         self.out = root / "codex-paired-receipt.json"
         self.workspace = root / "candidate"
         self.workspace.mkdir(mode=0o700)
+        self.supervisor = root / "supervisor"
+        self.supervisor.mkdir(mode=0o700)
         self.control_workspace = self.control_root / "fixture"
         self.control_workspace.mkdir(mode=0o700)
 
@@ -126,7 +128,11 @@ class PairFixture:
                         "descriptor_sha256"
                     ],
                     "candidate_root": str(self.workspace),
+                    "candidate_branch": self.workspace_receipt[
+                        "candidate_branch"
+                    ],
                     "candidate_head": self.workspace_receipt["candidate_head"],
+                    "supervisor_root": str(self.supervisor),
                 },
             ),
             str(self.control_path): self._artifacts(
