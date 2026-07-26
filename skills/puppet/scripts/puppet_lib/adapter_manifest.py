@@ -37,11 +37,13 @@ from .profiles import (
 )
 from .safety import (
     atomic_write_json,
+    canonical_tmux_socket_mode,
     canonical_json_bytes,
     ensure_within,
     read_json,
     sha256_file,
     sha256_bytes,
+    tmux_socket_identities_match,
     validate_bounded_json,
     validate_branch,
     validate_identifier,
@@ -1728,13 +1730,15 @@ def verify_qualification_receipt(
         not stat.S_ISSOCK(socket_details.st_mode)
         or socket_details.st_uid != os.getuid()
         or stat.S_IMODE(socket_details.st_mode) & 0o077
-        or socket_identity
-        != {
-            "device": socket_details.st_dev,
-            "inode": socket_details.st_ino,
-            "uid": socket_details.st_uid,
-            "mode": stat.S_IMODE(socket_details.st_mode),
-        }
+        or not tmux_socket_identities_match(
+            socket_identity,
+            {
+                "device": socket_details.st_dev,
+                "inode": socket_details.st_ino,
+                "uid": socket_details.st_uid,
+                "mode": canonical_tmux_socket_mode(socket_details.st_mode),
+            },
+        )
     ):
         raise ValidationError("qualification tmux socket fingerprint changed")
     tmux_binary = tmux.get("tmux_binary_identity")

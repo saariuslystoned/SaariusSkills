@@ -163,6 +163,7 @@ from .safety import (
     read_json,
     sha256_bytes,
     sha256_file,
+    tmux_socket_identities_match,
     validate_identifier,
 )
 from .subscription_profiles import (
@@ -661,7 +662,9 @@ def _assert_runtime(
 ) -> Dict[str, Any]:
     tmux.assert_tmux_binary_identity(tmux_binary_identity)
     tmux.assert_tmux_server_identity(socket, server_identity)
-    if tmux.socket_identity(socket) != socket_identity:
+    if not tmux_socket_identities_match(
+        tmux.socket_identity(socket), socket_identity
+    ):
         raise IdentityError("probe tmux socket identity changed")
     metadata = tmux.metadata(
         socket=socket,
@@ -849,7 +852,9 @@ def _halt_exact(
         )
     if not tmux_preserved:
         raise IdentityError("probe tmux evidence session was not preserved")
-    if tmux.socket_identity(socket) != socket_identity:
+    if not tmux_socket_identities_match(
+        tmux.socket_identity(socket), socket_identity
+    ):
         raise IdentityError("probe tmux socket identity changed during halt")
     stopped_metadata = tmux.metadata_for_session(
         socket=socket,
@@ -901,7 +906,9 @@ def _halt_provisional_exact(
 
     tmux.assert_tmux_binary_identity(tmux_binary_identity)
     tmux.assert_tmux_server_identity(socket, server_identity)
-    if tmux.socket_identity(socket) != socket_identity:
+    if not tmux_socket_identities_match(
+        tmux.socket_identity(socket), socket_identity
+    ):
         raise IdentityError("provisional probe tmux socket identity changed")
     current = tmux.metadata(
         socket=socket,
@@ -1889,7 +1896,9 @@ def run_probe(
         ):
             raise IdentityError("probe launch metadata is structurally incomplete")
         provisional_bound = True
-        if metadata.get("socket_identity") != socket_identity:
+        if not tmux_socket_identities_match(
+            metadata.get("socket_identity"), socket_identity
+        ):
             raise IdentityError(
                 "probe launch did not bind the private tmux socket identity"
             )
@@ -3611,7 +3620,9 @@ def recover_probe(
             )
             if metadata.get("pane_pid") != process.get("pid"):
                 raise IdentityError("persisted recovery pane identity mismatch")
-            if tmux.socket_identity(socket) != socket_identity:
+            if not tmux_socket_identities_match(
+                tmux.socket_identity(socket), socket_identity
+            ):
                 raise IdentityError("persisted recovery socket identity changed")
             manifest.verify_process_executable(process)
         else:

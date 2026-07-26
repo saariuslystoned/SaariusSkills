@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import json
+import pty
 import shlex
 import signal
 import socket as socket_module
+import stat
 import subprocess
 import sys
 import tempfile
@@ -32,6 +34,7 @@ from puppet_lib.registry import (  # noqa: E402
     process_birth_identity,
     send_exact_sigint,
 )
+from puppet_lib.safety import tmux_socket_identities_match  # noqa: E402
 from puppet_lib.tmux import TargetLaunch, TmuxController  # noqa: E402
 
 
@@ -124,6 +127,180 @@ class TmuxTransportTests(unittest.TestCase):
             socket_identity=socket_identity,
             created_by_launch=True,
         )
+
+    def test_socket_identity_ignores_only_owner_execute_attached_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            socket_path = root / "identity.sock"
+            bound_socket = socket_module.socket(
+                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+            )
+            try:
+                bound_socket.bind(str(socket_path))
+                socket_path.chmod(0o600)
+                initial = TmuxController.socket_identity(socket_path)
+                socket_path.chmod(0o700)
+                attached = TmuxController.socket_identity(socket_path)
+
+                self.assertEqual(initial, attached)
+                self.assertEqual(attached["mode"], 0o600)
+                self.assertTrue(
+                    tmux_socket_identities_match(
+                        {**initial, "mode": 0o700}, attached
+                    )
+                )
+
+                for field in ("device", "inode", "uid"):
+                    with self.subTest(drift=field):
+                        drifted = {**initial, field: initial[field] + 1}
+                        self.assertFalse(
+                            tmux_socket_identities_match(initial, drifted)
+                        )
+
+                socket_path.chmod(0o500)
+                self.assertNotEqual(
+                    TmuxController.socket_identity(socket_path), initial
+                )
+                for unsafe_mode in (0o610, 0o601):
+                    with self.subTest(unsafe_mode=oct(unsafe_mode)):
+                        socket_path.chmod(unsafe_mode)
+                        with self.assertRaisesRegex(
+                            IdentityError, "not user-private"
+                        ):
+                            TmuxController.socket_identity(socket_path)
+
+                symlink_path = root / "identity-link.sock"
+                symlink_path.symlink_to(socket_path)
+                with self.assertRaisesRegex(IdentityError, "symlink"):
+                    TmuxController.socket_identity(symlink_path)
+                regular_path = root / "not-a-socket"
+                regular_path.touch()
+                with self.assertRaisesRegex(IdentityError, "not a socket"):
+                    TmuxController.socket_identity(regular_path)
+            finally:
+                bound_socket.close()
+
+    def test_kill_session_accepts_owner_execute_transition_only(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = TmuxController(root)
+            socket_path = root / "cleanup.sock"
+            bound_socket = socket_module.socket(
+                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+            )
+            try:
+                bound_socket.bind(str(socket_path))
+                socket_path.chmod(0o600)
+                identity = controller.socket_identity(socket_path)
+                socket_path.chmod(0o700)
+                with patch.object(controller, "_run_raw") as run:
+                    controller._kill_session(
+                        socket=socket_path,
+                        session="cleanup-owner-execute",
+                        socket_identity=identity,
+                    )
+                run.assert_called_once()
+                self.assertIn("kill-session", run.call_args.args[0])
+
+                socket_path.chmod(0o500)
+                with patch.object(controller, "_run_raw") as run:
+                    controller._kill_session(
+                        socket=socket_path,
+                        session="cleanup-owner-mode-drift",
+                        socket_identity=identity,
+                    )
+                run.assert_not_called()
+
+                socket_path.chmod(0o710)
+                with patch.object(controller, "_run_raw") as run:
+                    controller._kill_session(
+                        socket=socket_path,
+                        session="cleanup-group-access",
+                        socket_identity=identity,
+                    )
+                run.assert_not_called()
+            finally:
+                bound_socket.close()
+
+    def test_real_readonly_attach_mode_preserves_socket_identity(self):
+        if sys.platform != "darwin":
+            self.skipTest("tmux attached-state mode regression is Darwin-specific")
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = TmuxController(root)
+            session = "tmux-readonly-attach-mode"
+            socket_path = controller.socket_path(session)
+            started = self._tmux_run(
+                socket=socket_path,
+                arguments=[
+                    "new-session",
+                    "-d",
+                    "-s",
+                    session,
+                    "/bin/sleep",
+                    "60",
+                ],
+            )
+            self.assertEqual(started.returncode, 0, started.stderr)
+            client = None
+            master_fd = None
+            try:
+                self.assertEqual(
+                    stat.S_IMODE(socket_path.stat().st_mode), 0o600
+                )
+                initial = controller.socket_identity(socket_path)
+                master_fd, slave_fd = pty.openpty()
+                try:
+                    client = subprocess.Popen(
+                        [
+                            controller.tmux_binary.as_posix(),
+                            "-f",
+                            os.devnull,
+                            "-S",
+                            str(socket_path),
+                            "attach-session",
+                            "-r",
+                            "-E",
+                            "-t",
+                            session,
+                        ],
+                        stdin=slave_fd,
+                        stdout=slave_fd,
+                        stderr=slave_fd,
+                        env={**control_environment(), "TERM": "xterm-256color"},
+                        close_fds=True,
+                    )
+                finally:
+                    os.close(slave_fd)
+
+                deadline = time.monotonic() + 3.0
+                attached_mode = None
+                while time.monotonic() < deadline:
+                    if client.poll() is not None:
+                        self.fail(
+                            "read-only tmux client exited before attached-state proof"
+                        )
+                    attached_mode = stat.S_IMODE(socket_path.stat().st_mode)
+                    if attached_mode & stat.S_IXUSR:
+                        break
+                    time.sleep(0.02)
+                self.assertEqual(attached_mode, 0o700)
+                self.assertEqual(controller.socket_identity(socket_path), initial)
+            finally:
+                if client is not None and client.poll() is None:
+                    client.terminate()
+                    try:
+                        client.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        client.kill()
+                        client.wait(timeout=2.0)
+                if master_fd is not None:
+                    os.close(master_fd)
+                self._kill(socket=socket_path, session=session)
 
     def test_launch_records_single_initial_pane(self):
         if not TmuxController.available():

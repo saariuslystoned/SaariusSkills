@@ -8,9 +8,10 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from .errors import ValidationError
 
@@ -42,6 +43,7 @@ FORBIDDEN_FIELD_PARTS = {
     "tool_argument",
     "transcript",
 }
+_TMUX_SOCKET_IDENTITY_FIELDS = frozenset({"device", "inode", "uid", "mode"})
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -67,6 +69,42 @@ def sha256_file(path: Path, max_bytes: Optional[int] = None) -> str:
                 raise ValidationError("file exceeds the allowed size")
             digest.update(block)
     return digest.hexdigest()
+
+
+def canonical_tmux_socket_mode(mode: int) -> int:
+    """Exclude only tmux's owner-execute attached-client state bit."""
+
+    if type(mode) is not int or mode < 0:
+        raise ValidationError("tmux socket mode is invalid")
+    return stat.S_IMODE(mode) & ~stat.S_IXUSR
+
+
+def tmux_socket_identities_match(first: Any, second: Any) -> bool:
+    """Compare private tmux sockets while ignoring only owner-execute state."""
+
+    if not isinstance(first, Mapping) or not isinstance(second, Mapping):
+        return False
+    if set(first) != _TMUX_SOCKET_IDENTITY_FIELDS or set(second) != set(first):
+        return False
+    if any(
+        type(identity[field]) is not int
+        or identity[field] < 0
+        or (field == "mode" and identity[field] > 0o7777)
+        for identity in (first, second)
+        for field in _TMUX_SOCKET_IDENTITY_FIELDS
+    ):
+        return False
+    first_mode = stat.S_IMODE(first["mode"])
+    second_mode = stat.S_IMODE(second["mode"])
+    if first_mode & 0o077 or second_mode & 0o077:
+        return False
+    return (
+        first["device"] == second["device"]
+        and first["inode"] == second["inode"]
+        and first["uid"] == second["uid"]
+        and canonical_tmux_socket_mode(first_mode)
+        == canonical_tmux_socket_mode(second_mode)
+    )
 
 
 def validate_identifier(value: str, label: str = "identifier") -> str:

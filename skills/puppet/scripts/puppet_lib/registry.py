@@ -23,12 +23,14 @@ from .instructions import validate_instruction_manifest
 from .safety import (
     absolute_root,
     atomic_write_json,
+    canonical_tmux_socket_mode,
     canonical_tmux_socket_path,
     ensure_within,
     exclusive_lock,
     read_json,
     sha256_bytes,
     sha256_file,
+    tmux_socket_identities_match,
     validate_bounded_json,
     validate_branch,
     validate_identifier,
@@ -1195,9 +1197,11 @@ class SessionRegistry:
             "device": socket_details.st_dev,
             "inode": socket_details.st_ino,
             "uid": socket_details.st_uid,
-            "mode": stat.S_IMODE(socket_details.st_mode),
+            "mode": canonical_tmux_socket_mode(socket_details.st_mode),
         }
-        if socket_identity != expected_socket_identity:
+        if not tmux_socket_identities_match(
+            socket_identity, expected_socket_identity
+        ):
             raise ValidationError("registered tmux socket identity changed")
         if socket_details.st_uid != os.getuid() or socket_details.st_mode & 0o077:
             raise ValidationError("registered tmux socket is not user-private")

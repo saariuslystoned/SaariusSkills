@@ -27,7 +27,9 @@ from .profiles import SUBMIT_SETTLE_SECONDS
 from .registry import process_birth_identity
 from .safety import (
     absolute_root,
+    canonical_tmux_socket_mode,
     canonical_tmux_socket_path,
+    tmux_socket_identities_match,
     validate_identifier,
     validate_pane_id,
 )
@@ -99,7 +101,7 @@ class TmuxController:
             "device": details.st_dev,
             "inode": details.st_ino,
             "uid": details.st_uid,
-            "mode": stat.S_IMODE(details.st_mode),
+            "mode": canonical_tmux_socket_mode(details.st_mode),
         }
 
     @staticmethod
@@ -233,7 +235,7 @@ class TmuxController:
                 "device": details.st_dev,
                 "inode": details.st_ino,
                 "uid": details.st_uid,
-                "mode": stat.S_IMODE(details.st_mode),
+                "mode": canonical_tmux_socket_mode(details.st_mode),
             }
         try:
             details = socket.lstat()
@@ -243,13 +245,13 @@ class TmuxController:
             "device": details.st_dev,
             "inode": details.st_ino,
             "uid": details.st_uid,
-            "mode": stat.S_IMODE(details.st_mode),
+            "mode": canonical_tmux_socket_mode(details.st_mode),
         }
         if (
             not stat.S_ISSOCK(details.st_mode)
             or details.st_uid != os.getuid()
             or stat.S_IMODE(details.st_mode) & 0o077
-            or observed != socket_identity
+            or not tmux_socket_identities_match(observed, socket_identity)
         ):
             return
         self._run_raw(

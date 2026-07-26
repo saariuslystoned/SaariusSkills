@@ -72,6 +72,7 @@ from .safety import (
     read_json,
     sha256_bytes,
     sha256_file,
+    tmux_socket_identities_match,
     validate_identifier,
 )
 from .state import is_terminal, transition
@@ -343,7 +344,9 @@ def _cleanup_incomplete_launch(
         raise IdentityError("incomplete launch tmux identity is ambiguous")
     tmux.assert_tmux_binary_identity(tmux_binary_identity)
     tmux.bind_server_identity(socket, server_identity)
-    if tmux.socket_identity(socket) != socket_identity:
+    if not tmux_socket_identities_match(
+        tmux.socket_identity(socket), socket_identity
+    ):
         raise IdentityError("incomplete launch socket identity changed")
 
     def target_alive() -> bool:
@@ -384,7 +387,9 @@ def _cleanup_incomplete_launch(
             terminal.get("pane") != pane
             or terminal.get("pane_pid") != pane_pid
             or terminal.get("pane_dead") is not True
-            or tmux.socket_identity(socket) != socket_identity
+            or not tmux_socket_identities_match(
+                tmux.socket_identity(socket), socket_identity
+            )
         ):
             raise IdentityError("incomplete launch dead-pane evidence changed")
         return True
@@ -433,7 +438,9 @@ def _cleanup_incomplete_launch(
         terminal.get("pane") != pane
         or terminal.get("pane_pid") != pane_pid
         or terminal.get("pane_dead") is not True
-        or tmux.socket_identity(socket) != socket_identity
+        or not tmux_socket_identities_match(
+            tmux.socket_identity(socket), socket_identity
+        )
     ):
         raise IdentityError("incomplete launch dead-pane evidence changed")
     return True
@@ -2326,8 +2333,10 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
         if (
             halted_metadata["pane_pid"] != record["process"]["pid"]
             or not halted_metadata["pane_dead"]
-            or tmux.socket_identity(Path(record["tmux"]["socket"]))
-            != record["tmux"]["socket_identity"]
+            or not tmux_socket_identities_match(
+                tmux.socket_identity(Path(record["tmux"]["socket"])),
+                record["tmux"]["socket_identity"],
+            )
         ):
             raise IdentityError("registered tmux evidence did not survive exact halt")
         journal.append(

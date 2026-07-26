@@ -263,8 +263,11 @@ Use this sequence:
    must open the harness's native, unfiltered live TUI on the exact Puppet-owned
    private socket/session in read-only mode: no capture, transcript, log mirror,
    renderer, summary, or controller mediation. The human may attach and detach
-   without changing the target. Do not have the controller attach or read the
-   pane.
+   without changing the target. Tmux's owner-execute bit is only an
+   attached-client state marker and is excluded from socket identity; device,
+   inode, owner, every other mode bit, group/other access, socket type, and
+   server/pane/process identities remain exact. Do not have the controller
+   attach or read the pane.
 5. Use `status` and bounded `wait` calls for structural state and validated
    checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal text, except
    for Claude's bounded pre-prompt startup-screen reducer above; after the ready
