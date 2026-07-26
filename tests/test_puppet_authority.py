@@ -272,7 +272,11 @@ class AuthorityTests(unittest.TestCase):
             self.assertRaisesRegex(IdentityError, "live PID"),
         ):
             puppet_campaign.active_target_processes("cursor", execution_files=[bundled])
-        recheck.assert_called_once_with(4242)
+        self.assertEqual(
+            recheck.call_count,
+            len(puppet_campaign.PROCESS_SELECTION_RETRY_DELAYS) + 2,
+        )
+        recheck.assert_called_with(4242)
 
         with (
             patch.object(puppet_campaign.sys, "platform", "linux"),
@@ -460,7 +464,11 @@ class AuthorityTests(unittest.TestCase):
             self.assertRaisesRegex(IdentityError, "live PID"),
         ):
             puppet_campaign.active_target_processes("cursor", execution_files=[bundled])
-        exact_identity.assert_called_once_with(101)
+        self.assertEqual(
+            exact_identity.call_count,
+            len(puppet_campaign.PROCESS_SELECTION_RETRY_DELAYS) + 1,
+        )
+        exact_identity.assert_called_with(101)
 
     def test_process_selector_bound_covers_launcher_runtime_and_max_transients(self):
         selectors = [
