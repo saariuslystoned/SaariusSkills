@@ -50,8 +50,9 @@ _SECURITY_MARKERS = (
     "Press Enter to continue",
     "https://code.claude.com/docs/en/security",
 )
+_QUICK_SAFETY_BOUNDARY_PREFIX = "Quick safety check:"
 _TRUST_TAIL_MARKERS = (
-    "Quick safety check:",
+    _QUICK_SAFETY_BOUNDARY_PREFIX,
     "1. Yes, I trust this folder",
     "2. No, exit",
     "Enter to confirm",
@@ -135,7 +136,7 @@ def _parse_displayed_workspace_path(text: str) -> Tuple[Optional[str], Optional[
     safety_indices = [
         index
         for index in range(label_index + 1, len(lines))
-        if lines[index].strip() == "Quick safety check:"
+        if lines[index].strip().startswith(_QUICK_SAFETY_BOUNDARY_PREFIX)
     ]
     if len(safety_indices) != 1:
         return None, "displayed workspace path is malformed"

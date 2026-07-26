@@ -174,6 +174,23 @@ def _observed_wrapped_trust_screen() -> str:
     )
 
 
+def _second_live_wrapped_trust_screen() -> str:
+    return (
+        "Accessing workspace:\n"
+        " /Users/bobbybones/Developer/_machine-runs/"
+        "puppet-five-harness-dogfood-20260725\n"
+        " /claude-paired-cba2d22/proof/probes/"
+        "claude-activation-cba2d22-20260726/activat\n"
+        " ion-lane/workspace\n"
+        "Quick safety check: Is this a project you created or one you trust? "
+        "(Like your\n"
+        "own code, a well-known open source project, or work from your team)\n"
+        "❯ 1. Yes, I trust this folder\n"
+        "  2. No, exit\n"
+        "Enter to confirm\n"
+    )
+
+
 def _bypass_screen(*, selected: str = "no") -> str:
     no_prefix = "❯ " if selected == "no" else "  "
     yes_prefix = "❯ " if selected == "yes" else "  "
@@ -363,6 +380,46 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
         self.assertEqual(result["gate"], "workspace_trust")
         self.assertEqual(result["selected"], "yes")
         self.assertTrue(result["worktree_match"])
+
+    def test_second_live_narrated_boundary_excludes_tail_from_wrapped_path(self):
+        result = reduce_captured_claude_startup_screen(
+            _second_live_wrapped_trust_screen().encode("utf-8"),
+            expected_worktree=OBSERVED_WRAPPED_WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["gate"], "workspace_trust")
+        self.assertEqual(result["selected"], "yes")
+        self.assertTrue(result["worktree_match"])
+
+    def test_embedded_safety_prefix_fails_closed_as_malformed_boundary(self):
+        screen = _second_live_wrapped_trust_screen().replace(
+            "Quick safety check: Is this a project",
+            "status: Quick safety check: Is this a project",
+            1,
+        )
+        result = reduce_captured_claude_startup_screen(
+            screen.encode("utf-8"),
+            expected_worktree=OBSERVED_WRAPPED_WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "displayed workspace path is malformed")
+
+    def test_duplicate_safety_boundary_fails_closed(self):
+        screen = _second_live_wrapped_trust_screen().replace(
+            "own code, a well-known open source project, or work from your team)\n",
+            "own code, a well-known open source project, or work from your team)\n"
+            "Quick safety check: duplicate boundary\n",
+            1,
+        )
+        result = reduce_captured_claude_startup_screen(
+            screen.encode("utf-8"),
+            expected_worktree=OBSERVED_WRAPPED_WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "displayed workspace path is malformed")
 
     def test_hard_wrapped_workspace_drift_and_decoy_fail_closed(self):
         cases = {
