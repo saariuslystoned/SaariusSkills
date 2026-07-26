@@ -77,6 +77,11 @@ profiles, profile quarantine, an OS-gated join, and transcript-blind scoring.
 The comparison can support a bounded product-specific recommendation; it
 cannot repair width-four joining or establish a universal agent framework.
 
+The first Phase 5 attempt is preserved as inconclusive because its policy
+verifier required an outer `cases` key that the packet never disclosed.
+Phase 5B changes only that format wording and repeats the comparison under a
+new frozen route; it does not normalize or overwrite the first result.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -104,6 +109,9 @@ Files:
 - `BEHAVIOR_CONTRACT_PHASE5_PIXEL_USE_AB.md` — exact two-arm Pixel-use
   product-utility comparison;
 - `ROUTE_PHASE5_PIXEL_USE_AB.md` — bounded two-round-per-arm execution route;
+- `BEHAVIOR_CONTRACT_PHASE5B_PIXEL_USE_AB.md` — corrected explicit-envelope
+  comparison contract;
+- `ROUTE_PHASE5B_PIXEL_USE_AB.md` — separate corrected replay route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe

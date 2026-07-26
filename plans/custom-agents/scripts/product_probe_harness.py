@@ -121,8 +121,10 @@ P4 type, playground, targetId=login_password, text=sample
 P5 key, real app, text=BACK
 P6 click, real app, targetId=save_button, targetRole=button
 
-Return every id in order with decision and receipt_type. Use JSON null when no
-receipt applies. Do not include reasons.
+Return exactly one object with exactly one key named `cases`. Its value must be
+an ordered six-entry array. Every entry must contain exactly `id`, `decision`,
+and `receipt_type`, in that key order. Use JSON null when no receipt applies.
+Do not include reasons or any other keys.
 """.strip()
 
 FRICTION_PACKET = """
