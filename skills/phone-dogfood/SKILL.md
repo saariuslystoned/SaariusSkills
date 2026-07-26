@@ -15,6 +15,32 @@ not a visual verdict.
 - Read [references/proof-contract.md](references/proof-contract.md) before
   creating a durable proof packet.
 
+## Pixel Use interoperability
+
+Use AGY Pixel Use as the phone-control backend for interoperability slices.
+
+- Start in AGY with `/pixel-use`.
+- Resolve target phones using `pixel_devices` and use the returned opaque handle.
+- Observe with `pixel_observe`.
+- Prefer controls in this order:
+  1) named controls,
+  2) app-semantic controls,
+  3) general controls.
+
+Use `scripts/phone_dogfood.py` and Vysor for display alignment, capture, and
+troubleshooting only; do not let them replace Pixel Use as the control backend.
+
+Transient-overlay rubric:
+
+1. Capture and log the failure image/state.
+2. If appropriate, issue exactly one reversible BACK action.
+3. Capture two stable `pixel_observe` snapshots.
+4. Re-verify full target, content, and consequence against both snapshots.
+5. If stability or content proof fails, stop and report unsent.
+
+Keep this control-plane guidance separate from the Phone Dogfood visual/proof
+doctrine. Do not add a device admission gate.
+
 Use `scripts/phone_dogfood.py` for Android device inventory and screenshots.
 Do not hand-compose a display capture when the helper owns it.
 
@@ -59,8 +85,12 @@ Do not hand-compose a display capture when the helper owns it.
    the ADB screenshot as the agent's headless artifact. If human and agent
    disagree, align the mirrored screen, physical capture ID, logical input
    display ID, posture, and foreground package before debugging the app.
-9. Drive only a registered test device and only reversible, route-approved
-   actions. Android input uses a logical display ID:
+9. Drive only the explicitly selected plugged-in test device and only
+   reversible, route-approved actions.
+   Use AGY Pixel Use (`/pixel-use` + `pixel_observe`) as the primary control
+   path, preferring named → app-semantic → general controls. Fall back to
+   Android input only when a control is not available through Pixel Use.
+   Android input uses a logical display ID:
 
    ```bash
    adb shell input -d <logical-display-id> tap <x> <y>
