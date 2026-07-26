@@ -29,6 +29,7 @@ from puppet_lib.errors import (  # noqa: E402
     UnsupportedError,
     ValidationError,
 )
+from puppet_lib.launch import build_launch_identity  # noqa: E402
 from puppet_lib.safety import (  # noqa: E402
     canonical_json_bytes,
     sha256_bytes,
@@ -507,6 +508,32 @@ class GrokPairFixture:
 
 
 class GrokRuntimeVectorTests(unittest.TestCase):
+    def test_private_profile_bindings_survive_launch_identity_revalidation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = GrokPairFixture(Path(temporary))
+            source, bindings, profile_root = (
+                qualification.subscription_binding_environment(
+                    fixture.profile_binding,
+                    expected_target="grok",
+                )
+            )
+
+            environment, _ = build_launch_identity(
+                target="grok",
+                repo=fixture.positive_workspace,
+                argv=fixture.positive_vector["argv"],
+                source_environment=source,
+                bindings=bindings,
+                admitted_lane_root=profile_root,
+            )
+
+            self.assertEqual(
+                environment,
+                fixture.positive_vector["environment"],
+            )
+            self.assertIn("GROK_HOME", environment)
+            self.assertIn("GROK_DISABLE_AUTOUPDATER", environment)
+
     def test_private_profile_vector_is_exact_and_default_bound(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = GrokPairFixture(Path(temporary))

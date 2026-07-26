@@ -1716,13 +1716,21 @@ def run_probe(
                         workspace_root=launch_repo,
                     )
                 if target == "grok":
+                    expected_grok_environment = dict(
+                        grok_runtime_vector["environment"]
+                    )
                     launch_environment, launch_identity = build_launch_identity(
                         target=target,
                         repo=launch_repo,
                         argv=argv,
-                        source_environment=launch_environment,
+                        source_environment=subscription_context.source_environment,
+                        bindings=subscription_context.bindings,
                         admitted_lane_root=admitted_lane_root,
                     )
+                    if launch_environment != expected_grok_environment:
+                        raise IdentityError(
+                            "Grok runtime vector differs from its private profile bindings"
+                        )
                 else:
                     launch_environment, launch_identity = build_launch_identity(
                         target=target,
