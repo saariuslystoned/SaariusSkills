@@ -2150,9 +2150,6 @@ class AdapterManifest:
         ):
             raise ValidationError("selector flags overlap another semantic bucket")
 
-        if value["target"] == "agy":
-            if mapping["project_isolation_flags"] != ["--new-project"]:
-                raise ValidationError("agy project isolation flags are invalid")
         transport = mapping["prompt_transport"]
         if not isinstance(transport, str) or not transport or len(transport) > 80:
             raise ValidationError("prompt transport declaration is invalid")
@@ -2181,6 +2178,15 @@ class AdapterManifest:
                 "submit settle mapping does not match the adapter policy"
             )
         if value["target"] == "agy":
+            # Launch argv and semantic buckets are one bound claim. Census may
+            # still probe parser-only sandbox candidates separately; the regular
+            # launch mapping must not claim an unproved --sandbox=false flag.
+            if mapping["permission_flags"] != ["--dangerously-skip-permissions"]:
+                raise ValidationError("agy permission flags are invalid")
+            if mapping["sandbox_flags"] != []:
+                raise ValidationError("agy sandbox flags are invalid")
+            if mapping["project_isolation_flags"] != ["--new-project"]:
+                raise ValidationError("agy project isolation flags are invalid")
             expected_argv = [
                 resolved_path,
                 "--dangerously-skip-permissions",

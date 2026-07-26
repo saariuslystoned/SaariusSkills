@@ -1987,7 +1987,7 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                 "prompt_transport": PROMPT_TRANSPORT,
                 "prompt_transport_declared": True,
                 "sandbox_disable_declared": True,
-                "sandbox_flags": ["--sandbox=false"],
+                "sandbox_flags": [],
                 "project_isolation_declared": True,
                 "project_isolation_flags": ["--new-project"],
                 "session_profiles": session_profiles_for("agy"),
@@ -2209,18 +2209,47 @@ class AgySessionLaunchIntegrationTests(unittest.TestCase):
                 self.assertEqual(lease["state"], "failed")
                 self.assertNotIn(lease["state"], {"launching", "active", "halting"})
 
-                # Status preflight discards raw body; default model stays harness-
-                # selected/unobserved; shared-vendor limitation is explicit.
-                preflight = puppet_session.run_agy_status_preflight(
-                    executable_path=executable
+                # The original stand-in emitted secret-status-body during the
+                # body-free models preflight. That raw body must not appear in
+                # any controller proof/state/receipt artifact written by launch.
+                marker = "secret-status-body"
+                contaminated = []
+                for tree in (proof, state_root):
+                    for path in tree.rglob("*"):
+                        if not path.is_file():
+                            continue
+                        try:
+                            payload = path.read_bytes()
+                        except OSError:
+                            continue
+                        if marker.encode("utf-8") in payload:
+                            contaminated.append(str(path.relative_to(root)))
+                self.assertEqual(
+                    contaminated,
+                    [],
+                    "status preflight raw body leaked into controller artifacts",
+                )
+                bound_manifest = json.loads(
+                    (proof / "adapter-manifest.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(bound_manifest["yolo_mapping"]["sandbox_flags"], [])
+                self.assertEqual(
+                    bound_manifest["yolo_mapping"]["permission_flags"],
+                    ["--dangerously-skip-permissions"],
                 )
                 self.assertEqual(
-                    preflight["status_preflight"], "models_command_verified"
+                    bound_manifest["yolo_mapping"]["project_isolation_flags"],
+                    ["--new-project"],
                 )
-                self.assertNotIn("secret-status-body", json.dumps(preflight))
-                self.assertIn("shared-vendor-auth/config route", preflight["limitation"])
+                self.assertNotIn(
+                    "--sandbox=false", bound_manifest["yolo_mapping"]["launch_argv"]
+                )
+                # Shared-vendor route: no private subscription profile binding.
+                self.assertFalse((proof / "subscription-profile.json").exists())
                 self.assertIsNone(Contract.from_path(contract_path).requested_model)
                 self.assertIsNone(Contract.from_path(contract_path).requested_effort)
+                # Preflight completed (callback reached) without retaining body.
+                self.assertEqual(observed["before_target_start_calls"], 1)
             finally:
                 kill_test_server(socket)
 

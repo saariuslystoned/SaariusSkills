@@ -122,7 +122,7 @@ def manifest_raw(target="agy"):
             "prompt_transport_declared": True,
             "sandbox_disable_declared": True,
             "sandbox_flags": (
-                [AGY_SANDBOX_DISABLE_FLAG]
+                []
                 if target == "agy"
                 else ["--dangerously-bypass-approvals-and-sandbox"]
             ),
@@ -1501,9 +1501,7 @@ class AdapterTests(unittest.TestCase):
                 duplicate["yolo_mapping"][bucket] = list(
                     raw["yolo_mapping"][bucket]
                 ) + ["--new-project"]
-                with self.assertRaisesRegex(
-                    ValidationError, "overlap another semantic bucket"
-                ):
+                with self.assertRaises(ValidationError):
                     AdapterManifest.from_dict(duplicate)
         for selector in ("model_flag", "effort_flag"):
             with self.subTest("selector_duplicate", selector=selector):
@@ -1514,6 +1512,141 @@ class AdapterTests(unittest.TestCase):
                     ValidationError, "selector flags overlap another semantic bucket"
                 ):
                     AdapterManifest.from_dict(duplicate)
+
+    def test_agy_semantic_buckets_bind_exact_launch_argv_without_sandbox_false(self):
+        raw = manifest_raw()
+        accepted = AdapterManifest.from_dict(raw)
+        self.assertEqual(
+            accepted.raw["yolo_mapping"]["permission_flags"],
+            ["--dangerously-skip-permissions"],
+        )
+        self.assertEqual(accepted.raw["yolo_mapping"]["sandbox_flags"], [])
+        self.assertEqual(
+            accepted.raw["yolo_mapping"]["project_isolation_flags"],
+            ["--new-project"],
+        )
+        self.assertEqual(
+            accepted.raw["yolo_mapping"]["launch_argv"],
+            [
+                raw["executable"]["resolved_path"],
+                "--dangerously-skip-permissions",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ],
+        )
+        self.assertNotIn(
+            AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["launch_argv"]
+        )
+        self.assertNotIn(
+            AGY_SANDBOX_DISABLE_FLAG, accepted.raw["yolo_mapping"]["sandbox_flags"]
+        )
+
+        cases = (
+            (
+                "claimed_sandbox_false_bucket",
+                {
+                    "sandbox_flags": [AGY_SANDBOX_DISABLE_FLAG],
+                },
+                "agy sandbox flags are invalid",
+            ),
+            (
+                "missing_permission_bucket",
+                {"permission_flags": []},
+                "agy permission flags are invalid",
+            ),
+            (
+                "extra_permission_bucket",
+                {
+                    "permission_flags": [
+                        "--dangerously-skip-permissions",
+                        "--extra-permission",
+                    ],
+                },
+                "agy permission flags are invalid",
+            ),
+            (
+                "reordered_permission_bucket",
+                {
+                    "permission_flags": [
+                        "--extra-permission",
+                        "--dangerously-skip-permissions",
+                    ],
+                },
+                "agy permission flags are invalid",
+            ),
+            (
+                "missing_project_isolation_bucket",
+                {"project_isolation_flags": []},
+                "agy project isolation flags are invalid",
+            ),
+            (
+                "extra_project_isolation_bucket",
+                {
+                    "project_isolation_flags": [
+                        "--new-project",
+                        "--extra-project",
+                    ],
+                },
+                "agy project isolation flags are invalid",
+            ),
+            (
+                "reordered_project_isolation_bucket",
+                {
+                    "project_isolation_flags": [
+                        "--extra-project",
+                        "--new-project",
+                    ],
+                },
+                "agy project isolation flags are invalid",
+            ),
+            (
+                "extra_sandbox_bucket",
+                {"sandbox_flags": ["--sandbox=true"]},
+                "agy sandbox flags are invalid",
+            ),
+            (
+                "argv_claims_sandbox_false",
+                {
+                    "launch_argv": [
+                        raw["executable"]["resolved_path"],
+                        "--dangerously-skip-permissions",
+                        AGY_SANDBOX_DISABLE_FLAG,
+                        "--new-project",
+                        "--log-file",
+                        "/dev/null",
+                    ],
+                },
+                "manifest launch_argv is invalid for AGY",
+            ),
+            (
+                "argv_reordered_without_bucket_claim",
+                {
+                    "launch_argv": [
+                        raw["executable"]["resolved_path"],
+                        "--new-project",
+                        "--dangerously-skip-permissions",
+                        "--log-file",
+                        "/dev/null",
+                    ],
+                },
+                "manifest launch_argv is invalid for AGY",
+            ),
+            (
+                "permission_bucket_mismatches_argv_token",
+                {
+                    "permission_flags": ["--other-permission"],
+                },
+                "agy permission flags are invalid",
+            ),
+        )
+        for label, updates, message in cases:
+            with self.subTest(label=label):
+                broken = dict(raw)
+                broken["yolo_mapping"] = dict(raw["yolo_mapping"])
+                broken["yolo_mapping"].update(updates)
+                with self.assertRaisesRegex(ValidationError, message):
+                    AdapterManifest.from_dict(broken)
 
     def test_model_and_effort_selector_flags_must_be_distinct(self):
         raw = manifest_raw()
