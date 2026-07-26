@@ -20,6 +20,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
+import puppet_lib.campaign as campaign_module  # noqa: E402
 import puppet_lib.agy_launch as agy_launch_module  # noqa: E402
 import puppet_lib.conformance as conformance_module  # noqa: E402
 import adapter_lab as puppet_adapter_lab  # noqa: E402
@@ -84,6 +85,7 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
     initialize_subscription_profile,
     subscription_profile_launch_context,
 )
+from puppet_lib.registry import ProcessExecutableUnavailable  # noqa: E402
 
 
 def write_json(path: Path, value) -> None:
@@ -2551,6 +2553,54 @@ class ProbeTests(unittest.TestCase):
             process_tree_alive_fn=lambda identity: True,
         )
         self.assertEqual(disappeared["descendants"], [])
+
+    def test_selected_process_identity_retries_a_vanishing_unavailable_pid(self):
+        registered = static_process_identity(4242)
+        selectors = {
+            (
+                registered["executable_path"],
+                registered["device"],
+                registered["inode"],
+            )
+        }
+        unavailable = ProcessExecutableUnavailable("transient Darwin row")
+        with (
+            patch.object(
+                campaign_module,
+                "process_executable_identity",
+                side_effect=[unavailable, unavailable],
+            ) as executable,
+            patch.object(
+                campaign_module,
+                "_pid_still_exists",
+                side_effect=[True, False],
+            ),
+            patch.object(campaign_module.time, "sleep"),
+        ):
+            self.assertIsNone(
+                campaign_module._selected_process_identity(4242, selectors)
+            )
+        self.assertEqual(executable.call_count, 2)
+
+        with (
+            patch.object(
+                campaign_module,
+                "process_executable_identity",
+                side_effect=[
+                    ProcessExecutableUnavailable("persistent row")
+                    for _ in range(
+                        1 + len(campaign_module.PROCESS_SELECTION_RETRY_DELAYS)
+                    )
+                ],
+            ),
+            patch.object(campaign_module, "_pid_still_exists", return_value=True),
+            patch.object(campaign_module.time, "sleep"),
+            self.assertRaisesRegex(
+                IdentityError,
+                "executable identity is unavailable for a live PID",
+            ),
+        ):
+            campaign_module._selected_process_identity(4242, selectors)
 
     def test_population_policy_rejects_unproved_or_drifted_extras(self):
         protected = [static_process_identity(991)]

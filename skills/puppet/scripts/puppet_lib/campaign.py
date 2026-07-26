@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
@@ -38,6 +39,7 @@ MAX_PROCESS_SNAPSHOT_ROWS = 32768
 MAX_PROCESS_ANCESTRY_NODES = 512
 MAX_PROCESS_ANCESTRY_DEPTH = 64
 MAX_PROCESS_EXECUTION_SELECTORS = 10
+PROCESS_SELECTION_RETRY_DELAYS = (0.01, 0.05, 0.1)
 _AGY_PROCESS_CANDIDATE_NAMES = frozenset({"agy"})
 _GROK_PROCESS_CANDIDATE_NAMES = frozenset(
     {
@@ -450,20 +452,29 @@ def _target_process_rows(
 def _selected_process_identity(
     pid: int, selectors: set[tuple[str, int, int]]
 ) -> Optional[Dict[str, Any]]:
-    try:
-        executable = process_executable_identity(pid)
-    except ExecTransitionSamplingError:
-        raise
-    except ProcessExecutableUnavailable as exc:
+    unavailable: Optional[ProcessExecutableUnavailable] = None
+    for delay in (0.0, *PROCESS_SELECTION_RETRY_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            executable = process_executable_identity(pid)
+            break
+        except ExecTransitionSamplingError:
+            raise
+        except ProcessExecutableUnavailable as exc:
+            unavailable = exc
+            if not _pid_still_exists(pid):
+                return None
+        except IdentityError:
+            if not _pid_still_exists(pid):
+                return None
+            raise
+    else:
         if not _pid_still_exists(pid):
             return None
         raise IdentityError(
             "same-target executable identity is unavailable for a live PID"
-        ) from exc
-    except IdentityError:
-        if not _pid_still_exists(pid):
-            return None
-        raise
+        ) from unavailable
     observed = (
         executable["executable_path"],
         executable["device"],
