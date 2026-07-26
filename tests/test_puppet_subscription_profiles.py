@@ -288,6 +288,97 @@ class SubscriptionProfileTests(unittest.TestCase):
             self.assertNotIn("message", result)
             self.assertNotIn("hasAccessToken", result)
 
+    def test_claude_status_allows_extra_fields_but_only_returns_allowlisted_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude", profile_root=profile, executable_path=executable
+            )
+            canary = "synthetic-sensitive-canary"
+            raw = json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "apiProvider": "firstParty",
+                    "accessToken": canary,
+                    "accountEmail": "private@example.invalid",
+                    "nestedCredential": {"refreshToken": canary},
+                }
+            ).encode()
+            completed = subprocess.CompletedProcess([], 0, stdout=raw, stderr=None)
+            with patch(
+                "puppet_lib.subscription_profiles._bounded_status_run",
+                return_value=completed,
+            ):
+                result = subscription_profile_status(profile_root=profile)
+            self.assertEqual(result["login_state"], "logged_in")
+            self.assertEqual(result["method"], "claude.ai")
+            self.assertEqual(result["provider"], "firstParty")
+            self.assertFalse(result["raw_output_retained"])
+            public = json.dumps(result, sort_keys=True)
+            self.assertNotIn("accessToken", public)
+            self.assertNotIn("accountEmail", public)
+            self.assertNotIn("nestedCredential", public)
+            self.assertNotIn(canary, public)
+
+    def test_claude_status_missing_malformed_or_unsupported_fields_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude", profile_root=profile, executable_path=executable
+            )
+            cases = {
+                "missing required": {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                },
+                "wrong types": {
+                    "loggedIn": "true",
+                    "authMethod": 7,
+                    "apiProvider": ["firstParty"],
+                },
+                "unsupported method": {
+                    "loggedIn": True,
+                    "authMethod": "unsupported",
+                    "apiProvider": "firstParty",
+                },
+                "unsupported provider": {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "apiProvider": "unsupported",
+                },
+            }
+            for label, value in cases.items():
+                with self.subTest(label=label):
+                    completed = subprocess.CompletedProcess(
+                        [],
+                        0,
+                        stdout=json.dumps(value).encode(),
+                        stderr=None,
+                    )
+                    with patch(
+                        "puppet_lib.subscription_profiles._bounded_status_run",
+                        return_value=completed,
+                    ):
+                        result = subscription_profile_status(profile_root=profile)
+                    self.assertEqual(result["login_state"], "unknown")
+                    self.assertEqual(result["method"], "unknown")
+                    self.assertNotIn("provider", result)
+
+            invalid = subprocess.CompletedProcess(
+                [], 0, stdout=b"{invalid-json", stderr=None
+            )
+            with patch(
+                "puppet_lib.subscription_profiles._bounded_status_run",
+                return_value=invalid,
+            ):
+                result = subscription_profile_status(profile_root=profile)
+            self.assertEqual(result["login_state"], "unknown")
+            self.assertEqual(result["method"], "unknown")
+            self.assertNotIn("provider", result)
+
     def test_nonzero_claimed_login_is_unknown_and_output_is_memory_bounded(self):
         with tempfile.TemporaryDirectory() as temporary:
             executable = self._executable(temporary)

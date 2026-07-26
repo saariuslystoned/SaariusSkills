@@ -852,24 +852,28 @@ def _parse_status(
             value = json.loads(normalized)
         except json.JSONDecodeError:
             value = None
-        if (
-            isinstance(value, dict)
-            and set(value) == {"loggedIn", "authMethod", "apiProvider"}
-            and isinstance(value.get("loggedIn"), bool)
-        ):
+        required_fields = {"loggedIn", "authMethod", "apiProvider"}
+        if isinstance(value, dict) and required_fields <= set(value):
             method = value.get("authMethod")
             provider = value.get("apiProvider")
-            return {
-                "login_state": (
-                    "logged_in"
-                    if value["loggedIn"] and result.returncode == 0
-                    else "logged_out"
-                    if not value["loggedIn"]
-                    else "unknown"
-                ),
-                "method": method if method in {"claude.ai", "none"} else "other",
-                "provider": provider if provider in {"firstParty"} else "other",
-            }
+            if (
+                isinstance(value.get("loggedIn"), bool)
+                and isinstance(method, str)
+                and method in {"claude.ai", "none"}
+                and isinstance(provider, str)
+                and provider == "firstParty"
+            ):
+                return {
+                    "login_state": (
+                        "logged_in"
+                        if value["loggedIn"] and result.returncode == 0
+                        else "logged_out"
+                        if not value["loggedIn"]
+                        else "unknown"
+                    ),
+                    "method": method,
+                    "provider": provider,
+                }
     elif target == "cursor":
         try:
             value = json.loads(normalized)
