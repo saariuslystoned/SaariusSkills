@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import selectors
 import shlex
 import stat
@@ -43,6 +44,11 @@ PROFILE_OPERATOR_GLOBAL_ADOPTION = "not_yet_qualified"
 MAX_STATUS_OUTPUT_BYTES = 16384
 STATUS_TIMEOUT_SECONDS = 20
 LAUNCH_BINDING_SCHEMA = "puppet.subscription-launch-binding/v1"
+CLAUDE_NATIVE_KEYRING_AUTH_ROUTE = "operating_system_native_keyring"
+SYNTHETIC_PROFILE_HOME_AUTH_ROUTE = "synthetic_profile_home"
+CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER = (
+    "claude_synthetic_home_profile_migration_required"
+)
 
 _BASE_LAUNCH_ENVIRONMENT_NAMES = frozenset({"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"})
 _LOGIN_ONLY_ENVIRONMENT_NAMES = frozenset({"NO_OPEN_BROWSER"})
@@ -53,6 +59,8 @@ _PUBLIC_BINDING_FIELDS = {
     "profile_root",
     "root_identity",
     "directory_identities",
+    "real_home_identity",
+    "auth_route",
     "manifest_path",
     "manifest_sha256",
     "executable",
@@ -60,6 +68,26 @@ _PUBLIC_BINDING_FIELDS = {
     "login_only_env_names",
     "status",
 }
+
+_MANIFEST_FIELDS = frozenset(
+    {
+        "schema",
+        "target",
+        "root",
+        "directories",
+        "requested_executable",
+        "executable",
+        "helper",
+        "interpreter",
+        "library",
+        "env_executable",
+        "bindings",
+        "commands",
+        "auth_route",
+        "real_home",
+    }
+)
+_LEGACY_MANIFEST_FIELDS = _MANIFEST_FIELDS - {"auth_route", "real_home"}
 
 _PROFILE_LAYOUTS: Mapping[str, tuple[str, ...]] = {
     "codex": ("home", "config", "tmp"),
@@ -130,11 +158,105 @@ def _resolve_executable(path: Path) -> tuple[str, Dict[str, Any]]:
     return str(requested), execution_file_identity(resolved)
 
 
-def _profile_environment(
+def _auth_route_for_target(target: str) -> str:
+    if target == "claude":
+        return CLAUDE_NATIVE_KEYRING_AUTH_ROUTE
+    return SYNTHETIC_PROFILE_HOME_AUTH_ROUTE
+
+
+def _real_user_home_identity(*, label: str) -> Dict[str, Any]:
+    entry = pwd.getpwuid(os.getuid())
+    path = Path(entry.pw_dir)
+    if not path.is_absolute():
+        raise ValidationError("%s must be absolute" % label)
+    if path.is_symlink():
+        raise ValidationError("%s must not be a symlink" % label)
+    try:
+        resolved = path.resolve(strict=True)
+        details = resolved.stat()
+    except OSError as exc:
+        raise ValidationError("unable to inspect %s" % label) from exc
+    if not stat.S_ISDIR(details.st_mode):
+        raise ValidationError("%s is not a directory" % label)
+    if details.st_uid != os.getuid():
+        raise ValidationError("%s is not owned by the current user" % label)
+    return {
+        "path": str(resolved),
+        "device": details.st_dev,
+        "inode": details.st_ino,
+        "uid": details.st_uid,
+        "mode": stat.S_IMODE(details.st_mode),
+    }
+
+
+def _expected_real_home_identity(
     target: str, directories: Mapping[str, Dict[str, Any]]
+) -> Dict[str, Any]:
+    if target == "claude":
+        return _real_user_home_identity(label="real user home")
+    return dict(directories["home"])
+
+
+def _is_legacy_claude_manifest(value: Mapping[str, Any]) -> bool:
+    if value.get("target") != "claude":
+        return False
+    keys = set(value)
+    if keys == _LEGACY_MANIFEST_FIELDS:
+        return True
+    if keys != _MANIFEST_FIELDS:
+        return False
+    if value.get("auth_route") != CLAUDE_NATIVE_KEYRING_AUTH_ROUTE:
+        return True
+    bindings = value.get("bindings")
+    directories = value.get("directories")
+    if not isinstance(bindings, Mapping) or not isinstance(directories, Mapping):
+        return False
+    home_dir = directories.get("home")
+    if isinstance(home_dir, Mapping) and bindings.get("HOME") == home_dir.get("path"):
+        return True
+    real_home = value.get("real_home")
+    if isinstance(real_home, Mapping) and isinstance(home_dir, Mapping):
+        if real_home.get("path") == home_dir.get("path"):
+            return True
+    return False
+
+
+def _coerce_manifest(
+    value: Any, *, allow_legacy_claude_refresh: bool = False
+) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValidationError("subscription profile manifest fields are invalid")
+    keys = set(value)
+    if keys == _MANIFEST_FIELDS:
+        return dict(value)
+    if keys != _LEGACY_MANIFEST_FIELDS:
+        raise ValidationError("subscription profile manifest fields are invalid")
+    target = validate_identifier(value.get("target"), "profile target")
+    if target == "claude":
+        if allow_legacy_claude_refresh:
+            return dict(value)
+        raise UnsupportedError(CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER)
+    directories = value.get("directories")
+    if not isinstance(directories, dict) or "home" not in directories:
+        raise ValidationError("subscription profile directory map is invalid")
+    home = directories.get("home")
+    if not isinstance(home, dict):
+        raise ValidationError("subscription profile directory identity is invalid")
+    return {
+        **dict(value),
+        "auth_route": SYNTHETIC_PROFILE_HOME_AUTH_ROUTE,
+        "real_home": dict(home),
+    }
+
+
+def _profile_environment(
+    target: str,
+    directories: Mapping[str, Dict[str, Any]],
+    *,
+    real_home: Mapping[str, Any],
 ) -> Dict[str, str]:
     values = {
-        "HOME": directories["home"]["path"],
+        "HOME": str(real_home["path"]),
         "TMPDIR": directories["tmp"]["path"],
         "PATH": "/usr/bin:/bin",
         "LANG": "C",
@@ -144,7 +266,7 @@ def _profile_environment(
         values["CODEX_HOME"] = directories["config"]["path"]
     elif target == "claude":
         values["CLAUDE_CONFIG_DIR"] = directories["config"]["path"]
-        values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "true"
+        values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     elif target == "cursor":
         values["CURSOR_CONFIG_DIR"] = directories["config"]["path"]
         values["CURSOR_DATA_DIR"] = directories["data"]["path"]
@@ -226,22 +348,20 @@ def _validate_manifest(
     *,
     verify_current: bool = True,
     allow_stale_launch_authority: bool = False,
+    allow_legacy_claude_refresh: bool = False,
 ) -> Dict[str, Any]:
-    fields = {
-        "schema",
-        "target",
-        "root",
-        "directories",
-        "requested_executable",
-        "executable",
-        "helper",
-        "interpreter",
-        "library",
-        "env_executable",
-        "bindings",
-        "commands",
-    }
-    if not isinstance(value, dict) or set(value) != fields:
+    if not isinstance(value, dict):
+        raise ValidationError("subscription profile manifest fields are invalid")
+    if allow_legacy_claude_refresh and _is_legacy_claude_manifest(value):
+        return _validate_legacy_claude_manifest(
+            value,
+            verify_current=verify_current,
+            allow_stale_launch_authority=allow_stale_launch_authority,
+        )
+    value = _coerce_manifest(
+        value, allow_legacy_claude_refresh=allow_legacy_claude_refresh
+    )
+    if set(value) != _MANIFEST_FIELDS:
         raise ValidationError("subscription profile manifest fields are invalid")
     if value.get("schema") != PROFILE_SCHEMA:
         raise ValidationError("subscription profile schema is unsupported")
@@ -314,9 +434,120 @@ def _validate_manifest(
         "profile login environment executable",
         verify_current=verify_current,
     )
-    bindings = _profile_environment(target, checked_directories)
+    auth_route = value.get("auth_route")
+    expected_auth_route = _auth_route_for_target(target)
+    if auth_route != expected_auth_route:
+        raise IdentityError("subscription profile auth route changed")
+    recorded_real_home = value.get("real_home")
+    if not isinstance(recorded_real_home, dict):
+        raise ValidationError("subscription profile real home identity is invalid")
+    real_home = _validate_recorded_real_home(
+        recorded_real_home, label="subscription profile real home"
+    )
+    expected_real_home = _expected_real_home_identity(target, checked_directories)
+    if real_home != expected_real_home:
+        raise IdentityError("subscription profile real home identity changed")
+    if target == "claude" and real_home["path"] == checked_directories["home"]["path"]:
+        raise UnsupportedError(CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER)
+    bindings = _profile_environment(
+        target, checked_directories, real_home=real_home
+    )
     if value.get("bindings") != bindings:
         raise IdentityError("subscription profile bindings changed")
+    commands = _profile_commands(target, executable["path"])
+    if value.get("commands") != commands:
+        raise IdentityError("subscription profile commands changed")
+    return {
+        **dict(value),
+        "root": root,
+        "directories": checked_directories,
+        "executable": executable,
+        "helper": helper,
+        "interpreter": interpreter,
+        "library": library,
+        "env_executable": env_executable,
+        "auth_route": auth_route,
+        "real_home": real_home,
+    }
+
+
+def _validate_legacy_claude_manifest(
+    value: Mapping[str, Any],
+    *,
+    verify_current: bool = True,
+    allow_stale_launch_authority: bool = False,
+) -> Dict[str, Any]:
+    if not _is_legacy_claude_manifest(value):
+        raise ValidationError("subscription profile manifest fields are invalid")
+    target = validate_identifier(value.get("target"), "profile target")
+    if target != "claude":
+        raise ValidationError("subscription profile manifest fields are invalid")
+
+    recorded_root = value.get("root")
+    if not isinstance(recorded_root, dict):
+        raise ValidationError("subscription profile root identity is invalid")
+    root = _private_directory(
+        Path(recorded_root.get("path", "")), label="profile root", create=False
+    )
+    if root != recorded_root:
+        raise IdentityError("subscription profile root identity changed")
+
+    directories = value.get("directories")
+    if not isinstance(directories, dict) or set(directories) != set(
+        _PROFILE_LAYOUTS[target]
+    ):
+        raise ValidationError("subscription profile directory map is invalid")
+    checked_directories: Dict[str, Dict[str, Any]] = {}
+    for name in _PROFILE_LAYOUTS[target]:
+        recorded = directories.get(name)
+        if not isinstance(recorded, dict):
+            raise ValidationError("subscription profile directory identity is invalid")
+        current = _private_directory(
+            Path(recorded.get("path", "")),
+            label="profile %s directory" % name,
+            create=False,
+        )
+        if current != recorded:
+            raise IdentityError("subscription profile directory identity changed")
+        if Path(current["path"]) != Path(root["path"]) / name:
+            raise IdentityError("subscription profile directory path changed")
+        checked_directories[name] = current
+
+    executable = validate_execution_file_identity(
+        value.get("executable"), "profile executable", verify_current=verify_current
+    )
+    requested = value.get("requested_executable")
+    if (
+        not isinstance(requested, str)
+        or not requested
+        or not Path(requested).is_absolute()
+    ):
+        raise ValidationError("subscription profile requested executable is invalid")
+    if not allow_stale_launch_authority:
+        try:
+            if Path(requested).resolve(strict=True) != Path(executable["path"]):
+                raise IdentityError("subscription profile executable path changed")
+        except (OSError, RuntimeError) as exc:
+            raise IdentityError(
+                "subscription profile executable is unavailable"
+            ) from exc
+
+    helper = validate_execution_file_identity(
+        value.get("helper"), "profile login helper", verify_current=verify_current
+    )
+    interpreter = validate_execution_file_identity(
+        value.get("interpreter"),
+        "profile login interpreter",
+        verify_current=verify_current,
+    )
+    library = validate_execution_file_identity(
+        value.get("library"), "profile login library", verify_current=verify_current
+    )
+    env_executable = validate_execution_file_identity(
+        value.get("env_executable"),
+        "profile login environment executable",
+        verify_current=verify_current,
+    )
     commands = _profile_commands(target, executable["path"])
     if value.get("commands") != commands:
         raise IdentityError("subscription profile commands changed")
@@ -469,6 +700,7 @@ def initialize_subscription_profile(
             read_json(manifest_path),
             verify_current=False,
             allow_stale_launch_authority=True,
+            allow_legacy_claude_refresh=True,
         )
         root_path = Path(preflight["root"]["path"])
         manifest_path = root_path / "profile.json"
@@ -484,6 +716,7 @@ def initialize_subscription_profile(
                 read_json(manifest_path),
                 verify_current=False,
                 allow_stale_launch_authority=True,
+                allow_legacy_claude_refresh=True,
             )
             if previous["target"] != target:
                 raise ConflictError("subscription profile belongs to another target")
@@ -503,7 +736,11 @@ def initialize_subscription_profile(
                 )
                 for name in _PROFILE_LAYOUTS[target]
             }
-        bindings = _profile_environment(target, directories)
+        bindings = _profile_environment(
+            target,
+            directories,
+            real_home=_expected_real_home_identity(target, directories),
+        )
         manifest = {
             "schema": PROFILE_SCHEMA,
             "target": target,
@@ -517,6 +754,8 @@ def initialize_subscription_profile(
             "env_executable": env_executable,
             "bindings": bindings,
             "commands": _profile_commands(target, executable["path"]),
+            "auth_route": _auth_route_for_target(target),
+            "real_home": _expected_real_home_identity(target, directories),
         }
         if previous is None:
             _write_create_only(manifest_path, manifest)
@@ -697,6 +936,7 @@ def _public_status(
         "target": manifest["target"],
         "profile_root": manifest["root"]["path"],
         "executable": manifest["executable"],
+        "auth_route": manifest["auth_route"],
         "login_state": parsed["login_state"],
         "method": parsed["method"],
         **({"provider": parsed["provider"]} if "provider" in parsed else {}),
@@ -752,6 +992,8 @@ def _launch_context_from_manifest(
         "profile_root": manifest["root"]["path"],
         "root_identity": manifest["root"],
         "directory_identities": manifest["directories"],
+        "real_home_identity": manifest["real_home"],
+        "auth_route": manifest["auth_route"],
         "manifest_path": str(manifest_path.resolve(strict=True)),
         "manifest_sha256": manifest_sha256,
         "executable": manifest["executable"],
@@ -835,6 +1077,7 @@ def build_subscription_launch_binding(
             "schema",
             "target",
             "profile_root",
+            "auth_route",
             "login_state",
             "method",
             "provider",
@@ -846,7 +1089,35 @@ def build_subscription_launch_binding(
         )
         if name in status
     }
+    if "auth_route" not in public_status:
+        public_status["auth_route"] = context.public_binding["auth_route"]
     return {**dict(context.public_binding), "status": public_status}
+
+
+def _validate_recorded_real_home(value: Any, *, label: str) -> Dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _DIRECTORY_IDENTITY_FIELDS:
+        raise ValidationError("%s identity fields are invalid" % label)
+    path = value.get("path")
+    if (
+        not isinstance(path, str)
+        or not path
+        or not Path(path).is_absolute()
+        or any(character in path for character in "\x00\n\r")
+    ):
+        raise ValidationError("%s path is invalid" % label)
+    for name in ("device", "inode"):
+        observed = value.get(name)
+        if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+            raise ValidationError("%s identity is invalid" % label)
+    uid = value.get("uid")
+    if isinstance(uid, bool) or not isinstance(uid, int) or uid < 0:
+        raise ValidationError("%s owner is invalid" % label)
+    if uid != os.getuid():
+        raise ValidationError("%s owner is invalid" % label)
+    mode = value.get("mode")
+    if isinstance(mode, bool) or not isinstance(mode, int) or mode <= 0:
+        raise ValidationError("%s mode is invalid" % label)
+    return dict(value)
 
 
 def _validate_recorded_directory(value: Any, *, label: str) -> Dict[str, Any]:
@@ -907,6 +1178,18 @@ def validate_subscription_launch_binding(
         if Path(directory["path"]) != Path(root["path"]) / name:
             raise IdentityError("subscription launch directory path changed")
         checked_directories[name] = directory
+    auth_route = value.get("auth_route")
+    expected_auth_route = _auth_route_for_target(target)
+    if auth_route != expected_auth_route:
+        raise IdentityError("subscription launch auth route changed")
+    real_home = _validate_recorded_real_home(
+        value.get("real_home_identity"), label="subscription profile real home"
+    )
+    expected_real_home = _expected_real_home_identity(target, checked_directories)
+    if real_home != expected_real_home:
+        raise IdentityError("subscription launch real home identity changed")
+    if target == "claude" and real_home["path"] == checked_directories["home"]["path"]:
+        raise UnsupportedError(CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER)
     manifest_path = value.get("manifest_path")
     if (
         not isinstance(manifest_path, str)
@@ -925,7 +1208,9 @@ def validate_subscription_launch_binding(
         "subscription launch executable",
         verify_current=False,
     )
-    profile_environment = _profile_environment(target, checked_directories)
+    profile_environment = _profile_environment(
+        target, checked_directories, real_home=real_home
+    )
     expected_login_only = sorted(
         name for name in profile_environment if name in _LOGIN_ONLY_ENVIRONMENT_NAMES
     )
@@ -944,6 +1229,7 @@ def validate_subscription_launch_binding(
         "schema",
         "target",
         "profile_root",
+        "auth_route",
         "login_state",
         "method",
         "status_exit",
@@ -972,6 +1258,7 @@ def validate_subscription_launch_binding(
         status.get("schema") != STATUS_SCHEMA
         or status.get("target") != target
         or status.get("profile_root") != root["path"]
+        or status.get("auth_route") != expected_auth_route
         or status.get("login_state") not in {"logged_in", "logged_out", "unknown"}
         or status.get("method") not in allowed_methods[target]
         or isinstance(status.get("status_exit"), bool)
@@ -999,6 +1286,8 @@ def validate_subscription_launch_binding(
         **dict(value),
         "root_identity": root,
         "directory_identities": checked_directories,
+        "real_home_identity": real_home,
+        "auth_route": auth_route,
         "executable": executable,
         "status": dict(status),
     }
@@ -1013,7 +1302,9 @@ def subscription_binding_environment(
         value, expected_target=expected_target, require_logged_in=True
     )
     environment = _profile_environment(
-        binding["target"], binding["directory_identities"]
+        binding["target"],
+        binding["directory_identities"],
+        real_home=binding["real_home_identity"],
     )
     source = {
         name: environment[name] for name in sorted(_BASE_LAUNCH_ENVIRONMENT_NAMES)
@@ -1056,6 +1347,8 @@ def execute_subscription_profile_login(
 
 
 __all__ = [
+    "CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER",
+    "CLAUDE_NATIVE_KEYRING_AUTH_ROUTE",
     "LAUNCH_BINDING_SCHEMA",
     "MAX_STATUS_OUTPUT_BYTES",
     "PROFILE_HUMAN_LOGIN_POLICY",
@@ -1064,6 +1357,7 @@ __all__ = [
     "PROFILE_SCHEMA",
     "PROFILE_STATUS_POLICY",
     "STATUS_SCHEMA",
+    "SYNTHETIC_PROFILE_HOME_AUTH_ROUTE",
     "SubscriptionLaunchContext",
     "build_subscription_launch_binding",
     "execute_subscription_profile_login",

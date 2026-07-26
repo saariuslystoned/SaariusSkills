@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import shlex
 import stat
 import subprocess
@@ -18,6 +19,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError  # noqa: E402
 from puppet_lib.subscription_profiles import (  # noqa: E402
+    CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER,
+    CLAUDE_NATIVE_KEYRING_AUTH_ROUTE,
     LAUNCH_BINDING_SCHEMA,
     MAX_STATUS_OUTPUT_BYTES,
     PROFILE_HUMAN_LOGIN_POLICY,
@@ -26,6 +29,7 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
     PROFILE_SCHEMA,
     PROFILE_STATUS_POLICY,
     STATUS_SCHEMA,
+    SYNTHETIC_PROFILE_HOME_AUTH_ROUTE,
     build_subscription_launch_binding,
     execute_subscription_profile_login,
     initialize_subscription_profile,
@@ -37,6 +41,9 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
 
 
 class SubscriptionProfileTests(unittest.TestCase):
+    def _real_user_home(self) -> Path:
+        return Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+
     def _executable(self, temporary: str) -> Path:
         path = Path(temporary) / "fake harness"
         path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -340,6 +347,7 @@ class SubscriptionProfileTests(unittest.TestCase):
                     "schema": STATUS_SCHEMA,
                     "target": "cursor",
                     "profile_root": str(context.profile_root),
+                    "auth_route": SYNTHETIC_PROFILE_HOME_AUTH_ROUTE,
                     "login_state": "logged_in",
                     "method": "private_file_store",
                     "status_exit": 0,
@@ -374,6 +382,173 @@ class SubscriptionProfileTests(unittest.TestCase):
                     expected_target="cursor",
                     expected_executable_path=other,
                 )
+
+    def test_claude_init_records_native_keyring_route_and_real_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            result = initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            real_home = self._real_user_home()
+            self.assertEqual(result["auth_route"], CLAUDE_NATIVE_KEYRING_AUTH_ROUTE)
+            self.assertEqual(result["real_home"]["path"], str(real_home))
+            self.assertEqual(result["real_home"]["uid"], os.getuid())
+            self.assertEqual(result["bindings"]["HOME"], str(real_home))
+            self.assertNotEqual(
+                result["bindings"]["HOME"], result["directories"]["home"]["path"]
+            )
+            self.assertEqual(
+                result["bindings"]["CLAUDE_CONFIG_DIR"],
+                result["directories"]["config"]["path"],
+            )
+            self.assertEqual(result["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+            self.assertEqual(set(result["bindings"]), {
+                "HOME",
+                "TMPDIR",
+                "PATH",
+                "LANG",
+                "LC_ALL",
+                "CLAUDE_CONFIG_DIR",
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+            })
+
+    def test_codex_keeps_synthetic_home_auth_route(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            result = initialize_subscription_profile(
+                target="codex",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            synthetic_home = str((profile / "home").resolve(strict=True))
+            self.assertEqual(result["auth_route"], SYNTHETIC_PROFILE_HOME_AUTH_ROUTE)
+            self.assertEqual(result["bindings"]["HOME"], synthetic_home)
+            self.assertEqual(result["real_home"]["path"], synthetic_home)
+
+    def test_claude_status_discards_raw_output_and_classifies_route(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            raw = json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "apiProvider": "firstParty",
+                }
+            ).encode()
+            completed = subprocess.CompletedProcess([], 0, stdout=raw, stderr=None)
+            with patch(
+                "puppet_lib.subscription_profiles._bounded_status_run",
+                return_value=completed,
+            ):
+                result = subscription_profile_status(profile_root=profile)
+            self.assertEqual(result["auth_route"], CLAUDE_NATIVE_KEYRING_AUTH_ROUTE)
+            self.assertEqual(result["login_state"], "logged_in")
+            self.assertEqual(result["method"], "claude.ai")
+            self.assertEqual(result["provider"], "firstParty")
+            self.assertFalse(result["raw_output_retained"])
+            self.assertNotIn("accountId", result)
+
+    def test_legacy_claude_synthetic_manifest_fails_closed_until_refresh(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
+            legacy.pop("auth_route")
+            legacy.pop("real_home")
+            legacy["bindings"]["HOME"] = legacy["directories"]["home"]["path"]
+            legacy["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "true"
+            manifest_path.write_text(json.dumps(legacy, sort_keys=True) + "\n", encoding="utf-8")
+            with self.assertRaises(UnsupportedError) as raised:
+                subscription_profile_status(profile_root=profile)
+            self.assertEqual(str(raised.exception), CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER)
+            refreshed = initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            self.assertEqual(refreshed["auth_route"], CLAUDE_NATIVE_KEYRING_AUTH_ROUTE)
+            self.assertEqual(
+                refreshed["bindings"]["HOME"],
+                refreshed["real_home"]["path"],
+            )
+
+    def test_claude_launch_binding_reconstructs_closed_native_keyring_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            context = subscription_profile_launch_context(
+                profile_root=profile,
+                expected_target="claude",
+                expected_executable_path=executable,
+            )
+            real_home = self._real_user_home()
+            self.assertEqual(context.source_environment["HOME"], str(real_home))
+            self.assertEqual(context.public_binding["auth_route"], CLAUDE_NATIVE_KEYRING_AUTH_ROUTE)
+            binding = build_subscription_launch_binding(
+                context,
+                {
+                    "schema": STATUS_SCHEMA,
+                    "target": "claude",
+                    "profile_root": str(context.profile_root),
+                    "auth_route": CLAUDE_NATIVE_KEYRING_AUTH_ROUTE,
+                    "login_state": "logged_in",
+                    "method": "claude.ai",
+                    "provider": "firstParty",
+                    "status_exit": 0,
+                    "raw_output_retained": False,
+                    "login_performed": False,
+                    "model_launched": False,
+                },
+            )
+            validated = validate_subscription_launch_binding(
+                binding, expected_target="claude"
+            )
+            source, launch_bindings, lane_root = subscription_binding_environment(
+                validated, expected_target="claude"
+            )
+            self.assertEqual(source["HOME"], str(real_home))
+            self.assertEqual(launch_bindings["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+            self.assertEqual(lane_root, context.profile_root)
+
+    def test_claude_real_home_drift_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            manifest_path = profile / "profile.json"
+            tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tampered["real_home"] = dict(tampered["directories"]["home"])
+            tampered["bindings"]["HOME"] = tampered["real_home"]["path"]
+            manifest_path.write_text(
+                json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            with self.assertRaises(IdentityError):
+                subscription_profile_status(profile_root=profile)
 
 
 if __name__ == "__main__":
