@@ -1894,23 +1894,335 @@ class SessionIntegrationTests(unittest.TestCase):
 
 
 class AgySessionLaunchIntegrationTests(unittest.TestCase):
-    def test_session_launch_drives_real_before_target_start_callback_revalidation(self):
-        with mock.patch("puppet_lib.session.run_agy_status_preflight") as mock_preflight:
-            mock_preflight.return_value = {"status_preflight": "models_command_verified"}
-            manifest_exec = {
-                "resolved_path": "/bin/echo",
-                "device": 1,
-                "inode": 2,
-                "sha256": "a" * 64,
-            }
+    def setUp(self):
+        # Isolate AGY composition from ambient host AGY processes and use a
+        # test-only qualification fence. The before_target_start callback and
+        # executable revalidation remain real.
+        population_patcher = patch(
+            "puppet_lib.session._agy_population",
+            return_value={"candidates": [], "matching": [], "mismatched": []},
+        )
+        population_patcher.start()
+        self.addCleanup(population_patcher.stop)
+        qualification_patcher = patch.object(
+            AdapterManifest,
+            "verify_qualification",
+            return_value={
+                "result": "accepted",
+                "test_only": True,
+                "instruction_policy_fingerprint": instruction_policy_fingerprint(
+                    target="agy"
+                ),
+            },
+        )
+        qualification_patcher.start()
+        self.addCleanup(qualification_patcher.stop)
+        self._authority_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self._authority_temporary.cleanup)
+        authority_root = Path(self._authority_temporary.name) / "authority"
+        self.authority_root = authority_root
+        authority_patcher = patch(
+            "puppet_lib.authority.canonical_authority_root",
+            return_value=authority_root,
+        )
+        authority_patcher.start()
+        self.addCleanup(authority_patcher.stop)
 
-            # Verify that revalidate_before_target_start callback calls verify_agy_executable_not_updated
-            with mock.patch("puppet_lib.session.verify_agy_executable_not_updated") as mock_verify:
-                mock_verify.side_effect = IdentityError(
-                    "target executable updated or changed during status preflight; fresh census and plan required"
+    def test_session_launch_drives_real_before_target_start_callback_revalidation(self):
+        if not TmuxController.available():
+            self.skipTest("tmux is unavailable")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "agy-target-start-revalidation"
+            candidate = initialize_repo(
+                root / "candidate", "agy/target-start-revalidation", "candidate"
+            )
+            supervisor = initialize_repo(root / "supervisor", "main", "supervisor")
+            supervisor_executable = supervisor / "puppet.py"
+            supervisor_executable.write_text(
+                "# immutable test supervisor\n", encoding="utf-8"
+            )
+            commit_all(supervisor, "supervisor executable")
+
+            # Manifest-matching AGY stand-in that satisfies body-free
+            # ``agy models`` status preflight without retaining output.
+            executable = root / "agy"
+            executable.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = \"models\" ]; then\n"
+                "  printf 'secret-status-body\\n'\n"
+                "  exit 0\n"
+                "fi\n"
+                "sleep 600\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            executable_stat = executable.stat()
+            executable_sha = hashlib.sha256(executable.read_bytes()).hexdigest()
+            executable_identity = {
+                "requested_path": str(executable),
+                "resolved_path": str(executable),
+                "sha256": executable_sha,
+                "version_sha256": "b" * 64,
+                "help_sha256": "c" * 64,
+                "device": executable_stat.st_dev,
+                "inode": executable_stat.st_ino,
+                "size": executable_stat.st_size,
+                "mtime_ns": executable_stat.st_mtime_ns,
+            }
+            execution = direct_execution_bundle(executable_identity)
+            launch_argv = [
+                str(executable),
+                "--dangerously-skip-permissions",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ]
+            yolo_mapping = {
+                "complete": True,
+                "launch_argv": launch_argv,
+                "permission_declared": True,
+                "permission_flags": ["--dangerously-skip-permissions"],
+                "prompt_transport": PROMPT_TRANSPORT,
+                "prompt_transport_declared": True,
+                "sandbox_disable_declared": True,
+                "sandbox_flags": ["--sandbox=false"],
+                "project_isolation_declared": True,
+                "project_isolation_flags": ["--new-project"],
+                "session_profiles": session_profiles_for("agy"),
+                "session_profiles_declared": True,
+                "startup_settle_seconds": startup_settle_seconds_for("agy"),
+                "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
+            }
+            platform_value = {"system": "Darwin", "release": "test", "machine": "test"}
+            receipt_path = root / "qualification-receipt.json"
+            write_json(receipt_path, {"test_only": True, "target": "agy"})
+            write_json(
+                root / "manifest.json",
+                {
+                    "schema_version": ADAPTER_MANIFEST_SCHEMA_VERSION,
+                    "target": "agy",
+                    "generated_at": "2026-07-22T03:00:00Z",
+                    "platform": platform_value,
+                    "executable": executable_identity,
+                    "execution": execution,
+                    "adapter_fingerprint": "d" * 64,
+                    "protocol_fingerprint": "e" * 64,
+                    "yolo_mapping": yolo_mapping,
+                    "capabilities": {
+                        name: (
+                            "controller_verified"
+                            if name != "resume"
+                            else "unsupported"
+                        )
+                        for name in (
+                            "launch",
+                            "send",
+                            "status",
+                            "wait",
+                            "checkpoint",
+                            "resume",
+                            "halt",
+                        )
+                    },
+                    "doctor_only": False,
+                    "qualification": {
+                        "receipt_path": str(receipt_path),
+                        "receipt_sha256": hashlib.sha256(
+                            receipt_path.read_bytes()
+                        ).hexdigest(),
+                        "session_profile": "regular",
+                    },
+                },
+            )
+            AdapterManifest.from_path(root / "manifest.json")
+
+            proof = root / "controller-proof"
+            state_root = root / "state"
+            proof.mkdir(mode=0o700)
+            state_root.mkdir(mode=0o700)
+            contract_raw = {
+                "schema_version": 1,
+                "objective": "Prove AGY target-start executable revalidation",
+                "campaign_authorization_id": "campaign-test",
+                "controller": "tester",
+                "target": "agy",
+                "session_profile": "regular",
+                "task_profile": "implementation",
+                "harness_trust": "unrestricted_required",
+                "mutation_owner": "target",
+                "repo": str(candidate),
+                "branch": "agy/target-start-revalidation",
+                "allowed_modes": ["read", "test", "mutate", "local_commit"],
+                "terminal_criteria": [
+                    {"id": "source_green", "evidence": "validated_handoff"}
+                ],
+                "hard_gates": HARD_GATES,
+                "supervisor_root": str(supervisor),
+                "candidate_root": str(candidate),
+                "run_id": "source-run",
+                "nonce": "source-nonce",
+                "proof_path_prefixes": ["proof/"],
+            }
+            Contract.from_dict(contract_raw)
+            contract_path = root / "controller-contract.json"
+            write_json(contract_path, contract_raw)
+            authorization_path = root / "authorization.json"
+            write_json(
+                authorization_path,
+                {
+                    "schema_version": 1,
+                    "campaign_id": "campaign-test",
+                    "operator_identity": "tester",
+                    "controller": "tester",
+                    "goal": {
+                        "repository": "test/SaariusSkills",
+                        "commit": "1" * 40,
+                        "path": "plans/puppet/agy-goal.md",
+                        "sha256": "2" * 64,
+                    },
+                    "acknowledged_at": "2026-07-22T03:00:00Z",
+                    "authorization": {
+                        "trust_profile": "unrestricted_required",
+                        "harnesses": ["agy"],
+                        "disable_harness_sandbox_where_exposed": True,
+                        "ordinary_configured_model_provider_traffic": True,
+                        "scope": "bounded Puppet implementation and conformance campaign only",
+                    },
+                    "allowed_actions": CAMPAIGN_ALLOWED_ACTIONS,
+                    "hard_gates": CAMPAIGN_HARD_GATES,
+                },
+            )
+
+            socket = str(TmuxController(state_root).socket_path(session))
+            observed = {
+                "argv": None,
+                "before_target_start_calls": 0,
+                "respawn_pane_calls": 0,
+            }
+            original_tmux_launch = TmuxController.launch
+            original_admit = puppet_session.admit_session_lease
+            original_run = TmuxController._run
+
+            def admit_then_replace_executable(**kwargs):
+                result = original_admit(**kwargs)
+                # Simulate auto-updater race after body-free status preflight and
+                # the early identity check, immediately before target start.
+                executable.write_text(
+                    "#!/bin/sh\n# replaced-by-updater\nexit 0\n",
+                    encoding="utf-8",
                 )
-                with self.assertRaises(IdentityError):
-                    puppet_session.verify_agy_executable_not_updated(manifest_exec)
+                executable.chmod(0o755)
+                return result
+
+            def tracking_tmux_launch(controller, **kwargs):
+                observed["argv"] = list(kwargs["argv"])
+                real_before_target_start = kwargs.get("before_target_start")
+                self.assertIsNotNone(real_before_target_start)
+
+                def drive_real_before_target_start():
+                    observed["before_target_start_calls"] += 1
+                    return real_before_target_start()
+
+                kwargs = dict(kwargs)
+                kwargs["before_target_start"] = drive_real_before_target_start
+                return original_tmux_launch(controller, **kwargs)
+
+            def tracking_run(controller, socket_path, command, **kwargs):
+                if command and command[0] == "respawn-pane":
+                    observed["respawn_pane_calls"] += 1
+                return original_run(controller, socket_path, command, **kwargs)
+
+            try:
+                with (
+                    patch.object(
+                        puppet_session,
+                        "admit_session_lease",
+                        side_effect=admit_then_replace_executable,
+                    ),
+                    patch.object(
+                        TmuxController, "launch", new=tracking_tmux_launch
+                    ),
+                    patch.object(TmuxController, "_run", new=tracking_run),
+                    patch.object(
+                        puppet_session, "send_exact_sigint"
+                    ) as exact_sigint,
+                    patch.object(TmuxController, "send_control") as send_control,
+                ):
+                    with self.assertRaisesRegex(
+                        IdentityError,
+                        "target executable updated or changed during status preflight",
+                    ):
+                        launch(
+                            session=session,
+                            contract_path=contract_path,
+                            manifest_path=root / "manifest.json",
+                            authorization_path=authorization_path,
+                            proof_root=proof,
+                            state_root=state_root,
+                            supervisor_executable=supervisor_executable,
+                            prompt="Do not start after executable identity drift.",
+                        )
+                    exact_sigint.assert_not_called()
+                    send_control.assert_not_called()
+
+                self.assertEqual(observed["before_target_start_calls"], 1)
+                self.assertEqual(observed["respawn_pane_calls"], 0)
+                self.assertEqual(
+                    observed["argv"],
+                    [
+                        str(executable),
+                        "--dangerously-skip-permissions",
+                        "--new-project",
+                        "--log-file",
+                        "/dev/null",
+                    ],
+                )
+                self.assertNotIn("--sandbox=false", observed["argv"])
+                self.assertNotIn("--agent", observed["argv"])
+                self.assertNotIn("--model", observed["argv"])
+                self.assertNotIn("--effort", observed["argv"])
+                self.assertTrue(
+                    all(
+                        item == "/dev/null" or not item.startswith("/")
+                        for item in observed["argv"][1:]
+                    )
+                )
+
+                registry = SessionRegistry(state_root)
+                self.assertFalse(registry.exists(session))
+                self.assertFalse(
+                    (state_root / "reservations" / (session + ".json")).exists()
+                )
+                self.assertFalse(
+                    (state_root / "sessions" / (session + ".json")).exists()
+                )
+                # Placeholder tmux cleanup kills the session before target exec; a
+                # residual socket path is not an active Puppet session/reservation.
+                self.assertFalse(
+                    TmuxController(state_root).exists(Path(socket), session)
+                )
+
+                lease = current_session_lease(self.authority_root, target="agy")
+                self.assertIsNotNone(lease)
+                self.assertEqual(lease["state"], "failed")
+                self.assertNotIn(lease["state"], {"launching", "active", "halting"})
+
+                # Status preflight discards raw body; default model stays harness-
+                # selected/unobserved; shared-vendor limitation is explicit.
+                preflight = puppet_session.run_agy_status_preflight(
+                    executable_path=executable
+                )
+                self.assertEqual(
+                    preflight["status_preflight"], "models_command_verified"
+                )
+                self.assertNotIn("secret-status-body", json.dumps(preflight))
+                self.assertIn("shared-vendor-auth/config route", preflight["limitation"])
+                self.assertIsNone(Contract.from_path(contract_path).requested_model)
+                self.assertIsNone(Contract.from_path(contract_path).requested_effort)
+            finally:
+                kill_test_server(socket)
 
 
 if __name__ == "__main__":

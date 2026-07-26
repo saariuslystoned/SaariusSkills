@@ -1387,7 +1387,12 @@ def launch(
                 )
             except Exception:
                 pass
-        elif cleanup_stopped or not launch_attempted:
+        elif cleanup_stopped or not launch_attempted or metadata is None:
+            # Fail closed when tmux.launch raises after admission (for example the
+            # before_target_start updater revalidation) without returning metadata:
+            # there is no provisional pane/process left to recover, so release the
+            # reservation and mark the lease failed rather than leaving an active
+            # launching lease that blocks the harness.
             if reservation_owned:
                 try:
                     registry.release_reservation(session, contract.fingerprint)
