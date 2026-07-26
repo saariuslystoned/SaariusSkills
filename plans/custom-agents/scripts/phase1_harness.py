@@ -25,6 +25,7 @@ EVENT_SCHEMA = "saarius.custom-agent-event.v1"
 IDENTITY_SCHEMA = "saarius.custom-agent.identity.v1"
 INVENTORY_SCHEMA = "saarius.custom-agent-inventory.v1"
 LOG_SCHEMA = "saarius.custom-agent-log-sanitizer.v1"
+PLUGIN_INVENTORY_SCHEMA = "saarius.custom-agent-plugin-inventory.v1"
 VERIFY_SCHEMA = "saarius.custom-agent-result-verification.v1"
 ALLOWED_EVENTS = {"PreInvocation", "PreToolUse", "PostToolUse", "Stop"}
 ALLOWED_TERMINATIONS = {
@@ -81,7 +82,11 @@ def expected_agents(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def materialize(args: argparse.Namespace) -> int:
     root = repo_root()
-    fixture_root = root / "fixtures/custom-agents/phase1/workspace"
+    fixture_root = (
+        root / "fixtures/custom-agents" / args.fixture_set / "workspace"
+    )
+    if not fixture_root.is_dir():
+        raise SystemExit("fixture set is absent")
     workspace = Path(args.workspace).resolve()
     if workspace.exists():
         if not workspace.is_dir() or any(workspace.iterdir()):
@@ -151,6 +156,24 @@ def inventory(args: argparse.Namespace) -> int:
     }
     emit(result)
     return 0 if all(found.values()) else 2
+
+
+def plugin_inventory(args: argparse.Namespace) -> int:
+    if not SAFE_KEY.fullmatch(args.name):
+        raise SystemExit("invalid expected plugin name")
+    raw = sys.stdin.buffer.read()
+    rendered = raw.decode("utf-8", errors="replace")
+    found = args.name in rendered
+    emit(
+        {
+            "schema": PLUGIN_INVENTORY_SCHEMA,
+            "expected_plugin": args.name,
+            "expected_found": found,
+            "raw_line_count": len(rendered.splitlines()),
+            "raw_sha256": sha256_bytes(raw),
+        }
+    )
+    return 0 if found else 2
 
 
 def opaque_actor(conversation_id: Any, salt: str) -> str:
@@ -411,11 +434,20 @@ def build_parser() -> argparse.ArgumentParser:
     materialize_parser = commands.add_parser("materialize")
     materialize_parser.add_argument("--workspace", required=True)
     materialize_parser.add_argument("--init-git", action="store_true")
+    materialize_parser.add_argument(
+        "--fixture-set",
+        choices=("phase1", "phase1b"),
+        default="phase1",
+    )
     materialize_parser.set_defaults(handler=materialize)
 
     inventory_parser = commands.add_parser("inventory")
     inventory_parser.add_argument("--manifest")
     inventory_parser.set_defaults(handler=inventory)
+
+    plugin_inventory_parser = commands.add_parser("plugin-inventory")
+    plugin_inventory_parser.add_argument("--name", required=True)
+    plugin_inventory_parser.set_defaults(handler=plugin_inventory)
 
     hook_parser = commands.add_parser("hook")
     hook_parser.add_argument("event", choices=sorted(ALLOWED_EVENTS))

@@ -36,8 +36,15 @@
       "additionalProperties": false,
       "required": ["path", "version"],
       "properties": {
-        "path": {"const": "plans/custom-agents/BEHAVIOR_CONTRACT.md"},
-        "version": {"const": "2026-07-26.phase1"}
+        "path": {
+          "enum": [
+            "plans/custom-agents/BEHAVIOR_CONTRACT.md",
+            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1B.md"
+          ]
+        },
+        "version": {
+          "enum": ["2026-07-26.phase1", "2026-07-26.phase1b"]
+        }
       }
     },
     "checks": {
@@ -99,4 +106,3 @@
     }
   }
 }
-

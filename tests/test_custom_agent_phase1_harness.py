@@ -78,6 +78,48 @@ class CustomAgentPhase1HarnessTests(unittest.TestCase):
         self.assertEqual(payload["expected_found_count"], 4)
         self.assertNotIn("private-unrelated-name", result.stdout)
 
+    def test_plugin_inventory_retains_only_expected_name_and_digest(self) -> None:
+        raw = "\n".join(
+            [
+                "private-unrelated-plugin",
+                "saarius-issue15-observer",
+                "private@example.test",
+            ]
+        )
+        result = self.run_harness(
+            "plugin-inventory",
+            "--name",
+            "saarius-issue15-observer",
+            stdin=raw,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["expected_found"])
+        self.assertNotIn("private-unrelated-plugin", result.stdout)
+        self.assertNotIn("private@example.test", result.stdout)
+
+    def test_materialize_phase1b_uses_workspace_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            workspace = Path(parent) / "workspace"
+            result = self.run_harness(
+                "materialize",
+                "--workspace",
+                str(workspace),
+                "--fixture-set",
+                "phase1b",
+                "--init-git",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["file_count"], 7)
+            plugin_root = (
+                workspace
+                / ".agents/plugins/saarius-issue15-observer"
+            )
+            self.assertTrue((plugin_root / "plugin.json").is_file())
+            self.assertTrue((plugin_root / "hooks.json").is_file())
+            self.assertFalse((workspace / ".agents/hooks.json").exists())
+
     def test_hook_denies_reads_and_redacts_sensitive_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -274,9 +316,15 @@ class CustomAgentPhase1HarnessTests(unittest.TestCase):
 
     def test_no_teamwork_preview_dependency_in_harness_or_fixtures(self) -> None:
         paths = [HARNESS, MANIFEST]
-        paths.extend(
-            (ROOT / "fixtures/custom-agents/phase1/workspace").rglob("*")
-        )
+        for fixture_set in ("phase1", "phase1b"):
+            paths.extend(
+                (
+                    ROOT
+                    / "fixtures/custom-agents"
+                    / fixture_set
+                    / "workspace"
+                ).rglob("*")
+            )
         for path in paths:
             if path.is_file():
                 self.assertNotIn(

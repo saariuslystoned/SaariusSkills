@@ -82,7 +82,8 @@
         "sandbox": {"const": true},
         "skip_permissions": {"const": false},
         "fresh_session": {"const": true},
-        "prompt_transport": {"const": "tmux-buffer-stdin"}
+        "prompt_transport": {"const": "tmux-buffer-stdin"},
+        "workspace_binding": {"const": "add-dir-absolute"}
       }
     },
     "isolation": {
@@ -136,7 +137,10 @@
         "raw_log_retained": {"const": false},
         "tool_policy": {
           "const": "one-write-to-file-exact-result-all-else-deny"
-        }
+        },
+        "packaging": {"const": "workspace-plugin"},
+        "plugin_name": {"const": "saarius-issue15-observer"},
+        "harness_path_mode": {"const": "absolute-environment"}
       }
     },
     "budget": {
