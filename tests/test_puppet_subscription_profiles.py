@@ -19,6 +19,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.subscription_profiles import (  # noqa: E402
+    CLAUDE_AUTO_MEMORY_BINDING,
     CLAUDE_LEGACY_AUTO_MEMORY_BINDING,
     CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER,
     CLAUDE_NATIVE_KEYRING_AUTH_ROUTE,
@@ -39,6 +40,7 @@ from puppet_lib.subscription_profiles import (  # noqa: E402
     subscription_profile_status,
     validate_subscription_launch_binding,
 )
+from puppet_lib.launch import build_launch_identity  # noqa: E402
 
 
 class SubscriptionProfileTests(unittest.TestCase):
@@ -419,7 +421,10 @@ class SubscriptionProfileTests(unittest.TestCase):
                 result["bindings"]["CLAUDE_CONFIG_DIR"],
                 result["directories"]["config"]["path"],
             )
-            self.assertEqual(result["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+            self.assertEqual(
+                result["bindings"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"],
+                CLAUDE_AUTO_MEMORY_BINDING,
+            )
             self.assertEqual(set(result["bindings"]), {
                 "HOME",
                 "TMPDIR",
@@ -539,8 +544,48 @@ class SubscriptionProfileTests(unittest.TestCase):
                 validated, expected_target="claude"
             )
             self.assertEqual(source["HOME"], str(real_home))
-            self.assertEqual(launch_bindings["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+            self.assertEqual(
+                launch_bindings["CLAUDE_CODE_DISABLE_AUTO_MEMORY"],
+                CLAUDE_AUTO_MEMORY_BINDING,
+            )
             self.assertEqual(lane_root, context.profile_root)
+
+    def test_claude_profile_and_native_activation_share_closed_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = self._executable(temporary)
+            profile = Path(temporary) / "profile"
+            initialize_subscription_profile(
+                target="claude",
+                profile_root=profile,
+                executable_path=executable,
+            )
+            context = subscription_profile_launch_context(
+                profile_root=profile,
+                expected_target="claude",
+                expected_executable_path=executable,
+            )
+            profile_environment = {
+                **context.source_environment,
+                **context.bindings,
+            }
+            activation_bindings = {
+                "CLAUDE_CONFIG_DIR": context.bindings["CLAUDE_CONFIG_DIR"],
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY": CLAUDE_AUTO_MEMORY_BINDING,
+            }
+            activation_environment, _activation_identity = build_launch_identity(
+                target="claude",
+                repo=profile,
+                argv=[
+                    str(executable.resolve(strict=True)),
+                    "--dangerously-skip-permissions",
+                ],
+                source_environment=context.source_environment,
+                bindings=activation_bindings,
+                admitted_lane_root=context.profile_root,
+            )
+            self.assertEqual(CLAUDE_AUTO_MEMORY_BINDING, "true")
+            self.assertEqual(CLAUDE_AUTO_MEMORY_BINDING, CLAUDE_LEGACY_AUTO_MEMORY_BINDING)
+            self.assertEqual(activation_environment, profile_environment)
 
     def test_claude_real_home_drift_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:

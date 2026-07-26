@@ -50,6 +50,7 @@ CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER = (
     "claude_synthetic_home_profile_migration_required"
 )
 CLAUDE_LEGACY_AUTO_MEMORY_BINDING = "true"
+CLAUDE_AUTO_MEMORY_BINDING = "true"
 
 _BASE_LAUNCH_ENVIRONMENT_NAMES = frozenset({"HOME", "TMPDIR", "PATH", "LANG", "LC_ALL"})
 _LOGIN_ONLY_ENVIRONMENT_NAMES = frozenset({"NO_OPEN_BROWSER"})
@@ -265,7 +266,7 @@ def _profile_environment(
         values["CODEX_HOME"] = directories["config"]["path"]
     elif target == "claude":
         values["CLAUDE_CONFIG_DIR"] = directories["config"]["path"]
-        values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+        values["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = CLAUDE_AUTO_MEMORY_BINDING
     elif target == "cursor":
         values["CURSOR_CONFIG_DIR"] = directories["config"]["path"]
         values["CURSOR_DATA_DIR"] = directories["data"]["path"]
@@ -1348,6 +1349,7 @@ def execute_subscription_profile_login(
 
 
 __all__ = [
+    "CLAUDE_AUTO_MEMORY_BINDING",
     "CLAUDE_LEGACY_PROFILE_MIGRATION_BLOCKER",
     "CLAUDE_NATIVE_KEYRING_AUTH_ROUTE",
     "LAUNCH_BINDING_SCHEMA",
