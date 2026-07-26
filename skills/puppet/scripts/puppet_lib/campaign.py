@@ -669,7 +669,13 @@ def target_process_snapshot(
             parent_pid = node["parent_pid"]
             if parent_pid <= 1:
                 break
-            node = process_tree_identity(parent_pid)
+            try:
+                node = process_tree_identity(parent_pid)
+            except IdentityError:
+                # A protected or registered target needs only its own exact
+                # node.  If this is an unregistered extra, the population
+                # validator will reject the deliberately incomplete chain.
+                break
         else:
             raise IdentityError("process ancestry exceeds the depth bound")
     for node in ancestry_nodes.values():

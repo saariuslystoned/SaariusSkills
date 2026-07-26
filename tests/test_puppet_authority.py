@@ -808,6 +808,76 @@ class AuthorityTests(unittest.TestCase):
             ["ps", "-axo", "pid=,uid=,comm="],
         )
 
+    def test_target_process_snapshot_retains_exact_root_with_unreadable_parent(self):
+        identity = {
+            "identity_version": 2,
+            "pid": 4242,
+            "start": "darwin:100:1",
+            "kernel_birth_id": "darwin:100:1",
+            "command": "node",
+            "executable_path": "/opt/cursor/node",
+            "device": 1,
+            "inode": 2,
+        }
+        node = {"process": identity, "parent_pid": 4000}
+        with (
+            patch.object(puppet_campaign.sys, "platform", "darwin"),
+            patch.object(
+                puppet_campaign,
+                "darwin_process_inventory",
+                return_value=[
+                    {
+                        "pid": 4242,
+                        "uid": os.getuid(),
+                        "name": "node",
+                        "comm": "node",
+                        "command": "node",
+                    }
+                ],
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_executable_identity",
+                return_value={
+                    "pid": 4242,
+                    "kernel_birth_id": identity["kernel_birth_id"],
+                    "executable_path": identity["executable_path"],
+                    "device": identity["device"],
+                    "inode": identity["inode"],
+                },
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_birth_identity",
+                return_value=identity,
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_identity",
+                side_effect=[
+                    node,
+                    IdentityError("Darwin BSD process identity is unavailable"),
+                ],
+            ),
+            patch.object(
+                puppet_campaign,
+                "process_tree_alive",
+                return_value=True,
+            ),
+        ):
+            snapshot = puppet_campaign.target_process_snapshot(
+                "cursor",
+                execution_files=[
+                    {
+                        "path": identity["executable_path"],
+                        "device": identity["device"],
+                        "inode": identity["inode"],
+                    }
+                ],
+            )
+        self.assertEqual(snapshot["processes"], [identity])
+        self.assertEqual(snapshot["ancestry_nodes"], [node])
+
     def test_duplicate_session_identity_cannot_change_state_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
