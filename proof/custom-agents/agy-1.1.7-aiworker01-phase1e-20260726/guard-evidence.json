@@ -1,0 +1,172 @@
+{
+  "schema": "saarius.custom-agent-phase1e-guard-evidence.v1",
+  "source_head_sha": "65f09f8625499de95b6f8d8e9ccbfee2bcec131b",
+  "harness_sha256": "3d0f4ec11f0d6d5d1f60663e43946e073d96f868896b06ed71b1600994e8f0ee",
+  "predecessor_proof_commit": "b2e7dbab204408b7933dcc66df9e74cefedd9063",
+  "controls": [
+    {
+      "contract_clause": "E1",
+      "run_id": "guard-absent-01",
+      "status": "pass",
+      "command_exit": 2,
+      "requested_agent": "saarius-i15-unknown-8c794f659509",
+      "catalog_agent": "saarius-i15-recon-7ecb949ed142",
+      "catalog_profile_sha256": "eaa21f0e92e024ab5144805497948869d71dc83a8c744878b5421f2ecd858bfa",
+      "guard": {
+        "admitted": false,
+        "gate_reason": "agent_absent",
+        "model_launch_started": false,
+        "runtime": null,
+        "discovery": {
+          "process_exit": 0,
+          "timed_out": false,
+          "started_at_ns": 1785044056803500000,
+          "finished_at_ns": 1785044057285720000,
+          "exact_name_occurrences": 0,
+          "stdout_bytes": 51,
+          "stdout_line_count": 2,
+          "stdout_sha256": "c3ee93a617812351d199d854b2443d9c3226f37682fdb7bd2dd55dffc3cb5bdc",
+          "stderr_bytes": 0,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "raw_retained": false
+        }
+      },
+      "postflight": {
+        "workspace_files": [
+          ".agents/agents/saarius-i15-recon-7ecb949ed142/agent.md",
+          ".issue15/result.json"
+        ],
+        "profile_hash_preserved": true,
+        "result_bytes": 0,
+        "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "quarantine_created": false,
+        "raw_artifacts_created": false,
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "contract_clause": "E2",
+      "run_id": "guard-duplicate-02",
+      "status": "pass",
+      "command_exit": 2,
+      "requested_agent": "saarius-i15-impl-a13eaa57b47b",
+      "catalog_paths": [
+        ".agents/agents/saarius-i15-impl-a13eaa57b47b/agent.md",
+        ".agents/agents/saarius-i15-shadow-b24643ee01f5/agent.md"
+      ],
+      "catalog_profile_sha256": "d73167084b7780f051d07d93d720687906812c886c4e6df5582305c4a05d5385",
+      "guard": {
+        "admitted": false,
+        "gate_reason": "agent_ambiguous",
+        "model_launch_started": false,
+        "runtime": null,
+        "discovery": {
+          "process_exit": 0,
+          "timed_out": false,
+          "started_at_ns": 1785044087200930000,
+          "finished_at_ns": 1785044087535784000,
+          "exact_name_occurrences": 2,
+          "stdout_bytes": 82,
+          "stdout_line_count": 3,
+          "stdout_sha256": "920b74173a4c1917b550d2395d530fc831e1355d19f084f0d3c28d0c48098343",
+          "stderr_bytes": 0,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "raw_retained": false
+        }
+      },
+      "postflight": {
+        "workspace_files": [
+          ".agents/agents/saarius-i15-impl-a13eaa57b47b/agent.md",
+          ".agents/agents/saarius-i15-shadow-b24643ee01f5/agent.md",
+          ".issue15/result.json"
+        ],
+        "both_profile_hashes_preserved": true,
+        "result_bytes": 0,
+        "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "quarantine_created": false,
+        "raw_artifacts_created": false,
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "contract_clause": "E3",
+      "run_id": "guard-positive-03",
+      "status": "pass",
+      "command_exit": 0,
+      "requested_agent": "saarius-i15-proof-5d44d7a9581c",
+      "role_marker": "proof-50715b65ccf60d21",
+      "profile_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+      "main_agent": true,
+      "subagent": false,
+      "guard": {
+        "admitted": true,
+        "gate_reason": "exactly_one",
+        "model_launch_started": true,
+        "discovery": {
+          "process_exit": 0,
+          "timed_out": false,
+          "started_at_ns": 1785044109823661000,
+          "finished_at_ns": 1785044110160805000,
+          "exact_name_occurrences": 1,
+          "stdout_bytes": 51,
+          "stdout_line_count": 2,
+          "stdout_sha256": "9dd394de65663f19635cee0e4f905920ae1923481d596e8b6bf36882c832de92",
+          "stderr_bytes": 0,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "raw_retained": false
+        }
+      },
+      "runtime": {
+        "process_exit": 0,
+        "timed_out": false,
+        "started_at_ns": 1785044110161295000,
+        "quarantined_at_ns": 1785044110523646000,
+        "finished_at_ns": 1785044118093801000,
+        "prompt_sha256": "e801c58069a86ffc4ce7e9eabb7bb5554f88e8169024d85d1521bdb43ac0c8f7",
+        "result_changed_after_quarantine": true,
+        "result_bytes": 183,
+        "raw_stdout": {
+          "bytes": 31,
+          "sha256": "9e26acac516fa857fe9bc84e9eaef4956ead0c3db28e876f9e43dc1d1f718216"
+        },
+        "raw_stderr": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "raw_log": {
+          "bytes": 21602,
+          "sha256": "71780f939e325b5f4f58759b4f088ccc735be8ee588dd3827519324eca7f6296"
+        },
+        "raw_artifacts_retained": false
+      },
+      "verification": {
+        "passed": true,
+        "reasons": [],
+        "result_sha256": "4f756ea4dd29cf37bab0d8faba2ce197c5b0da09fd5b09648980a55a8bbdcb7c"
+      },
+      "postflight": {
+        "passed": true,
+        "workspace_files": [
+          ".issue15/result.json"
+        ],
+        "quarantine_files": [
+          "agents/saarius-i15-proof-5d44d7a9581c/agent.md"
+        ],
+        "profile_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+        "result_bytes": 183,
+        "result_sha256": "4f756ea4dd29cf37bab0d8faba2ce197c5b0da09fd5b09648980a55a8bbdcb7c",
+        "workspace_mode": "0o755",
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "contract_clause": "E4",
+      "status": "pass",
+      "source_head_sha": "65f09f8625499de95b6f8d8e9ccbfee2bcec131b",
+      "harness_sha256": "3d0f4ec11f0d6d5d1f60663e43946e073d96f868896b06ed71b1600994e8f0ee",
+      "predecessor_proof_commit": "b2e7dbab204408b7933dcc66df9e74cefedd9063",
+      "cli_tuple_unchanged": true,
+      "four_definition_hashes_unchanged": true
+    }
+  ]
+}

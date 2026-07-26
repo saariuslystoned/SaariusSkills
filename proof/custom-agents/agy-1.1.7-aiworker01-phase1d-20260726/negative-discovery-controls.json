@@ -1,0 +1,119 @@
+{
+  "schema": "saarius.custom-agent-phase1d-negative-discovery.v1",
+  "source_head_sha": "3ed1313841227216129df0c41e2beb9d4c9341a9",
+  "model_sessions": 0,
+  "controls": {
+    "malformed": {
+      "contract_clause": "C5",
+      "status": "pass",
+      "agent": "saarius-i15-malformed-b34539e40e89",
+      "original_profile_sha256": "c208ec3291e4b65cd7af8882add9b33d87020e8d462ab4592ebb9dfbf8651f58",
+      "malformed_profile_sha256": "d67084d44c84cff32ff22c7da7d259422234661ee0ad80a1957afcd17caef363",
+      "mutation": "The opening YAML delimiter was replaced with a non-frontmatter line; the remainder of the exact generated profile was unchanged.",
+      "discovery": {
+        "expected_found": false,
+        "exit": 2,
+        "raw_line_count": 1,
+        "raw_sha256": "5ba339dfb7d1dc3241212fb4f5ba7221e4bb7832db07315b38a60b0efe744e49"
+      },
+      "selection_attempted": false,
+      "selection_reason": "Primary discovery rejected the malformed definition, satisfying the pre-model rejection condition.",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_bytes": 0
+    },
+    "duplicate": {
+      "contract_clause": "C6",
+      "status": "pass",
+      "declared_agent": "saarius-i15-dup-edcdb04c10d1",
+      "paths": [
+        ".agents/agents/saarius-i15-dup-edcdb04c10d1/agent.md",
+        ".agents/agents/saarius-i15-shadow-7ea252dcb257/agent.md"
+      ],
+      "profile_sha256": "4d328da1a7736ca0a76fd854a061b57ca233827fc1b4c51bf5ac0fb1fd5fdbcc",
+      "discovery_runs": [
+        {
+          "expected_found": true,
+          "raw_line_count": 3,
+          "raw_sha256": "aeea430b175e556725bc73201eb1000dc7486e0ad088e4b6f0d9164ead92ff29",
+          "declared_name_occurrences": 2
+        },
+        {
+          "expected_found": true,
+          "raw_line_count": 3,
+          "raw_sha256": "aeea430b175e556725bc73201eb1000dc7486e0ad088e4b6f0d9164ead92ff29",
+          "declared_name_occurrences": 2
+        }
+      ],
+      "selection_attempted": false,
+      "classification": "The duplicate is explicit and repeatable but ambiguous, so it is rejected as identity evidence.",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_bytes": 0
+    },
+    "renamed_path": {
+      "contract_clause": "C6",
+      "status": "pass",
+      "declared_agent": "saarius-i15-rename-c5db721477a4",
+      "original_path": ".agents/agents/saarius-i15-rename-c5db721477a4/agent.md",
+      "observed_path": ".agents/agents/saarius-i15-path-dfd2c46b32e2/agent.md",
+      "profile_sha256": "97c665682c63ab365e98c7cc75880ef5e84345f243ba8b656e266aacd0cdc3c8",
+      "discovery_runs": [
+        {
+          "expected_found": true,
+          "raw_line_count": 2,
+          "raw_sha256": "cd45329d7bdbc753b744b5ed14e4b28fa86b30360e2ab84b15510643bdee1442"
+        },
+        {
+          "expected_found": true,
+          "raw_line_count": 2,
+          "raw_sha256": "cd45329d7bdbc753b744b5ed14e4b28fa86b30360e2ab84b15510643bdee1442"
+        }
+      ],
+      "classification": "Discovery follows the declared frontmatter name, not the directory name.",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_bytes": 0
+    },
+    "main_agent_false": {
+      "contract_clause": "C7",
+      "status": "pass",
+      "agent": "saarius-i15-mainoff-c45da490256d",
+      "profile_sha256": "70f9d3b738caeaa9c016bfbb1409a85f329fc8074104ccdf3c045f2de7a80226",
+      "main_agent": false,
+      "subagent": true,
+      "discovery": {
+        "expected_found": false,
+        "exit": 2,
+        "raw_line_count": 1,
+        "raw_sha256": "5ba339dfb7d1dc3241212fb4f5ba7221e4bb7832db07315b38a60b0efe744e49"
+      },
+      "selection_attempted": false,
+      "selection_reason": "Primary discovery exclusion established the contract without a model session.",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_bytes": 0
+    },
+    "subagent_false": {
+      "contract_clause": "C7",
+      "status": "pass",
+      "agent": "saarius-i15-proof-5d44d7a9581c",
+      "profile_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+      "main_agent": true,
+      "subagent": false,
+      "primary_discovery": true,
+      "primary_identity_verification": true,
+      "evidence": "positive-identities.json#runs[pos-proof-04]"
+    },
+    "removal_no_bleed": {
+      "contract_clause": "C8",
+      "status": "pass",
+      "agent": "saarius-i15-recon-7ecb949ed142",
+      "positive_discovery_before_quarantine": true,
+      "discovery_after_quarantine": {
+        "expected_found": false,
+        "exit": 2,
+        "raw_line_count": 1,
+        "raw_sha256": "5ba339dfb7d1dc3241212fb4f5ba7221e4bb7832db07315b38a60b0efe744e49"
+      },
+      "global_agent_write": false,
+      "foreign_state_touched": false
+    }
+  }
+}

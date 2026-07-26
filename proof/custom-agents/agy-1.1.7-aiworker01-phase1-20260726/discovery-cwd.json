@@ -1,0 +1,20 @@
+{
+  "command_class": "agy agents from disposable workspace cwd",
+  "exit_code": 2,
+  "inventory": {
+    "expected": {
+      "saarius-issue15-implementation-v1": false,
+      "saarius-issue15-proof-v1": false,
+      "saarius-issue15-recon-v1": false,
+      "saarius-issue15-verification-v1": false
+    },
+    "expected_found_count": 0,
+    "expected_total": 4,
+    "raw_line_count": 1,
+    "raw_sha256": "5ba339dfb7d1dc3241212fb4f5ba7221e4bb7832db07315b38a60b0efe744e49",
+    "schema": "saarius.custom-agent-inventory.v1"
+  },
+  "raw_inventory_retained": false,
+  "result": "explicit_workspace_required",
+  "schema": "saarius.custom-agent-discovery-attempt.v1"
+}

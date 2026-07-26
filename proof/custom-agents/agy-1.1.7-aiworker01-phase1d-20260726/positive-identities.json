@@ -1,0 +1,225 @@
+{
+  "schema": "saarius.custom-agent-phase1d-positive-evidence.v1",
+  "source_head_sha": "3ed1313841227216129df0c41e2beb9d4c9341a9",
+  "harness_sha256": "fedacac1e1d8dc5c4a0297466f77cb4b453c2654e5cc03a847160c352572e5cd",
+  "prompt_class": "challenge-only-argument",
+  "raw_policy": "digest-then-unlink-without-content-read",
+  "runs": [
+    {
+      "run_id": "pos-recon-01",
+      "role": "reconnaissance",
+      "agent": "saarius-i15-recon-7ecb949ed142",
+      "role_marker": "recon-b4396025f820bc18",
+      "main_agent": true,
+      "subagent": true,
+      "profile_sha256": "eaa21f0e92e024ab5144805497948869d71dc83a8c744878b5421f2ecd858bfa",
+      "discovery": {
+        "expected_found": true,
+        "raw_line_count": 2,
+        "raw_sha256": "c3ee93a617812351d199d854b2443d9c3226f37682fdb7bd2dd55dffc3cb5bdc"
+      },
+      "runtime": {
+        "process_exit": 0,
+        "timed_out": false,
+        "started_at_ns": 1785042415163733000,
+        "quarantined_at_ns": 1785042415521826000,
+        "finished_at_ns": 1785042421720407000,
+        "prompt_sha256": "ac5608b4b632dbe5a952ae0aecd67a19e8042960f35f9b1b6ca47c958b07d8ce",
+        "result_changed_after_quarantine": true,
+        "result_bytes": 184,
+        "raw_stdout": {
+          "bytes": 30,
+          "sha256": "4cef937f7b26832a551ca5c2ab8c455c43cc354b52045af135e67e2934416613"
+        },
+        "raw_stderr": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "raw_log": {
+          "bytes": 19755,
+          "sha256": "549f4ba238a06e39f6f5da78a293c5ffebdaedeece371efc5be0317fedd000a2"
+        },
+        "raw_artifacts_retained": false
+      },
+      "verification": {
+        "passed": true,
+        "reasons": [],
+        "result_sha256": "aecfa238744d96f4ec7610e64e4fcb4d7452a942bd52ecbe4370d80300cc06d2"
+      },
+      "postflight": {
+        "passed": true,
+        "workspace_files": [
+          ".issue15/result.json"
+        ],
+        "quarantine_files": [
+          "agents/saarius-i15-recon-7ecb949ed142/agent.md"
+        ],
+        "profile_sha256": "eaa21f0e92e024ab5144805497948869d71dc83a8c744878b5421f2ecd858bfa",
+        "workspace_mode": "0o755",
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "run_id": "pos-implementation-02",
+      "role": "implementation",
+      "agent": "saarius-i15-impl-a13eaa57b47b",
+      "role_marker": "implementation-12c941bc52a68315",
+      "main_agent": true,
+      "subagent": true,
+      "profile_sha256": "d73167084b7780f051d07d93d720687906812c886c4e6df5582305c4a05d5385",
+      "discovery": {
+        "expected_found": true,
+        "raw_line_count": 2,
+        "raw_sha256": "9f9ee1968f48e314754ceca6243f0970932407e2528a3b90f2695a989733259a"
+      },
+      "runtime": {
+        "process_exit": 0,
+        "timed_out": false,
+        "started_at_ns": 1785042567864637000,
+        "quarantined_at_ns": 1785042568227492000,
+        "finished_at_ns": 1785042572929642000,
+        "prompt_sha256": "f2cd3d0af94b321796b309ea9ffc0b79749b1dc31a5494e40e9ddb1a33ba7765",
+        "result_changed_after_quarantine": true,
+        "result_bytes": 192,
+        "raw_stdout": {
+          "bytes": 100,
+          "sha256": "1c63f69bead2a9e48649637a4bb87a154ad1c51c5c2531288c0162ebfda367a5"
+        },
+        "raw_stderr": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "raw_log": {
+          "bytes": 20549,
+          "sha256": "e2b62abc72ea5d539460e75c7d3513f222938a03641ed3d08fef898e9f9d9625"
+        },
+        "raw_artifacts_retained": false
+      },
+      "verification": {
+        "passed": true,
+        "reasons": [],
+        "result_sha256": "fe3479f09209fec32ff9ae895de996e4b26aa0c34f7ed491281d82a69f4bc526"
+      },
+      "postflight": {
+        "passed": true,
+        "workspace_files": [
+          ".issue15/result.json"
+        ],
+        "quarantine_files": [
+          "agents/saarius-i15-impl-a13eaa57b47b/agent.md"
+        ],
+        "profile_sha256": "d73167084b7780f051d07d93d720687906812c886c4e6df5582305c4a05d5385",
+        "workspace_mode": "0o755",
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "run_id": "pos-verification-03",
+      "role": "verification",
+      "agent": "saarius-i15-ver-b6b5fe8c8053",
+      "role_marker": "verification-e707c0e5448974c5",
+      "main_agent": true,
+      "subagent": true,
+      "profile_sha256": "bb2ef7f667465e073614db8bf2d28353a68ee98a3b9d6eb971e83da7d478137c",
+      "discovery": {
+        "expected_found": true,
+        "raw_line_count": 2,
+        "raw_sha256": "7f1ac3340503f30e6f55ef535c30539c7934e06f9756810f19f1e6f3788bc785"
+      },
+      "runtime": {
+        "process_exit": 0,
+        "timed_out": false,
+        "started_at_ns": 1785042625737173000,
+        "quarantined_at_ns": 1785042626098516000,
+        "finished_at_ns": 1785042633446713000,
+        "prompt_sha256": "e44978a4f75260860d7b82b9d13e323eab31e4235aca00cc639a8d0d1170afd7",
+        "result_changed_after_quarantine": true,
+        "result_bytes": 188,
+        "raw_stdout": {
+          "bytes": 31,
+          "sha256": "9e26acac516fa857fe9bc84e9eaef4956ead0c3db28e876f9e43dc1d1f718216"
+        },
+        "raw_stderr": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "raw_log": {
+          "bytes": 20988,
+          "sha256": "f6bd2c6a26d05cc6b63503706c6bb4fdc1a37ae869e710c4a3037e5d089efe42"
+        },
+        "raw_artifacts_retained": false
+      },
+      "verification": {
+        "passed": true,
+        "reasons": [],
+        "result_sha256": "6abeb4a6d5ead33f8ca89a886db2d410aa3c1f3701a86812643c0e9552563109"
+      },
+      "postflight": {
+        "passed": true,
+        "workspace_files": [
+          ".issue15/result.json"
+        ],
+        "quarantine_files": [
+          "agents/saarius-i15-ver-b6b5fe8c8053/agent.md"
+        ],
+        "profile_sha256": "bb2ef7f667465e073614db8bf2d28353a68ee98a3b9d6eb971e83da7d478137c",
+        "workspace_mode": "0o755",
+        "foreign_state_touched": false
+      }
+    },
+    {
+      "run_id": "pos-proof-04",
+      "role": "proof",
+      "agent": "saarius-i15-proof-5d44d7a9581c",
+      "role_marker": "proof-50715b65ccf60d21",
+      "main_agent": true,
+      "subagent": false,
+      "profile_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+      "discovery": {
+        "expected_found": true,
+        "raw_line_count": 2,
+        "raw_sha256": "9dd394de65663f19635cee0e4f905920ae1923481d596e8b6bf36882c832de92"
+      },
+      "runtime": {
+        "process_exit": 0,
+        "timed_out": false,
+        "started_at_ns": 1785042664235161000,
+        "quarantined_at_ns": 1785042664592024000,
+        "finished_at_ns": 1785042669314643000,
+        "prompt_sha256": "57339398e086ceb6c475ae0a64ca446112028bf2f8919ee67c8341fc7e4484fa",
+        "result_changed_after_quarantine": true,
+        "result_bytes": 183,
+        "raw_stdout": {
+          "bytes": 225,
+          "sha256": "1ef4adfd8fc19fdcb7af3b8c4c866326c55c3fa0906b4ae65f91d4dc46dfa713"
+        },
+        "raw_stderr": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "raw_log": {
+          "bytes": 20775,
+          "sha256": "3d0051f344ecd87616bb7b3ed36e6455218bf27d244acbb15b6b1ad305ab881a"
+        },
+        "raw_artifacts_retained": false
+      },
+      "verification": {
+        "passed": true,
+        "reasons": [],
+        "result_sha256": "f07349d0cdc51fdaaed3ee29ac83a9bfb95c1a10796d6b93517b2dad8bc40d64"
+      },
+      "postflight": {
+        "passed": true,
+        "workspace_files": [
+          ".issue15/result.json"
+        ],
+        "quarantine_files": [
+          "agents/saarius-i15-proof-5d44d7a9581c/agent.md"
+        ],
+        "profile_sha256": "ba8b77b2a11f86eac5aa69c83dc75360c202e9bfd095d87693c31b4800ef113b",
+        "workspace_mode": "0o755",
+        "foreign_state_touched": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "saarius.custom-agent-phase3-cleanup.v1",
+  "recorded_at": "2026-07-26T06:09:03Z",
+  "root_count": 8,
+  "pre_delete": {
+    "file_count": 87,
+    "directory_count": 79,
+    "symlink_count": 0,
+    "special_file_count": 0,
+    "byte_count": 266310,
+    "raw_artifact_count": 0,
+    "runtime_report_count": 1,
+    "untouched_fixture_count": 6
+  },
+  "exact_targets_validated": true,
+  "all_roots_verified_absent": true,
+  "recoverable": false,
+  "foreign_state_touched": false
+}

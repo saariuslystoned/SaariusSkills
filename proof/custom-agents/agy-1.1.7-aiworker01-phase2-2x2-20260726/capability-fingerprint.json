@@ -1,0 +1,81 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T05:53:53Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "d78ce73c10e673e47be6935559a89a564b4da1c6",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "predecessor_proof_commit": "d01fb5c5ce4a01e9acbb19ceb40ac48ccc32a1d2",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "print-argument-challenge-only",
+    "workspace_binding": "add-dir-absolute",
+    "execution_mode": "accept-edits"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-i15-parent-0b820c2fb427534c",
+      "definition_sha256": "be91970ca60c336a3fdd8acbcf4d0ea687684833a803f1ec162495f6201b5550",
+      "role_marker": "parent-13f54dc79551f1bf"
+    },
+    {
+      "name": "saarius-i15-left-42cf761dc3b2f09b",
+      "definition_sha256": "3d1f771dde2e7d54615d079ccef6fd55ceb4252b1f656681a368a3820bbd46c3",
+      "role_marker": "left-14fcde4e9c6952d2"
+    },
+    {
+      "name": "saarius-i15-right-330f3cf832a965ac",
+      "definition_sha256": "8527f4dd36a3761b7636f359001d0e3921f566d78c02aa76ef5ab82f4e08952b",
+      "role_marker": "right-17c7351826140068"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "not-collected",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "parent-invoke-plus-join-children-write-only",
+    "packaging": "external-controller",
+    "harness_path_mode": "exact-commit-copy",
+    "harness_sha256": "63fc21cff44e060cd86c6be42ea5cd603d0912a55a397a56c5631eacdc83cc5c",
+    "raw_output_policy": "digest-then-unlink",
+    "selection_guard": "exact-name-occurrence-count-before-model",
+    "discovery_output_policy": "digest-in-memory-not-retained",
+    "profile_quarantine_phase": "after-child-writes-before-parent-join",
+    "fanout_oracle": "child-hidden-markers-plus-gated-parent-join",
+    "join_gate": "os-locked-until-both-child-files",
+    "scheduler_observation": "functional-artifacts-not-tool-trace"
+  },
+  "budget": {
+    "max_sessions": 6,
+    "max_invocations": 12,
+    "max_wall_seconds": 720,
+    "per_session_seconds": 180
+  }
+}

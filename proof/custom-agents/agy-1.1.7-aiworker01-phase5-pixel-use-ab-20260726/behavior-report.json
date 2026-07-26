@@ -1,0 +1,94 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 1,
+  "capability_fingerprint_sha256": "9c69f3fef96a416415c8efb8fe9770cbbe585233a5444b7d9e8f54290bad33c6",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE5_PIXEL_USE_AB.md",
+    "version": "2026-07-26.phase5-pixel-use-ab"
+  },
+  "checks": [
+    {
+      "contract_clause": "P1",
+      "status": "fail",
+      "evidence": "comparison-summary.json records a hidden policy-envelope requirement: the verifier required an outer cases array, while the profile constrained values and order but did not name that key. Post-hoc normalization was not applied.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P2",
+      "status": "fail",
+      "evidence": "The arms were source-blind and profiles were byte-identical within each arm, but the task fixture was not fully equivalent to its exact oracle because the required policy envelope was undisclosed.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P3",
+      "status": "blocked",
+      "evidence": "Both single sessions passed discovery, post-quarantine write, process, raw-disposal, and postflight gates. Both returned all six correct policy decisions, but exact combined-result qualification is blocked by P1; friction was exact in one of two rounds.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P4",
+      "status": "blocked",
+      "evidence": "Both custom sessions passed child-before-quarantine and join-after-release gates, and each join exactly preserved both child results and identities. Exact product qualification is blocked by P1; friction was exact in zero of two rounds.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P5",
+      "status": "pass",
+      "evidence": "runtime-summary.json and comparison-summary.json record exact verification booleans, durations, exits, timeout state, result hashes, and declared session multiplicity without reading raw output or inferring token cost.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P6",
+      "status": "pass",
+      "evidence": "The result is classified inconclusive rather than choosing a winner or repairing scores post hoc. The valid friction subset and custom join fidelity are reported separately.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P7",
+      "status": "pass",
+      "evidence": "The frozen harness used ordinary custom agents only. Teamwork Preview, Puppet, Herdr, devices, browsers, and PR #6 were untouched.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "P8",
+      "status": "pass",
+      "evidence": "All four rounds passed scoped postflight; raw artifacts were digested and unlinked unread. Five exact roots totaling 21 files and 236171 bytes were removed and verified absent after resolving only the two exact residual mode-fenced directories.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "no post-hoc schema normalization",
+      "result": "Semantically equivalent policy envelopes remain exact-verifier failures; the proof reports the oracle flaw instead of rewriting scores."
+    },
+    {
+      "probe": "branch separation",
+      "result": "The parent received neither product packet nor hidden branch marker/path; each child received only its own product packet."
+    },
+    {
+      "probe": "join grounding",
+      "result": "Both custom joins exactly preserved policy/friction values and both child identity-marker pairs after the OS gate released."
+    },
+    {
+      "probe": "fresh replication",
+      "result": "Each arm ran twice in fresh disposable workspaces with two fresh challenges and byte-identical profiles within the arm."
+    },
+    {
+      "probe": "raw-output privacy",
+      "result": "Discovery was digested in memory; stdout, stderr, and AGY logs were hashed and unlinked without content inspection."
+    }
+  ],
+  "blockers": [
+    "The policy packet omitted the exact outer key required by the controller oracle.",
+    "Complete-result rates cannot fairly select a winning arm for this attempt.",
+    "The valid friction subset favored single 1/2 to custom 0/2, but two rounds are insufficient for a reusable product claim.",
+    "Width-four joining remains failed independently at Phase 3."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

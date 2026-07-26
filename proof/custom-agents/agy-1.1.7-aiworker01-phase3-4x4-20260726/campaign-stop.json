@@ -1,0 +1,20 @@
+{
+  "schema": "saarius.custom-agent-fanout4-campaign-stop.v1",
+  "stopped_at": "2026-07-26T06:06:38.058609Z",
+  "trigger": "first_success_round_strict_verification_failure",
+  "failed_round": "A",
+  "reason": "parent_join_substituted_all_four_child_markers",
+  "parent_processes_started": 1,
+  "declared_child_branches_started": 4,
+  "maximum_agent_sessions_used": 5,
+  "rounds_not_started": [
+    "success-B",
+    "success-C",
+    "success-D",
+    "deny-join",
+    "child-failure",
+    "watchdog-timeout"
+  ],
+  "additional_model_launches_after_failure": 0,
+  "contract_gate_honored": true
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "saarius.custom-agent-fixtures.v1",
+  "workspace_root": "workspace",
+  "observer_plugin": "saarius-issue15-observer",
+  "agents": [
+    {
+      "name": "saarius-issue15-recon-v2",
+      "path": ".agents/agents/saarius-issue15-recon-v2/agent.md",
+      "role_marker": "recon-941a2c51",
+      "main_agent": true,
+      "subagent": true
+    },
+    {
+      "name": "saarius-issue15-implementation-v2",
+      "path": ".agents/agents/saarius-issue15-implementation-v2/agent.md",
+      "role_marker": "implementation-67763df0",
+      "main_agent": true,
+      "subagent": true
+    },
+    {
+      "name": "saarius-issue15-verification-v2",
+      "path": ".agents/agents/saarius-issue15-verification-v2/agent.md",
+      "role_marker": "verification-737cd795",
+      "main_agent": true,
+      "subagent": true
+    },
+    {
+      "name": "saarius-issue15-proof-v2",
+      "path": ".agents/agents/saarius-issue15-proof-v2/agent.md",
+      "role_marker": "proof-496fb16b",
+      "main_agent": true,
+      "subagent": true
+    }
+  ]
+}

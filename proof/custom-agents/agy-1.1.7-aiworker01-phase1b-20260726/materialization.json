@@ -1,0 +1,36 @@
+{
+  "file_count": 7,
+  "files": [
+    {
+      "path": ".agents/agents/saarius-issue15-implementation-v2/agent.md",
+      "sha256": "53f5a43faf8de0be602e4a9c4717f859cbbc7b74b421963e60db19c847f00177"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-proof-v2/agent.md",
+      "sha256": "e1ca0cd0a3d0a4aaedc5b68b74c2d20aed3bdd3239662cc1d75bbb5b86576577"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-recon-v2/agent.md",
+      "sha256": "6b7de4036ece691fcbadb75f0911a0f629ed1380121b015eda0d5373af8f0840"
+    },
+    {
+      "path": ".agents/agents/saarius-issue15-verification-v2/agent.md",
+      "sha256": "72e9f96e4a95aa6bc8787ba1b42e4441ecc514b9d4f66f9f1d0c1bc027dddc59"
+    },
+    {
+      "path": ".agents/plugins/saarius-issue15-observer/hooks.json",
+      "sha256": "2eb668cc921f380c9df028a014667d3293eb59fa0f86faf206210b89b219367b"
+    },
+    {
+      "path": ".agents/plugins/saarius-issue15-observer/plugin.json",
+      "sha256": "ed37c96594cd50cd778174c9fc7619ee6dd36531e723223df6d9602275a763e7"
+    },
+    {
+      "path": ".issue15/phase1_harness.py",
+      "sha256": "4ebb53206048a5599ac37b38d06a937ccc99b50b5766c879143d657cde80a2db"
+    }
+  ],
+  "git_initialized": true,
+  "schema": "saarius.custom-agent-materialization.v1",
+  "workspace_class": "disposable"
+}

@@ -1,0 +1,5 @@
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T05:51:01Z","event":"route_created","route_id":"route_20260726_015101_58925_saariusskills-custom-agent-2x2","source_head_sha":"d78ce73c10e673e47be6935559a89a564b4da1c6"}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T05:51:20Z","event":"route_accepted","route_id":"route_20260726_015101_58925_saariusskills-custom-agent-2x2","source_head_sha":"d78ce73c10e673e47be6935559a89a564b4da1c6"}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T05:52:29Z","event":"round_passed","round":"A","parent_processes_used":1,"declared_child_branches_used":2,"timeouts":0}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T05:53:05Z","event":"round_passed","round":"B","parent_processes_used":2,"declared_child_branches_used":4,"timeouts":0}
+{"schema":"saarius.custom-agent-proof-event.v1","at":"2026-07-26T05:55:40Z","event":"remote_cleanup_verified","removed_files":23,"removed_bytes":138132,"roots_verified_absent":3,"foreign_state_touched":false}

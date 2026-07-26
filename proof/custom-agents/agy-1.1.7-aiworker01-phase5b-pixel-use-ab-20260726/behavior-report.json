@@ -1,0 +1,94 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 0.99,
+  "capability_fingerprint_sha256": "c741082e78a4e1f882f7b6d3e18ce246635eeafb918ce6e842a65ff7ba1d53af",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE5B_PIXEL_USE_AB.md",
+    "version": "2026-07-26.phase5b-pixel-use-ab"
+  },
+  "checks": [
+    {
+      "contract_clause": "B1",
+      "status": "pass",
+      "evidence": "The corrected policy packet explicitly named only the cases envelope and exact entry keys. Canonical policy/friction answer hashes and the friction packet hash remained unchanged; Phase 5 proof commit 4f823d7 remains intact.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B2",
+      "status": "pass",
+      "evidence": "Fresh fixtures used two fresh challenges and byte-identical profiles within each arm. Tests and profile hashes prove the single/custom packet split, hidden controller answers, and parent/child source separation.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B3",
+      "status": "fail",
+      "evidence": "Both single sessions passed guard, post-quarantine write, exit, timeout, raw-disposal, and postflight gates. Policy was exact 2/2, but friction and complete results were exact only 1/2 rather than the expected 2/2.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B4",
+      "status": "fail",
+      "evidence": "Both custom sessions passed child-before-quarantine and join-after-release gates, and both joins exactly preserved child values and identities. Policy was exact 2/2, but friction and complete joins were canonical-exact only 1/2 rather than the expected 2/2.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B5",
+      "status": "pass",
+      "evidence": "comparison-summary.json records exact policy/friction/complete and join-fidelity results, durations, exits, timeout state, result hashes, and declared sessions without inferring tokens or money.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B6",
+      "status": "pass",
+      "evidence": "Both arms achieved 1/2 complete exact rounds and the same round-B error, so comparative accuracy is classified comparable. Custom used 3x sessions and 1.626x total wall duration; product-specific and reusable packaging are rejected.",
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "B7",
+      "status": "pass",
+      "evidence": "The frozen route used ordinary workspace custom agents only. Teamwork Preview, Puppet, Herdr, browser/device surfaces, and PR #6 were untouched.",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "B8",
+      "status": "pass",
+      "evidence": "All postflights passed; discovery and raw outputs were digested and unlinked unread. Five exact roots totaling 19 files and 140716 bytes were inventoried, exact custom mode fences restored for cleanup, removed, and verified absent.",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "frozen correction",
+      "result": "Only the missing output-envelope wording changed; expected decision and friction values were never placed in model profiles."
+    },
+    {
+      "probe": "paired challenge",
+      "result": "Each A/B challenge was shared across arms, while each round used a fresh workspace and fresh session."
+    },
+    {
+      "probe": "join grounding",
+      "result": "Both custom joins exactly matched the two child result objects and both hidden identity-marker pairs after OS-gate release."
+    },
+    {
+      "probe": "shared error",
+      "result": "In B, both arms independently set beta human_intervention_count to zero and consequently ranked alpha first; the error was retained rather than normalized."
+    },
+    {
+      "probe": "raw-output privacy",
+      "result": "Discovery was digested in memory; stdout, stderr, and AGY logs were hashed and unlinked without content inspection."
+    }
+  ],
+  "blockers": [
+    "Neither arm met the two-of-two exact product reliability clause.",
+    "Width-two decomposition did not improve exact accuracy on this Pixel-use slice.",
+    "Custom used three times the sessions and was slower in both paired rounds.",
+    "Width-four successful joining remains failed independently at Phase 3."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

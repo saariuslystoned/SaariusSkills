@@ -293,19 +293,21 @@ Herdr-Puppet is ready to propose for Puppet integration only when:
 - proof is redacted, durable, and joined to an exact skill commit;
 - independent review approves the exact head.
 
-## Relationship to Puppet Teamwork
+## Relationship to custom-agent research
 
-Puppet PR
-[`#6`](https://github.com/saariuslystoned/SaariusSkills/pull/6) plans
-hierarchical Antigravity teamwork inside a harness. Herdr-Puppet solves a
-different layer:
+Historical PR
+[`#6`](https://github.com/saariuslystoned/SaariusSkills/pull/6) explored
+hierarchical Antigravity agents inside one harness. The later issue #15
+qualification keeps that work `reference_only`. Herdr-Puppet solves a
+different layer and does not own, inject, or qualify custom-agent semantics:
 
 - Herdr-Puppet concurrency: multiple top-level, human-visible harnesses.
-- Teamwork concurrency: leaders and subagents inside one harness.
+- Custom-agent concurrency: an independently contracted experiment inside one
+  harness.
 
-Keep their budgets and mutation ownership separate. A combined campaign must
-cap the product of top-level panes and per-harness helpers rather than assuming
-both limits can be independently maximized.
+Keep their routes, budgets, mutation ownership, and proof separate. A future
+combined experiment requires an explicit product cap and cannot treat transport
+success as custom-agent qualification.
 
 ## First Implementation Slice
 

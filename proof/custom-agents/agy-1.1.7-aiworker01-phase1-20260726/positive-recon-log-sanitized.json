@@ -1,0 +1,8 @@
+{
+  "agent_metadata_matches": [],
+  "parse_errors": 230,
+  "raw_retained": false,
+  "raw_sha256": "85b158e703a199b5e4429eb7b0540831d223777e6cb8087b6b9337bb4c9d0850",
+  "record_count": 230,
+  "schema": "saarius.custom-agent-log-sanitizer.v1"
+}

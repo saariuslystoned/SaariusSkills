@@ -1,0 +1,8 @@
+{"event":"contract_frozen","head_sha":"12bd40ccac16d113e1efdfbfd3cc1c28151eff75","schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:40:19Z"}
+{"event":"route_accepted","route_id":"route_20260726_004123_40146_saariusskills-custom-agent-qualification","schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:41:29Z"}
+{"event":"fingerprint_frozen","schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:41:29Z"}
+{"event":"discovery_cwd_failed","expected_found_count":0,"raw_retained":false,"schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:43:18Z"}
+{"event":"discovery_explicit_workspace_passed","expected_found_count":4,"raw_retained":false,"schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:43:49Z"}
+{"event":"positive_identity_artifact_verified","result_sha256":"893c2dbb5b7fee57b185e849b9d91ced4ee7237231769666d566152eeaa859b9","schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:45:13Z"}
+{"event":"observer_missing_fail_closed","schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:47:16Z"}
+{"event":"owned_session_and_raw_log_clean","foreign_state_touched":false,"schema":"saarius.custom-agent-proof-event.v1","ts":"2026-07-26T04:47:16Z"}

@@ -23,12 +23,11 @@ The first useful dogfood run should:
 Ordinary AGY turns are plain messages. Herdr-Puppet must not add a slash command
 unless the operator chose that command for the specific turn.
 
-`/teamwork-preview` is not a stronger form of an ordinary prompt. It is a
-separate high-fan-out profile for an intentional hierarchy of roughly 4-20
-helpers. Use it only with an explicit helper cap, one AGY root/integration
-writer, disjoint helper contracts, terminal/accounted joins, timeouts, and
-exact cleanup proof. Never use it for a single-owner preflight, routine
-follow-up, status request, or gate acknowledgement.
+Herdr-Puppet never selects or injects `/teamwork-preview`. Teamwork and
+custom-agent behavior are separate capability research, not a stronger
+transport mode. An independently admitted experiment may pass an explicitly
+chosen native command as opaque caller content, but its topology, joins, and
+results do not become Herdr-Puppet qualification evidence.
 
 ## Checkpoint and token waits
 

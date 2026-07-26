@@ -8,6 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
+CUSTOM_AGENT_DECISION = (
+    ROOT / "plans" / "custom-agents" / "ISSUE15_RECOMMENDATION.md"
+)
 
 
 class PackagingTests(unittest.TestCase):
@@ -124,7 +127,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("$herdr-puppet", metadata)
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("transcript-blind", skill)
-        self.assertIn("Never inject `/teamwork-preview` automatically", skill)
+        self.assertIn("Never inject or select `/teamwork-preview`", skill)
         self.assertIn("lease-preserve", skill)
         self.assertIn('"pane", "run"', compact_client)
         self.assertIn('"wait", "output"', compact_client)
@@ -136,6 +139,26 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('"session", "stop"', compact_client)
         self.assertNotIn('"workspace", "close"', compact_client)
         self.assertNotIn('"tab", "close"', compact_client)
+
+    def test_custom_agent_research_is_reference_only(self) -> None:
+        decision = CUSTOM_AGENT_DECISION.read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        puppet_seed = (
+            ROOT / "plans" / "puppet" / "implementation-seed.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Choose `reference_only`", decision)
+        self.assertIn(
+            "plans/custom-agents/ISSUE15_RECOMMENDATION.md",
+            readme,
+        )
+        self.assertIn(
+            "must not prepend or require `/teamwork-preview`",
+            puppet_seed,
+        )
+        self.assertNotIn("exact-once `/teamwork-preview`", puppet_seed)
+        self.assertFalse((ROOT / "skills" / "teamwork-preview").exists())
+        self.assertFalse((ROOT / "skills" / "custom-agents").exists())
 
     def test_herdr_puppet_schemas_parse(self) -> None:
         references = HERDR_SKILL / "references"

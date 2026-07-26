@@ -1,0 +1,87 @@
+{
+  "schema": "saarius.custom-agent-behavior-report.v1",
+  "overall_behavior": "violates_contract",
+  "overall_confidence": 1,
+  "capability_fingerprint_sha256": "9a1de58a8acf43fbbe32093ea4af558c7eefb0b4a4bdc04f57bb85a91f619b9b",
+  "contract": {
+    "path": "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1B.md",
+    "version": "2026-07-26.phase1b"
+  },
+  "checks": [
+    {
+      "contract_clause": "C1",
+      "status": "pass",
+      "evidence": "materialization.json and fixture-postflight.json",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C2",
+      "status": "fail",
+      "evidence": "agent-discovery.json passed, but plugin-discovery.json did not find the exact workspace observer plugin",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C3",
+      "status": "blocked",
+      "evidence": "the pre-model plugin-discovery gate prohibited a positive identity session",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C4",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after C2 failed",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C5",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after C2 failed",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C6",
+      "status": "blocked",
+      "evidence": "negative controls were not admitted after C2 failed",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C7",
+      "status": "blocked",
+      "evidence": "flag controls were not admitted after C2 failed",
+      "confidence": 1
+    },
+    {
+      "contract_clause": "C8",
+      "status": "blocked",
+      "evidence": "removal control was not admitted after C2 failed",
+      "confidence": 1
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "all four v2 agents discovered through filtered output",
+      "result": "pass"
+    },
+    {
+      "probe": "workspace observer plugin discovered before model use",
+      "result": "fail"
+    },
+    {
+      "probe": "model session spent after failed precondition",
+      "result": "false"
+    },
+    {
+      "probe": "raw agent or plugin catalogs retained",
+      "result": "false"
+    }
+  ],
+  "blockers": [
+    "AGY 1.1.7 did not expose the workspace observer plugin through filtered CLI plugin discovery."
+  ],
+  "cleanup": {
+    "owned_session": "clean",
+    "owned_workspace": "clean",
+    "owned_raw_log": "clean",
+    "foreign_state_touched": false
+  }
+}

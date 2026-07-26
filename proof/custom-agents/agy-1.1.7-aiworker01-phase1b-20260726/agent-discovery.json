@@ -1,0 +1,13 @@
+{
+  "expected": {
+    "saarius-issue15-implementation-v2": true,
+    "saarius-issue15-proof-v2": true,
+    "saarius-issue15-recon-v2": true,
+    "saarius-issue15-verification-v2": true
+  },
+  "expected_found_count": 4,
+  "expected_total": 4,
+  "raw_line_count": 5,
+  "raw_sha256": "ce0cf797de32c9769f8e96de71d0ba8e12e5aaa7f923463b88aee702f48056e2",
+  "schema": "saarius.custom-agent-inventory.v1"
+}

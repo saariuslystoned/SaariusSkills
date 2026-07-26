@@ -35,7 +35,9 @@ Examples:
 
 The target harness performs the assigned implementation or review. The controller owns the goal, safety envelope, monitoring, independent review, and final acceptance. A human can attach read-only to the target's tmux session from launch through closeout.
 
-Do not merely rename the existing `teamwork-preview` skill. Extract its useful operational lessons, replace its one-harness assumptions with an adapter architecture, and forward-test the resulting technique.
+Do not import, rename, or depend on `teamwork-preview`. The later custom-agent
+qualification is `reference_only`; Puppet owns controller and transport
+semantics, not native teamwork or custom-agent behavior.
 
 Build `puppet` through one bounded, unattended, serial self-hosting campaign
 after the minimum trusted kernel and first AGY adapter exist. One long-lived
@@ -364,7 +366,9 @@ Behavior:
   `submitted`, and target-acknowledged; transport success alone is not proof the
   parent consumed the steering turn.
 
-For AGY, every substantive message must begin with exactly one literal `/teamwork-preview`. Reject `/btw`, `/side`, empty messages, and duplicated prefixes. The caller supplies the content; the adapter supplies the prefix.
+For AGY, transport the caller-supplied ordinary message without adding a slash
+command. Reject empty messages and unsupported target-specific side channels;
+the adapter must not prepend or require `/teamwork-preview`.
 
 ### `status`
 
@@ -683,8 +687,10 @@ Requirements:
 - Live launch is allowed only when the installed AGY fingerprint maps to its
   verified permission-bypass behavior with the sandbox disabled or absent.
 - Model and effort selection use verified launch flags when available; otherwise use a deterministic, separately proven selector. Never silently accept model drift.
-- Initial and follow-up substantive messages begin with exactly one `/teamwork-preview`.
-- `/btw`, `/side`, duplicate prefixes, and direct transcript inspection are prohibited.
+- Initial and follow-up substantive messages are ordinary caller-supplied
+  messages; the adapter injects no slash-command prefix.
+- Unsupported target-specific side channels and direct transcript inspection
+  are prohibited.
 - Prefer one persistent AGY parent and no nested AGY process.
 - Use AGY-native helpers, messaging, scheduling, and task management from the target parent.
 - Default helper concurrency is three or fewer with disjoint scopes; close completed helpers before spawning replacements.
@@ -709,9 +715,9 @@ Run the same behavioral contract against AGY, Cursor, Claude, Codex, and Grok,
 strictly one at a time. It is not a capability interview and it is not a model
 quality benchmark. The semantic prompt body and strict handoff schema are
 identical across all five. Only the adapter transport, exact unrestricted-mode
-flags, requested harness/model fields, and a required native envelope such as
-AGY's single `/teamwork-preview` prefix may differ; the envelope cannot change
-the contract's authority or checkpoint schema.
+flags, and requested harness/model fields may differ. An adapter must not add a
+native teamwork envelope or change the contract's authority or checkpoint
+schema.
 
 The controller creates a disposable fixture with a random nonce, a bounded
 contract, a strict handoff schema, an allowlisted proof root, and protected-root
@@ -780,7 +786,8 @@ limitations, and a suggested next assignment. Do not write a transcript or
 terminal summary.
 ```
 
-The adapter may prepend a required native command such as AGY's `/teamwork-preview`, but it must not change the contract's authority.
+The adapter must preserve the caller-supplied message and must not prepend or
+require a native teamwork command.
 
 ## Beacon protocol
 
@@ -1058,8 +1065,8 @@ manifests are fingerprinted and doctor-only; no real agent has launched.
 
 - Run the standardized contract against the real installed AGY CLI in YOLO
   mode, inside a disposable fixture, from the fixed Puppet N supervisor.
-- Prove exact-once `/teamwork-preview` envelope, ready checkpoint, persistent
-  target availability, exactly one acknowledged follow-up, transcript-free
+- Prove ordinary prompt transport with no injected slash-command prefix, ready
+  checkpoint, persistent target availability, exactly one acknowledged follow-up, transcript-free
   status/wait, controller review/acceptance, protected-source no-drift, exact
   graceful halt, and preserved tmux evidence.
 - Import the ready and follow-up artifacts through the source-free conformance
@@ -1130,23 +1137,24 @@ interaction.
 - Record task/model outcome telemetry, but keep auto-routing deferred and
   explicit target/model selection authoritative.
 
-### Phase 5: separately gated migration
+### Phase 5: separately gated research boundary
 
-- Keep `teamwork-preview` installed during development and while any active lane references it.
-- Run one complete `agy-computer-use`-style milestone through `puppet`.
-- Search known skill, automation, launcher, and repo references for `teamwork-preview`.
-- Switch those references deliberately.
-- Halt or preserve every old managed session.
-- Remove the old skill recoverably only after the new path passes acceptance.
+- Run one complete AGY milestone through Puppet using ordinary prompt
+  transport.
+- Keep Teamwork Preview and custom-agent semantics outside Puppet manifests,
+  adapters, qualification, and migration.
+- Link the issue #15 `reference_only` decision as design evidence.
+- Admit any future native teamwork experiment through its own owner, behavior
+  contract, budget, proof root, and stop condition.
 
-Do not delete or rewrite the active `teamwork-preview` skill as part of early implementation.
+Puppet does not install, migrate, replace, or remove a Teamwork Preview skill.
 
 ## Test matrix
 
 Direct kernel and contract tests:
 
-- exact-once AGY prefix;
-- reject duplicate prefix, `/btw`, and `/side`;
+- exact AGY message transport with no injected slash-command prefix;
+- reject empty messages, duplicate submissions, and unsupported side channels;
 - stdin/protected-file/buffer transport does not expose messages in argv;
 - shell metacharacters remain literal;
 - census allowlists executable discovery/version/help probes, caps time/output,
@@ -1218,7 +1226,8 @@ substitute for these real behaviors.
   transcript, or secret material.
 - One command launches an exact target in a durable tmux session.
 - The human receives a functioning read-only attach command.
-- Every AGY substantive message begins with exactly one `/teamwork-preview` without relying on controller memory.
+- Every AGY substantive message preserves the caller-supplied content without
+  a Puppet-injected slash-command prefix.
 - Every live adapter is YOLO-only; the package warns users upfront, requires an
   explicit local acknowledgement, proves the exact current-version
   auto-approve/sandbox-disable mapping, and otherwise fails closed.

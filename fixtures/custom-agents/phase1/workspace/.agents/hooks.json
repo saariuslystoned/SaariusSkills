@@ -1,0 +1,43 @@
+{
+  "issue15-observer": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 .issue15/phase1_harness.py hook PreInvocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .issue15/phase1_harness.py hook PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .issue15/phase1_harness.py hook PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 .issue15/phase1_harness.py hook Stop",
+        "timeout": 10
+      }
+    ]
+  }
+}
+

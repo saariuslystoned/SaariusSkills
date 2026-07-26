@@ -1,0 +1,77 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T04:53:59Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "c1f14445c51311309440490ea74ab29c6df42d4a",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "tmux-buffer-stdin",
+    "workspace_binding": "add-dir-absolute"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-issue15-recon-v2",
+      "definition_sha256": "6b7de4036ece691fcbadb75f0911a0f629ed1380121b015eda0d5373af8f0840",
+      "role_marker": "recon-941a2c51"
+    },
+    {
+      "name": "saarius-issue15-implementation-v2",
+      "definition_sha256": "53f5a43faf8de0be602e4a9c4717f859cbbc7b74b421963e60db19c847f00177",
+      "role_marker": "implementation-67763df0"
+    },
+    {
+      "name": "saarius-issue15-verification-v2",
+      "definition_sha256": "72e9f96e4a95aa6bc8787ba1b42e4441ecc514b9d4f66f9f1d0c1bc027dddc59",
+      "role_marker": "verification-737cd795"
+    },
+    {
+      "name": "saarius-issue15-proof-v2",
+      "definition_sha256": "e1ca0cd0a3d0a4aaedc5b68b74c2d20aed3bdd3239662cc1d75bbb5b86576577",
+      "role_marker": "proof-496fb16b"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "run-salted-sha256",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "one-write-to-file-exact-result-all-else-deny",
+    "packaging": "workspace-plugin",
+    "plugin_name": "saarius-issue15-observer",
+    "harness_path_mode": "absolute-environment"
+  },
+  "budget": {
+    "max_sessions": 7,
+    "max_invocations": 14,
+    "max_wall_seconds": 600,
+    "per_session_seconds": 90
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T06:17:37Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "44fae4dea019a1f205e0a43a9978ff2b80a4839d",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "predecessor_proof_commit": "6be2a699fa7cb96f81fe9679ae867b6273834960",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "print-argument-challenge-only",
+    "workspace_binding": "add-dir-absolute",
+    "execution_mode": "accept-edits"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-i15-parent4-6bbeaf7693f27e19",
+      "definition_sha256": "01f2767312cbd857439fafb1d630fb26e0d8b79b4f9f671cb0efdf2931be2a6b",
+      "role_marker": "parent4-4d373c38979cf9e2"
+    },
+    {
+      "name": "saarius-i15-alpha4-28a97d7b601c8c82",
+      "definition_sha256": "6e77f3bf064ab5627509fa8f511cb74f6d4b36ffd3cfcb0f70a2037039cc9766",
+      "role_marker": "alpha4-43ccb8447cb61b46"
+    },
+    {
+      "name": "saarius-i15-beta4-7765c68902008455",
+      "definition_sha256": "37c87718779d487f5fa30f925e2722fc5df7e174883460d89219e13825ebe37a",
+      "role_marker": "beta4-1975974ea26ea50d"
+    },
+    {
+      "name": "saarius-i15-gamma4-2cd84558eb46ef80",
+      "definition_sha256": "1387c91b2b5b398bd4b74bae92e1252f460df95526722d15f661064567e7a24d",
+      "role_marker": "gamma4-1d9ed1a5ee3df2c9"
+    },
+    {
+      "name": "saarius-i15-delta4-a60c36511fac32f3",
+      "definition_sha256": "2439b54619d2aefc004ac3d67f580bc3b761567e8d71a4a392d6e45874c04c6b",
+      "role_marker": "delta4-599c33cd18269b51"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "not-collected",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "parent-four-invoke-plus-join-children-write-only",
+    "packaging": "external-controller",
+    "harness_path_mode": "exact-commit-copy",
+    "harness_sha256": "3e268b58ca59a29eef558252c4423ade9b5c64a01ba62db11ee45ad6c9e073c5",
+    "raw_output_policy": "digest-then-unlink",
+    "selection_guard": "exact-name-occurrence-count-before-model",
+    "discovery_output_policy": "digest-in-memory-not-retained",
+    "scheduler_observation": "functional-artifacts-not-tool-trace",
+    "fanout_width": 4,
+    "containment_modes": [
+      "deny-join",
+      "child-failure",
+      "watchdog-timeout"
+    ],
+    "retry_observation": "policy-present-attempt-count-not-observed",
+    "watchdog": "controller-process-group-termination",
+    "fault_profile": {
+      "agent": "saarius-i15-delta4-a60c36511fac32f3",
+      "normal_definition_sha256": "2439b54619d2aefc004ac3d67f580bc3b761567e8d71a4a392d6e45874c04c6b",
+      "fault_definition_sha256": "861870ad0d98a4311d4070c01fdcb5d8b8704f4a454d88281b009bccfa7c5277",
+      "role_marker": "delta4-599c33cd18269b51"
+    }
+  },
+  "budget": {
+    "max_sessions": 15,
+    "max_invocations": 30,
+    "max_wall_seconds": 720,
+    "per_session_seconds": 180
+  }
+}

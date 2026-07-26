@@ -1,0 +1,37 @@
+{
+  "schema": "saarius.custom-agent-containment-summary.v1",
+  "controls": [
+    {
+      "mode": "deny-join",
+      "passed": true,
+      "process_exit": 0,
+      "valid_child_results": 4,
+      "empty_child_results": 0,
+      "join_bytes": 0,
+      "watchdog_fired": false,
+      "retry_attempt_count_observed": false
+    },
+    {
+      "mode": "child-failure",
+      "passed": true,
+      "process_exit": 0,
+      "valid_child_results": 3,
+      "empty_child_results": 1,
+      "join_bytes": 0,
+      "watchdog_fired": false,
+      "retry_attempt_count_observed": false
+    },
+    {
+      "mode": "watchdog-timeout",
+      "passed": true,
+      "process_exit": 1,
+      "valid_child_results": 0,
+      "empty_child_results": 4,
+      "join_bytes": 0,
+      "watchdog_fired": true,
+      "retry_attempt_count_observed": false
+    }
+  ],
+  "width_four_success_qualification_changed": false,
+  "product_promotion_admitted": false
+}

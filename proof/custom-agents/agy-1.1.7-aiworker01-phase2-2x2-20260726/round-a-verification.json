@@ -1,0 +1,1 @@
+{"join_after_children":true,"passed":true,"reasons":[],"result_sha256":{"join":"61e22ad9e634316ba759f1cff3557b5238838e5979fe77ea937f7c548b3725ce","left":"b2709329007a2692fe37205404083d270005bafe295f44dc97c347a7f7b0e9a0","right":"ca58165496ae83f7a132890edc66ca40fbb0baa65e46fc8aec24397f29ee4fa9"},"schema":"saarius.custom-agent-fanout-verification.v1"}

@@ -1,0 +1,128 @@
+{
+  "schema": "saarius.pixel-use-product-comparison.v1",
+  "result": "inconclusive_oracle_contract_failure",
+  "pixel_use_source_head": "6474159cc15eafbd2abe602e13017a2754768ce9",
+  "execution_order": [
+    "single-a",
+    "custom-a",
+    "single-b",
+    "custom-b"
+  ],
+  "rounds": [
+    {
+      "round": "single-a",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 16239,
+      "policy_semantic_decisions_exact": true,
+      "policy_envelope_exact": false,
+      "friction_exact": true,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 1,
+      "result_sha256": "40b1e292add7d7dd78a7ebc36de303db35c8799e5de0db5962937dfc95e5bf2b"
+    },
+    {
+      "round": "custom-a",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 19770,
+      "policy_semantic_decisions_exact": true,
+      "policy_envelope_exact": false,
+      "friction_exact": false,
+      "join_fidelity_exact": true,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 3,
+      "result_sha256": {
+        "policy": "ea68a997c93a458ebdef4effb2657d9cf44480b07d25b86f0e3c24d7f53a60cf",
+        "friction": "3e93e937a336849cab4c0f1b920e17b261b466deb597fc8fdd330c2a8f841bcc",
+        "join": "3eb21ec1d85d8e9c5a10a73157805370fcf059d6e18429578155fdda4cb13a69"
+      }
+    },
+    {
+      "round": "single-b",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 6630,
+      "policy_semantic_decisions_exact": true,
+      "policy_envelope_exact": false,
+      "friction_exact": false,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 1,
+      "result_sha256": "595d84af4cdbb95a4ecb7bbef27b225bcdb183c0697ff5c5afaa90144bd52739"
+    },
+    {
+      "round": "custom-b",
+      "guard_admitted": true,
+      "runtime_passed": true,
+      "process_exit": 0,
+      "timed_out": false,
+      "duration_ms": 18888,
+      "policy_semantic_decisions_exact": true,
+      "policy_envelope_exact": false,
+      "friction_exact": false,
+      "join_fidelity_exact": true,
+      "complete_result_exact": false,
+      "postflight_passed": true,
+      "declared_sessions": 3,
+      "result_sha256": {
+        "policy": "a11c640af7f8f044a24d3d4812d78fcdd721d749aab26550cd05e12157d907a0",
+        "friction": "7107c757fbe5542be53a7842585d0b9237a3c143805ecffd1375b23351f57984",
+        "join": "0560cdd501bdad729418a667216d772f9c1646cbc05ec85ce63a0b961db224c0"
+      }
+    }
+  ],
+  "arm_summary": {
+    "single": {
+      "rounds": 2,
+      "complete_result_exact": 0,
+      "policy_semantic_decisions_exact": 2,
+      "friction_exact": 1,
+      "total_duration_ms": 22869,
+      "mean_duration_ms": 11434.5,
+      "declared_sessions": 2
+    },
+    "custom_width_two": {
+      "rounds": 2,
+      "complete_result_exact": 0,
+      "policy_semantic_decisions_exact": 2,
+      "friction_exact": 0,
+      "join_fidelity_exact": 2,
+      "total_duration_ms": 38658,
+      "mean_duration_ms": 19329,
+      "declared_sessions": 6
+    }
+  },
+  "oracle_failure": {
+    "field": "policy",
+    "hidden_required_envelope": {
+      "cases": "ordered array"
+    },
+    "prompt_requirement": "Return every id in order with decision and receipt_type.",
+    "observed_equivalent_envelopes": [
+      "items_ordered_array",
+      "decisions_ordered_array",
+      "id_keyed_object"
+    ],
+    "reason": "The prompt constrained values and order but never named the required outer key. Exact-result scoring therefore tested an undisclosed format.",
+    "post_hoc_normalization_applied": false
+  },
+  "valid_findings": {
+    "all_guards_and_postflights_passed": true,
+    "all_policy_decisions_semantically_correct": true,
+    "custom_join_fidelity_rounds": 2,
+    "single_friction_exact_rounds": 1,
+    "custom_friction_exact_rounds": 0,
+    "raw_content_retained": false,
+    "foreign_state_touched": false
+  },
+  "interpretation": "Do not use this attempt to claim either arm wins. Preserve it as an oracle-design counterexample and require a separately frozen corrected format contract before any replay."
+}

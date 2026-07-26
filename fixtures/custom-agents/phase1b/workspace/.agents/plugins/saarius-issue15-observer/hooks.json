@@ -1,0 +1,43 @@
+{
+  "issue15-observer": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 \"$ISSUE15_HARNESS\" hook PreInvocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$ISSUE15_HARNESS\" hook PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$ISSUE15_HARNESS\" hook PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 \"$ISSUE15_HARNESS\" hook Stop",
+        "timeout": 10
+      }
+    ]
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "schema": "saarius.custom-agent-capability.v1",
+  "captured_at": "2026-07-26T06:36:39Z",
+  "source": {
+    "repo": "saariuslystoned/SaariusSkills",
+    "branch": "codex/custom-agent-qualification-issue15-20260726",
+    "base_sha": "23f3b0c8062c7cffaadabee3154477285ccac0f3",
+    "head_sha": "16a8543bd773a15e4e9f32a8f3072295c2b01e0e",
+    "issue": 15
+  },
+  "historical_pr6_head": "baea84b2bb0d21ff749ce65d077a76cc76f2e1de",
+  "predecessor_proof_commit": "8cea286fca4fdcc55852f136ef0b3dd5acd2604a",
+  "surface": "cli",
+  "cli": {
+    "path_class": "worker-user-local",
+    "version": "1.1.7",
+    "binary_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8"
+  },
+  "host": {
+    "id": "aiworker-01",
+    "taxonomy": "worker_host",
+    "os": "Darwin",
+    "arch": "arm64"
+  },
+  "invocation": {
+    "model": "gemini-3.6-flash-low",
+    "effort": "low",
+    "sandbox": true,
+    "skip_permissions": false,
+    "fresh_session": true,
+    "prompt_transport": "print-argument-challenge-only",
+    "workspace_binding": "add-dir-absolute",
+    "execution_mode": "accept-edits"
+  },
+  "isolation": {
+    "workspace": "disposable",
+    "global_agent_write": false,
+    "foreign_resume": false,
+    "foreign_cleanup": false
+  },
+  "agents": [
+    {
+      "name": "saarius-i15-single-6ffdf6e98e",
+      "definition_sha256": "15a3524aeee1d3030dc3c2c243478b5bcbafb0fab36f187b1614aff2b5f91b5e",
+      "role_marker": "single-marker-370676f10fec20ac"
+    },
+    {
+      "name": "saarius-i15-parent-e3857b2c87",
+      "definition_sha256": "01e44df16be6e92458159896c8a6193da1b17fb5154714cbebd8c4c489fde88f",
+      "role_marker": "parent-marker-511888f667f943d4"
+    },
+    {
+      "name": "saarius-i15-policy-ce407dbc26",
+      "definition_sha256": "bb49c7af1c1790e500b3d5830b8756e2ebeb92b8c3f586fc0323f903d0aa6aca",
+      "role_marker": "policy-marker-3096d2f2f3d010f1"
+    },
+    {
+      "name": "saarius-i15-friction-6929500ee9",
+      "definition_sha256": "f2a32232541195c5ec2d275b0bd70460a5ff44acdfd7b9dc6abdb043b64d5121",
+      "role_marker": "friction-marker-0265677bdbc638f4"
+    }
+  ],
+  "observer": {
+    "schema": "saarius.custom-agent-event.v1",
+    "actor_ids": "not-collected",
+    "raw_transcript_read": false,
+    "raw_log_retained": false,
+    "tool_policy": "single-write-or-width-two-product-split",
+    "packaging": "external-controller",
+    "harness_path_mode": "exact-commit-copy",
+    "harness_sha256": "b313e798ba00fc0bc30657fb980c702532c9668a57724eb7fa6f4b8f900c4146",
+    "raw_output_policy": "digest-then-unlink",
+    "selection_guard": "exact-name-occurrence-count-before-model",
+    "discovery_output_policy": "digest-in-memory-not-retained",
+    "profile_quarantine_phase": "after-child-writes-before-parent-join",
+    "fanout_oracle": "child-hidden-markers-plus-gated-parent-join",
+    "join_gate": "os-locked-until-both-child-files",
+    "scheduler_observation": "functional-artifacts-not-tool-trace",
+    "product_probe": "pixel-use-policy-plus-friction-v1",
+    "product_source_sha": "6474159cc15eafbd2abe602e13017a2754768ce9",
+    "comparison_arms": [
+      "single",
+      "custom-width-two"
+    ],
+    "rounds_per_arm": 2
+  },
+  "budget": {
+    "max_sessions": 8,
+    "max_invocations": 16,
+    "max_wall_seconds": 720,
+    "per_session_seconds": 180
+  }
+}

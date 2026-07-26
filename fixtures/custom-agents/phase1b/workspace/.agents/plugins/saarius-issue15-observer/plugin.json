@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "saarius-issue15-observer",
+  "description": "Workspace-only source-blind observer for issue 15 qualification."
+}
