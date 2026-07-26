@@ -50,6 +50,11 @@ companion stayed unchanged. Phase 2 therefore remains gated on a
 discovery-first exact-count selection guard; the CLI fallback is preserved as
 an upstream compatibility finding rather than normalized away.
 
+Phase 1E qualifies that guard as a distinct controller surface. It requires
+exactly one requested-name occurrence in bounded workspace discovery before
+the existing print runner may start, rejects absent and duplicate names without
+model use, and permits one final positive session with `subagent: false`.
+
 Files:
 
 - `ROUTE_PHASE_0_1.md` — ownership, host, launcher, proof path, budget, gates,
@@ -62,6 +67,9 @@ Files:
 - `ROUTE_PHASE_1C.md` — bounded C1–C8 route without hook dependence;
 - `BEHAVIOR_CONTRACT_PHASE1D.md` — documented print-argument correction;
 - `ROUTE_PHASE_1D.md` — C1–C8 execution route on the corrected transport;
+- `BEHAVIOR_CONTRACT_PHASE1E.md` — exact-count pre-model selection guard;
+- `ROUTE_PHASE_1E.md` — bounded no-model negatives and one positive guard
+  route;
 - `capability-fingerprint.schema.json` — exact runtime tuple contract;
 - `behavior-report.schema.json` — machine-readable verdict contract;
 - `scripts/phase1_harness.py` — create-only fixture materializer, privacy-safe

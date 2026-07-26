@@ -282,6 +282,267 @@ print("private diagnostic", file=sys.stderr)
             self.assertEqual(postflight.returncode, 0, postflight.stderr)
             self.assertTrue(json.loads(postflight.stdout)["passed"])
 
+    def test_guarded_run_rejects_absent_and_duplicate_before_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            controller = root / "controller"
+            controller.mkdir()
+            agent = "saarius-i15-guardtest"
+            fixture = self.run_harness(
+                "build-runtime-fixture",
+                "--workspace",
+                str(workspace),
+                "--agent",
+                agent,
+                "--role",
+                "reconnaissance",
+                "--role-marker",
+                "guard-marker",
+            )
+            self.assertEqual(fixture.returncode, 0, fixture.stderr)
+
+            fake_agy = root / "fake-agy"
+            fake_agy.write_text(
+                """#!/usr/bin/env python3
+import os
+import pathlib
+import sys
+
+agent = os.environ["FAKE_AGENT"]
+mode = os.environ["FAKE_DISCOVERY_MODE"]
+if sys.argv[-1] == "agents":
+    print("private-unrelated-agent")
+    if mode == "exact":
+        print(agent)
+    elif mode == "duplicate":
+        print(agent)
+        print(agent)
+    raise SystemExit(0)
+
+pathlib.Path(os.environ["FAKE_MODEL_SENTINEL"]).write_text(
+    "model-started",
+    encoding="utf-8",
+)
+raise SystemExit(17)
+""",
+                encoding="utf-8",
+            )
+            fake_agy.chmod(0o755)
+            sentinel = root / "model-started"
+            common = (
+                "guarded-run-print",
+                "--agy",
+                str(fake_agy),
+                "--workspace",
+                str(workspace),
+                "--controller",
+                str(controller),
+                "--agent",
+                agent,
+                "--challenge",
+                "guard-challenge",
+                "--model",
+                "test-model",
+                "--effort",
+                "low",
+                "--timeout-seconds",
+                "3",
+                "--discovery-timeout-seconds",
+                "2",
+            )
+            common_env = {
+                "FAKE_AGENT": agent,
+                "FAKE_MODEL_SENTINEL": str(sentinel),
+            }
+
+            absent = self.run_harness(
+                *common,
+                "--run-id",
+                "guard-absent",
+                env={**common_env, "FAKE_DISCOVERY_MODE": "absent"},
+            )
+            self.assertEqual(absent.returncode, 2, absent.stderr)
+            absent_payload = json.loads(absent.stdout)
+            self.assertFalse(absent_payload["admitted"])
+            self.assertEqual(absent_payload["gate_reason"], "agent_absent")
+            self.assertEqual(
+                absent_payload["discovery"]["exact_name_occurrences"],
+                0,
+            )
+            self.assertFalse(absent_payload["model_launch_started"])
+            self.assertFalse(sentinel.exists())
+            self.assertNotIn("private-unrelated-agent", absent.stdout)
+
+            duplicate = self.run_harness(
+                *common,
+                "--run-id",
+                "guard-duplicate",
+                env={**common_env, "FAKE_DISCOVERY_MODE": "duplicate"},
+            )
+            self.assertEqual(duplicate.returncode, 2, duplicate.stderr)
+            duplicate_payload = json.loads(duplicate.stdout)
+            self.assertFalse(duplicate_payload["admitted"])
+            self.assertEqual(
+                duplicate_payload["gate_reason"],
+                "agent_ambiguous",
+            )
+            self.assertEqual(
+                duplicate_payload["discovery"]["exact_name_occurrences"],
+                2,
+            )
+            self.assertFalse(duplicate_payload["model_launch_started"])
+            self.assertFalse(
+                duplicate_payload["discovery"]["raw_retained"]
+            )
+            self.assertFalse(sentinel.exists())
+            self.assertNotIn("private-unrelated-agent", duplicate.stdout)
+
+    def test_guarded_run_admits_exact_name_and_preserves_oracle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            controller = root / "controller"
+            controller.mkdir()
+            agent = "saarius-i15-guardpositive"
+            marker = "guard-positive-marker"
+            challenge = "guard-positive-challenge"
+            fixture = self.run_harness(
+                "build-runtime-fixture",
+                "--workspace",
+                str(workspace),
+                "--agent",
+                agent,
+                "--role",
+                "verification",
+                "--role-marker",
+                marker,
+            )
+            self.assertEqual(fixture.returncode, 0, fixture.stderr)
+            fixture_payload = json.loads(fixture.stdout)
+
+            fake_agy = root / "fake-agy"
+            fake_agy.write_text(
+                """#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import re
+import sys
+import time
+
+agent = os.environ["FAKE_AGENT"]
+if sys.argv[-1] == "agents":
+    print("private-unrelated-agent")
+    print(agent)
+    print("private discovery diagnostic", file=sys.stderr)
+    raise SystemExit(0)
+
+pathlib.Path(os.environ["FAKE_MODEL_SENTINEL"]).write_text(
+    "model-started",
+    encoding="utf-8",
+)
+prompt = sys.argv[sys.argv.index("--print") + 1]
+challenge = re.search(r"challenge: ([A-Za-z0-9_-]+)", prompt).group(1)
+workspace = pathlib.Path(sys.argv[sys.argv.index("--add-dir") + 1])
+log = pathlib.Path(sys.argv[sys.argv.index("--log-file") + 1])
+log.write_text("private raw log", encoding="utf-8")
+time.sleep(0.25)
+(workspace / ".issue15/result.json").write_text(
+    json.dumps(
+        {
+            "schema": "saarius.custom-agent.identity.v1",
+            "agent": agent,
+            "challenge": challenge,
+            "role_marker": "guard-positive-marker",
+            "status": "identity_ready",
+        }
+    ),
+    encoding="utf-8",
+)
+print("private model response")
+""",
+                encoding="utf-8",
+            )
+            fake_agy.chmod(0o755)
+            sentinel = root / "model-started"
+
+            guarded = self.run_harness(
+                "guarded-run-print",
+                "--agy",
+                str(fake_agy),
+                "--workspace",
+                str(workspace),
+                "--controller",
+                str(controller),
+                "--run-id",
+                "guard-positive",
+                "--agent",
+                agent,
+                "--challenge",
+                challenge,
+                "--model",
+                "test-model",
+                "--effort",
+                "low",
+                "--quarantine-delay-ms",
+                "100",
+                "--timeout-seconds",
+                "3",
+                "--discovery-timeout-seconds",
+                "2",
+                env={
+                    "FAKE_AGENT": agent,
+                    "FAKE_MODEL_SENTINEL": str(sentinel),
+                },
+            )
+            self.assertEqual(guarded.returncode, 0, guarded.stderr)
+            guarded_payload = json.loads(guarded.stdout)
+            self.assertTrue(guarded_payload["admitted"])
+            self.assertEqual(guarded_payload["gate_reason"], "exactly_one")
+            self.assertEqual(
+                guarded_payload["discovery"]["exact_name_occurrences"],
+                1,
+            )
+            self.assertTrue(guarded_payload["model_launch_started"])
+            self.assertTrue(
+                guarded_payload["runtime"][
+                    "result_changed_after_quarantine"
+                ]
+            )
+            self.assertTrue(sentinel.is_file())
+            self.assertNotIn("private-unrelated-agent", guarded.stdout)
+            self.assertNotIn("private discovery diagnostic", guarded.stdout)
+            self.assertNotIn("private model response", guarded.stdout)
+
+            verification = self.run_harness(
+                "verify-result",
+                "--result",
+                str(workspace / ".issue15/result.json"),
+                "--agent",
+                agent,
+                "--challenge",
+                challenge,
+                "--role-marker",
+                marker,
+            )
+            self.assertEqual(verification.returncode, 0, verification.stderr)
+            self.assertTrue(json.loads(verification.stdout)["passed"])
+
+            postflight = self.run_harness(
+                "runtime-postflight",
+                "--workspace",
+                str(workspace),
+                "--quarantine",
+                str(controller / "guard-positive-agents-quarantine"),
+                "--agent",
+                agent,
+                "--expected-profile-sha256",
+                fixture_payload["profile_sha256"],
+            )
+            self.assertEqual(postflight.returncode, 0, postflight.stderr)
+            self.assertTrue(json.loads(postflight.stdout)["passed"])
+
     def test_hook_denies_reads_and_redacts_sensitive_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

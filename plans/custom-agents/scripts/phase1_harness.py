@@ -30,6 +30,7 @@ INVENTORY_SCHEMA = "saarius.custom-agent-inventory.v1"
 LOG_SCHEMA = "saarius.custom-agent-log-sanitizer.v1"
 PLUGIN_INVENTORY_SCHEMA = "saarius.custom-agent-plugin-inventory.v1"
 RUNTIME_FIXTURE_SCHEMA = "saarius.custom-agent-runtime-fixture.v1"
+GUARDED_RUN_SCHEMA = "saarius.custom-agent-guarded-run.v1"
 RUNTIME_POSTFLIGHT_SCHEMA = "saarius.custom-agent-runtime-postflight.v1"
 RUNTIME_RUN_SCHEMA = "saarius.custom-agent-runtime-run.v1"
 VERIFY_SCHEMA = "saarius.custom-agent-result-verification.v1"
@@ -295,7 +296,9 @@ def digest_owned_file(path: Path) -> dict[str, Any]:
     }
 
 
-def run_print(args: argparse.Namespace) -> int:
+def validate_print_args(
+    args: argparse.Namespace,
+) -> tuple[Path, Path, Path, Path, Path, Path, Path, Path, Path]:
     if not RUNTIME_AGENT.fullmatch(args.agent):
         raise SystemExit("invalid runtime agent name")
     if not SAFE_KEY.fullmatch(args.challenge):
@@ -327,6 +330,32 @@ def run_print(args: argparse.Namespace) -> int:
     for target in (quarantine, raw_stdout, raw_stderr, raw_log):
         if target.exists():
             raise SystemExit("owned runtime target already exists")
+
+    return (
+        agy,
+        workspace,
+        controller,
+        agents_root,
+        result,
+        quarantine,
+        raw_stdout,
+        raw_stderr,
+        raw_log,
+    )
+
+
+def execute_print(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    (
+        agy,
+        workspace,
+        controller,
+        agents_root,
+        result,
+        quarantine,
+        raw_stdout,
+        raw_stderr,
+        raw_log,
+    ) = validate_print_args(args)
 
     prompt = (
         f"Identity calibration challenge: {args.challenge}. "
@@ -429,8 +458,161 @@ def run_print(args: argparse.Namespace) -> int:
         "raw_artifacts": raw_artifacts,
         "raw_artifacts_retained": False,
     }
+    return report, 0 if process_exit == 0 and not timed_out else 2
+
+
+def run_print(args: argparse.Namespace) -> int:
+    report, return_code = execute_print(args)
     emit(report)
-    return 0 if process_exit == 0 and not timed_out else 2
+    return return_code
+
+
+def exact_name_occurrences(raw: bytes, name: str) -> int:
+    if not RUNTIME_AGENT.fullmatch(name):
+        raise ValueError("invalid runtime agent name")
+    rendered = raw.decode("utf-8", errors="replace")
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_-]){re.escape(name)}(?![A-Za-z0-9_-])"
+    )
+    return len(pattern.findall(rendered))
+
+
+def bounded_discovery(
+    *,
+    agy: Path,
+    workspace: Path,
+    timeout_seconds: int,
+) -> tuple[bytes, bytes, int | None, bool, int, int]:
+    command = [
+        str(agy),
+        "--add-dir",
+        str(workspace),
+        "agents",
+    ]
+    started_at_ns = time.time_ns()
+    process = subprocess.Popen(
+        command,
+        cwd=workspace,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    timed_out = False
+    process_exit: int | None = None
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        process_exit = process.returncode
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate(timeout=2)
+        process_exit = process.returncode
+    finished_at_ns = time.time_ns()
+    return (
+        stdout,
+        stderr,
+        process_exit,
+        timed_out,
+        started_at_ns,
+        finished_at_ns,
+    )
+
+
+def guarded_run_print(args: argparse.Namespace) -> int:
+    if not 1 <= args.discovery_timeout_seconds <= 30:
+        raise SystemExit("discovery timeout must be between 1 and 30 seconds")
+    (
+        agy,
+        workspace,
+        _controller,
+        _agents_root,
+        _result,
+        _quarantine,
+        _raw_stdout,
+        _raw_stderr,
+        _raw_log,
+    ) = validate_print_args(args)
+
+    (
+        discovery_stdout,
+        discovery_stderr,
+        discovery_exit,
+        discovery_timed_out,
+        discovery_started_at_ns,
+        discovery_finished_at_ns,
+    ) = bounded_discovery(
+        agy=agy,
+        workspace=workspace,
+        timeout_seconds=args.discovery_timeout_seconds,
+    )
+    occurrence_count = exact_name_occurrences(
+        discovery_stdout,
+        args.agent,
+    )
+    if discovery_timed_out:
+        gate_reason = "discovery_timeout"
+    elif discovery_exit != 0:
+        gate_reason = "discovery_error"
+    elif occurrence_count == 0:
+        gate_reason = "agent_absent"
+    elif occurrence_count > 1:
+        gate_reason = "agent_ambiguous"
+    else:
+        gate_reason = "exactly_one"
+    admitted = gate_reason == "exactly_one"
+
+    report: dict[str, Any] = {
+        "schema": GUARDED_RUN_SCHEMA,
+        "run_id": args.run_id,
+        "requested_agent": args.agent,
+        "admitted": admitted,
+        "gate_reason": gate_reason,
+        "model_launch_started": False,
+        "discovery": {
+            "command_class": "absolute-add-dir-agents",
+            "process_exit": discovery_exit,
+            "timed_out": discovery_timed_out,
+            "started_at_ns": discovery_started_at_ns,
+            "finished_at_ns": discovery_finished_at_ns,
+            "exact_name_occurrences": occurrence_count,
+            "stdout": {
+                "bytes": len(discovery_stdout),
+                "line_count": len(
+                    discovery_stdout.decode(
+                        "utf-8",
+                        errors="replace",
+                    ).splitlines()
+                ),
+                "sha256": sha256_bytes(discovery_stdout),
+            },
+            "stderr": {
+                "bytes": len(discovery_stderr),
+                "sha256": sha256_bytes(discovery_stderr),
+            },
+            "raw_retained": False,
+        },
+        "runtime": None,
+    }
+    if not admitted:
+        emit(report)
+        return 2
+
+    report["model_launch_started"] = True
+    runtime_report, return_code = execute_print(args)
+    report["runtime"] = runtime_report
+    emit(report)
+    return return_code
 
 
 def runtime_postflight(args: argparse.Namespace) -> int:
@@ -747,6 +929,26 @@ def verify_result(args: argparse.Namespace) -> int:
     return 0 if passed else 2
 
 
+def configure_runtime_run_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--agy", required=True)
+    parser.add_argument("--workspace", required=True)
+    parser.add_argument("--controller", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--agent", required=True)
+    parser.add_argument("--challenge", required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument(
+        "--effort", choices=("low", "medium", "high"), required=True
+    )
+    parser.add_argument(
+        "--execution-mode",
+        choices=("accept-edits",),
+        default="accept-edits",
+    )
+    parser.add_argument("--quarantine-delay-ms", type=int, default=350)
+    parser.add_argument("--timeout-seconds", type=int, default=90)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -783,28 +985,17 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_fixture_parser.set_defaults(handler=build_runtime_fixture)
 
     runtime_run_parser = commands.add_parser("run-print")
-    runtime_run_parser.add_argument("--agy", required=True)
-    runtime_run_parser.add_argument("--workspace", required=True)
-    runtime_run_parser.add_argument("--controller", required=True)
-    runtime_run_parser.add_argument("--run-id", required=True)
-    runtime_run_parser.add_argument("--agent", required=True)
-    runtime_run_parser.add_argument("--challenge", required=True)
-    runtime_run_parser.add_argument("--model", required=True)
-    runtime_run_parser.add_argument(
-        "--effort", choices=("low", "medium", "high"), required=True
-    )
-    runtime_run_parser.add_argument(
-        "--execution-mode",
-        choices=("accept-edits",),
-        default="accept-edits",
-    )
-    runtime_run_parser.add_argument(
-        "--quarantine-delay-ms", type=int, default=350
-    )
-    runtime_run_parser.add_argument(
-        "--timeout-seconds", type=int, default=90
-    )
+    configure_runtime_run_parser(runtime_run_parser)
     runtime_run_parser.set_defaults(handler=run_print)
+
+    guarded_run_parser = commands.add_parser("guarded-run-print")
+    configure_runtime_run_parser(guarded_run_parser)
+    guarded_run_parser.add_argument(
+        "--discovery-timeout-seconds",
+        type=int,
+        default=10,
+    )
+    guarded_run_parser.set_defaults(handler=guarded_run_print)
 
     runtime_postflight_parser = commands.add_parser("runtime-postflight")
     runtime_postflight_parser.add_argument("--workspace", required=True)

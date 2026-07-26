@@ -41,7 +41,8 @@
             "plans/custom-agents/BEHAVIOR_CONTRACT.md",
             "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1B.md",
             "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1C.md",
-            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1D.md"
+            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1D.md",
+            "plans/custom-agents/BEHAVIOR_CONTRACT_PHASE1E.md"
           ]
         },
         "version": {
@@ -49,7 +50,8 @@
             "2026-07-26.phase1",
             "2026-07-26.phase1b",
             "2026-07-26.phase1c",
-            "2026-07-26.phase1d"
+            "2026-07-26.phase1d",
+            "2026-07-26.phase1e"
           ]
         }
       }

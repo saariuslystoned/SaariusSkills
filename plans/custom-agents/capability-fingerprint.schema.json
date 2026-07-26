@@ -158,7 +158,13 @@
           "enum": ["absolute-environment", "exact-commit-copy"]
         },
         "profile_quarantine": {"const": "before-model-write"},
-        "raw_output_policy": {"const": "digest-then-unlink"}
+        "raw_output_policy": {"const": "digest-then-unlink"},
+        "selection_guard": {
+          "const": "exact-name-occurrence-count-before-model"
+        },
+        "discovery_output_policy": {
+          "const": "digest-in-memory-not-retained"
+        }
       }
     },
     "budget": {
