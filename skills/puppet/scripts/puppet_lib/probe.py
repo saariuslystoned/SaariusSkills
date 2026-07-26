@@ -1494,45 +1494,46 @@ def run_probe(
                     raise IdentityError(
                         "subscription profile authority is unavailable before target start"
                     )
-                refreshed_context, refreshed_status = (
-                    _subscription_profile_preflight_fn(
-                        profile_root=subscription_context.profile_root,
+                else:
+                    refreshed_context, refreshed_status = (
+                        _subscription_profile_preflight_fn(
+                            profile_root=subscription_context.profile_root,
+                            expected_target=target,
+                            expected_executable_path=manifest.raw["executable"][
+                                "resolved_path"
+                            ],
+                        )
+                    )
+                    refreshed_binding = build_subscription_launch_binding(
+                        refreshed_context, refreshed_status
+                    )
+                    validate_subscription_launch_binding(
+                        refreshed_binding,
                         expected_target=target,
-                        expected_executable_path=manifest.raw["executable"][
-                            "resolved_path"
-                        ],
+                        require_logged_in=True,
                     )
-                )
-                refreshed_binding = build_subscription_launch_binding(
-                    refreshed_context, refreshed_status
-                )
-                validate_subscription_launch_binding(
-                    refreshed_binding,
-                    expected_target=target,
-                    require_logged_in=True,
-                )
-                refreshed_environment, refreshed_identity = build_launch_identity(
-                    target=target,
-                    repo=launch_repo,
-                    argv=argv,
-                    source_environment=refreshed_context.source_environment,
-                    bindings=refreshed_context.bindings,
-                    admitted_lane_root=refreshed_context.profile_root,
-                )
-                manifest.verify_launch_execution_environment(refreshed_environment)
-                if (
-                    refreshed_binding != subscription_binding
-                    or refreshed_environment != launch_environment
-                    or refreshed_identity != launch_identity
-                ):
-                    raise IdentityError(
-                        "subscription profile authority changed before target start"
+                    refreshed_environment, refreshed_identity = build_launch_identity(
+                        target=target,
+                        repo=launch_repo,
+                        argv=argv,
+                        source_environment=refreshed_context.source_environment,
+                        bindings=refreshed_context.bindings,
+                        admitted_lane_root=refreshed_context.profile_root,
                     )
-                refreshed = TargetLaunch(
-                    argv=list(argv),
-                    environment=refreshed_environment,
-                    launch_identity=refreshed_identity,
-                )
+                    manifest.verify_launch_execution_environment(refreshed_environment)
+                    if (
+                        refreshed_binding != subscription_binding
+                        or refreshed_environment != launch_environment
+                        or refreshed_identity != launch_identity
+                    ):
+                        raise IdentityError(
+                            "subscription profile authority changed before target start"
+                        )
+                    refreshed = TargetLaunch(
+                        argv=list(argv),
+                        environment=refreshed_environment,
+                        launch_identity=refreshed_identity,
+                    )
             target_launch_attempted = True
             return refreshed
 

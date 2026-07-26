@@ -20,6 +20,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import puppet_lib.probe as puppet_probe  # noqa: E402
+import puppet_lib.agy_launch as agy_launch_module  # noqa: E402
 import adapter_lab as puppet_adapter_lab  # noqa: E402
 from puppet_lib import codex_workspace_plane as codex_workspace_module  # noqa: E402
 from puppet_lib.adapters import adapter_for  # noqa: E402
@@ -89,24 +90,32 @@ def manifest_value(target: str = "codex"):
     executable = Path("/bin/cat").resolve(strict=True)
     details = executable.stat()
     permission_flags = []
+    sandbox_flags = []
     project_isolation_flags = []
     if target == "agy":
         permission_flags = ["--dangerously-skip-permissions"]
+        sandbox_flags = ["--sandbox=false"]
         project_isolation_flags = ["--new-project"]
     mapping = {
         "complete": True,
         "launch_argv": (
-            [str(executable)]
-            + ([] if target == "agy" else ["-"])
-            + permission_flags
-            + project_isolation_flags
+            [
+                str(executable),
+                "--dangerously-skip-permissions",
+                "--sandbox=false",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ]
+            if target == "agy"
+            else [str(executable), "-"]
         ),
         "permission_declared": True,
         "permission_flags": permission_flags,
         "prompt_transport": PROMPT_TRANSPORT,
         "prompt_transport_declared": True,
         "sandbox_disable_declared": True,
-        "sandbox_flags": [],
+        "sandbox_flags": sandbox_flags,
         "project_isolation_declared": True,
         "project_isolation_flags": project_isolation_flags,
         "session_profiles": session_profiles_for(target),
@@ -763,38 +772,60 @@ def execute(
     subscription_preflight_fn=None,
 ):
     subscription_root = files["subscription_profile"]
-    context = subscription_profile_launch_context(
-        profile_root=subscription_root,
-        expected_target=target,
-        expected_executable_path=files["raw"]["executable"]["resolved_path"],
-    )
-    status = {
-        "schema": STATUS_SCHEMA,
-        "target": target,
-        "profile_root": str(context.profile_root),
-        "login_state": "logged_in",
-        "method": {
-            "codex": "chatgpt",
-            "claude": "claude.ai",
-            "cursor": "private_file_store",
-            "grok": "private_grok_home",
-        }[target],
-        "status_exit": 0,
-        "raw_output_retained": False,
-        "login_performed": False,
-        "model_launched": False,
-    }
-    if target == "claude":
-        status["provider"] = "firstParty"
-    if target == "grok":
-        status["default_model"] = "grok-4.5"
-
-    if subscription_preflight_fn is None:
+    if target == "agy":
+        context = None
+        status = None
 
         def subscription_preflight(**_kwargs):
-            return context, status
+            raise AssertionError("AGY must not request a private subscription profile")
     else:
-        subscription_preflight = subscription_preflight_fn
+        context = subscription_profile_launch_context(
+            profile_root=subscription_root,
+            expected_target=target,
+            expected_executable_path=files["raw"]["executable"]["resolved_path"],
+        )
+        status = {
+            "schema": STATUS_SCHEMA,
+            "target": target,
+            "profile_root": str(context.profile_root),
+            "login_state": "logged_in",
+            "method": {
+                "codex": "chatgpt",
+                "claude": "claude.ai",
+                "cursor": "private_file_store",
+                "grok": "private_grok_home",
+            }[target],
+            "status_exit": 0,
+            "raw_output_retained": False,
+            "login_performed": False,
+            "model_launched": False,
+        }
+        if target == "claude":
+            status["provider"] = "firstParty"
+        if target == "grok":
+            status["default_model"] = "grok-4.5"
+
+        if subscription_preflight_fn is None:
+
+            def subscription_preflight(**_kwargs):
+                return context, status
+        else:
+            subscription_preflight = subscription_preflight_fn
+
+    def agy_status_preflight(*, executable_path, cwd, environment, **_kwargs):
+        authority, _ = agy_launch_module._shared_launch_authority(
+            executable_path=executable_path,
+            cwd=cwd,
+            environment=environment,
+        )
+        return {
+            "schema": agy_launch_module.AGY_SHARED_AUTH_STATUS_SCHEMA,
+            "target": "agy",
+            "route": "shared_vendor_auth_config_route",
+            "status_preflight": "models_command_verified",
+            "limitation": agy_launch_module.AGY_SHARED_VENDOR_AUTH_LIMITATION,
+            **authority,
+        }
 
     with (
         patch(
@@ -804,6 +835,16 @@ def execute(
         patch(
             "puppet_lib.matched_control_signal.controller_authority_root",
             return_value=files["authority"],
+        ),
+        patch.object(
+            puppet_probe,
+            "run_agy_status_preflight",
+            side_effect=agy_status_preflight,
+        ),
+        patch.object(
+            agy_launch_module,
+            "run_agy_status_preflight",
+            side_effect=agy_status_preflight,
         ),
     ):
         return run_probe(
@@ -822,7 +863,9 @@ def execute(
             goal_repo=files["goal_repo"],
             expected_campaign_id=files["campaign_id"],
             expected_goal=expected_goal or files["expected_goal"],
-            subscription_profile_root=subscription_root,
+            subscription_profile_root=(
+                None if target == "agy" else subscription_root
+            ),
             plane_descriptor=plane_descriptor,
             timeout=timeout,
             halt_timeout=0.1,
@@ -900,6 +943,30 @@ def recover_execute(
 
 
 class ProbeTests(unittest.TestCase):
+    def test_agy_shared_auth_probe_revalidates_without_private_profile_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files = controller_inputs(root, target="agy")
+            fake = FakeTmux(root / "fake-tmux")
+
+            result = execute(
+                files,
+                fake,
+                target="agy",
+                run_id="probe-agy-shared-auth",
+            )
+
+            self.assertEqual(result["result"], "accepted")
+            self.assertEqual(
+                fake.launch_argv,
+                files["raw"]["yolo_mapping"]["launch_argv"],
+            )
+            self.assertFalse(files["subscription_profile"].exists())
+            self.assertEqual(
+                fake.launch_environment["HOME"],
+                str(Path.home().resolve(strict=True)),
+            )
+
     def test_codex_direct_worktree_probe_receipt_and_qualification_close_exactly(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
