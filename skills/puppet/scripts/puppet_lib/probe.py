@@ -68,6 +68,10 @@ from .contracts import (
     TARGETS,
 )
 from .census import adapter_implementation_fingerprint, census_target
+from .claude_paired_qualification import (
+    build_claude_control_source,
+    validate_claude_control_source,
+)
 from .errors import (
     ConflictError,
     IdentityError,
@@ -194,12 +198,26 @@ def _session_id(target: str, run_id: str) -> str:
     return validate_identifier("probe-%s-%s" % (target, digest), "session")
 
 
+def _claude_activation_receipt_path(proof_root: Path, path: Path) -> Path:
+    candidate = Path(path).resolve(strict=True)
+    probes_root = ensure_within(
+        proof_root / "probes", proof_root, must_exist=True
+    )
+    ensure_within(candidate, probes_root, must_exist=True)
+    if candidate.name != "receipt.json" or candidate.parent.parent != probes_root:
+        raise ValidationError(
+            "Claude activation receipt must be a canonical run receipt in this proof root"
+        )
+    return candidate
+
+
 def _validated_mapping(
     manifest_path: Path,
     mapping_path: Path,
     *,
     target: str,
     allow_claude_activation: bool = False,
+    allow_claude_control: bool = False,
     allow_codex_worktree_probe: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
     census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
@@ -267,7 +285,12 @@ def _validated_mapping(
                 )
             )
         )
-        if not codex_worktree_exception and (
+        claude_control_exception = (
+            allow_claude_control
+            and target == "claude"
+            and mapping == expected_activation_mapping
+        )
+        if not codex_worktree_exception and not claude_control_exception and (
             not allow_claude_activation
             or target != "claude"
             or mapping != expected_activation_mapping
@@ -853,6 +876,7 @@ def run_probe(
     expected_goal: Dict[str, str],
     subscription_profile_root: Optional[Path] = None,
     plane_descriptor: Optional[Path] = None,
+    paired_activation_receipt: Optional[Path] = None,
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
@@ -924,14 +948,38 @@ def run_probe(
         )
     if codex_worktree_descriptor and target != "codex":
         raise ValidationError("Codex worktree descriptor target changed")
+    if paired_activation_receipt is not None and (
+        target != "claude" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired activation source is limited to an ordinary Claude control"
+        )
+    claude_control_probe = paired_activation_receipt is not None
+    if paired_activation_receipt is not None:
+        paired_activation_receipt = _claude_activation_receipt_path(
+            proof_root, paired_activation_receipt
+        )
     manifest, mapping, argv = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
         allow_claude_activation=claude_plane_descriptor,
+        allow_claude_control=claude_control_probe,
         allow_codex_worktree_probe=codex_worktree_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+    )
+    claude_control_source = (
+        build_claude_control_source(
+            paired_activation_receipt,
+            verify_receipt_fn=verify_qualification_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+            server_process_fn=_server_process_birth_fn,
+            tmux_factory=_tmux_factory,
+        )
+        if claude_control_probe
+        else None
     )
     authorization = validate_campaign_authorization(
         authorization_path,
@@ -945,6 +993,15 @@ def run_probe(
         expected_campaign_id=expected_campaign_id,
         expected_goal=expected_goal,
     )
+    if claude_control_source is not None and (
+        claude_control_source["controller"] != controller
+        or claude_control_source["campaign_id"] != authorization["campaign_id"]
+        or claude_control_source["goal_fingerprint"]
+        != goal_verification["goal_fingerprint"]
+    ):
+        raise IdentityError(
+            "Claude ordinary control authority differs from its activation source"
+        )
     subscription_binding: Optional[Dict[str, Any]]
     if target == "agy":
         reject_agy_private_profile_root(subscription_profile_root)
@@ -1031,6 +1088,8 @@ def run_probe(
         "result": None,
         "blocker": None,
     }
+    if claude_control_source is not None:
+        state["claude_control_source"] = claude_control_source
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
@@ -1115,6 +1174,14 @@ def run_probe(
             evidence["subscription_profile_sha256"] = sha256_file(
                 subscription_profile_path, max_bytes=131072
             )
+            if (
+                claude_control_source is not None
+                and claude_control_source["subscription_profile_sha256"]
+                != evidence["subscription_profile_sha256"]
+            ):
+                raise IdentityError(
+                    "Claude ordinary control does not use the activation subscription profile"
+                )
         if plane_descriptor_value is not None:
             atomic_write_json(
                 plane_descriptor_snapshot_path,
@@ -2501,6 +2568,7 @@ def recover_probe(
     expected_goal: Dict[str, str],
     run_id: str,
     plane_descriptor: Optional[Path] = None,
+    paired_activation_receipt: Optional[Path] = None,
     halt_timeout: float = 10.0,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -2579,14 +2647,38 @@ def recover_probe(
         )
     if codex_worktree_descriptor and target != "codex":
         raise ValidationError("Codex worktree descriptor target changed")
+    if paired_activation_receipt is not None and (
+        target != "claude" or plane_descriptor_value is not None
+    ):
+        raise ValidationError(
+            "paired activation source is limited to an ordinary Claude control"
+        )
+    claude_control_probe = paired_activation_receipt is not None
+    if paired_activation_receipt is not None:
+        paired_activation_receipt = _claude_activation_receipt_path(
+            proof_root, paired_activation_receipt
+        )
     manifest, _, _ = _validated_mapping(
         manifest_path,
         mapping_path,
         target=target,
         allow_claude_activation=claude_plane_descriptor,
+        allow_claude_control=claude_control_probe,
         allow_codex_worktree_probe=codex_worktree_descriptor,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+    )
+    claude_control_source = (
+        build_claude_control_source(
+            paired_activation_receipt,
+            verify_receipt_fn=verify_qualification_receipt,
+            authority_root=_authority_root,
+            current_manifest=manifest,
+            server_process_fn=_server_process_birth_fn,
+            tmux_factory=_tmux_factory,
+        )
+        if claude_control_probe
+        else None
     )
     authorization = validate_campaign_authorization(
         authorization_path,
@@ -2609,6 +2701,15 @@ def recover_probe(
     )
     evidence = read_json(evidence_path, max_bytes=131072, reject_sensitive_fields=True)
     evidence = validate_qualification_evidence_schema(evidence)
+    persisted_control_source = state.get("claude_control_source")
+    if persisted_control_source is not None:
+        persisted_control_source = validate_claude_control_source(
+            persisted_control_source
+        )
+    if persisted_control_source != claude_control_source:
+        raise IdentityError(
+            "Claude ordinary-control activation source changed during recovery"
+        )
     instruction_path = ensure_within(
         run_root / "effective-instructions.json",
         run_root,

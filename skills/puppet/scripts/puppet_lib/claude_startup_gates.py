@@ -187,17 +187,21 @@ def _public_reduction(
 
 def _selected_choice(normalized: str, gate: str) -> Optional[str]:
     if gate == "workspace_trust":
-        if re.search(r"❯\s*1\.\s*Yes, I trust this folder", normalized):
+        yes = re.search(r"❯\s*1\.\s*Yes, I trust this folder", normalized) is not None
+        no = re.search(r"❯\s*2\.\s*No, exit", normalized) is not None
+        if yes == no:
+            return "unresolved"
+        if yes:
             return "yes"
-        if re.search(r"❯\s*2\.\s*No, exit", normalized):
-            return "no"
-        return "unresolved"
+        return "no"
     if gate == "bypass_warning":
-        if re.search(r"❯\s*1\.\s*No, exit", normalized):
-            return "no"
-        if re.search(r"❯\s*2\.\s*Yes, I accept", normalized):
+        no = re.search(r"❯\s*1\.\s*No, exit", normalized) is not None
+        yes = re.search(r"❯\s*2\.\s*Yes, I accept", normalized) is not None
+        if yes == no:
+            return "unresolved"
+        if yes:
             return "yes"
-        return "unresolved"
+        return "no"
     return None
 
 
@@ -381,6 +385,17 @@ def reduce_captured_claude_startup_screen(
     gate = matches[0]
     selected = _selected_choice(normalized, gate)
     _, worktree_match = _trust_matches(text, expected_worktree=worktree)
+    if gate in {"workspace_trust", "bypass_warning"} and selected == "unresolved":
+        return _public_reduction(
+            ok=False,
+            gate=gate,
+            selected=selected,
+            pane_pid=pane_pid,
+            worktree_match=worktree_match,
+            screen_bytes=len(captured),
+            screen_sha256=screen_sha256,
+            error="screen contains an unresolved confirmation gate",
+        )
     if gate == "workspace_trust" and not worktree_match:
         return _public_reduction(
             ok=False,

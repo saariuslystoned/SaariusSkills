@@ -72,6 +72,32 @@ adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
 ```
 
+Claude's incomplete census tuple requires a controller-owned pair. After the
+activation probe, run the ordinary control with
+`--paired-activation-receipt ROOT/probes/ACTIVATION/receipt.json` and no plane
+descriptor. While each exact probe is live and has one read-only viewer, record
+only its structural native-view identity:
+
+```text
+adapter_lab.py observe-claude-view --proof-root ROOT --run-id RUN
+```
+
+Then create the fixed paired receipt:
+
+```text
+adapter_lab.py pair-claude --manifest MANIFEST --mapping MAPPING \
+  --activation-receipt ROOT/probes/ACTIVATION/receipt.json \
+  --control-receipt ROOT/probes/CONTROL/receipt.json
+adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
+  --receipt ROOT/probes/CONTROL/claude-paired-receipt.json \
+  --out QUALIFIED_MANIFEST
+```
+
+The pair command re-verifies exact receipt, controller-ledger, profile,
+process, tmux, workspace, default-model-unavailable, structural view, and empty
+pre/post population evidence. It captures no bodies. Activation-only and
+unpaired-control receipts are intentionally non-promotable.
+
 On interruption, replace `probe --profile ...` with `recover`, retain the
 shared identity arguments, omit `--subscription-profile-root`, and supply the
 original required `--run-id`. Recovery never relaunches a target. There is no
@@ -81,6 +107,8 @@ observation receipt and refresh its state hash from the canonical controller
 journal. An incomplete run is either exactly halted and permanently marked
 non-qualifying, or remains fenced when control delivery or identity is
 ambiguous.
+Claude ordinary-control recovery must also repeat the exact
+`--paired-activation-receipt`.
 
 Qualification is capability-granular. The shared two-turn probe verifies
 `launch`, `send`, `status`, `wait`, `checkpoint`, and `halt`. It does not prove

@@ -16,13 +16,22 @@ from puppet_lib.adapter_manifest import (
     verify_qualification_receipt,
 )
 from puppet_lib.agy_launch import require_agy_regular_launch_authority
+from puppet_lib.authority import attest_qualification
 from puppet_lib.census import (
     CENSUS_SCHEMA_VERSION,
     adapter_implementation_fingerprint,
     census_many,
+    census_target,
 )
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
 from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
+from puppet_lib.claude_paired_qualification import (
+    claude_qualified_mapping,
+    create_claude_pair,
+    observe_native_view,
+)
+from puppet_lib.registry import process_birth_identity
+from puppet_lib.tmux import TmuxController
 from puppet_lib.safety import (
     atomic_write_json,
     read_json,
@@ -96,6 +105,7 @@ def _probe(args):
         expected_goal=expected_goal,
         subscription_profile_root=args.subscription_profile_root,
         plane_descriptor=args.plane_descriptor,
+        paired_activation_receipt=args.paired_activation_receipt,
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
@@ -121,6 +131,7 @@ def _recover(args):
         expected_goal=expected_goal,
         run_id=args.run_id,
         plane_descriptor=args.plane_descriptor,
+        paired_activation_receipt=args.paired_activation_receipt,
         halt_timeout=args.halt_timeout,
     )
 
@@ -144,6 +155,50 @@ def _verify(args):
     }
 
 
+def _claude_candidate(manifest_path: Path, mapping_path: Path) -> AdapterManifest:
+    base = AdapterManifest.from_path(manifest_path)
+    if base.target != "claude" or not base.raw["doctor_only"]:
+        raise ValidationError("Claude pair input must be a doctor-only Claude manifest")
+    raw = copy.deepcopy(base.raw)
+    raw["yolo_mapping"] = read_json(mapping_path, max_bytes=65536)
+    candidate = AdapterManifest.from_dict(raw)
+    implementation_fingerprint = adapter_implementation_fingerprint()
+    observed = census_target("claude", implementation_fingerprint)
+    for name in (
+        "platform",
+        "executable",
+        "execution",
+        "adapter_fingerprint",
+        "protocol_fingerprint",
+        "yolo_mapping",
+    ):
+        if observed.raw[name] != candidate.raw[name]:
+            raise ValidationError(
+                "Claude pair input differs from fresh zero-agent census: %s" % name
+            )
+    return candidate
+
+
+def _observe_claude_view(args):
+    return observe_native_view(
+        proof_root=args.proof_root,
+        run_id=args.run_id,
+        tmux_factory=TmuxController,
+        process_birth_fn=process_birth_identity,
+    )
+
+
+def _pair_claude(args):
+    candidate = _claude_candidate(args.manifest, args.mapping)
+    return create_claude_pair(
+        activation_receipt_path=args.activation_receipt,
+        control_receipt_path=args.control_receipt,
+        verify_receipt_fn=verify_qualification_receipt,
+        attest_receipt_fn=attest_qualification,
+        current_manifest=candidate,
+    )
+
+
 def _qualify(args):
     base = AdapterManifest.from_path(args.manifest)
     if not base.raw["doctor_only"]:
@@ -156,6 +211,10 @@ def _qualify(args):
         raise UnsupportedError(
             "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
         )
+    if base.target == "claude" and receipt.get("claude_pairing") is None:
+        raise UnsupportedError(
+            "ordinary Claude control proof cannot qualify without a controller-verified activation/control pair"
+        )
     mapping = read_json(args.mapping, max_bytes=65536)
     if base.target == "codex" and mapping.get("complete") is False:
         if receipt.get("workspace_isolation") is None:
@@ -165,6 +224,8 @@ def _qualify(args):
         from puppet_lib.codex_workspace_plane import codex_qualified_mapping
 
         mapping = codex_qualified_mapping(mapping)
+    if base.target == "claude" and mapping.get("complete") is False:
+        mapping = claude_qualified_mapping(mapping)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
     raw["capabilities"] = {
@@ -232,6 +293,13 @@ def build_parser():
         ),
     )
     probe_parser.add_argument("--plane-descriptor", type=Path)
+    probe_parser.add_argument(
+        "--paired-activation-receipt",
+        type=Path,
+        help=(
+            "accepted activation-only Claude receipt that authorizes this ordinary control"
+        ),
+    )
     probe_parser.set_defaults(handler=_probe)
     recover_parser = commands.add_parser(
         "recover",
@@ -252,7 +320,24 @@ def build_parser():
     recover_parser.add_argument("--run-id", required=True)
     recover_parser.add_argument("--halt-timeout", type=float, default=10.0)
     recover_parser.add_argument("--plane-descriptor", type=Path)
+    recover_parser.add_argument("--paired-activation-receipt", type=Path)
     recover_parser.set_defaults(handler=_recover)
+    observe_parser = commands.add_parser(
+        "observe-claude-view",
+        help="record one live read-only Claude tmux client without pane capture",
+    )
+    observe_parser.add_argument("--proof-root", required=True, type=Path)
+    observe_parser.add_argument("--run-id", required=True)
+    observe_parser.set_defaults(handler=_observe_claude_view)
+    pair_parser = commands.add_parser(
+        "pair-claude",
+        help="attest one terminal activation/control pair after no-bleed verification",
+    )
+    pair_parser.add_argument("--manifest", required=True, type=Path)
+    pair_parser.add_argument("--mapping", required=True, type=Path)
+    pair_parser.add_argument("--activation-receipt", required=True, type=Path)
+    pair_parser.add_argument("--control-receipt", required=True, type=Path)
+    pair_parser.set_defaults(handler=_pair_claude)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--run", required=True, type=Path)
     verify_parser.set_defaults(handler=_verify)

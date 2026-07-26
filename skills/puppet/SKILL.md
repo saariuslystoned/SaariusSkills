@@ -289,6 +289,19 @@ separate ordinary control and paired no-bleed proof are accepted. Its terminal
 receipt must retain both matched-control artifacts as exact proof references;
 standalone verification rejoins them to the source-owned ready request and
 controller journals before returning the still-non-promotable lifecycle result.
+For the separately approved live Claude pair, run the ordinary control with
+`adapter_lab.py probe --paired-activation-receipt ACTIVATION_RECEIPT` and no
+plane descriptor. While each member is live, attach exactly one read-only
+controller-produced tmux view and record its structural identity with
+`adapter_lab.py observe-claude-view --proof-root ROOT --run-id RUN`. After both
+terminal receipts exist, `adapter_lab.py pair-claude --manifest MANIFEST
+--mapping MAPPING --activation-receipt ACTIVATION_RECEIPT --control-receipt
+CONTROL_RECEIPT` writes a fixed create-only paired receipt beside the control.
+Only that controller-attested pair may close Claude's incomplete mapping;
+activation-only and unpaired control receipts remain non-promotable. Repeat the
+same `--paired-activation-receipt` on linked-control recovery. These commands
+retain structural hashes only and never read or store pane, instruction,
+configuration, authentication, prompt, or reply bodies.
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before

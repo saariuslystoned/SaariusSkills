@@ -519,6 +519,95 @@ class ClaudeStartupGateReducerTests(unittest.TestCase):
             self.assertFalse(step["raw_retained"])
             self.assertIn("screen_sha256", step)
 
+    def test_exact_bypass_warning_selects_option_two_and_confirms(self):
+        tmux = FakeGateTmux(
+            [
+                _bypass_screen(selected="no").encode("utf-8"),
+                _bypass_screen(selected="yes").encode("utf-8"),
+                _ready_screen().encode("utf-8"),
+            ]
+        )
+        manifest = _adapter_manifest()
+        result = navigate_claude_startup_gates(
+            tmux,
+            manifest=manifest,
+            socket=Path("/tmp/fake.sock"),
+            session="probe-claude",
+            pane="%0",
+            expected_worktree=WORKTREE,
+            expected_pane_pid=PANE_PID,
+            launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+            process_alive_fn=lambda: True,
+            sleep_fn=lambda _interval: None,
+            timing=FAST_TIMING,
+        )
+        self.assertEqual(result["final_gate"], "ready")
+        self.assertEqual(tmux.keys_sent, ["Down", "Enter"])
+        self.assertEqual(result["steps"][0]["gate"], "bypass_warning")
+        self.assertEqual(result["steps"][0]["selected"], "no")
+
+    def test_ambiguous_bypass_selection_fails_in_reducer(self):
+        ambiguous = _bypass_screen(selected="no").replace(
+            "  2. Yes, I accept",
+            "❯ 2. Yes, I accept",
+        )
+        result = reduce_captured_claude_startup_screen(
+            ambiguous.encode("utf-8"),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["gate"], "bypass_warning")
+        self.assertEqual(result["selected"], "unresolved")
+        self.assertEqual(
+            result["error"],
+            "screen contains an unresolved confirmation gate",
+        )
+
+    def test_dead_exact_bypass_target_receives_no_keys(self):
+        tmux = FakeGateTmux([_bypass_screen(selected="no").encode("utf-8")])
+        manifest = _adapter_manifest()
+        observations = iter((True, False))
+        with self.assertRaisesRegex(IdentityError, "unavailable"):
+            navigate_claude_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+                process_alive_fn=lambda: next(observations),
+                sleep_fn=lambda _interval: None,
+                timing=FAST_TIMING,
+            )
+        self.assertEqual(tmux.keys_sent, [])
+
+    def test_stale_exact_bypass_pane_receives_no_keys(self):
+        class StalePaneTmux(FakeGateTmux):
+            def send_keys_verified(self, **kwargs):
+                del kwargs
+                raise IdentityError("tmux pane process identity changed")
+
+        tmux = StalePaneTmux([_bypass_screen(selected="no").encode("utf-8")])
+        manifest = _adapter_manifest()
+        with self.assertRaisesRegex(IdentityError, "pane process identity changed"):
+            navigate_claude_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-claude",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=manifest.raw["yolo_mapping"]["launch_argv"],
+                process_alive_fn=lambda: True,
+                sleep_fn=lambda _interval: None,
+                timing=FAST_TIMING,
+            )
+        self.assertEqual(tmux.keys_sent, [])
+
     def test_persisted_ready_profile_skips_intermediate_gates(self):
         tmux = FakeGateTmux([_ready_screen().encode("utf-8")])
         manifest = _adapter_manifest()

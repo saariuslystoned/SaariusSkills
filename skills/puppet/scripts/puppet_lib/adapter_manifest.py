@@ -399,6 +399,7 @@ _RECEIPT_FIELDS = {
     "proof_refs",
     "controller_attestation",
 }
+_PAIRED_RECEIPT_FIELDS = _RECEIPT_FIELDS | {"claude_pairing"}
 
 _ACCEPTED_EVIDENCE_FIELDS = {
     "schema_version",
@@ -839,8 +840,15 @@ def verify_qualification_receipt(
         )
     if receipt_schema != QUALIFICATION_RECEIPT_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification receipt schema")
-    if set(receipt) != _RECEIPT_FIELDS:
+    if set(receipt) not in (_RECEIPT_FIELDS, _PAIRED_RECEIPT_FIELDS):
         raise ValidationError("qualification receipt fields do not match schema")
+    claude_pairing = receipt.get("claude_pairing")
+    if claude_pairing is not None:
+        from .claude_paired_qualification import validate_pairing_shape
+
+        if receipt.get("target") != "claude":
+            raise ValidationError("paired qualification is supported only for Claude")
+        claude_pairing = validate_pairing_shape(claude_pairing)
     if (
         receipt.get("kind") != "real_harness_conformance"
         or receipt.get("result") != "accepted"
@@ -921,6 +929,14 @@ def verify_qualification_receipt(
             current_mapping,
             workspace_isolation=workspace_isolation,
         )
+    if receipt["target"] == "claude":
+        from .claude_paired_qualification import (
+            claude_probe_mapping_from_qualified,
+            is_claude_pair_mapping_closure,
+        )
+
+        if is_claude_pair_mapping_closure(current_mapping):
+            current_mapping = claude_probe_mapping_from_qualified(current_mapping)
     current_identities = {
         "executable_fingerprint": current["executable"]["sha256"],
         "execution_fingerprint": current["execution"]["execution_fingerprint"],
@@ -954,7 +970,12 @@ def verify_qualification_receipt(
         or terminal_state.get("phase") != "complete"
         or terminal_state.get("result") != "accepted"
         or terminal_state.get("blocker") is not None
-        or terminal_state.get("receipt_sha256") != sha256_file(path, max_bytes=131072)
+        or terminal_state.get("receipt_sha256")
+        != (
+            claude_pairing["control_receipt"]["sha256"]
+            if claude_pairing is not None
+            else sha256_file(path, max_bytes=131072)
+        )
     ):
         raise ValidationError(
             "qualification receipt lacks its terminal lifecycle commit"
@@ -1883,6 +1904,19 @@ def verify_qualification_receipt(
         or halt.get("target_pid") != evidence.get("process", {}).get("pid")
     ):
         raise ValidationError("qualification halt identity mismatch")
+    if claude_pairing is not None:
+        from .claude_paired_qualification import verify_claude_pairing
+
+        verify_claude_pairing(
+            claude_pairing,
+            paired_receipt=receipt,
+            paired_receipt_path=path,
+            verify_receipt_fn=verify_qualification_receipt,
+            authority_root=_authority_root,
+            current_manifest=current_manifest,
+            server_process_fn=_server_process_fn,
+            tmux_factory=_tmux_factory,
+        )
     return receipt
 
 
@@ -2453,6 +2487,10 @@ class AdapterManifest:
             raise UnsupportedError(
                 "activation lifecycle proof cannot qualify a live adapter without matched no-bleed evidence"
             )
+        if self.target == "claude" and receipt.get("claude_pairing") is None:
+            raise UnsupportedError(
+                "ordinary Claude control proof cannot qualify without a controller-verified activation/control pair"
+            )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
         if receipt.get("session_profile") != qualification["session_profile"]:
@@ -2535,6 +2573,24 @@ class AdapterManifest:
                 raise ValidationError(
                     "Codex qualified mapping lacks terminal workspace isolation"
                 )
+        if self.target == "claude":
+            from .claude_paired_qualification import (
+                claude_probe_mapping_from_qualified,
+                is_claude_pair_mapping_closure,
+            )
+
+            if not is_claude_pair_mapping_closure(mapping_committed_by_receipt):
+                raise ValidationError(
+                    "Claude qualified mapping lacks paired no-bleed closure"
+                )
+            pairing = receipt.get("claude_pairing")
+            if not isinstance(pairing, dict) or pairing.get(
+                "qualified_mapping_sha256"
+            ) != sha256_bytes(canonical_json_bytes(mapping_committed_by_receipt)):
+                raise IdentityError("Claude qualified mapping pair binding changed")
+            mapping_committed_by_receipt = claude_probe_mapping_from_qualified(
+                mapping_committed_by_receipt
+            )
         if receipt.get("yolo_mapping_sha256") != sha256_bytes(
             canonical_json_bytes(mapping_committed_by_receipt)
         ):

@@ -3,8 +3,11 @@
 Scope: static command census, source/test inspection, and no-live-lane planning under
 `plans/puppet/codex-goal-regular-qualification.md`. The bounded startup-gate
 reducer and durable-profile ready path are implemented and component/session
-tested; a fully authenticated live matched-pair launch and its promoted Pass-B
-qualification receipt are still pending.
+tested. The public controller path for a linked ordinary control, structural
+native-view observations, paired no-bleed verification, and a promotable paired
+receipt is implemented. A fully authenticated live matched pair and its
+promoted Pass-B receipt are still pending; this source change launched neither
+member.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -60,10 +63,11 @@ qualification receipt are still pending.
 
 ### Hypotheses / evidence gaps
 
-- Static census cannot resolve the default model. A sanitized `SessionStart`
-  hook exposes the selected model, source, permission mode, and cwd without
-  reading a transcript. Effective effort is not exposed and remains
-  `unavailable`.
+- Static census cannot resolve the default model or effort. The paired
+  qualification path proves only that both launch plans selected
+  `model=default` and `effort=default`, supplied neither selector flag, and
+  retained `resolved_identity=unavailable` and `effort=unavailable`. It does
+  not invent or persist a model name.
 - `/loop` runtime semantics are unproven and deferred from this regular lane.
 - Workspace / project addendum behavior is not proven from `--help` (`--settings`,
   `--setting-sources`, and `--session-id` are declared, but bleed boundaries are not proved).
@@ -103,16 +107,14 @@ Official surface references: `https://code.claude.com/docs/en/memory`,
 `https://code.claude.com/docs/en/cli-usage`, and the installed exact-version
 `claude --help` output.
 
-## 3) Default-model observation plan
+## 3) Default-model-unavailable evidence
 
-1. Use a unique lane-owned `CLAUDE_CONFIG_DIR`, a deterministic technical
-   settings file, and `--setting-sources user,project,local`.
-2. Run the interactive regular TUI with no explicit `--model` or `--effort`.
-3. A controller-owned `SessionStart` hook records only session ID, source,
-   model, permission mode, cwd, and optional agent type. It discards transcript
-   paths and emits no output.
-4. Record the observed model exactly and effort as `unavailable`; never pin a
-   different model merely because the default is opaque.
+Both members use the same authenticated private subscription profile and the
+ordinary census launch vector. The verifier requires the instruction manifests'
+runtime binding to be exactly `{model: default, effort: default}`, their model
+observation to remain `current_default/unavailable/unavailable`, and both launch
+vectors to omit `--model` and `--effort`. This proves use of the current
+unresolved default without reading UI text, config bodies, or a transcript.
 
 ## 4) Regular launch / resume / steer / halt / no-bleed matrix
 
@@ -258,16 +260,14 @@ leaves delivery, runtime scan, qualification, and promotion unauthorized.
 7. Revalidate the current manifest, execution files, adapter/protocol hashes,
    descriptor, config/workspace identities, and interrupted recovery state at
    verification time. Any missing, ambiguous, or mixed run fails closed.
-8. Qualify direct and cockpit entry modes as separate matched pairs. The current
-   candidate may name either mode only to plan evidence; it proves neither.
-9. Keep observed model/provider facts symbolic and unqualified until the live
-   sanitized controller hook is journal-joined. Never select a model to make the
+8. The public pair covers the exact controller probe entry path. Direct
+   out-of-controller Claude launches remain outside this receipt scope.
+9. Keep model/provider facts unavailable. Never select a model to make the
    proof easier.
 
-Only after the distinct ordinary control, paired no-bleed verifier, census/halt
-joins, observed model facts, and both entry-mode proofs exist may a new receipt
-scope be proposed for `adapter_lab qualify`; the current command must continue
-rejecting every activation receipt.
+The source path now exists, but promotion still requires real accepted inputs.
+`adapter_lab qualify` continues to reject every activation-only receipt and
+every unpaired ordinary-control receipt.
 
 - Hard blockers:
   - No live hook proof yet; the default model remains unqualified.
@@ -317,8 +317,7 @@ by probe, adapter, session, or qualification paths.
 This source-only packet is durable blocker evidence, not a Claude run. The next
 irreducible gate remains an authenticated private-profile runtime pair: one
 activated fixture followed by a distinct ordinary control under the same
-observed default-model tuple, with paired no-bleed, entry-path, and native-TUI
-proof before any qualification scope can be proposed.
+default-model-unavailable tuple.
 
 The public operator plan now projects that source truth without consuming or
 constructing an observation. An exact doctor-only, unqualified Claude manifest
@@ -332,9 +331,45 @@ a human-gated proposal under
 Claude auth/config state and exercises no observation, matched-control,
 profile, runtime, process, tmux, or viewer path.
 
-The bounded startup-gate reducer and durable-profile ready path above are live
+### Public paired qualification sequence
+
+The controller-owned command path is:
+
+1. Run the existing Claude activation probe with `--plane-descriptor`.
+2. While that exact run is live, attach one read-only native tmux viewer using
+   the run state's controller-produced `attach_command`, then run
+   `adapter_lab.py observe-claude-view --proof-root ROOT --run-id ACTIVATION`.
+   The create-only observation stores client/process/tmux hashes, joins them to
+   the fixed controller journal, and explicitly records that no body capture
+   occurred.
+3. Run the ordinary Claude probe with no plane descriptor and
+   `--paired-activation-receipt ROOT/probes/ACTIVATION/receipt.json`. The
+   activation receipt, campaign, goal, controller, profile, and process hash
+   become an immutable control-state binding before launch.
+4. Capture the same structural read-only view observation for the control run.
+5. Run:
+
+   ```text
+   adapter_lab.py pair-claude \
+     --manifest MANIFEST --mapping MAPPING \
+     --activation-receipt ROOT/probes/ACTIVATION/receipt.json \
+     --control-receipt ROOT/probes/CONTROL/receipt.json
+   ```
+
+   The fixed output is
+   `ROOT/probes/CONTROL/claude-paired-receipt.json`. It is emitted only after
+   both source receipts reverify; their identities, profile, default selection,
+   empty pre/post populations, distinct process/tmux/workspace identities,
+   read-only native views, source binding, and controller-ledger order match.
+6. Supply only that paired receipt to `adapter_lab.py qualify`.
+
+Recovery of the linked control must repeat
+`--paired-activation-receipt` with the same activation receipt. Pair and view
+artifacts are create-only. No command captures pane text, prompt/reply bodies,
+instruction bodies, config bodies, or auth material.
+
+The bounded startup-gate reducer and durable-profile ready path remain live
 component and session evidence for input readiness and enrollment reuse. They do
-not stand in for the promoted Pass-B qualification receipt. Further source glue
-toward that receipt is **NO_SHIP**: the next admissible work is the live,
-human-approved authenticated matched pair described above, and source-only code
-must not substitute for that evidence.
+not stand in for the promoted Pass-B qualification receipt. The remaining work
+is the live, human-approved authenticated pair above; source-only code does not
+substitute for those inputs.
