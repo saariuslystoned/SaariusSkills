@@ -1388,6 +1388,9 @@ def verify_qualification_receipt(
                     raise IdentityError(
                         "qualification activation config is not the bound private profile"
                     )
+    expected_payload_argv_absent = not (
+        receipt["target"] == "cursor" and plane_activation is not None
+    )
     if (
         evidence.get("profile") != QUALIFICATION_PROFILE
         or evidence.get("session_profile") != receipt["session_profile"]
@@ -1397,7 +1400,7 @@ def verify_qualification_receipt(
         or evidence.get("startup_settle_seconds")
         != startup_settle_seconds_for(receipt["target"])
         or evidence.get("submit_settle_seconds") != SUBMIT_SETTLE_SECONDS
-        or evidence.get("payload_argv_absent") is not True
+        or evidence.get("payload_argv_absent") is not expected_payload_argv_absent
     ):
         raise ValidationError("qualification evidence transport contract is invalid")
     launch_identity = validate_public_launch_identity(

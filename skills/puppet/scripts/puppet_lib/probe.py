@@ -1770,6 +1770,7 @@ def run_probe(
                 launch_identity = cursor_activation_context["launch_identity"]
                 launch_plan = cursor_activation_context["admitted_launch_plan"]
                 admitted_lane_root = subscription_context.profile_root
+                evidence["payload_argv_absent"] = False
             else:
                 manifest.verify_launch_execution_environment(launch_environment)
                 launch_plan = build_admitted_launch_plan(
@@ -2375,20 +2376,33 @@ def run_probe(
                 raise IdentityError("native activation trigger identity is invalid")
         else:
             initial = CURSOR_NATIVE_TRIGGER
-            initial_payload = _payload(CURSOR_NATIVE_TRIGGER + "\n")
+            initial_payload = _payload(CURSOR_NATIVE_TRIGGER)
             if (
                 sha256_bytes(initial_payload) != CURSOR_NATIVE_TRIGGER_SHA256
                 or sha256_bytes(initial_payload)
                 == compiled.manifest["rendered_sha256"]
             ):
                 raise IdentityError("Cursor native activation trigger identity is invalid")
-        if any(
+        if cursor_activation_plan is not None:
+            if (
+                argv[-1:] != [CURSOR_NATIVE_TRIGGER]
+                or argv.count(CURSOR_NATIVE_TRIGGER) != 1
+                or any(
+                    compiled.rendered.decode("utf-8") in argument
+                    or "PUPPET_REAL_HARNESS" in argument
+                    or fixture_contract["nonce"] in argument
+                    for argument in argv
+                )
+            ):
+                raise IdentityError(
+                    "Cursor activation argv is not the fixed opaque trigger"
+                )
+        elif any(
             initial in argument
             or compiled.rendered.decode("utf-8") in argument
             or "PUPPET_REAL_HARNESS" in argument
             or (
                 activation_plan is None
-                and cursor_activation_plan is None
                 and run_id in argument
                 and not (
                     target in {"cursor", "grok"}
@@ -2414,13 +2428,14 @@ def run_probe(
             expected_manifest=compiled.manifest,
             target=target,
         )
-        tmux.paste_bytes(
-            socket=socket,
-            session=session,
-            pane=metadata["pane"],
-            buffer_name=session + "-initial",
-            payload=initial_payload,
-        )
+        if cursor_activation_plan is None:
+            tmux.paste_bytes(
+                socket=socket,
+                session=session,
+                pane=metadata["pane"],
+                buffer_name=session + "-initial",
+                payload=initial_payload,
+            )
         initial_sha = sha256_bytes(initial_payload)
         ready_expected = {
             "session": session,

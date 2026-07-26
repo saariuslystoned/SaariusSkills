@@ -42,7 +42,7 @@ from .safety import (
 
 
 CURSOR_QUALIFICATION_DESCRIPTOR_ID = (
-    "cursor-2026.07.17-3e2a980-root-agents-qualification-v2"
+    "cursor-2026.07.17-3e2a980-root-agents-positional-v3"
 )
 CURSOR_QUALIFICATION_REQUEST_SCHEMA = "puppet.cursor-qualification-request/v1"
 CURSOR_QUALIFICATION_ASSERTIONS = (
@@ -55,15 +55,15 @@ CURSOR_QUALIFICATION_ASSERTIONS = (
 CURSOR_QUALIFICATION_BLOCKERS = (
     "cursor_default_model_resolution_unavailable",
 )
-CURSOR_NATIVE_TRIGGER = "Proceed using the active Puppet workspace qualification contract."
+CURSOR_NATIVE_TRIGGER = "Proceed using the active Puppet workspace contract."
 CURSOR_NATIVE_TRIGGER_SHA256 = sha256_bytes(
-    (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8")
+    CURSOR_NATIVE_TRIGGER.encode("utf-8")
 )
 
-ACTIVATION_PLAN_SCHEMA = "puppet.cursor-workspace-activation-plan/v1"
+ACTIVATION_PLAN_SCHEMA = "puppet.cursor-workspace-activation-plan/v2"
 ACTIVATION_INTENT_SCHEMA = "puppet.cursor-workspace-activation-intent/v1"
 ACTIVATION_RECEIPT_SCHEMA = "puppet.cursor-workspace-activation-receipt/v1"
-ACTIVATION_CONTEXT_SCHEMA = "puppet.cursor-workspace-activation-context/v1"
+ACTIVATION_CONTEXT_SCHEMA = "puppet.cursor-workspace-activation-context/v2"
 ROLLBACK_INTENT_SCHEMA = "puppet.cursor-workspace-rollback-intent/v1"
 ROLLBACK_RECEIPT_SCHEMA = "puppet.cursor-workspace-rollback-receipt/v1"
 NATIVE_VIEW_SCHEMA = "puppet.cursor-native-view/v1"
@@ -86,6 +86,24 @@ _CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC
 _FILE_READ_FLAGS = os.O_RDONLY | _NOFOLLOW | _CLOEXEC
 _FILE_CREATE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC
+
+
+def _native_trigger() -> str:
+    """Return the sole opaque positional prompt admitted by activation."""
+
+    if (
+        not isinstance(CURSOR_NATIVE_TRIGGER, str)
+        or not CURSOR_NATIVE_TRIGGER
+        or len(CURSOR_NATIVE_TRIGGER.encode("utf-8")) > 256
+        or CURSOR_NATIVE_TRIGGER.startswith("-")
+        or "\x00" in CURSOR_NATIVE_TRIGGER
+        or "\n" in CURSOR_NATIVE_TRIGGER
+        or "\r" in CURSOR_NATIVE_TRIGGER
+        or sha256_bytes(CURSOR_NATIVE_TRIGGER.encode("utf-8"))
+        != CURSOR_NATIVE_TRIGGER_SHA256
+    ):
+        raise IdentityError("Cursor native positional trigger changed")
+    return CURSOR_NATIVE_TRIGGER
 
 
 def _json_copy(value: Mapping[str, Any]) -> Dict[str, Any]:
@@ -304,6 +322,7 @@ def build_cursor_qualification_descriptor(
             "argv": [
                 {"literal": "--workspace"},
                 {"root_ref": "workspace_root"},
+                {"name_ref": "cursor_native_trigger"},
             ],
         },
         "rollback": {
@@ -356,6 +375,7 @@ def validate_cursor_qualification_descriptor(
             "argv": [
                 {"literal": "--workspace"},
                 {"root_ref": "workspace_root"},
+                {"name_ref": "cursor_native_trigger"},
             ],
         }
         or normalized["rollback"]
@@ -493,7 +513,9 @@ def _validate_plan(value: Mapping[str, Any]) -> Dict[str, Any]:
     workspace_path = result["workspace_root"]["path"]
     if result.get("launch") != {
         "cwd": workspace_path,
-        "argv": ["--workspace", workspace_path],
+        "argv": ["--workspace", workspace_path, _native_trigger()],
+        "initial_trigger_transport": "fixed_positional_argv",
+        "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
         "requested_model": "default",
         "observed_model": "unavailable",
     }:
@@ -564,7 +586,9 @@ def plan_cursor_activation(
         },
         "launch": {
             "cwd": workspace["path"],
-            "argv": ["--workspace", workspace["path"]],
+            "argv": ["--workspace", workspace["path"], _native_trigger()],
+            "initial_trigger_transport": "fixed_positional_argv",
+            "initial_trigger_sha256": CURSOR_NATIVE_TRIGGER_SHA256,
             "requested_model": "default",
             "observed_model": "unavailable",
         },
@@ -821,8 +845,14 @@ def build_cursor_activation_context(
         "disabled",
         "--workspace",
         normalized["workspace_root"]["path"],
+        _native_trigger(),
     ]
-    if argv != expected or argv.count("--workspace") != 1:
+    if (
+        argv != expected
+        or argv.count("--workspace") != 1
+        or argv.count(_native_trigger()) != 1
+        or argv[-1] != _native_trigger()
+    ):
         raise IdentityError("Cursor activation launch argv changed")
     environment, launch_identity = build_launch_identity(
         target="cursor",

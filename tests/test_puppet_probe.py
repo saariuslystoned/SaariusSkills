@@ -574,6 +574,7 @@ class FakeTmux:
         self.launch_environment = None
         self.repo = None
         self.payloads = []
+        self.positional_initial = False
         self.interrupts = []
         self.control_calls = []
         self.gate_keys: list[str] = []
@@ -650,6 +651,32 @@ class FakeTmux:
             refreshed = before_target_start()
             self.launch_argv = list(refreshed.argv)
             self.launch_environment = dict(refreshed.environment)
+        if (
+            self.synthesize
+            and target == "cursor"
+            and self.launch_argv[-1:] == [CURSOR_NATIVE_TRIGGER]
+        ):
+            self.positional_initial = True
+            workspace_flag = self.launch_argv.index("--workspace")
+            agents_path = Path(self.launch_argv[workspace_flag + 1]) / "AGENTS.md"
+            if not agents_path.is_file():
+                raise AssertionError(
+                    "Cursor qualification root AGENTS is unavailable"
+                )
+            instruction_payload = agents_path.read_bytes()
+            value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
+            destination = (
+                self._task_repo(instruction_payload, self.repo)
+                / "handoffs"
+                / "ready.json"
+            )
+            if self.bad_claim:
+                value["claims"] = []
+            if self.alternate_timestamp:
+                value["timestamp"] = "2030-01-02T03:04:05+00:00"
+            temporary = destination.with_suffix(".pending")
+            write_json(temporary, value)
+            temporary.replace(destination)
         return {
             "socket": str(socket_path),
             "socket_identity": self.socket_identity(socket_path),
@@ -760,23 +787,14 @@ class FakeTmux:
             return
         if not self.synthesize:
             return
-        if len(self.payloads) == 1:
+        initial_delivery = len(self.payloads) == 1 and not self.positional_initial
+        if initial_delivery:
             instruction_payload = payload
             if payload == (CLAUDE_NATIVE_TRIGGER + "\n").encode("utf-8"):
                 artifact_flag = self.launch_argv.index("--append-system-prompt-file")
                 instruction_payload = Path(
                     self.launch_argv[artifact_flag + 1]
                 ).read_bytes()
-            elif payload == (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8"):
-                workspace_flag = self.launch_argv.index("--workspace")
-                agents_path = (
-                    Path(self.launch_argv[workspace_flag + 1]) / "AGENTS.md"
-                )
-                if not agents_path.is_file():
-                    raise AssertionError(
-                        "Cursor qualification root AGENTS is unavailable"
-                    )
-                instruction_payload = agents_path.read_bytes()
             value = self._exact_json(instruction_payload, "WRITE_READY_JSON=")
             destination = (
                 self._task_repo(instruction_payload, self.repo)
@@ -797,7 +815,7 @@ class FakeTmux:
         temporary = destination.with_suffix(".pending")
         write_json(temporary, value)
         temporary.replace(destination)
-        if len(self.payloads) == 1 and payload == (CLAUDE_NATIVE_TRIGGER + "\n").encode(
+        if initial_delivery and payload == (CLAUDE_NATIVE_TRIGGER + "\n").encode(
             "utf-8"
         ):
             marker = re.search(
@@ -1401,9 +1419,10 @@ class ProbeTests(unittest.TestCase):
                 )
 
             self.assertEqual(result["result"], "accepted")
-            self.assertEqual(
+            self.assertEqual(len(fake.payloads), 1)
+            self.assertNotIn(
+                CURSOR_NATIVE_TRIGGER.encode("utf-8"),
                 fake.payloads[0],
-                (CURSOR_NATIVE_TRIGGER + "\n").encode("utf-8"),
             )
             self.assertEqual(
                 fake.launch_argv[:4],
@@ -1412,6 +1431,7 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(fake.launch_argv[4], "--workspace")
             run_root = files["proof"] / "probes" / run_id
             self.assertEqual(fake.launch_argv[5], str(run_root / "fixture"))
+            self.assertEqual(fake.launch_argv[6], CURSOR_NATIVE_TRIGGER)
             self.assertFalse((run_root / "fixture" / "AGENTS.md").exists())
             public_context = (
                 run_root / "activation-context.json"
@@ -1456,6 +1476,14 @@ class ProbeTests(unittest.TestCase):
             )
             receipt = json.loads(
                 (run_root / "receipt.json").read_text(encoding="utf-8")
+            )
+            evidence = json.loads(
+                (run_root / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(evidence["payload_argv_absent"])
+            self.assertEqual(
+                evidence["launch_identity"]["argv_sha256"],
+                sha256_bytes(canonical_json_bytes(fake.launch_argv)),
             )
             with patch("puppet_lib.adapter_manifest.stat.S_ISSOCK", return_value=True):
                 verified = verify_qualification_receipt(

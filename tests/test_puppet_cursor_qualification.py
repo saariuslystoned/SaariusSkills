@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import AdapterManifest, PROBE_CAPABILITIES  # noqa: E402
 from puppet_lib.cursor_qualification import (  # noqa: E402
+    CURSOR_NATIVE_TRIGGER,
     CURSOR_NATIVE_TRIGGER_SHA256,
     NATIVE_VIEW_SCHEMA,
     TERMINAL_QUALIFICATION_SCHEMA,
@@ -205,7 +206,20 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             )
         context = self._context(plan, receipt)
         self.assertEqual(
-            context["argv"][-2:], ["--workspace", str(self.workspace)]
+            context["argv"][-3:],
+            ["--workspace", str(self.workspace), CURSOR_NATIVE_TRIGGER],
+        )
+        self.assertEqual(
+            plan["launch"]["initial_trigger_transport"],
+            "fixed_positional_argv",
+        )
+        self.assertEqual(
+            plan["launch"]["initial_trigger_sha256"],
+            sha256_bytes(CURSOR_NATIVE_TRIGGER.encode("utf-8")),
+        )
+        self.assertEqual(
+            self.descriptor["launch_delta"]["argv"][-1],
+            {"name_ref": "cursor_native_trigger"},
         )
         self.assertEqual(
             revalidate_cursor_activation_context(
@@ -380,6 +394,34 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
                 transaction_root=self.transaction,
             )
 
+    def test_positional_trigger_substitution_and_injection_fail_closed(self):
+        plan = self._plan()
+        receipt = materialize_cursor_activation(
+            plan, effective_contract=self.contract.rendered
+        )
+        for label, replacement in (
+            ("substituted", "Proceed using a substituted contract."),
+            ("option", "--model"),
+            ("newline", CURSOR_NATIVE_TRIGGER + "\nsecond prompt"),
+        ):
+            with self.subTest(label=label):
+                changed = copy.deepcopy(plan)
+                changed["launch"]["argv"][-1] = replacement
+                unsigned = dict(changed)
+                unsigned.pop("plan_sha256")
+                changed["plan_sha256"] = sha256_bytes(
+                    canonical_json_bytes(unsigned)
+                )
+                with self.assertRaisesRegex(
+                    IdentityError, "activation launch delta changed"
+                ):
+                    self._context(changed, receipt)
+        rollback_cursor_activation(
+            plan,
+            materialization_receipt=receipt,
+            exact_halt_receipt=self._halt(),
+        )
+
     def test_rollback_failure_preserves_drifted_root_agents(self):
         plan = self._plan()
         receipt = materialize_cursor_activation(
@@ -444,6 +486,15 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
                 base_argv=[*qualified["launch_argv"], "--model", "auto"],
                 workspace_root=self.workspace,
             )
+        with self.assertRaises(IdentityError):
+            cursor_regular_launch_argv(
+                qualified,
+                base_argv=[
+                    *qualified["launch_argv"],
+                    "arbitrary positional prompt",
+                ],
+                workspace_root=self.workspace,
+            )
 
     def test_request_is_body_free_and_grants_no_authority(self):
         request = build_cursor_qualification_request(
@@ -460,13 +511,16 @@ class CursorQualificationLifecycleTests(unittest.TestCase):
             json.dumps(request, sort_keys=True),
         )
 
-    def test_legacy_mdc_descriptor_is_not_current_qualification_authority(self):
-        legacy = copy.deepcopy(self.descriptor)
-        legacy["descriptor_id"] = (
-            "cursor-2026.07.17-3e2a980-workspace-addendum-qualification-v1"
-        )
-        with self.assertRaisesRegex(IdentityError, "tuple changed"):
-            validate_cursor_qualification_descriptor(legacy)
+    def test_legacy_postlaunch_descriptors_are_not_current_authority(self):
+        for descriptor_id in (
+            "cursor-2026.07.17-3e2a980-workspace-addendum-qualification-v1",
+            "cursor-2026.07.17-3e2a980-root-agents-qualification-v2",
+        ):
+            with self.subTest(descriptor_id=descriptor_id):
+                legacy = copy.deepcopy(self.descriptor)
+                legacy["descriptor_id"] = descriptor_id
+                with self.assertRaisesRegex(IdentityError, "tuple changed"):
+                    validate_cursor_qualification_descriptor(legacy)
 
 
 class CursorNativeViewTests(unittest.TestCase):

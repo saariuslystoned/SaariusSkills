@@ -121,15 +121,20 @@ Puppet qualification wrapper mode 0600 with no-follow `O_EXCL`. Bind its
 wrapper bytes and the enclosed effective-contract SHA-256 separately in the
 descriptor assertion, plan, and materialization receipt. Never overwrite,
 append to, or follow a repository-owned `AGENTS.md`. Compose exactly one
-absolute `--workspace` selector with the enrolled private profile and
-revalidate that profile and artifact immediately before launch. While active,
+absolute `--workspace` selector followed by the one fixed non-secret opaque
+activation trigger, with the enrolled private profile. The trigger is a single
+literal final argv element; its hash and the full launch vector are bound in
+proof. No compiled contract, task body, or operator-supplied prompt may appear
+in argv. Revalidate the profile, artifact, and launch vector immediately before
+launch. Ordinary control and regular launches remain positional-prompt-free and
+use post-launch transport. While active,
 structurally observe one human read-only native tmux client attach and detach
 without reading pane content. After exact registered-PID halt, verify the
 receipted vnode and unlink only that file. Failed or timed-out runs may do the
 same only after exact halt and protected-population baseline restoration.
 Identity drift, halt ambiguity, or rollback failure fences the activation for
-controller adjudication. Prior `.cursor/rules/*.mdc` activation receipts are
-legacy, non-promotable evidence.
+controller adjudication. Prior `.cursor/rules/*.mdc` and root-`AGENTS.md`
+post-launch-trigger activation receipts are legacy, non-promotable evidence.
 
 An activated Cursor receipt is activation-only and cannot promote. A terminal
 qualification must reverify it beside a distinct ordinary Pass B control using

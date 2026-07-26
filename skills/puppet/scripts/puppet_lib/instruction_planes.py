@@ -77,6 +77,7 @@ _SUPPORTED_LITERAL_FLAGS = {
     "--workspace",
 }
 _SUPPORTED_NAME_REFS = {
+    "cursor_native_trigger",
     "project_setting_sources",
     "puppet_agent_name",
     "puppet_output_style_name",
@@ -662,6 +663,12 @@ def _validate_qualification_launch_grammar(
             and relative_path == "AGENTS.md"
             and materialize[0]["content_ref"] == CURSOR_ROOT_AGENTS_CONTENT_REF
         )
+        expected_argv = [
+            {"literal": "--workspace"},
+            {"root_ref": "workspace_root"},
+        ]
+        if root_agents:
+            expected_argv.append({"name_ref": "cursor_native_trigger"})
         if (
             len(materialize) != 1
             or materialize[0]["root_ref"] != "workspace_root"
@@ -669,11 +676,7 @@ def _validate_qualification_launch_grammar(
             or materialize[0]["write_mode"] != "create_only"
             or cwd_ref != "workspace_root"
             or env
-            or argv
-            != [
-                {"literal": "--workspace"},
-                {"root_ref": "workspace_root"},
-            ]
+            or argv != expected_argv
         ):
             raise ValidationError(
                 "Cursor workspace qualification descriptor has an invalid closed launch grammar"

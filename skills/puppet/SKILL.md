@@ -398,15 +398,23 @@ unresolved default-model selection, but must use distinct workspaces and run
 identities. The activated instruction is a temporary root `AGENTS.md` with a
 deterministic Puppet qualification envelope; the descriptor, activation plan,
 and receipt bind the wrapper hash and underlying effective-contract hash
-separately. Require `AGENTS.md` to be absent, create it mode 0600 with
+separately. Activation adds one fixed, non-secret opaque positional trigger as
+the final launch argument so Cursor starts the contract already materialized in
+`AGENTS.md`; one allowlisted descriptor symbol resolves to that exact literal,
+whose SHA-256 is plan and launch authority. Never put the compiled contract,
+task body, or an operator-supplied
+prompt in argv. The ordinary control and every post-qualification regular
+launch remain positional-prompt-free and use transcript-blind post-launch
+transport. Require `AGENTS.md` to be absent, create it mode 0600 with
 no-follow `O_EXCL`, and remove it only after exact registered-PID halt. Never
 overwrite, append to, or follow a repository-owned `AGENTS.md`. A failed or timed-out
 activation rolls it back only after the controller proves the exact target
 stopped and the protected same-target population returned to baseline. Halt,
 population, artifact, or rollback ambiguity leaves the activation fenced for
 controller adjudication; recovery never relaunches or guesses at cleanup. The
-prior `.cursor/rules/*.mdc` activation evidence remains non-promotable legacy
-evidence and cannot satisfy this root-AGENTS descriptor version.
+prior `.cursor/rules/*.mdc` and root-`AGENTS.md` post-launch-trigger activation
+evidence remains non-promotable legacy proof and cannot satisfy this descriptor
+version.
 
 Grok qualification uses `grok-request`, one positive Pass B, one linked
 ordinary control, `observe-grok-view` for each real read-only TUI, `pair-grok`,

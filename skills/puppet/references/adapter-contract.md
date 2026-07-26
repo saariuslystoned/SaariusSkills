@@ -326,17 +326,23 @@ mode 0600 with no-follow `O_EXCL`. The descriptor assertion, plan, receipt, and
 terminal rejoin bind both the wrapper SHA-256 and the underlying
 effective-contract SHA-256. Preexisting regular files and symlinks fail closed;
 Puppet never overwrites or appends to repository instructions. The controller
-composes exactly one absolute `--workspace` selector and revalidates the file,
-profile, launch plan, executable, and process boundary immediately before
-start. After accepted exact registered-PID halt it removes only the
+composes exactly one absolute `--workspace` selector followed by one exact
+fixed, non-secret opaque positional activation trigger. Its literal, SHA-256,
+final position, and full launch vector are bound after one allowlisted
+descriptor symbol resolves it; compiled contracts, task bodies, and
+arbitrary/operator-provided prompts are forbidden from argv. The
+ordinary control and post-qualification regular launcher remain prompt-free.
+The controller revalidates the file, profile, launch plan, executable, and
+process boundary immediately before start. After accepted exact registered-PID
+halt it removes only the
 receipt-bound root `AGENTS.md` and commits terminal rollback proof.
 Failure cleanup may roll back the same exact artifact only after an exact
 failed-run halt and protected-population baseline restoration. Ambiguous halt
 or rollback remains fenced with the artifact preserved.
-The former qualification-only `.cursor/rules/*.mdc` descriptor and receipts
-are legacy, non-promotable evidence; the separate activation-disabled
-source-binding record remains non-promotable and cannot substitute for this
-root-AGENTS lifecycle.
+The former qualification-only `.cursor/rules/*.mdc` descriptor/receipts and the
+root-`AGENTS.md` post-launch-trigger descriptor/receipts are legacy,
+non-promotable evidence; the separate activation-disabled source-binding record
+remains non-promotable and cannot substitute for this root-AGENTS lifecycle.
 That activated receipt still cannot promote. Cursor promotion requires a
 controller-attested terminal join with a distinct ordinary Pass B control on
 the same private profile and authority tuple. The ordinary control has no rule
