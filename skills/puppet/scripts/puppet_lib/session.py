@@ -80,6 +80,7 @@ from .safety import (
     sha256_file,
     tmux_socket_identities_match,
     validate_identifier,
+    validate_sha256,
 )
 from .state import is_terminal, transition
 from .subscription_profiles import (
@@ -524,6 +525,84 @@ def _deliver(
     return {"content_sha256": content_sha, "delivery": "submitted"}
 
 
+def _prior_source_proof_assignment(
+    *,
+    proof_root: Path,
+    session: str,
+    operation_id: str,
+    content_sha256: str,
+) -> bool:
+    """Reconcile only one canonical proof-assignment delivery history."""
+
+    validate_identifier(session, "session")
+    validate_identifier(operation_id, "operation id")
+    content_sha256 = validate_sha256(
+        content_sha256,
+        "source proof assignment content",
+    )
+    rows = _journal(proof_root).read_only_snapshot()
+    events = []
+    for row in rows:
+        event = row.get("event")
+        if (
+            not isinstance(event, dict)
+            or event.get("kind") != "source_proof_assignment"
+            or event.get("session") != session
+        ):
+            continue
+        if set(event) != {
+            "kind",
+            "session",
+            "operation_id",
+            "content_sha256",
+            "delivery",
+        }:
+            raise IdentityError("source proof assignment journal is not canonical")
+        recorded_operation = validate_identifier(
+            event["operation_id"],
+            "recorded proof assignment id",
+        )
+        recorded_content = validate_sha256(
+            event["content_sha256"],
+            "recorded proof assignment content",
+        )
+        delivery = event.get("delivery")
+        if delivery not in {"intent", "submitted"} or row.get(
+            "request_id"
+        ) != _delivery_request_id(session, recorded_operation, delivery):
+            raise IdentityError("source proof assignment journal is not canonical")
+        events.append(
+            {
+                "operation_id": recorded_operation,
+                "content_sha256": recorded_content,
+                "delivery": delivery,
+            }
+        )
+    if not events:
+        return False
+    if (
+        len(events) not in {1, 2}
+        or events[0]["delivery"] != "intent"
+        or (
+            len(events) == 2
+            and (
+                events[1]["delivery"] != "submitted"
+                or events[1]["operation_id"] != events[0]["operation_id"]
+                or events[1]["content_sha256"] != events[0]["content_sha256"]
+            )
+        )
+    ):
+        raise IdentityError("source proof assignment journal is not canonical")
+    if len(events) == 1:
+        raise ConflictError("prior source proof assignment delivery is ambiguous")
+    if (
+        events[1]["operation_id"] != operation_id
+        or events[1]["content_sha256"] != content_sha256
+    ):
+        raise ConflictError("another source proof assignment was already submitted")
+    return True
+
+
 def _await_input_ready(
     *,
     target: str,
@@ -757,6 +836,31 @@ def _followup_envelope(protocol: Dict[str, Any], message_id: str, message: str) 
             protocol["nonce"],
             message_id,
             protocol["ready_artifact_sha256"],
+            message.strip(),
+        )
+    )
+
+
+def _proof_assignment_envelope(
+    contract: Contract,
+    protocol: Dict[str, Any],
+    assignment_id: str,
+    message: str,
+) -> str:
+    prefixes = canonical_json_bytes(list(contract.proof_path_prefixes)).decode(
+        "utf-8"
+    )
+    return (
+        "PUPPET_SOURCE_PROOF_ASSIGNMENT_V2\n"
+        "run_id=%s\nnonce=%s\nassignment_id=%s\nsequence=1\n"
+        "accepted_source_commit=%s\nscope=proof_only\n"
+        "proof_path_prefixes=%s\n\n%s"
+        % (
+            protocol["run_id"],
+            protocol["nonce"],
+            assignment_id,
+            protocol["source_commit"],
+            prefixes,
             message.strip(),
         )
     )
@@ -1737,6 +1841,8 @@ def send_message(
         tmux, _ = _runtime(registry, record, "send", require_process=True)
         adapter = adapter_for(record["target"])
         protocol = dict(record["protocol"])
+        proof_assignment = False
+        first_proof_assignment = False
         if protocol["kind"] == "conformance":
             first_submission = (
                 record["state"] == "CONFORMANCE_READY"
@@ -1757,11 +1863,44 @@ def send_message(
                 initial=False,
             )
         else:
-            if record["state"] not in {"ACTIVE", "WAITING_EXTERNAL"}:
-                raise ValidationError("source session is not accepting messages")
-            enveloped = adapter.envelope(
-                message, contract.session_profile, initial=False
+            ordinary_source = record["state"] in {"ACTIVE", "WAITING_EXTERNAL"}
+            first_proof_assignment = (
+                record["state"] == "SOURCE_ACCEPTED"
+                and protocol["phase"] == "source_accepted"
+                and "proof_assignment_id" not in protocol
             )
+            replayed_proof_assignment = (
+                record["state"] == "SOURCE_ACCEPTED"
+                and protocol["phase"] == "proof_assignment_sent"
+                and protocol.get("proof_assignment_id") == request_id
+            )
+            proof_assignment = (
+                first_proof_assignment or replayed_proof_assignment
+            )
+            if not ordinary_source and not proof_assignment:
+                raise ValidationError("source session is not accepting messages")
+            if proof_assignment:
+                enveloped = adapter.envelope(
+                    _proof_assignment_envelope(
+                        contract,
+                        protocol,
+                        request_id,
+                        message,
+                    ),
+                    contract.session_profile,
+                    initial=False,
+                )
+            else:
+                enveloped = adapter.envelope(
+                    message, contract.session_profile, initial=False
+                )
+            if first_proof_assignment:
+                _prior_source_proof_assignment(
+                    proof_root=Path(record["proof_root"]),
+                    session=session,
+                    operation_id=request_id,
+                    content_sha256=sha256_bytes(_message_payload(enveloped)),
+                )
         delivery = _deliver(
             tmux=tmux,
             socket=Path(record["tmux"]["socket"]),
@@ -1771,7 +1910,11 @@ def send_message(
             message=enveloped,
             proof_root=Path(record["proof_root"]),
             operation_id=request_id,
-            kind="send",
+            kind=(
+                "source_proof_assignment"
+                if proof_assignment
+                else "send"
+            ),
         )
         if protocol["kind"] == "conformance" and first_submission:
             if delivery["delivery"] not in {"submitted", "already_submitted"}:
@@ -1780,7 +1923,23 @@ def send_message(
                 )
             protocol.update(phase="followup_sent", message_id=request_id)
             registry.transition_path(session, ["ACTIVE"], {"protocol": protocol})
-        return {"ok": True, "session": session, **delivery}
+        if first_proof_assignment:
+            if delivery["delivery"] not in {"submitted", "already_submitted"}:
+                raise ConflictError(
+                    "source proof assignment delivery is not authoritative"
+                )
+            protocol.update(
+                phase="proof_assignment_sent",
+                proof_assignment_id=request_id,
+            )
+            registry.update(session, {"protocol": protocol})
+        result = {"ok": True, "session": session, **delivery}
+        if proof_assignment:
+            result.update(
+                assignment_phase="proof_assignment_sent",
+                proof_assignment_id=request_id,
+            )
+        return result
 
 
 def status(*, state_root: Path, session: str) -> Dict[str, Any]:
@@ -2062,7 +2221,10 @@ def _checkpoint_expected(record: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         raise ValidationError("conformance checkpoint is out of sequence")
     if protocol["phase"] == "awaiting_source" and record["state"] == "ACTIVE":
         return expected, "source"
-    if protocol["phase"] == "source_accepted" and record["state"] == "SOURCE_ACCEPTED":
+    if (
+        protocol["phase"] == "proof_assignment_sent"
+        and record["state"] == "SOURCE_ACCEPTED"
+    ):
         return expected, "proof"
     raise ValidationError("source checkpoint is out of sequence")
 

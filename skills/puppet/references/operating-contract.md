@@ -200,6 +200,7 @@ The source branch is:
 ```text
 NEW -> PREFLIGHTED -> STARTING -> ACTIVE -> SOURCE_CHECKPOINT_READY
     -> AWAITING_SOURCE_REVIEW -> ACTIVE | SOURCE_ACCEPTED
+    -> SOURCE_ACCEPTED (one sequenced proof-only assignment)
     -> PROOF_CHECKPOINT_READY -> TARGET_DONE
     -> AWAITING_CONTROLLER_REVIEW -> ACTIVE | ACCEPTED | BLOCKED | FAILED
     -> HALTED
@@ -209,6 +210,16 @@ Reject every undeclared transition. A ready conformance checkpoint is
 nonterminal. Only its exact follow-up may receive a conformance verdict. A head
 change invalidates source review; any run, nonce, sequence, executable, adapter,
 protocol, or artifact drift invalidates conformance review.
+The source-accepted proof assignment is likewise one-time: Puppet records its
+request identity, permits only same-request same-content replay, and will not
+import the proof-only child until the assignment phase is recorded.
+The hash-chained delivery journal closes projection crashes: an exact submitted
+assignment is reconciled, a different submission is rejected, and intent-only
+delivery remains ambiguous and blocked.
+Pre-assignment schema-v2 records already advanced to proof checkpoint, final
+review, or acceptance remain readable for their existing safe lifecycle
+operations; that compatibility cannot reopen assignment delivery or proof
+import.
 
 ## Monitoring and evidence
 

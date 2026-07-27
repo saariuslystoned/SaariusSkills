@@ -1506,12 +1506,14 @@ class SessionRegistry:
                 "source_commit",
                 "proof_commit",
             }
-            if set(protocol) != required:
+            assignment_required = required | {"proof_assignment_id"}
+            if set(protocol) not in (required, assignment_required):
                 raise ValidationError("invalid source protocol fields")
             if protocol["phase"] not in {
                 "awaiting_source",
                 "source_checkpoint",
                 "source_accepted",
+                "proof_assignment_sent",
                 "proof_checkpoint",
                 "final_reviewed",
                 "accepted",
@@ -1522,16 +1524,32 @@ class SessionRegistry:
                     validate_sha1(protocol[name], name.replace("_", " "))
             source_present = protocol["source_commit"] is not None
             proof_present = protocol["proof_commit"] is not None
-            expected_presence = {
+            assignment_present = "proof_assignment_id" in protocol
+            if assignment_present:
+                validate_identifier(
+                    protocol["proof_assignment_id"],
+                    "proof assignment id",
+                )
+            expected_commits = {
                 "awaiting_source": (False, False),
                 "source_checkpoint": (True, False),
                 "source_accepted": (True, False),
+                "proof_assignment_sent": (True, False),
                 "proof_checkpoint": (True, True),
                 "final_reviewed": (True, True),
                 "accepted": (True, True),
             }[protocol["phase"]]
-            if (source_present, proof_present) != expected_presence:
+            if (source_present, proof_present) != expected_commits:
                 raise ValidationError("source protocol identity is incomplete")
+            if (
+                protocol["phase"] == "proof_assignment_sent"
+                and not assignment_present
+            ) or (
+                protocol["phase"]
+                in {"awaiting_source", "source_checkpoint", "source_accepted"}
+                and assignment_present
+            ):
+                raise ValidationError("source proof assignment identity is incomplete")
         beacon = value.get("last_beacon")
         if beacon is not None:
             if not isinstance(beacon, dict) or set(beacon) != {

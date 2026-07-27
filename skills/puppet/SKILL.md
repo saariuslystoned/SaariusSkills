@@ -465,6 +465,9 @@ Targets publish claims and evidence references. The controller alone records
 performs terminal acceptance. Learn only from exact commits, validated bounded
 handoffs, controller-run tests, and independent reviews.
 
+After `source_accept`, the controller may send one proof-only assignment. Puppet
+records its ID and phase; only replay is allowed, and proof waits for delivery.
+
 ## Self-hosting boundary
 
 Keep the supervising Puppet release immutable for a live session. Give the

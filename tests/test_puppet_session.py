@@ -959,6 +959,55 @@ class SessionIntegrationTests(unittest.TestCase):
             self.assertEqual(replay["delivery"], "already_submitted")
             self.assertEqual(len(tmux.deliveries), 2)
 
+    def test_intent_only_source_proof_assignment_is_ambiguous(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            proof_root = Path(temporary).resolve() / "proof"
+            session = "source-proof-intent-only"
+            operation_id = "proof-assignment-intent"
+            content_sha256 = "a" * 64
+            journal = puppet_session._journal(proof_root)
+            journal.append(
+                request_id=puppet_session._delivery_request_id(
+                    session,
+                    operation_id,
+                    "intent",
+                ),
+                event={
+                    "kind": "source_proof_assignment",
+                    "session": session,
+                    "operation_id": operation_id,
+                    "content_sha256": content_sha256,
+                    "delivery": "intent",
+                },
+            )
+            before = journal.read_only_snapshot()
+            before_files = (
+                journal.events_path.read_bytes(),
+                journal.head_path.read_bytes(),
+            )
+            for requested in (operation_id, "different-proof-assignment"):
+                with (
+                    self.subTest(request_id=requested),
+                    self.assertRaisesRegex(
+                        ConflictError,
+                        "proof assignment delivery is ambiguous",
+                    ),
+                ):
+                    puppet_session._prior_source_proof_assignment(
+                        proof_root=proof_root,
+                        session=session,
+                        operation_id=requested,
+                        content_sha256=content_sha256,
+                    )
+            self.assertEqual(journal.read_only_snapshot(), before)
+            self.assertEqual(
+                (
+                    journal.events_path.read_bytes(),
+                    journal.head_path.read_bytes(),
+                ),
+                before_files,
+            )
+
     def test_doctor_rejects_deferred_profile_and_model_selection(self):
         cases = (
             ("session_profile", "goal", "only the regular session profile"),
@@ -2183,7 +2232,7 @@ class SessionIntegrationTests(unittest.TestCase):
             finally:
                 kill_test_server(socket)
 
-    def test_source_and_proof_child_path_reaches_controller_acceptance(self):
+    def test_source_proof_assignment_and_historical_record_compatibility(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             candidate = initialize_repo(
@@ -2210,8 +2259,29 @@ class SessionIntegrationTests(unittest.TestCase):
                     supervisor_executable=files["supervisor_executable"],
                     prompt="Create one bounded source commit and wait.",
                 )
-                record = SessionRegistry(files["state"]).load(session)
+                registry = SessionRegistry(files["state"])
+                record = registry.load(session)
                 socket = record["tmux"]["socket"]
+                active_send = send_message(
+                    state_root=files["state"],
+                    session=session,
+                    message="Continue the bounded source assignment.",
+                    request_id="ordinary-active-source-message",
+                )
+                self.assertEqual(active_send["delivery"], "submitted")
+                self.assertEqual(
+                    registry.load(session)["protocol"],
+                    record["protocol"],
+                )
+                registry.transition_path(session, ["WAITING_EXTERNAL"])
+                waiting_send = send_message(
+                    state_root=files["state"],
+                    session=session,
+                    message="External wait completed; continue the same assignment.",
+                    request_id="ordinary-waiting-source-message",
+                )
+                self.assertEqual(waiting_send["delivery"], "submitted")
+                registry.transition_path(session, ["ACTIVE"])
                 (candidate / "feature.txt").write_text(
                     "bounded source\n", encoding="utf-8"
                 )
@@ -2270,6 +2340,126 @@ class SessionIntegrationTests(unittest.TestCase):
                     status(state_root=files["state"], session=session)["state"],
                     "SOURCE_ACCEPTED",
                 )
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "source checkpoint is out of sequence",
+                ):
+                    import_checkpoint(
+                        state_root=files["state"],
+                        session=session,
+                        handoff_path=source_path,
+                    )
+                proof_assignment = (
+                    "Create one child of the accepted source commit, changing "
+                    "only files under proof/, then publish the bounded source "
+                    "handoff for that exact proof commit."
+                )
+                assignment_id = "proof-assignment-1"
+                with (
+                    patch.object(
+                        SessionRegistry,
+                        "update",
+                        side_effect=RuntimeError(
+                            "simulated crash before protocol projection"
+                        ),
+                    ),
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        "simulated crash",
+                    ),
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message=proof_assignment,
+                        request_id=assignment_id,
+                    )
+                crashed_record = registry.load(session)
+                self.assertEqual(
+                    crashed_record["protocol"]["phase"],
+                    "source_accepted",
+                )
+                self.assertNotIn(
+                    "proof_assignment_id",
+                    crashed_record["protocol"],
+                )
+                crash_events = [
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                    if row["event"].get("kind")
+                    == "source_proof_assignment"
+                ]
+                with self.assertRaisesRegex(
+                    ConflictError,
+                    "another source proof assignment was already submitted",
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message=proof_assignment,
+                        request_id="proof-assignment-after-crash",
+                    )
+                self.assertEqual(
+                    [
+                        row["event"]
+                        for row in puppet_session._journal(
+                            files["proof"]
+                        ).snapshot()
+                        if row["event"].get("kind")
+                        == "source_proof_assignment"
+                    ],
+                    crash_events,
+                )
+                replay = send_message(
+                    state_root=files["state"],
+                    session=session,
+                    message=proof_assignment,
+                    request_id=assignment_id,
+                )
+                self.assertEqual(replay["delivery"], "already_submitted")
+                self.assertEqual(
+                    replay["assignment_phase"],
+                    "proof_assignment_sent",
+                )
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "source session is not accepting messages",
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message=proof_assignment,
+                        request_id="proof-assignment-2",
+                    )
+                with self.assertRaisesRegex(
+                    ConflictError,
+                    "different content",
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message="A different assignment must not be delivered.",
+                        request_id=assignment_id,
+                    )
+                assigned_record = SessionRegistry(files["state"]).load(session)
+                self.assertEqual(
+                    assigned_record["protocol"]["phase"],
+                    "proof_assignment_sent",
+                )
+                self.assertEqual(
+                    assigned_record["protocol"]["proof_assignment_id"],
+                    assignment_id,
+                )
+                assignment_events = [
+                    row["event"]
+                    for row in puppet_session._journal(files["proof"]).snapshot()
+                    if row["event"].get("kind")
+                    == "source_proof_assignment"
+                ]
+                self.assertEqual(
+                    [event["delivery"] for event in assignment_events],
+                    ["intent", "submitted"],
+                )
                 proof_dir = candidate / "proof"
                 proof_dir.mkdir()
                 write_json(proof_dir / "receipt.json", {"source_commit": source_commit})
@@ -2283,6 +2473,16 @@ class SessionIntegrationTests(unittest.TestCase):
                     session=session,
                     handoff_path=proof_handoff,
                 )
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "source session is not accepting messages",
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message=proof_assignment,
+                        request_id="proof-assignment-3",
+                    )
                 final_review = files["proof"] / "final-review.json"
                 write_json(final_review, {"findings": [], "classification": "clean"})
                 review_checkpoint(
@@ -2307,6 +2507,22 @@ class SessionIntegrationTests(unittest.TestCase):
                     evidence_path=acceptance,
                 )
                 self.assertEqual(accepted["state"], "ACCEPTED")
+                historical = registry.load(session)
+                historical_protocol = dict(historical["protocol"])
+                historical_protocol.pop("proof_assignment_id")
+                historical["protocol"] = historical_protocol
+                puppet_session.atomic_write_json(
+                    registry._path(session),
+                    historical,
+                )
+                self.assertNotIn(
+                    "proof_assignment_id",
+                    SessionRegistry(files["state"]).load(session)["protocol"],
+                )
+                self.assertEqual(
+                    status(state_root=files["state"], session=session)["state"],
+                    "ACCEPTED",
+                )
                 self.assertEqual(
                     halt(state_root=files["state"], session=session, timeout=5)[
                         "state"
