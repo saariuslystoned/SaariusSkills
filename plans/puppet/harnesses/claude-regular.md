@@ -5,9 +5,15 @@ Scope: static command census, source/test inspection, and no-live-lane planning 
 reducer and durable-profile ready path are implemented and component/session
 tested. The public controller path for a linked ordinary control, structural
 native-view observations, paired no-bleed verification, and a promotable paired
-receipt is implemented. A fully authenticated live matched pair and its
-promoted Pass-B receipt are still pending; this source change launched neither
-member.
+receipt is implemented.
+
+An exact-head authenticated live matched pair is now qualified and controller
+accepted at head `8ecf3a2e1dfcb92687c7e3ebbae1b4ddf4bddb45` (see the
+2026-07-27 checkpoint in section 7). What remains missing are the two later
+public lifecycles that do not follow from the accepted pair: the public mutating
+session lifecycle and the distinct read-only cross-review. The current
+documentation session is the first exact-head public mutating lifecycle and is
+itself still pending controller review and halt.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -403,3 +409,65 @@ not persisted.
 This is a behavioral checkpoint, not the final campaign receipt. Any later
 change to the qualifying implementation fingerprint requires a fresh
 source-stable pair before five-harness closeout.
+
+### 2026-07-27 exact-head paired qualification (controller accepted)
+
+At exact source head `8ecf3a2e1dfcb92687c7e3ebbae1b4ddf4bddb45`, the root
+controller personally launched two real subscription-backed Claude Code
+`2.1.215` regular sessions through Puppet using the durable isolated Claude
+profile, the current provider default model, no `--model`/`--effort` selectors,
+and `--dangerously-skip-permissions`. The bounded startup-gate reducer reached
+`ready` without operator keystrokes; both members produced ready and sequenced
+follow-up checkpoints, each had one structurally observed native read-only
+iTerm/tmux viewer with `body_capture_performed=false`, both exact-halted their
+owned PIDs, the activation artifact rolled back, protected process baselines
+matched, and the paired receipt reports `no_bleed_verified=true`.
+
+The exact structural identities of the accepted pair (derived only from the
+private structured artifacts, not from any terminal, prompt, reply, auth, or
+config body) are:
+
+- campaign: `puppet-v01-claude-paired-8ecf3a2-20260727`, `result=accepted`,
+  controller `codex-root-controller`, attestation ledger sequence 49.
+- activation run `claude-activation-8ecf3a2-20260727`: receipt
+  `8ee5f5d264262eab21ef67fdc9af3ad3d85a453986d02d2d6c506844bcda2492`, native
+  view `e8c2bd721e806ae977dd83122559ca7c20cf1f539e2fe56c220cd85e81a7c879`, plane
+  activation `rolled_back` at `activation_lifecycle_only` scope, empty post-halt
+  population.
+- ordinary control run `claude-control-8ecf3a2-20260727`: receipt
+  `4dcfe15082b57f16b99cbd8ecf9ece6fca3805be4962b78488016e433720cc9c`, native
+  view `4c75927acb0d2ff62acdcbe2743e33dda6b50664c8444e86159ffd4489525315`, empty
+  post-halt population.
+- paired receipt
+  `d1eabfe460ac656fc70bc462e10128dd8b3079d1d4caa33abe3f18a402bab44f`:
+  `no_bleed_verified=true`, distinct processes/sessions/workspaces, two native
+  read-only views, `default_model_observation` fixed to
+  `{selection: current_default, resolved_identity: unavailable, effort:
+  unavailable}`.
+- qualified manifest file
+  `91a33b5a23211361e8e3d60c68c53bde7b8cf46c315a474bef9a65bf7f2d60d3`,
+  independently derived manifest fingerprint
+  `636022ff9710b86060740801bdc38ea65366b6b2367b6e5ab499fa9d602d3909`; bound
+  fingerprints executable `90608b5c…`, adapter `8c57bc93…`, execution
+  `15990cbf…`, protocol `a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9`.
+
+The curated transcript-free record is
+`../live-proof/claude-8ecf3a2-20260727.json`. It keeps the layers honest: the
+paired qualification above is accepted, but the two later public lifecycles are
+still missing. No resolved model identity is claimed, and `/goal`, `/loop`,
+resume, and operator-global routes remain deferred, not promoted.
+
+Two distinct lifecycles remain open after this accepted pair:
+
+1. **Public mutating session lifecycle (still missing).** The current
+   documentation session (`puppet-claude-public-8ecf3a2-20260727`, run
+   `claude-public-mutating-8ecf3a2-20260727`) is the first exact-head public
+   mutating lifecycle. It is itself pending controller review and exact halt
+   until after its local commit; its checkpoint, tests, acceptance, and halt are
+   not pre-claimed here.
+2. **Read-only cross-review (still missing).** A distinct cockpit read-only
+   cross-review of the accepted pair has not been controller accepted.
+
+Neither missing lifecycle is implied by the accepted pair. Any later change to
+the qualifying implementation fingerprint still requires a fresh source-stable
+pair before five-harness closeout.

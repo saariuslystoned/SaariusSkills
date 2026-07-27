@@ -1,0 +1,113 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "claude",
+  "source_head": "8ecf3a2e1dfcb92687c7e3ebbae1b4ddf4bddb45",
+  "recorded_date": "2026-07-27",
+  "recorded_at": "2026-07-27T13:42:35Z",
+  "scope": "exact_head_paired_qualification_accepted_public_mutating_and_cross_review_lifecycles_still_missing",
+  "runtime": {
+    "name": "Claude Code",
+    "version": "2.1.215",
+    "executable_sha256": "90608b5c5ab504e96e77365cea6203d046e291d59b2bb42cf28dcb2ccdf9dd58",
+    "authentication": "subscription_backed_private_profile",
+    "session_profile": "regular",
+    "model_selection": "current_provider_default",
+    "model_selector_used": false,
+    "observed_model": "unavailable",
+    "effort_selection": "current_provider_default",
+    "effort_selector_used": false,
+    "observed_effort": "unavailable",
+    "permission_mode": "dangerously_skip_permissions"
+  },
+  "input_readiness": {
+    "strategy": "bounded_claude_startup_gate_reducer",
+    "operator_input_required": false,
+    "live_claim": "both sessions reached ready through the reducer without operator keystrokes",
+    "gate_sequence_retained": false
+  },
+  "paired_qualification": {
+    "layer": "accepted",
+    "campaign_id": "puppet-v01-claude-paired-8ecf3a2-20260727",
+    "controller": "codex-root-controller",
+    "result": "accepted",
+    "controller_attestation_ledger_sequence": 49,
+    "fingerprints": {
+      "executable": "90608b5c5ab504e96e77365cea6203d046e291d59b2bb42cf28dcb2ccdf9dd58",
+      "adapter": "8c57bc93a48b2e801f39e37f6d0053f87f875fec23f560916870ed5ff8b93322",
+      "execution": "15990cbfcf4edb63d0272238770c720310d6f7c79dc9b45269ef4e904f4b8aa7",
+      "protocol": "a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9"
+    },
+    "activation": {
+      "run_id": "claude-activation-8ecf3a2-20260727",
+      "receipt_sha256": "8ee5f5d264262eab21ef67fdc9af3ad3d85a453986d02d2d6c506844bcda2492",
+      "native_view_sha256": "e8c2bd721e806ae977dd83122559ca7c20cf1f539e2fe56c220cd85e81a7c879",
+      "target_process_sha256": "15edfaaf3e6efde93374477eb23862e3511f30801e930f485eabdd49d339bf02",
+      "accepted_checkpoint_id": "5039736d960b99c3f4eb480d7bed3adadd0edca1c72ff7931ba1d31d515d8f60",
+      "halt_receipt_sha256": "292771514df60b7d83f49196d2e1a4db911fb80370485bd9dba198bfc681bbad",
+      "plane_activation_terminal_state": "rolled_back",
+      "plane_activation_qualification_scope": "activation_lifecycle_only",
+      "post_halt_population": []
+    },
+    "ordinary_control": {
+      "run_id": "claude-control-8ecf3a2-20260727",
+      "receipt_sha256": "4dcfe15082b57f16b99cbd8ecf9ece6fca3805be4962b78488016e433720cc9c",
+      "native_view_sha256": "4c75927acb0d2ff62acdcbe2743e33dda6b50664c8444e86159ffd4489525315",
+      "target_process_sha256": "b4aa7887dd8d6f0b03b740d1d58591cd175798c4888514f343a426310d965c04",
+      "accepted_checkpoint_id": "164c1d270194d55fe3f297a5d1f0301bbcdd96bd38fcdfa7f65361a0c45255b5",
+      "halt_receipt_sha256": "3dd62644af898e26ac0de380e2bf7b83440df8606a3035d9cb34664cda6f49a8",
+      "post_halt_population": []
+    },
+    "pair": {
+      "paired_receipt_sha256": "d1eabfe460ac656fc70bc462e10128dd8b3079d1d4caa33abe3f18a402bab44f",
+      "no_bleed_verified": true,
+      "body_capture_performed": false,
+      "distinct_processes": true,
+      "distinct_sessions": true,
+      "distinct_workspaces": true,
+      "native_read_only_views": 2,
+      "default_model_observation": {
+        "selection": "current_default",
+        "resolved_identity": "unavailable",
+        "effort": "unavailable"
+      }
+    },
+    "qualified_manifest": {
+      "file_sha256": "91a33b5a23211361e8e3d60c68c53bde7b8cf46c315a474bef9a65bf7f2d60d3",
+      "fingerprint": "636022ff9710b86060740801bdc38ea65366b6b2367b6e5ab499fa9d602d3909"
+    }
+  },
+  "public_mutating_session": {
+    "layer": "first_exact_head_public_lifecycle_pending",
+    "session": "puppet-claude-public-8ecf3a2-20260727",
+    "run_id": "claude-public-mutating-8ecf3a2-20260727",
+    "nonce": "claude-public-mutating-8ecf3a2-a1",
+    "controller": "codex-root-controller",
+    "entry_mode": "cockpit_explicit",
+    "starting_head": "8ecf3a2e1dfcb92687c7e3ebbae1b4ddf4bddb45",
+    "status": "pending_controller_review_and_halt",
+    "checkpoint_claimed": false,
+    "tests_claimed": false,
+    "controller_review": "pending",
+    "acceptance": "pending",
+    "halt": "pending",
+    "note": "This record documents the accepted pair only; the current public mutating session's checkpoint, tests, acceptance, and halt are not claimed here and remain for controller review after the local commit."
+  },
+  "acceptance": {
+    "exact_head_paired_qualification_recorded": true,
+    "public_mutating_lifecycle_controller_accepted": false,
+    "read_only_cross_review_controller_accepted": false
+  },
+  "deferred": [
+    "goal_mode",
+    "loop_mode",
+    "resume",
+    "explicit_model_selection",
+    "native_instruction_plane_activation_precedence_cleanup_and_no_bleed"
+  ],
+  "non_claims": [
+    "This record does not claim completion of the public mutating lifecycle or the read-only cross-review; both remain missing.",
+    "The provider-selected model identity remains unavailable because the qualification used no model or effort selectors.",
+    "No pane body, prompt body, reply body, authentication material, or configuration body was read or retained.",
+    "This is not the final five-harness closeout receipt; a fresh source-stable pair is required if the qualifying implementation fingerprint changes."
+  ]
+}
