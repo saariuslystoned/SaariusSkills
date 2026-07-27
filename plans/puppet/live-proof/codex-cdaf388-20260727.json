@@ -1,0 +1,78 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "codex",
+  "source_head": "cdaf38877ed61d607de03129fc6036b728958fbf",
+  "recorded_date": "2026-07-27",
+  "scope": "exact_head_qualification_checkpoint_pending_public_lifecycle_acceptance_and_final_integrated_head_rerun",
+  "runtime": {
+    "name": "Codex CLI",
+    "version": "0.145.0",
+    "executable_sha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+    "authentication": "same_exact_logged_in_private_profile",
+    "session_profile": "regular",
+    "model_selection": "current_provider_default",
+    "model_selector_used": false,
+    "observed_model": "unavailable",
+    "effort_selection": "current_provider_default",
+    "effort_selector_used": false,
+    "observed_effort": "unavailable",
+    "permission_mode": "dangerously_bypass_approvals",
+    "sandbox_mode": "disabled"
+  },
+  "accepted_receipts": {
+    "positive_sha256": "782612a61018d3a0f9912a6339cf9aa006a61d1a324c0a7a80976bbbc1d41317",
+    "ordinary_control_sha256": "a106f36eac912a9e5a6dfcbdccbbf9a9eb7ab6e08954023b3c5addb7083c2b3d",
+    "terminal_pair_file_sha256": "2182779c4b9a49623fa653c6d7b70a735f01111ab7cc00986068c46fadee4a5b",
+    "native_view_sha256": "0161a0b52f4bad8c851c5824ff4505e33a9f44410690b45e4a99cf2390e1f6b5"
+  },
+  "qualified_manifest": {
+    "fingerprint": "442042bed81a3739dc5d8cc2f27c6b6ca1bec87c8033bf2cb0efed85c5e76a85",
+    "file_sha256": "2b19ec379f7da0b2a14fe2484f573ab4865e2a02f9da30a5861e3fbbb9fbc779"
+  },
+  "qualification_checkpoint": {
+    "same_exact_private_profile": true,
+    "distinct_clean_linked_worktrees": true,
+    "distinct_target_processes": true,
+    "distinct_tmux_and_controller_leases": true,
+    "sequenced_checkpoints": true,
+    "actual_read_only_native_view": true,
+    "exact_terminal_halts": true,
+    "prompt_or_reply_body_retained": false,
+    "authentication_or_configuration_content_retained": false
+  },
+  "accepted_repairs": [
+    {
+      "head": "3d184b4",
+      "finding": "fresh census observation time changed the current manifest fingerprint",
+      "repair": "exclude generated census time from exact receipt identity while retaining executable, adapter, protocol, and mapping drift checks"
+    },
+    {
+      "head": "c259450",
+      "finding": "qualification read the obsolete top-level workspace-isolation field",
+      "repair": "consume terminal workspace isolation from the current nested positive pair schema"
+    },
+    {
+      "head": "cdaf388",
+      "finding": "qualified mapping closure assumed an obsolete fixed executable path",
+      "repair": "bind mapping closure to the exact current manifest executable"
+    }
+  ],
+  "acceptance": {
+    "exact_head_qualification_recorded": true,
+    "public_lifecycle_controller_accepted": false,
+    "final_integrated_head_rerun_complete": false,
+    "controller_exact_commit_review_required": true
+  },
+  "deferred": [
+    "goal_mode",
+    "loop_mode",
+    "resume",
+    "explicit_model_selection",
+    "native_instruction_plane_activation_precedence_cleanup_and_no_bleed"
+  ],
+  "non_claims": [
+    "This record does not claim controller acceptance of the still-running public source lifecycle.",
+    "The provider-selected model and effort identities remain unavailable because the qualification used no selectors.",
+    "A final integrated-head rerun remains required."
+  ]
+}

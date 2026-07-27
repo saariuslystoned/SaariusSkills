@@ -1,20 +1,45 @@
 # Codex regular-session qualification harness (v0.1)
 
-Status: historical live pair independently verified at
-`57175e31212eaefdbb8564cbcf4d0ade09c6423c` as body-free
-`paired_evidence_only`. Current source permits that pair to qualify a manifest
-only after independent exact-head re-verification and exact private-profile
-binding; a fresh public lifecycle at the new head remains pending.
+Status: the current Codex pair was independently reverified and qualified at
+source head `cdaf38877ed61d607de03129fc6036b728958fbf` with the exact logged-in
+private-profile binding. The pair remains body-free `paired_evidence_only`; the
+separately verified qualified manifest is the runtime-authority boundary. This
+still-running public source lifecycle is not yet controller-accepted, and a
+final integrated-head rerun remains pending.
 
 ## Scope and lane contract
 
 - File purpose: planning and proof-prep for Codex regular-session qualification under
   `codex-goal-regular-qualification.md`.
-- Current bounded evidence is curated in
-  `plans/puppet/live-proof/codex-57175e3-20260726.json`.
+- Historical and current bounded evidence are curated in
+  `plans/puppet/live-proof/codex-57175e3-20260726.json` and
+  `plans/puppet/live-proof/codex-cdaf388-20260727.json`.
 - Objective: map exact Codex regular-session behavior for the three instruction planes,
   select a winner for the exact installed version, and define deterministic evidence and
   fixture deltas so the lane can qualify with no transcript bleed.
+
+### Exact-head qualification checkpoint (2026-07-27)
+
+- At source head `cdaf38877ed61d607de03129fc6036b728958fbf`, the
+  exact current executable was
+  `/opt/homebrew/Caskroom/codex/0.145.0/codex-aarch64-apple-darwin`, SHA-256
+  `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
+  The controller accepted distinct positive and ordinary-control receipts, the
+  terminal pair, and an actual read-only native-view receipt, then qualified
+  manifest fingerprint
+  `442042bed81a3739dc5d8cc2f27c6b6ca1bec87c8033bf2cb0efed85c5e76a85`.
+- Both members used the same exact logged-in Puppet-owned private profile and
+  current-default model/effort with no selector. Their resolved model and
+  effort identities remain honestly unavailable. Worktrees, target processes,
+  tmux identities, and controller leases were distinct; checkpoints were
+  sequenced; and both owned trees reached exact terminal halts.
+- Repairs at `3d184b4`, `c259450`, and `cdaf388` respectively removed generated
+  census time from receipt identity, consumed the current nested pair schema,
+  and closed the qualified mapping against the exact current executable.
+- This checkpoint does not claim controller acceptance of the still-running
+  public lifecycle or completion of the final integrated-head rerun. Native
+  instruction-plane behavior and the deferred command/model surfaces remain
+  outside its scope.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -52,9 +77,11 @@ binding; a fresh public lifecycle at the new head remains pending.
 - `codex --version` -> `codex-cli 0.145.0`.
 - Resolved regular-file hash (SHA-256):
   `1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590`.
-- The regular unrestricted mapping is exactly the resolved execution file followed by
-  `--dangerously-bypass-approvals-and-sandbox`. That one switch is declared in both
-  the permission and sandbox-disable buckets. Project isolation remains incomplete.
+- The regular unrestricted doctor mapping is exactly the resolved execution
+  file followed by `--dangerously-bypass-approvals-and-sandbox`. That one switch
+  is declared in both the permission and sandbox-disable buckets. The doctor
+  mapping remains incomplete until terminal qualification; the exact-head
+  qualified manifest closes project isolation against the current executable.
 - `model_flag=--model` records capability discovery only. The active baseline exposes
   fixed symbolic `model_selection=current_default` and
   `effort_selection=current_default`; it accepts no model, effort, profile, or config
@@ -98,9 +125,11 @@ binding; a fresh public lifecycle at the new head remains pending.
   harnesses; resume behavior is not equivalent across harnesses.
 - Default model reporting from `doctor` may differ by authenticated vs unauthenticated
   environment and must be treated as live-state fact per run.
-- The regular TUI's authenticated state cannot be copied or linked from the
-  live home. A brokered process-local access-token route or a human login into
-  the lane root requires a separate gate; neither is currently available.
+- The exact-head qualification proves one authenticated isolated route through
+  the already enrolled Puppet-owned private profile. It does not authorize
+  copying or linking authentication state, unattended login, or reuse of an
+  operator-global home; a new enrollment or broker route remains separately
+  human-gated.
 - `--ephemeral` or `CODEX_SQLITE_HOME` may reduce specific persistence, but
   neither is evidence of an isolated configuration/instruction stack because
   the ordinary `CODEX_HOME` still owns auth, configuration, logs, sessions,
@@ -116,11 +145,12 @@ instruction plane.
     `$CODEX_HOME/<name>.config.toml` over the base user config.
   - Candidate Puppet profiles may use additive `developer_instructions`; never
     use `model_instructions_file`, which replaces built-in base instructions.
-  - Qualification must use a lane-owned `$CODEX_HOME/<namespace>.config.toml`,
-    select it with `--profile <namespace>`, and show that a matched control
-    without the profile receives no Puppet instruction. Authentication
-    isolation is the current blocker; never copy, link, read, or hash live
-    credentials.
+  - A future qualification of this native plane must use a lane-owned
+    `$CODEX_HOME/<namespace>.config.toml`, select it with
+    `--profile <namespace>`, and show that a matched control without the profile
+    receives no Puppet instruction. The exact-head pair proves its enrolled
+    private-profile authentication boundary, not native profile-plane
+    activation or precedence; never copy, link, read, or hash live credentials.
 
 - **Plane 2: repository/workspace addendum**
   - Codex discovers root-to-cwd `AGENTS.md` guidance and trusted project
@@ -212,9 +242,10 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 - Launch commands with explicit `-C <absolute-fixture-repo>` and no
   ChatGPT-app-specific project assumptions.
 - Do not copy/symlink the ordinary auth file, inspect Keychain/token stores, or
-  put credentials in argv. A future approved broker may inject only a
+  put credentials in argv. The exact-head pair reused its already enrolled
+  Puppet-owned private profile. A future approved broker may inject only a
   process-local credential into the exact Puppet child; otherwise a
-  human-present login must initialize the isolated root.
+  human-present login must initialize any new isolated root.
 - Cleanup boundary: preserve lane-owned roots as evidence until exact rollback
   and cleanup are separately authorized; never target global user paths.
 - Verification precondition: any evidence that references config/profile paths must
@@ -245,8 +276,11 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   `skills/puppet/scripts/puppet_lib/adapter_manifest.py`
   - expose the linked ordinary-control, structural viewer, create-only pair,
     and pair-verification source surfaces;
-  - reject every Codex `qualify` attempt and every Codex runtime-manifest
-    verification. No pair consumer can authorize public launch.
+  - accept Codex `qualify` only after independently rebuilding the terminal
+    pair against the current doctor manifest, current nested pair schema, exact
+    executable mapping, and exact private-profile binding;
+  - keep the pair non-launchable by itself. Public doctor/launch must consume
+    the separately qualified manifest and reverify its pair/profile binding.
 - `skills/puppet/scripts/puppet_lib/codex_workspace_plane.py`
   - implements the launch-disabled body-free workspace plan described above;
     revalidation rebuilds the exact plan from current source-owned launch,
@@ -338,33 +372,29 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
 
 ## 7) Blockers and stop criteria
 
-- Unconditional source-only blocker: approved process-local auth broker unavailable.
-- Unconditional source-only blocker: native instruction plane
-  activation/precedence/no-bleed unproved.
-- Unconditional source-only blocker: live doctor/current-default and Pass-B lifecycle
-  unproved.
-- Unconditional source-only blocker: launch remains fenced/source-only.
-- Unconditional promotion blocker: the paired receipt is evidence-only until
-  root runs both real subscription-backed sessions, independently verifies the
-  terminal pair, reviews it, and explicitly integrates a separate public
-  authority path. This candidate performs none of those root-owned steps.
-- Mapping blocker while applicable: native-plane mapping remains incomplete because
-  project isolation has not been proved.
+- Exact-head qualification checkpoint satisfied: the subscription-backed pair
+  was independently reverified, the exact executable mapping was closed, and
+  the qualified manifest was created with the same logged-in private-profile
+  binding.
+- The paired receipt remains evidence-only and non-launchable by itself. The
+  separately verified qualified manifest is the runtime-authority boundary.
+- Remaining controller gate: this still-running public source lifecycle is not
+  yet accepted, and the final integrated-head rerun is incomplete.
+- Remaining evidence boundary: resolved model and effort identities are
+  unavailable because the pair used the current defaults with no selector.
+- Remaining native-plane blocker: instruction activation, precedence,
+  cleanup, and no-bleed claims are unproved and deferred.
 - Blocker: any executable/help/help-sha/`CODEX_HOME` drift after this census.
 - Blocker: inability to prove prompt transport without argv prompt injection.
 - Blocker: resume cannot be proven exact and isolated from ordinary session state.
-- Blocker: plain regular steer is not accepted without the target admitting exactly one
-  follow-up checkpoint under bounded fixture control.
+- Revalidation requirement: any new lifecycle must preserve bounded ordinary
+  steering and sequenced checkpoints under the exact qualified contract.
 - Blocker: any source/credential/global-session state read/write outside the lane fixture
   root.
-- Blocker: no approved authentication-preserving isolated `CODEX_HOME` route is
-  currently available. The supported candidate is controller-brokered,
-  process-local `CODEX_ACCESS_TOKEN` injection into the exact child with no
-  value in argv, proof, logs, or agent context; no such authority exists in the
-  current campaign. The operator packet therefore stops at
-  `human_choose_private_codex_auth_route`; its other named option is a
-  human-present login into the lane-owned home, not an automatic login or
-  permission to inspect an existing home.
+- Human gate for new authentication: the qualified enrolled private profile is
+  the only accepted current route. A new profile still requires an approved
+  process-local broker or human-present enrollment; neither permits automatic
+  login or inspection of an existing home.
 - Stop condition: no unsupported claims beyond this lane scope; if model/plane/resume
   evidence is inconclusive, defer plane choice and keep harness status as `experimental`
   with blockers recorded.
