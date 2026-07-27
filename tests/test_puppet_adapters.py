@@ -1455,8 +1455,10 @@ class AdapterTests(unittest.TestCase):
                 "target": "codex",
                 "session_profile": "regular",
                 "private_profile_root": str(profile.resolve()),
-                "workspace_isolation": {
-                    "terminal_state": "controller_verified_after_exact_halt"
+                "positive": {
+                    "workspace_isolation": {
+                        "terminal_state": "controller_verified_after_exact_halt"
+                    }
                 },
                 "executable_fingerprint": raw["executable"]["sha256"],
                 "execution_fingerprint": raw["execution"]["execution_fingerprint"],
@@ -1529,6 +1531,7 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(
                 qualified.raw["yolo_mapping"]["project_isolation_declared"]
             )
+            self.assertNotIn("workspace_isolation", receipt)
             self.assertFalse(receipt.get("public_launch_authorized", False))
             self.assertGreaterEqual(initial_verifier.call_count, 1)
             self.assertGreaterEqual(manifest_verifier.call_count, 2)

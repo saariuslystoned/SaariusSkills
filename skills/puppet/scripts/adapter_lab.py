@@ -283,7 +283,11 @@ def _qualify(args):
 
         mapping = cursor_qualified_mapping(mapping)
     if base.target == "codex" and mapping.get("complete") is False:
-        if receipt.get("workspace_isolation") is None:
+        positive = receipt.get("positive")
+        if (
+            not isinstance(positive, dict)
+            or positive.get("workspace_isolation") is None
+        ):
             raise UnsupportedError(
                 "Codex qualification requires terminal controller-verified workspace isolation"
             )
