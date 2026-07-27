@@ -1,16 +1,21 @@
 # Puppet pre-implementation bundle
 
 Status: the original GrillTrack design-closeout snapshot is preserved here.
-Bootstrap source now lives under `skills/puppet/`. Machine-private dogfood
-proof is intentionally excluded from the public branch; the live five-harness
-campaign remains incomplete until commit-bound public proof says otherwise.
+Bootstrap source now lives under `skills/puppet/`. The regular/default
+five-harness v0.1 campaign completed at implementation head
+`544a347117a9423d53f1975ab0d0176116e2e80c`; its curated, transcript-free
+closeout is recorded in
+[`five-harness-closeout-20260727.md`](five-harness-closeout-20260727.md) and
+[`live-proof/five-harness-544a347-20260727.json`](live-proof/five-harness-544a347-20260727.json).
+Machine-private proof remains outside the public branch.
 
-The active 2026-07-25 dogfood goal is
+The completed 2026-07-25 dogfood goal is
 [`codex-goal-four-harness-dogfood.md`](codex-goal-four-harness-dogfood.md).
 It reopens PR #5 after its standalone core closeout to collect real,
 subscription-backed Codex, Claude, Cursor, and Grok implementation and
-cross-review evidence. The broader 2026-07-22 qualification packet remains the
-longer-term product contract but is not the active Codex goal.
+cross-review evidence. AGY was added to the final exact-head closeout. The
+broader 2026-07-22 qualification packet remains the longer-term product
+contract.
 
 The active design amendment remains
 [`instruction-qualification.md`](instruction-qualification.md). It narrows the
@@ -33,8 +38,10 @@ conversation.
 
 ## Start here
 
+- [`five-harness-closeout-20260727.md`](five-harness-closeout-20260727.md)
+  is the final v0.1 evidence matrix and acceptance summary.
 - [`codex-goal-four-harness-dogfood.md`](codex-goal-four-harness-dogfood.md)
-  is the active dogfood-first Codex goal packet.
+  is the completed dogfood-first Codex goal packet.
 - [`codex-goal-regular-qualification.md`](codex-goal-regular-qualification.md)
   is the broader superseded campaign packet and longer-term qualification
   reference.
