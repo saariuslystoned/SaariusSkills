@@ -126,6 +126,38 @@ def _is_v2_process_identity(value: Any) -> bool:
     )
 
 
+def _is_historical_v1_process_identity(value: Any) -> bool:
+    """Validate the closed-ledger process shape used before birth identity v2."""
+
+    return (
+        isinstance(value, dict)
+        and set(value)
+        == PROCESS_IDENTITY_FIELDS - {"identity_version", "kernel_birth_id"}
+        and not isinstance(value.get("pid"), bool)
+        and isinstance(value.get("pid"), int)
+        and value["pid"] > 1
+        and isinstance(value.get("start"), str)
+        and bool(value["start"])
+        and len(value["start"]) <= 200
+        and not any(character in value["start"] for character in "\x00\n\r")
+        and isinstance(value.get("command"), str)
+        and bool(value["command"])
+        and len(value["command"]) <= 1000
+        and "\x00" not in value["command"]
+        and isinstance(value.get("executable_path"), str)
+        and bool(value["executable_path"])
+        and len(value["executable_path"]) <= 4096
+        and "\x00" not in value["executable_path"]
+        and Path(value["executable_path"]).is_absolute()
+        and not isinstance(value.get("device"), bool)
+        and isinstance(value.get("device"), int)
+        and value["device"] > 0
+        and not isinstance(value.get("inode"), bool)
+        and isinstance(value.get("inode"), int)
+        and value["inode"] > 0
+    )
+
+
 def _utc_now() -> str:
     return (
         dt.datetime.now(dt.timezone.utc)
@@ -529,8 +561,11 @@ def _strict_legacy_lease(value: Any) -> Dict[str, Any]:
         if process is not None:
             raise IdentityError("launching legacy controller lease has a process")
     elif value["state"] in {"active", "halting"}:
-        if not _is_v2_process_identity(process):
-            raise IdentityError("legacy controller lease lacks v2 process identity")
+        if not _is_v2_process_identity(process) and not (
+            value["schema_version"] == 1
+            and _is_historical_v1_process_identity(process)
+        ):
+            raise IdentityError("legacy controller lease process identity is invalid")
     elif value["state"] == "halted":
         if not isinstance(process, dict):
             raise IdentityError("halted legacy controller lease lacks process identity")

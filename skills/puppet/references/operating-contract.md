@@ -48,7 +48,10 @@ matching fence from `halting` to `halted`; it can finish that fence alone when
 the exact target generation is already halted. Replay with both exact
 projections halted changes neither ledger. It never creates or repairs
 authority state, signals, or attaches, and preserves the BLOCKED record, proof
-journal, tmux topology, and historical evidence.
+journal, tmux topology, and historical evidence. Strict ledger replay accepts
+the exact pre-kernel-birth process shape only on schema-v1 historical rows so a
+closed early generation remains readable. The live matching fence must still
+equal the target's complete v2 process identity before either ledger changes.
 
 Halt action is target-aware: non-AGY uses exact positive-PID `SIGINT`; AGY uses
 private-pane EOF. Never send tmux `C-c` or process-group signals.

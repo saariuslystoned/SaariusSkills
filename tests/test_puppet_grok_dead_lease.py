@@ -89,7 +89,62 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
             if path.is_file()
         }
 
-    def _fixture(self, root: Path) -> tuple[dict, SessionRegistry, dict]:
+    def _seed_historical_v1_legacy_generation(self, root: Path) -> None:
+        authority = puppet_authority.controller_authority_root(root)
+        proof_root = root.parent / "legacy-v1-proof"
+        state_root = root.parent / "legacy-v1-state"
+        proof_root.mkdir(mode=0o700)
+        state_root.mkdir(mode=0o700)
+        owner = lease_owner(
+            activity="session",
+            run_id="legacy-v1-run",
+            campaign_id="legacy-v1-campaign",
+            goal_fingerprint="a" * 64,
+            proof_root=proof_root,
+            state_root=state_root,
+        )
+        process = {
+            "pid": 4242,
+            "start": "darwin:1:000001",
+            "command": "historical-agent",
+            "executable_path": "/usr/bin/true",
+            "device": 1,
+            "inode": 1,
+        }
+        common = {
+            "schema_version": 1,
+            "authority_id": puppet_authority.AUTHORITY_ID,
+            "generation": 1,
+            "session": "historical-v1-session",
+            "target": "agy",
+            "controller": "historical-controller",
+            "owner": owner,
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        journal = Journal(authority / "session-lease-history")
+        projection = None
+        for state in ("launching", "active", "failed"):
+            projection = {
+                **common,
+                "state": state,
+                "updated_at": "2026-01-01T00:00:0%sZ"
+                % {"launching": 0, "active": 1, "failed": 2}[state],
+                "process": None if state == "launching" else process,
+            }
+            journal.append(
+                request_id="lease-1-%s" % state,
+                event={"kind": "session_lease", "lease": projection},
+            )
+        atomic_write_json(authority / "current-session-lease.json", projection)
+
+    def _fixture(
+        self,
+        root: Path,
+        *,
+        historical_v1_legacy_generation: bool = False,
+    ) -> tuple[dict, SessionRegistry, dict]:
+        if historical_v1_legacy_generation:
+            self._seed_historical_v1_legacy_generation(self.authority_root)
         candidate = initialize_repo(
             root / "candidate",
             "codex/grok-dead-lease",
@@ -321,6 +376,41 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                         for name, body in authority_before.items()
                         if name not in mutable
                     },
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_reconciles_with_a_closed_historical_v1_legacy_generation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files, _, record = self._fixture(
+                root,
+                historical_v1_legacy_generation=True,
+            )
+            socket = record["tmux"]["socket"]
+            try:
+                before = Journal(
+                    self.authority_root / "session-lease-history"
+                ).read_only_snapshot()
+                self.assertNotIn(
+                    "identity_version",
+                    before[1]["event"]["lease"]["process"],
+                )
+                result = reconcile_grok_dead_lease(
+                    state_root=files["state"],
+                    session=record["session"],
+                )
+                self.assertTrue(result["exact_lease_halted"])
+                self.assertTrue(result["exact_legacy_fence_halted"])
+                after = Journal(
+                    self.authority_root / "session-lease-history"
+                ).read_only_snapshot()
+                self.assertEqual(after[:3], before[:3])
+                self.assertEqual(
+                    puppet_authority._strict_legacy_session_lease_projection(
+                        self.authority_root
+                    )["state"],
+                    "halted",
                 )
             finally:
                 kill_test_server(socket)

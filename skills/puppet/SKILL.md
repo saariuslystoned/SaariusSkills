@@ -328,8 +328,8 @@ Use this sequence:
    the target lock and then the existing legacy lock, it changes only the exact
    `halting` target generation and matching fence to `halted`. It never signals,
    attaches, updates the registry or proof journal, creates or repairs authority
-   evidence, or relaxes the immutable supervisor checks used by ordinary
-   `status` and `halt`.
+   evidence, or relaxes ordinary `status` and `halt`. Replay may validate closed schema-v1 process history;
+   the current fence still must match the target's full v2 birth identity.
 
 Pass B probes and normal live sessions share one fixed, checkout-independent
 authority root with one lock, projection, and durable lease history per target.
