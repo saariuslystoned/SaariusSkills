@@ -324,10 +324,12 @@ Use this sequence:
    an explicitly named Grok registry record that remains `BLOCKED` with a
    proven-dead `launch_incomplete` target and preserved dead pane. It strictly
    revalidates the recorded process, private tmux topology, and canonical fixed
-   Grok lease generation before changing only that generation from `halting`
-   to `halted`. It never signals, attaches, updates the registry or proof
-   journal, repairs divergent authority evidence, or relaxes the immutable
-   supervisor checks used by ordinary `status` and `halt`.
+   Grok lease generation and its exact backed legacy compatibility fence. Under
+   the target lock and then the existing legacy lock, it changes only the exact
+   `halting` target generation and matching fence to `halted`. It never signals,
+   attaches, updates the registry or proof journal, creates or repairs authority
+   evidence, or relaxes the immutable supervisor checks used by ordinary
+   `status` and `halt`.
 
 Pass B probes and normal live sessions share one fixed, checkout-independent
 authority root with one lock, projection, and durable lease history per target.

@@ -1944,17 +1944,19 @@ def reconcile_grok_dead_lease(
         )
         if checked["record"] != initial["record"]:
             raise IdentityError("registered Grok session changed during reconciliation")
-        halted, transitioned = halt_exact_session_lease_generation(
-            session=session,
-            target="grok",
-            controller=checked["record"]["controller"],
-            owner=checked["record"]["lease_owner"],
-            instruction_manifest_sha256=checked["record"]["instructions"][
-                "manifest_sha256"
-            ],
-            process=checked["record"]["process"],
-            generation=checked["lease"]["generation"],
-            _lock_descriptor=descriptor,
+        halted, transitioned, legacy_fence, legacy_transitioned = (
+            halt_exact_session_lease_generation(
+                session=session,
+                target="grok",
+                controller=checked["record"]["controller"],
+                owner=checked["record"]["lease_owner"],
+                instruction_manifest_sha256=checked["record"]["instructions"][
+                    "manifest_sha256"
+                ],
+                process=checked["record"]["process"],
+                generation=checked["lease"]["generation"],
+                _lock_descriptor=descriptor,
+            )
         )
     finally:
         release_real_harness_lock(descriptor)
@@ -1968,6 +1970,10 @@ def reconcile_grok_dead_lease(
         "lease_state": halted["state"],
         "lease_transitioned": transitioned,
         "exact_lease_halted": halted["state"] == "halted",
+        "legacy_fence_session": legacy_fence["session"],
+        "legacy_fence_state": legacy_fence["state"],
+        "legacy_fence_transitioned": legacy_transitioned,
+        "exact_legacy_fence_halted": legacy_fence["state"] == "halted",
         "signal_sent": False,
         "attach_performed": False,
         "tmux_preserved": True,

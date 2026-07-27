@@ -14,6 +14,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.adapter_manifest import AdapterManifest  # noqa: E402
+import puppet_lib.authority as puppet_authority  # noqa: E402
 import puppet_lib.session as puppet_session  # noqa: E402
 from puppet_lib.authority import (  # noqa: E402
     admit_session_lease,
@@ -269,6 +270,8 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                 )
                 self.assertTrue(result["exact_lease_halted"])
                 self.assertTrue(result["lease_transitioned"])
+                self.assertTrue(result["exact_legacy_fence_halted"])
+                self.assertTrue(result["legacy_fence_transitioned"])
                 self.assertFalse(result["signal_sent"])
                 self.assertFalse(result["attach_performed"])
                 self.assertTrue(result["tmux_preserved"])
@@ -280,6 +283,11 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                     )["state"],
                     "halted",
                 )
+                legacy = puppet_authority._strict_legacy_session_lease_projection(
+                    self.authority_root
+                )
+                self.assertEqual(legacy["session"], "target-fence-grok-1")
+                self.assertEqual(legacy["state"], "halted")
                 self.assertEqual(
                     registry._path(record["session"]).read_bytes(),
                     registry_before,
@@ -296,8 +304,11 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                 authority_after = self._files_snapshot(self.authority_root)
                 mutable = {
                     "current-session-lease.grok.json",
+                    "current-session-lease.json",
                     "session-lease-history.grok/events.jsonl",
                     "session-lease-history.grok/journal-head.json",
+                    "session-lease-history/events.jsonl",
+                    "session-lease-history/journal-head.json",
                 }
                 self.assertEqual(
                     {
@@ -331,12 +342,15 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                     session=record["session"],
                 )
                 self.assertTrue(first["lease_transitioned"])
+                self.assertTrue(first["legacy_fence_transitioned"])
                 self.assertFalse(second["lease_transitioned"])
+                self.assertFalse(second["legacy_fence_transitioned"])
                 self.assertEqual(
                     second["lease_generation"],
                     first["lease_generation"],
                 )
                 self.assertTrue(second["exact_lease_halted"])
+                self.assertTrue(second["exact_legacy_fence_halted"])
                 self.assertEqual(
                     self._files_snapshot(self.authority_root),
                     after_first,
@@ -344,6 +358,64 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                 self.assertEqual(
                     registry._path(record["session"]).read_bytes(),
                     registry_after_first,
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_synchronizes_an_exact_legacy_fence_left_halting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files, registry, record = self._fixture(root)
+            socket = record["tmux"]["socket"]
+            try:
+                target = strict_session_lease_projection(
+                    self.authority_root,
+                    target="grok",
+                )
+                puppet_authority._append_lease(
+                    self.authority_root,
+                    dict(target, state="halted"),
+                    target="grok",
+                )
+                target_before = {
+                    name: body
+                    for name, body in self._files_snapshot(
+                        self.authority_root
+                    ).items()
+                    if name == "current-session-lease.grok.json"
+                    or name.startswith("session-lease-history.grok/")
+                }
+                registry_before = registry._path(record["session"]).read_bytes()
+
+                result = reconcile_grok_dead_lease(
+                    state_root=files["state"],
+                    session=record["session"],
+                )
+
+                self.assertFalse(result["lease_transitioned"])
+                self.assertTrue(result["legacy_fence_transitioned"])
+                self.assertTrue(result["exact_lease_halted"])
+                self.assertTrue(result["exact_legacy_fence_halted"])
+                self.assertEqual(
+                    {
+                        name: body
+                        for name, body in self._files_snapshot(
+                            self.authority_root
+                        ).items()
+                        if name == "current-session-lease.grok.json"
+                        or name.startswith("session-lease-history.grok/")
+                    },
+                    target_before,
+                )
+                self.assertEqual(
+                    puppet_authority._strict_legacy_session_lease_projection(
+                        self.authority_root
+                    )["state"],
+                    "halted",
+                )
+                self.assertEqual(
+                    registry._path(record["session"]).read_bytes(),
+                    registry_before,
                 )
             finally:
                 kill_test_server(socket)
@@ -406,6 +478,94 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                 self.assertEqual(registry.load(record["session"])["state"], "BLOCKED")
             finally:
                 kill_test_server(socket)
+
+    def test_refuses_later_or_unrelated_legacy_fence_without_changes(self):
+        for boundary in ("later anchor", "unrelated anchor"):
+            with (
+                self.subTest(boundary=boundary),
+                tempfile.TemporaryDirectory() as temporary,
+                tempfile.TemporaryDirectory() as authority_temporary,
+            ):
+                root = Path(temporary).resolve()
+                prior_authority_root = self.authority_root
+                self.authority_root = (
+                    Path(authority_temporary).resolve() / "authority"
+                )
+                authority_override = patch(
+                    "puppet_lib.authority.canonical_authority_root",
+                    return_value=self.authority_root,
+                )
+                authority_override.start()
+                socket = None
+                try:
+                    files, registry, record = self._fixture(root)
+                    socket = record["tmux"]["socket"]
+                    legacy = puppet_authority._strict_legacy_session_lease_projection(
+                        self.authority_root
+                    )
+                    terminal = puppet_authority._append_lease(
+                        self.authority_root,
+                        dict(legacy, state="failed"),
+                    )
+                    next_generation = dict(
+                        terminal,
+                        generation=terminal["generation"] + 1,
+                        session=(
+                            "target-fence-grok-2"
+                            if boundary == "later anchor"
+                            else "unrelated-legacy-session"
+                        ),
+                        target=(
+                            "grok"
+                            if boundary == "later anchor"
+                            else "codex"
+                        ),
+                        controller=(
+                            terminal["controller"]
+                            if boundary == "later anchor"
+                            else "unrelated-controller"
+                        ),
+                        state="launching",
+                        created_at="2026-07-27T00:00:00Z",
+                        updated_at="2026-07-27T00:00:00Z",
+                        process=None,
+                    )
+                    puppet_authority._append_lease(
+                        self.authority_root,
+                        next_generation,
+                    )
+                    self.assertEqual(
+                        puppet_authority._strict_legacy_session_lease_projection(
+                            self.authority_root
+                        ),
+                        next_generation,
+                    )
+                    authority_before = self._files_snapshot(self.authority_root)
+                    registry_before = registry._path(
+                        record["session"]
+                    ).read_bytes()
+
+                    with self.assertRaisesRegex(
+                        IdentityError,
+                        "legacy compatibility fence identity mismatch",
+                    ):
+                        reconcile_grok_dead_lease(
+                            state_root=files["state"],
+                            session=record["session"],
+                        )
+
+                    self.assertEqual(
+                        self._files_snapshot(self.authority_root),
+                        authority_before,
+                    )
+                    self.assertEqual(
+                        registry._path(record["session"]).read_bytes(),
+                        registry_before,
+                    )
+                finally:
+                    kill_test_server(socket)
+                    authority_override.stop()
+                    self.authority_root = prior_authority_root
 
     def test_preflight_refuses_each_distinct_registry_and_lease_mismatch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -514,6 +674,71 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                     self._files_snapshot(self.authority_root),
                     authority_before,
                 )
+            finally:
+                kill_test_server(socket)
+
+    def test_refuses_each_legacy_fence_identity_mismatch_without_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            files, registry, record = self._fixture(root)
+            socket = record["tmux"]["socket"]
+            try:
+                legacy = puppet_authority._strict_legacy_session_lease_projection(
+                    self.authority_root
+                )
+                authority_before = self._files_snapshot(self.authority_root)
+                registry_before = registry._path(record["session"]).read_bytes()
+                mismatches = {
+                    "anchor": dict(
+                        legacy,
+                        session="target-fence-grok-2",
+                    ),
+                    "owner": dict(
+                        legacy,
+                        owner=dict(
+                            legacy["owner"],
+                            run_id="different-run",
+                        ),
+                    ),
+                    "process": dict(
+                        legacy,
+                        process=dict(
+                            legacy["process"],
+                            kernel_birth_id="different-birth",
+                        ),
+                    ),
+                    "state ahead": dict(legacy, state="halted"),
+                    "schema": dict(
+                        legacy,
+                        schema_version=2,
+                        instruction_manifest_sha256="0" * 64,
+                    ),
+                }
+                for boundary, changed in mismatches.items():
+                    with (
+                        self.subTest(boundary=boundary),
+                        patch.object(
+                            puppet_authority,
+                            "_strict_legacy_session_lease_projection",
+                            return_value=changed,
+                        ),
+                        self.assertRaisesRegex(
+                            IdentityError,
+                            "legacy compatibility fence identity mismatch",
+                        ),
+                    ):
+                        reconcile_grok_dead_lease(
+                            state_root=files["state"],
+                            session=record["session"],
+                        )
+                    self.assertEqual(
+                        self._files_snapshot(self.authority_root),
+                        authority_before,
+                    )
+                    self.assertEqual(
+                        registry._path(record["session"]).read_bytes(),
+                        registry_before,
+                    )
             finally:
                 kill_test_server(socket)
 
@@ -666,11 +891,16 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
         ):
             _prove_recorded_process_birth_gone(process)
 
-    def test_rejects_projection_divergence_and_noncanonical_history_read_only(self):
-        corruptions = ("projection divergence", "noncanonical history")
-        for corruption in corruptions:
+    def test_rejects_projection_and_journal_mismatches_read_only(self):
+        corruptions = (
+            ("target", "projection divergence"),
+            ("target", "noncanonical history"),
+            ("legacy", "projection divergence"),
+            ("legacy", "noncanonical history"),
+        )
+        for surface, corruption in corruptions:
             with (
-                self.subTest(corruption=corruption),
+                self.subTest(surface=surface, corruption=corruption),
                 tempfile.TemporaryDirectory() as temporary,
                 tempfile.TemporaryDirectory() as authority_temporary,
             ):
@@ -690,11 +920,21 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                     socket = record["tmux"]["socket"]
                     projection_path = (
                         self.authority_root
-                        / "current-session-lease.grok.json"
+                        / (
+                            "current-session-lease.grok.json"
+                            if surface == "target"
+                            else "current-session-lease.json"
+                        )
                     )
-                    lease = strict_session_lease_projection(
-                        self.authority_root,
-                        target="grok",
+                    lease = (
+                        strict_session_lease_projection(
+                            self.authority_root,
+                            target="grok",
+                        )
+                        if surface == "target"
+                        else puppet_authority._strict_legacy_session_lease_projection(
+                            self.authority_root
+                        )
                     )
                     if corruption == "projection divergence":
                         atomic_write_json(
@@ -715,7 +955,11 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                         )
                         Journal(
                             self.authority_root
-                            / "session-lease-history.grok"
+                            / (
+                                "session-lease-history.grok"
+                                if surface == "target"
+                                else "session-lease-history"
+                            )
                         ).append(
                             request_id="lease-%d-launching"
                             % invalid["generation"],

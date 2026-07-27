@@ -41,10 +41,14 @@ record whose exact process birth is gone and whose recorded private tmux
 server, socket, single pane, pane owner, and dead-pane state remain exact. Its
 preflight is read-only. Under the fixed Grok target lock it repeats every
 registry, process, tmux, canonical ledger, projection, controller, owner,
-instruction, process, generation, and state check before changing only the
-same lease generation from `halting` to `halted`. Replay of that exact halted
-generation is idempotent. It never signals or attaches and preserves the
-BLOCKED record, proof journal, tmux topology, and historical evidence.
+instruction, process, generation, and state check, then takes the existing
+legacy lock and strictly revalidates the exact backed compatibility fence.
+Only after all checks pass does it change the same lease generation and
+matching fence from `halting` to `halted`; it can finish that fence alone when
+the exact target generation is already halted. Replay with both exact
+projections halted changes neither ledger. It never creates or repairs
+authority state, signals, or attaches, and preserves the BLOCKED record, proof
+journal, tmux topology, and historical evidence.
 
 Halt action is target-aware: non-AGY uses exact positive-PID `SIGINT`; AGY uses
 private-pane EOF. Never send tmux `C-c` or process-group signals.
