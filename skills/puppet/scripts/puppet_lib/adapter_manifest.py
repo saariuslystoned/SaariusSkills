@@ -1264,6 +1264,10 @@ def verify_qualification_receipt(
         )
     if codex_entry_source is not None:
         workspace = receipt["workspace_isolation"]
+        # validate_codex_entry_source() reopens the exact saved manifest, while
+        # current_identities above rejects executable, adapter, protocol, and
+        # mapping drift. Do not compare the full fresh census fingerprint here:
+        # it includes the intentionally changing generated_at observation time.
         if (
             codex_entry_source["run_id"] != receipt["run_id"]
             or codex_entry_source["session"] != terminal_state.get("session")
@@ -1271,8 +1275,6 @@ def verify_qualification_receipt(
             or codex_entry_source["campaign_id"] != receipt["campaign_id"]
             or codex_entry_source["goal_fingerprint"]
             != receipt["goal_fingerprint"]
-            or codex_entry_source["manifest"]["fingerprint"]
-            != current_manifest.fingerprint
             or codex_entry_source["profile"]["sha256"]
             != receipt["subscription_profile_sha256"]
             or codex_entry_source["workspace"]["descriptor_sha256"]

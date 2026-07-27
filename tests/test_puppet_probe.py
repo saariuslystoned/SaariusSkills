@@ -1338,6 +1338,17 @@ class ProbeTests(unittest.TestCase):
                     _server_process_fn=lambda pid: fake.server_process,
                     _tmux_factory=lambda selected: fake,
                 )
+                refreshed_manifest = dict(
+                    files["raw"], generated_at="2026-07-23T04:00:00Z"
+                )
+                refreshed_receipt = verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=files["authority"],
+                    _current_manifest=AdapterManifest.from_dict(refreshed_manifest),
+                    _server_process_fn=lambda pid: fake.server_process,
+                    _tmux_factory=lambda selected: fake,
+                )
+                self.assertEqual(refreshed_receipt, receipt)
                 proof_kinds = {reference["kind"] for reference in receipt["proof_refs"]}
                 self.assertIn("workspace_descriptor", proof_kinds)
                 self.assertIn("controller_contract", proof_kinds)
