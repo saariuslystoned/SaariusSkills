@@ -160,7 +160,7 @@ before and after its normal direct task delivery.
 Each member's canonical runtime vector is:
 
 ```text
-grok-0.2.111-macos-aarch64 --always-approve --sandbox off \
+grok-0.2.112-macos-aarch64 --always-approve --sandbox off \
   --no-leader --trust \
   --cwd ABSOLUTE_WORKSPACE --leader-socket NEW_PRIVATE_SOCKET \
   --session-id CANONICAL_UUIDV4

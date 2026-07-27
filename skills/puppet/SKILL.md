@@ -149,7 +149,7 @@ operator-global home merely because it is logged in: that can also import
 unrelated instructions, configuration, plugins, sessions, and logs. When safe
 adoption is unavailable, group the one-time profile enrollments into first-use
 Puppet onboarding instead of interrupting later runs with repeated prompts.
-For Grok 0.2.111, qualify the current standalone private-profile pair first. The
+For Grok 0.2.112, qualify the current standalone private-profile pair first. The
 attended shared-leader/exact-socket surface remains a deferred no-copy
 operator-subscription candidate. Its external auth provider is not a cached
 session export or generic consumer bridge without a provisioned token provider.

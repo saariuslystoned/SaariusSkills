@@ -858,9 +858,9 @@ class GrokWorkspaceDescriptorTests(unittest.TestCase):
         self.assertEqual(self.descriptor["target"]["version"], GROK_BUILD_VERSION)
         self.assertEqual(
             self.descriptor["descriptor_id"],
-            "grok-build-0.2.111-workspace-addendum",
+            "grok-build-0.2.112-workspace-addendum",
         )
-        self.assertEqual(self.descriptor["target"]["version"], "0.2.111")
+        self.assertEqual(self.descriptor["target"]["version"], "0.2.112")
         self.assertEqual(self.descriptor["target"]["requested_model"], "default")
         self.assertEqual(self.descriptor["target"]["observed_model"], "unavailable")
         self.assertEqual(

@@ -31,7 +31,7 @@ def grok_subscription_adoption_plan() -> Dict[str, Any]:
     return {
         "schema": GROK_SUBSCRIPTION_ADOPTION_SCHEMA,
         "target": "grok",
-        "target_version": "0.2.111",
+        "target_version": "0.2.112",
         "state": "source_candidate_unqualified",
         "preferred_candidate": "process_local_shared_leader",
         "routes": {

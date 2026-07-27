@@ -48,6 +48,7 @@ _GROK_PROCESS_CANDIDATE_NAMES = frozenset(
         "grok",
         "grok-macos-aarch64",
         "grok-0.2.111-macos-aarch64",
+        "grok-0.2.112-macos-aarch64",
     }
 )
 

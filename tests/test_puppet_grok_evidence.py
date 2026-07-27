@@ -110,7 +110,7 @@ class GrokPassAEvidenceTests(unittest.TestCase):
 
     def test_historical_pass_a_tuple_is_decoupled_from_current_launch_tuple(self):
         self.assertEqual(GROK_PASS_A_TARGET_VERSION, "0.2.106")
-        self.assertEqual(GROK_BUILD_VERSION, "0.2.111")
+        self.assertEqual(GROK_BUILD_VERSION, "0.2.112")
         self.assertNotEqual(GROK_PASS_A_EXECUTABLE_SHA256, GROK_EXECUTABLE_SHA256)
         self.assertNotEqual(
             GROK_PASS_A_VERSION_OUTPUT_SHA256,

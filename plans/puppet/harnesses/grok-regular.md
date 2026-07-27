@@ -1,12 +1,12 @@
 # Grok Build regular-session qualification harness (v0.1)
 
-Status: paired-runtime qualification substrate implemented; no live Grok pair
-is qualified until both subscription-backed runs and their native views are
-independently verified.
+Status: paired-runtime qualification substrate implemented. A real 0.2.112
+positive/ordinary subscription pair and both native views passed at source
+head `52154b5`; public qualification awaits this exact-version repair.
 
 ## Scope and lane contract
 
-- Current source-only target: Grok Build 0.2.111 regular TUI with its current
+- Current target: Grok Build 0.2.112 regular TUI with its current
   default model.
 - Historical 0.2.106 parser-evidence source head inspected:
   `b8cce94bf2a4a62f974207a95abcfe1668412b90`.
@@ -21,7 +21,34 @@ independently verified.
 
 ## 1) Exact executable and parser evidence
 
-The current PATH winner is an operator-local symlink chain to the final Mach-O
+The 2026-07-27 live recensus and pair bind the current installed executable:
+
+```text
+~/.local/bin/grok -> ~/.grok/bin/grok ->
+~/.grok/downloads/grok-0.2.112-macos-aarch64
+```
+
+- Ordinary-home version: `grok 0.2.112 (9bbd559437aa) [stable]`.
+- Final binary SHA-256:
+  `5cf05fe670b1818561daf7566b580a5de6b81149166499d61072e49640b541a4`.
+- Ordinary-home version-output SHA-256:
+  `7db3c7035b372823af89e810e0af59481be4d3130cf1788a844fc4346aedfabe`.
+- Isolated-profile version-output SHA-256:
+  `cda9b14c5730ce951c6081f09fb19d79206218cde78f2a1f5ef2be76a9178e0b`.
+- Main-help SHA-256:
+  `1835405dd337acf949e70af78be503a0e84b1a3ac8b5293d5a018d6e60b9f395`.
+- `agent --help` and `agent leader --help` hashes are unchanged from 0.2.111.
+
+The exact live pair used the durable Puppet-owned profile after
+`profile-init` re-bound only its executable identity from 0.2.111 to 0.2.112;
+the cached subscription remained logged in and no auth/config body was read or
+copied. Both targets exact-halted and both native read-only Terminal views
+attached and detached.
+
+The remainder of this section preserves the earlier 0.2.111 parser and source
+research as historical design evidence:
+
+The prior PATH winner was an operator-local symlink chain to the final Mach-O
 binary:
 
 ```text

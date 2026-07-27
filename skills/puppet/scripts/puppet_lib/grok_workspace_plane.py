@@ -616,7 +616,7 @@ def grok_regular_launch_argv(executable_path: str | Path) -> list[str]:
 
     path = Path(executable_path)
     if path.name != GROK_RUNTIME_BASENAME:
-        raise IdentityError("Grok regular argv requires the exact 0.2.111 runtime basename")
+        raise IdentityError("Grok regular argv requires the exact 0.2.112 runtime basename")
     return [str(path), *GROK_REGULAR_ARGV_TAIL]
 
 

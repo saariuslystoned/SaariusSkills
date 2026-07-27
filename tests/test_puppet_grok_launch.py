@@ -88,24 +88,24 @@ def process_identity(
 
 
 class GrokLaunchAuthorityTests(unittest.TestCase):
-    def test_current_source_tuple_is_exact_grok_0_2_111_census(self):
+    def test_current_source_tuple_is_exact_grok_0_2_112_census(self):
         self.assertEqual(
             GROK_EXECUTABLE_SHA256,
-            "e1fafdfffe14f339460befaf194360e8f90bfd02efe8a4f24cfa1c7aea657ffe",
+            "5cf05fe670b1818561daf7566b580a5de6b81149166499d61072e49640b541a4",
         )
         self.assertEqual(
             GROK_CENSUS_VERSION_OUTPUT_SHA256,
-            "056584a715a3f6cdb882797e20c49495c1dc8874d83eb4c62d474a1fb188f15d",
+            "7db3c7035b372823af89e810e0af59481be4d3130cf1788a844fc4346aedfabe",
         )
         self.assertEqual(
             GROK_ISOLATED_VERSION_OUTPUT_SHA256,
-            "580e7f325a2b1c0807e2eca5ad4bceac313dee481c3e66c06af08013ef89430d",
+            "cda9b14c5730ce951c6081f09fb19d79206218cde78f2a1f5ef2be76a9178e0b",
         )
         self.assertEqual(
             GROK_MAIN_HELP_SHA256,
-            "d11f1815c770a69d87a05f394c6f7759562738c7de4e29a043f9f06c0aeba1c1",
+            "1835405dd337acf949e70af78be503a0e84b1a3ac8b5293d5a018d6e60b9f395",
         )
-        self.assertEqual(GROK_RUNTIME_BASENAME, "grok-0.2.111-macos-aarch64")
+        self.assertEqual(GROK_RUNTIME_BASENAME, "grok-0.2.112-macos-aarch64")
 
     def _manifest_raw(self, executable: Path) -> dict:
         details = executable.stat()
@@ -172,7 +172,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
             return build_grok_launch_context(**values)
 
     def _layout(self, root: Path) -> dict[str, object]:
-        executable = root / "grok-0.2.111-macos-aarch64"
+        executable = root / "grok-0.2.112-macos-aarch64"
         executable.write_bytes(b"synthetic grok executable")
         executable.chmod(0o700)
         manifest = root / "grok-doctor-manifest.json"
@@ -230,7 +230,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 context = self._build_context(layout)
             expected_argv = (
                 str(
-                    Path(layout["manifest_path"]).parent / "grok-0.2.111-macos-aarch64"
+                    Path(layout["manifest_path"]).parent / "grok-0.2.112-macos-aarch64"
                 ),
                 "--always-approve",
                 "--sandbox",
@@ -430,7 +430,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
 
     def test_census_help_does_not_promote_grok_parser_facts_to_live_authority(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary).resolve() / "grok-0.2.111-macos-aarch64"
+            executable = Path(temporary).resolve() / "grok-0.2.112-macos-aarch64"
             executable.write_bytes(b"synthetic grok executable")
             executable.chmod(0o700)
             with (
@@ -438,7 +438,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 patch(
                     "puppet_lib.census._bounded_run",
                     side_effect=[
-                        b"grok 0.2.111\n",
+                        b"grok 0.2.112\n",
                         (
                             b"  --always-approve\n"
                             b"  --sandbox <PROFILE>\n"
@@ -468,7 +468,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
 
     def test_census_help_missing_sandbox_surface_fails_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary).resolve() / "grok-0.2.111-macos-aarch64"
+            executable = Path(temporary).resolve() / "grok-0.2.112-macos-aarch64"
             executable.write_bytes(b"synthetic grok executable")
             executable.chmod(0o700)
             with (
@@ -476,7 +476,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 patch(
                     "puppet_lib.census._bounded_run",
                     side_effect=[
-                        b"grok 0.2.111\n",
+                        b"grok 0.2.112\n",
                         b"  --always-approve\n  --cwd <CWD>\n",
                     ],
                 ),
@@ -550,7 +550,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
         self.assertEqual(population["mismatched"], [mismatched])
 
     def test_versioned_runtime_basename_is_fixed_and_identity_classified(self):
-        basename = "grok-0.2.111-macos-aarch64"
+        basename = "grok-0.2.112-macos-aarch64"
         runtime_selector = {
             "path": "/opt/runtime/%s" % basename,
             "device": 10,
@@ -595,6 +595,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
                 "grok",
                 "grok-macos-aarch64",
                 "grok-0.2.111-macos-aarch64",
+                "grok-0.2.112-macos-aarch64",
             },
             set(),
             error_prefix="Grok candidate process inventory",
@@ -731,7 +732,7 @@ class GrokLaunchAuthorityTests(unittest.TestCase):
     def test_doctor_only_manifest_and_forged_ready_report_stay_fenced(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            executable = root / "grok-0.2.111-macos-aarch64"
+            executable = root / "grok-0.2.112-macos-aarch64"
             executable.write_bytes(b"synthetic grok executable")
             candidate = root / "candidate"
             candidate.mkdir()
@@ -934,7 +935,7 @@ class GrokWorkspacePlaneBindingTests(unittest.TestCase):
             self.assertEqual(record["schema"], GROK_WORKSPACE_BINDING_SCHEMA)
             self.assertEqual(record["state"], GROK_WORKSPACE_BINDING_STATE)
             self.assertEqual(record["target"], "grok")
-            self.assertEqual(record["target_version"], "0.2.111")
+            self.assertEqual(record["target_version"], "0.2.112")
             self.assertEqual(record["plane"], "workspace_addendum")
             self.assertEqual(
                 record["adapter_manifest_sha256"],

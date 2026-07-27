@@ -56,7 +56,7 @@ class GrokHaltAuthorityTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.executable = self.root / "grok-0.2.111-macos-aarch64"
+        self.executable = self.root / "grok-0.2.112-macos-aarch64"
         self.executable.write_bytes(b"synthetic Grok runtime")
         self.executable.chmod(0o700)
         self.lane = self.root / "lane"

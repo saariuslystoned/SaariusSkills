@@ -130,8 +130,8 @@ CURSOR_WORKSPACE_BLOCKERS = (
 )
 _CURSOR_WORKSPACE_RULE_RE = re.compile(r"^\.cursor/rules/puppet-([0-9a-f]{64})\.mdc$")
 
-GROK_BUILD_VERSION = "0.2.111"
-GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.111-workspace-addendum"
+GROK_BUILD_VERSION = "0.2.112"
+GROK_WORKSPACE_DESCRIPTOR_ID = "grok-build-0.2.112-workspace-addendum"
 GROK_WORKSPACE_ARTIFACT_ID = "grok_workspace_rule"
 GROK_WORKSPACE_ASSERTIONS = (
     "grok_workspace_context_delta_exact",
@@ -960,7 +960,7 @@ def build_grok_workspace_addendum_descriptor(
     adapter_manifest_sha256: str,
     rendered_sha256: str,
 ) -> Dict[str, Any]:
-    """Build the one exact Grok 0.2.111 workspace descriptor.
+    """Build the one exact Grok 0.2.112 workspace descriptor.
 
     The contract body is represented only by its SHA-256 in the namespaced
     relative filename.  This helper has no filesystem or launch behavior.
@@ -994,7 +994,7 @@ def validate_grok_workspace_addendum_descriptor(
     )
     if canonical_json_bytes(normalized) != canonical_json_bytes(expected):
         raise ValidationError(
-            "descriptor is not the exact Grok 0.2.111 workspace addendum"
+            "descriptor is not the exact Grok 0.2.112 workspace addendum"
         )
     return normalized
 

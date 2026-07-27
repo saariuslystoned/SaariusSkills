@@ -135,7 +135,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         self.profile.mkdir(mode=0o700)
         self.profile.chmod(0o700)
         self.executable = self.base / GROK_RUNTIME_BASENAME
-        self.executable.write_bytes(b"synthetic-grok-0.2.111")
+        self.executable.write_bytes(b"synthetic-grok-0.2.112")
         self.contract_bytes = b"EFFECTIVE_CONTRACT_BODY_CANARY\n"
         self.content_sha = sha256_bytes(self.contract_bytes)
         self.relative = build_artifact_relative_path(self.content_sha)
@@ -572,7 +572,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         descriptor = {
             "schema": DESCRIPTOR_SCHEMA,
             "target": "grok",
-            "target_version": "0.2.111",
+            "target_version": "0.2.112",
             "surface": "controller_proved_direct_and_cockpit_join",
             "qualification_authorized": False,
             "workspace_root": str(positive),
@@ -629,7 +629,7 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         incomplete_pair = {
             "schema": MATCHED_CONTROL_SCHEMA,
             "target": "grok",
-            "target_version": "0.2.111",
+            "target_version": "0.2.112",
             "positive_workspace_root": str(positive),
             "ordinary_workspace_root": str(ordinary),
             "positive_artifact_relative_path": self.relative,
