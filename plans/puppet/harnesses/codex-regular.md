@@ -3,9 +3,11 @@
 Status: the current Codex pair was independently reverified and qualified at
 source head `cdaf38877ed61d607de03129fc6036b728958fbf` with the exact logged-in
 private-profile binding. The pair remains body-free `paired_evidence_only`; the
-separately verified qualified manifest is the runtime-authority boundary. This
-still-running public source lifecycle is not yet controller-accepted, and a
-final integrated-head rerun remains pending.
+separately verified qualified manifest is the runtime-authority boundary. The
+public mutating source lifecycle from that head is controller-accepted at
+candidate commit `4cd62586f9057f89fdc5e204d2b25c3a436cb52a` and integrated as
+`f8bd2b8f2c55500ec4e32bd96104214bc70fe1ba`. A distinct cockpit read-only
+cross-review and final integrated-head rerun remain pending.
 
 ## Scope and lane contract
 
@@ -36,10 +38,11 @@ final integrated-head rerun remains pending.
 - Repairs at `3d184b4`, `c259450`, and `cdaf388` respectively removed generated
   census time from receipt identity, consumed the current nested pair schema,
   and closed the qualified mapping against the exact current executable.
-- This checkpoint does not claim controller acceptance of the still-running
-  public lifecycle or completion of the final integrated-head rerun. Native
-  instruction-plane behavior and the deferred command/model surfaces remain
-  outside its scope.
+- The following public mutating lifecycle reached a valid source checkpoint,
+  controller-rerun tests, `source_accept`, and exact halt. It does not claim the
+  distinct cockpit read-only cross-review or final integrated-head rerun.
+  Native instruction-plane behavior and the deferred command/model surfaces
+  remain outside its scope.
 
 ## 1) Exact-version discovery: facts vs hypotheses
 
@@ -378,8 +381,12 @@ AGENTS.md,” “Profiles,” “Project config files,” and “Instruction Ove
   binding.
 - The paired receipt remains evidence-only and non-launchable by itself. The
   separately verified qualified manifest is the runtime-authority boundary.
-- Remaining controller gate: this still-running public source lifecycle is not
-  yet accepted, and the final integrated-head rerun is incomplete.
+- Accepted public mutating lifecycle: exact candidate commit
+  `4cd62586f9057f89fdc5e204d2b25c3a436cb52a` passed controller review, 134
+  focused tests, full discovery, source acceptance, native read-only viewing,
+  sequenced steering, and exact owned halt.
+- Remaining controller gates: a distinct cockpit read-only cross-review and
+  the final integrated-head rerun are incomplete.
 - Remaining evidence boundary: resolved model and effort identities are
   unavailable because the pair used the current defaults with no selector.
 - Remaining native-plane blocker: instruction activation, precedence,

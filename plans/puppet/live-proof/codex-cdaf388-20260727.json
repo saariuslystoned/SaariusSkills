@@ -2,8 +2,9 @@
   "schema": "puppet.curated-live-proof/v1",
   "target": "codex",
   "source_head": "cdaf38877ed61d607de03129fc6036b728958fbf",
+  "integrated_head": "f8bd2b8f2c55500ec4e32bd96104214bc70fe1ba",
   "recorded_date": "2026-07-27",
-  "scope": "exact_head_qualification_checkpoint_pending_public_lifecycle_acceptance_and_final_integrated_head_rerun",
+  "scope": "exact_head_qualification_and_accepted_public_mutating_lifecycle_pending_read_only_cross_review_and_final_integrated_head_rerun",
   "runtime": {
     "name": "Codex CLI",
     "version": "0.145.0",
@@ -40,6 +41,35 @@
     "prompt_or_reply_body_retained": false,
     "authentication_or_configuration_content_retained": false
   },
+  "public_mutating_session": {
+    "session": "puppet-codex-public-cdaf388-20260727",
+    "run_id": "codex-public-mutating-cdaf388-20260727",
+    "entry_mode": "cockpit_explicit",
+    "starting_head": "cdaf38877ed61d607de03129fc6036b728958fbf",
+    "candidate_commit": "4cd62586f9057f89fdc5e204d2b25c3a436cb52a",
+    "integrated_commit": "f8bd2b8f2c55500ec4e32bd96104214bc70fe1ba",
+    "checkpoint_id": "580ac01b2ddfdfbe2f5cc960fb5e75c43d8477332ab98bc63f9842f05c705e05",
+    "handoff_sha256": "3e5747b0caa23e32cc889a3ad373c5c3ce86a4e394f33be725993c832ef6b82a",
+    "controller_verdict_sha256": "a31b6931b34704d47f95a8eb337b5475731f18605c883fabc551c117ef2afad8",
+    "terminal_state_sha256": "5bf9f2d186038130d021569238dafc76ecf8f0bd5c0f84930a8a839a39e25d7b",
+    "process_identity_sha256": "9e5d9e367ec2bf8e36dc3c7166fac575f01139aa0424cfaf536b4b30e486552d",
+    "tmux_identity_sha256": "7b536f1ddd57a74551ac360bfbb3f39163cfd059e767ad9e08384d7f0f90e9b6",
+    "viewer_ticket_sha256": "f123a2df0b7b69cb26929314f7b686a1cfa6e46967aa808eefee682375fc8ded",
+    "viewer_claim_sha256": "f16f678bb565c97a5808f66a4ef5b1ef15a2650a59733fbe185f7e8c2f77966d",
+    "viewer_revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+    "journal_sha256": "2e632e8917a85c70267e76b80d41274649e6a92e71c904b2019ecd38b9b30da7",
+    "native_read_only_view": true,
+    "controller_attached": false,
+    "steering_messages_submitted": 4,
+    "checkpoint_schema_rejection_repaired_by_target": true,
+    "focused_tests": 134,
+    "full_test_discovery": "pass",
+    "controller_verdict": "source_accept",
+    "exact_owned_halt": true,
+    "target_pid_gone": true,
+    "lease_state": "halted",
+    "raw_retained": false
+  },
   "accepted_repairs": [
     {
       "head": "3d184b4",
@@ -59,9 +89,10 @@
   ],
   "acceptance": {
     "exact_head_qualification_recorded": true,
-    "public_lifecycle_controller_accepted": false,
+    "public_mutating_lifecycle_controller_accepted": true,
+    "read_only_cross_review_controller_accepted": false,
     "final_integrated_head_rerun_complete": false,
-    "controller_exact_commit_review_required": true
+    "controller_exact_commit_review_complete": true
   },
   "deferred": [
     "goal_mode",
@@ -71,7 +102,7 @@
     "native_instruction_plane_activation_precedence_cleanup_and_no_bleed"
   ],
   "non_claims": [
-    "This record does not claim controller acceptance of the still-running public source lifecycle.",
+    "This record does not claim completion of the distinct cockpit read-only cross-review.",
     "The provider-selected model and effort identities remain unavailable because the qualification used no selectors.",
     "A final integrated-head rerun remains required."
   ]
