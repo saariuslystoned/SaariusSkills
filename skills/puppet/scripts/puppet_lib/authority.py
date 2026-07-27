@@ -164,6 +164,27 @@ def controller_authority_root(override: Optional[Path] = None) -> Path:
     return root
 
 
+def existing_controller_authority_root(
+    override: Optional[Path] = None,
+) -> Path:
+    """Validate the fixed authority root without creating or repairing it."""
+
+    requested = Path(override) if override is not None else canonical_authority_root()
+    if not requested.is_absolute():
+        raise ValidationError("controller authority root must be absolute")
+    if requested.is_symlink() or not requested.is_dir():
+        raise IdentityError("controller authority root is unavailable")
+    root = requested.resolve(strict=True)
+    details = root.stat()
+    if (
+        not stat.S_ISDIR(details.st_mode)
+        or details.st_uid != os.getuid()
+        or stat.S_IMODE(details.st_mode) & 0o077
+    ):
+        raise IdentityError("controller authority root is not user-private")
+    return root
+
+
 def _validated_lease_target(target: str) -> str:
     if target not in LEASE_TARGETS:
         raise ValidationError("controller session lease target is invalid")
@@ -247,6 +268,67 @@ def acquire_real_harness_lock(
         raise
 
 
+def acquire_existing_real_harness_lock(
+    authority_root: Optional[Path] = None,
+    *,
+    target: str,
+    wait_seconds: float = 0.0,
+) -> tuple[int, Dict[str, Any]]:
+    """Acquire one existing target lock without creating authority state."""
+
+    if (
+        isinstance(wait_seconds, bool)
+        or not isinstance(wait_seconds, (int, float))
+        or wait_seconds < 0
+        or wait_seconds > 5.0
+    ):
+        raise ValidationError("real-harness lock wait is invalid")
+    root = existing_controller_authority_root(authority_root)
+    lock_path = _lock_path(root, _validated_lease_target(target))
+    if lock_path.is_symlink() or not lock_path.is_file():
+        raise IdentityError("real-harness authority lock is unavailable")
+    flags = os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(str(lock_path), flags)
+    try:
+        details = os.fstat(descriptor)
+        path_details = lock_path.stat()
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_dev != path_details.st_dev
+            or details.st_ino != path_details.st_ino
+            or details.st_uid != os.getuid()
+            or path_details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077
+            or stat.S_IMODE(path_details.st_mode) & 0o077
+        ):
+            raise IdentityError("real-harness authority lock is not user-private")
+        deadline = time.monotonic() + float(wait_seconds)
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ConflictError(
+                        "another real-harness probe owns the campaign lock"
+                    ) from exc
+                time.sleep(min(0.01, remaining))
+        return descriptor, {
+            "authority_id": AUTHORITY_ID,
+            "path": str(lock_path.resolve(strict=True)),
+            "device": details.st_dev,
+            "inode": details.st_ino,
+            "uid": details.st_uid,
+            "mode": stat.S_IMODE(details.st_mode),
+        }
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def release_real_harness_lock(descriptor: Optional[int]) -> None:
     if descriptor is None:
         return
@@ -266,6 +348,152 @@ def _lease_history_path(root: Path, target: Optional[str] = None) -> Path:
     if target is None:
         return root / "session-lease-history"
     return root / ("session-lease-history.%s" % _validated_lease_target(target))
+
+
+def _strict_v2_lease(value: Any, *, target: str) -> Dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or set(value) != _LEASE_V2_FIELDS
+        or value.get("schema_version") != LEASE_SCHEMA_VERSION
+        or value.get("authority_id") != AUTHORITY_ID
+        or type(value.get("generation")) is not int
+        or value["generation"] <= 0
+        or value.get("target") != target
+        or value.get("state") not in LEASE_TRANSITIONS
+    ):
+        raise ValidationError("controller session lease is not canonical")
+    validate_identifier(value.get("session"), "lease session")
+    validate_identifier(value.get("controller"), "lease controller")
+    if validate_lease_owner(value.get("owner")) != value["owner"]:
+        raise IdentityError("controller session lease owner changed")
+    _lease_instruction_sha(value)
+    for name in ("created_at", "updated_at"):
+        if (
+            not isinstance(value.get(name), str)
+            or not value[name]
+            or len(value[name]) > 80
+        ):
+            raise ValidationError("controller session lease timestamp is invalid")
+    process = value.get("process")
+    if value["state"] == "launching":
+        if process is not None:
+            raise IdentityError("launching controller lease has a process identity")
+    elif value["state"] in {"active", "halting", "halted"}:
+        if not _is_v2_process_identity(process):
+            raise IdentityError("controller session lease lacks v2 process identity")
+    elif process is not None and not _is_v2_process_identity(process):
+        raise IdentityError("failed controller lease process identity is invalid")
+    validate_bounded_json(
+        value,
+        max_items=64,
+        max_string=1000,
+        reject_sensitive_fields=True,
+    )
+    return dict(value)
+
+
+def strict_session_lease_projection(
+    authority_root: Optional[Path] = None,
+    *,
+    target: str,
+) -> Dict[str, Any]:
+    """Read one exact per-target projection and its canonical ledger, without repair."""
+
+    target = _validated_lease_target(target)
+    root = existing_controller_authority_root(authority_root)
+    projection_path = _lease_path(root, target)
+    history_path = _lease_history_path(root, target)
+    if (
+        projection_path.is_symlink()
+        or not projection_path.is_file()
+        or history_path.is_symlink()
+        or not history_path.is_dir()
+    ):
+        raise IdentityError("controller session lease evidence is unavailable")
+    for path in (projection_path, history_path):
+        details = path.stat()
+        if (
+            details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o077
+        ):
+            raise IdentityError("controller session lease evidence is not user-private")
+    try:
+        rows = Journal(history_path).read_only_snapshot()
+    except ValidationError as exc:
+        raise IdentityError("controller session lease ledger is not canonical") from exc
+    if not rows:
+        raise IdentityError("controller session lease lacks its authority ledger")
+
+    previous: Optional[Dict[str, Any]] = None
+    observed_request_ids = set()
+    fixed_fields = {
+        "schema_version",
+        "authority_id",
+        "generation",
+        "session",
+        "target",
+        "controller",
+        "owner",
+        "instruction_manifest_sha256",
+        "created_at",
+    }
+    for row in rows:
+        event = row.get("event")
+        lease = _strict_v2_lease(
+            event.get("lease") if isinstance(event, dict) else None,
+            target=target,
+        )
+        request_id = "lease-%d-%s" % (lease["generation"], lease["state"])
+        if (
+            set(event) != {"kind", "lease"}
+            or event.get("kind") != "session_lease"
+            or row.get("request_id") != request_id
+            or request_id in observed_request_ids
+        ):
+            raise IdentityError("controller session lease ledger is not canonical")
+        observed_request_ids.add(request_id)
+        if previous is None:
+            if (
+                lease["generation"] != 1
+                or lease["state"] != "launching"
+                or lease["process"] is not None
+            ):
+                raise IdentityError(
+                    "controller session lease ledger is not canonical"
+                )
+        elif lease["generation"] == previous["generation"]:
+            if (
+                any(lease[name] != previous[name] for name in fixed_fields)
+                or lease["state"] == previous["state"]
+                or lease["state"] not in LEASE_TRANSITIONS[previous["state"]]
+                or (
+                    previous["process"] is not None
+                    and lease["process"] != previous["process"]
+                )
+            ):
+                raise IdentityError(
+                    "controller session lease ledger is not canonical"
+                )
+        elif (
+            previous["state"] not in {"halted", "failed"}
+            or lease["generation"] != previous["generation"] + 1
+            or lease["state"] != "launching"
+            or lease["process"] is not None
+        ):
+            raise IdentityError("controller session lease ledger is not canonical")
+        previous = lease
+
+    projection = _strict_v2_lease(
+        read_json(
+            projection_path,
+            max_bytes=32768,
+            reject_sensitive_fields=True,
+        ),
+        target=target,
+    )
+    if projection != previous:
+        raise IdentityError("controller session lease projection diverged")
+    return projection
 
 
 def lease_owner(
@@ -989,6 +1217,50 @@ def reconcile_halted_session_lease(
         )
     finally:
         release_real_harness_lock(descriptor)
+
+
+def halt_exact_session_lease_generation(
+    *,
+    session: str,
+    target: str,
+    controller: str,
+    owner: Dict[str, str],
+    instruction_manifest_sha256: str,
+    process: Dict[str, Any],
+    generation: int,
+    authority_root: Optional[Path] = None,
+    _lock_descriptor: int,
+) -> tuple[Dict[str, Any], bool]:
+    """Commit only an already-validated exact halting generation."""
+
+    target = _validated_lease_target(target)
+    if type(generation) is not int or generation <= 0:
+        raise ValidationError("controller lease generation is invalid")
+    root = existing_controller_authority_root(authority_root)
+    _validate_lock_descriptor(root, target, _lock_descriptor)
+    expected_owner = validate_lease_owner(owner)
+    instruction_manifest_sha256 = validate_sha256(
+        instruction_manifest_sha256,
+        "lease instruction manifest fingerprint",
+    )
+    current = strict_session_lease_projection(root, target=target)
+    if (
+        current["generation"] != generation
+        or current["session"] != validate_identifier(session, "lease session")
+        or current["target"] != target
+        or current["controller"]
+        != validate_identifier(controller, "lease controller")
+        or current["owner"] != expected_owner
+        or current["instruction_manifest_sha256"] != instruction_manifest_sha256
+        or current["process"] != process
+        or current["state"] not in {"halting", "halted"}
+    ):
+        raise IdentityError("controller session lease identity mismatch")
+    if current["state"] == "halted":
+        return current, False
+    updated = dict(current, state="halted", updated_at=_utc_now())
+    recorded = _append_lease(root, updated, target=target)
+    return recorded, True
 
 
 def _attestation_event(receipt_core: Dict[str, Any]) -> Dict[str, Any]:

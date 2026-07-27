@@ -70,9 +70,17 @@ class TargetLaunch:
 
 
 class TmuxController:
-    def __init__(self, registry_root: Path, _sleep_fn=time.sleep):
+    def __init__(
+        self,
+        registry_root: Path,
+        _sleep_fn=time.sleep,
+        *,
+        _tmux_binary: Optional[Path] = None,
+    ):
         self.registry_root = Path(registry_root).resolve(strict=True)
-        tmux_binary = shutil.which("tmux")
+        tmux_binary = (
+            str(Path(_tmux_binary)) if _tmux_binary is not None else shutil.which("tmux")
+        )
         if tmux_binary is None:
             raise ValidationError("tmux executable is unavailable")
         self.tmux_binary = Path(tmux_binary).resolve()

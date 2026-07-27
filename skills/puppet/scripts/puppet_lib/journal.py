@@ -128,6 +128,14 @@ class Journal:
             self._repair_head(rows)
             return list(rows)
 
+    def read_only_snapshot(self) -> List[Dict[str, Any]]:
+        """Require an exact committed ledger without locking or repairing it."""
+
+        rows = self.replay()
+        if self._read_head() != self._expected_head(rows):
+            raise ValidationError("journal head does not match append history")
+        return list(rows)
+
     def append(
         self,
         *,

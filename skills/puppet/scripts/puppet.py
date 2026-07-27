@@ -21,6 +21,7 @@ from puppet_lib.session import (
     import_checkpoint,
     launch,
     open_view,
+    reconcile_grok_dead_lease,
     review_checkpoint,
     send_message,
     status,
@@ -175,6 +176,13 @@ def _halt(args):
         state_root=args.state_root,
         session=args.session,
         timeout=args.timeout,
+    )
+
+
+def _reconcile_grok_dead_lease(args):
+    return reconcile_grok_dead_lease(
+        state_root=args.state_root,
+        session=args.session,
     )
 
 
@@ -417,6 +425,19 @@ def build_parser() -> argparse.ArgumentParser:
     halt_parser.add_argument("--session", required=True)
     halt_parser.add_argument("--timeout", type=float, default=10.0)
     halt_parser.set_defaults(handler=_halt)
+
+    reconcile_grok_help = (
+        "halt only the exact controller lease for one proven-dead "
+        "launch-incomplete Grok session"
+    )
+    reconcile_grok_parser = commands.add_parser(
+        "reconcile-grok-dead-lease",
+        help=reconcile_grok_help,
+        description=reconcile_grok_help,
+    )
+    reconcile_grok_parser.add_argument("--state-root", required=True, type=_path)
+    reconcile_grok_parser.add_argument("--session", required=True)
+    reconcile_grok_parser.set_defaults(handler=_reconcile_grok_dead_lease)
 
     promote_parser = commands.add_parser(
         "promote", help="unsupported in bootstrap Puppet N"

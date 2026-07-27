@@ -25,9 +25,13 @@ from .agy_launch import (
     validate_agy_regular_launch_params,
 )
 from .authority import (
+    acquire_existing_real_harness_lock,
     admit_session_lease,
+    halt_exact_session_lease_generation,
     lease_owner as build_lease_owner,
     reconcile_halted_session_lease,
+    release_real_harness_lock,
+    strict_session_lease_projection,
     transition_session_lease,
 )
 from .beacons import parse_beacon
@@ -1801,6 +1805,173 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
         "last_checkpoint": record["last_checkpoint"],
         "last_beacon": record["last_beacon"],
         "blocker": record["blocker"],
+    }
+
+
+def _prove_recorded_process_birth_gone(process: Dict[str, Any]) -> None:
+    """Distinguish an absent/reused birth identity from an ambiguous sample."""
+
+    pid = process["pid"]
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return
+    except (PermissionError, OSError) as exc:
+        raise IdentityError("recorded Grok process state is ambiguous") from exc
+    try:
+        observed = process_birth_identity(pid)
+    except IdentityError as exc:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except (PermissionError, OSError) as probe_exc:
+            raise IdentityError(
+                "recorded Grok process state is ambiguous"
+            ) from probe_exc
+        raise IdentityError("recorded Grok process state is ambiguous") from exc
+    if observed == process:
+        raise IdentityError("recorded Grok process is still alive")
+
+
+def _dead_grok_lease_preflight(
+    *,
+    state_root: Path,
+    session: str,
+    expected_generation: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Read-only exact dead-pane and fixed-lease validation."""
+
+    validate_identifier(session, "session")
+    registry = SessionRegistry(Path(state_root), create=False)
+    record = registry.load(session)
+    blocker = record.get("blocker")
+    if record["session"] != session:
+        raise IdentityError("registered session identity changed")
+    if record["target"] != "grok":
+        raise ValidationError("dead-lease reconciliation supports only Grok")
+    if record["state"] != "BLOCKED":
+        raise IdentityError("Grok dead-lease registry state changed")
+    if (
+        not isinstance(blocker, dict)
+        or set(blocker)
+        != {
+            "code",
+            "target_process_alive",
+            "cleanup_stopped",
+            "cleanup_error",
+        }
+        or blocker.get("code") != "launch_incomplete"
+        or blocker.get("target_process_alive") is not False
+        or blocker.get("cleanup_stopped") is not True
+        or (
+            blocker.get("cleanup_error") is not None
+            and not isinstance(blocker.get("cleanup_error"), str)
+        )
+    ):
+        raise IdentityError("Grok launch-incomplete blocker identity changed")
+    _prove_recorded_process_birth_gone(record["process"])
+
+    tmux_identity = record["tmux"]
+    socket = Path(tmux_identity["socket"])
+    tmux = TmuxController(
+        registry.root,
+        _tmux_binary=Path(tmux_identity["tmux_binary_identity"]["path"]),
+    )
+    tmux.assert_tmux_binary_identity(tmux_identity["tmux_binary_identity"])
+    tmux.bind_server_identity(socket, tmux_identity["server_identity"])
+    if not tmux_socket_identities_match(
+        tmux.socket_identity(socket),
+        tmux_identity["socket_identity"],
+    ):
+        raise IdentityError("registered Grok tmux socket identity changed")
+    metadata = tmux.metadata_for_session(
+        socket=socket,
+        session=session,
+        server_identity=tmux_identity["server_identity"],
+    )
+    if (
+        metadata.get("session") != session
+        or metadata.get("pane") != tmux_identity["pane"]
+        or metadata.get("pane_pid") != record["process"]["pid"]
+        or metadata.get("pane_dead") is not True
+    ):
+        raise IdentityError("registered Grok dead-pane identity changed")
+
+    lease = strict_session_lease_projection(target="grok")
+    if (
+        lease["session"] != session
+        or lease["controller"] != record["controller"]
+        or lease["owner"] != record["lease_owner"]
+        or lease["instruction_manifest_sha256"]
+        != record["instructions"]["manifest_sha256"]
+        or lease["process"] != record["process"]
+        or lease["state"] not in {"halting", "halted"}
+        or (
+            expected_generation is not None
+            and lease["generation"] != expected_generation
+        )
+    ):
+        raise IdentityError("controller session lease identity mismatch")
+    return {
+        "record": record,
+        "lease": lease,
+        "tmux_metadata": metadata,
+    }
+
+
+def reconcile_grok_dead_lease(
+    *,
+    state_root: Path,
+    session: str,
+) -> Dict[str, Any]:
+    """Halt only one proven-dead launch-incomplete Grok lease."""
+
+    initial = _dead_grok_lease_preflight(
+        state_root=state_root,
+        session=session,
+    )
+    descriptor: Optional[int] = None
+    try:
+        descriptor, _ = acquire_existing_real_harness_lock(
+            target="grok",
+            wait_seconds=1.0,
+        )
+        checked = _dead_grok_lease_preflight(
+            state_root=state_root,
+            session=session,
+            expected_generation=initial["lease"]["generation"],
+        )
+        if checked["record"] != initial["record"]:
+            raise IdentityError("registered Grok session changed during reconciliation")
+        halted, transitioned = halt_exact_session_lease_generation(
+            session=session,
+            target="grok",
+            controller=checked["record"]["controller"],
+            owner=checked["record"]["lease_owner"],
+            instruction_manifest_sha256=checked["record"]["instructions"][
+                "manifest_sha256"
+            ],
+            process=checked["record"]["process"],
+            generation=checked["lease"]["generation"],
+            _lock_descriptor=descriptor,
+        )
+    finally:
+        release_real_harness_lock(descriptor)
+    return {
+        "ok": True,
+        "operation": "reconcile-grok-dead-lease",
+        "session": session,
+        "target": "grok",
+        "registry_state": "BLOCKED",
+        "lease_generation": halted["generation"],
+        "lease_state": halted["state"],
+        "lease_transitioned": transitioned,
+        "exact_lease_halted": halted["state"] == "halted",
+        "signal_sent": False,
+        "attach_performed": False,
+        "tmux_preserved": True,
+        "historical_session_preserved": True,
     }
 
 

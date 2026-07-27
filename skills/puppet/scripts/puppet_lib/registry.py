@@ -1235,20 +1235,29 @@ def send_exact_sigint(identity: Dict[str, Any]) -> None:
 
 
 class SessionRegistry:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, create: bool = True):
         requested = Path(root)
         if requested.exists() and requested.is_symlink():
             raise ValidationError("state root must not be a symlink")
-        requested.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if create:
+            requested.mkdir(mode=0o700, parents=True, exist_ok=True)
+        elif not requested.is_dir():
+            raise ValidationError("state root is unavailable")
         self.root = requested.resolve(strict=True)
         self.sessions = self.root / "sessions"
         if self.sessions.exists() and self.sessions.is_symlink():
             raise ValidationError("sessions root must not be a symlink")
-        self.sessions.mkdir(mode=0o700, exist_ok=True)
+        if create:
+            self.sessions.mkdir(mode=0o700, exist_ok=True)
+        elif not self.sessions.is_dir():
+            raise ValidationError("sessions root is unavailable")
         self.reservations = self.root / "reservations"
         if self.reservations.exists() and self.reservations.is_symlink():
             raise ValidationError("reservations root must not be a symlink")
-        self.reservations.mkdir(mode=0o700, exist_ok=True)
+        if create:
+            self.reservations.mkdir(mode=0o700, exist_ok=True)
+        elif not self.reservations.is_dir():
+            raise ValidationError("reservations root is unavailable")
 
     def _path(self, session: str) -> Path:
         validate_identifier(session, "session")

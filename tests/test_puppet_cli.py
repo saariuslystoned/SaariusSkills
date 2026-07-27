@@ -53,6 +53,12 @@ class PuppetCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("--profile-shelf", result.stdout)
         self.assertIn("TARGET=/ABSOLUTE/PATH", result.stdout)
+        result = self._run_cli(["reconcile-grok-dead-lease", "--help"])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--state-root", result.stdout)
+        self.assertIn("--session", result.stdout)
+        self.assertIn("proven-dead launch-incomplete", result.stdout)
+        self.assertIn("Grok session", result.stdout)
         for command in ("doctor", "launch"):
             result = self._run_cli([command, "--help"])
             self.assertEqual(result.returncode, 0)

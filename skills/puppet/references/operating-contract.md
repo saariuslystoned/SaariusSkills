@@ -35,6 +35,17 @@ is ambiguous and must never be resent. The explicit parallel-target override
 accounts only for the named pre-existing process set; it does not bypass the
 same-target controller lease.
 
+The explicit `reconcile-grok-dead-lease` operation is narrower than ordinary
+halt recovery: it admits only one named `BLOCKED` Grok `launch_incomplete`
+record whose exact process birth is gone and whose recorded private tmux
+server, socket, single pane, pane owner, and dead-pane state remain exact. Its
+preflight is read-only. Under the fixed Grok target lock it repeats every
+registry, process, tmux, canonical ledger, projection, controller, owner,
+instruction, process, generation, and state check before changing only the
+same lease generation from `halting` to `halted`. Replay of that exact halted
+generation is idempotent. It never signals or attaches and preserves the
+BLOCKED record, proof journal, tmux topology, and historical evidence.
+
 Halt action is target-aware: non-AGY uses exact positive-PID `SIGINT`; AGY uses
 private-pane EOF. Never send tmux `C-c` or process-group signals.
 
