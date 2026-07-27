@@ -293,7 +293,10 @@ def _qualify(args):
             )
         from puppet_lib.codex_workspace_plane import codex_qualified_mapping
 
-        mapping = codex_qualified_mapping(mapping)
+        mapping = codex_qualified_mapping(
+            mapping,
+            expected_executable_path=base.raw["executable"]["resolved_path"],
+        )
     if base.target == "claude" and mapping.get("complete") is False:
         mapping = claude_qualified_mapping(mapping)
     if base.target == "grok":

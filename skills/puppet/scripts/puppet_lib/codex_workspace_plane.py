@@ -245,16 +245,22 @@ def build_codex_worktree_descriptor(
     )
 
 
-def codex_qualified_mapping(mapping: Mapping[str, Any]) -> Dict[str, Any]:
+def codex_qualified_mapping(
+    mapping: Mapping[str, Any], *, expected_executable_path: str
+) -> Dict[str, Any]:
     """Close only the project-isolation bit proved by a terminal receipt."""
 
     result = json.loads(canonical_json_bytes(mapping).decode("utf-8"))
     if (
-        result.get("complete") is not False
+        not isinstance(expected_executable_path, str)
+        or not os.path.isabs(expected_executable_path)
+        or os.path.normpath(expected_executable_path) != expected_executable_path
+        or any(character in expected_executable_path for character in "\x00\r\n")
+        or result.get("complete") is not False
         or result.get("project_isolation_declared") is not False
         or result.get("project_isolation_flags") != []
         or result.get("launch_argv")
-        != [EXPECTED_RESOLVED_EXECUTABLE_PATH, EXPECTED_UNRESTRICTED_FLAG]
+        != [expected_executable_path, EXPECTED_UNRESTRICTED_FLAG]
     ):
         raise IdentityError("Codex doctor mapping is not the exact incomplete tuple")
     result["complete"] = True
@@ -266,6 +272,7 @@ def codex_probe_mapping_from_qualified(
     mapping: Mapping[str, Any],
     *,
     workspace_isolation: Any,
+    expected_executable_path: str,
 ) -> Dict[str, Any]:
     """Recover only the exact doctor mapping committed by terminal proof."""
 
@@ -282,12 +289,20 @@ def codex_probe_mapping_from_qualified(
     probe_mapping = dict(qualified)
     probe_mapping["complete"] = False
     probe_mapping["project_isolation_declared"] = False
-    if codex_qualified_mapping(probe_mapping) != qualified:
+    if (
+        codex_qualified_mapping(
+            probe_mapping,
+            expected_executable_path=expected_executable_path,
+        )
+        != qualified
+    ):
         raise IdentityError("Codex qualified mapping closure is not exact")
     return probe_mapping
 
 
-def is_codex_workspace_mapping_closure(mapping: Mapping[str, Any]) -> bool:
+def is_codex_workspace_mapping_closure(
+    mapping: Mapping[str, Any], *, expected_executable_path: str
+) -> bool:
     """Identify the exact current closure that must carry terminal proof."""
 
     try:
@@ -300,7 +315,13 @@ def is_codex_workspace_mapping_closure(mapping: Mapping[str, Any]) -> bool:
         probe_mapping = dict(qualified)
         probe_mapping["complete"] = False
         probe_mapping["project_isolation_declared"] = False
-        return codex_qualified_mapping(probe_mapping) == qualified
+        return (
+            codex_qualified_mapping(
+                probe_mapping,
+                expected_executable_path=expected_executable_path,
+            )
+            == qualified
+        )
     except (IdentityError, TypeError, ValueError):
         return False
 

@@ -633,21 +633,31 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
                     )
 
     def test_only_terminal_qualification_can_close_codex_mapping(self):
+        executable_path = (
+            "/opt/homebrew/Caskroom/codex/0.145.0/"
+            "codex-aarch64-apple-darwin"
+        )
         mapping = {
             "complete": False,
             "launch_argv": [
-                workspace_module.EXPECTED_RESOLVED_EXECUTABLE_PATH,
+                executable_path,
                 EXPECTED_UNRESTRICTED_FLAG,
             ],
             "project_isolation_declared": False,
             "project_isolation_flags": [],
         }
-        qualified = codex_qualified_mapping(mapping)
+        qualified = codex_qualified_mapping(
+            mapping, expected_executable_path=executable_path
+        )
         self.assertTrue(qualified["complete"])
         self.assertTrue(qualified["project_isolation_declared"])
         self.assertEqual(qualified["launch_argv"], mapping["launch_argv"])
         self.assertEqual(qualified["project_isolation_flags"], [])
-        self.assertTrue(is_codex_workspace_mapping_closure(qualified))
+        self.assertTrue(
+            is_codex_workspace_mapping_closure(
+                qualified, expected_executable_path=executable_path
+            )
+        )
         workspace = {
             "schema": "puppet.codex-direct-worktree-receipt/v1",
             "terminal_state": "controller_verified_after_exact_halt",
@@ -664,24 +674,37 @@ class CodexWorkspacePlaneTests(unittest.TestCase):
         }
         self.assertEqual(
             codex_probe_mapping_from_qualified(
-                qualified, workspace_isolation=workspace
+                qualified,
+                workspace_isolation=workspace,
+                expected_executable_path=executable_path,
             ),
             mapping,
         )
         with self.assertRaisesRegex(IdentityError, "terminal workspace proof"):
             codex_probe_mapping_from_qualified(
-                qualified, workspace_isolation=None
+                qualified,
+                workspace_isolation=None,
+                expected_executable_path=executable_path,
+            )
+        with self.assertRaisesRegex(IdentityError, "exact incomplete tuple"):
+            codex_qualified_mapping(
+                mapping,
+                expected_executable_path="/opt/homebrew/bin/different-codex",
             )
         nonterminal = dict(workspace, terminal_state="preflight")
         with self.assertRaisesRegex(ValidationError, "not terminal"):
             codex_probe_mapping_from_qualified(
-                qualified, workspace_isolation=nonterminal
+                qualified,
+                workspace_isolation=nonterminal,
+                expected_executable_path=executable_path,
             )
         changed_argv = copy.deepcopy(qualified)
         changed_argv["launch_argv"].append("--project")
         with self.assertRaisesRegex(IdentityError, "incomplete tuple"):
             codex_probe_mapping_from_qualified(
-                changed_argv, workspace_isolation=workspace
+                changed_argv,
+                workspace_isolation=workspace,
+                expected_executable_path=executable_path,
             )
 
     def test_terminal_workspace_schema_is_canonical_without_requiring_live_root(self):

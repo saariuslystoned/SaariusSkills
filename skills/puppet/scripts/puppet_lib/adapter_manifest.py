@@ -1111,6 +1111,7 @@ def verify_qualification_receipt(
             current_mapping = codex_probe_mapping_from_qualified(
                 current_mapping,
                 workspace_isolation=workspace_isolation,
+                expected_executable_path=current["executable"]["resolved_path"],
             )
         elif isolation_target == "grok":
             from .grok_workspace_plane import grok_probe_mapping_from_qualified
@@ -2998,7 +2999,13 @@ class AdapterManifest:
             probe_mapping = dict(self.raw["yolo_mapping"])
             probe_mapping["complete"] = False
             probe_mapping["project_isolation_declared"] = False
-            if codex_qualified_mapping(probe_mapping) != self.raw["yolo_mapping"]:
+            if (
+                codex_qualified_mapping(
+                    probe_mapping,
+                    expected_executable_path=self.raw["executable"]["resolved_path"],
+                )
+                != self.raw["yolo_mapping"]
+            ):
                 raise ValidationError("Codex qualified mapping closure changed")
             if receipt.get("yolo_mapping_sha256") != sha256_bytes(
                 canonical_json_bytes(probe_mapping)
@@ -3259,6 +3266,7 @@ class AdapterManifest:
                 mapping_committed_by_receipt = codex_probe_mapping_from_qualified(
                     mapping_committed_by_receipt,
                     workspace_isolation=workspace_isolation,
+                    expected_executable_path=self.raw["executable"]["resolved_path"],
                 )
             else:
                 from .grok_workspace_plane import (
@@ -3274,7 +3282,10 @@ class AdapterManifest:
                 is_codex_workspace_mapping_closure,
             )
 
-            if is_codex_workspace_mapping_closure(mapping_committed_by_receipt):
+            if is_codex_workspace_mapping_closure(
+                mapping_committed_by_receipt,
+                expected_executable_path=self.raw["executable"]["resolved_path"],
+            ):
                 raise ValidationError(
                     "Codex qualified mapping lacks terminal workspace isolation"
                 )
