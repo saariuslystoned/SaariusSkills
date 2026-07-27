@@ -330,6 +330,12 @@ def _stable_directory_identity(value: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _workspace_identity_sha256(value: Mapping[str, Any]) -> str:
+    """Bind the workspace root without treating child-directory churn as replacement."""
+
+    return _identity_sha256(_stable_directory_identity(value))
+
+
 def _artifact_identity(path: Path) -> Dict[str, Any]:
     try:
         details = path.lstat()
@@ -744,7 +750,9 @@ def validate_grok_entry_descriptor(
         )
     if _identity_sha256(workspace_identity) != _identity_sha256(direct_identity):
         raise IdentityError("Grok direct entry workspace identity changed")
-    if value.get("workspace_identity_sha256") != _identity_sha256(workspace_identity):
+    if value.get("workspace_identity_sha256") != _workspace_identity_sha256(
+        workspace_identity
+    ):
         raise IdentityError("Grok workspace identity fingerprint changed")
     cockpit_identity = _repository_identity(cockpit, require_linked_clean=False)
     direct_repo = _repository_identity(direct, require_linked_clean=True)
@@ -838,7 +846,7 @@ def validate_grok_qualification_request(
     ):
         raise IdentityError("Grok qualification request root isolation changed")
     workspace_identity = _directory_identity(workspace, label="workspace root")
-    if value.get("workspace_identity_sha256") != _identity_sha256(
+    if value.get("workspace_identity_sha256") != _workspace_identity_sha256(
         workspace_identity
     ):
         raise IdentityError("Grok qualification request workspace identity changed")
@@ -879,7 +887,7 @@ def build_grok_qualification_request(
         "target": "grok",
         "target_version": GROK_BUILD_VERSION,
         "workspace_root": str(workspace),
-        "workspace_identity_sha256": _identity_sha256(workspace_identity),
+        "workspace_identity_sha256": _workspace_identity_sha256(workspace_identity),
         "direct_repository_root": str(workspace),
         "cockpit_root": str(cockpit),
         "candidate_branch": repository["branch"],
@@ -935,7 +943,7 @@ def build_grok_entry_descriptor(
         "surface": "controller_proved_direct_and_cockpit_join",
         "qualification_authorized": False,
         "workspace_root": str(workspace),
-        "workspace_identity_sha256": _identity_sha256(workspace_identity),
+        "workspace_identity_sha256": _workspace_identity_sha256(workspace_identity),
         "direct_repository_root": str(workspace),
         "cockpit_root": str(cockpit),
         "candidate_branch": _repository_identity(workspace, require_linked_clean=True)[

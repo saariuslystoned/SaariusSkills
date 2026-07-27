@@ -683,6 +683,59 @@ class GrokWorkspacePlaneTests(unittest.TestCase):
         )
         self.assertEqual(verified["descriptor_sha256"], descriptor["descriptor_sha256"])
 
+    def test_ignored_child_directory_does_not_replace_workspace_identity(self) -> None:
+        supervisor, candidate = _init_linked_pair(self.base / "repo-pair")
+        (candidate / ".gitignore").write_text(".pytest_cache/\n", encoding="utf-8")
+        _git(candidate, "add", ".gitignore")
+        _git(candidate, "commit", "-m", "ignore generated test cache")
+        request = build_grok_qualification_request(
+            workspace_root=candidate,
+            cockpit_root=supervisor,
+            controller="codex",
+            campaign_id="campaign-stable-workspace",
+            goal_fingerprint="1" * 64,
+            executable_sha256=GROK_EXECUTABLE_SHA256,
+            adapter_manifest_sha256="3" * 64,
+            subscription_profile_root=self.profile,
+        )
+        descriptor = build_grok_entry_descriptor(
+            workspace_root=candidate,
+            cockpit_root=supervisor,
+            controller="codex",
+            campaign_id="campaign-stable-workspace",
+            goal_fingerprint="1" * 64,
+            executable_sha256=GROK_EXECUTABLE_SHA256,
+            subscription_profile_root=self.profile,
+            artifact_relative_path=self.relative,
+        )
+        nlink_before = candidate.stat().st_nlink
+        (candidate / ".pytest_cache").mkdir()
+        self.assertNotEqual(candidate.stat().st_nlink, nlink_before)
+        self.assertEqual(_git(candidate, "status", "--porcelain"), "")
+        self.assertEqual(
+            validate_grok_qualification_request(
+                request,
+                expected_controller="codex",
+                expected_campaign_id="campaign-stable-workspace",
+                expected_goal_fingerprint="1" * 64,
+                expected_executable_sha256=GROK_EXECUTABLE_SHA256,
+                expected_adapter_manifest_sha256="3" * 64,
+                expected_subscription_profile_root=self.profile,
+            ),
+            request,
+        )
+        self.assertEqual(
+            validate_grok_entry_descriptor(
+                descriptor,
+                expected_controller="codex",
+                expected_campaign_id="campaign-stable-workspace",
+                expected_goal_fingerprint="1" * 64,
+                expected_executable_sha256=GROK_EXECUTABLE_SHA256,
+                expected_subscription_profile_root=self.profile,
+            )["descriptor_sha256"],
+            descriptor["descriptor_sha256"],
+        )
+
     def test_binding_only_remains_non_promotable(self) -> None:
         require_source_only_grok_binding(
             {
