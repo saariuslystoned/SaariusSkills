@@ -1,6 +1,6 @@
 ---
 name: herdr-puppet
-description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, or inspect and improve a Herdr-Puppet dogfood run. Do not use it to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
+description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, recover bounded Screen Sharing or VNC observation when Computer Use cannot resolve a visible window, or inspect and improve a Herdr-Puppet dogfood run. Do not use it to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
 ---
 
 # Herdr-Puppet
@@ -19,6 +19,9 @@ Read:
   creating, validating, or recovering a lease.
 - [references/qualification-contract.md](references/qualification-contract.md)
   before any live qualification or bounded token probe.
+- [references/desktop-observation-fallback.md](references/desktop-observation-fallback.md)
+  when Computer Use cannot resolve a visible Screen Sharing or VNC window and
+  the route needs operator-visible desktop proof.
 
 Use `scripts/herdr_puppet.py` for deterministic calls. Do not replace it with
 hand-composed Herdr mutations when the script owns the operation.

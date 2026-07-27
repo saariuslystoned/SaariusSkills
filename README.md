@@ -155,8 +155,8 @@ invocation, but it is never required when the user's intent is already clear.
   exact-identity Herdr transport and dogfood workflow.
 - `skills/herdr-puppet/scripts/herdr_puppet.py`: a standard-library controller
   for doctor, plan, status, journals, and gated qualification operations.
-- `skills/herdr-puppet/references/`: authority, transport, qualification, and
-  versioned JSON-schema contracts.
+- `skills/herdr-puppet/references/`: authority, transport, qualification,
+  desktop-observation fallback, and versioned JSON-schema contracts.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

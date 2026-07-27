@@ -229,6 +229,24 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("else", readiness_rule)
         self.assertIn("command_sha256", event_schema["properties"])
 
+    def test_herdr_puppet_packages_bounded_peekaboo_fallback(self) -> None:
+        skill = (HERDR_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        fallback = (
+            HERDR_SKILL
+            / "references"
+            / "desktop-observation-fallback.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("desktop-observation-fallback.md", skill)
+        self.assertIn("Computer Use", skill)
+        self.assertIn("peekaboo permissions --json", fallback)
+        self.assertIn("peekaboo image --mode screen", fallback)
+        self.assertIn('peekaboo list windows --app "Screen Sharing"', fallback)
+        self.assertIn("Control Screen", fallback)
+        self.assertIn("negative bounds", fallback)
+        self.assertIn("infer an authentication gate", fallback)
+        self.assertIn("Use Pixel Use MCP for phone semantics", fallback)
+        self.assertIn("Never enter or retrieve a password", fallback)
+
 
 if __name__ == "__main__":
     unittest.main()
