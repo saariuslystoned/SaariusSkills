@@ -88,8 +88,11 @@ def _trust_screen(
     return "\n".join(lines) + "\n"
 
 
-def _ready_screen(worktree: str = WORKTREE, *, path_parts=None) -> str:
+def _ready_screen(
+    worktree: str = WORKTREE, *, path_parts=None, location_suffix: str = ""
+) -> str:
     parts = path_parts or [worktree]
+    parts[-1] += location_suffix
     return (
         "Synthetic task status\n"
         "⠰ Running\n"
@@ -188,6 +191,19 @@ class FakeTmux:
             raise IdentityError("tmux pane process identity changed")
         self.keys_sent.append(kwargs["keys"])
         self.index = min(self.index + 1, len(self.screens) - 1)
+
+
+class ChangingBeforeSendTmux(FakeTmux):
+    def capture_pane_bytes(self, **kwargs):
+        del kwargs
+        screen = self.screens[min(self.index, len(self.screens) - 1)]
+        self.index = min(self.index + 1, len(self.screens) - 1)
+        return screen
+
+    def send_keys_verified(self, **kwargs):
+        if self.stale:
+            raise IdentityError("tmux pane process identity changed")
+        self.keys_sent.append(kwargs["keys"])
 
 
 class CursorStartupScreenTests(unittest.TestCase):
@@ -368,6 +384,26 @@ class CursorStartupScreenTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["gate"], "workspace_trust")
 
+    def test_ready_footer_accepts_exact_worktree_with_branch_metadata(self):
+        good = reduce_captured_cursor_startup_screen(
+            _ready_screen(
+                location_suffix=" · codex/puppet-closeout-cursor"
+            ).encode(),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        wrong = reduce_captured_cursor_startup_screen(
+            _ready_screen(
+                "/tmp/other-worktree",
+                location_suffix=" · codex/puppet-closeout-cursor",
+            ).encode(),
+            expected_worktree=WORKTREE,
+            pane_pid=PANE_PID,
+        )
+        self.assertTrue(good["ok"])
+        self.assertEqual(good["gate"], "ready")
+        self.assertFalse(wrong["ok"])
+
 
 class CursorStartupNavigationTests(unittest.TestCase):
     def _argv(self, manifest: AdapterManifest, *, positional: bool = True):
@@ -459,6 +495,30 @@ class CursorStartupNavigationTests(unittest.TestCase):
                 timing=FAST_TIMING,
             )
         self.assertEqual(stale.keys_sent, [])
+
+    def test_trust_gate_is_recaptured_unchanged_before_key(self):
+        tmux = ChangingBeforeSendTmux(
+            [_trust_screen().encode(), b"Cursor is warming up\n"]
+        )
+        manifest = _manifest()
+        with self.assertRaisesRegex(
+            IdentityError,
+            "workspace trust gate changed before acceptance",
+        ):
+            navigate_cursor_startup_gates(
+                tmux,
+                manifest=manifest,
+                socket=Path("/tmp/fake.sock"),
+                session="probe-cursor",
+                pane="%0",
+                expected_worktree=WORKTREE,
+                expected_pane_pid=PANE_PID,
+                launch_argv=self._argv(manifest),
+                process_alive_fn=lambda: True,
+                sleep_fn=lambda _interval: None,
+                timing=FAST_TIMING,
+            )
+        self.assertEqual(tmux.keys_sent, [])
 
     def test_unbound_or_model_selected_argv_fails_before_key(self):
         manifest = _manifest()

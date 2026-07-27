@@ -945,6 +945,8 @@ class SessionIntegrationTests(unittest.TestCase):
                 "tmux": tmux,
                 "socket": proof_root / "unused.sock",
                 "pane": "%0",
+                "expected_pane_pid": 42,
+                "server_identity": {"server": "test"},
                 "buffer_name": "message-1",
                 "message": "One bounded message.",
                 "proof_root": proof_root,
@@ -2355,6 +2357,35 @@ class SessionIntegrationTests(unittest.TestCase):
                     "handoff for that exact proof commit."
                 )
                 assignment_id = "proof-assignment-1"
+                (candidate / "drift.txt").write_text(
+                    "drift after source acceptance\n",
+                    encoding="utf-8",
+                )
+                commit_all(candidate, "drift")
+                with self.assertRaisesRegex(
+                    IdentityError,
+                    "source checkpoint is not the current exact head",
+                ):
+                    send_message(
+                        state_root=files["state"],
+                        session=session,
+                        message=proof_assignment,
+                        request_id=assignment_id,
+                    )
+                self.assertFalse(
+                    any(
+                        row["event"].get("kind") == "source_proof_assignment"
+                        for row in puppet_session._journal(
+                            files["proof"]
+                        ).snapshot()
+                    )
+                )
+                subprocess.run(
+                    ["git", "reset", "--hard", source_commit],
+                    cwd=candidate,
+                    check=True,
+                    capture_output=True,
+                )
                 with (
                     patch.object(
                         SessionRegistry,

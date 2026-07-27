@@ -649,6 +649,7 @@ class TmuxController:
         pane: str,
         buffer_name: str,
         payload: bytes,
+        expected_pane_pid: Optional[int] = None,
         server_identity: Optional[Dict[str, Any]] = None,
     ) -> None:
         validate_identifier(session, "session")
@@ -660,6 +661,11 @@ class TmuxController:
             pane=pane,
             server_identity=server_identity,
         )
+        if (
+            expected_pane_pid is not None
+            and metadata["pane_pid"] != expected_pane_pid
+        ):
+            raise IdentityError("tmux pane process changed before input delivery")
         if metadata["pane_dead"]:
             raise IdentityError("tmux pane is unavailable")
         self._run(
@@ -682,6 +688,10 @@ class TmuxController:
             if (
                 settled["pane"] != metadata["pane"]
                 or settled["pane_pid"] != metadata["pane_pid"]
+                or (
+                    expected_pane_pid is not None
+                    and settled["pane_pid"] != expected_pane_pid
+                )
                 or settled["pane_dead"]
             ):
                 raise IdentityError("tmux pane changed before input submission")

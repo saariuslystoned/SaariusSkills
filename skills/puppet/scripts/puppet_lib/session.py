@@ -481,8 +481,12 @@ def _deliver(
     proof_root: Path,
     operation_id: str,
     kind: str,
+    expected_pane_pid: int,
+    server_identity: Dict[str, Any],
 ) -> Dict[str, Any]:
     validate_identifier(operation_id, "operation id")
+    if not isinstance(expected_pane_pid, int) or expected_pane_pid <= 1:
+        raise IdentityError("expected delivery pane process is invalid")
     payload = _message_payload(message)
     content_sha = sha256_bytes(payload)
     journal = _journal(proof_root)
@@ -520,6 +524,8 @@ def _deliver(
             pane=pane,
             buffer_name=buffer_name,
             payload=payload,
+            expected_pane_pid=expected_pane_pid,
+            server_identity=server_identity,
         )
         journal.append(request_id=submitted_id, event=submitted_event)
     return {"content_sha256": content_sha, "delivery": "submitted"}
@@ -1732,6 +1738,8 @@ def launch(
             proof_root=proof_root,
             operation_id=session + "-initial",
             kind="initial_message",
+            expected_pane_pid=process["pid"],
+            server_identity=metadata["server_identity"],
         )
         registry.transition_path(session, ["ACTIVE"])
         journal.append(
@@ -1901,6 +1909,8 @@ def send_message(
                     operation_id=request_id,
                     content_sha256=sha256_bytes(_message_payload(enveloped)),
                 )
+            if proof_assignment:
+                _verify_source_identity(contract, protocol["source_commit"])
         delivery = _deliver(
             tmux=tmux,
             socket=Path(record["tmux"]["socket"]),
@@ -1915,6 +1925,8 @@ def send_message(
                 if proof_assignment
                 else "send"
             ),
+            expected_pane_pid=record["process"]["pid"],
+            server_identity=record["tmux"]["server_identity"],
         )
         if protocol["kind"] == "conformance" and first_submission:
             if delivery["delivery"] not in {"submitted", "already_submitted"}:

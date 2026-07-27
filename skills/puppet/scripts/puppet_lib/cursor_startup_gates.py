@@ -238,18 +238,23 @@ def _screen_contains_worktree(
 ) -> bool:
     """Match a literal or hard-wrapped workspace footer without retaining it."""
 
+    def matches(candidate: str) -> bool:
+        return candidate == expected_worktree or candidate.startswith(
+            expected_worktree + " · "
+        )
+
     for index, line in enumerate(lines[start_index:], start_index):
         start = line.find("/")
         if start < 0:
             continue
         candidate = line[start:]
-        if candidate == expected_worktree:
+        if matches(candidate):
             return True
         for following in lines[index + 1 : index + MAX_PATH_LINES]:
             if not following:
                 continue
             candidate += following
-            if candidate == expected_worktree:
+            if matches(candidate):
                 return True
             if len(candidate) >= len(expected_worktree):
                 break
@@ -645,6 +650,25 @@ def navigate_cursor_startup_gates(
         if not process_alive_fn():
             raise IdentityError(
                 "Cursor target process is unavailable during gate navigation"
+            )
+        confirmed = _capture_and_reduce(
+            tmux,
+            socket=socket,
+            session=session,
+            pane=pane,
+            expected_pane_pid=expected_pane_pid,
+            expected_worktree=worktree,
+            server_identity=server_identity,
+            process_alive_fn=process_alive_fn,
+        )
+        if (
+            not confirmed["ok"]
+            or confirmed["gate"] != "workspace_trust"
+            or confirmed.get("selected") != "yes"
+            or confirmed["screen_sha256"] != first["screen_sha256"]
+        ):
+            raise IdentityError(
+                "Cursor workspace trust gate changed before acceptance"
             )
         tmux.send_keys_verified(
             socket=socket,

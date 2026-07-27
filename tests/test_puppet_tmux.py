@@ -1102,6 +1102,28 @@ class TmuxTransportTests(unittest.TestCase):
             self.assertFalse(any("send-keys" in call for call in calls))
             self.assertTrue(any("delete-buffer" in call for call in calls))
 
+    def test_paste_bytes_rejects_a_different_initial_pane_process(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = TmuxController(root, _sleep_fn=lambda _: None)
+            with patch.object(
+                controller,
+                "metadata",
+                return_value={"pane": "%1", "pane_pid": 43, "pane_dead": False},
+            ):
+                with self.assertRaisesRegex(
+                    IdentityError,
+                    "pane process changed before input delivery",
+                ):
+                    controller.paste_bytes(
+                        socket=root / "sock",
+                        session="session-one",
+                        pane="%1",
+                        buffer_name="session-one-prompt",
+                        payload=b"message",
+                        expected_pane_pid=42,
+                    )
+
     def test_tmux_binary_drift_is_detected(self):
         if not TmuxController.available():
             self.skipTest("tmux is unavailable")
