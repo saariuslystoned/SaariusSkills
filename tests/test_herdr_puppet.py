@@ -416,11 +416,32 @@ class HerdrClientTests(unittest.TestCase):
         return socket_path, observed, thread
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
-    def test_create_tab_accepts_empty_success_output(self, run: mock.Mock) -> None:
+    def test_create_tab_focuses_owned_tab_and_accepts_empty_output(
+        self,
+        run: mock.Mock,
+    ) -> None:
         run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
         client = HerdrClient()
         result = client.create_tab("operator-session", "w2", "owned-label")
         self.assertEqual(result, "")
+        run.assert_called_once_with(
+            [
+                "herdr",
+                "--session",
+                "operator-session",
+                "tab",
+                "create",
+                "--workspace",
+                "w2",
+                "--label",
+                "owned-label",
+                "--focus",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_run_command_uses_exact_pane_run_argv(self, run: mock.Mock) -> None:
@@ -2965,6 +2986,7 @@ class ContractDocTests(unittest.TestCase):
         self.assertIn("Use `qualification-send` only for ordinary interactive", text)
         self.assertIn("terminal evidence proves the process consumed it", text)
         self.assertIn("Keep the controller plan file outside the intended run root", text)
+        self.assertIn("focuses that exact newly created", text)
 
     def test_qualification_contract_keeps_prompt_mode_narrow(self) -> None:
         text = (

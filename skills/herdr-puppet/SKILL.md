@@ -54,7 +54,12 @@ hand-composed Herdr mutations when the script owns the operation.
    `lease-migrate-v1` adapter before status, journal refresh, probe,
    preservation, or cleanup.
 6. For a live qualification, create a new deterministic tab through
-   `qualification-create-tab`. Never adopt an existing tab or process.
+   `qualification-create-tab`. The controller focuses that exact newly created
+   tab in the plan's target workspace so the run is operator-visible and Herdr
+   output waits can observe it. Herdr 0.7.3 focus is server-owned, so this
+   intentionally changes the isolated operator session's visible workspace and
+   tab; it grants no authority to navigate, adopt, or close any other tab.
+   Never adopt an existing tab or process.
 7. Use `qualification-run` for shell commands, including the harmless shell
    STATUS preflight and an AGY noninteractive launcher. Supply the command
    through `--stdin` or a bounded UTF-8 `--text-file`; never place it in the

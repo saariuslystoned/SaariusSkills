@@ -205,6 +205,12 @@ Do not treat an AGY response or a clean visual tab as sufficient proof. Join
 behavior to the exact lease, sequence, nonce checkpoint, source commit, and
 redacted run packet.
 
+`qualification-create-tab` focuses only the exact tab it creates in the
+plan-authorized workspace. Herdr 0.7.3 focus is server-owned, so the new
+run-owned tab becomes the visible tab in that operator's isolated session.
+This makes the run observable; it is not permission to navigate or adopt
+pre-existing tabs.
+
 At every terminal controller stop, run `maintenance-checkpoint`. If a remote
 task file was registered, final maintenance must record its exact registered
 path, explicit confirmation, and one bounded removal evidence class before tab

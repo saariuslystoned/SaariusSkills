@@ -39,6 +39,12 @@ later consumers resolve and compare those paths, so copying an otherwise
 matching journal to another root cannot split lease-global event or beacon
 attempt history.
 
+The create mutation focuses the exact new tab in the plan's target workspace.
+Herdr 0.7.3 owns focus at the server, so this also makes that workspace and tab
+visible in the operator's isolated session. This is required for reliable
+operator observation and output waits; it does not authorize focus, adoption,
+or cleanup of any pre-existing tab.
+
 ## Lease lifecycle
 
 A lease binds:

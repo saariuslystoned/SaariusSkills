@@ -183,7 +183,7 @@ class HerdrClient:
                 workspace_id,
                 "--label",
                 label,
-                "--no-focus",
+                "--focus",
             ],
             json_output=False,
         )
