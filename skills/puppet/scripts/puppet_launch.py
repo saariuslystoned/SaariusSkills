@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import math
 import os
 import shutil
 import stat
@@ -13,7 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, Sequence
 
 import puppet_fanout
 from puppet_lib.adapter_manifest import AdapterManifest
@@ -21,7 +22,12 @@ from puppet_lib.campaign import validate_campaign_authorization
 from puppet_lib.census import adapter_implementation_fingerprint
 from puppet_lib.contracts import MANDATORY_HARD_GATES
 from puppet_lib.errors import IdentityError, PuppetError, UnsupportedError, ValidationError
-from puppet_lib.handoffs import PROTOCOL_FINGERPRINT
+from puppet_lib.handoffs import (
+    HANDOFF_SCHEMA_VERSION,
+    MAX_HANDOFF_BYTES,
+    PROTOCOL_FINGERPRINT,
+    SOURCE_FIELDS,
+)
 from puppet_lib.operator_plan import compile_operator_plan
 from puppet_lib.safety import (
     canonical_json_bytes,
@@ -35,12 +41,15 @@ from puppet_lib.safety import (
     validate_sha1,
     validate_sha256,
 )
+from puppet_lib.state import STATES
 
 
 LAUNCHER_VERSION = "0.2.0"
 CATALOG_SCHEMA = "puppet.warm-catalog/v1"
 CAMPAIGN_SCHEMA = "puppet.launch-campaign/v1"
 PROGRESS_SCHEMA = "puppet.launch-progress/v1"
+CHECKPOINT_ASSIGNMENT_SCHEMA = "puppet.launch-checkpoint-assignment/v1"
+CHECKPOINT_RESULT_SCHEMA = "puppet.launch-checkpoint-result/v1"
 TARGET_ORDER = ("agy", "codex", "claude", "cursor", "grok")
 TARGETS = frozenset(TARGET_ORDER)
 MAX_ARTIFACT_BYTES = 1024 * 1024
@@ -48,6 +57,9 @@ MAX_GIT_OUTPUT_BYTES = 64 * 1024
 GIT_TIMEOUT_SECONDS = 30.0
 PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
+MAX_CHECKPOINT_TIMEOUT_SECONDS = 300.0
+CHECKPOINT_POLL_INTERVAL_SECONDS = 0.25
+CHECKPOINT_STABLE_SAMPLES = 2
 
 
 def _progress(phase: str, **fields: Any) -> None:
@@ -315,6 +327,151 @@ def _source_identity(repo_value: Path | str, commit_value: str) -> Dict[str, Any
         "git_common_dir": str(common),
         "git_executable": str(git),
         "git_executable_sha256": sha256_file(git),
+    }
+
+
+def _validate_executing_controller(
+    source: Mapping[str, Any],
+    *,
+    controller_paths: Sequence[Path | str] | None = None,
+) -> Dict[str, Any]:
+    """Bind the executing controller to the exact clean supervisor worktree."""
+
+    source_root = _real_directory(
+        source.get("repo", ""),
+        label="controller supervisor root",
+    )
+    git = _absolute_path(
+        source.get("git_executable", ""),
+        label="controller Git executable",
+    )
+    if sha256_file(git) != validate_sha256(
+        source.get("git_executable_sha256"),
+        "controller Git executable",
+    ):
+        raise IdentityError("controller Git executable changed")
+
+    selected = (
+        controller_paths
+        if controller_paths is not None
+        else (
+            Path(os.path.abspath(__file__)),
+            Path(os.path.abspath(puppet_fanout.__file__)),
+            Path(os.path.abspath(__file__)).with_name("puppet.py"),
+        )
+    )
+    if not selected:
+        raise ValidationError("executing controller file set is empty")
+    runtime_paths: list[Path] = []
+    for index, value in enumerate(selected):
+        path = _absolute_path(
+            Path(os.path.abspath(os.fspath(value))),
+            label="executing controller file %d" % (index + 1),
+        )
+        try:
+            details = os.lstat(path)
+        except OSError as exc:
+            raise ValidationError("executing controller file is unavailable") from exc
+        if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+            raise ValidationError(
+                "executing controller files must be regular non-symlink files"
+            )
+        if details.st_uid != os.getuid():
+            raise IdentityError("executing controller file has another owner")
+        runtime_paths.append(path)
+    if len(set(runtime_paths)) != len(runtime_paths):
+        raise ValidationError("executing controller file set is duplicated")
+
+    try:
+        discovered_root = _real_directory(
+            _git_text(
+                git,
+                runtime_paths[0].parent,
+                ["rev-parse", "--show-toplevel"],
+            ),
+            label="executing controller Git root",
+        )
+    except ValidationError as exc:
+        raise IdentityError(
+            "executing controller is not inside a Git worktree"
+        ) from exc
+    if discovered_root != source_root:
+        raise IdentityError(
+            "executing controller Git root differs from the supervisor root"
+        )
+
+    head = validate_sha1(
+        _git_text(git, discovered_root, ["rev-parse", "HEAD"]),
+        "executing controller head",
+    )
+    if head != validate_sha1(source.get("commit"), "controller source commit"):
+        raise IdentityError("executing controller HEAD differs from the source commit")
+    tree = validate_sha1(
+        _git_text(git, discovered_root, ["rev-parse", "HEAD^{tree}"]),
+        "executing controller tree",
+    )
+    if tree != validate_sha1(source.get("tree"), "controller source tree"):
+        raise IdentityError("executing controller tree differs from the source tree")
+    branch = validate_branch(
+        _git_text(
+            git,
+            discovered_root,
+            ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        )
+    )
+    if branch != validate_branch(source.get("branch")):
+        raise IdentityError("executing controller branch differs from the source branch")
+    common = Path(
+        _git_text(git, discovered_root, ["rev-parse", "--git-common-dir"])
+    )
+    if not common.is_absolute():
+        common = discovered_root / common
+    try:
+        common = common.resolve(strict=True)
+    except OSError as exc:
+        raise ValidationError(
+            "executing controller Git common directory is unavailable"
+        ) from exc
+    expected_common = _real_directory(
+        source.get("git_common_dir", ""),
+        label="controller Git common directory",
+    )
+    if common != expected_common:
+        raise IdentityError(
+            "executing controller Git common directory differs from the source"
+        )
+
+    relative_paths: list[str] = []
+    for path in runtime_paths:
+        try:
+            relative = str(path.relative_to(discovered_root))
+        except ValueError as exc:
+            raise IdentityError(
+                "executing controller file escapes the supervisor root"
+            ) from exc
+        tracked = _git(
+            git,
+            discovered_root,
+            ["ls-files", "--error-unmatch", "--", relative],
+            allow_failure=True,
+        )
+        if tracked.returncode != 0:
+            raise IdentityError("executing controller file is not tracked")
+        relative_paths.append(relative)
+    if _git_text(
+        git,
+        discovered_root,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+    ):
+        raise IdentityError("executing controller worktree is not clean")
+
+    return {
+        "root": str(discovered_root),
+        "branch": branch,
+        "commit": head,
+        "tree": tree,
+        "git_common_dir": str(common),
+        "files": relative_paths,
     }
 
 
@@ -664,6 +821,119 @@ def _nonce_for(launch_id: str, target: str, prompt_sha256: str) -> str:
     )
 
 
+def _checkpoint_request_id(
+    launch_id: str,
+    target: str,
+    plan_sha256: str,
+) -> str:
+    digest = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "launch_id": validate_identifier(launch_id, "launch id"),
+                "target": target,
+                "plan_sha256": validate_sha256(plan_sha256, "lane plan"),
+                "operation": "source_checkpoint",
+            }
+        )
+    )
+    return validate_identifier(
+        "checkpoint-%s-%s" % (target, digest[:24]),
+        "checkpoint request id",
+    )
+
+
+def _checkpoint_fixed_fields(
+    lane: puppet_fanout.LanePlan,
+    manifest: AdapterManifest,
+) -> Dict[str, Any]:
+    if manifest.target != lane.target:
+        raise IdentityError("checkpoint manifest target changed")
+    return {
+        "schema_version": HANDOFF_SCHEMA_VERSION,
+        "checkpoint_kind": "source",
+        "session": lane.session,
+        "run_id": lane.contract.run_id,
+        "nonce": lane.contract.nonce,
+        "executable_fingerprint": manifest.raw["executable"]["sha256"],
+        "execution_fingerprint": manifest.execution_fingerprint,
+        "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
+        "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
+    }
+
+
+def _checkpoint_assignment(
+    *,
+    launch_id: str,
+    lane: puppet_fanout.LanePlan,
+    manifest: AdapterManifest,
+    output_path: Path,
+) -> Dict[str, Any]:
+    request_id = _checkpoint_request_id(
+        launch_id,
+        lane.target,
+        lane.plan_sha256,
+    )
+    fixed_fields = _checkpoint_fixed_fields(lane, manifest)
+    agent_fields = sorted(set(SOURCE_FIELDS) - set(fixed_fields))
+    result = {
+        "schema": CHECKPOINT_ASSIGNMENT_SCHEMA,
+        "version": LAUNCHER_VERSION,
+        "operation": "publish_source_checkpoint",
+        "target": lane.target,
+        "session": lane.session,
+        "request_id": request_id,
+        "output": {
+            "path": str(output_path),
+            "checkpoint_kind": "source",
+            "schema_version": HANDOFF_SCHEMA_VERSION,
+            "max_bytes": MAX_HANDOFF_BYTES,
+            "write_policy": "atomic_create_only_mode_0600",
+        },
+        "handoff": {
+            "exact_fields": sorted(SOURCE_FIELDS),
+            "fixed_fields": fixed_fields,
+            "agent_fields": agent_fields,
+            "agent_field_constraints": {
+                "candidate_commit": "exact current full 40-character lowercase Git HEAD",
+                "timestamp": "RFC3339 timestamp with timezone",
+                "summary": "nonempty string of at most 2000 characters",
+                "claims": "list of at most 32 objects",
+                "evidence_refs": (
+                    "list of at most 32 relative-path strings, each at most "
+                    "1000 characters"
+                ),
+                "decisions_requested": (
+                    "list of at most 32 strings, each at most 1000 characters"
+                ),
+                "limitations": (
+                    "list of at most 32 strings, each at most 1000 characters"
+                ),
+                "suggested_next_assignment": "string of at most 1000 characters",
+            },
+        },
+        "instructions": [
+            "Finish the bounded assignment and validate the resulting repository state.",
+            "Write exactly one UTF-8 JSON source handoff at output.path.",
+            "Use every exact field once, preserve fixed_fields literally, and fill agent_fields.",
+            "Set candidate_commit to the exact current full Git HEAD.",
+            "Use relative evidence_refs only; never include output, logs, or conversation bodies.",
+            (
+                "Publish atomically as a current-UID regular file with mode 0600; "
+                "finish this turn and remain in the interactive harness."
+            ),
+            "Do not exit the harness process.",
+        ],
+    }
+    validate_bounded_json(
+        result,
+        max_depth=7,
+        max_items=128,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return result
+
+
 def _validate_modes(values: Iterable[str]) -> tuple[str, ...]:
     modes = tuple(values) or ("read", "test")
     allowed = {"read", "test", "mutate", "local_commit"}
@@ -721,6 +991,78 @@ def _campaign_unhashed(value: Mapping[str, Any]) -> Dict[str, Any]:
     result = dict(value)
     result.pop("campaign_sha256", None)
     return result
+
+
+def _validate_checkpoint_binding(
+    *,
+    binding: Any,
+    launch_id: str,
+    lane: puppet_fanout.LanePlan,
+    manifest: AdapterManifest,
+) -> None:
+    fields = {
+        "assignment",
+        "request_id",
+        "path",
+        "checkpoint_kind",
+        "schema_version",
+        "max_bytes",
+    }
+    if not isinstance(binding, dict) or set(binding) != fields:
+        raise ValidationError(
+            "%s campaign checkpoint binding is invalid" % lane.target
+        )
+    expected_path = lane.proof_root / "source-checkpoint.json"
+    if (
+        binding.get("path") != str(expected_path)
+        or binding.get("checkpoint_kind") != "source"
+        or binding.get("schema_version") != HANDOFF_SCHEMA_VERSION
+        or binding.get("max_bytes") != MAX_HANDOFF_BYTES
+        or binding.get("request_id")
+        != _checkpoint_request_id(launch_id, lane.target, lane.plan_sha256)
+    ):
+        raise IdentityError(
+            "%s campaign checkpoint identity changed" % lane.target
+        )
+    assignment = binding.get("assignment")
+    if not isinstance(assignment, dict) or set(assignment) != {
+        "path",
+        "sha256",
+        "bytes",
+    }:
+        raise ValidationError(
+            "%s campaign checkpoint assignment is invalid" % lane.target
+        )
+    expected_assignment_path = (
+        lane.proof_root / "source-checkpoint-assignment.json"
+    )
+    if assignment.get("path") != str(expected_assignment_path):
+        raise IdentityError(
+            "%s campaign checkpoint assignment path changed" % lane.target
+        )
+    current_assignment = _artifact(
+        expected_assignment_path,
+        label="%s campaign checkpoint assignment" % lane.target,
+    )
+    if current_assignment != assignment:
+        raise IdentityError(
+            "%s campaign checkpoint assignment changed" % lane.target
+        )
+    recorded_assignment = read_json(
+        expected_assignment_path,
+        max_bytes=MAX_ARTIFACT_BYTES,
+        reject_sensitive_fields=True,
+    )
+    expected_assignment = _checkpoint_assignment(
+        launch_id=launch_id,
+        lane=lane,
+        manifest=manifest,
+        output_path=expected_path,
+    )
+    if recorded_assignment != expected_assignment:
+        raise IdentityError(
+            "%s campaign checkpoint assignment content changed" % lane.target
+        )
 
 
 def _load_campaign(path_value: Path | str) -> Dict[str, Any]:
@@ -911,6 +1253,7 @@ def _load_campaign(path_value: Path | str) -> Dict[str, Any]:
             "plan",
             "plan_sha256",
             "plan_file_sha256",
+            "source_checkpoint",
         }:
             raise ValidationError("launch campaign lane fields are invalid")
         validate_branch(lane.get("branch"))
@@ -965,6 +1308,7 @@ def _load_campaign(path_value: Path | str) -> Dict[str, Any]:
             catalog["targets"][target]["manifest"],
             label="%s campaign manifest binding" % target,
         )
+        manifest = AdapterManifest.from_path(Path(expected_manifest["path"]))
         expected_contract_artifact = _artifact(
             expected_contract,
             label="%s campaign contract binding" % target,
@@ -1059,6 +1403,12 @@ def _load_campaign(path_value: Path | str) -> Dict[str, Any]:
             or row.get("plan_file_sha256") != lane.file_sha256
         ):
             raise IdentityError("%s campaign lane index changed" % target)
+        _validate_checkpoint_binding(
+            binding=row.get("source_checkpoint"),
+            launch_id=launch_id,
+            lane=lane,
+            manifest=manifest,
+        )
     for lane in loaded:
         owns_mutation = lane.target == recorded_owner
         expected_lane_owner = "target" if owns_mutation else "none"
@@ -1138,6 +1488,9 @@ def prepare_campaign(
     mode_values: Iterable[str] = (),
     mutation_owner_target: str | None = None,
     task_profile: str = "regular",
+    _controller_identity_validator: (
+        Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None
+    ) = None,
 ) -> Dict[str, Any]:
     started = time.monotonic()
     launch_id = validate_identifier(launch_id, "launch id")
@@ -1150,6 +1503,10 @@ def prepare_campaign(
     if not set(targets) <= set(catalog["targets"]):
         raise UnsupportedError("selected target is absent from the warm catalog")
     source = _source_identity(source_repo, source_commit)
+    controller_identity_validator = (
+        _controller_identity_validator or _validate_executing_controller
+    )
+    controller_identity_validator(source)
     prompt_file = _absolute_path(prompt_path, label="launch prompt")
     root = _future_path(campaign_root, label="campaign root")
     root_parent = _real_directory(
@@ -1395,6 +1752,37 @@ def prepare_campaign(
             for lane in loaded
         ]
         plan_set_sha256 = sha256_bytes(canonical_json_bytes(plan_rows))
+        checkpoint_rows: Dict[str, Dict[str, Any]] = {}
+        for lane in loaded:
+            checkpoint_path = _future_path(
+                lane.proof_root / "source-checkpoint.json",
+                label="%s source checkpoint output" % lane.target,
+            )
+            assignment_path = _future_path(
+                lane.proof_root / "source-checkpoint-assignment.json",
+                label="%s source checkpoint assignment" % lane.target,
+            )
+            manifest = AdapterManifest.from_path(
+                Path(catalog["targets"][lane.target]["manifest"])
+            )
+            assignment = _checkpoint_assignment(
+                launch_id=launch_id,
+                lane=lane,
+                manifest=manifest,
+                output_path=checkpoint_path,
+            )
+            _create_only_json(assignment_path, assignment)
+            checkpoint_rows[lane.target] = {
+                "assignment": _artifact(
+                    assignment_path,
+                    label="%s source checkpoint assignment" % lane.target,
+                ),
+                "request_id": assignment["request_id"],
+                "path": str(checkpoint_path),
+                "checkpoint_kind": "source",
+                "schema_version": HANDOFF_SCHEMA_VERSION,
+                "max_bytes": MAX_HANDOFF_BYTES,
+            }
         launcher_path = Path(__file__).resolve(strict=True)
         fanout_path = Path(puppet_fanout.__file__).resolve(strict=True)
         result: Dict[str, Any] = {
@@ -1437,6 +1825,7 @@ def prepare_campaign(
                     "plan": str(lane.path),
                     "plan_sha256": lane.plan_sha256,
                     "plan_file_sha256": lane.file_sha256,
+                    "source_checkpoint": checkpoint_rows[lane.target],
                 }
                 for lane in loaded
             },
@@ -1524,6 +1913,511 @@ def execute_fanout(argv: Sequence[str]) -> None:
     raise AssertionError("execv returned")
 
 
+class _CheckpointLaneFailure(Exception):
+    def __init__(self, error: str) -> None:
+        super().__init__(error)
+        self.error = validate_identifier(error, "checkpoint lane error")
+
+
+def _checkpoint_controller_call(
+    *,
+    lane: puppet_fanout.LanePlan,
+    action: str,
+    arguments: Sequence[str],
+    runner: Callable[[Sequence[str]], subprocess.CompletedProcess[bytes]],
+) -> Dict[str, Any]:
+    argv = [
+        lane.controller["interpreter"],
+        lane.controller["cli"],
+        "--json",
+        action,
+        *arguments,
+    ]
+    try:
+        completed = runner(argv)
+    except (OSError, subprocess.TimeoutExpired):
+        raise _CheckpointLaneFailure(
+            "controller_%s_invocation_failed" % action
+        )
+    if not isinstance(completed, subprocess.CompletedProcess):
+        raise _CheckpointLaneFailure("controller_%s_output_invalid" % action)
+    output = (
+        puppet_fanout._safe_child_json(completed.stdout)
+        if isinstance(completed.stdout, bytes)
+        else None
+    )
+    if completed.returncode != 0:
+        raise _CheckpointLaneFailure("controller_%s_rejected" % action)
+    if output is None or output.get("ok") is not True:
+        raise _CheckpointLaneFailure("controller_%s_output_invalid" % action)
+    if action != "checkpoint" and output.get("session") != lane.session:
+        raise _CheckpointLaneFailure("controller_%s_identity_changed" % action)
+    return output
+
+
+def _checkpoint_file_sample(path: Path, *, max_bytes: int) -> tuple[int, ...] | None:
+    try:
+        details = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+    if (
+        stat.S_ISLNK(details.st_mode)
+        or not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.getuid()
+        or details.st_nlink != 1
+        or stat.S_IMODE(details.st_mode) != PRIVATE_FILE_MODE
+        or details.st_size <= 0
+        or details.st_size > max_bytes
+    ):
+        raise _CheckpointLaneFailure("checkpoint_path_unsafe")
+    return (
+        details.st_dev,
+        details.st_ino,
+        details.st_size,
+        details.st_mtime_ns,
+    )
+
+
+def _wait_for_stable_checkpoint(
+    *,
+    path: Path,
+    max_bytes: int,
+    deadline: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+    poll_interval: float,
+) -> tuple[int, ...]:
+    prior: tuple[int, ...] | None = None
+    stable_samples = 0
+    while True:
+        current = _checkpoint_file_sample(path, max_bytes=max_bytes)
+        if current is not None:
+            if current == prior:
+                stable_samples += 1
+            else:
+                prior = current
+                stable_samples = 1
+            if stable_samples >= CHECKPOINT_STABLE_SAMPLES:
+                return current
+        now = monotonic()
+        if now >= deadline:
+            raise _CheckpointLaneFailure("checkpoint_timeout")
+        sleep(min(poll_interval, max(0.0, deadline - now)))
+
+
+def _checkpoint_reference_projection(
+    *,
+    reference: Any,
+    lane: puppet_fanout.LanePlan,
+    binding: Mapping[str, Any],
+    fixed_fields: Mapping[str, Any],
+) -> Dict[str, Any]:
+    expected_identity = {
+        key: value
+        for key, value in fixed_fields.items()
+        if key != "schema_version"
+    }
+    if not isinstance(reference, dict) or set(reference) != {
+        "checkpoint_id",
+        "artifact_sha256",
+        "checkpoint_kind",
+        "identity",
+        "path",
+        "validation",
+    }:
+        raise _CheckpointLaneFailure("checkpoint_reference_invalid")
+    identity = reference.get("identity")
+    if not isinstance(identity, dict) or set(identity) != {
+        *expected_identity.keys(),
+        "candidate_commit",
+    }:
+        raise _CheckpointLaneFailure("checkpoint_reference_invalid")
+    try:
+        checkpoint_id = validate_sha256(
+            reference.get("checkpoint_id"),
+            "checkpoint id",
+        )
+        artifact_sha256 = validate_sha256(
+            reference.get("artifact_sha256"),
+            "checkpoint artifact",
+        )
+        candidate_commit = validate_sha1(
+            identity.get("candidate_commit"),
+            "checkpoint candidate commit",
+        )
+    except PuppetError:
+        raise _CheckpointLaneFailure("checkpoint_reference_invalid")
+    if (
+        reference.get("checkpoint_kind") != "source"
+        or reference.get("path") != binding["path"]
+        or reference.get("validation") != "valid"
+        or any(
+            identity.get(key) != value
+            for key, value in expected_identity.items()
+        )
+        or identity.get("session") != lane.session
+    ):
+        raise _CheckpointLaneFailure("checkpoint_reference_identity_changed")
+    return {
+        "checkpoint_id": checkpoint_id,
+        "artifact_sha256": artifact_sha256,
+        "checkpoint_kind": "source",
+        "candidate_commit": candidate_commit,
+        "path": binding["path"],
+    }
+
+
+def _checkpoint_lane(
+    *,
+    campaign: Mapping[str, Any],
+    lane: puppet_fanout.LanePlan,
+    timeout: float,
+    runner: Callable[[Sequence[str]], subprocess.CompletedProcess[bytes]],
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+    poll_interval: float,
+) -> Dict[str, Any]:
+    started = monotonic()
+    binding = campaign["lanes"][lane.target]["source_checkpoint"]
+    checkpoint_path = Path(binding["path"])
+    assignment_path = Path(binding["assignment"]["path"])
+    manifest = AdapterManifest.from_path(
+        Path(lane.raw["artifacts"]["manifest"]["path"])
+    )
+    fixed_fields = _checkpoint_fixed_fields(lane, manifest)
+    _progress(
+        "checkpoint_start",
+        launch_id=campaign["launch_id"],
+        target=lane.target,
+        session=lane.session,
+    )
+    try:
+        status = _checkpoint_controller_call(
+            lane=lane,
+            action="status",
+            arguments=[
+                "--state-root",
+                str(lane.state_root),
+                "--session",
+                lane.session,
+            ],
+            runner=runner,
+        )
+        current_reference = status.get("last_checkpoint")
+        if current_reference is not None:
+            projection = _checkpoint_reference_projection(
+                reference=current_reference,
+                lane=lane,
+                binding=binding,
+                fixed_fields=fixed_fields,
+            )
+            if (
+                _checkpoint_file_sample(
+                    checkpoint_path,
+                    max_bytes=binding["max_bytes"],
+                )
+                is None
+            ):
+                raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+            _progress(
+                "checkpoint_complete",
+                launch_id=campaign["launch_id"],
+                target=lane.target,
+                session=lane.session,
+                status="already_imported",
+            )
+            return {
+                "ok": True,
+                "target": lane.target,
+                "session": lane.session,
+                "state": "checkpoint_confirmed",
+                "delivery": "already_imported",
+                "checkpoint": projection,
+                "elapsed_ms": int((monotonic() - started) * 1000),
+            }
+
+        preexisting = _checkpoint_file_sample(
+            checkpoint_path,
+            max_bytes=binding["max_bytes"],
+        )
+        delivery = _checkpoint_controller_call(
+            lane=lane,
+            action="send",
+            arguments=[
+                "--state-root",
+                str(lane.state_root),
+                "--session",
+                lane.session,
+                "--request-id",
+                binding["request_id"],
+                "--message-file",
+                str(assignment_path),
+            ],
+            runner=runner,
+        )
+        delivery_state = delivery.get("delivery")
+        try:
+            delivery_sha256 = validate_sha256(
+                delivery.get("content_sha256"),
+                "checkpoint assignment delivery",
+            )
+        except PuppetError:
+            raise _CheckpointLaneFailure("controller_send_output_invalid")
+        if delivery_state not in {"submitted", "already_submitted"}:
+            raise _CheckpointLaneFailure("controller_send_output_invalid")
+        _progress(
+            "checkpoint_assignment_submitted",
+            launch_id=campaign["launch_id"],
+            target=lane.target,
+            session=lane.session,
+            status=delivery_state,
+        )
+        if preexisting is not None and delivery_state == "submitted":
+            raise _CheckpointLaneFailure("stale_checkpoint_path")
+
+        deadline = monotonic() + timeout
+        _progress(
+            "checkpoint_waiting",
+            launch_id=campaign["launch_id"],
+            target=lane.target,
+            session=lane.session,
+            wait_timeout_seconds=timeout,
+        )
+        stable_sample = _wait_for_stable_checkpoint(
+            path=checkpoint_path,
+            max_bytes=binding["max_bytes"],
+            deadline=deadline,
+            monotonic=monotonic,
+            sleep=sleep,
+            poll_interval=poll_interval,
+        )
+        imported = _checkpoint_controller_call(
+            lane=lane,
+            action="checkpoint",
+            arguments=[
+                "--state-root",
+                str(lane.state_root),
+                "--session",
+                lane.session,
+                "--handoff",
+                str(checkpoint_path),
+            ],
+            runner=runner,
+        )
+        imported_projection = _checkpoint_reference_projection(
+            reference={key: imported.get(key) for key in {
+                "checkpoint_id",
+                "artifact_sha256",
+                "checkpoint_kind",
+                "identity",
+                "path",
+                "validation",
+            }},
+            lane=lane,
+            binding=binding,
+            fixed_fields=fixed_fields,
+        )
+        waited = _checkpoint_controller_call(
+            lane=lane,
+            action="wait",
+            arguments=[
+                "--state-root",
+                str(lane.state_root),
+                "--session",
+                lane.session,
+                "--until",
+                "checkpoint",
+                "--timeout",
+                "0",
+            ],
+            runner=runner,
+        )
+        if (
+            waited.get("condition") != "checkpoint"
+            or waited.get("matched") is not True
+        ):
+            raise _CheckpointLaneFailure("controller_wait_unconfirmed")
+        waited_projection = _checkpoint_reference_projection(
+            reference=waited.get("last_checkpoint"),
+            lane=lane,
+            binding=binding,
+            fixed_fields=fixed_fields,
+        )
+        if waited_projection != imported_projection:
+            raise _CheckpointLaneFailure("checkpoint_confirmation_changed")
+        if (
+            _checkpoint_file_sample(
+                checkpoint_path,
+                max_bytes=binding["max_bytes"],
+            )
+            != stable_sample
+        ):
+            raise _CheckpointLaneFailure("checkpoint_path_changed")
+        state = waited.get("state")
+        if state not in STATES:
+            raise _CheckpointLaneFailure("controller_wait_output_invalid")
+        _progress(
+            "checkpoint_complete",
+            launch_id=campaign["launch_id"],
+            target=lane.target,
+            session=lane.session,
+            status=state,
+        )
+        return {
+            "ok": True,
+            "target": lane.target,
+            "session": lane.session,
+            "state": state,
+            "delivery": delivery_state,
+            "delivery_sha256": delivery_sha256,
+            "checkpoint": imported_projection,
+            "elapsed_ms": int((monotonic() - started) * 1000),
+        }
+    except _CheckpointLaneFailure as exc:
+        _progress(
+            "checkpoint_failed",
+            launch_id=campaign["launch_id"],
+            target=lane.target,
+            session=lane.session,
+            error=exc.error,
+        )
+        return {
+            "ok": False,
+            "target": lane.target,
+            "session": lane.session,
+            "state": "checkpoint_failed",
+            "error": exc.error,
+            "elapsed_ms": int((monotonic() - started) * 1000),
+        }
+    except (PuppetError, OSError, KeyError, TypeError, ValueError):
+        _progress(
+            "checkpoint_failed",
+            launch_id=campaign["launch_id"],
+            target=lane.target,
+            session=lane.session,
+            error="checkpoint_worker_failed",
+        )
+        return {
+            "ok": False,
+            "target": lane.target,
+            "session": lane.session,
+            "state": "checkpoint_failed",
+            "error": "checkpoint_worker_failed",
+            "elapsed_ms": int((monotonic() - started) * 1000),
+        }
+
+
+def collect_checkpoints(
+    *,
+    campaign: Mapping[str, Any],
+    timeout: float,
+    _runner: Callable[
+        [Sequence[str]], subprocess.CompletedProcess[bytes]
+    ] = puppet_fanout._default_runner,
+    _monotonic: Callable[[], float] = time.monotonic,
+    _sleep: Callable[[float], None] = time.sleep,
+    _poll_interval: float = CHECKPOINT_POLL_INTERVAL_SECONDS,
+) -> Dict[str, Any]:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout < 0
+        or timeout > MAX_CHECKPOINT_TIMEOUT_SECONDS
+    ):
+        raise ValidationError(
+            "checkpoint timeout must be between zero and 300 seconds"
+        )
+    if (
+        isinstance(_poll_interval, bool)
+        or not isinstance(_poll_interval, (int, float))
+        or not math.isfinite(_poll_interval)
+        or _poll_interval <= 0
+        or _poll_interval > 1
+    ):
+        raise ValidationError("checkpoint poll interval is invalid")
+    started = _monotonic()
+    plans = [
+        Path(campaign["lanes"][target]["plan"])
+        for target in campaign["targets"]
+    ]
+    lanes = puppet_fanout.load_lane_plans(plans)
+    results: Dict[str, Dict[str, Any]] = {}
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=len(lanes),
+        thread_name_prefix="puppet-launch-checkpoint",
+    ) as executor:
+        futures = {
+            executor.submit(
+                _checkpoint_lane,
+                campaign=campaign,
+                lane=lane,
+                timeout=float(timeout),
+                runner=_runner,
+                monotonic=_monotonic,
+                sleep=_sleep,
+                poll_interval=_poll_interval,
+            ): lane.target
+            for lane in lanes
+        }
+        for future in concurrent.futures.as_completed(futures):
+            target = futures[future]
+            try:
+                results[target] = future.result()
+            except Exception:
+                lane = next(item for item in lanes if item.target == target)
+                results[target] = {
+                    "ok": False,
+                    "target": target,
+                    "session": lane.session,
+                    "state": "checkpoint_failed",
+                    "error": "checkpoint_worker_failed",
+                    "elapsed_ms": int((_monotonic() - started) * 1000),
+                }
+    ordered = {
+        target: results[target]
+        for target in campaign["targets"]
+    }
+    succeeded = [
+        target for target in campaign["targets"] if ordered[target]["ok"]
+    ]
+    failed = [
+        target for target in campaign["targets"] if not ordered[target]["ok"]
+    ]
+    result = {
+        "schema": CHECKPOINT_RESULT_SCHEMA,
+        "version": LAUNCHER_VERSION,
+        "ok": not failed,
+        "state": (
+            "complete"
+            if not failed
+            else ("partial" if succeeded else "failed")
+        ),
+        "action": "checkpoint",
+        "launch_id": campaign["launch_id"],
+        "campaign_sha256": campaign["campaign_sha256"],
+        "targets": list(campaign["targets"]),
+        "succeeded_targets": succeeded,
+        "failed_targets": failed,
+        "lanes": ordered,
+        "automatic_review": False,
+        "automatic_accept": False,
+        "automatic_halt": False,
+        "raw_output_retained": False,
+        "elapsed_ms": int((_monotonic() - started) * 1000),
+    }
+    validate_bounded_json(
+        result,
+        max_depth=8,
+        max_items=256,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return result
+
+
 def _add_prepare_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--catalog", required=True, type=Path)
     parser.add_argument(
@@ -1590,6 +2484,17 @@ def _parser() -> argparse.ArgumentParser:
     for action in ("status", "attach", "view", "halt"):
         lifecycle = commands.add_parser(action)
         lifecycle.add_argument("--campaign", required=True, type=Path)
+    checkpoint = commands.add_parser("checkpoint")
+    checkpoint.add_argument("--campaign", required=True, type=Path)
+    checkpoint.add_argument(
+        "--timeout",
+        required=True,
+        type=float,
+        help=(
+            "seconds to wait for each exact checkpoint file after assignment "
+            "delivery (0-300); controller calls have their own fixed bounds"
+        ),
+    )
     return parser
 
 
@@ -1646,6 +2551,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         campaign = _load_campaign(args.campaign)
+        if args.action == "checkpoint":
+            result = collect_checkpoints(
+                campaign=campaign,
+                timeout=args.timeout,
+            )
+            print(json.dumps(result, sort_keys=True))
+            if result["ok"]:
+                return 0
+            if result["state"] == "partial":
+                return 4
+            return 2
         _progress(
             "fanout_exec",
             launch_id=campaign["launch_id"],

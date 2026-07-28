@@ -15,7 +15,7 @@ For any warm, qualified mix of one through five regular harnesses, use
 `scripts/puppet_launch.py run` under [fast-launch-contract.md](references/fast-launch-contract.md).
 It serializes worktree allocation, compiles selected plans, and starts harnesses
 concurrently through `scripts/puppet_fanout.py`; keep live acknowledgement explicit and runtime failures lane-local.
-Ordinary runs never probe/qualify or inspect auth stores; multi-target mutation
+Use its explicit `checkpoint` lifecycle only when a bounded handoff is wanted. Ordinary runs never probe/qualify or inspect auth stores; multi-target mutation
 names one selected owner. Support lanes keep only named read/test modes; do not add automatic routing, sibling halt, `/goal`, `/loop`, or `/teamwork-preview`.
 
 ## Before a live session

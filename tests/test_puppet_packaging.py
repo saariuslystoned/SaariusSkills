@@ -45,6 +45,7 @@ class PuppetPackagingTests(unittest.TestCase):
         self.assertIn("scripts/puppet_launch.py", text)
         self.assertIn("scripts/puppet_fanout.py", text)
         self.assertIn("runtime failures lane-local", text)
+        self.assertIn("explicit `checkpoint` lifecycle", text)
 
     def test_fast_launch_reference_declares_one_request_boundary(self):
         text = (SKILL / "references" / "fast-launch-contract.md").read_text(
@@ -57,7 +58,9 @@ class PuppetPackagingTests(unittest.TestCase):
             "puppet_launch.py status",
             "puppet_launch.py attach",
             "puppet_launch.py view",
+            "puppet_launch.py checkpoint",
             "puppet_launch.py halt",
+            "--timeout",
             "--allow-live-launch",
             "serialized",
             "concurrently",
@@ -65,6 +68,8 @@ class PuppetPackagingTests(unittest.TestCase):
             "automatic_cleanup",
             "never invokes census",
             "auth-store read",
+            "never reads a pane",
+            "never an automatic part of",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)

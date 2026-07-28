@@ -152,8 +152,8 @@ invocation, but it is never required when the user's intent is already clear.
   transcript-blind cross-harness operating workflow.
 - `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
 - `skills/puppet/scripts/puppet_launch.py`: one-request warm catalog, campaign
-  preparation, single-owner mutation routing, and lifecycle entrypoint for any
-  explicit one-to-five-target mix.
+  preparation, single-owner mutation routing, explicit concurrent checkpoint
+  collection, and lifecycle entrypoint for any one-to-five-target mix.
 - `skills/puppet/scripts/puppet_fanout.py`: concurrent launch, status, native
   view, and exact halt for any operator-selected one-to-five-harness mix.
 - `skills/puppet/scripts/adapter_lab.py`: zero-agent census, real-harness

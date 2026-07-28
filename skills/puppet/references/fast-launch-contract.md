@@ -94,7 +94,12 @@ explicit `read` or `test` support mode, fails before creating anything. A
 single-target mutating request derives its sole selected target as owner.
 
 Preparation first validates the clean exact source, prompt artifact, catalog,
-fresh IDs, non-overlapping roots, and every selected target. Git worktree
+fresh IDs, non-overlapping roots, every selected target, and that the executing
+launcher, fanout, and Puppet CLI are tracked and clean in the exact contracted
+supervisor/source worktree. A copied archive, another Git root, an untracked
+controller file, a dirty tree, or a wrong head fails before campaign-root or
+worktree creation. This is the current supervisor-equals-source invariant, not
+a claim of arbitrary-repository controller separation. Git worktree
 allocation is serialized because lanes share mutable repository metadata.
 After allocation, it compiles all selected exact
 `puppet.operator-run-plan/v1` packets concurrently, validates the complete plan
@@ -186,11 +191,25 @@ Use the create-only campaign manifest for subsequent concurrent actions:
 python3 <skill-root>/scripts/puppet_launch.py status --campaign <campaign.json>
 python3 <skill-root>/scripts/puppet_launch.py attach --campaign <campaign.json>
 python3 <skill-root>/scripts/puppet_launch.py view --campaign <campaign.json>
+python3 <skill-root>/scripts/puppet_launch.py checkpoint \
+  --campaign <campaign.json> --timeout 120
 python3 <skill-root>/scripts/puppet_launch.py halt --campaign <campaign.json>
 ```
 
 `status` is structural and transcript-blind. `attach` prints fresh one-use
 read-only attach commands. `view` opens native read-only terminal windows.
+`checkpoint` is an explicit post-launch action, never an automatic part of
+`run`. It concurrently sends each selected live lane its create-only,
+campaign-bound source-checkpoint assignment through the existing qualified
+`send` command. It then polls only the exact expected mode-0600 regular file,
+imports it through the existing `checkpoint` command, and confirms it with a
+zero-time structural `wait`. The timeout bounds only the post-send file wait;
+each controller invocation retains its own existing bounded supervisor
+deadline. Repeating the command resumes an already-submitted assignment or
+returns an already-imported exact checkpoint. Results project only stable
+identity, artifact hash, candidate commit, state, timing, and bounded error
+categories. This action never reads a pane, reviews, accepts, halts, or exits a
+harness; the agent is told to remain in its interactive process.
 `halt` delegates only the exact lane state-root/session pairs preserved by that
 campaign; it is not cleanup authority for any other process or tmux session.
 
@@ -218,6 +237,9 @@ python3 <skill-root>/scripts/puppet_fanout.py halt --plan <plan> [...]
 - A viewer failure does not change `action_ok` or imply launch failure and
   never halts the active target. It does make the complete requested workflow
   `ok: false`, names the lane under `viewer_failed_targets`, and exits 4.
+- A checkpoint timeout or malformed/stale handoff remains lane-local. A mixed
+  result exits 4, preserves successful siblings, and performs no automatic
+  review, acceptance, halt, deletion, or retry.
 - Do not rerun `launch` blindly after an operator interruption. Reconcile each
   exact session with concurrent `status`.
 

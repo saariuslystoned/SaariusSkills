@@ -60,4 +60,6 @@ jobs:
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
           python skills/puppet/scripts/puppet.py --help
           python skills/puppet/scripts/adapter_lab.py --help
+          python skills/puppet/scripts/puppet_launch.py --help
+          python skills/puppet/scripts/puppet_launch.py checkpoint --help
           python skills/herdr-puppet/scripts/herdr_puppet.py --help

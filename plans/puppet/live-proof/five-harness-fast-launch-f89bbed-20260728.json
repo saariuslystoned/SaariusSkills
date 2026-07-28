@@ -1,0 +1,310 @@
+{
+  "schema": "puppet.curated-five-harness-fast-launch/v1",
+  "recorded_date": "2026-07-28",
+  "outcome": "lifecycle_transport_proved_checkpoint_not_proven",
+  "implementation_head": "f89bbed426f5dea1e6d3ab5128b5a01e6d42eb27",
+  "implementation_tree": "748af0269736deadf20e5e564dc67cf856c861e3",
+  "controller_identities": {
+    "supervisor_sha256": "c3dc50b02928f069ac2a2f028992afc70ba27103d093ca1243e092fd49414e33",
+    "launcher_sha256": "d0d0784e19772b964f5b16a60ce08f75e1f95110173bda9d44719da08820de7f",
+    "fanout_sha256": "6a8e5aa0dc4de2dc56fa5fb0e0437d6fb416ae93dad127a14cc88acaa75679fd",
+    "adapter_sha256": "ee275dc7947fd472638a5384c581506d33752c9cc89b365c713bf3ca8b5ef6ef",
+    "protocol_sha256": "a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9"
+  },
+  "inputs": {
+    "campaign": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-final-f89bbed-20260728/campaign.json",
+      "file_sha256": "fdb50f939cd4acb05cb7bf19bc037c5f4a12987014f3ac40fa9ffae14b863477",
+      "campaign_sha256": "3fe1e87ebab45afdc2980fa726e5e13d832f1c407c655618ca94c314013f2831",
+      "launch_id": "five-smoke-final-f89bbed-20260728",
+      "campaign_root": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-final-f89bbed-20260728",
+      "worktree_parent": "/Users/bobbybones/Developer/worktrees",
+      "targets": [
+        "agy",
+        "codex",
+        "claude",
+        "cursor",
+        "grok"
+      ],
+      "effect_modes": [
+        "read",
+        "test"
+      ],
+      "mutation_owner": "none",
+      "task_profile": "smoke"
+    },
+    "warm_catalog": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-current-f89bbed.json",
+      "file_sha256": "95e9f506778323f81b27a4e528f1cd6008b972900ee96317eb5b34a09c4f6475",
+      "catalog_sha256": "983aebef5b9f44dd5173f5899bad2ec40fb693c52dd5c0b6f2bae1987158fb75"
+    },
+    "task_input": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-f89bbed-prompt.txt",
+      "file_sha256": "693c37c07aa584bf24269b487627002190933e02d4a626748ef6345a6255d5a2",
+      "bytes": 612,
+      "body_retained_in_this_record": false
+    },
+    "plan_set": {
+      "campaign_ordered_list_sha256": "1cf6bf41ee023aadfe9dbd2b735d5dbd8a1acf84d851e76931baca340e22e0d4",
+      "fanout_target_map_sha256": "967d154e22be5400a2bc4b06791fae816058c3d673ffa382ea5bac1cd95ba66b",
+      "hash_note": "The campaign hashes its ordered plan list; fanout hashes its target-keyed plan map. The distinct values bind distinct canonical structures."
+    }
+  },
+  "timing": {
+    "prepare_elapsed_ms": 916,
+    "launch_and_native_views_aggregate_elapsed_ms": 42277,
+    "status_aggregate_elapsed_ms": null,
+    "status_timing_claim": "not_persisted_not_claimed",
+    "exact_all_five_halt_aggregate_elapsed_ms": 4776
+  },
+  "concurrent_lifecycle": {
+    "root_controller_direct": true,
+    "targets_submitted": 5,
+    "targets_observed_active_concurrently": 5,
+    "active_status_receipt_persisted": false,
+    "native_read_only_views_issued": 5,
+    "process_birth_identities_bound": 5,
+    "exact_owned_halts": 5,
+    "final_states_halted": 5,
+    "post_halt_live_owned_targets": 0,
+    "pane_body_captured": false,
+    "checkpoint_state": "not_proven",
+    "checkpoint_output_wired": false,
+    "checkpoint_observed": false
+  },
+  "targets": [
+    {
+      "target": "agy",
+      "session_id": "puppet-five-smoke-final-f89bbed-20260728-agy",
+      "launch_elapsed_ms": 20328,
+      "plan_file_sha256": "086a819efe2fbc081271040ec2cadf462747a86654e7ae32f7859f702614cd9c",
+      "plan_sha256": "2c8cc0589a2c5c1d4d4389c3c07b577a098dd7480d146c1446cdbc2ef4e9aafa",
+      "executable_sha256": "251662551657dd0955428dd31536e7adf84c1cb4d53f20b6dca8bf8714762ff9",
+      "active_observed": true,
+      "active_status_receipt_persisted": false,
+      "process": {
+        "pid": 31850,
+        "identity_sha256": "b979adbd476b4d2fe4e383681cc34efa05fccab891f9a76082c2066102435356"
+      },
+      "native_view": {
+        "ticket_sha256": "6ca68b0bdbf7d1af4d91792cc359af5bb84e335f9cc3a028867c26722e0e9824",
+        "claim_sha256": "ac90b8792ea9e9bb3257f68f0ee20e96ccd1234a557a1bca71a9d6caf6075ca4",
+        "revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+        "viewer_helper_sha256": "94ba7e3aeee214f90292dd58e8f9ebca85a05133606f873f65b2bf82bd047e80",
+        "read_only": true
+      },
+      "session_file_sha256": "add4c5f04edd5c37e8060cacab082623382d54983c0910e62e9922c36004d07e",
+      "journal_head_sha256": "a8ee663c745b29c71a9fb8599c8f67b57695279acfa75fc2d6370d336c0455d3",
+      "source_checkpoint": {
+        "state": "not_proven",
+        "wired": false,
+        "observed": false,
+        "last_checkpoint": null
+      },
+      "halt": {
+        "signal_sent": true,
+        "tmux_preserved": true,
+        "final_state": "HALTED",
+        "blocker": null
+      }
+    },
+    {
+      "target": "codex",
+      "session_id": "puppet-five-smoke-final-f89bbed-20260728-codex",
+      "launch_elapsed_ms": 27625,
+      "plan_file_sha256": "9bf12011dc69b7b452e8884d48d637aeb61798b808e064f296fcf341afd79e02",
+      "plan_sha256": "b260666d7cf18b5882a35e83ca1c50b2cd402061e671393aef2554b49931832f",
+      "executable_sha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+      "active_observed": true,
+      "active_status_receipt_persisted": false,
+      "process": {
+        "pid": 31686,
+        "identity_sha256": "ed1003ee3f58e646284b198f4e8448905fc8aa97f4263fe464754b56ece18d91"
+      },
+      "native_view": {
+        "ticket_sha256": "e4d67069d5ffb1005cd83fa94c3234669bcbdfc1ff210e48d955cd9cb9fb27b5",
+        "claim_sha256": "c8841b857d4bada37ccfbb9cf3a47ec7370031d25519db3c6a1ccac20f92542b",
+        "revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+        "viewer_helper_sha256": "94ba7e3aeee214f90292dd58e8f9ebca85a05133606f873f65b2bf82bd047e80",
+        "read_only": true
+      },
+      "session_file_sha256": "e903366bb0a00da7bfd63477cb0f8d866f7d7fa36a05d6002c008773d0a68543",
+      "journal_head_sha256": "12c54031ff26ab204a0846a47be2c44e5a02b3249ae4658251548146073889c9",
+      "source_checkpoint": {
+        "state": "not_proven",
+        "wired": false,
+        "observed": false,
+        "last_checkpoint": null
+      },
+      "halt": {
+        "signal_sent": true,
+        "tmux_preserved": true,
+        "final_state": "HALTED",
+        "blocker": null
+      }
+    },
+    {
+      "target": "claude",
+      "session_id": "puppet-five-smoke-final-f89bbed-20260728-claude",
+      "launch_elapsed_ms": 14835,
+      "plan_file_sha256": "9b8c49f0fea2f7298c632e397062910a271fa3f3ea2585286258bdcb018838d2",
+      "plan_sha256": "2b42a14e3ecb900ff6f1d527c5e3b88bf5255b65578c7791811f73553e0f6b1a",
+      "executable_sha256": "90608b5c5ab504e96e77365cea6203d046e291d59b2bb42cf28dcb2ccdf9dd58",
+      "active_observed": true,
+      "active_status_receipt_persisted": false,
+      "process": {
+        "pid": 31670,
+        "identity_sha256": "6485a85df5a0fc322d36d3fe8b512844fd92c897808be55c385e4ad08579eca4"
+      },
+      "native_view": {
+        "ticket_sha256": "06706a543b7fdcf9d09203829014c33cee1fb7365d04976f2656b34aece8e236",
+        "claim_sha256": "a2423e96063638d21eae9b6999158a9205140a5674ca0a087cb5253258aefbb7",
+        "revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+        "viewer_helper_sha256": "94ba7e3aeee214f90292dd58e8f9ebca85a05133606f873f65b2bf82bd047e80",
+        "read_only": true
+      },
+      "session_file_sha256": "ab2811ea6d1e351e47e2bf98341bfde81dc8bd4bad1f991cc115a219f58eae68",
+      "journal_head_sha256": "fd41810d19e151016d980da477862f83ee69a657396ccacfe6fb4322fa34eb31",
+      "source_checkpoint": {
+        "state": "not_proven",
+        "wired": false,
+        "observed": false,
+        "last_checkpoint": null
+      },
+      "halt": {
+        "signal_sent": true,
+        "tmux_preserved": true,
+        "final_state": "HALTED",
+        "blocker": null
+      }
+    },
+    {
+      "target": "cursor",
+      "session_id": "puppet-five-smoke-final-f89bbed-20260728-cursor",
+      "launch_elapsed_ms": 10840,
+      "plan_file_sha256": "9328fbb47a1d4e775b9bb96752a09c02100cba1237300d6c47dcfe606fbd2556",
+      "plan_sha256": "c7a13d43224969ecae9e1835b3263454ef94c8a4b6dc9e6f12ccba6cf6735e1c",
+      "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "active_observed": true,
+      "active_status_receipt_persisted": false,
+      "process": {
+        "pid": 31212,
+        "identity_sha256": "a34c21b08f4706f68925963029d371117a199dcd4a54293a227609c6d08ee316"
+      },
+      "native_view": {
+        "ticket_sha256": "a9fe4fef6b442612263b7988c1b267090e38c92c62bd8bfb6c139d83ac9255b4",
+        "claim_sha256": "0e945dfeb033746815749e61ed917fc928ff2624b959040c443741ae635d303c",
+        "revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+        "viewer_helper_sha256": "94ba7e3aeee214f90292dd58e8f9ebca85a05133606f873f65b2bf82bd047e80",
+        "read_only": true
+      },
+      "session_file_sha256": "b710af02b6843afeec16bf0845f38bc98c6d1fe25101a1816249ea965bc66236",
+      "journal_head_sha256": "c19bf416ae0fd3b1f85d87f57362539176430846f4391fa97a14cc89397cdd98",
+      "source_checkpoint": {
+        "state": "not_proven",
+        "wired": false,
+        "observed": false,
+        "last_checkpoint": null
+      },
+      "halt": {
+        "signal_sent": true,
+        "tmux_preserved": true,
+        "final_state": "HALTED",
+        "blocker": null
+      }
+    },
+    {
+      "target": "grok",
+      "session_id": "puppet-five-smoke-final-f89bbed-20260728-grok",
+      "launch_elapsed_ms": 15192,
+      "plan_file_sha256": "f251cb18bf6ffeff507e94a187034efe82a44d5754db7400e4a72894180b1557",
+      "plan_sha256": "3f895ea82ae5a87265fbb1334fcaf1dc82585eaf91c22b6c1c43daf016a06a8c",
+      "executable_sha256": "5cf05fe670b1818561daf7566b580a5de6b81149166499d61072e49640b541a4",
+      "active_observed": true,
+      "active_status_receipt_persisted": false,
+      "process": {
+        "pid": 30967,
+        "identity_sha256": "53ba9ae2f596d526e7895fbae7774aef6ab00cb7cdba8a2daaa7573e9146b811"
+      },
+      "native_view": {
+        "ticket_sha256": "1a22fef603fd9a0cc82b54a8215909258dfd5a372433d56403e0a34719b33237",
+        "claim_sha256": "7fa4dfc21f3750e6d68d8251ce95561086c33549c8393c78aec3247cc807f42b",
+        "revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+        "viewer_helper_sha256": "94ba7e3aeee214f90292dd58e8f9ebca85a05133606f873f65b2bf82bd047e80",
+        "read_only": true
+      },
+      "session_file_sha256": "a31f5a9ebc4bd29f72d86fc57b9ff1576c7ecc4720ba4bb725893400f3c3e20a",
+      "journal_head_sha256": "f43fe45a6199c43bad802619dbf8e42bd02e22917f24e63d07741a98f882491f",
+      "source_checkpoint": {
+        "state": "not_proven",
+        "wired": false,
+        "observed": false,
+        "last_checkpoint": null
+      },
+      "halt": {
+        "signal_sent": true,
+        "tmux_preserved": true,
+        "final_state": "HALTED",
+        "blocker": null
+      }
+    }
+  ],
+  "requalification": {
+    "agy": {
+      "reason": "The prior warm catalog bound an older AGY executable identity and failed closed after local runtime drift.",
+      "old_executable_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8",
+      "current_executable_sha256": "251662551657dd0955428dd31536e7adf84c1cb4d53f20b6dca8bf8714762ff9",
+      "qualified_manifest_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/agy-qualification-f89bbed-current/qualified-agy.json",
+      "qualified_manifest_sha256": "bf9c08dd7402a64e961f3da13566711ffc4cc8b4e993fc7b213a88a431a2929d",
+      "receipt_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/agy-qualification-f89bbed-current/proof/probes/v02-agy-current-f89bbed-20260728/receipt.json",
+      "receipt_sha256": "ae10b7ccfc183e7df2ebc6e972827466000cd8fa218490c3f63684cb242f1839",
+      "halt_sha256": "7d4cf1c58b5e18055aaa1fe845687ada3d25bbcf43a3a98d80d34a45fed1eaf9",
+      "accepted_checkpoint_id": "d7df47173321b251c926e7d7d84fa3ca5ade02e677d2586d988cd7d8df4ebc4a",
+      "execution_fingerprint": "13b941791066047bd1293f0864718d663f5b0194757a465fe83b70a93b3915a5",
+      "result": "accepted"
+    },
+    "codex": {
+      "reason": "The final campaign required a qualification whose controller entry was bound to the exact f89bbed source worktree.",
+      "qualified_manifest_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/codex-qualification-f89bbed/qualified-codex-source.json",
+      "qualified_manifest_sha256": "5b4163f68fade7420e23521ed9efc300fdd0d001adde730ce25cc31d752ccc4f",
+      "paired_receipt_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/codex-qualification-f89bbed/codex-paired-receipt-source.json",
+      "paired_receipt_sha256": "e7e755087d6b175ee13969fa93d8a798912a0a2ca5346942b61cf781d3f21291",
+      "positive_receipt_sha256": "5be010089edc674ec63156b87c6d73b6e38dfc8c83b4bf06c51f0599e50b294d",
+      "ordinary_control_receipt_sha256": "3f9d5ee89cea2da717ee2a3a07d20a31261f256cbadd134c7e77b7079f3feb86",
+      "controller_entry_sha256": "c3dc50b02928f069ac2a2f028992afc70ba27103d093ca1243e092fd49414e33",
+      "entry_mode": "direct_git_root",
+      "entry_plan_sha256": "4d7629f001cc36a5a0bc8f0cdc2e718f8553baee32d094ab7cd2d711ffdb6353",
+      "fixture_candidate_head_claim": "not_f89bbed",
+      "source_binding_claim": "The controller CLI and release source path, not the qualification fixture candidate head, were bound to f89bbed."
+    }
+  },
+  "accepted_regressions": [
+    {
+      "finding": "copied_release_not_git_checkout",
+      "campaign_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-f89bbed-20260728/campaign.json",
+      "campaign_file_sha256": "e7aebbc6ecd158f7237925631b14025d4e3f8fd2ad8915a0874e5f04728518f9",
+      "campaign_sha256": "fc4f5b01ccf4c4f5d94e219c4818b1fcf5f367772d2a0a280b0019a59cc7a8b4",
+      "observed": "All five controller commands were parser-valid, but supervisor source identity failed closed because the copied controller archive was not a Git checkout. Zero target sessions started.",
+      "repair": "Execute the controller from the exact clean committed f89bbed source worktree."
+    },
+    {
+      "finding": "agy_runtime_identity_drift",
+      "prior_catalog_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-f89bbed.json",
+      "prior_catalog_file_sha256": "842771a1b4f0861531e8aa4d41fa9804e4e950feb62968cd9d3d2d762227205f",
+      "prior_catalog_sha256": "cf540313514a75cc2030849e41c63ff980ce15d36c637184e5fc874de0dc36f0",
+      "partial_campaign_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-live-f89bbed-20260728/campaign.json",
+      "partial_campaign_file_sha256": "f8ed3856f2fbc15da82dbe06303d2de4f08430d6454fc99585b75b7a30a8c41a",
+      "partial_campaign_sha256": "d3333078c7118bf9c88d01b84c010e12f86b1cfb4b09c8b62a0b81d97e3720fb",
+      "observed": "The stale AGY executable binding blocked that lane before launch. Claude, Cursor, and Grok reached ACTIVE and were exactly halted; AGY and Codex did not start in this partial campaign.",
+      "repair": "Requalify current AGY and source-bind Codex before rebuilding the warm catalog and rerunning all five."
+    }
+  ],
+  "non_claims": [
+    "This record proves real concurrent launcher, process-binding, native-view, and exact-halt lifecycle behavior; it does not prove source checkpoint acceptance.",
+    "Source checkpoint output was not wired into this smoke and no source checkpoint was observed; every final session record has last_checkpoint null.",
+    "The controller observed all five lanes ACTIVE concurrently, but no independent aggregate status result or trustworthy status duration was persisted.",
+    "The copied-release campaign and partial stale-AGY campaign are rejected evidence, not successful five-harness runs.",
+    "No prompt, reply, transcript, pane, authentication, configuration, credential, or session-store body was retained.",
+    "No merge, deploy, release, global install, external send, spend, account/security change, or destructive cleanup occurred."
+  ]
+}

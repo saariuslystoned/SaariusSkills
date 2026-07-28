@@ -62,6 +62,21 @@ def _rewrite_campaign_without_rehash(path: Path, mutate) -> dict:
     return value
 
 
+def _initialize_controller_repo(root: Path) -> tuple[Path, tuple[Path, ...], str]:
+    repo = _initialize_repo(root)
+    scripts = repo / "skills" / "puppet" / "scripts"
+    scripts.mkdir(parents=True)
+    paths = tuple(
+        scripts / name
+        for name in ("puppet_launch.py", "puppet_fanout.py", "puppet.py")
+    )
+    for path in paths:
+        path.write_text("# tracked controller fixture\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "add controller fixture")
+    return repo, paths, _git(repo, "rev-parse", "HEAD")
+
+
 class LauncherFixture:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve(strict=True)
@@ -183,6 +198,7 @@ class LauncherFixture:
             "worktree_parent": self.worktrees,
             "mode_values": modes,
             "task_profile": "smoke",
+            "_controller_identity_validator": lambda _source: None,
         }
 
     def run_argv(
@@ -220,7 +236,257 @@ class LauncherFixture:
         return result
 
 
+class CheckpointRunner:
+    def __init__(
+        self,
+        campaign: dict,
+        *,
+        timeout_targets: set[str] | None = None,
+        delivery_by_target: dict[str, str] | None = None,
+        imported_targets: set[str] | None = None,
+        send_barrier: threading.Barrier | None = None,
+    ) -> None:
+        self.campaign = campaign
+        self.timeout_targets = timeout_targets or set()
+        self.delivery_by_target = delivery_by_target or {}
+        self.imported_targets = imported_targets or set()
+        self.send_barrier = send_barrier
+        self.calls: list[tuple[str, str]] = []
+        self._lock = threading.Lock()
+        self._targets = {
+            row["session"]: target
+            for target, row in campaign["lanes"].items()
+        }
+
+    def _reference(self, target: str) -> dict:
+        binding = self.campaign["lanes"][target]["source_checkpoint"]
+        assignment = json.loads(
+            Path(binding["assignment"]["path"]).read_text(encoding="utf-8")
+        )
+        identity = dict(assignment["handoff"]["fixed_fields"])
+        identity.pop("schema_version")
+        identity["candidate_commit"] = self.campaign["source"]["commit"]
+        return {
+            "checkpoint_id": "b" * 64,
+            "artifact_sha256": "a" * 64,
+            "checkpoint_kind": "source",
+            "identity": identity,
+            "path": binding["path"],
+            "validation": "valid",
+        }
+
+    @staticmethod
+    def _completed(argv: list[str], value: dict) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=(json.dumps(value, sort_keys=True) + "\n").encode("utf-8"),
+            stderr=b"",
+        )
+
+    def __call__(self, argv_value) -> subprocess.CompletedProcess[bytes]:
+        argv = list(argv_value)
+        action = argv[3]
+        session = argv[argv.index("--session") + 1]
+        target = self._targets[session]
+        with self._lock:
+            self.calls.append((target, action))
+        if action == "status":
+            return self._completed(
+                argv,
+                {
+                    "ok": True,
+                    "session": session,
+                    "state": (
+                        "SOURCE_CHECKPOINT_READY"
+                        if target in self.imported_targets
+                        else "ACTIVE"
+                    ),
+                    "last_checkpoint": (
+                        self._reference(target)
+                        if target in self.imported_targets
+                        else None
+                    ),
+                },
+            )
+        if action == "send":
+            if self.send_barrier is not None:
+                self.send_barrier.wait(timeout=3)
+            if target not in self.timeout_targets:
+                output = Path(
+                    self.campaign["lanes"][target]["source_checkpoint"]["path"]
+                )
+                if not output.exists():
+                    output.write_bytes(b"{}\n")
+                    output.chmod(0o600)
+            return self._completed(
+                argv,
+                {
+                    "ok": True,
+                    "session": session,
+                    "delivery": self.delivery_by_target.get(
+                        target,
+                        "submitted",
+                    ),
+                    "content_sha256": "c" * 64,
+                },
+            )
+        if action == "checkpoint":
+            return self._completed(
+                argv,
+                {"ok": True, **self._reference(target)},
+            )
+        if action == "wait":
+            return self._completed(
+                argv,
+                {
+                    "ok": True,
+                    "session": session,
+                    "condition": "checkpoint",
+                    "matched": True,
+                    "state": "SOURCE_CHECKPOINT_READY",
+                    "last_checkpoint": self._reference(target),
+                },
+            )
+        raise AssertionError("unexpected controller action: %s" % action)
+
+
 class PuppetLaunchTests(unittest.TestCase):
+    def test_controller_identity_accepts_exact_clean_git_worktree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo, paths, commit = _initialize_controller_repo(
+                Path(temporary) / "controller"
+            )
+            source = launcher._source_identity(repo, commit)
+
+            observed = launcher._validate_executing_controller(
+                source,
+                controller_paths=paths,
+            )
+
+            self.assertEqual(observed["root"], str(repo))
+            self.assertEqual(observed["commit"], commit)
+            self.assertEqual(
+                observed["files"],
+                [
+                    "skills/puppet/scripts/puppet_launch.py",
+                    "skills/puppet/scripts/puppet_fanout.py",
+                    "skills/puppet/scripts/puppet.py",
+                ],
+            )
+
+    def test_controller_identity_rejects_copied_non_git_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(strict=True)
+            repo, paths, commit = _initialize_controller_repo(root / "controller")
+            source = launcher._source_identity(repo, commit)
+            copied = root / "copied-release"
+            shutil.copytree(paths[0].parent, copied)
+
+            with self.assertRaisesRegex(
+                IdentityError,
+                "not inside a Git worktree",
+            ):
+                launcher._validate_executing_controller(
+                    source,
+                    controller_paths=tuple(copied / path.name for path in paths),
+                )
+
+    def test_controller_identity_rejects_untracked_runtime_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo, paths, commit = _initialize_controller_repo(
+                Path(temporary) / "controller"
+            )
+            source = launcher._source_identity(repo, commit)
+            untracked = paths[0].parent / "untracked.py"
+            untracked.write_text("# untracked\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(IdentityError, "not tracked"):
+                launcher._validate_executing_controller(
+                    source,
+                    controller_paths=(paths[0], paths[1], untracked),
+                )
+
+    def test_controller_identity_rejects_dirty_runtime_worktree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo, paths, commit = _initialize_controller_repo(
+                Path(temporary) / "controller"
+            )
+            source = launcher._source_identity(repo, commit)
+            paths[2].write_text("# dirty controller fixture\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(IdentityError, "not clean"):
+                launcher._validate_executing_controller(
+                    source,
+                    controller_paths=paths,
+                )
+
+    def test_controller_identity_rejects_wrong_head(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo, paths, commit = _initialize_controller_repo(
+                Path(temporary) / "controller"
+            )
+            source = launcher._source_identity(repo, commit)
+            (repo / "README.md").write_text("advanced\n", encoding="utf-8")
+            _git(repo, "add", "README.md")
+            _git(repo, "commit", "-m", "advance controller head")
+
+            with self.assertRaisesRegex(IdentityError, "HEAD differs"):
+                launcher._validate_executing_controller(
+                    source,
+                    controller_paths=paths,
+                )
+
+    def test_controller_identity_rejects_supervisor_root_mismatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(strict=True)
+            source_repo, _source_paths, source_commit = _initialize_controller_repo(
+                root / "source"
+            )
+            other_repo, other_paths, _other_commit = _initialize_controller_repo(
+                root / "other"
+            )
+            source = launcher._source_identity(source_repo, source_commit)
+
+            with self.assertRaisesRegex(
+                IdentityError,
+                "differs from the supervisor root",
+            ):
+                launcher._validate_executing_controller(
+                    source,
+                    controller_paths=other_paths,
+                )
+            self.assertNotEqual(source_repo, other_repo)
+
+    def test_controller_identity_failure_precedes_campaign_and_worktree_allocation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            arguments = fixture.prepare_arguments(targets=("agy",))
+            validator = mock.Mock(
+                side_effect=IdentityError("forced controller identity failure")
+            )
+            arguments["_controller_identity_validator"] = validator
+            real_git = launcher._git
+            git_arguments: list[list[str]] = []
+
+            def observe_git(git, repo, command, **kwargs):
+                git_arguments.append(list(command))
+                return real_git(git, repo, command, **kwargs)
+
+            with (
+                mock.patch.object(launcher, "_git", side_effect=observe_git),
+                self.assertRaisesRegex(IdentityError, "forced controller"),
+            ):
+                launcher.prepare_campaign(**arguments)
+
+            validator.assert_called_once()
+            self.assertFalse(Path(arguments["campaign_root"]).exists())
+            self.assertFalse((fixture.worktrees / "launch-one-agy").exists())
+            self.assertFalse(
+                any(command[:2] == ["worktree", "add"] for command in git_arguments)
+            )
+
     def test_catalog_init_verifies_every_target_once_and_is_body_free(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = LauncherFixture(Path(temporary))
@@ -346,6 +612,246 @@ class PuppetLaunchTests(unittest.TestCase):
             self.assertEqual(result["targets"], ["claude", "cursor"])
             self.assertEqual(set(result["lanes"]), {"claude", "cursor"})
             self.assertFalse((fixture.worktrees / "launch-one-agy").exists())
+
+    def test_prepare_prebinds_exact_transcript_free_checkpoint_assignments(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            result = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("agy,codex",))
+            )
+            for target in result["targets"]:
+                binding = result["lanes"][target]["source_checkpoint"]
+                assignment_path = Path(binding["assignment"]["path"])
+                assignment = json.loads(
+                    assignment_path.read_text(encoding="utf-8")
+                )
+                self.assertEqual(assignment["target"], target)
+                self.assertEqual(
+                    assignment["output"]["path"],
+                    binding["path"],
+                )
+                self.assertEqual(
+                    assignment["handoff"]["exact_fields"],
+                    sorted(launcher.SOURCE_FIELDS),
+                )
+                self.assertEqual(
+                    assignment["handoff"]["fixed_fields"]["session"],
+                    result["lanes"][target]["session"],
+                )
+                constraints = assignment["handoff"]["agent_field_constraints"]
+                self.assertIn("40-character", constraints["candidate_commit"])
+                self.assertIn("timezone", constraints["timestamp"])
+                self.assertIn("nonempty", constraints["summary"])
+                self.assertIn("list", constraints["claims"])
+                self.assertIn("remain in the interactive harness", " ".join(
+                    assignment["instructions"]
+                ))
+                self.assertFalse(Path(binding["path"]).exists())
+                self.assertEqual(assignment_path.stat().st_mode & 0o777, 0o600)
+                encoded = json.dumps(assignment, sort_keys=True)
+                self.assertNotIn(fixture.prompt_canary.strip(), encoded)
+                self.assertNotIn("transcript", encoded.lower())
+
+    def test_checkpoint_collects_two_lanes_concurrently_without_review_or_accept(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("codex,claude",))
+            )
+            runner = CheckpointRunner(
+                campaign,
+                send_barrier=threading.Barrier(2),
+            )
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.5,
+                _runner=runner,
+                _poll_interval=0.001,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["state"], "complete")
+            self.assertEqual(
+                result["succeeded_targets"],
+                ["codex", "claude"],
+            )
+            self.assertFalse(result["automatic_review"])
+            self.assertFalse(result["automatic_accept"])
+            self.assertFalse(result["automatic_halt"])
+            self.assertFalse(result["raw_output_retained"])
+            for target in result["targets"]:
+                self.assertEqual(
+                    [action for lane, action in runner.calls if lane == target],
+                    ["status", "send", "checkpoint", "wait"],
+                )
+                self.assertEqual(
+                    result["lanes"][target]["checkpoint"]["path"],
+                    campaign["lanes"][target]["source_checkpoint"]["path"],
+                )
+            self.assertFalse(
+                {"review", "accept", "halt"} & {action for _, action in runner.calls}
+            )
+            encoded = json.dumps(result, sort_keys=True)
+            self.assertNotIn(fixture.prompt_canary.strip(), encoded)
+
+    def test_checkpoint_timeout_is_lane_local_and_returns_partial_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("cursor,grok",))
+            )
+            runner = CheckpointRunner(
+                campaign,
+                timeout_targets={"grok"},
+            )
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.03,
+                _runner=runner,
+                _poll_interval=0.005,
+            )
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["state"], "partial")
+            self.assertEqual(result["succeeded_targets"], ["cursor"])
+            self.assertEqual(result["failed_targets"], ["grok"])
+            self.assertEqual(
+                result["lanes"]["grok"]["error"],
+                "checkpoint_timeout",
+            )
+            self.assertEqual(
+                [action for lane, action in runner.calls if lane == "grok"],
+                ["status", "send"],
+            )
+            self.assertEqual(
+                [action for lane, action in runner.calls if lane == "cursor"],
+                ["status", "send", "checkpoint", "wait"],
+            )
+
+    def test_checkpoint_rejects_stale_output_before_import(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("agy",))
+            )
+            output = Path(
+                campaign["lanes"]["agy"]["source_checkpoint"]["path"]
+            )
+            output.write_bytes(b"{}\n")
+            output.chmod(0o600)
+            runner = CheckpointRunner(campaign)
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.1,
+                _runner=runner,
+                _poll_interval=0.001,
+            )
+            self.assertEqual(result["state"], "failed")
+            self.assertEqual(
+                result["lanes"]["agy"]["error"],
+                "stale_checkpoint_path",
+            )
+            self.assertEqual(
+                [action for _, action in runner.calls],
+                ["status", "send"],
+            )
+
+    def test_checkpoint_recovers_after_prior_assignment_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("claude",))
+            )
+            output = Path(
+                campaign["lanes"]["claude"]["source_checkpoint"]["path"]
+            )
+            output.write_bytes(b"{}\n")
+            output.chmod(0o600)
+            runner = CheckpointRunner(
+                campaign,
+                delivery_by_target={"claude": "already_submitted"},
+            )
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.1,
+                _runner=runner,
+                _poll_interval=0.001,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                [action for _, action in runner.calls],
+                ["status", "send", "checkpoint", "wait"],
+            )
+
+    def test_checkpoint_is_idempotent_after_exact_import(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("codex",))
+            )
+            output = Path(
+                campaign["lanes"]["codex"]["source_checkpoint"]["path"]
+            )
+            output.write_bytes(b"{}\n")
+            output.chmod(0o600)
+            runner = CheckpointRunner(
+                campaign,
+                imported_targets={"codex"},
+            )
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0,
+                _runner=runner,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                result["lanes"]["codex"]["delivery"],
+                "already_imported",
+            )
+            self.assertEqual(runner.calls, [("codex", "status")])
+
+    def test_checkpoint_assignment_or_output_path_tamper_fails_closed(self):
+        for label in ("assignment", "output_path"):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                fixture = LauncherFixture(Path(temporary))
+                fixture.initialize_catalog()
+                campaign = launcher.prepare_campaign(
+                    **fixture.prepare_arguments(targets=("grok",))
+                )
+                campaign_path = (
+                    Path(campaign["roots"]["campaign"]) / "campaign.json"
+                )
+                if label == "assignment":
+                    assignment_path = Path(
+                        campaign["lanes"]["grok"]["source_checkpoint"][
+                            "assignment"
+                        ]["path"]
+                    )
+                    assignment = json.loads(
+                        assignment_path.read_text(encoding="utf-8")
+                    )
+                    assignment["output"]["max_bytes"] -= 1
+                    assignment_path.write_text(
+                        json.dumps(assignment, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    assignment_path.chmod(0o600)
+                else:
+                    _rewrite_campaign(
+                        campaign_path,
+                        lambda value: value["lanes"]["grok"][
+                            "source_checkpoint"
+                        ].__setitem__(
+                            "path",
+                            str(Path(value["roots"]["campaign"]) / "other.json"),
+                        ),
+                    )
+                with self.assertRaises(IdentityError):
+                    launcher._load_campaign(campaign_path)
 
     def test_prepare_mutating_mix_derives_target_ownership(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -596,6 +1102,11 @@ class PuppetLaunchTests(unittest.TestCase):
                     launcher,
                     "execute_fanout",
                     side_effect=lambda value: captured.append(list(value)),
+                ),
+                mock.patch.object(
+                    launcher,
+                    "_validate_executing_controller",
+                    return_value=None,
                 ),
             ):
                 self.assertEqual(launcher.main(argv), 0)
