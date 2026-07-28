@@ -15,11 +15,13 @@ class PuppetPackagingTests(unittest.TestCase):
             "SKILL.md",
             "agents/openai.yaml",
             "scripts/puppet.py",
+            "scripts/puppet_fanout.py",
             "scripts/viewer_attach.py",
             "scripts/profile_login.py",
             "scripts/adapter_lab.py",
             "references/operating-contract.md",
             "references/adapter-contract.md",
+            "references/fast-launch-contract.md",
             "references/prompt-patterns.md",
             "references/proof-provenance.md",
             "references/yolo-contract.md",
@@ -39,6 +41,8 @@ class PuppetPackagingTests(unittest.TestCase):
         self.assertIn("Never inspect `.env`", text)
         self.assertIn("adapter_lab.py recover", text)
         self.assertIn("cooperative same-UID mechanism", text)
+        self.assertIn("scripts/puppet_fanout.py", text)
+        self.assertIn("runtime failures lane-local", text)
 
     def test_metadata_supports_natural_and_explicit_invocation(self):
         metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")

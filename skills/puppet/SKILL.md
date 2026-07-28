@@ -5,26 +5,28 @@ description: "Control transcript-blind YOLO harness sessions through census, exa
 
 # Puppet
 
-> **Warning:** Puppet live execution is YOLO-only. It requires the target's
-> current unrestricted or always-approve mode and disables the harness sandbox
-> wherever that control exists. The target receives the operator account's
-> machine access. Prompted, sandboxed, or partly automatic launches are not a
-> fallback.
+> **Warning:** Puppet live execution is YOLO-only. It requires unrestricted or always-approve mode with the harness sandbox off, granting the target the operator account's machine access; there is no prompted fallback.
 
-Use Puppet as a small lifecycle and acceptance controller, not as a generic
-launcher or transcript reader. Keep delivery, external effects, accounts,
-security, secrets, spending, and destructive actions separately gated.
+Use Puppet as a small lifecycle and acceptance controller, not a generic launcher or transcript reader. Separately gate external effects, accounts, security, secrets, spending, and destructive actions.
+
+## Choose the fast path first
+
+For any warm, qualified mix of one through five regular harnesses, skip census,
+onboarding, login, probes, and qualification. Compile the selected lane plans
+concurrently, then use `scripts/puppet_fanout.py` under [fast-launch-contract.md](references/fast-launch-contract.md). This is the
+default ordinary-session path: never test or launch selected harnesses
+sequentially first; keep runtime failures lane-local. Do not add automatic
+routing, sibling halt, `/goal`, `/loop`, or `/teamwork-preview`.
 
 ## Before a live session
 
-1. Compile a source-only operator plan before running profile, doctor, launch,
-   or lifecycle commands. From inside the target repository, `plan` resolves
+1. Compile a source-only operator plan before profile, doctor, launch, or lifecycle commands. From inside the target repository, `plan` resolves
    the current Git root. From a cockpit or another repository, pass `--repo`
    with the exact target Git root. The body-free result binds the repository,
-   branch, commit, tree, controller fingerprints, input artifact hashes,
-   private roots, blockers, and exact command arrays, but always reports
-   `launch_authorized: false`; it neither checks login state nor creates a
-   profile, tmux server, session, or harness process.
+   branch, commit, tree, controller/input fingerprints, private roots, blockers,
+   and exact command arrays, but always reports
+   `launch_authorized: false`; it checks no login state and creates no profile,
+   tmux server, session, or harness process.
    A doctor-only, unqualified Codex manifest also yields a
    `target_gate.state=waiting_for_human` packet for the exact
    `codex_regular_pass_b` identity. It names the expected source-only evidence
@@ -97,16 +99,14 @@ security, secrets, spending, and destructive actions separately gated.
    source slice. Different harness targets may proceed independently only with
    their own leases, isolated worktrees, state, sessions, and proof roots.
 
-`--goal-repo` names the canonical local Git root. `--goal-repository`,
-`--goal-commit`, `--goal-path`, and `--goal-sha256` must exactly match the
-submitted authorization; they are independent expected values, not inferred
-from the authorization file.
+`--goal-repo` names the canonical local Git root. `--goal-repository`, `--goal-commit`,
+`--goal-path`, and `--goal-sha256` must exactly match the submitted authorization;
+they are independent expected values, not inferred from the authorization file.
 
-Never kill, rename, attach to, reuse, or repurpose a pre-existing process or
-tmux session. Never inspect `.env`, credentials, auth logs, session stores,
-conversation stores, terminal scrollback, or transcripts. The only
-ordinary-operation exceptions to this terminal-capture ban are the narrow
-Claude and Cursor startup-screen reducers described under *Operate a session*.
+Never kill, rename, attach to, reuse, or repurpose a pre-existing process or tmux
+session. Never inspect `.env`, credentials, auth logs, session/conversation stores,
+terminal scrollback, or transcripts. The only ordinary-operation exceptions are the
+narrow Claude and Cursor startup-screen reducers described under *Operate a session*.
 Each reads only a bounded owned pane before ordinary prompt delivery, classifies
 a fixed harness-specific allowlist, retains only
 gate/selection/workspace-match/size/hash/timing metadata, and discards the raw
@@ -115,17 +115,16 @@ bytes. Cursor may send literal `a` once only for its exact two-option
 Puppet-owned workspace; an MCP-expanded, login, terms, permission, unknown, or
 ambiguous screen fails closed.
 
-Puppet ships editable baseline layers under `templates/instructions/`. Prefer a
-bounded per-run user addendum for customization; changing a shipped layer or
+Puppet ships editable baseline layers under `templates/instructions/`. Prefer a bounded
+per-run user addendum for customization; changing a shipped layer or
 template root creates a new instruction-policy fingerprint and requires fresh
 qualification. The initial-message wrapper is a safe composition transport,
 not proof that a harness-native global, workspace, or additive plane works.
 
-Subscription authentication is isolation-scoped and durable across Puppet
-runs. For harnesses with a private-home selector, use one stable Puppet-owned
-mode-0700 home/config root per user, harness, and account selection; never put
-it inside a disposable run, proof, or campaign root. `profile-init` creates
-that root once and idempotently rejoins it on later runs. It may atomically
+Subscription authentication is isolation-scoped and durable. With a private-home
+selector, use one stable Puppet-owned mode-0700 home/config root per user, harness,
+and account selection, never inside a disposable run, proof, or campaign root.
+`profile-init` creates that root once and idempotently rejoins it. It may atomically
 refresh the profile's non-secret, exact launcher authority after a compatible
 harness or Puppet update without replacing the profile directories or their
 authentication state. Rejoining or refreshing a profile is not a request to
@@ -244,7 +243,7 @@ write an output file. Treat every listed command as proposed operator work, not
 as authority to run it. Resolve the reported blockers and make a separate human
 choice before any live launch.
 
-Use this sequence:
+For a cold, stale, or recovery lane only, use this sequence:
 
 1. Run first-use or recovery onboarding for the selected harnesses:
 
@@ -449,8 +448,9 @@ exact CLI forms and receipt joins live in
 
 Read [operating-contract.md](references/operating-contract.md) for lifecycle and
 ownership rules, [adapter-contract.md](references/adapter-contract.md) before
-changing adapters, and [prompt-patterns.md](references/prompt-patterns.md) when
-building a contract or handoff.
+changing adapters, [fast-launch-contract.md](references/fast-launch-contract.md)
+for mixed-target operation, and [prompt-patterns.md](references/prompt-patterns.md)
+when building a contract or handoff.
 
 ## Checkpoint authority
 

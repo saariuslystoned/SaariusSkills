@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Experimental agent supervision, Herdr transport, and progressive product-decision workflows.",
   "author": {
     "name": "Bobby Bones",
@@ -32,7 +32,7 @@
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
       "Help me decide and build the next product slice with GrillTrack.",
-      "Use Puppet to supervise a bounded agent session with durable checkpoints.",
+      "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
       "Use Herdr-Puppet to plan and journal one explicitly owned remote-agent pane."
     ]
   }

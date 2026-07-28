@@ -29,7 +29,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.1.0")
+        self.assertEqual(plugin["version"], "0.2.0")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])

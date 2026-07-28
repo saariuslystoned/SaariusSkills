@@ -1,6 +1,6 @@
 interface:
   display_name: "Puppet"
-  short_description: "Bootstrap/preflight Puppet controller"
-  default_prompt: "Use $puppet to supervise a bounded agent session with durable checkpoints."
+  short_description: "Fast, exact multi-harness agent control"
+  default_prompt: "Use $puppet to concurrently launch and supervise my selected mix of qualified regular harnesses with native read-only views and durable checkpoints."
 policy:
   allow_implicit_invocation: true

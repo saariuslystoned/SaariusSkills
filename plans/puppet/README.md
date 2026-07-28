@@ -38,6 +38,8 @@ conversation.
 
 ## Start here
 
+- [`v0.2-fast-launch-20260727.md`](v0.2-fast-launch-20260727.md) defines the
+  current mixed-target operator-latency slice and its remaining live proof.
 - [`five-harness-closeout-20260727.md`](five-harness-closeout-20260727.md)
   is the final v0.1 evidence matrix and acceptance summary.
 - [`codex-goal-four-harness-dogfood.md`](codex-goal-four-harness-dogfood.md)

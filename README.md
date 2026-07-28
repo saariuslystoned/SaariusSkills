@@ -151,6 +151,8 @@ invocation, but it is never required when the user's intent is already clear.
 - [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
   transcript-blind cross-harness operating workflow.
 - `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
+- `skills/puppet/scripts/puppet_fanout.py`: concurrent launch, status, native
+  view, and exact halt for any operator-selected one-to-five-harness mix.
 - `skills/puppet/scripts/adapter_lab.py`: zero-agent census, real-harness
   probe/recovery, receipt verification, and qualification tooling.
 - `skills/puppet/references/`: operating, adapter, prompt, provenance, and trust
@@ -186,6 +188,7 @@ python3 -m unittest discover -s tests -v
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 python3 skills/puppet/scripts/puppet.py --help
+python3 skills/puppet/scripts/puppet_fanout.py --help
 python3 skills/puppet/scripts/adapter_lab.py --help
 python3 skills/herdr-puppet/scripts/herdr_puppet.py --help
 ```
