@@ -11,12 +11,12 @@ Use Puppet as a small lifecycle and acceptance controller, not a generic launche
 
 ## Choose the fast path first
 
-For any warm, qualified mix of one through five regular harnesses, skip census,
-onboarding, login, probes, and qualification. Compile the selected lane plans
-concurrently, then use `scripts/puppet_fanout.py` under [fast-launch-contract.md](references/fast-launch-contract.md). This is the
-default ordinary-session path: never test or launch selected harnesses
-sequentially first; keep runtime failures lane-local. Do not add automatic
-routing, sibling halt, `/goal`, `/loop`, or `/teamwork-preview`.
+For any warm, qualified mix of one through five regular harnesses, use
+`scripts/puppet_launch.py run` under [fast-launch-contract.md](references/fast-launch-contract.md).
+It serializes worktree allocation, compiles selected plans, and starts harnesses
+concurrently through `scripts/puppet_fanout.py`; keep live acknowledgement explicit and runtime failures lane-local.
+Ordinary runs never probe/qualify or inspect auth stores; multi-target mutation
+names one selected owner. Support lanes keep only named read/test modes; do not add automatic routing, sibling halt, `/goal`, `/loop`, or `/teamwork-preview`.
 
 ## Before a live session
 

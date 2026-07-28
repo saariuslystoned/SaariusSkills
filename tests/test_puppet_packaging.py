@@ -15,6 +15,7 @@ class PuppetPackagingTests(unittest.TestCase):
             "SKILL.md",
             "agents/openai.yaml",
             "scripts/puppet.py",
+            "scripts/puppet_launch.py",
             "scripts/puppet_fanout.py",
             "scripts/viewer_attach.py",
             "scripts/profile_login.py",
@@ -41,8 +42,32 @@ class PuppetPackagingTests(unittest.TestCase):
         self.assertIn("Never inspect `.env`", text)
         self.assertIn("adapter_lab.py recover", text)
         self.assertIn("cooperative same-UID mechanism", text)
+        self.assertIn("scripts/puppet_launch.py", text)
         self.assertIn("scripts/puppet_fanout.py", text)
         self.assertIn("runtime failures lane-local", text)
+
+    def test_fast_launch_reference_declares_one_request_boundary(self):
+        text = (SKILL / "references" / "fast-launch-contract.md").read_text(
+            encoding="utf-8"
+        )
+        for marker in (
+            "puppet_launch.py catalog-init",
+            "puppet_launch.py prepare",
+            "puppet_launch.py run",
+            "puppet_launch.py status",
+            "puppet_launch.py attach",
+            "puppet_launch.py view",
+            "puppet_launch.py halt",
+            "--allow-live-launch",
+            "serialized",
+            "concurrently",
+            "create-only",
+            "automatic_cleanup",
+            "never invokes census",
+            "auth-store read",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
 
     def test_metadata_supports_natural_and_explicit_invocation(self):
         metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
