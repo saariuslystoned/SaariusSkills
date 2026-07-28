@@ -1,0 +1,202 @@
+{
+  "schema": "puppet.curated-five-harness-checkpoint-smoke/v1",
+  "recorded_date": "2026-07-28",
+  "outcome": "all_five_live_checkpoint_replay_and_exact_halt_passed",
+  "implementation": {
+    "head": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+    "tree": "5b45bd8aff1eefe9ef4ff8b575d3d657c485ac7e",
+    "branch": "codex/puppet-v02-fast-launch-20260727",
+    "launcher_sha256": "95bc9345f7f1ffa6c44421ebc9189f27cc6c0b1895b7a26c4beb7b9d7ccd0ce7",
+    "fanout_sha256": "6a8e5aa0dc4de2dc56fa5fb0e0437d6fb416ae93dad127a14cc88acaa75679fd",
+    "controller_sha256": "c3dc50b02928f069ac2a2f028992afc70ba27103d093ca1243e092fd49414e33",
+    "adapter_sha256": "ee275dc7947fd472638a5384c581506d33752c9cc89b365c713bf3ca8b5ef6ef",
+    "protocol_sha256": "a4e220c27ecfd4b3a28245e4849bad4b9296f192155a2d8b865ca1109d3e1ce9"
+  },
+  "inputs": {
+    "campaign": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-checkpoint-final-fedcdbd-20260728/campaign.json",
+      "file_sha256": "338f8b9b63a4e36bac58cc36f0468b0b7366857ceadb60997dc73b41c3c28598",
+      "campaign_sha256": "e8d37fda27eb6237c3ad36f002bf616afe1e10a212a20c7a54f767958692e181",
+      "campaign_plan_set_sha256": "c02c2d2a75156fdd46bbfe623dcb42364e3c244245e365073e0b7ab74aaf8578",
+      "fanout_plan_set_sha256": "8a04478678701a596c70c87724258a7a2b2d787ebd5a7e80d8c2703a14208515",
+      "plan_set_note": "The campaign hashes its ordered plan rows; fanout hashes its target-keyed plan map.",
+      "launch_id": "five-checkpoint-final-fedcdbd-20260728",
+      "targets": [
+        "agy",
+        "codex",
+        "claude",
+        "cursor",
+        "grok"
+      ],
+      "allowed_modes": [
+        "read",
+        "test"
+      ],
+      "mutation_owner": "none",
+      "task_profile": "smoke"
+    },
+    "warm_catalog": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-current-f89bbed.json",
+      "file_sha256": "95e9f506778323f81b27a4e528f1cd6008b972900ee96317eb5b34a09c4f6475"
+    },
+    "prompt": {
+      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-checkpoint-fedcdbd-20260728-prompt.txt",
+      "file_sha256": "558437729bae017a40f89dbf4909fa7a00babe529f058be03ad4a462baa797bf",
+      "body_retained": false
+    }
+  },
+  "lifecycle": {
+    "prepare_elapsed_ms": 935,
+    "launch_and_five_native_views_elapsed_ms": 40407,
+    "checkpoint_elapsed_ms": 97561,
+    "zero_wait_replay_elapsed_ms": 4002,
+    "live_status_elapsed_ms": 4400,
+    "exact_halt_elapsed_ms": 4933,
+    "post_halt_status_elapsed_ms": 4274,
+    "targets_active_concurrently": 5,
+    "native_read_only_iterm_views": 5,
+    "source_checkpoints_validated": 5,
+    "zero_wait_replays_already_imported": 5,
+    "exact_halts": 5,
+    "post_halt_live_target_processes": 0,
+    "post_halt_live_tmux_panes": 0,
+    "automatic_review": false,
+    "automatic_accept": false,
+    "automatic_halt_during_checkpoint": false,
+    "raw_output_retained": false,
+    "pane_body_captured": false
+  },
+  "targets": {
+    "agy": {
+      "session": "puppet-five-checkpoint-final-fedcdbd-20260728-agy",
+      "plan_file_sha256": "d46bc07388d4179ede720845a3b39d63424d186471893ae982c0e0b0226b56bb",
+      "plan_sha256": "094e664eed74e33cc495e3195adaa7a1dc2cabc54f4e1ab905f3744b4cb209ae",
+      "launch_elapsed_ms": 16462,
+      "checkpoint_elapsed_ms": 24078,
+      "process_identity_sha256": "01335d61cfa23af3a46624f117d58c4eff525ac01fc674ded2dd7fe051c08b8f",
+      "executable_sha256": "251662551657dd0955428dd31536e7adf84c1cb4d53f20b6dca8bf8714762ff9",
+      "execution_sha256": "13b941791066047bd1293f0864718d663f5b0194757a465fe83b70a93b3915a5",
+      "assignment_sha256": "ecd9cfce56617f7d9381b18a78dcfafbf09f1ba03b034f22cbb6f23c32543ad6",
+      "delivery_receipt_sha256": "277ae3c3cfcbc34d44dbe078837f84b7d3a6f0fb1dec6761e29373cd38b5fde6",
+      "delivery_content_sha256": "72264a5679d1106ff78e345cd9fcf9d1467fe6b596b38f62eb6ae78758355aaa",
+      "checkpoint_id": "de6ea40aed3f6fb7394a233e9e1b0790feb9144b4ff29ff2bc7f10353110ccb3",
+      "checkpoint_artifact_sha256": "0e0581df09c8820c4d16715918c57159a4f94f7e352a3d3c1c4b37c5c2420a00",
+      "checkpoint_bytes": 917,
+      "candidate_commit": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+      "live_state": "SOURCE_CHECKPOINT_READY",
+      "final_state": "HALTED"
+    },
+    "codex": {
+      "session": "puppet-five-checkpoint-final-fedcdbd-20260728-codex",
+      "plan_file_sha256": "26f51e6def054178d8cf17c2c65a671b07d491196ef45787b98ceb9a08ad8792",
+      "plan_sha256": "e0ac28d198af15f808b2de5dfd6a26886642ff0d387b64bde2a0926ea08ab89e",
+      "launch_elapsed_ms": 27019,
+      "checkpoint_elapsed_ms": 97537,
+      "process_identity_sha256": "260b4c601f81e149e7ebd75c429286fc11c3a6440bd752f9bf1051593e1b93d1",
+      "executable_sha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+      "execution_sha256": "5d016e4c469967101896fb359349d2b9eb5a4912df5d3e1a1e22bd1d0ad50166",
+      "assignment_sha256": "bb7c195fa3e132d621069e87173c21307de6ed03c21d975c347aa858d7d76bb1",
+      "delivery_receipt_sha256": "f42ab5c82b761f2571c94dd59805244aa7040c1fcbb098e29558d83cdfc87593",
+      "delivery_content_sha256": "a5f1182dc2f31a552a4d80dd4c2688c0341cffcbae7a042903bebb7c09905ce4",
+      "checkpoint_id": "dc0df3481accdb6285649171d36c43725e921586953ef80235f1bc76ce558ef9",
+      "checkpoint_artifact_sha256": "97db85831502e2716c05289c8bd7238a7fe4c98d3f96245e206bb02d63b6404f",
+      "checkpoint_bytes": 1399,
+      "candidate_commit": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+      "live_state": "SOURCE_CHECKPOINT_READY",
+      "final_state": "HALTED"
+    },
+    "claude": {
+      "session": "puppet-five-checkpoint-final-fedcdbd-20260728-claude",
+      "plan_file_sha256": "3522fdb48dae3b7ec00f5c57b7e798089452da5cfdf2ee3881dfb96e0ae8888b",
+      "plan_sha256": "088d9a2c7082c314acb1f84b68e654d3f62b3b07ce0c3d207e95546e0ffeabc2",
+      "launch_elapsed_ms": 14841,
+      "checkpoint_elapsed_ms": 94842,
+      "process_identity_sha256": "b90ca601ec78c531d0155cc8780484fb2e85de41083355e5b559585aa44c3ade",
+      "executable_sha256": "90608b5c5ab504e96e77365cea6203d046e291d59b2bb42cf28dcb2ccdf9dd58",
+      "execution_sha256": "15990cbfcf4edb63d0272238770c720310d6f7c79dc9b45269ef4e904f4b8aa7",
+      "assignment_sha256": "e4e86b418a259acd8badf6e557d1218cf5387f6163da1c8e3288cc58e64eaa0a",
+      "delivery_receipt_sha256": "4c143edcee3802e3ba8ceb42b080bc57d6ea8e9be2c9b7737e130ac9f478b06d",
+      "delivery_content_sha256": "ef388f8a2e5c54a6abc04e4a73a0c5fee95cbb9622ec93640d23481e198562d7",
+      "checkpoint_id": "754692a83bd6b43114f8d4ed4e9b4fec3762d5eb89761cc51c1f71389a514f35",
+      "checkpoint_artifact_sha256": "6c85c4df4493036d2b4c6cb282cc62403bbbcb306e1e8651751d0ca8e129676a",
+      "checkpoint_bytes": 3533,
+      "candidate_commit": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+      "live_state": "SOURCE_CHECKPOINT_READY",
+      "final_state": "HALTED"
+    },
+    "cursor": {
+      "session": "puppet-five-checkpoint-final-fedcdbd-20260728-cursor",
+      "plan_file_sha256": "712912dd2f4901f8cc28718528e898ae6ff0066ca62d80b2aaefe019bf7701dc",
+      "plan_sha256": "5bd51c9c2991fcc70597ea4803232871ec6c524ccc7dbcc6b1b21d20377afc06",
+      "launch_elapsed_ms": 11076,
+      "checkpoint_elapsed_ms": 39169,
+      "process_identity_sha256": "b29e7e206ffaab8708d2a3c50c467a69c0b4a41dda7a6fc5719cb46b6ad4c4dd",
+      "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+      "execution_sha256": "3ad0e6da73dff18c2a9725644b5223053201b1efcd63518bf3f34a0e3f896a83",
+      "assignment_sha256": "229d6b3b5c3cf30d7cdd9db986e3acaa7b6ab76b535ac76493a25b0531f50286",
+      "delivery_receipt_sha256": "17011d851da402d7e8c24ea508e2a441585a01b30e000c467f9e0bfc6b97be94",
+      "delivery_content_sha256": "b965fd7914617c6944c5894cf9deab723ea042bebe262d116301bbaf824c2b1f",
+      "checkpoint_id": "1f873115e84e4256a16e489f05ba9acd22d5ebc275a7bbcc90ff732cdae99973",
+      "checkpoint_artifact_sha256": "7439a0843a9460cbe2bca6b2e7284455012c3673ee1e464bcbfe5cf74fb0dfe3",
+      "checkpoint_bytes": 1629,
+      "candidate_commit": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+      "live_state": "SOURCE_CHECKPOINT_READY",
+      "final_state": "HALTED"
+    },
+    "grok": {
+      "session": "puppet-five-checkpoint-final-fedcdbd-20260728-grok",
+      "plan_file_sha256": "781eb093cd97c5b045de21f41112b9d9a2ff4e027b9fbd3387279ac0038ad76f",
+      "plan_sha256": "ff05aadcd7a371d30273d5ee3d1e428ed0865f7deb1b3751080317419f5b2751",
+      "launch_elapsed_ms": 15283,
+      "checkpoint_elapsed_ms": 32080,
+      "process_identity_sha256": "eb62a2c29830c4f51010836b1acd4fd3a5b26126e7089f09775b647f5b38abae",
+      "executable_sha256": "5cf05fe670b1818561daf7566b580a5de6b81149166499d61072e49640b541a4",
+      "execution_sha256": "64b029b2bf8e86b02be2fb21108077b2a01b94501ec4a096c4263de8c8577446",
+      "assignment_sha256": "168fd5c90c47836fc6f975020e2577a10a243f56f2f1e42b17072074bd4fd1f2",
+      "delivery_receipt_sha256": "26977217e2d58a871c403ec5c8e1485446fc411ae6cbf678806752158f0fe287",
+      "delivery_content_sha256": "323914575acac4792ccf6f06f4999570e19b431621717fc86bced14301c6868e",
+      "checkpoint_id": "b8decab08a1f2d0e87c799f2df6e5690cb76090f133ec5492308e03addd0deef",
+      "checkpoint_artifact_sha256": "ba886d35cc23a4c644b13b7a265803903d18aa241c3b7e290723639c0bea0df4",
+      "checkpoint_bytes": 1686,
+      "candidate_commit": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+      "live_state": "SOURCE_CHECKPOINT_READY",
+      "final_state": "HALTED"
+    }
+  },
+  "review_forced_repair": {
+    "trial_head": "9fa6614f59abe1096fae35dc4f6182035f6f33ad",
+    "trial_result": "five_active_and_viewed_then_exactly_halted_before_checkpoint_delivery",
+    "findings": [
+      "Already-imported replay did not rehash current checkpoint bytes.",
+      "A pre-send stale file could gain delivery authority on retry."
+    ],
+    "repair_head": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
+    "repairs": [
+      "Race-safe exact-file hashing rejects imported-byte drift.",
+      "A hash-bound create-only post-send receipt separates legitimate retry from pre-send stale output."
+    ],
+    "independent_re_review": "clean"
+  },
+  "verification": {
+    "complete_suite": {
+      "command": "python3 -m unittest discover -s tests -q",
+      "tests": 881,
+      "result": "passed"
+    },
+    "compile": "passed",
+    "launcher_help": "passed",
+    "checkpoint_help": "passed",
+    "skill_validator": "passed",
+    "git_diff_check": "passed"
+  },
+  "boundaries": {
+    "checkpoint_bodies_committed": false,
+    "prompt_body_committed": false,
+    "terminal_or_conversation_bodies_committed": false,
+    "review_performed": false,
+    "acceptance_performed": false,
+    "mutation_performed": false,
+    "merge_deploy_release_or_push_performed": false,
+    "qualification_reused_not_reinterpreted": true
+  }
+}
