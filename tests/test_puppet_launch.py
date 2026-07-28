@@ -266,9 +266,15 @@ class CheckpointRunner:
         identity = dict(assignment["handoff"]["fixed_fields"])
         identity.pop("schema_version")
         identity["candidate_commit"] = self.campaign["source"]["commit"]
+        checkpoint_path = Path(binding["path"])
+        artifact_sha256 = (
+            launcher.sha256_file(checkpoint_path)
+            if checkpoint_path.exists()
+            else "a" * 64
+        )
         return {
             "checkpoint_id": "b" * 64,
-            "artifact_sha256": "a" * 64,
+            "artifact_sha256": artifact_sha256,
             "checkpoint_kind": "source",
             "identity": identity,
             "path": binding["path"],
@@ -328,7 +334,9 @@ class CheckpointRunner:
                         target,
                         "submitted",
                     ),
-                    "content_sha256": "c" * 64,
+                    "content_sha256": self.campaign["lanes"][target][
+                        "source_checkpoint"
+                    ]["delivery_sha256"],
                 },
             )
         if action == "checkpoint":
@@ -741,22 +749,37 @@ class PuppetLaunchTests(unittest.TestCase):
             )
             output.write_bytes(b"{}\n")
             output.chmod(0o600)
-            runner = CheckpointRunner(campaign)
-            result = launcher.collect_checkpoints(
+            first_runner = CheckpointRunner(
+                campaign,
+                delivery_by_target={"agy": "already_submitted"},
+            )
+            first = launcher.collect_checkpoints(
                 campaign=campaign,
                 timeout=0.1,
-                _runner=runner,
+                _runner=first_runner,
                 _poll_interval=0.001,
             )
-            self.assertEqual(result["state"], "failed")
+            self.assertEqual(first["state"], "failed")
             self.assertEqual(
-                result["lanes"]["agy"]["error"],
+                first["lanes"]["agy"]["error"],
                 "stale_checkpoint_path",
             )
-            self.assertEqual(
-                [action for _, action in runner.calls],
-                ["status", "send"],
+            self.assertEqual(first_runner.calls, [("agy", "status")])
+            second_runner = CheckpointRunner(
+                campaign,
+                delivery_by_target={"agy": "already_submitted"},
             )
+            second = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.1,
+                _runner=second_runner,
+                _poll_interval=0.001,
+            )
+            self.assertEqual(
+                second["lanes"]["agy"]["error"],
+                "stale_checkpoint_path",
+            )
+            self.assertEqual(second_runner.calls, [("agy", "status")])
 
     def test_checkpoint_recovers_after_prior_assignment_delivery(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -765,24 +788,42 @@ class PuppetLaunchTests(unittest.TestCase):
             campaign = launcher.prepare_campaign(
                 **fixture.prepare_arguments(targets=("claude",))
             )
-            output = Path(
-                campaign["lanes"]["claude"]["source_checkpoint"]["path"]
+            first_runner = CheckpointRunner(
+                campaign,
+                timeout_targets={"claude"},
             )
+            first = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0.02,
+                _runner=first_runner,
+                _poll_interval=0.005,
+            )
+            self.assertEqual(
+                first["lanes"]["claude"]["error"],
+                "checkpoint_timeout",
+            )
+            binding = campaign["lanes"]["claude"]["source_checkpoint"]
+            self.assertTrue(Path(binding["delivery_receipt"]).is_file())
+            output = Path(binding["path"])
             output.write_bytes(b"{}\n")
             output.chmod(0o600)
-            runner = CheckpointRunner(
+            campaign_path = (
+                Path(campaign["roots"]["campaign"]) / "campaign.json"
+            )
+            campaign = launcher._load_campaign(campaign_path)
+            second_runner = CheckpointRunner(
                 campaign,
                 delivery_by_target={"claude": "already_submitted"},
             )
-            result = launcher.collect_checkpoints(
+            second = launcher.collect_checkpoints(
                 campaign=campaign,
                 timeout=0.1,
-                _runner=runner,
+                _runner=second_runner,
                 _poll_interval=0.001,
             )
-            self.assertTrue(result["ok"])
+            self.assertTrue(second["ok"])
             self.assertEqual(
-                [action for _, action in runner.calls],
+                [action for _, action in second_runner.calls],
                 ["status", "send", "checkpoint", "wait"],
             )
 
@@ -813,6 +854,42 @@ class PuppetLaunchTests(unittest.TestCase):
                 "already_imported",
             )
             self.assertEqual(runner.calls, [("codex", "status")])
+
+    def test_checkpoint_already_imported_rejects_tampered_current_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("cursor",))
+            )
+            output = Path(
+                campaign["lanes"]["cursor"]["source_checkpoint"]["path"]
+            )
+            output.write_bytes(b'{"a":1}\n')
+            output.chmod(0o600)
+            runner = CheckpointRunner(
+                campaign,
+                imported_targets={"cursor"},
+            )
+            recorded_reference = runner._reference("cursor")
+            output.write_bytes(b'{"b":2}\n')
+            output.chmod(0o600)
+            with mock.patch.object(
+                runner,
+                "_reference",
+                return_value=recorded_reference,
+            ):
+                result = launcher.collect_checkpoints(
+                    campaign=campaign,
+                    timeout=0,
+                    _runner=runner,
+                )
+            self.assertFalse(result["ok"])
+            self.assertEqual(
+                result["lanes"]["cursor"]["error"],
+                "checkpoint_artifact_changed",
+            )
+            self.assertEqual(runner.calls, [("cursor", "status")])
 
     def test_checkpoint_assignment_or_output_path_tamper_fails_closed(self):
         for label in ("assignment", "output_path"):

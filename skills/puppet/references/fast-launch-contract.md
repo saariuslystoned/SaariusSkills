@@ -206,7 +206,10 @@ imports it through the existing `checkpoint` command, and confirms it with a
 zero-time structural `wait`. The timeout bounds only the post-send file wait;
 each controller invocation retains its own existing bounded supervisor
 deadline. Repeating the command resumes an already-submitted assignment or
-returns an already-imported exact checkpoint. Results project only stable
+returns an already-imported exact checkpoint only when its create-only
+post-send delivery receipt and current checkpoint bytes still match their bound
+hashes. A file that predates first delivery is rejected before `send`, and a
+tampered imported file is never replayed as valid. Results project only stable
 identity, artifact hash, candidate commit, state, timing, and bounded error
 categories. This action never reads a pane, reviews, accepts, halts, or exits a
 harness; the agent is told to remain in its interactive process.

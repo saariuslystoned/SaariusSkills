@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import math
 import os
@@ -18,6 +19,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Sequence
 
 import puppet_fanout
 from puppet_lib.adapter_manifest import AdapterManifest
+from puppet_lib.adapters import adapter_for
 from puppet_lib.campaign import validate_campaign_authorization
 from puppet_lib.census import adapter_implementation_fingerprint
 from puppet_lib.contracts import MANDATORY_HARD_GATES
@@ -49,6 +51,7 @@ CATALOG_SCHEMA = "puppet.warm-catalog/v1"
 CAMPAIGN_SCHEMA = "puppet.launch-campaign/v1"
 PROGRESS_SCHEMA = "puppet.launch-progress/v1"
 CHECKPOINT_ASSIGNMENT_SCHEMA = "puppet.launch-checkpoint-assignment/v1"
+CHECKPOINT_DELIVERY_SCHEMA = "puppet.launch-checkpoint-delivery/v1"
 CHECKPOINT_RESULT_SCHEMA = "puppet.launch-checkpoint-result/v1"
 TARGET_ORDER = ("agy", "codex", "claude", "cursor", "grok")
 TARGETS = frozenset(TARGET_ORDER)
@@ -934,6 +937,57 @@ def _checkpoint_assignment(
     return result
 
 
+def _checkpoint_delivery_sha256(
+    lane: puppet_fanout.LanePlan,
+    assignment: Mapping[str, Any],
+) -> str:
+    message = (canonical_json_bytes(dict(assignment)) + b"\n").decode("utf-8")
+    enveloped = adapter_for(lane.target).envelope(
+        message,
+        lane.contract.session_profile,
+        initial=False,
+    )
+    return sha256_bytes(enveloped.encode("utf-8"))
+
+
+def _checkpoint_delivery_receipt(
+    *,
+    launch_id: str,
+    lane: puppet_fanout.LanePlan,
+    request_id: str,
+    assignment_sha256: str,
+    delivery_sha256: str,
+) -> Dict[str, Any]:
+    result = {
+        "schema": CHECKPOINT_DELIVERY_SCHEMA,
+        "version": LAUNCHER_VERSION,
+        "state": "assignment_submitted",
+        "launch_id": validate_identifier(launch_id, "launch id"),
+        "target": lane.target,
+        "session": lane.session,
+        "request_id": validate_identifier(
+            request_id,
+            "checkpoint request id",
+        ),
+        "assignment_sha256": validate_sha256(
+            assignment_sha256,
+            "checkpoint assignment",
+        ),
+        "delivery_sha256": validate_sha256(
+            delivery_sha256,
+            "checkpoint delivery",
+        ),
+    }
+    validate_bounded_json(
+        result,
+        max_depth=4,
+        max_items=32,
+        max_string=4096,
+        reject_sensitive_fields=True,
+    )
+    return result
+
+
 def _validate_modes(values: Iterable[str]) -> tuple[str, ...]:
     modes = tuple(values) or ("read", "test")
     allowed = {"read", "test", "mutate", "local_commit"}
@@ -1007,17 +1061,23 @@ def _validate_checkpoint_binding(
         "checkpoint_kind",
         "schema_version",
         "max_bytes",
+        "delivery_receipt",
+        "delivery_sha256",
     }
     if not isinstance(binding, dict) or set(binding) != fields:
         raise ValidationError(
             "%s campaign checkpoint binding is invalid" % lane.target
         )
     expected_path = lane.proof_root / "source-checkpoint.json"
+    expected_receipt_path = (
+        lane.proof_root / "source-checkpoint-delivery.json"
+    )
     if (
         binding.get("path") != str(expected_path)
         or binding.get("checkpoint_kind") != "source"
         or binding.get("schema_version") != HANDOFF_SCHEMA_VERSION
         or binding.get("max_bytes") != MAX_HANDOFF_BYTES
+        or binding.get("delivery_receipt") != str(expected_receipt_path)
         or binding.get("request_id")
         != _checkpoint_request_id(launch_id, lane.target, lane.plan_sha256)
     ):
@@ -1062,6 +1122,53 @@ def _validate_checkpoint_binding(
     if recorded_assignment != expected_assignment:
         raise IdentityError(
             "%s campaign checkpoint assignment content changed" % lane.target
+        )
+    expected_delivery_sha256 = _checkpoint_delivery_sha256(
+        lane,
+        expected_assignment,
+    )
+    if binding.get("delivery_sha256") != expected_delivery_sha256:
+        raise IdentityError(
+            "%s campaign checkpoint delivery identity changed" % lane.target
+        )
+    expected_receipt = _checkpoint_delivery_receipt(
+        launch_id=launch_id,
+        lane=lane,
+        request_id=binding["request_id"],
+        assignment_sha256=current_assignment["sha256"],
+        delivery_sha256=expected_delivery_sha256,
+    )
+    try:
+        os.lstat(expected_receipt_path)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ValidationError(
+            "%s campaign checkpoint delivery receipt is unavailable"
+            % lane.target
+        ) from exc
+    receipt_artifact = _artifact(
+        expected_receipt_path,
+        label="%s campaign checkpoint delivery receipt" % lane.target,
+    )
+    receipt_stat = os.lstat(expected_receipt_path)
+    if (
+        receipt_stat.st_uid != os.getuid()
+        or receipt_stat.st_nlink != 1
+        or stat.S_IMODE(receipt_stat.st_mode) != PRIVATE_FILE_MODE
+        or receipt_artifact["bytes"] <= 0
+    ):
+        raise IdentityError(
+            "%s campaign checkpoint delivery receipt is unsafe" % lane.target
+        )
+    recorded_receipt = read_json(
+        expected_receipt_path,
+        max_bytes=MAX_ARTIFACT_BYTES,
+        reject_sensitive_fields=True,
+    )
+    if recorded_receipt != expected_receipt:
+        raise IdentityError(
+            "%s campaign checkpoint delivery receipt changed" % lane.target
         )
 
 
@@ -1762,6 +1869,10 @@ def prepare_campaign(
                 lane.proof_root / "source-checkpoint-assignment.json",
                 label="%s source checkpoint assignment" % lane.target,
             )
+            delivery_receipt_path = _future_path(
+                lane.proof_root / "source-checkpoint-delivery.json",
+                label="%s source checkpoint delivery receipt" % lane.target,
+            )
             manifest = AdapterManifest.from_path(
                 Path(catalog["targets"][lane.target]["manifest"])
             )
@@ -1772,6 +1883,10 @@ def prepare_campaign(
                 output_path=checkpoint_path,
             )
             _create_only_json(assignment_path, assignment)
+            delivery_sha256 = _checkpoint_delivery_sha256(
+                lane,
+                assignment,
+            )
             checkpoint_rows[lane.target] = {
                 "assignment": _artifact(
                     assignment_path,
@@ -1782,6 +1897,8 @@ def prepare_campaign(
                 "checkpoint_kind": "source",
                 "schema_version": HANDOFF_SCHEMA_VERSION,
                 "max_bytes": MAX_HANDOFF_BYTES,
+                "delivery_receipt": str(delivery_receipt_path),
+                "delivery_sha256": delivery_sha256,
             }
         launcher_path = Path(__file__).resolve(strict=True)
         fanout_path = Path(puppet_fanout.__file__).resolve(strict=True)
@@ -1955,13 +2072,11 @@ def _checkpoint_controller_call(
     return output
 
 
-def _checkpoint_file_sample(path: Path, *, max_bytes: int) -> tuple[int, ...] | None:
-    try:
-        details = os.lstat(path)
-    except FileNotFoundError:
-        return None
-    except OSError:
-        raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+def _checkpoint_stat_sample(
+    details: os.stat_result,
+    *,
+    max_bytes: int,
+) -> tuple[int, ...]:
     if (
         stat.S_ISLNK(details.st_mode)
         or not stat.S_ISREG(details.st_mode)
@@ -1977,7 +2092,68 @@ def _checkpoint_file_sample(path: Path, *, max_bytes: int) -> tuple[int, ...] | 
         details.st_ino,
         details.st_size,
         details.st_mtime_ns,
+        stat.S_IMODE(details.st_mode),
+        details.st_uid,
+        details.st_nlink,
     )
+
+
+def _checkpoint_file_sample(path: Path, *, max_bytes: int) -> tuple[int, ...] | None:
+    try:
+        details = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+    return _checkpoint_stat_sample(details, max_bytes=max_bytes)
+
+
+def _checkpoint_file_hash_exact(
+    path: Path,
+    *,
+    max_bytes: int,
+) -> tuple[str, tuple[int, ...]]:
+    before = _checkpoint_file_sample(path, max_bytes=max_bytes)
+    if before is None:
+        raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        raise _CheckpointLaneFailure("checkpoint_path_changed")
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        opened = _checkpoint_stat_sample(
+            os.fstat(descriptor),
+            max_bytes=max_bytes,
+        )
+        if opened != before:
+            raise _CheckpointLaneFailure("checkpoint_path_changed")
+        while True:
+            block = os.read(descriptor, 64 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if total > max_bytes:
+                raise _CheckpointLaneFailure("checkpoint_path_unsafe")
+            digest.update(block)
+        after_descriptor = _checkpoint_stat_sample(
+            os.fstat(descriptor),
+            max_bytes=max_bytes,
+        )
+        if total != before[2] or after_descriptor != before:
+            raise _CheckpointLaneFailure("checkpoint_path_changed")
+    except OSError:
+        raise _CheckpointLaneFailure("checkpoint_path_changed")
+    finally:
+        os.close(descriptor)
+    after = _checkpoint_file_sample(path, max_bytes=max_bytes)
+    if after != before:
+        raise _CheckpointLaneFailure("checkpoint_path_changed")
+    return digest.hexdigest(), before
 
 
 def _wait_for_stable_checkpoint(
@@ -2069,6 +2245,83 @@ def _checkpoint_reference_projection(
     }
 
 
+def _checkpoint_delivery_receipt_expected(
+    *,
+    campaign: Mapping[str, Any],
+    lane: puppet_fanout.LanePlan,
+    binding: Mapping[str, Any],
+) -> Dict[str, Any]:
+    return _checkpoint_delivery_receipt(
+        launch_id=campaign["launch_id"],
+        lane=lane,
+        request_id=binding["request_id"],
+        assignment_sha256=binding["assignment"]["sha256"],
+        delivery_sha256=binding["delivery_sha256"],
+    )
+
+
+def _checkpoint_delivery_receipt_present(
+    *,
+    campaign: Mapping[str, Any],
+    lane: puppet_fanout.LanePlan,
+    binding: Mapping[str, Any],
+) -> bool:
+    path = Path(binding["delivery_receipt"])
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise _CheckpointLaneFailure("checkpoint_delivery_receipt_unavailable")
+    expected = _checkpoint_delivery_receipt_expected(
+        campaign=campaign,
+        lane=lane,
+        binding=binding,
+    )
+    expected_sha256 = sha256_bytes(canonical_json_bytes(expected) + b"\n")
+    try:
+        observed_sha256, _ = _checkpoint_file_hash_exact(
+            path,
+            max_bytes=MAX_ARTIFACT_BYTES,
+        )
+    except _CheckpointLaneFailure:
+        raise _CheckpointLaneFailure("checkpoint_delivery_receipt_invalid")
+    if observed_sha256 != expected_sha256:
+        raise _CheckpointLaneFailure("checkpoint_delivery_receipt_invalid")
+    return True
+
+
+def _publish_checkpoint_delivery_receipt(
+    *,
+    campaign: Mapping[str, Any],
+    lane: puppet_fanout.LanePlan,
+    binding: Mapping[str, Any],
+) -> None:
+    path = Path(binding["delivery_receipt"])
+    expected = _checkpoint_delivery_receipt_expected(
+        campaign=campaign,
+        lane=lane,
+        binding=binding,
+    )
+    try:
+        _create_only_json(path, expected)
+    except ValidationError:
+        if not _checkpoint_delivery_receipt_present(
+            campaign=campaign,
+            lane=lane,
+            binding=binding,
+        ):
+            raise _CheckpointLaneFailure(
+                "checkpoint_delivery_receipt_publish_failed"
+            )
+    if not _checkpoint_delivery_receipt_present(
+        campaign=campaign,
+        lane=lane,
+        binding=binding,
+    ):
+        raise _CheckpointLaneFailure("checkpoint_delivery_receipt_publish_failed")
+
+
 def _checkpoint_lane(
     *,
     campaign: Mapping[str, Any],
@@ -2113,14 +2366,12 @@ def _checkpoint_lane(
                 binding=binding,
                 fixed_fields=fixed_fields,
             )
-            if (
-                _checkpoint_file_sample(
-                    checkpoint_path,
-                    max_bytes=binding["max_bytes"],
-                )
-                is None
-            ):
-                raise _CheckpointLaneFailure("checkpoint_path_unavailable")
+            observed_sha256, _ = _checkpoint_file_hash_exact(
+                checkpoint_path,
+                max_bytes=binding["max_bytes"],
+            )
+            if observed_sha256 != projection["artifact_sha256"]:
+                raise _CheckpointLaneFailure("checkpoint_artifact_changed")
             _progress(
                 "checkpoint_complete",
                 launch_id=campaign["launch_id"],
@@ -2142,6 +2393,13 @@ def _checkpoint_lane(
             checkpoint_path,
             max_bytes=binding["max_bytes"],
         )
+        prior_delivery = _checkpoint_delivery_receipt_present(
+            campaign=campaign,
+            lane=lane,
+            binding=binding,
+        )
+        if preexisting is not None and not prior_delivery:
+            raise _CheckpointLaneFailure("stale_checkpoint_path")
         delivery = _checkpoint_controller_call(
             lane=lane,
             action="send",
@@ -2165,8 +2423,19 @@ def _checkpoint_lane(
             )
         except PuppetError:
             raise _CheckpointLaneFailure("controller_send_output_invalid")
-        if delivery_state not in {"submitted", "already_submitted"}:
+        if (
+            delivery_state not in {"submitted", "already_submitted"}
+            or delivery_sha256 != binding["delivery_sha256"]
+        ):
             raise _CheckpointLaneFailure("controller_send_output_invalid")
+        if prior_delivery and delivery_state != "already_submitted":
+            raise _CheckpointLaneFailure("checkpoint_delivery_replay_changed")
+        if not prior_delivery:
+            _publish_checkpoint_delivery_receipt(
+                campaign=campaign,
+                lane=lane,
+                binding=binding,
+            )
         _progress(
             "checkpoint_assignment_submitted",
             launch_id=campaign["launch_id"],
@@ -2174,8 +2443,6 @@ def _checkpoint_lane(
             session=lane.session,
             status=delivery_state,
         )
-        if preexisting is not None and delivery_state == "submitted":
-            raise _CheckpointLaneFailure("stale_checkpoint_path")
 
         deadline = monotonic() + timeout
         _progress(
@@ -2247,12 +2514,13 @@ def _checkpoint_lane(
         )
         if waited_projection != imported_projection:
             raise _CheckpointLaneFailure("checkpoint_confirmation_changed")
+        confirmed_sha256, confirmed_sample = _checkpoint_file_hash_exact(
+            checkpoint_path,
+            max_bytes=binding["max_bytes"],
+        )
         if (
-            _checkpoint_file_sample(
-                checkpoint_path,
-                max_bytes=binding["max_bytes"],
-            )
-            != stable_sample
+            confirmed_sample != stable_sample
+            or confirmed_sha256 != imported_projection["artifact_sha256"]
         ):
             raise _CheckpointLaneFailure("checkpoint_path_changed")
         state = waited.get("state")
