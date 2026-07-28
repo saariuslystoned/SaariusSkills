@@ -2366,6 +2366,14 @@ def _checkpoint_lane(
                 binding=binding,
                 fixed_fields=fixed_fields,
             )
+            if not _checkpoint_delivery_receipt_present(
+                campaign=campaign,
+                lane=lane,
+                binding=binding,
+            ):
+                raise _CheckpointLaneFailure(
+                    "checkpoint_delivery_receipt_missing"
+                )
             observed_sha256, _ = _checkpoint_file_hash_exact(
                 checkpoint_path,
                 max_bytes=binding["max_bytes"],

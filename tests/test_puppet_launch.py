@@ -834,8 +834,17 @@ class PuppetLaunchTests(unittest.TestCase):
             campaign = launcher.prepare_campaign(
                 **fixture.prepare_arguments(targets=("codex",))
             )
+            lane = launcher.puppet_fanout.load_lane_plans(
+                [Path(campaign["lanes"]["codex"]["plan"])]
+            )[0]
+            binding = campaign["lanes"]["codex"]["source_checkpoint"]
+            launcher._publish_checkpoint_delivery_receipt(
+                campaign=campaign,
+                lane=lane,
+                binding=binding,
+            )
             output = Path(
-                campaign["lanes"]["codex"]["source_checkpoint"]["path"]
+                binding["path"]
             )
             output.write_bytes(b"{}\n")
             output.chmod(0o600)
@@ -855,6 +864,34 @@ class PuppetLaunchTests(unittest.TestCase):
             )
             self.assertEqual(runner.calls, [("codex", "status")])
 
+    def test_checkpoint_already_imported_requires_delivery_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = LauncherFixture(Path(temporary))
+            fixture.initialize_catalog()
+            campaign = launcher.prepare_campaign(
+                **fixture.prepare_arguments(targets=("agy",))
+            )
+            output = Path(
+                campaign["lanes"]["agy"]["source_checkpoint"]["path"]
+            )
+            output.write_bytes(b"{}\n")
+            output.chmod(0o600)
+            runner = CheckpointRunner(
+                campaign,
+                imported_targets={"agy"},
+            )
+            result = launcher.collect_checkpoints(
+                campaign=campaign,
+                timeout=0,
+                _runner=runner,
+            )
+            self.assertFalse(result["ok"])
+            self.assertEqual(
+                result["lanes"]["agy"]["error"],
+                "checkpoint_delivery_receipt_missing",
+            )
+            self.assertEqual(runner.calls, [("agy", "status")])
+
     def test_checkpoint_already_imported_rejects_tampered_current_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = LauncherFixture(Path(temporary))
@@ -862,8 +899,17 @@ class PuppetLaunchTests(unittest.TestCase):
             campaign = launcher.prepare_campaign(
                 **fixture.prepare_arguments(targets=("cursor",))
             )
+            lane = launcher.puppet_fanout.load_lane_plans(
+                [Path(campaign["lanes"]["cursor"]["plan"])]
+            )[0]
+            binding = campaign["lanes"]["cursor"]["source_checkpoint"]
+            launcher._publish_checkpoint_delivery_receipt(
+                campaign=campaign,
+                lane=lane,
+                binding=binding,
+            )
             output = Path(
-                campaign["lanes"]["cursor"]["source_checkpoint"]["path"]
+                binding["path"]
             )
             output.write_bytes(b'{"a":1}\n')
             output.chmod(0o600)
