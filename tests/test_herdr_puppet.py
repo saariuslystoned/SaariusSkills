@@ -1771,6 +1771,57 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(result["next_seq"], 3)
         self.assertEqual(result["shell_readiness"], "status_verified")
 
+    def test_run_rejects_shell_replacing_harness_launcher(self) -> None:
+        lease = self.create_lease()
+        lease["next_seq"] = 2
+        lease["shell_readiness"] = "status_verified"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        command = "cd /private/worktree && exec agy --prompt @private-task"
+
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                command=command,
+                allow_live=True,
+                run_root=run_root,
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            "shell_replacing_harness_launcher",
+        )
+        self.assertEqual(self.client.ran, [])
+        self.assertEqual(load_json(self.lease_path)["next_seq"], 2)
+        self.assertNotIn(command, json.dumps(caught.exception.as_json()))
+        self.assertNotIn(
+            command,
+            (run_root / "events.jsonl").read_text(encoding="utf-8"),
+        )
+
+    def test_run_allows_harness_launcher_that_returns_to_shell(self) -> None:
+        lease = self.create_lease()
+        lease["next_seq"] = 2
+        lease["shell_readiness"] = "status_verified"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        command = "cd /private/worktree && agy --prompt @private-task"
+
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            command=command,
+            allow_live=True,
+        )
+
+        self.assertEqual(result["next_seq"], 3)
+        self.assertEqual(self.client.ran, [("run", "w2:p1", command)])
+
     def test_status_beacon_unlocks_followon_run_in_shared_sequence(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"

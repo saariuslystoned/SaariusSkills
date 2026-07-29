@@ -34,6 +34,10 @@ task-owned prompt file on the leased remote SSH target
 bounded timeout such as `--print-timeout 420s`.
 Submit only the short launcher command through `qualification-run`, not
 `qualification-send`, and never the task prompt itself.
+The launcher must return to the leased shell after AGY exits. Do not use
+`exec agy` (including after `cd ... &&`): replacing the shell can close SSH and
+remove the owned pane before the strict terminal-beacon wait observes the
+result. The deterministic adapter rejects this shell-replacing form.
 Do not use positional/argv prompt content or AGY stdin payload with `--print`
 in these modes. Retain the separate AGY prompt file until source-bound
 readiness or terminal evidence proves the process consumed it. The caller must

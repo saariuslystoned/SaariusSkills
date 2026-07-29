@@ -131,6 +131,25 @@ LEGACY_LEASE_REQUIRED_FIELDS = (
 )
 
 
+def _reject_shell_replacing_harness_launcher(
+    command: str,
+    harness: str,
+) -> None:
+    harness_binary = Path(harness.strip()).name
+    if not harness_binary:
+        return
+    shell_replacing_launcher = re.compile(
+        rf"(?:^|&&|;|\|\|)[ \t]*exec[ \t]+"
+        rf"(?:[^ \t;&|]*/)?{re.escape(harness_binary)}(?:[ \t]|$)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if shell_replacing_launcher.search(command):
+        raise HerdrPuppetError(
+            "shell_replacing_harness_launcher",
+            "The launcher must return to the leased shell after the harness exits.",
+        )
+
+
 @contextmanager
 def _lease_lock(lease_path: Path) -> Iterator[Path]:
     canonical_lease_path = lease_path.expanduser().resolve()
@@ -1829,6 +1848,7 @@ def qualification_run(
                 "Send sequence is stale, skipped, duplicate, or replayed.",
                 details={"expected": current["next_seq"], "received": seq},
             )
+        _reject_shell_replacing_harness_launcher(command, current["harness"])
         shell_readiness = _shell_readiness(current)
         if seq > 1 and shell_readiness != SHELL_READY:
             raise HerdrPuppetError(

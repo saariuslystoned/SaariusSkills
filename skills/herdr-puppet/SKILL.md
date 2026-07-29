@@ -78,6 +78,10 @@ hand-composed Herdr mutations when the script owns the operation.
    a separate private file on the leased remote SSH target, register its exact
    remote path before launch, and reference only that path from the launcher:
    `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`.
+   The launcher must return to the leased shell after AGY exits. Never use
+   `exec agy`: replacing the shell can end SSH and remove the owned pane before
+   the terminal beacon watcher observes the result. `qualification-run`
+   rejects that shell-replacing form.
    The duration requires a Go unit such as `s`. Do not feed the AGY task
    through positional argv or AGY stdin. Retain that task file until
    source-bound or terminal evidence proves the process consumed it, then
