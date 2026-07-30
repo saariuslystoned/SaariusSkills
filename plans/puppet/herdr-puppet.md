@@ -1,6 +1,12 @@
 # Herdr-Puppet Plan
 
-Status: discovery proof passed; implementation not started.
+Status: historical discovery plan; implementation now proceeds in PR #9.
+
+The current transport product boundary and qualification thresholds are
+normative in [`dual-transport.md`](dual-transport.md). Where this discovery
+plan predicts implementation behavior, lifecycle gates, or a one-harness
+acceptance threshold differently, the dual-transport plan and the current
+Herdr-Puppet skill contracts take precedence.
 
 ## Decision
 

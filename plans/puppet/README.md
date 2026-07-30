@@ -32,6 +32,13 @@ conversation.
   proving Herdr as a human-visible, transcript-blind remote-agent transport
   before proposing it as an optional Puppet backend. Its redacted discovery
   evidence is in [`herdr-puppet-proof.md`](herdr-puppet-proof.md).
+- [`dual-transport.md`](dual-transport.md) records the post-GrillTrack product
+  decision that one Puppet controller should offer explicit `tmux` and `herdr`
+  backends, with tmux remaining portable-default, both backends independently
+  qualifying Codex CLI, Claude Code, Cursor Agent, Grok Build, and AGY, and
+  Herdr entering through its own five-harness experimental evidence matrix.
+  This file is the current transport-architecture authority over the older
+  tmux implementation seed and Herdr discovery plan.
 
 The raw local ledger/event stream and private-repository identifiers are not
 published. Their material decisions, supersessions, deferments, limitations,
