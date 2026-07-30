@@ -324,8 +324,9 @@ def make_plan(
     client: FakeClient,
     *,
     live_mutation_authorized: bool = True,
+    harness: str = "agy",
 ) -> dict[str, Any]:
-    binding = sample_binding()
+    binding = sample_binding(harness=harness)
     return plan(
         client,
         session="operator-session",
@@ -333,7 +334,7 @@ def make_plan(
         workspace_label="worker-02",
         expected_ssh_target="worker@worker-02.example",
         run_id="run-20260723-a",
-        harness="agy",
+        harness=harness,
         repo="example/SaariusSkills",
         worktree="/redacted/worktree",
         proof_root="/redacted/proof",
@@ -1279,6 +1280,42 @@ class QualificationTests(unittest.TestCase):
             allow_live=True,
         )
         return json.loads(self.lease_path.read_text(encoding="utf-8"))
+
+    def ready_codex_submission(
+        self,
+    ) -> tuple[dict[str, Any], Path]:
+        lease, bound_plan = self._ready_lease_for_harness("codex")
+        run_root = self.root / "run"
+        initialize_journal(run_root, bound_plan)
+        qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text="bounded prompt",
+            allow_live=True,
+            run_root=run_root,
+        )
+        return load_json(self.lease_path), run_root
+
+    def assert_ready_codex_checkpoint_miss(
+        self,
+        rendered_line: str,
+    ) -> None:
+        lease, run_root = self.ready_codex_submission()
+        self.client.read_payload = rendered_line
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "not_matched")
+        self.assertIsNone(result["checkpoint"])
 
     def test_create_tab_requires_both_live_gates(self) -> None:
         blocked_plan = make_plan(self.client, live_mutation_authorized=False)
@@ -3295,7 +3332,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(result["checkpoint"], "STATUS")
         self.assertFalse(result["auto_preserved"])
 
-    def test_beacon_wait_rejects_non_whitespace_tui_decoration(self) -> None:
+    def test_non_codex_beacon_wait_rejects_tui_bullet(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
@@ -3315,6 +3352,92 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertEqual(result["result"], "not_matched")
         self.assertIsNone(result["checkpoint"])
+
+    def test_codex_beacon_wait_accepts_native_assistant_bullet(self) -> None:
+        lease, run_root = self.ready_codex_submission()
+        self.client.read_payload = (
+            "  • HERDR_PUPPET_STATUS CHECKPOINT-88 \u00a0"
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "observed")
+        self.assertEqual(result["checkpoint"], "STATUS")
+        self.assertFalse(result["auto_preserved"])
+        serialized = json.dumps(result)
+        events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("CHECKPOINT-88", serialized)
+        self.assertNotIn("CHECKPOINT-88", events)
+        self.assertNotIn("bounded prompt", serialized)
+        self.assertNotIn("bounded prompt", events)
+
+    def test_codex_beacon_wait_rejects_non_native_bullet_shape(self) -> None:
+        self.assert_ready_codex_checkpoint_miss(
+            "• note: HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+
+    def test_codex_beacon_wait_rejects_bullet_without_separation(self) -> None:
+        self.assert_ready_codex_checkpoint_miss(
+            "•HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+
+    def test_codex_beacon_wait_rejects_double_bullet(self) -> None:
+        self.assert_ready_codex_checkpoint_miss(
+            "•• HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+
+    def test_codex_beacon_wait_rejects_ascii_bullet(self) -> None:
+        self.assert_ready_codex_checkpoint_miss(
+            "- HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+
+    def test_codex_beacon_wait_rejects_trailing_prose(self) -> None:
+        self.assert_ready_codex_checkpoint_miss(
+            "• HERDR_PUPPET_STATUS CHECKPOINT-88 extra"
+        )
+
+    def test_pre_readiness_codex_beacon_wait_rejects_tui_bullet(self) -> None:
+        self.plan = make_plan(self.client, harness="codex")
+        self.plan["proof_root"] = str((self.root / "run").resolve())
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        self.client.read_payload = (
+            "• HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "not_matched")
+        self.assertIsNone(result["checkpoint"])
+
+    def test_codex_send_rejects_bulleted_assembled_checkpoint(self) -> None:
+        lease, _bound_plan = self._ready_lease_for_harness("codex")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text="• HERDR_PUPPET_DONE PROMPT-ECHO-4",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "checkpoint_echo_unsafe")
+        self.assertEqual(self.client.sent, [])
 
     def test_beacon_wait_rejects_terminal_nonce_replay_before_wait(self) -> None:
         lease = self.create_lease()

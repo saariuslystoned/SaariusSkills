@@ -3596,12 +3596,24 @@ def qualification_beacon_wait(
         + r"$"
     )
     # Interactive TUIs may add horizontal presentation padding to an otherwise
-    # exact assistant line (Codex renders assistant body lines with two leading
-    # spaces). The submitted prompt cannot contain an assembled checkpoint
-    # token, so accepting only horizontal edge padding preserves echo safety
-    # while matching the logical line the harness emitted.
+    # exact assistant line. Codex also renders its assistant response with one
+    # U+2022 bullet and horizontal separation. The submitted prompt cannot
+    # contain an assembled checkpoint token, so accepting only that
+    # harness-scoped, exact presentation marker preserves echo safety while
+    # matching the logical line the harness emitted.
+    allow_codex_assistant_marker = (
+        current_before_wait["harness"] == "codex"
+        and current_before_wait.get("harness_readiness") == HARNESS_READY
+    )
+    presentation_prefix = (
+        r"[ \t\u00a0]*(?:•[ \t\u00a0]+)?"
+        if allow_codex_assistant_marker
+        else r"[ \t\u00a0]*"
+    )
     wait_pattern = (
-        r"^[ \t\u00a0]*HERDR_PUPPET_("
+        r"^"
+        + presentation_prefix
+        + r"HERDR_PUPPET_("
         + "|".join(CHECKPOINT_KINDS)
         + r") "
         + re.escape(nonce)
@@ -3626,6 +3638,16 @@ def qualification_beacon_wait(
         if isinstance(matched_line, str)
         else None
     )
+    if (
+        allow_codex_assistant_marker
+        and isinstance(normalized_line, str)
+    ):
+        normalized_line = re.sub(
+            r"^•[ \t\u00a0]+",
+            "",
+            normalized_line,
+            count=1,
+        )
     match = (
         re.fullmatch(canonical_pattern, normalized_line)
         if isinstance(normalized_line, str)

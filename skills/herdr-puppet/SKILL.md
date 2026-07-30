@@ -148,6 +148,10 @@ hand-composed Herdr mutations when the script owns the operation.
    `<nonce>` is 8-24 safe identifier characters (`[A-Za-z0-9._:-]`). The
    submitted harness prompt must name the prefix/class rule and real nonce as
    separate fragments; never include their fully assembled strict token.
+   After operator-verified readiness, the waiter admits Codex's one proven
+   native assistant marker: exactly one leading U+2022 bullet plus horizontal
+   separation. It does not normalize bullets for shell checks or other
+   harnesses.
    `qualification-send` rejects an assembled token before mutation so a
    TUI-rendered user prompt cannot satisfy the output watcher. The command returns
    only the checkpoint class and hashes, never pane text. Use
