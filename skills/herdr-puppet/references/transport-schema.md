@@ -120,7 +120,11 @@ unchanged. A zero exit advances the sequence but records
 or task readiness.
 
 After the first STATUS checkpoint, use `qualification-run` for the exact
-in-row census helper. The controller compares that sanitized census with the
+in-row census helper in create-only `--output` mode with a unique completion
+checkpoint. The helper fsyncs the completed JSON before emitting STATUS; wait
+for that beacon before copying the file. A successful `pane run` acknowledgement
+or an empty output path is not completion. The controller compares that
+sanitized census with the
 plan/lease binding through `harness-census-verify`. Recorded time may advance;
 executable/version/help fingerprints, enrolled dedicated-user profile,
 default-model observation, launch vector, host, and source worktree may not.

@@ -831,6 +831,62 @@ esac
                     )
                     self.assertFalse(payload["raw_output_retained"])
                     self.assertNotIn("subscription models", completed.stdout)
+            row_census = root / "row-census.json"
+            row_nonce = "CENSUS-STATUS-20260730-A1"
+            row_command = [
+                sys.executable,
+                str(
+                    ROOT
+                    / "skills"
+                    / "herdr-puppet"
+                    / "scripts"
+                    / "harness_census.py"
+                ),
+                "--harness",
+                "codex",
+                "--host",
+                "worker.example",
+                "--profile-root",
+                str(profile_root),
+                "--worktree",
+                str(worktree),
+                "--output",
+                str(row_census),
+                "--checkpoint-nonce",
+                row_nonce,
+            ]
+            completed = subprocess.run(
+                row_command,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                completed.stdout,
+                f"HERDR_PUPPET_STATUS {row_nonce}\n",
+            )
+            self.assertEqual(
+                json.loads(row_census.read_text(encoding="utf-8"))[
+                    "harness"
+                ],
+                "codex",
+            )
+            replay = subprocess.run(
+                row_command,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(replay.returncode, 0)
+            self.assertEqual(
+                json.loads(row_census.read_text(encoding="utf-8"))[
+                    "harness"
+                ],
+                "codex",
+            )
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_wait_output_honors_controller_cap_and_maps_native_timeout(

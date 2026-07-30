@@ -145,7 +145,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", required=True)
     parser.add_argument("--profile-root", required=True)
     parser.add_argument("--worktree", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--checkpoint-nonce")
     args = parser.parse_args(argv)
+    if bool(args.output) != bool(args.checkpoint_nonce):
+        raise RuntimeError(
+            "--output and --checkpoint-nonce must be supplied together"
+        )
+    if args.checkpoint_nonce and re.fullmatch(
+        r"[A-Za-z0-9._:-]{8,128}",
+        args.checkpoint_nonce,
+    ) is None:
+        raise RuntimeError("checkpoint nonce is invalid")
 
     mapping = HARNESSES[args.harness]
     discovered = shutil.which(mapping["command"])
@@ -239,11 +250,32 @@ def main(argv: list[str] | None = None) -> int:
         "source": {"worktree": str(worktree)},
         "raw_output_retained": False,
     }
-    json.dump(payload, sys.stdout, sort_keys=True, separators=(",", ":"))
-    sys.stdout.write("\n")
+    serialized = canonical_bytes(payload) + b"\n"
+    if args.output:
+        output = Path(args.output)
+        if not output.is_absolute() or output == Path("/"):
+            raise RuntimeError("output must be one absolute task-owned file")
+        parent = output.parent.resolve(strict=True)
+        if not parent.is_dir() or parent.stat().st_uid != os.getuid():
+            raise RuntimeError("output parent is not an owned directory")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(output, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(serialized)
+                stream.flush()
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        sys.stdout.write(
+            f"HERDR_PUPPET_STATUS {args.checkpoint_nonce}\n"
+        )
+    else:
+        sys.stdout.buffer.write(serialized)
     return 0 if payload["profile"]["enrollment_state"] == "enrolled" else 3
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -107,9 +107,13 @@ and protocol fingerprints, exact worktree, instruction plane, and explicit
 unsupported capability values.
 
 The binding census happens before plan creation. Each row repeats the current
-remote census from inside its new leased Herdr pane after shell STATUS. Copy
-out only that sanitized census artifact, then run
-`harness-census-verify`. Authentication stores, status bodies, environment
+remote census from inside its new leased Herdr pane after shell STATUS. Use
+`harness_census.py --output <exact-task-file> --checkpoint-nonce <nonce>` so
+the helper creates the output once, fsyncs it, and emits a strict STATUS only
+after the JSON is complete. Wait for that exact beacon before copying out the
+sanitized census artifact, then run `harness-census-verify`. Shell redirection
+is not completion proof and can expose an empty-but-existing file.
+Authentication stores, status bodies, environment
 dumps, and raw output are never copied. A timestamp may advance; any bound
 fact mismatch fails the row before launch.
 

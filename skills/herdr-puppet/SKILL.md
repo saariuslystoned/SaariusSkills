@@ -76,8 +76,9 @@ hand-composed Herdr mutations when the script owns the operation.
    Herdr CLI returned success. It does not prove shell execution, harness
    readiness, prompt acceptance, MCP readiness, task start, or task completion.
 8. Follow the regular interactive order exactly: atomic shell STATUS preflight;
-   strict STATUS beacon wait; in-row executable/profile/version/help census;
-   `harness-census-verify` against the plan binding; one
+   strict STATUS beacon wait; in-row executable/profile/version/help census
+   written create-only by `harness_census.py --output` followed by its strict
+   completion STATUS beacon; `harness-census-verify` against the plan binding; one
    `qualification-harness-launch`; any exact observed pre-readiness gate;
    independently recorded readiness; one wrapped initial message; proof of
    consumption; one separately sequenced steering turn; native TUI
@@ -214,6 +215,15 @@ python3 scripts/harness_census.py \
   --host <remote-host> \
   --profile-root <dedicated-remote-user-home> \
   --worktree <exact-remote-worktree> > <private-census.json>
+
+# Inside the leased row, never shell-redirect the census output. Use:
+python3 scripts/harness_census.py \
+  --harness <agy|codex|claude|cursor|grok> \
+  --host <remote-host> \
+  --profile-root <dedicated-remote-user-home> \
+  --worktree <exact-remote-worktree> \
+  --output <exact-create-only-remote-census.json> \
+  --checkpoint-nonce <unique-census-status-nonce>
 
 python3 scripts/herdr_puppet.py harness-binding-create \
   --census-json <private-census.json> \
