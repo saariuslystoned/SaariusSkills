@@ -3078,6 +3078,50 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(result["harness_readiness"], "unverified")
         self.assertEqual(updated["harness_readiness"], "unverified")
 
+    def test_status_beacon_accepts_tui_horizontal_presentation_padding(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        self.client.read_payload = (
+            "\t\u00a0 HERDR_PUPPET_STATUS CHECKPOINT-88 \t\u00a0"
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "observed")
+        self.assertEqual(result["checkpoint"], "STATUS")
+        self.assertFalse(result["auto_preserved"])
+
+    def test_beacon_wait_rejects_non_whitespace_tui_decoration(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        self.client.read_payload = (
+            "• HERDR_PUPPET_STATUS CHECKPOINT-88"
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CHECKPOINT-88",
+            allow_live=True,
+            lines=20,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "not_matched")
+        self.assertIsNone(result["checkpoint"])
+
     def test_beacon_wait_rejects_terminal_nonce_replay_before_wait(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"

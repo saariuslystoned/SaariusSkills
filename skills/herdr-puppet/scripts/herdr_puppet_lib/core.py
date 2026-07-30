@@ -3579,17 +3579,29 @@ def qualification_beacon_wait(
             submission_seq=submission_seq,
         )
         expected_after_wait = json.loads(json.dumps(current_before_wait))
-    pattern = (
+    canonical_pattern = (
         r"^HERDR_PUPPET_("
         + "|".join(CHECKPOINT_KINDS)
         + r") "
         + re.escape(nonce)
         + r"$"
     )
+    # Interactive TUIs may add horizontal presentation padding to an otherwise
+    # exact assistant line (Codex renders assistant body lines with two leading
+    # spaces). The submitted prompt cannot contain an assembled checkpoint
+    # token, so accepting only horizontal edge padding preserves echo safety
+    # while matching the logical line the harness emitted.
+    wait_pattern = (
+        r"^[ \t\u00a0]*HERDR_PUPPET_("
+        + "|".join(CHECKPOINT_KINDS)
+        + r") "
+        + re.escape(nonce)
+        + r"[ \t\u00a0]*$"
+    )
     wait_result = client.wait_output(
         current_before_wait["session"]["name"],
         current_before_wait["pane_id"],
-        pattern,
+        wait_pattern,
         lines,
         timeout_ms,
         regex=True,
@@ -3600,7 +3612,16 @@ def qualification_beacon_wait(
         and wait_result.get("type") == "output_matched"
         else None
     )
-    match = re.fullmatch(pattern, matched_line) if isinstance(matched_line, str) else None
+    normalized_line = (
+        matched_line.strip(" \t\u00a0")
+        if isinstance(matched_line, str)
+        else None
+    )
+    match = (
+        re.fullmatch(canonical_pattern, normalized_line)
+        if isinstance(normalized_line, str)
+        else None
+    )
     checkpoint = match.group(1) if match else None
     revision = (
         wait_result.get("revision")

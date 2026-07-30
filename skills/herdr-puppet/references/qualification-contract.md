@@ -156,6 +156,13 @@ posture are already authorized. Only the bounded key vectors defined by the
 controller may be sent. Login, enrollment, account selection, credentials,
 and unrelated UI are never startup gates.
 
+Strict checkpoint matching treats leading or trailing horizontal space, tabs,
+and non-breaking spaces added by an interactive TUI as presentation padding.
+After removing only that edge padding, the logical line must still be exactly
+`HERDR_PUPPET_<CLASS> <nonce>`. Bullets, prose, code fences, or other
+decoration remain non-matches, and submitted prompts may not contain an
+assembled checkpoint token.
+
 Create the first message with `instruction-wrapper-create`. Its manifest binds
 the universal, harness-specific, default-unresolved, and regular lifecycle
 layers to the binding fingerprint, run ID, initial-message plane, and rendered
