@@ -213,6 +213,7 @@ HERDR_PUPPET_STATUS <nonce>
 HERDR_PUPPET_ACTION_REQUIRED <nonce>
 HERDR_PUPPET_DONE <nonce>
 ```
+<nonce> is limited to safe identifier characters and a length of 8-24.
 
 The waiter uses an anchored regular expression, validates the returned line
 again, emits only the checkpoint class, and journals only that class, the

@@ -3041,6 +3041,42 @@ class QualificationTests(unittest.TestCase):
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(updated["state"], "active")
 
+    def test_beacon_wait_accepts_max_nonce_length(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        nonce = "N" * 24
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(result["attempt"], 1)
+        self.assertEqual(result["result"], "not_matched")
+
+    def test_beacon_wait_rejects_nonce_longer_than_max(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        lease = self.submit_for_beacon(lease)
+        nonce = "N" * 25
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce=nonce,
+                allow_live=True,
+                timeout_ms=1,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "invalid_beacon_nonce")
+
     def test_beacon_rewait_is_nonce_and_submission_bound(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"

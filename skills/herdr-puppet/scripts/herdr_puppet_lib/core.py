@@ -3506,10 +3506,10 @@ def qualification_beacon_wait(
             "live_qualification_not_authorized",
             "The command flag must authorize the qualification beacon wait.",
         )
-    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", nonce):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,24}", nonce):
         raise HerdrPuppetError(
             "invalid_beacon_nonce",
-            "Beacon nonce must be 8-128 safe identifier characters.",
+            "Beacon nonce must be 8-24 safe identifier characters.",
         )
     if lines < 1 or lines > 80:
         raise HerdrPuppetError(

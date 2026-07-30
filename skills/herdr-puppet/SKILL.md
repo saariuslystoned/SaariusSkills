@@ -141,7 +141,9 @@ hand-composed Herdr mutations when the script owns the operation.
    shell, harness, prompt, MCP, or task readiness.
 10. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
-   as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
+   as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`, where
+   `<nonce>` is 8-24 safe identifier characters (`[A-Za-z0-9._:-]`). The
+   command returns
    only the checkpoint class and hashes, never pane text. Use
    `qualification-token-probe` only for lower-level transport diagnosis. A
     `not_matched` result proves only that the strict line was absent from the
