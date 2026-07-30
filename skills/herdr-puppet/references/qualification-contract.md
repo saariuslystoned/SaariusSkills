@@ -159,9 +159,11 @@ and unrelated UI are never startup gates.
 Strict checkpoint matching treats leading or trailing horizontal space, tabs,
 and non-breaking spaces added by an interactive TUI as presentation padding.
 After removing only that edge padding, the logical line must still be exactly
-`HERDR_PUPPET_<CLASS> <nonce>`. Bullets, prose, code fences, or other
-decoration remain non-matches, and submitted prompts may not contain an
-assembled checkpoint token.
+`HERDR_PUPPET_<CLASS> <nonce>`. Bullets, inline prose, or other non-whitespace
+decoration on that line remain non-matches. Matching is deliberately
+line-local: surrounding lines neither strengthen nor invalidate an otherwise
+canonical checkpoint line. Submitted prompts may not contain an assembled
+checkpoint token.
 
 Create the first message with `instruction-wrapper-create`. Its manifest binds
 the universal, harness-specific, default-unresolved, and regular lifecycle
