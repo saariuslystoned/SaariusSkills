@@ -295,14 +295,29 @@ class HerdrClient:
         keys: list[str] | None = None,
     ) -> Any:
         selected_keys = ["enter"] if keys is None else list(keys)
-        if keys is None and not text.strip():
+        has_non_whitespace_text = bool(text.strip())
+        if not has_non_whitespace_text and text != "":
             raise HerdrPuppetError(
                 "prompt_empty",
                 "The prompt must contain non-whitespace text.",
             )
-        if keys is not None and (
-            text
-            or not selected_keys
+        if keys is None and not has_non_whitespace_text:
+            raise HerdrPuppetError(
+                "prompt_empty",
+                "The prompt must contain non-whitespace text.",
+            )
+        if keys is not None and has_non_whitespace_text:
+            if (
+                not selected_keys
+                or len(selected_keys) > 2
+                or any(key != "enter" for key in selected_keys)
+            ):
+                raise HerdrPuppetError(
+                    "submit_key_vector_invalid",
+                    "The submit key vector is outside the bounded allowlist.",
+                )
+        elif keys is not None and (
+            not selected_keys
             or len(selected_keys) > 4
             or any(
                 key not in {"a", "enter", "up", "down"}

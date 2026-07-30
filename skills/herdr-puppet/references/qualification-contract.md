@@ -17,8 +17,10 @@ The first useful dogfood run should:
 8. start one canonical harness through the dedicated regular launch operation;
 9. handle only an exact observed allowlisted pre-readiness startup gate;
 10. independently prove the harness input surface is ready;
-11. send one bound wrapped task prompt, prove consumption, and send one
-    separately sequenced steering turn;
+11. send one bound wrapped task prompt through one atomic `pane.send_input`
+    request; use two `enter` keys only for multiline Claude submits and one `enter`
+    for all other submits, prove consumption, and send one separately sequenced
+    steering turn;
 12. use one generated terminal nonce checkpoint;
 13. prove a real client detach/reattach without changing leased identities;
 14. preserve and inventory the tab at the terminal milestone;
@@ -56,6 +58,10 @@ vector. Herdr 0.7.3 itself defines `pane run <pane_id> <command>`, so the
 downstream Herdr process necessarily receives the bounded command argument.
 The adapter redacts that argument from every error and records only its hash.
 It does not emit Herdr stdout in the receipt.
+
+`qualification-send` receipts and events record redacted submit metadata
+(`submit_key_count` and `submit_key_vector`) to make the key protocol
+inspectable without exposing prompt text.
 
 `/teamwork-preview` is not a stronger form of an ordinary prompt. It is a
 separate high-fan-out profile for an intentional hierarchy of roughly 4-20

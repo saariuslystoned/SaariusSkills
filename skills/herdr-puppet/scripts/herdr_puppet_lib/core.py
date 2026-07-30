@@ -2843,6 +2843,11 @@ def qualification_send(
                 "Structural status blocked the send.",
                 details={"blockers": status["blockers"]},
             )
+        submit_keys = (
+            ["enter", "enter"]
+            if current["harness"] == "claude" and "\n" in normalized_text
+            else ["enter"]
+        )
         text_file_retained = False
         tracked_text_file: str | None = None
         if text_file is not None:
@@ -2850,7 +2855,7 @@ def qualification_send(
             text_file_retained = _is_prompt_file_retained(tracked_text_file)
         socket_path = current["session"]["socket"]
         pane_id = current["pane_id"]
-        client.run_input(socket_path, pane_id, text)
+        client.run_input(socket_path, pane_id, text, keys=submit_keys)
         digest = sha256_text(text)
         updated = json.loads(json.dumps(current))
         updated["next_seq"] = seq + 1
@@ -2892,6 +2897,8 @@ def qualification_send(
                             if tracked_text_file is not None
                             else "not_applicable"
                         ),
+                        "submit_key_count": len(submit_keys),
+                        "submit_key_vector": submit_keys,
                         "instruction_wrapper": (
                             {
                                 "schema": checked_instruction_manifest["schema"],
@@ -2938,6 +2945,8 @@ def qualification_send(
         "caller_input_file_lifecycle": (
             "caller_owned" if tracked_text_file is not None else "not_applicable"
         ),
+        "submit_key_count": len(submit_keys),
+        "submit_key_vector": submit_keys,
         "prompt_persisted": False,
         "instruction_wrapper": (
             {

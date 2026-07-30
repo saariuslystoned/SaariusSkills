@@ -101,6 +101,7 @@ class FakeClient:
         self.pane_rows: list[dict[str, Any]] = []
         self.process_rows: dict[str, dict[str, Any]] = {}
         self.sent: list[tuple[str, str, str]] = []
+        self.sent_key_vectors: list[list[str]] = []
         self.ran: list[tuple[str, str, str]] = []
         self.closed_tabs: list[str] = []
         self.read_payload: Any = {"result": {"text": ""}}
@@ -209,10 +210,17 @@ class FakeClient:
             for process in row.get("foreground_processes", [])
         )
 
-    def run_input(self, socket_path: str, pane_id: str, text: str) -> str:
+    def run_input(
+        self,
+        socket_path: str,
+        pane_id: str,
+        text: str,
+        keys: list[str] | None = None,
+    ) -> str:
         if socket_path != self.server["socket"]:
             raise AssertionError(f"wrong socket: {socket_path}")
         self.sent.append(("input", pane_id, text))
+        self.sent_key_vectors.append(["enter"] if keys is None else list(keys))
         return ""
 
     def run_keys(
@@ -1044,6 +1052,68 @@ esac
         )
         run.assert_not_called()
 
+    def test_input_uses_double_enter_submit_keys_for_multiline_submit(self) -> None:
+        socket_path, observed, thread = self.start_socket_server(
+            lambda request: {
+                "id": request["id"],
+                "result": {"type": "ok"},
+            }
+        )
+        client = HerdrClient()
+        result = client.run_input(
+            socket_path,
+            "w2:p1",
+            "line one\nline two",
+            keys=["enter", "enter"],
+        )
+        thread.join(timeout=1)
+        self.assertEqual(result, {"type": "ok"})
+        self.assertEqual(observed["request"]["method"], "pane.send_input")
+        self.assertEqual(
+            observed["request"]["params"],
+            {
+                "pane_id": "w2:p1",
+                "text": "line one\nline two",
+                "keys": ["enter", "enter"],
+            },
+        )
+
+    def test_input_rejects_invalid_submit_key_vector_before_socket_access(self) -> None:
+        client = HerdrClient()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            client.run_input(
+                "/does/not/exist.sock",
+                "w2:p1",
+                "bounded prompt",
+                keys=["up", "down"],
+            )
+        self.assertEqual(caught.exception.code, "submit_key_vector_invalid")
+
+    def test_input_keeps_key_only_startup_gate_vector(self) -> None:
+        socket_path, observed, thread = self.start_socket_server(
+            lambda request: {
+                "id": request["id"],
+                "result": {"type": "ok"},
+            }
+        )
+        client = HerdrClient()
+        result = client.run_input(
+            socket_path,
+            "w2:p1",
+            "",
+            keys=["a", "enter"],
+        )
+        thread.join(timeout=1)
+        self.assertEqual(result, {"type": "ok"})
+        self.assertEqual(
+            observed["request"]["params"],
+            {
+                "pane_id": "w2:p1",
+                "text": "",
+                "keys": ["a", "enter"],
+            },
+        )
+
     def test_failed_input_never_emits_prompt_in_error_details(self) -> None:
         socket_path, _, _ = self.start_socket_server(
             lambda request: {
@@ -1152,6 +1222,34 @@ class QualificationTests(unittest.TestCase):
         ready["harness_readiness_operator"] = "test-operator"
         ready["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
         return self.persist_lease(ready)
+
+    def _ready_lease_for_harness(
+        self,
+        harness: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        harness_binding = sample_binding(harness=harness)
+        bound_plan = plan(
+            self.client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id=f"run-ready-{harness}",
+            harness=harness,
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str((self.root / "run").resolve()),
+            harness_binding=harness_binding,
+            live_mutation_authorized=True,
+        )
+        bound_lease = create_qualification_tab(
+            self.client,
+            plan_payload=bound_plan,
+            lease_path=self.lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+        )
+        return self.mark_harness_ready(bound_lease), bound_plan
 
     def mark_harness_launched(self, lease: dict[str, Any]) -> dict[str, Any]:
         launched = copy.deepcopy(lease)
@@ -2707,6 +2805,102 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertEqual(result["next_seq"], send_seq + 1)
         self.assertEqual(result["harness_readiness"], "operator_verified")
+
+    def test_send_uses_double_enter_for_claude_multiline_prompt(self) -> None:
+        lease, plan_payload = self._ready_lease_for_harness("claude")
+        run_root = self.root / "run"
+        initialize_journal(run_root, plan_payload)
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text="line one\nline two",
+            allow_live=True,
+            run_root=run_root,
+        )
+        send_events = [
+            json.loads(line)
+            for line in (run_root / "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        send_data = next(
+            event["data"] for event in send_events if event.get("kind") == "qualification.send"
+        )
+        self.assertEqual(result["submit_key_count"], 2)
+        self.assertEqual(result["submit_key_vector"], ["enter", "enter"])
+        self.assertEqual(send_data["submit_key_count"], 2)
+        self.assertEqual(send_data["submit_key_vector"], ["enter", "enter"])
+        self.assertEqual(
+            self.client.sent,
+            [("input", "w2:p1", "line one\nline two")],
+        )
+        self.assertEqual(self.client.sent_key_vectors, [["enter", "enter"]])
+
+    def test_send_uses_single_enter_for_claude_single_line_prompt(self) -> None:
+        lease, plan_payload = self._ready_lease_for_harness("claude")
+        run_root = self.root / "run"
+        initialize_journal(run_root, plan_payload)
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text="single line prompt",
+            allow_live=True,
+            run_root=run_root,
+        )
+        send_events = [
+            json.loads(line)
+            for line in (run_root / "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        send_data = next(
+            event["data"] for event in send_events if event.get("kind") == "qualification.send"
+        )
+        self.assertEqual(result["submit_key_count"], 1)
+        self.assertEqual(result["submit_key_vector"], ["enter"])
+        self.assertEqual(send_data["submit_key_count"], 1)
+        self.assertEqual(send_data["submit_key_vector"], ["enter"])
+        self.assertEqual(
+            self.client.sent,
+            [("input", "w2:p1", "single line prompt")],
+        )
+        self.assertEqual(self.client.sent_key_vectors, [["enter"]])
+
+    def test_send_uses_single_enter_for_non_claude_multiline_prompt(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text="line one\nline two",
+            allow_live=True,
+            run_root=run_root,
+        )
+        send_events = [
+            json.loads(line)
+            for line in (run_root / "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        send_data = next(
+            event["data"] for event in send_events if event.get("kind") == "qualification.send"
+        )
+        self.assertEqual(result["submit_key_count"], 1)
+        self.assertEqual(result["submit_key_vector"], ["enter"])
+        self.assertEqual(send_data["submit_key_count"], 1)
+        self.assertEqual(send_data["submit_key_vector"], ["enter"])
+        self.assertEqual(
+            self.client.sent,
+            [("input", "w2:p1", "line one\nline two")],
+        )
+        self.assertEqual(self.client.sent_key_vectors, [["enter"]])
 
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
         lease = self.create_lease()
