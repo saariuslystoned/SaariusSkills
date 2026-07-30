@@ -4429,7 +4429,7 @@ class QualificationTests(unittest.TestCase):
 
 
 class ContractDocTests(unittest.TestCase):
-    def test_skill_contract_captures_agy_prompt_file_print_mode(self) -> None:
+    def test_skill_contract_marks_agy_prompt_file_print_mode_unsupported(self) -> None:
         text = (
             ROOT / "skills" / "herdr-puppet" / "SKILL.md"
         ).read_text(encoding="utf-8")
@@ -4437,11 +4437,10 @@ class ContractDocTests(unittest.TestCase):
             "agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s",
             text,
         )
-        self.assertIn("qualification-run", text)
-        self.assertIn("qualification-beacon-wait", text)
-        self.assertIn("--lines 80", text)
+        self.assertIn("no supported noninteractive AGY qualification recipe", text)
+        self.assertIn("rejects every harness launcher", text)
+        self.assertIn("Do not improvise a `--print` carve-out", text)
         self.assertIn("Use `qualification-send` only for ordinary interactive", text)
-        self.assertIn("terminal evidence proves the process consumed it", text)
         self.assertIn("Keep the controller plan file outside the intended run root", text)
         self.assertIn("focuses that exact newly created", text)
 
@@ -4454,15 +4453,15 @@ class ContractDocTests(unittest.TestCase):
             / "qualification-contract.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "For AGY 1.1.7 noninteractive `--print`, launch task prompts through a",
+            "Earlier AGY 1.1.7 diagnostics used a task-owned prompt file",
             text,
         )
         self.assertIn(
-            "Do not use positional/argv prompt",
+            "historical evidence, not a supported controller recipe",
             text,
         )
         self.assertIn(
-            "Submit only the short launcher command through `qualification-run`",
+            "rejects every harness launcher submitted through `qualification-run`",
             text,
         )
         self.assertIn("execution_acceptance: unverified", text)
@@ -4470,6 +4469,8 @@ class ContractDocTests(unittest.TestCase):
             "Ordinary interactive harness prompts remain on `qualification-send`",
             text,
         )
+        self.assertNotIn("submit the launcher through", text)
+        self.assertNotIn("normal 420-second AGY recipe", text)
         self.assertIn("`journal-init` owns creating", text)
 
 

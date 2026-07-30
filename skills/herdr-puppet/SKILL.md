@@ -111,20 +111,15 @@ hand-composed Herdr mutations when the script owns the operation.
    task-owned worktree. `not_present` records observation without sending
    input. Never use this surface for login, enrollment, credentials, or
    unrelated UI.
-   For AGY noninteractive `--print` runs (notably 1.1.7), put the actual task in
-   a separate private file on the leased remote SSH target, register its exact
-   remote path before launch, and reference only that path from the launcher:
-   `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`.
-   The launcher must return to the leased shell after AGY exits. Never use
-   `exec agy`: replacing the shell can end SSH and remove the owned pane before
-   the terminal beacon watcher observes the result. `qualification-run`
-   rejects that shell-replacing form.
-   The duration requires a Go unit such as `s`. Do not feed the AGY task
-   through positional argv or AGY stdin. Retain that task file until
-   source-bound or terminal evidence proves the process consumed it, then
-   remove only that exact file and record bounded remote-removal evidence in
-   the final maintenance checkpoint. The controller never tests a remote path
-   with its local filesystem.
+   Earlier AGY 1.1.7 diagnostics used a private prompt file plus
+   `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`. Retain
+   that shape as historical evidence only. This controller deliberately
+   rejects every harness launcher submitted through `qualification-run`,
+   including non-`exec` AGY `--print`; there is no supported noninteractive
+   qualification path in this version. Do not attempt the old recipe through
+   the live controller. A future path needs its own controller-attested
+   operation, registered task-file authority, sequence contract, terminal
+   evidence, and exact removal proof.
 9. Use `instruction-wrapper-create` for the first regular interactive message.
    The versioned wrapper composes universal, harness, default-unresolved, and
    regular lifecycle layers, and binds its manifest to the run and harness
@@ -133,8 +128,8 @@ hand-composed Herdr mutations when the script owns the operation.
    harness prompts
    after `qualification-harness-ready` records explicit operator confirmation
    against the exact leased source and ready input surface. Shell STATUS never
-   authorizes pane input, including sequence 1. Noninteractive AGY remains on
-   `qualification-run`.
+   authorizes pane input, including sequence 1. `qualification-run` never
+   launches a harness; noninteractive AGY remains unsupported.
    Serialize sends and let the lease reject stale, skipped, duplicate, or
    replayed sequences. Send ordinary AGY steering as a plain message with no
    slash-command prefix.
@@ -380,39 +375,11 @@ python3 scripts/herdr_puppet.py cleanup-preserved-tab \
   --allow-live-cleanup
 ```
 
-For a bounded noninteractive AGY qualification, use this ordered recipe:
-
-```bash
-python3 scripts/herdr_puppet.py qualification-run \
-  --lease-json <lease.json> --seq 1 \
-  --text-file <shell-status-command-file> \
-  --run-root <run-root> --allow-live-qualification
-
-python3 scripts/herdr_puppet.py qualification-beacon-wait \
-  --lease-json <lease.json> --nonce <shell-status-nonce> --lines 80 \
-  --timeout-ms 480000 --timeout-seconds 510 \
-  --run-root <run-root> --allow-live-qualification
-
-python3 scripts/herdr_puppet.py remote-task-file-register \
-  --lease-json <lease.json> --remote-path </exact/remote/task-file> \
-  --source-repo <exact-leased-repo> \
-  --source-worktree <exact-leased-worktree> \
-  --confirm-caller-owned --run-root <run-root>
-
-python3 scripts/herdr_puppet.py qualification-run \
-  --lease-json <lease.json> --seq 2 \
-  --text-file <agy-launcher-command-file> \
-  --run-root <run-root> --allow-live-qualification
-
-python3 scripts/herdr_puppet.py qualification-beacon-wait \
-  --lease-json <lease.json> --nonce <terminal-task-nonce> --lines 80 \
-  --timeout-ms 480000 --timeout-seconds 510 \
-  --run-root <run-root> --allow-live-qualification
-```
-
-The launcher command file references the separate task file and uses a
-unit-bearing timeout, for example
-`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`.
+This version has no supported noninteractive AGY qualification recipe.
+`qualification-run` rejects the historical
+`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s` launcher
+before Herdr mutation, as it does every other generic harness launch. Use the
+regular interactive lifecycle above. Do not improvise a `--print` carve-out.
 
 Create the first regular prompt and its manifest before
 `qualification-send`:

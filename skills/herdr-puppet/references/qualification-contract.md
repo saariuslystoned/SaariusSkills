@@ -33,24 +33,16 @@ unless the operator chose that command for the specific turn.
 When the operator chooses a plugin slash command, preserve that exact prefix
 for the turn. Do not infer plugin activation from earlier turns.
 
-For AGY 1.1.7 noninteractive `--print`, launch task prompts through a
-task-owned prompt file on the leased remote SSH target
-(`--prompt @/exact/task-owned-prompt-file`) with an explicit unit-bearing
-bounded timeout such as `--print-timeout 420s`.
-Submit only the short launcher command through `qualification-run`, not
-`qualification-send`, and never the task prompt itself.
-The launcher must return to the leased shell after AGY exits. Do not use
-`exec agy` (including after `cd ... &&`): replacing the shell can close SSH and
-remove the owned pane before the strict terminal-beacon wait observes the
-result. The deterministic adapter rejects this shell-replacing form.
-Do not use positional/argv prompt content or AGY stdin payload with `--print`
-in these modes. Retain the separate AGY prompt file until source-bound
-readiness or terminal evidence proves the process consumed it. The caller must
-then remove only that exact task-owned file. Register its exact remote path
-before launch and give final maintenance bounded evidence of its removal. The
-controller never checks a remote path with its local filesystem. Exact paths
-stay in the private lease and maintenance output; public receipts expose
-neither a path nor a path hash.
+Earlier AGY 1.1.7 diagnostics used a task-owned prompt file and an explicit
+unit-bearing timeout such as
+`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`. That shape
+is historical evidence, not a supported controller recipe. This version
+rejects every harness launcher submitted through `qualification-run`,
+including a non-`exec` AGY `--print` command, before Herdr mutation. A supported
+noninteractive path requires a separate controller-attested operation with
+registered task-file authority, its own sequence and terminal-evidence
+contract, and exact removal proof. Until then, use only regular interactive
+qualification and do not improvise a `--print` carve-out.
 
 `qualification-run` accepts command text only from `--text-file` or standard
 input. The controller therefore keeps command content out of its own argument
@@ -70,9 +62,9 @@ writer, disjoint helper contracts, terminal/accounted joins, timeouts, and
 exact cleanup proof. Never use it for a single-owner preflight, routine
 follow-up, status request, or gate acknowledgement.
 
-## Atomic shell qualification
+## Atomic shell preflight
 
-Use this exact order for the bounded noninteractive path:
+Use this exact order before the regular interactive lifecycle:
 
 0. keep `plan.json` outside the intended run root; `journal-init` owns creating
    the absent run root and fails closed if it already exists; pass the plan's
@@ -80,11 +72,6 @@ Use this exact order for the bounded noninteractive path:
    rejected;
 1. submit a harmless shell STATUS command through `qualification-run`;
 2. wait for its unique strict STATUS beacon with
-   `qualification-beacon-wait --lines 80 --timeout-ms 480000
-   --timeout-seconds 510`;
-3. register the separate remote AGY task file, then submit the launcher through
-   `qualification-run`, using a controller-local private launcher command file;
-4. wait for the unique terminal beacon with
    `qualification-beacon-wait --lines 80 --timeout-ms 480000
    --timeout-seconds 510`.
 
@@ -191,7 +178,8 @@ requires shell readiness and rechecks structural identity before advancing
 `harness_readiness` to `operator_verified`. `qualification-send` requires that
 state even for sequence 1. A shell STATUS, product name, banner, fixed wait,
 process count, SSH client, or missing receipt file does not prove harness
-readiness. Noninteractive AGY remains on `qualification-run`.
+readiness. `qualification-run` never launches a harness; noninteractive AGY is
+unsupported in this version.
 
 If a launcher submission lands before the harness is ready, do not immediately
 resubmit the task. Reconcile from independent operator or structural evidence,
@@ -259,10 +247,9 @@ revision change before journaling or returning. The token probe consumes no
 beacon attempt.
 
 The controller subprocess timeout is a hard cap independent of Herdr's native
-wait timeout. The normal 420-second AGY recipe uses a 480000 ms native wait and
-a 510 s controller cap, so both boundaries exceed the task budget. A native or
-controller timeout returns `not_matched` and records only which timeout
-boundary fired.
+wait timeout. The standard long-running qualification watcher uses a 480000 ms
+native wait and a 510 s controller cap. A native or controller timeout returns
+`not_matched` and records only which timeout boundary fired.
 
 `not_matched` is narrowly scoped evidence: no strict checkpoint line matched
 inside the bounded wait. It does not mean input delivery failed, the remote

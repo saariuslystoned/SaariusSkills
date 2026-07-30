@@ -166,7 +166,8 @@ explicit operator identity, bounded
 `operator_observed_ready_input` evidence, confirmation, and a fresh structural
 join before advancing `harness_readiness` to `operator_verified`.
 `qualification-send` and send reconciliation require that state even at
-sequence 1. Noninteractive AGY remains on `qualification-run`.
+sequence 1. `qualification-run` rejects every harness launcher;
+noninteractive AGY is unsupported in this version.
 
 Before readiness, `qualification-startup-gate` accepts only a
 harness-specific allowlisted gate/action, exact worktree and unrestricted
@@ -216,10 +217,11 @@ but cannot receive controller input.
 
 A strict `DONE` or `ACTION_REQUIRED` beacon performs that same local
 preservation transition inside the beacon's final lease lock. `STATUS` and
-`not_matched` leave the lease active. The standard 420-second AGY recipe uses a
-480000 ms native timeout and a 510 s controller cap. One additional bounded
-wait is allowed after the first `not_matched`, using the same nonce and
-submission sequence. Each attempt is consumed by its durable pre-wait
+`not_matched` leave the lease active. The standard long-running qualification
+watcher uses a 480000 ms native timeout and a 510 s controller cap. One
+additional bounded wait is allowed after the first `not_matched`, using the
+same nonce and submission sequence. Each attempt is consumed by its durable
+pre-wait
 reservation, including when the controller exits before finalization. A
 matched nonce, cross-sequence reuse, or third reservation is rejected.
 
