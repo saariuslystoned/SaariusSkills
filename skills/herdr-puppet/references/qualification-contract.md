@@ -90,6 +90,14 @@ API acknowledgement alone does not prove the shell consumed the command, that
 AGY started, that the harness accepted the task, that MCP is ready, or that
 execution completed. The run receipt therefore records
 `submission_mode: atomic_shell_command` and `execution_acceptance: unverified`.
+If the first wait records no checkpoint, the controller may accept one
+sequence-2 retry only when the new command is the exact canonical standalone
+shell STATUS `printf`, the same initialized journal contains exactly one
+successful sequence-1 submission classified as that same strict STATUS probe
+plus its failed wait, and no harness launch or readiness transition exists.
+The run receipts record `shell_status_probe`, and the retry additionally
+records `shell_status_retry: true`. It cannot be used for arbitrary shell
+input or repeated at sequence 3.
 
 Ordinary interactive harness prompts remain on `qualification-send`; do not
 replace them with shell commands.

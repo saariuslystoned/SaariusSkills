@@ -89,6 +89,13 @@ hand-composed Herdr mutations when the script owns the operation.
    `/loop`, or `/teamwork-preview`.
    The matching STATUS checkpoint advances shell readiness only and is the
    follow-on shell gate; a successful API acknowledgement is not.
+   If the first STATUS wait records no checkpoint, `qualification-run` permits
+   exactly one additional pre-readiness submission at sequence 2, and only
+   when it is the canonical standalone
+   `printf '%s\n' 'HERDR_PUPPET_STATUS <new-nonce>'` probe in the same
+   initialized journal. This bounded retry exists for a newly inherited
+   remote terminal that is still settling; it does not authorize another
+   command, a third probe, or any harness launch.
    Cursor Workspace Trust must be recorded through
    `qualification-startup-gate` before readiness. Use the bounded Codex or
    Claude reducers only when the operator sees the exact allowlisted trust,

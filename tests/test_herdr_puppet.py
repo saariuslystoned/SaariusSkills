@@ -2057,6 +2057,220 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(result["next_seq"], 3)
         self.assertEqual(result["shell_readiness"], "status_verified")
 
+    def test_failed_first_shell_wait_allows_one_strict_status_retry(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        first_command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS SHELL-FIRST-STATUS-1'"
+        )
+        first = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command=first_command,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertTrue(first["shell_status_probe"])
+        self.assertFalse(first["shell_status_retry"])
+        first_wait = qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="SHELL-FIRST-STATUS-1",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertFalse(first_wait["matched"])
+
+        retry_command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS SHELL-RETRY-STATUS-2'"
+        )
+        retry = qualification_run(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            seq=2,
+            command=retry_command,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertTrue(retry["shell_status_probe"])
+        self.assertTrue(retry["shell_status_retry"])
+        self.assertEqual(retry["next_seq"], 3)
+        self.client.read_payload = (
+            "HERDR_PUPPET_STATUS SHELL-RETRY-STATUS-2"
+        )
+        retry_wait = qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="SHELL-RETRY-STATUS-2",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(retry_wait["shell_readiness"], "status_verified")
+        followon = qualification_run(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            seq=3,
+            command="python3 bounded-census.py",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(followon["next_seq"], 4)
+        events = read_events(run_root)
+        retry_events = [
+            event
+            for event in events
+            if event.get("kind") == "qualification.run"
+            and event.get("seq") == 2
+        ]
+        self.assertEqual(len(retry_events), 1)
+        self.assertTrue(
+            retry_events[0]["data"]["shell_status_retry"]
+        )
+
+    def test_shell_status_retry_requires_classified_first_probe(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        first = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command="arbitrary first shell command",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertFalse(first["shell_status_probe"])
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="UNRELATED-FAILED-WAIT-1",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=2,
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS SHELL-RETRY-STATUS-2'"
+                ),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "shell_status_retry_not_authorized",
+        )
+        self.assertEqual(len(self.client.ran), 1)
+
+    def test_shell_status_retry_is_narrow_and_single_use(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        first_command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS SHELL-FIRST-STATUS-1'"
+        )
+        qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command=first_command,
+            allow_live=True,
+            run_root=run_root,
+        )
+        retry_command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS SHELL-RETRY-STATUS-2'"
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=2,
+                command=retry_command,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "shell_status_retry_not_authorized",
+        )
+
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="SHELL-FIRST-STATUS-1",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=2,
+                command="arbitrary pre-readiness command",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "shell_readiness_not_proven")
+
+        qualification_run(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            seq=2,
+            command=retry_command,
+            allow_live=True,
+            run_root=run_root,
+        )
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="SHELL-RETRY-STATUS-2",
+            lines=80,
+            allow_live=True,
+            run_root=run_root,
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=3,
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS SHELL-THIRD-STATUS-3'"
+                ),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "shell_readiness_not_proven")
+        self.assertEqual(len(self.client.ran), 2)
+
     def test_run_rejects_shell_replacing_harness_launcher(self) -> None:
         lease = self.create_lease()
         lease["next_seq"] = 2

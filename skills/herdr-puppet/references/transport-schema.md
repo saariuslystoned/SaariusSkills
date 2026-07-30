@@ -143,9 +143,14 @@ only that file. Acceptance of either operation is not execution proof.
 New leases begin with both `shell_readiness: unverified` and
 `harness_readiness: unverified`. A strict shell `STATUS` checkpoint advances
 only `shell_readiness` to `status_verified`; later `qualification-run`
-submissions fail closed until that transition. Interactive pane input is
-separate: `qualification-harness-ready` requires the exact leased repo and
-worktree, an explicit operator identity, bounded
+submissions fail closed until that transition, except for one strict
+sequence-2 STATUS retry after the journal records a failed wait for the sole
+sequence-1 run and classifies that first command as the same strict probe.
+That exception accepts only the canonical standalone `printf` probe with a
+new safe nonce, records `shell_status_retry: true`, and cannot start a harness
+or recur at sequence 3. Interactive pane input is separate:
+`qualification-harness-ready` requires the exact leased repo and worktree, an
+explicit operator identity, bounded
 `operator_observed_ready_input` evidence, confirmation, and a fresh structural
 join before advancing `harness_readiness` to `operator_verified`.
 `qualification-send` and send reconciliation require that state even at

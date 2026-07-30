@@ -43,6 +43,7 @@ LEGACY_HARNESS_STATUS = "status_verified"
 DEFAULT_BEACON_TIMEOUT_MS = 480_000
 MAX_BEACON_TIMEOUT_MS = 3_600_000
 MAX_BEACON_WAIT_ATTEMPTS = 2
+MAX_SHELL_STATUS_SUBMISSIONS = 2
 BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
 REMOTE_FILE_REGISTERED = "registered"
 REMOTE_FILE_REMOVED = "removal_verified"
@@ -456,6 +457,74 @@ def _shell_readiness(payload: dict[str, Any]) -> str:
     if payload.get("harness_readiness") == LEGACY_HARNESS_STATUS:
         return SHELL_READY
     return "unverified"
+
+
+def _is_strict_shell_status_probe(command: str) -> bool:
+    return (
+        re.fullmatch(
+            r"printf[ \t]+'%s\\n'[ \t]+'HERDR_PUPPET_STATUS "
+            r"[A-Za-z0-9._:-]{8,128}'",
+            command.strip(),
+        )
+        is not None
+    )
+
+
+def _require_bounded_shell_status_retry(
+    *,
+    lease: dict[str, Any],
+    seq: int,
+    command: str,
+    run_root: Path | None,
+) -> None:
+    if (
+        seq != MAX_SHELL_STATUS_SUBMISSIONS
+        or run_root is None
+        or not _is_strict_shell_status_probe(command)
+        or "harness_launch" in lease
+        or lease.get("harness_readiness") != "unverified"
+    ):
+        raise HerdrPuppetError(
+            "shell_readiness_not_proven",
+            "Further shell submissions require a STATUS-verified shell or one "
+            "bounded strict STATUS retry after a failed first wait.",
+            details={
+                "expected": SHELL_READY,
+                "actual": _shell_readiness(lease),
+            },
+        )
+    events = read_events(run_root)
+    first_runs = [
+        event
+        for event in events
+        if event.get("kind") == "qualification.run"
+        and event.get("seq") == 1
+        and event.get("result") == "ok"
+        and (event.get("data") or {}).get("shell_status_probe") is True
+    ]
+    first_beacons = [
+        event
+        for event in events
+        if event.get("kind") == "qualification.beacon"
+        and event.get("seq") == 1
+    ]
+    failed_waits = [
+        event
+        for event in first_beacons
+        if event.get("result") == "failed"
+        and (event.get("data") or {}).get("checkpoint") is None
+    ]
+    matched_waits = [
+        event
+        for event in first_beacons
+        if (event.get("data") or {}).get("checkpoint") is not None
+    ]
+    if len(first_runs) != 1 or not failed_waits or matched_waits:
+        raise HerdrPuppetError(
+            "shell_status_retry_not_authorized",
+            "A strict shell STATUS retry requires exactly one first submission "
+            "and a controller-recorded failed wait for that submission.",
+        )
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -2153,15 +2222,16 @@ def qualification_run(
                 current["harness_binding"],
             )
         shell_readiness = _shell_readiness(current)
+        shell_status_probe = _is_strict_shell_status_probe(command)
+        shell_status_retry = False
         if seq > 1 and shell_readiness != SHELL_READY:
-            raise HerdrPuppetError(
-                "shell_readiness_not_proven",
-                "Further shell submissions require a STATUS-verified shell.",
-                details={
-                    "expected": SHELL_READY,
-                    "actual": shell_readiness,
-                },
+            _require_bounded_shell_status_retry(
+                lease=current,
+                seq=seq,
+                command=command,
+                run_root=run_root,
             )
+            shell_status_retry = True
         status = structural_status(client, lease_payload=current)
         if status["result"] != "ok":
             raise HerdrPuppetError(
@@ -2205,6 +2275,8 @@ def qualification_run(
                         "execution_acceptance": "unverified",
                         "transcript_read": False,
                         "readiness_advanced": False,
+                        "shell_status_probe": shell_status_probe,
+                        "shell_status_retry": shell_status_retry,
                         "shell_readiness": shell_readiness,
                         "harness_readiness": harness_readiness,
                         "caller_text_file_retained": text_file_retained,
@@ -2236,6 +2308,8 @@ def qualification_run(
         "submission_mode": "atomic_shell_command",
         "execution_acceptance": "unverified",
         "readiness_advanced": False,
+        "shell_status_probe": shell_status_probe,
+        "shell_status_retry": shell_status_retry,
         "shell_readiness": shell_readiness,
         "harness_readiness": harness_readiness,
         "caller_text_file_retained": text_file_retained,
