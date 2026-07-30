@@ -225,3 +225,30 @@ substitute the foreground SSH process. Authentication, proof, review,
 acceptance, and human-gate policy stay backend-independent. See
 [`dual-transport.md`](dual-transport.md) for the complete boundary and
 integration order.
+
+### `transport-002` — five harnesses per backend and one authority per lane
+
+This decision supersedes `transport-001` only where that record allowed one
+Herdr 1x1 run to satisfy the experimental threshold.
+
+The tmux and Herdr backends must each qualify Codex CLI, Claude Code, Cursor
+Agent, Grok Build, and AGY through their own live regular-session evidence.
+Launch, authentication/profile, startup-gate, instruction-wrapper, and
+checkpoint knowledge may be reused as versioned implementation input, but no
+tmux receipt or qualified harness row becomes Herdr proof. Standalone
+Herdr-Puppet becomes eligible for experimental merge review only after its
+five fresh 1x1 rows pass; unavailable remote-process halt or recovery remains
+explicit rather than blocking honest experimental use or being inferred from
+SSH identity.
+The five rows bind one immutable runtime head; proof-only curation may follow,
+but a runtime-code change invalidates affected qualification.
+
+Mixed tmux and Herdr concurrency remains unsupported until a dedicated
+exact-head 1-tmux-plus-1-Herdr qualification proves isolated worktree, profile,
+session, lease, and proof roots; aggregate capacity; no cross-lane evidence or
+input bleed; and exact lane-local stop/preservation without sibling identity
+drift. Every admitted lane then binds one execution backend and one lifecycle
+authority before launch. A Herdr-displayed read-only attachment to a
+tmux-owned target remains deferred research, not an initial feature.
+Conflicting writes to one source slice remain serialized under one mutation
+owner.

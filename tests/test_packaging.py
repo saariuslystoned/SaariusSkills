@@ -167,6 +167,68 @@ class PackagingTests(unittest.TestCase):
             "never substitute the foreground SSH process", compact_decisions
         )
 
+    def test_dual_transport_plan_requires_five_harnesses_per_backend(
+        self,
+    ) -> None:
+        plan = (ROOT / "plans" / "puppet" / "dual-transport.md").read_text(
+            encoding="utf-8"
+        )
+        decisions = (ROOT / "plans" / "puppet" / "DECISIONS.md").read_text(
+            encoding="utf-8"
+        )
+        compact_plan = " ".join(plan.split())
+        compact_decisions = " ".join(decisions.split())
+
+        for harness in (
+            "Codex CLI",
+            "Claude Code",
+            "Cursor Agent",
+            "Grok Build",
+            "AGY",
+        ):
+            self.assertIn(harness, compact_plan)
+            self.assertIn(harness, compact_decisions)
+
+        self.assertIn("ten backend/harness qualification cells", compact_plan)
+        self.assertIn(
+            "No backend/harness cell inherits qualification", compact_plan
+        )
+        self.assertIn("one execution backend", compact_plan)
+        self.assertIn(
+            "cannot graduate that backend/harness row", compact_plan
+        )
+        self.assertIn(
+            "never a qualification prerequisite", compact_plan
+        )
+        self.assertIn(
+            "per-operation qualification key", compact_plan
+        )
+        self.assertIn(
+            "it never carries `controller_verified` status across transports",
+            compact_plan,
+        )
+        self.assertIn("controller-attested harness binding", compact_plan)
+        self.assertIn(
+            "Raw or manually injected startup-gate input is not qualifying",
+            compact_plan,
+        )
+        self.assertIn(
+            "Any runtime-code change invalidates the five rows", compact_plan
+        )
+        self.assertIn(
+            "no input, checkpoint, proof, view, or closeout evidence bleed",
+            compact_plan,
+        )
+        self.assertNotIn("PR #6", compact_plan)
+        self.assertIn(
+            "no tmux receipt or qualified harness row becomes Herdr proof",
+            compact_decisions,
+        )
+        self.assertIn(
+            "supersedes `transport-001`", compact_decisions
+        )
+        self.assertIn("one lifecycle authority", compact_decisions)
+
 
 if __name__ == "__main__":
     unittest.main()
