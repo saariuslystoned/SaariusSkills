@@ -58,6 +58,7 @@ from herdr_puppet_lib.herdr_client import (  # noqa: E402
 from herdr_puppet_lib.harness_binding import (  # noqa: E402
     build_harness_binding,
     compile_instruction_wrapper,
+    binding_fingerprint,
     validate_harness_binding,
     validate_instruction_manifest,
     verify_remote_census,
@@ -771,6 +772,7 @@ class HerdrClientTests(unittest.TestCase):
             binary_root.mkdir()
             profile_root.mkdir()
             worktree.mkdir()
+            cursor_status_marker = root / "cursor-status-was-called"
             executable_body = """#!/bin/sh
 case "$1" in
   --version) echo "fake 1.0.0" ;;
@@ -786,6 +788,19 @@ esac
                 executable = binary_root / command
                 executable.write_text(executable_body, encoding="utf-8")
                 executable.chmod(0o755)
+            cursor_executable = binary_root / commands["cursor"]
+            cursor_executable.write_text(
+                f"""#!/bin/sh
+case "$1" in
+  --version) echo "fake 1.0.0" ;;
+  --help) echo "fake help" ;;
+  status) : > "{cursor_status_marker}"; exit 99 ;;
+  *) exit 2 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            cursor_executable.chmod(0o755)
             environment = dict(os.environ)
             environment["PATH"] = (
                 str(binary_root)
@@ -827,10 +842,15 @@ esac
                     )
                     self.assertEqual(
                         payload["profile"]["enrollment_state"],
-                        "enrolled",
+                        "interactive_pending" if harness == "cursor" else "enrolled",
+                    )
+                    self.assertIs(
+                        payload["profile"]["status_exit"],
+                        None if harness == "cursor" else 0,
                     )
                     self.assertFalse(payload["raw_output_retained"])
                     self.assertNotIn("subscription models", completed.stdout)
+            self.assertFalse(cursor_status_marker.exists())
             row_census = root / "row-census.json"
             row_nonce = "CENSUS-STATUS-20260730-A1"
             row_command = [
@@ -873,6 +893,59 @@ esac
                 ],
                 "codex",
             )
+            cursor_row_census = root / "cursor-row-census.json"
+            cursor_row_nonce = "CURSOR-CENSUS-20260730-A1"
+            cursor_row_completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(
+                        ROOT
+                        / "skills"
+                        / "herdr-puppet"
+                        / "scripts"
+                        / "harness_census.py"
+                    ),
+                    "--harness",
+                    "cursor",
+                    "--host",
+                    "worker.example",
+                    "--profile-root",
+                    str(profile_root),
+                    "--worktree",
+                    str(worktree),
+                    "--output",
+                    str(cursor_row_census),
+                    "--checkpoint-nonce",
+                    cursor_row_nonce,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(
+                cursor_row_completed.returncode,
+                0,
+                cursor_row_completed.stderr,
+            )
+            self.assertEqual(
+                cursor_row_completed.stdout,
+                f"HERDR_PUPPET_STATUS {cursor_row_nonce}\n",
+            )
+            self.assertEqual(
+                json.loads(cursor_row_census.read_text(encoding="utf-8"))[
+                    "profile"
+                ],
+                {
+                    "enrollment_state": "interactive_pending",
+                    "isolation": "dedicated_remote_user",
+                    "raw_output_retained": False,
+                    "root": str(profile_root.resolve()),
+                    "route": "dedicated_os_user_profile",
+                    "status_exit": None,
+                },
+            )
+            self.assertFalse(cursor_status_marker.exists())
             replay = subprocess.run(
                 row_command,
                 check=False,
@@ -1063,8 +1136,11 @@ class QualificationTests(unittest.TestCase):
         return lease
 
     def mark_harness_ready(self, lease: dict[str, Any]) -> dict[str, Any]:
-        ready = copy.deepcopy(lease)
-        ready["shell_readiness"] = "status_verified"
+        ready = (
+            copy.deepcopy(lease)
+            if "harness_launch" in lease
+            else self.mark_harness_launched(lease)
+        )
         ready["harness_readiness"] = "operator_verified"
         ready["harness_readiness_evidence"] = "operator_observed_ready_input"
         ready["harness_readiness_operator"] = "test-operator"
@@ -1228,7 +1304,22 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(second["changed_fields"], [])
 
     def test_readiness_evidence_is_accepted_only_for_operator_ready(self) -> None:
-        lease = self.create_lease()
+        base_lease = self.create_lease()
+        unlaunched = copy.deepcopy(base_lease)
+        unlaunched["shell_readiness"] = "status_verified"
+        unlaunched["harness_readiness"] = "operator_verified"
+        unlaunched["harness_readiness_evidence"] = (
+            "operator_observed_ready_input"
+        )
+        unlaunched["harness_readiness_operator"] = "operator-a"
+        unlaunched["harness_readiness_verified_at"] = (
+            "2026-07-26T00:00:00Z"
+        )
+        with self.assertRaises(HerdrPuppetError) as missing_launch:
+            validate_lease(unlaunched)
+        self.assertEqual(missing_launch.exception.code, "invalid_lease")
+
+        lease = self.mark_harness_launched(base_lease)
         lease["harness_readiness_evidence"] = "operator_observed_ready_input"
         lease["harness_readiness_operator"] = "operator-a"
         lease["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
@@ -2519,6 +2610,52 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertEqual(sent["next_seq"], 4)
 
+    def test_cursor_ready_lease_without_workspace_trust_cannot_send(
+        self,
+    ) -> None:
+        binding = sample_binding(harness="cursor")
+        cursor_plan = plan(
+            self.client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id="run-cursor-forged-ready",
+            harness="cursor",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str((self.root / "cursor-forged-ready").resolve()),
+            harness_binding=binding,
+            live_mutation_authorized=True,
+        )
+        lease = create_qualification_tab(
+            self.client,
+            plan_payload=cursor_plan,
+            lease_path=self.lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+        )
+        lease = self.mark_harness_launched(lease)
+        lease["harness_readiness"] = "operator_verified"
+        lease["harness_readiness_evidence"] = (
+            "operator_observed_ready_input"
+        )
+        lease["harness_readiness_operator"] = "operator-cursor"
+        lease["harness_readiness_verified_at"] = "2026-07-30T12:02:00Z"
+        self.persist_lease(lease)
+
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text="must not send",
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "invalid_lease")
+        self.assertEqual(self.client.sent, [])
+
     def test_send_rejects_replay_before_mutation(self) -> None:
         lease = self.create_lease()
         with self.assertRaisesRegex(HerdrPuppetError, "stale, skipped"):
@@ -2553,15 +2690,16 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         lease["next_seq"] = 2
         lease = self.mark_harness_ready(lease)
+        send_seq = lease["next_seq"]
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
-            seq=2,
+            seq=send_seq,
             text="next prompt",
             allow_live=True,
         )
-        self.assertEqual(result["next_seq"], 3)
+        self.assertEqual(result["next_seq"], send_seq + 1)
         self.assertEqual(result["harness_readiness"], "operator_verified")
 
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
@@ -2573,20 +2711,20 @@ class QualificationTests(unittest.TestCase):
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
-            seq=1,
+            seq=lease["next_seq"],
             text="bounded prompt",
             allow_live=True,
             run_root=run_root,
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
-        self.assertEqual(result["next_seq"], 2)
+        self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
         self.assertTrue(result["transport_acknowledged"])
         self.assertEqual(result["acceptance_scope"], "herdr_pane_input_only")
         self.assertEqual(result["outcome"], "pane_input_accepted")
         self.assertEqual(result["harness_readiness"], "operator_verified")
         self.assertEqual(result["harness_acceptance"], "operator_verified")
-        self.assertEqual(updated["next_seq"], 2)
+        self.assertEqual(updated["next_seq"], lease["next_seq"] + 1)
         self.assertNotIn("bounded prompt", json.dumps(result))
         self.assertNotIn("bounded prompt", events)
         self.assertEqual(
@@ -2606,7 +2744,7 @@ class QualificationTests(unittest.TestCase):
                 self.client,
                 lease_payload=lease,
                 lease_path=self.lease_path,
-                seq=1,
+                seq=lease["next_seq"],
                 text="via file",
                 text_file=str(prompt_path),
                 allow_live=True,
@@ -2631,7 +2769,7 @@ class QualificationTests(unittest.TestCase):
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
-            seq=1,
+            seq=lease["next_seq"],
             text="missing file",
             text_file=str(missing_prompt),
             allow_live=True,
@@ -2668,12 +2806,12 @@ class QualificationTests(unittest.TestCase):
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
-            seq=1,
+            seq=lease["next_seq"],
             text="already applied",
             evidence="herdr_success_exit+remote_process_match",
             confirm_applied=True,
         )
-        self.assertEqual(result["next_seq"], 2)
+        self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
         self.assertFalse(result["herdr_mutated"])
         self.assertEqual(self.client.sent, [])
 
@@ -3539,7 +3677,7 @@ class QualificationTests(unittest.TestCase):
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
-            seq=1,
+            seq=lease["next_seq"],
             text="private prompt body",
             allow_live=True,
             run_root=run_root,
@@ -3585,6 +3723,29 @@ class QualificationTests(unittest.TestCase):
             },
         )
 
+    def test_cursor_binding_profiles_allow_interactive_pending(self) -> None:
+        binding = sample_binding(harness="cursor")
+        binding["profile"]["enrollment_state"] = "interactive_pending"
+        binding["profile"]["status_exit"] = None
+        binding["fingerprint"] = binding_fingerprint(binding)
+        checked = validate_harness_binding(binding)
+        self.assertEqual(
+            checked["profile"]["enrollment_state"],
+            "interactive_pending",
+        )
+        self.assertIsNone(checked["profile"]["status_exit"])
+
+    def test_non_cursor_binding_profiles_reject_interactive_pending(self) -> None:
+        for harness in ("agy", "codex", "claude", "grok"):
+            binding = sample_binding(harness=harness)
+            binding["profile"]["enrollment_state"] = "interactive_pending"
+            binding["profile"]["status_exit"] = None
+            binding["fingerprint"] = binding_fingerprint(binding)
+            with self.subTest(harness=harness):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    validate_harness_binding(binding)
+                self.assertEqual(caught.exception.code, "invalid_harness_binding")
+
     def test_in_row_recensus_must_match_bound_remote_facts(self) -> None:
         binding = sample_binding(harness="claude")
         census = {
@@ -3629,6 +3790,33 @@ class QualificationTests(unittest.TestCase):
                 census_value=census,
             )
         self.assertEqual(caught.exception.code, "harness_recensus_mismatch")
+
+    def test_cursor_recensus_allows_interactive_pending_profile(self) -> None:
+        binding = sample_binding(harness="cursor")
+        binding["profile"]["enrollment_state"] = "interactive_pending"
+        binding["profile"]["status_exit"] = None
+        binding["fingerprint"] = binding_fingerprint(binding)
+        census = {
+            "schema": "herdr-puppet.remote-harness-census.v1",
+            "harness": binding["harness"],
+            "host": binding["remote"]["host"],
+            "recorded_at": binding["attestation"]["census_recorded_at"],
+            "executable": binding["remote"]["executable"],
+            "profile": dict(binding["profile"]),
+            "regular_launch": binding["regular_launch"],
+            "model_observation": binding["model_observation"],
+            "source": {"worktree": binding["source"]["worktree"]},
+            "raw_output_retained": False,
+        }
+        result = verify_remote_census(
+            binding_value=binding,
+            census_value=census,
+        )
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(
+            result["binding_fingerprint"],
+            binding["fingerprint"],
+        )
 
     def test_cli_send_forwards_bound_instruction_manifest(self) -> None:
         lease_path = self.root / "cli-lease.json"

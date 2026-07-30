@@ -273,10 +273,14 @@
       },
       "then": {
         "required": [
+          "harness_launch",
           "harness_readiness_evidence",
           "harness_readiness_operator",
           "harness_readiness_verified_at"
-        ]
+        ],
+        "properties": {
+          "shell_readiness": {"const": "status_verified"}
+        }
       },
       "else": {
         "not": {
@@ -285,6 +289,29 @@
             {"required": ["harness_readiness_operator"]},
             {"required": ["harness_readiness_verified_at"]}
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "harness": {"const": "cursor"},
+          "harness_readiness": {"const": "operator_verified"}
+        },
+        "required": ["harness", "harness_readiness"]
+      },
+      "then": {
+        "properties": {
+          "startup_gate_operations": {
+            "contains": {
+              "type": "object",
+              "properties": {
+                "gate": {"const": "workspace_trust"}
+              },
+              "required": ["gate"]
+            },
+            "minContains": 1
+          }
         }
       }
     }

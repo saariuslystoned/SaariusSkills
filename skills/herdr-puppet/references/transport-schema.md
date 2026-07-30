@@ -134,6 +134,13 @@ launch vector, once, at the exact next sequence. It deliberately records
 `remote_harness_pid: unavailable`; Herdr's foreground SSH PID is a different
 identity.
 
+Non-cursor harnesses must remain on an enrolled dedicated-user profile with
+`status_exit: 0` for this comparison. Cursor may report the provisional
+`interactive_pending` + `null` status pair before the first in-row launch as
+an explicit temporary state. Its census process exits zero when that body-free
+provisional record is written; this is census success, not an enrollment or
+readiness claim.
+
 The controller never writes or copies prompt or command content, so callers
 own the lifecycle of any input file. If an orchestration bridge cannot
 reliably half-close stdin, create one private task-owned input file, use

@@ -898,6 +898,7 @@ def _validate_lease(
             binding=binding,
             next_seq=payload["next_seq"],
         )
+    startup_gate_operations: list[dict[str, Any]] = []
     if "startup_gate_operations" in payload:
         operations = payload["startup_gate_operations"]
         if binding is None or (
@@ -907,7 +908,7 @@ def _validate_lease(
                 "invalid_lease",
                 "Startup-gate operations require a bound harness launch.",
             )
-        _validate_startup_gate_operations(
+        startup_gate_operations = _validate_startup_gate_operations(
             operations,
             harness=payload["harness"],
             next_seq=payload["next_seq"],
@@ -933,7 +934,16 @@ def _validate_lease(
         )
     if harness_readiness == HARNESS_READY:
         if (
-            payload.get("harness_readiness_evidence")
+            payload.get("shell_readiness") != SHELL_READY
+            or "harness_launch" not in payload
+            or (
+                payload["harness"] == "cursor"
+                and not any(
+                    operation.get("gate") == "workspace_trust"
+                    for operation in startup_gate_operations
+                )
+            )
+            or payload.get("harness_readiness_evidence")
             != "operator_observed_ready_input"
             or not isinstance(payload.get("harness_readiness_operator"), str)
             or not re.fullmatch(
@@ -946,8 +956,9 @@ def _validate_lease(
         ):
             raise HerdrPuppetError(
                 "invalid_lease",
-                "Operator-verified harness readiness requires bounded evidence "
-                "and a verification time.",
+                "Operator-verified readiness requires shell and launch proof, "
+                "all required startup gates, bounded evidence, and a "
+                "verification time.",
             )
     elif (
         "harness_readiness_evidence" in payload

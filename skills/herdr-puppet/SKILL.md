@@ -37,11 +37,16 @@ hand-composed Herdr mutations when the script owns the operation.
 3. Run the bounded `harness_census.py` against the dedicated remote-user
    profile without inspecting auth stores. Create a controller-attested
    binding with `harness-binding-create`; it freezes executable/version/help
-   fingerprints, enrolled profile route, current default-model observation,
+   fingerprints, enrolled or Cursor-provisional (`interactive_pending`
+   + `null` status) profile route, current default-model observation,
    unrestricted regular launch with no model selector, adapter/protocol
    fingerprints, worktree, instruction plane, and honest unsupported
    capabilities. Run `plan` with that binding. Save plan and binding outside
    public source when they contain local paths or host/account identity.
+   Cursor's provisional state means the census deliberately skipped its
+   auth/status surface; it is not an enrollment claim. A successful
+   provisional census exits zero because evidence collection completed, not
+   because enrollment or readiness was proven.
 4. Initialize a controller journal before any live tab mutation. Record
    structural events, prompt hashes, sequence numbers, checkpoint results,
    failures, and concise observations; never copy pane output into the

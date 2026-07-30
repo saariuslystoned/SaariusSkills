@@ -39,7 +39,6 @@ HARNESSES = {
     "cursor": {
         "command": "cursor-agent",
         "flags": ["--yolo", "--sandbox", "disabled"],
-        "status": ["status", "--format", "json"],
     },
     "grok": {
         "command": "grok",
@@ -192,10 +191,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     if version_rc != 0 or help_rc != 0:
         raise RuntimeError("version/help census failed")
-    status_rc, status_output = bounded(
-        [str(executable), *mapping["status"]],
-        environment,
-    )
+    if args.harness == "cursor":
+        enrollment_state = "interactive_pending"
+        status_exit = None
+    else:
+        status_rc, status_output = bounded(
+            [str(executable), *mapping["status"]],
+            environment,
+        )
+        enrollment_state = (
+            "enrolled"
+            if enrolled(args.harness, status_rc, status_output)
+            else "unavailable"
+        )
+        status_exit = status_rc
     executable_facts = {
         "command": mapping["command"],
         "path": str(executable),
@@ -228,12 +237,8 @@ def main(argv: list[str] | None = None) -> int:
             "route": "dedicated_os_user_profile",
             "root": str(profile_root),
             "isolation": "dedicated_remote_user",
-            "enrollment_state": (
-                "enrolled"
-                if enrolled(args.harness, status_rc, status_output)
-                else "unavailable"
-            ),
-            "status_exit": status_rc,
+            "enrollment_state": enrollment_state,
+            "status_exit": status_exit,
             "raw_output_retained": False,
         },
         "regular_launch": {
@@ -274,7 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         sys.stdout.buffer.write(serialized)
-    return 0 if payload["profile"]["enrollment_state"] == "enrolled" else 3
+    return (
+        0
+        if payload["profile"]["enrollment_state"]
+        in {"enrolled", "interactive_pending"}
+        else 3
+    )
 
 
 if __name__ == "__main__":

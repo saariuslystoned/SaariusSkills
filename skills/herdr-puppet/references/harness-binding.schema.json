@@ -64,10 +64,40 @@
         "route": {"const": "dedicated_os_user_profile"},
         "root": {"type": "string", "pattern": "^/"},
         "isolation": {"const": "dedicated_remote_user"},
-        "enrollment_state": {"const": "enrolled"},
-        "status_exit": {"const": 0},
+        "enrollment_state": {"enum": ["enrolled", "interactive_pending"]},
+        "status_exit": {
+          "oneOf": [{"const": 0}, {"type": "null"}]
+        },
         "raw_output_retained": {"const": false}
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enrollment_state": {"const": "enrolled"}
+            },
+            "required": ["enrollment_state"]
+          },
+          "then": {
+            "properties": {
+              "status_exit": {"const": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enrollment_state": {"const": "interactive_pending"}
+            },
+            "required": ["enrollment_state"]
+          },
+          "then": {
+            "properties": {
+              "status_exit": {"type": "null"}
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "model_observation": {
@@ -177,5 +207,22 @@
       "pattern": "^[0-9a-f]{64}$"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"harness": {"const": "cursor"}},
+        "required": ["harness"]
+      },
+      "else": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "enrollment_state": {"const": "enrolled"}
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

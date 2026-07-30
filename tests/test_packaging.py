@@ -205,6 +205,24 @@ class PackagingTests(unittest.TestCase):
         event_schema = json.loads(
             (references / "event.schema.json").read_text(encoding="utf-8")
         )
+        binding_schema = json.loads(
+            (references / "harness-binding.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            binding_schema["properties"]["profile"]["properties"][
+                "enrollment_state"
+            ]["enum"],
+            ["enrolled", "interactive_pending"],
+        )
+        self.assertIn("allOf", binding_schema)
+        lease_cross_fields = json.dumps(
+            lease_schema["allOf"],
+            sort_keys=True,
+        )
+        self.assertIn("workspace_trust", lease_cross_fields)
+        self.assertIn("minContains", lease_cross_fields)
         self.assertEqual(
             lease_schema["properties"]["harness_readiness"]["enum"],
             ["unverified", "operator_verified"],
@@ -246,10 +264,15 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(
             readiness_rule["then"]["required"],
             [
+                "harness_launch",
                 "harness_readiness_evidence",
                 "harness_readiness_operator",
                 "harness_readiness_verified_at",
             ],
+        )
+        self.assertEqual(
+            readiness_rule["then"]["properties"]["shell_readiness"]["const"],
+            "status_verified",
         )
         self.assertIn("else", readiness_rule)
         self.assertIn("command_sha256", event_schema["properties"])

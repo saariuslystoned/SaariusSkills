@@ -453,21 +453,40 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
             "invalid_remote_census",
             "A qualifying profile must use the dedicated remote-user route.",
         )
-    if profile["enrollment_state"] != "enrolled":
+    if profile["enrollment_state"] == "enrolled":
+        if (
+            isinstance(profile["status_exit"], bool)
+            or not isinstance(profile["status_exit"], int)
+            or profile["status_exit"] != 0
+            or profile["raw_output_retained"] is not False
+        ):
+            raise HerdrPuppetError(
+                "invalid_remote_census",
+                "The qualifying profile status is not an enrolled body-free result.",
+            )
+    elif (
+        profile["enrollment_state"] == "interactive_pending"
+        and harness != "cursor"
+    ):
+        raise HerdrPuppetError(
+            "invalid_remote_census",
+            "The qualifying profile status is not controller-observed enrolled.",
+            details={"harness": harness},
+        )
+    elif profile["enrollment_state"] == "interactive_pending":
+        if (
+            profile["status_exit"] is not None
+            or profile["raw_output_retained"] is not False
+        ):
+            raise HerdrPuppetError(
+                "invalid_remote_census",
+                "The qualifying profile status is not a provisional body-free result.",
+            )
+    else:
         raise HerdrPuppetError(
             "profile_not_enrolled",
             "The dedicated remote-user profile is not controller-observed enrolled.",
             details={"harness": harness},
-        )
-    if (
-        isinstance(profile["status_exit"], bool)
-        or not isinstance(profile["status_exit"], int)
-        or profile["status_exit"] != 0
-        or profile["raw_output_retained"] is not False
-    ):
-        raise HerdrPuppetError(
-            "invalid_remote_census",
-            "The qualifying profile status is not a body-free enrolled result.",
         )
     launch = _require_exact_fields(
         census["regular_launch"],
@@ -694,14 +713,28 @@ def validate_harness_binding(
         or not isinstance(profile.get("root"), str)
         or not Path(profile["root"]).is_absolute()
         or profile.get("isolation") != "dedicated_remote_user"
-        or profile.get("enrollment_state") != "enrolled"
-        or profile.get("status_exit") != 0
+        or profile.get("enrollment_state") not in {
+            "enrolled",
+            "interactive_pending",
+        }
         or profile.get("raw_output_retained") is not False
     ):
         raise HerdrPuppetError(
             "invalid_harness_binding",
-            "The binding profile is not an enrolled dedicated-user route.",
+            "The binding profile route or evidence state is invalid.",
         )
+    if profile["enrollment_state"] == "enrolled":
+        if profile.get("status_exit") != 0:
+            raise HerdrPuppetError(
+                "invalid_harness_binding",
+                "The binding profile enrollment result is invalid.",
+            )
+    elif profile["enrollment_state"] == "interactive_pending":
+        if harness != "cursor" or profile.get("status_exit") is not None:
+            raise HerdrPuppetError(
+                "invalid_harness_binding",
+                "Only Cursor may carry a provisional interactive profile.",
+            )
     launch = binding["regular_launch"]
     if (
         not isinstance(launch, dict)

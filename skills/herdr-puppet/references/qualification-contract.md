@@ -108,11 +108,20 @@ A campaign row is regular and interactive only when its canonical harness ID
 is one of `agy|codex|claude|cursor|grok`, its plan and lease reference one
 controller-attested binding, and the runtime launch uses
 `qualification-harness-launch`. The binding includes the current remote
-executable/version/help fingerprints, an enrolled dedicated-user profile
-route, no explicit model selector, current default model/effort observation or
-honest `unavailable`, the unrestricted launch-vector hash, controller adapter
-and protocol fingerprints, exact worktree, instruction plane, and explicit
-unsupported capability values.
+executable/version/help fingerprints, an enrolled dedicated-user profile route
+for non-cursor rows or a Cursor provisional `interactive_pending` + `null`
+status pair before launch, no explicit model selector, current default
+model/effort observation or honest `unavailable`, the unrestricted launch-vector
+hash, controller adapter and protocol fingerprints, exact worktree, instruction
+plane, and explicit unsupported capability values.
+
+For Cursor, `interactive_pending` is a deliberate pre-launch state. The census
+skips Cursor's auth/status command rather than triggering account or Keychain
+access. It does not claim enrollment, and its zero process exit means only that
+body-free evidence collection completed. Cursor remains blocked from ordinary
+sends until the exact regular launch, Workspace Trust operation, and
+operator-observed ready input all succeed. Login, account, or credential UI is
+a human gate.
 
 The binding census happens before plan creation. Each row repeats the current
 remote census from inside its new leased Herdr pane after shell STATUS. Use
