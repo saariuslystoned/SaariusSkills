@@ -1,6 +1,11 @@
 {
   "schema": "puppet.curated-five-harness-fast-launch/v1",
   "recorded_date": "2026-07-28",
+  "public_path_redaction": {
+    "private_proof_root": "<private-proof-root>",
+    "private_worktree_root": "<private-worktree-root>",
+    "original_absolute_paths_retained": false
+  },
   "outcome": "lifecycle_transport_proved_checkpoint_not_proven",
   "implementation_head": "f89bbed426f5dea1e6d3ab5128b5a01e6d42eb27",
   "implementation_tree": "748af0269736deadf20e5e564dc67cf856c861e3",
@@ -13,12 +18,12 @@
   },
   "inputs": {
     "campaign": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-final-f89bbed-20260728/campaign.json",
+      "path": "<private-proof-root>/five-smoke-final-f89bbed-20260728/campaign.json",
       "file_sha256": "fdb50f939cd4acb05cb7bf19bc037c5f4a12987014f3ac40fa9ffae14b863477",
       "campaign_sha256": "3fe1e87ebab45afdc2980fa726e5e13d832f1c407c655618ca94c314013f2831",
       "launch_id": "five-smoke-final-f89bbed-20260728",
-      "campaign_root": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-final-f89bbed-20260728",
-      "worktree_parent": "/Users/bobbybones/Developer/worktrees",
+      "campaign_root": "<private-proof-root>/five-smoke-final-f89bbed-20260728",
+      "worktree_parent": "<private-worktree-root>",
       "targets": [
         "agy",
         "codex",
@@ -34,12 +39,12 @@
       "task_profile": "smoke"
     },
     "warm_catalog": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-current-f89bbed.json",
+      "path": "<private-proof-root>/warm-catalog-five-current-f89bbed.json",
       "file_sha256": "95e9f506778323f81b27a4e528f1cd6008b972900ee96317eb5b34a09c4f6475",
       "catalog_sha256": "983aebef5b9f44dd5173f5899bad2ec40fb693c52dd5c0b6f2bae1987158fb75"
     },
     "task_input": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-f89bbed-prompt.txt",
+      "path": "<private-proof-root>/five-smoke-f89bbed-prompt.txt",
       "file_sha256": "693c37c07aa584bf24269b487627002190933e02d4a626748ef6345a6255d5a2",
       "bytes": 612,
       "body_retained_in_this_record": false
@@ -254,9 +259,9 @@
       "reason": "The prior warm catalog bound an older AGY executable identity and failed closed after local runtime drift.",
       "old_executable_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8",
       "current_executable_sha256": "251662551657dd0955428dd31536e7adf84c1cb4d53f20b6dca8bf8714762ff9",
-      "qualified_manifest_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/agy-qualification-f89bbed-current/qualified-agy.json",
+      "qualified_manifest_path": "<private-proof-root>/agy-qualification-f89bbed-current/qualified-agy.json",
       "qualified_manifest_sha256": "bf9c08dd7402a64e961f3da13566711ffc4cc8b4e993fc7b213a88a431a2929d",
-      "receipt_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/agy-qualification-f89bbed-current/proof/probes/v02-agy-current-f89bbed-20260728/receipt.json",
+      "receipt_path": "<private-proof-root>/agy-qualification-f89bbed-current/proof/probes/v02-agy-current-f89bbed-20260728/receipt.json",
       "receipt_sha256": "ae10b7ccfc183e7df2ebc6e972827466000cd8fa218490c3f63684cb242f1839",
       "halt_sha256": "7d4cf1c58b5e18055aaa1fe845687ada3d25bbcf43a3a98d80d34a45fed1eaf9",
       "accepted_checkpoint_id": "d7df47173321b251c926e7d7d84fa3ca5ade02e677d2586d988cd7d8df4ebc4a",
@@ -265,9 +270,9 @@
     },
     "codex": {
       "reason": "The final campaign required a qualification whose controller entry was bound to the exact f89bbed source worktree.",
-      "qualified_manifest_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/codex-qualification-f89bbed/qualified-codex-source.json",
+      "qualified_manifest_path": "<private-proof-root>/codex-qualification-f89bbed/qualified-codex-source.json",
       "qualified_manifest_sha256": "5b4163f68fade7420e23521ed9efc300fdd0d001adde730ce25cc31d752ccc4f",
-      "paired_receipt_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/codex-qualification-f89bbed/codex-paired-receipt-source.json",
+      "paired_receipt_path": "<private-proof-root>/codex-qualification-f89bbed/codex-paired-receipt-source.json",
       "paired_receipt_sha256": "e7e755087d6b175ee13969fa93d8a798912a0a2ca5346942b61cf781d3f21291",
       "positive_receipt_sha256": "5be010089edc674ec63156b87c6d73b6e38dfc8c83b4bf06c51f0599e50b294d",
       "ordinary_control_receipt_sha256": "3f9d5ee89cea2da717ee2a3a07d20a31261f256cbadd134c7e77b7079f3feb86",
@@ -281,7 +286,7 @@
   "accepted_regressions": [
     {
       "finding": "copied_release_not_git_checkout",
-      "campaign_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-f89bbed-20260728/campaign.json",
+      "campaign_path": "<private-proof-root>/five-smoke-f89bbed-20260728/campaign.json",
       "campaign_file_sha256": "e7aebbc6ecd158f7237925631b14025d4e3f8fd2ad8915a0874e5f04728518f9",
       "campaign_sha256": "fc4f5b01ccf4c4f5d94e219c4818b1fcf5f367772d2a0a280b0019a59cc7a8b4",
       "observed": "All five controller commands were parser-valid, but supervisor source identity failed closed because the copied controller archive was not a Git checkout. Zero target sessions started.",
@@ -289,10 +294,10 @@
     },
     {
       "finding": "agy_runtime_identity_drift",
-      "prior_catalog_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-f89bbed.json",
+      "prior_catalog_path": "<private-proof-root>/warm-catalog-five-f89bbed.json",
       "prior_catalog_file_sha256": "842771a1b4f0861531e8aa4d41fa9804e4e950feb62968cd9d3d2d762227205f",
       "prior_catalog_sha256": "cf540313514a75cc2030849e41c63ff980ce15d36c637184e5fc874de0dc36f0",
-      "partial_campaign_path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-smoke-live-f89bbed-20260728/campaign.json",
+      "partial_campaign_path": "<private-proof-root>/five-smoke-live-f89bbed-20260728/campaign.json",
       "partial_campaign_file_sha256": "f8ed3856f2fbc15da82dbe06303d2de4f08430d6454fc99585b75b7a30a8c41a",
       "partial_campaign_sha256": "d3333078c7118bf9c88d01b84c010e12f86b1cfb4b09c8b62a0b81d97e3720fb",
       "observed": "The stale AGY executable binding blocked that lane before launch. Claude, Cursor, and Grok reached ACTIVE and were exactly halted; AGY and Codex did not start in this partial campaign.",

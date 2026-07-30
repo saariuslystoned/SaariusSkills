@@ -26,6 +26,7 @@ from puppet_lib.campaign import (  # noqa: E402
 )
 from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError  # noqa: E402
 from tests.test_puppet_operator_plan import (  # noqa: E402
+    _commit,
     _initialize_repo,
     _manifest,
     _write_json,
@@ -72,8 +73,7 @@ def _initialize_controller_repo(root: Path) -> tuple[Path, tuple[Path, ...], str
     )
     for path in paths:
         path.write_text("# tracked controller fixture\n", encoding="utf-8")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-m", "add controller fixture")
+    _commit(repo, "add controller fixture")
     return repo, paths, _git(repo, "rev-parse", "HEAD")
 
 
@@ -436,8 +436,7 @@ class PuppetLaunchTests(unittest.TestCase):
             )
             source = launcher._source_identity(repo, commit)
             (repo / "README.md").write_text("advanced\n", encoding="utf-8")
-            _git(repo, "add", "README.md")
-            _git(repo, "commit", "-m", "advance controller head")
+            _commit(repo, "advance controller head")
 
             with self.assertRaisesRegex(IdentityError, "HEAD differs"):
                 launcher._validate_executing_controller(

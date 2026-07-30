@@ -1,6 +1,10 @@
 {
   "schema": "puppet.curated-five-harness-checkpoint-smoke/v1",
   "recorded_date": "2026-07-28",
+  "public_path_redaction": {
+    "private_proof_root": "<private-proof-root>",
+    "original_absolute_paths_retained": false
+  },
   "outcome": "all_five_live_checkpoint_replay_and_exact_halt_passed",
   "implementation": {
     "head": "fedcdbd57e40d141281f93101f494f1fb85b1e56",
@@ -14,7 +18,7 @@
   },
   "inputs": {
     "campaign": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-checkpoint-final-fedcdbd-20260728/campaign.json",
+      "path": "<private-proof-root>/five-checkpoint-final-fedcdbd-20260728/campaign.json",
       "file_sha256": "338f8b9b63a4e36bac58cc36f0468b0b7366857ceadb60997dc73b41c3c28598",
       "campaign_sha256": "e8d37fda27eb6237c3ad36f002bf616afe1e10a212a20c7a54f767958692e181",
       "campaign_plan_set_sha256": "c02c2d2a75156fdd46bbfe623dcb42364e3c244245e365073e0b7ab74aaf8578",
@@ -36,11 +40,11 @@
       "task_profile": "smoke"
     },
     "warm_catalog": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/warm-catalog-five-current-f89bbed.json",
+      "path": "<private-proof-root>/warm-catalog-five-current-f89bbed.json",
       "file_sha256": "95e9f506778323f81b27a4e528f1cd6008b972900ee96317eb5b34a09c4f6475"
     },
     "prompt": {
-      "path": "/Users/bobbybones/Developer/_machine-runs/puppet-v02-fast-launch-20260728/five-checkpoint-fedcdbd-20260728-prompt.txt",
+      "path": "<private-proof-root>/five-checkpoint-fedcdbd-20260728-prompt.txt",
       "file_sha256": "558437729bae017a40f89dbf4909fa7a00babe529f058be03ad4a462baa797bf",
       "body_retained": false
     }

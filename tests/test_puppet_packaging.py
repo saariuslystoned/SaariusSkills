@@ -10,6 +10,17 @@ SKILL = ROOT / "skills" / "puppet"
 
 
 class PuppetPackagingTests(unittest.TestCase):
+    def test_public_puppet_plans_do_not_publish_absolute_macos_home_paths(
+        self,
+    ) -> None:
+        plans = ROOT / "plans" / "puppet"
+        for path in plans.rglob("*"):
+            if not path.is_file():
+                continue
+            with self.subTest(path=path.relative_to(ROOT)):
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("/Users/", text)
+
     def test_required_package_shape(self):
         required = [
             "SKILL.md",

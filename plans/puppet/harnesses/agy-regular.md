@@ -78,13 +78,12 @@ intervene in an ordinary non-Puppet AGY session.
 
 ### Current AGY 1.1.7 controller facts
 
-- Exact executable:
-  `/Users/bobbybones/.local/bin/agy`
+- Exact operator-local executable path: retained only in machine-private proof.
 - SHA-256:
   `48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8`
-- Exact regular launch argv:
-  `/Users/bobbybones/.local/bin/agy --dangerously-skip-permissions
-  --sandbox=false --new-project --log-file /dev/null`
+- Exact regular launch suffix:
+  `--dangerously-skip-permissions --sandbox=false --new-project --log-file
+  /dev/null`
 - A bounded semantic write, exact executable/birth/cwd lease, read-only native
   attach, sequenced steering, clean head, and exact process-tree halt were
   independently controller-checked through a Puppet-owned private tmux lane.
