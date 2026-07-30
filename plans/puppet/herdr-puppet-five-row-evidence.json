@@ -415,7 +415,7 @@
         "claude"
       ],
       "class": "wrapped_send_consumption_checkpoint_not_observed",
-      "required_next_step": "fresh harness-specific submission experiment at a new run/head; do not reinterpret socket acknowledgement as consumption"
+      "required_next_step": "fresh rows with bounded composer-state classification and one fully assembled checkpoint token probe; do not reinterpret socket acknowledgement as consumption"
     }
   ]
 }

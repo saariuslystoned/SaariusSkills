@@ -71,6 +71,26 @@ from this public matrix.
   No steering, DONE, or detach/reattach was claimed. The lease was preserved as
   `checkpoint_failed`; exact maintenance and cleanup passed.
 
+## Next diagnostic
+
+Do not resend either completed failed row. Use fresh Claude and Codex tabs,
+sequences, and nonces. After the one wrapped send:
+
+1. retain only one bounded operator classification:
+   `composer_retained`, `composer_cleared_busy`, or
+   `assistant_output_visible`; never copy pane text;
+2. if the strict beacon misses, run the existing token probe once for the fully
+   assembled expected checkpoint, which the submitted wrapper itself could not
+   contain; and
+3. patch only the failure class that result proves:
+   qualify paste-settle/submit choreography if the composer retained the
+   wrapper, normalize only an exact proven TUI presentation if the token
+   appeared noncanonically, or tighten immediate standalone checkpoint wording
+   if the composer cleared and the token remained absent.
+
+This diagnostic preserves the strict checkpoint contract and does not turn a
+socket acknowledgement into a consumption claim.
+
 ## Evidence root
 
 - [`herdr-puppet-five-row-evidence.json`](herdr-puppet-five-row-evidence.json)

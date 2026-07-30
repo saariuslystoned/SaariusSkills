@@ -94,20 +94,22 @@ releases the lock for `wait output`, and reacquires it to reject any complete
 revision change before journaling or returning a result. A stale active or
 preserved caller payload therefore cannot authorize a pane read.
 
-`qualification-send` sends `text` plus `keys: ["enter"]` as one
+`qualification-send` sends `text` plus its bounded submit-key vector as one
 newline-delimited JSON request to the exact, current-user-owned Unix socket
-bound in the lease. Its receipt is scoped to `herdr_pane_input_only`. It proves
-Herdr accepted that pane request; it does not prove the remote harness was
-ready, submitted the prompt, started work, loaded an extension, or called a
-tool. Before mutation, it rejects any fully assembled strict checkpoint token
-with a real nonce; callers must describe the prefix, checkpoint class, and
-nonce as separate prompt fragments. This keeps rendered user input from
-matching the output watcher. The adapter rechecks the socket file identity after connecting and
-before dispatch. That inode check narrows path-replacement races; it does not
-prove a native Herdr server incarnation. A lost, malformed, or mismatched
-acknowledgement is an unknown delivery outcome. Never retry that sequence:
-stop and use `qualification-reconcile-send` only after independent evidence
-establishes that the original input was applied.
+bound in the lease. Multiline Claude sends use `keys: ["enter", "enter"]`;
+single-line Claude and every other harness use `keys: ["enter"]`. Its receipt
+is scoped to `herdr_pane_input_only`. It proves Herdr accepted that pane
+request; it does not prove the remote harness was ready, submitted the prompt,
+started work, loaded an extension, or called a tool. Before mutation, it rejects
+any fully assembled strict checkpoint token with a real nonce; callers must
+describe the prefix, checkpoint class, and nonce as separate prompt fragments.
+This keeps rendered user input from matching the output watcher. The adapter
+rechecks the socket file identity after connecting and before dispatch. That
+inode check narrows path-replacement races; it does not prove a native Herdr
+server incarnation. A lost, malformed, or mismatched acknowledgement is an
+unknown delivery outcome. Never retry that sequence: stop and use
+`qualification-reconcile-send` only after independent evidence establishes
+that the original input was applied.
 
 `qualification-run` is the shell-command surface. It accepts non-empty UTF-8
 command content only through standard input or a caller-owned `--text-file`,
