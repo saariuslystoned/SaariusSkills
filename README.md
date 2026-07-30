@@ -43,10 +43,18 @@ Ordinary status never reads pane text.
 Parent-session mutation, pre-existing-tab adoption, generic transcript capture,
 halt, and recovery remain disabled.
 
-The first live dogfood lane uses one newly owned, persistently visible AGY pane
-on a remote worker. Its machine-local controller journal is deliberately not a
-public transcript or promotion claim; curated public proof will follow only
-after the behavior and redaction boundaries survive review.
+Current status is tracked by a five-row, transcript-blind qualification bundle at
+implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
+`plans/puppet/herdr-puppet-proof.md`:
+
+- AGY: PASS
+- Cursor: BLOCKED_LOGIN_ENROLLMENT
+- Grok: PASS
+- Claude Code: FAIL
+- Codex CLI: FAIL
+
+The run remains experimental, and these outcomes are not a universal PASS claim
+for all harnesses.
 
 ## GrillTrack
 

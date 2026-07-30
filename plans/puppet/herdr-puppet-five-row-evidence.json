@@ -1,0 +1,421 @@
+{
+  "schema": "herdr-puppet.five-row-evidence.v1",
+  "recorded_date": "2026-07-30",
+  "implementation_head": "8ee87d8ed9882043762ca1877e54cb844072d685",
+  "implementation_tree": "06410c55200a884a178fbc74ccd5c361ade3fbc1",
+  "outcome": "incomplete",
+  "counts": {
+    "pass": 2,
+    "fail": 2,
+    "blocked_login_enrollment": 1
+  },
+  "common": {
+    "session": "swarmherdr-bobby--g20260715202020-32814f",
+    "workspace": "wC",
+    "remote_host": "aiworker-01",
+    "source_repo": "saariuslystoned/SaariusSkills",
+    "source_worktree": "SaariusSkills-herdr-puppet-five-20260730",
+    "instruction_layers": [
+      "universal",
+      "harness/<canonical-id>",
+      "model/default-unresolved",
+      "lifecycle/regular"
+    ],
+    "instruction_plane": "initial_message_wrapper",
+    "instruction_policy_fingerprint": "77509c5e5184b324948b9ad2380996c61ed93dec71497654f4b07a275d109523",
+    "harness_adapter_fingerprint": "458624462bf9a558177b34dc266b8911fbeb506b98dd28ec195925b4ca00b6d6",
+    "transport_adapter_fingerprint": "2263d5aac23a7054f259d4c6d50913f38a758ba9349f1cbcc7ff12ab6293217c",
+    "protocol_fingerprint": "c4be0f4f639a812131dceda32436f6237be87bc2442268a37e2acd8685b633e9",
+    "ordinary_transcript_read": false,
+    "explicit_model_selector": false,
+    "remote_harness_pid": "unavailable",
+    "targeted_halt": "unsupported",
+    "recovery": "unsupported",
+    "crash_persistence": "unsupported",
+    "ssh_pid_public": false,
+    "proof_root": "~/Developer/_machine-runs/herdr-puppet-five-8ee87d8-20260730/rows"
+  },
+  "validation": {
+    "unittest_command": "python3 -m unittest tests.test_herdr_puppet",
+    "unittest_count": 132,
+    "unittest_result": "pass",
+    "compileall_result": "pass",
+    "skill_creator_quick_validate_result": "pass",
+    "json_parse_result": "pass",
+    "diff_check_result": "pass"
+  },
+  "rows": [
+    {
+      "run_id": "hp58-agy-20260730-r1",
+      "harness": "agy",
+      "result": "pass",
+      "runtime_version": "1.1.8",
+      "executable_fingerprint": "c4eb5e1593c8ca73ae3b354ceaf8c9733cb926f5588b9762ede5aa8a3a0c00fe",
+      "binding_fingerprint": "73220f3b2592b3869df08f81485353afa6427814ea120c35668b23071ae7ca53",
+      "launch_vector_sha256": "cdd25864f163dae7bf6207b1fd880aecc7fdf6e3a14b48ecbac41080613bcdec",
+      "profile_enrollment": "enrolled",
+      "model_observation": {
+        "selection": "current_default",
+        "model": "unavailable",
+        "effort": "unavailable"
+      },
+      "identity": {
+        "workspace": "wC",
+        "tab": "wC:t6B",
+        "pane": "wC:p6B",
+        "terminal": "term_657dabd772aba13c",
+        "ssh_identity_bound_machine_local": true
+      },
+      "startup_gates": [],
+      "readiness": {
+        "shell": "status_verified",
+        "harness": "operator_verified"
+      },
+      "sends": [
+        {
+          "seq": 4,
+          "kind": "wrapped_first_send",
+          "submit_keys": [
+            "enter"
+          ],
+          "checkpoint": "HERDR_PUPPET_STATUS AYCO-8EE87D8",
+          "checkpoint_attempt": 1
+        },
+        {
+          "seq": 5,
+          "kind": "separate_steering",
+          "submit_keys": [
+            "enter"
+          ],
+          "checkpoint": "HERDR_PUPPET_DONE AYDN-8EE87D8",
+          "checkpoint_attempt": 1
+        }
+      ],
+      "view": {
+        "native_tui_visible": true,
+        "real_client_detach_reattach": true,
+        "leased_identities_unchanged": true
+      },
+      "preservation": {
+        "state": "preserved",
+        "reason": "milestone_complete",
+        "automatic_from_done": true
+      },
+      "maintenance": {
+        "remote_task_files_removed": true,
+        "caller_text_files_removed": true,
+        "exact_tab_cleanup": "pass",
+        "tab_pane_ssh_absence_verified": true
+      },
+      "tests": {
+        "unittest_count": 132,
+        "compileall": "pass",
+        "skill_creator": "pass"
+      },
+      "limitations": []
+    },
+    {
+      "run_id": "hp58-codex-20260730-r1",
+      "harness": "codex",
+      "result": "fail",
+      "runtime_version": "codex-cli 0.146.0",
+      "executable_fingerprint": "adc5daa8d370299cc2f6278497baaf953c55416f1e96df7fff89fe18c463d3b3",
+      "binding_fingerprint": "903cb4061680056ed9910eb8587c256048d32745dae23204c12792fdae97012e",
+      "launch_vector_sha256": "1a0d195c7a7a7a60b18c411ec656f1c4ca65602d6810613d6fb88a09be9cb8dc",
+      "profile_enrollment": "enrolled",
+      "model_observation": {
+        "selection": "current_default",
+        "model": "unavailable",
+        "effort": "unavailable"
+      },
+      "identity": {
+        "workspace": "wC",
+        "tab": "wC:t6A",
+        "pane": "wC:p6A",
+        "terminal": "term_657dab1e88dbe13b",
+        "ssh_identity_bound_machine_local": true
+      },
+      "startup_gates": [
+        {
+          "seq": 4,
+          "gate": "workspace_trust",
+          "action": "not_present"
+        },
+        {
+          "seq": 5,
+          "gate": "security_acknowledgement",
+          "action": "not_present"
+        },
+        {
+          "seq": 6,
+          "gate": "permission_bypass_confirmation",
+          "action": "not_present"
+        }
+      ],
+      "readiness": {
+        "shell": "status_verified",
+        "harness": "operator_verified"
+      },
+      "sends": [
+        {
+          "seq": 7,
+          "kind": "wrapped_first_send",
+          "submit_keys": [
+            "enter"
+          ],
+          "transport_acknowledged": true,
+          "expected_checkpoint": "HERDR_PUPPET_STATUS CXCO-8EE87D8",
+          "checkpoint_attempts": 2,
+          "checkpoint_result": "not_matched"
+        }
+      ],
+      "view": {
+        "native_tui_visible": true,
+        "real_client_detach_reattach": false,
+        "reason": "first_send_consumption_unproved"
+      },
+      "preservation": {
+        "state": "preserved",
+        "reason": "checkpoint_failed",
+        "automatic_from_done": false
+      },
+      "maintenance": {
+        "remote_task_files_removed": true,
+        "caller_text_files_removed": true,
+        "exact_tab_cleanup": "pass",
+        "tab_pane_ssh_absence_verified": true
+      },
+      "tests": {
+        "unittest_count": 132,
+        "compileall": "pass",
+        "skill_creator": "pass"
+      },
+      "limitations": [
+        "No second steering send or DONE claim followed the unproved first-send consumption.",
+        "A post-update census still reported 0.146.0 and the same executable fingerprint."
+      ]
+    },
+    {
+      "run_id": "hp58-claude-20260730-r1",
+      "harness": "claude",
+      "result": "fail",
+      "runtime_version": "2.1.206 (Claude Code)",
+      "executable_fingerprint": "c33cc932b2385399388283a23863ed9c8d043d46aa11a76334802daa2f30477c",
+      "binding_fingerprint": "6d49cd6c3699f15e0a2b5f2c31f4724bbb87eb965f0b13681d5ff35c8f100b95",
+      "launch_vector_sha256": "51d1df32e6e4229682329400f1a70a0244803ff85aee5492745483d66e8b5091",
+      "profile_enrollment": "enrolled",
+      "model_observation": {
+        "selection": "current_default",
+        "model": "unavailable",
+        "effort": "unavailable"
+      },
+      "identity": {
+        "workspace": "wC",
+        "tab": "wC:t69",
+        "pane": "wC:p69",
+        "terminal": "term_657da9ff7c37913a",
+        "ssh_identity_bound_machine_local": true
+      },
+      "startup_gates": [
+        {
+          "seq": 4,
+          "gate": "workspace_trust",
+          "action": "not_present"
+        },
+        {
+          "seq": 5,
+          "gate": "security_acknowledgement",
+          "action": "not_present"
+        },
+        {
+          "seq": 6,
+          "gate": "permission_bypass_confirmation",
+          "action": "not_present"
+        }
+      ],
+      "readiness": {
+        "shell": "status_verified",
+        "harness": "operator_verified"
+      },
+      "sends": [
+        {
+          "seq": 7,
+          "kind": "wrapped_first_send",
+          "submit_keys": [
+            "enter",
+            "enter"
+          ],
+          "transport_acknowledged": true,
+          "expected_checkpoint": "HERDR_PUPPET_STATUS CLCO-8EE87D8",
+          "checkpoint_attempts": 2,
+          "checkpoint_result": "not_matched"
+        }
+      ],
+      "view": {
+        "native_tui_visible": true,
+        "real_client_detach_reattach": false,
+        "reason": "first_send_consumption_unproved"
+      },
+      "preservation": {
+        "state": "preserved",
+        "reason": "checkpoint_failed",
+        "automatic_from_done": false
+      },
+      "maintenance": {
+        "remote_task_files_removed": true,
+        "caller_text_files_removed": true,
+        "exact_tab_cleanup": "pass",
+        "tab_pane_ssh_absence_verified": true
+      },
+      "tests": {
+        "unittest_count": 132,
+        "compileall": "pass",
+        "skill_creator": "pass"
+      },
+      "limitations": [
+        "No second steering send or DONE claim followed the unproved first-send consumption."
+      ]
+    },
+    {
+      "run_id": "hp58-cursor-20260730-r1",
+      "harness": "cursor",
+      "result": "blocked_login_enrollment",
+      "runtime_version": "2026.07.16-899851b",
+      "executable_fingerprint": "fa4854894047b475ce0fe908bcf61cb834571850d2782c7bb619a3b34a1dd7b5",
+      "binding_fingerprint": "46eadd70832534dc80cdc61b6dea2f5d5cc14366f9a8f71fcfe7df3e013249a9",
+      "launch_vector_sha256": "09e9301ddec9949838162eb7a371ffc45551423c78ddd27c908f51033b4f3d40",
+      "profile_enrollment": "interactive_pending",
+      "model_observation": {
+        "selection": "current_default",
+        "model": "unavailable",
+        "effort": "unavailable"
+      },
+      "identity": {
+        "workspace": "wC",
+        "tab": "wC:t6C",
+        "pane": "wC:p6C",
+        "terminal": "term_657dad012c1ff13d",
+        "ssh_identity_bound_machine_local": true
+      },
+      "startup_gates": [
+        {
+          "gate": "login_enrollment",
+          "action": "human_required_not_crossed"
+        }
+      ],
+      "readiness": {
+        "shell": "status_verified",
+        "harness": "unverified"
+      },
+      "sends": [],
+      "view": {
+        "native_tui_visible": true,
+        "real_client_detach_reattach": false,
+        "reason": "login_enrollment_not_authorized"
+      },
+      "preservation": {
+        "state": "preserved",
+        "reason": "human_gate",
+        "automatic_from_done": false
+      },
+      "maintenance": {
+        "remote_task_files_removed": true,
+        "caller_text_files_removed": true,
+        "exact_tab_cleanup": "pass",
+        "tab_pane_ssh_absence_verified": true
+      },
+      "tests": {
+        "unittest_count": 132,
+        "compileall": "pass",
+        "skill_creator": "pass"
+      },
+      "limitations": [
+        "No login, account enrollment, wrapper send, steering, DONE, or detach/reattach was attempted."
+      ]
+    },
+    {
+      "run_id": "hp58-grok-20260730-r1",
+      "harness": "grok",
+      "result": "pass",
+      "runtime_version": "grok 0.2.117 (f1c06093089f) [stable]",
+      "executable_fingerprint": "4f8772448a48f6b7efb3588a28fcd9fde9b9870d5a93fa854bad4c89fad6e6a1",
+      "binding_fingerprint": "e9959fe6c577e1baa41a07b7108b77b3d88a8e48e6a1ee7ebbf100776917078c",
+      "launch_vector_sha256": "d191717036a7d1f03135b00530da0b64515d9932c0528ae86d7147d4668619fd",
+      "profile_enrollment": "enrolled",
+      "model_observation": {
+        "selection": "current_default",
+        "model": "unavailable",
+        "effort": "unavailable"
+      },
+      "identity": {
+        "workspace": "wC",
+        "tab": "wC:t6D",
+        "pane": "wC:p6D",
+        "terminal": "term_657dad95afb6e13e",
+        "ssh_identity_bound_machine_local": true
+      },
+      "startup_gates": [],
+      "readiness": {
+        "shell": "status_verified",
+        "harness": "operator_verified"
+      },
+      "sends": [
+        {
+          "seq": 4,
+          "kind": "wrapped_first_send",
+          "submit_keys": [
+            "enter"
+          ],
+          "checkpoint": "HERDR_PUPPET_STATUS GKCO-8EE87D8",
+          "checkpoint_attempt": 1
+        },
+        {
+          "seq": 5,
+          "kind": "separate_steering",
+          "submit_keys": [
+            "enter"
+          ],
+          "checkpoint": "HERDR_PUPPET_DONE GKDN-8EE87D8",
+          "checkpoint_attempt": 1
+        }
+      ],
+      "view": {
+        "native_tui_visible": true,
+        "real_client_detach_reattach": true,
+        "leased_identities_unchanged": true
+      },
+      "preservation": {
+        "state": "preserved",
+        "reason": "milestone_complete",
+        "automatic_from_done": true
+      },
+      "maintenance": {
+        "remote_task_files_removed": true,
+        "caller_text_files_removed": true,
+        "exact_tab_cleanup": "pass",
+        "tab_pane_ssh_absence_verified": true
+      },
+      "tests": {
+        "unittest_count": 132,
+        "compileall": "pass",
+        "skill_creator": "pass"
+      },
+      "limitations": []
+    }
+  ],
+  "terminal_blockers": [
+    {
+      "harness": "cursor",
+      "class": "login_enrollment",
+      "required_next_authority": "human_present_enrollment_or_existing_profile_repair"
+    },
+    {
+      "harnesses": [
+        "codex",
+        "claude"
+      ],
+      "class": "wrapped_send_consumption_checkpoint_not_observed",
+      "required_next_step": "fresh harness-specific submission experiment at a new run/head; do not reinterpret socket acknowledgement as consumption"
+    }
+  ]
+}
