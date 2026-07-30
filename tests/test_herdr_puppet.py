@@ -24,6 +24,7 @@ LIB = ROOT / "skills" / "herdr-puppet" / "scripts"
 sys.path.insert(0, str(LIB))
 
 from herdr_puppet_lib.core import (  # noqa: E402
+    _regular_launch_command,
     cleanup_preserved_tab,
     create_qualification_tab,
     doctor,
@@ -379,10 +380,15 @@ def sample_binding(
         "argv": [executable["path"], *flags],
         "environment": {
             "HOME": "/redacted/home",
+            "PATH": (
+                "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
+                "/usr/sbin:/sbin"
+            ),
             "LANG": "C",
             "LC_ALL": "C",
             "TERM": "xterm-256color",
         },
+        "inherit_environment": False,
     }
     census = {
         "schema": "herdr-puppet.remote-harness-census.v1",
@@ -2732,6 +2738,62 @@ class QualificationTests(unittest.TestCase):
             [("input", "w2:p1", "bounded prompt")],
         )
 
+    def test_send_rejects_assembled_checkpoint_line_before_mutation(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text=(
+                    "Do the bounded task.\r\n"
+                    "HERDR_PUPPET_DONE PROMPT-ECHO-1\r\n"
+                ),
+                allow_live=True,
+            )
+        self.assertEqual(caught.exception.code, "checkpoint_echo_unsafe")
+        self.assertEqual(self.client.sent, [])
+        self.assertEqual(load_json(self.lease_path)["next_seq"], lease["next_seq"])
+
+    def test_send_rejects_terminal_normalized_checkpoint_token(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        for suffix in (" ", "\t", "`.", "\u00a0"):
+            with self.subTest(suffix=repr(suffix)):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    qualification_send(
+                        self.client,
+                        lease_payload=lease,
+                        lease_path=self.lease_path,
+                        seq=lease["next_seq"],
+                        text=(
+                            "Finish with `HERDR_PUPPET_DONE "
+                            f"PROMPT-ECHO-3{suffix}"
+                        ),
+                        allow_live=True,
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    "checkpoint_echo_unsafe",
+                )
+                self.assertEqual(self.client.sent, [])
+
+    def test_send_allows_split_checkpoint_composition_instruction(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text=(
+                "On completion, join the prefix HERDR_PUPPET_, the class DONE, "
+                "one space, and nonce PROMPT-ECHO-2 as one terminal line."
+            ),
+            allow_live=True,
+        )
+        self.assertTrue(result["checkpoint_echo_protected"])
+        self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
+
     def test_send_tracks_retained_prompt_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             prompt_path = Path(directory) / "prompt.txt"
@@ -3892,12 +3954,102 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(len(self.client.ran), 1)
         command = self.client.ran[0][2]
         self.assertIn("agy", command)
+        self.assertIn("/usr/bin/env -i", command)
         self.assertNotRegex(command, r"(?:^|&&)\s*exec\s+")
         updated = load_json(self.lease_path)
         self.assertEqual(
             updated["harness_launch"]["launch_vector_sha256"],
             lease["harness_binding"]["regular_launch"]["vector_sha256"],
         )
+
+    def test_regular_launch_clears_parent_agent_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory).resolve()
+            output = worktree / "observed-environment.txt"
+            executable = worktree / "fake-harness"
+            executable.write_text(
+                "#!/bin/sh\n"
+                "{\n"
+                "  printf 'HOME=%s\\n' \"$HOME\"\n"
+                "  printf 'PATH=%s\\n' \"$PATH\"\n"
+                "  printf 'LANG=%s\\n' \"$LANG\"\n"
+                "  printf 'LC_ALL=%s\\n' \"$LC_ALL\"\n"
+                "  printf 'TERM=%s\\n' \"$TERM\"\n"
+                "  for name in CODEX_HOME CODEX_THREAD_ID "
+                "CLAUDE_CODE_SESSION_ID HERDR_SESSION; do\n"
+                "    eval \"value=\\${$name-}\"\n"
+                "    if [ -n \"$value\" ]; then\n"
+                "      printf '%s=LEAKED\\n' \"$name\"\n"
+                "    fi\n"
+                "  done\n"
+                f"}} > {str(output)!r}\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            binding = sample_binding(worktree=str(worktree))
+            binding["remote"]["executable"]["path"] = str(executable)
+            binding["regular_launch"]["argv"][0] = str(executable)
+            vector = {
+                "argv": binding["regular_launch"]["argv"],
+                "environment": binding["regular_launch"]["environment"],
+                "inherit_environment": False,
+            }
+            binding["regular_launch"]["vector_sha256"] = _digest(vector)
+            binding["fingerprint"] = binding_fingerprint(binding)
+
+            parent_environment = dict(os.environ)
+            parent_environment.update(
+                {
+                    "CODEX_HOME": "/must/not/leak",
+                    "CODEX_THREAD_ID": "must-not-leak",
+                    "CLAUDE_CODE_SESSION_ID": "must-not-leak",
+                    "HERDR_SESSION": "must-not-leak",
+                }
+            )
+            subprocess.run(
+                ["/bin/sh", "-c", _regular_launch_command(binding)],
+                check=True,
+                env=parent_environment,
+            )
+
+            observed = output.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                observed,
+                [
+                    "HOME=/redacted/home",
+                    (
+                        "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
+                        "/usr/sbin:/sbin"
+                    ),
+                    "LANG=C",
+                    "LC_ALL=C",
+                    "TERM=xterm-256color",
+                ],
+            )
+
+    def test_codex_regular_launch_has_no_resume_selector(self) -> None:
+        argv = sample_binding(harness="codex")["regular_launch"]["argv"]
+        self.assertEqual(
+            argv[1:],
+            ["--dangerously-bypass-approvals-and-sandbox"],
+        )
+        self.assertFalse(
+            {"resume", "--last", "fork", "--session-id"}.intersection(argv)
+        )
+
+    def test_regular_launch_rejects_forged_extra_environment(self) -> None:
+        binding = sample_binding()
+        binding["regular_launch"]["environment"]["CODEX_HOME"] = "/forged"
+        vector = {
+            "argv": binding["regular_launch"]["argv"],
+            "environment": binding["regular_launch"]["environment"],
+            "inherit_environment": False,
+        }
+        binding["regular_launch"]["vector_sha256"] = _digest(vector)
+        binding["fingerprint"] = binding_fingerprint(binding)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            _regular_launch_command(binding)
+        self.assertEqual(caught.exception.code, "invalid_harness_binding")
 
     def test_cursor_workspace_trust_is_pre_readiness_single_use(self) -> None:
         client = FakeClient()

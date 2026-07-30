@@ -89,6 +89,9 @@ hand-composed Herdr mutations when the script owns the operation.
    consumption; one separately sequenced steering turn; native TUI
    view/detach/reattach checkpoint; and one strict terminal beacon. The
    dedicated launch operation alone may start a qualifying harness.
+   It starts from an empty process environment and restores only the exact
+   bound `HOME`, deterministic `PATH`, locale, and terminal values. Never
+   inherit controller, prior-agent, or Herdr process variables into a row.
    `qualification-run` rejects generic harness launches as well as every
    shell-replacing `exec <harness>` form. Regular rows never use `/goal`,
    `/loop`, or `/teamwork-preview`.
@@ -148,7 +151,10 @@ hand-composed Herdr mutations when the script owns the operation.
    declared qualification. Require the harness to emit exactly one line shaped
    as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`, where
    `<nonce>` is 8-24 safe identifier characters (`[A-Za-z0-9._:-]`). The
-   command returns
+   submitted harness prompt must name the prefix/class rule and real nonce as
+   separate fragments; never include their fully assembled strict token.
+   `qualification-send` rejects an assembled token before mutation so a
+   TUI-rendered user prompt cannot satisfy the output watcher. The command returns
    only the checkpoint class and hashes, never pane text. Use
    `qualification-token-probe` only for lower-level transport diagnosis. A
     `not_matched` result proves only that the strict line was absent from the

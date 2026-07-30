@@ -115,6 +115,7 @@
       "required": [
         "argv",
         "environment",
+        "inherit_environment",
         "unrestricted",
         "explicit_model_selector",
         "vector_sha256"
@@ -130,6 +131,7 @@
           "minProperties": 1,
           "additionalProperties": {"type": "string"}
         },
+        "inherit_environment": {"const": false},
         "unrestricted": {"const": true},
         "explicit_model_selector": {"const": false},
         "vector_sha256": {"$ref": "#/$defs/sha256"}

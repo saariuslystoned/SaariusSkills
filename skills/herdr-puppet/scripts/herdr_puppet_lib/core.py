@@ -111,6 +111,10 @@ RFC3339_TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
     r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
+STRICT_CHECKPOINT_TOKEN = re.compile(
+    r"HERDR_PUPPET_(?:STATUS|ACTION_REQUIRED|DONE)[ \t]+"
+    r"[A-Za-z0-9._:-]{8,24}(?![A-Za-z0-9._:-])"
+)
 
 LEASE_IDENTITY_FIELDS = (
     "schema",
@@ -2355,7 +2359,7 @@ def _regular_launch_command(binding: dict[str, Any]) -> str:
     ]
     return (
         f"cd -- {shlex.quote(worktree)} && "
-        + shlex.join(["env", *environment_argv, *argv])
+        + shlex.join(["/usr/bin/env", "-i", *environment_argv, *argv])
     )
 
 
@@ -2795,6 +2799,13 @@ def qualification_send(
             "live_qualification_not_authorized",
             "The command flag must authorize live qualification.",
         )
+    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if STRICT_CHECKPOINT_TOKEN.search(normalized_text):
+        raise HerdrPuppetError(
+            "checkpoint_echo_unsafe",
+            "Harness input must describe the checkpoint composition without "
+            "containing an assembled strict checkpoint token.",
+        )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
         if current["state"] != "active":
@@ -2867,6 +2878,7 @@ def qualification_send(
                         "shell_readiness": _shell_readiness(current),
                         "harness_readiness": readiness,
                         "harness_acceptance": "operator_verified",
+                        "checkpoint_echo_protected": True,
                         "caller_text_file_retained": text_file_retained,
                         "prompt_file_tracked": tracked_text_file is not None,
                         "controller_prompt_persisted": False,
@@ -2914,6 +2926,7 @@ def qualification_send(
         "shell_readiness": _shell_readiness(updated),
         "harness_readiness": readiness,
         "harness_acceptance": "operator_verified",
+        "checkpoint_echo_protected": True,
         "caller_text_file_retained": text_file_retained,
         "prompt_file_tracked": tracked_text_file is not None,
         "controller_prompt_persisted": False,

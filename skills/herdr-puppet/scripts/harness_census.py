@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from herdr_puppet_lib.harness_binding import ISOLATED_LAUNCH_PATH
+
 
 HARNESSES = {
     "agy": {
@@ -173,10 +175,7 @@ def main(argv: list[str] | None = None) -> int:
 
     environment = {
         "HOME": str(profile_root),
-        "PATH": os.environ.get(
-            "PATH",
-            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        ),
+        "PATH": ISOLATED_LAUNCH_PATH,
         "LANG": "C",
         "LC_ALL": "C",
         "TERM": "xterm-256color",
@@ -218,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     launch_environment = {
         "HOME": str(profile_root),
+        "PATH": ISOLATED_LAUNCH_PATH,
         "LANG": "C",
         "LC_ALL": "C",
         "TERM": "xterm-256color",
@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     vector = {
         "argv": launch_argv,
         "environment": launch_environment,
+        "inherit_environment": False,
     }
     payload = {
         "schema": "herdr-puppet.remote-harness-census.v1",

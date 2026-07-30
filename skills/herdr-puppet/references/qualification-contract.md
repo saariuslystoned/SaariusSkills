@@ -138,7 +138,11 @@ Every form of `exec <harness>` is forbidden because replacing the leased shell
 can remove foreground SSH identity. Generic direct launch through
 `qualification-run` is also forbidden after shell readiness. The bound
 dedicated launch is exactly once, at the next sequence, unrestricted, and
-contains no model selector.
+contains no model selector. The launch uses `/usr/bin/env -i`, then supplies
+only the census-bound `HOME`, deterministic system/Homebrew `PATH`, `LANG`,
+`LC_ALL`, and `TERM`. `inherit_environment: false` is part of the hashed
+launch vector, so controller, prior-agent, and Herdr variables cannot silently
+select another profile or contaminate the qualifying process.
 
 ## Startup gates and instruction plane
 
@@ -214,8 +218,8 @@ skill cannot make that native response transcript-blind. Qualification waits
 therefore keep the window small, hold it only in memory, extract the strict
 match, and discard the response without stdout or journal exposure.
 
-The normal controller loop uses `qualification-beacon-wait`. In each task
-prompt, assign one unique nonce and require exactly one terminal line:
+The normal controller loop uses `qualification-beacon-wait`. Assign one unique
+nonce per task and require exactly one terminal line with one of these shapes:
 
 ```text
 HERDR_PUPPET_STATUS <nonce>
@@ -223,6 +227,12 @@ HERDR_PUPPET_ACTION_REQUIRED <nonce>
 HERDR_PUPPET_DONE <nonce>
 ```
 <nonce> is limited to safe identifier characters and a length of 8-24.
+For harness input, give the nonce and the output composition rule separately;
+never place the fully assembled token containing the real nonce in the submitted
+prompt. `qualification-send` rejects such a token before pane mutation. This
+prevents a TUI-rendered user prompt from satisfying the output watcher. The
+shell `qualification-run` path may still emit an assembled line because its
+quoted `printf` command does not render that line standalone before execution.
 
 The waiter uses an anchored regular expression, validates the returned line
 again, emits only the checkpoint class, and journals only that class, the

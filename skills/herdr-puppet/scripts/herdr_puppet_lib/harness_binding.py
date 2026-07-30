@@ -47,6 +47,9 @@ INSTRUCTION_MANIFEST_SCHEMA = "herdr-puppet.instruction-wrapper.v1"
 INSTRUCTION_PLANE = "initial_message_wrapper"
 MAX_TEXT_BYTES = 32 * 1024
 MAX_TEMPLATE_BYTES = 64 * 1024
+ISOLATED_LAUNCH_PATH = (
+    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+)
 
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9._@:+/-]{1,512}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -493,6 +496,7 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
         {
             "argv",
             "environment",
+            "inherit_environment",
             "unrestricted",
             "explicit_model_selector",
             "vector_sha256",
@@ -517,6 +521,7 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
         )
     expected_environment = {
         "HOME": profile["root"],
+        "PATH": ISOLATED_LAUNCH_PATH,
         "LANG": "C",
         "LC_ALL": "C",
         "TERM": "xterm-256color",
@@ -527,7 +532,8 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
             "The regular launch environment is not the isolated regular profile.",
         )
     if (
-        launch["unrestricted"] is not True
+        launch["inherit_environment"] is not False
+        or launch["unrestricted"] is not True
         or launch["explicit_model_selector"] is not False
     ):
         raise HerdrPuppetError(
@@ -535,7 +541,13 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
             "The regular launch must be unrestricted and omit model selectors.",
         )
     expected_vector = _sha256_bytes(
-        _canonical_bytes({"argv": argv, "environment": environment})
+        _canonical_bytes(
+            {
+                "argv": argv,
+                "environment": environment,
+                "inherit_environment": False,
+            }
+        )
     )
     if launch["vector_sha256"] != expected_vector:
         raise HerdrPuppetError(
@@ -735,13 +747,35 @@ def validate_harness_binding(
                 "invalid_harness_binding",
                 "Only Cursor may carry a provisional interactive profile.",
             )
-    launch = binding["regular_launch"]
+    launch = _require_exact_fields(
+        binding["regular_launch"],
+        {
+            "argv",
+            "environment",
+            "inherit_environment",
+            "unrestricted",
+            "explicit_model_selector",
+            "vector_sha256",
+        },
+        "binding regular launch",
+    )
+    expected_launch_environment = {
+        "HOME": profile["root"],
+        "PATH": ISOLATED_LAUNCH_PATH,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "xterm-256color",
+    }
+    expected_launch_argv = [
+        executable["path"],
+        *HARNESS_LAUNCH_SPECS[harness]["flags"],
+    ]
     if (
-        not isinstance(launch, dict)
+        launch["inherit_environment"] is not False
         or launch.get("unrestricted") is not True
         or launch.get("explicit_model_selector") is not False
-        or not isinstance(launch.get("argv"), list)
-        or not isinstance(launch.get("environment"), dict)
+        or launch.get("argv") != expected_launch_argv
+        or launch.get("environment") != expected_launch_environment
     ):
         raise HerdrPuppetError(
             "invalid_harness_binding",
@@ -752,6 +786,7 @@ def validate_harness_binding(
             {
                 "argv": launch["argv"],
                 "environment": launch["environment"],
+                "inherit_environment": False,
             }
         )
     )

@@ -99,7 +99,10 @@ newline-delimited JSON request to the exact, current-user-owned Unix socket
 bound in the lease. Its receipt is scoped to `herdr_pane_input_only`. It proves
 Herdr accepted that pane request; it does not prove the remote harness was
 ready, submitted the prompt, started work, loaded an extension, or called a
-tool. The adapter rechecks the socket file identity after connecting and
+tool. Before mutation, it rejects any fully assembled strict checkpoint token
+with a real nonce; callers must describe the prefix, checkpoint class, and
+nonce as separate prompt fragments. This keeps rendered user input from
+matching the output watcher. The adapter rechecks the socket file identity after connecting and
 before dispatch. That inode check narrows path-replacement races; it does not
 prove a native Herdr server incarnation. A lost, malformed, or mismatched
 acknowledgement is an unknown delivery outcome. Never retry that sequence:
