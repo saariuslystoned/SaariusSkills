@@ -6,6 +6,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -13,6 +14,13 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import HerdrPuppetError
+from .harness_binding import (
+    CANONICAL_HARNESSES,
+    INSTRUCTION_PLANE,
+    binding_fingerprint,
+    validate_harness_binding,
+    validate_instruction_manifest,
+)
 from .herdr_client import HerdrClient, load_json
 from .journal import (
     append_event,
@@ -42,6 +50,55 @@ REMOTE_REMOVAL_EVIDENCE = {
     "operator_verified_remote_absence",
     "source_bound_terminal_artifact",
 }
+HARNESS_COMMANDS = {
+    "agy": "agy",
+    "codex": "codex",
+    "claude": "claude",
+    "cursor": "cursor-agent",
+    "grok": "grok",
+}
+STARTUP_GATE_ACTIONS = {
+    "cursor": {
+        "workspace_trust": {
+            "accept": ["a"],
+            "not_present": [],
+        },
+    },
+    "codex": {
+        "workspace_trust": {
+            "accept_selected": ["enter"],
+            "select_accept": ["up", "enter"],
+            "not_present": [],
+        },
+        "security_acknowledgement": {
+            "acknowledge": ["enter"],
+            "not_present": [],
+        },
+        "permission_bypass_confirmation": {
+            "accept_selected": ["enter"],
+            "select_accept": ["down", "enter"],
+            "not_present": [],
+        },
+    },
+    "claude": {
+        "workspace_trust": {
+            "accept_selected": ["enter"],
+            "select_accept": ["up", "enter"],
+            "not_present": [],
+        },
+        "security_acknowledgement": {
+            "acknowledge": ["enter"],
+            "not_present": [],
+        },
+        "permission_bypass_confirmation": {
+            "accept_selected": ["enter"],
+            "select_accept": ["down", "enter"],
+            "not_present": [],
+        },
+    },
+}
+VIEW_BEGIN_KIND = "qualification.view-begin"
+VIEW_COMPLETE_KIND = "qualification.view-complete"
 PRESERVE_REASONS = {
     "checkpoint_failed",
     "human_gate",
@@ -67,6 +124,7 @@ LEASE_IDENTITY_FIELDS = (
     "ssh",
     "source",
     "proof_root",
+    "harness_binding",
 )
 CONTROLLER_FILE_FIELDS = ("caller_text_files", "caller_text_files_removed")
 LEASE_FIELDS = {
@@ -92,6 +150,9 @@ LEASE_FIELDS = {
     "caller_text_files",
     "caller_text_files_removed",
     "remote_task_files",
+    "harness_binding",
+    "harness_launch",
+    "startup_gate_operations",
     "preserved_reason",
     "preserved_at",
     "cleanup_state",
@@ -114,6 +175,8 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
     "shell_readiness",
     "harness_readiness",
     "source",
+    "harness_binding",
+    "startup_gate_operations",
     "proof_root",
     "caller_text_files",
     "caller_text_files_removed",
@@ -125,6 +188,8 @@ LEGACY_OPTIONAL_CANONICAL_FIELDS = {
     "caller_text_files",
     "caller_text_files_removed",
     "remote_task_files",
+    "harness_binding",
+    "startup_gate_operations",
 }
 LEGACY_LEASE_REQUIRED_FIELDS = (
     CANONICAL_LEASE_REQUIRED_FIELDS - LEGACY_OPTIONAL_CANONICAL_FIELDS
@@ -135,7 +200,7 @@ def _reject_shell_replacing_harness_launcher(
     command: str,
     harness: str,
 ) -> None:
-    harness_binary = Path(harness.strip()).name
+    harness_binary = HARNESS_COMMANDS.get(harness, Path(harness.strip()).name)
     if not harness_binary:
         return
     shell_replacing_launcher = re.compile(
@@ -147,6 +212,25 @@ def _reject_shell_replacing_harness_launcher(
         raise HerdrPuppetError(
             "shell_replacing_harness_launcher",
             "The launcher must return to the leased shell after the harness exits.",
+        )
+
+
+def _reject_generic_harness_launcher(
+    command: str,
+    binding: dict[str, Any],
+) -> None:
+    executable = binding["remote"]["executable"]["path"]
+    command_name = HARNESS_COMMANDS[binding["harness"]]
+    pattern = re.compile(
+        rf"(?:^|&&|;|\|\|)[ \t]*(?:env[ \t]+(?:[^;&|]+[ \t]+)?)?"
+        rf"(?:{re.escape(executable)}|(?:[^ \t;&|]*/)?{re.escape(command_name)})"
+        rf"(?:[ \t]|$)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if pattern.search(command):
+        raise HerdrPuppetError(
+            "generic_harness_launch_forbidden",
+            "Use the controller-attested qualification-harness-launch operation.",
         )
 
 
@@ -419,6 +503,138 @@ def _require_exact_object_fields(
     return value
 
 
+def _validate_record_binding(payload: dict[str, Any]) -> dict[str, Any]:
+    binding = payload.get("harness_binding")
+    if not isinstance(binding, dict):
+        raise HerdrPuppetError(
+            "harness_binding_missing",
+            "The plan or lease must reference one controller-attested harness binding.",
+        )
+    source = payload.get("source")
+    if not isinstance(source, dict):
+        raise HerdrPuppetError(
+            "invalid_record",
+            "The binding cannot be validated without a source record.",
+        )
+    return validate_harness_binding(
+        binding,
+        expected_harness=payload.get("harness"),
+        expected_repo=source.get("repo"),
+        expected_worktree=source.get("worktree"),
+    )
+
+
+def _validate_harness_launch_record(
+    value: Any,
+    *,
+    binding: dict[str, Any],
+    next_seq: int,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "seq",
+        "launched_at",
+        "command_sha256",
+        "binding_fingerprint",
+        "launch_vector_sha256",
+        "remote_harness_pid",
+    }:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "The harness launch record shape is invalid.",
+        )
+    if (
+        not isinstance(value["seq"], int)
+        or isinstance(value["seq"], bool)
+        or value["seq"] < 2
+        or value["seq"] >= next_seq
+        or not _is_rfc3339_timestamp(value["launched_at"])
+        or value["binding_fingerprint"] != binding["fingerprint"]
+        or value["launch_vector_sha256"]
+        != binding["regular_launch"]["vector_sha256"]
+        or value["remote_harness_pid"] != "unavailable"
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "The harness launch record does not match its binding and sequence.",
+        )
+    command_sha256 = value["command_sha256"]
+    if (
+        not isinstance(command_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", command_sha256) is None
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "The harness launch command fingerprint is invalid.",
+        )
+    return dict(value)
+
+
+def _validate_startup_gate_operations(
+    value: Any,
+    *,
+    harness: str,
+    next_seq: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Startup-gate operations must be an array.",
+        )
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    previous_seq = 0
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "gate",
+            "action",
+            "seq",
+            "observed_at",
+            "operator_sha256",
+            "worktree_sha256",
+            "key_vector_sha256",
+            "pane_input_mutated",
+        }:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "A startup-gate operation shape is invalid.",
+            )
+        gate = item["gate"]
+        action = item["action"]
+        allowed = STARTUP_GATE_ACTIONS.get(harness, {}).get(gate)
+        if (
+            allowed is None
+            or action not in allowed
+            or gate in seen
+            or not isinstance(item["seq"], int)
+            or isinstance(item["seq"], bool)
+            or item["seq"] <= previous_seq
+            or item["seq"] >= next_seq
+            or not _is_rfc3339_timestamp(item["observed_at"])
+            or item["pane_input_mutated"] is not bool(allowed[action])
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "A startup-gate operation is unsupported, repeated, or out of sequence.",
+            )
+        for field in (
+            "operator_sha256",
+            "worktree_sha256",
+            "key_vector_sha256",
+        ):
+            if (
+                not isinstance(item[field], str)
+                or re.fullmatch(r"[0-9a-f]{64}", item[field]) is None
+            ):
+                raise HerdrPuppetError(
+                    "invalid_lease",
+                    "A startup-gate operation fingerprint is invalid.",
+                )
+        seen.add(gate)
+        previous_seq = item["seq"]
+        normalized.append(dict(item))
+    return normalized
+
+
 def validate_plan(payload: dict[str, Any]) -> None:
     if payload.get("schema") != "herdr-puppet.plan.v1":
         raise HerdrPuppetError("invalid_plan_schema", "Unsupported plan schema.")
@@ -432,6 +648,11 @@ def validate_plan(payload: dict[str, Any]) -> None:
         "proof_root",
     ):
         _require_string(payload, key)
+    if payload.get("harness") not in CANONICAL_HARNESSES:
+        raise HerdrPuppetError(
+            "noncanonical_harness",
+            "Harness must be one of agy, codex, claude, cursor, or grok.",
+        )
     for key in ("session", "workspace", "source", "safety"):
         if not isinstance(payload.get(key), dict):
             raise HerdrPuppetError(
@@ -460,6 +681,7 @@ def validate_plan(payload: dict[str, Any]) -> None:
             "server_incarnation_claim_forbidden",
             "Herdr 0.7.3 does not expose a server-incarnation authority field.",
         )
+    _validate_record_binding(payload)
 
 
 def validate_lease(payload: dict[str, Any]) -> None:
@@ -516,6 +738,11 @@ def _validate_lease(
         "proof_root",
     ):
         _require_string(payload, key)
+    if payload.get("harness") not in CANONICAL_HARNESSES:
+        raise HerdrPuppetError(
+            "noncanonical_harness",
+            "Lease harness is not canonical.",
+        )
     owned_label = _require_string(payload, "owned_label")
     if re.fullmatch(r"puppet-[a-z0-9-]+", owned_label) is None:
         raise HerdrPuppetError(
@@ -588,6 +815,34 @@ def _validate_lease(
     )
     for key in ("repo", "worktree"):
         _require_string(source, key)
+    binding: dict[str, Any] | None = None
+    if "harness_binding" in payload:
+        binding = _validate_record_binding(payload)
+    if "harness_launch" in payload:
+        if binding is None:
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "A harness launch record requires a harness binding.",
+            )
+        _validate_harness_launch_record(
+            payload["harness_launch"],
+            binding=binding,
+            next_seq=payload["next_seq"],
+        )
+    if "startup_gate_operations" in payload:
+        operations = payload["startup_gate_operations"]
+        if binding is None or (
+            operations and "harness_launch" not in payload
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Startup-gate operations require a bound harness launch.",
+            )
+        _validate_startup_gate_operations(
+            operations,
+            harness=payload["harness"],
+            next_seq=payload["next_seq"],
+        )
     if payload.get("shell_readiness", "unverified") not in {
         "unverified",
         SHELL_READY,
@@ -681,6 +936,11 @@ def _validate_lease(
 
 def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
     validate_legacy_lease(payload)
+    if "harness_binding" not in payload:
+        raise HerdrPuppetError(
+            "legacy_harness_binding_unavailable",
+            "An unbound historical lease cannot be attested retroactively.",
+        )
     migrated = json.loads(json.dumps(payload))
     legacy_status_ready = (
         migrated.get("harness_readiness") == LEGACY_HARNESS_STATUS
@@ -697,6 +957,7 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
     migrated.setdefault("caller_text_files", [])
     migrated.setdefault("caller_text_files_removed", [])
     migrated.setdefault("remote_task_files", [])
+    migrated.setdefault("startup_gate_operations", [])
     validate_lease(migrated)
     return migrated
 
@@ -843,10 +1104,22 @@ def plan(
     repo: str,
     worktree: str,
     proof_root: str,
+    harness_binding: dict[str, Any],
     ordinal: int = 1,
     live_mutation_authorized: bool = False,
     facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if harness not in CANONICAL_HARNESSES:
+        raise HerdrPuppetError(
+            "noncanonical_harness",
+            "Harness must be one of agy, codex, claude, cursor, or grok.",
+        )
+    checked_binding = validate_harness_binding(
+        harness_binding,
+        expected_harness=harness,
+        expected_repo=repo,
+        expected_worktree=worktree,
+    )
     doctor_facts = facts.get("doctor") if facts else None
     doctor_result = doctor(client, session, facts=doctor_facts)
     if doctor_result["result"] != "ok":
@@ -881,6 +1154,7 @@ def plan(
         "expected_ssh_target": expected_ssh_target,
         "owned_label": _label(run_id, harness, ordinal),
         "source": {"repo": repo, "worktree": worktree},
+        "harness_binding": checked_binding,
         "proof_root": proof_root,
         "safety": {
             "parent_session_mutation": False,
@@ -1038,6 +1312,21 @@ def structural_status(
         "terminal_id": payload["terminal_id"],
         "ssh_pid": process.get("pid") if process else None,
         "next_seq": payload["next_seq"],
+        "harness_binding_fingerprint": (
+            payload["harness_binding"]["fingerprint"]
+            if isinstance(payload.get("harness_binding"), dict)
+            else None
+        ),
+        "capabilities": (
+            dict(payload["harness_binding"]["capabilities"])
+            if isinstance(payload.get("harness_binding"), dict)
+            else {
+                "remote_harness_pid": "unavailable",
+                "targeted_halt": "unsupported",
+                "recovery": "unsupported",
+                "crash_persistence": "unsupported",
+            }
+        ),
         "transcript_read": False,
     }
 
@@ -1791,6 +2080,8 @@ def _create_qualification_tab_locked(
         "shell_readiness": "unverified",
         "harness_readiness": "unverified",
         "source": plan_payload["source"],
+        "harness_binding": plan_payload["harness_binding"],
+        "startup_gate_operations": [],
         "proof_root": plan_payload["proof_root"],
         "caller_text_files": [],
         "caller_text_files_removed": [],
@@ -1814,6 +2105,13 @@ def _create_qualification_tab_locked(
                     "harness_started": False,
                     "shell_readiness": "unverified",
                     "harness_readiness": "unverified",
+                    "harness_binding_fingerprint": lease["harness_binding"][
+                        "fingerprint"
+                    ],
+                    "remote_harness_pid": "unavailable",
+                    "targeted_halt": "unsupported",
+                    "recovery": "unsupported",
+                    "crash_persistence": "unsupported",
                 },
             ),
         )
@@ -1849,6 +2147,11 @@ def qualification_run(
                 details={"expected": current["next_seq"], "received": seq},
             )
         _reject_shell_replacing_harness_launcher(command, current["harness"])
+        if seq > 1 and isinstance(current.get("harness_binding"), dict):
+            _reject_generic_harness_launcher(
+                command,
+                current["harness_binding"],
+            )
         shell_readiness = _shell_readiness(current)
         if seq > 1 and shell_readiness != SHELL_READY:
             raise HerdrPuppetError(
@@ -1951,6 +2254,311 @@ def qualification_run(
     }
 
 
+def _regular_launch_command(binding: dict[str, Any]) -> str:
+    checked = validate_harness_binding(binding)
+    worktree = checked["source"]["worktree"]
+    environment = checked["regular_launch"]["environment"]
+    argv = checked["regular_launch"]["argv"]
+    for key in environment:
+        if re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) is None:
+            raise HerdrPuppetError(
+                "invalid_harness_binding",
+                "The regular launch environment contains an invalid name.",
+            )
+    environment_argv = [
+        f"{key}={environment[key]}" for key in sorted(environment)
+    ]
+    return (
+        f"cd -- {shlex.quote(worktree)} && "
+        + shlex.join(["env", *environment_argv, *argv])
+    )
+
+
+def qualification_harness_launch(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    seq: int,
+    allow_live: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize the regular harness launch.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if seq != current["next_seq"]:
+            raise HerdrPuppetError(
+                "send_sequence_mismatch",
+                "Harness launch sequence is stale, skipped, duplicate, or replayed.",
+                details={"expected": current["next_seq"], "received": seq},
+            )
+        if _shell_readiness(current) != SHELL_READY:
+            raise HerdrPuppetError(
+                "shell_readiness_not_proven",
+                "Regular harness launch requires a STATUS-verified shell.",
+            )
+        if "harness_launch" in current:
+            raise HerdrPuppetError(
+                "harness_already_launched",
+                "A lease permits exactly one controller-attested harness launch.",
+            )
+        binding = _validate_record_binding(current)
+        if (
+            binding["regular_launch"]["explicit_model_selector"] is not False
+            or binding["regular_launch"]["unrestricted"] is not True
+        ):
+            raise HerdrPuppetError(
+                "invalid_regular_launch",
+                "The bound launch must be unrestricted and omit model selection.",
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "prelaunch_status_blocked",
+                "Structural status blocked the regular harness launch.",
+                details={"blockers": status["blockers"]},
+            )
+        command = _regular_launch_command(binding)
+        _reject_shell_replacing_harness_launcher(command, current["harness"])
+        client.run_command(
+            current["session"]["name"],
+            current["pane_id"],
+            command,
+        )
+        command_digest = sha256_text(command)
+        updated = json.loads(json.dumps(current))
+        updated["harness_launch"] = {
+            "seq": seq,
+            "launched_at": now(),
+            "command_sha256": command_digest,
+            "binding_fingerprint": binding["fingerprint"],
+            "launch_vector_sha256": binding["regular_launch"][
+                "vector_sha256"
+            ],
+            "remote_harness_pid": "unavailable",
+        }
+        updated["next_seq"] = seq + 1
+        atomic_json(locked_lease_path, updated)
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "qualification.harness-launch",
+                "ok",
+                seq=seq,
+                command_sha256=command_digest,
+                data={
+                    "pane_id": updated["pane_id"],
+                    "binding_fingerprint": binding["fingerprint"],
+                    "launch_vector_sha256": binding["regular_launch"][
+                        "vector_sha256"
+                    ],
+                    "explicit_model_selector": False,
+                    "unrestricted": True,
+                    "remote_harness_pid": "unavailable",
+                    "targeted_halt": "unsupported",
+                    "recovery": "unsupported",
+                    "crash_persistence": "unsupported",
+                    "acceptance_scope": "herdr_pane_run_cli_only",
+                    "execution_acceptance": "unverified",
+                    "transcript_read": False,
+                },
+            ),
+        )
+    return {
+        "schema": "herdr-puppet.qualification-harness-launch.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "pane_id": updated["pane_id"],
+        "seq": seq,
+        "next_seq": updated["next_seq"],
+        "harness": updated["harness"],
+        "binding_fingerprint": binding["fingerprint"],
+        "launch_vector_sha256": binding["regular_launch"]["vector_sha256"],
+        "command_sha256": command_digest,
+        "explicit_model_selector": False,
+        "unrestricted": True,
+        "remote_harness_pid": "unavailable",
+        "targeted_halt": "unsupported",
+        "recovery": "unsupported",
+        "crash_persistence": "unsupported",
+        "herdr_cli_acknowledged": True,
+        "execution_acceptance": "unverified",
+        "transcript_read": False,
+    }
+
+
+def qualification_startup_gate(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    seq: int,
+    gate: str,
+    action: str,
+    source_worktree: str,
+    operator_id: str,
+    evidence: str,
+    confirm_exact_worktree: bool,
+    confirm_unrestricted: bool,
+    allow_live: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize startup-gate handling.",
+        )
+    if (
+        not confirm_exact_worktree
+        or not confirm_unrestricted
+        or evidence != "operator_observed_exact_gate"
+    ):
+        raise HerdrPuppetError(
+            "startup_gate_not_confirmed",
+            "Startup-gate handling requires exact-worktree and unrestricted-posture confirmation.",
+        )
+    if (
+        not isinstance(operator_id, str)
+        or re.fullmatch(r"[A-Za-z0-9._@:-]{1,128}", operator_id) is None
+    ):
+        raise HerdrPuppetError(
+            "startup_gate_operator_invalid",
+            "Startup-gate handling requires a bounded operator identifier.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        if seq != current["next_seq"]:
+            raise HerdrPuppetError(
+                "send_sequence_mismatch",
+                "Startup-gate sequence is stale, skipped, duplicate, or replayed.",
+                details={"expected": current["next_seq"], "received": seq},
+            )
+        if current.get("harness_readiness") == HARNESS_READY:
+            raise HerdrPuppetError(
+                "startup_gate_after_readiness_forbidden",
+                "Startup gates may be handled only before ordinary readiness.",
+            )
+        binding = _validate_record_binding(current)
+        if "harness_launch" not in current:
+            raise HerdrPuppetError(
+                "harness_launch_missing",
+                "Startup-gate handling requires the bound regular launch.",
+            )
+        if (
+            source_worktree != current["source"]["worktree"]
+            or source_worktree != binding["source"]["worktree"]
+        ):
+            raise HerdrPuppetError(
+                "startup_gate_worktree_mismatch",
+                "Startup-gate handling must bind the exact task-owned worktree.",
+            )
+        allowed = STARTUP_GATE_ACTIONS.get(current["harness"], {}).get(gate)
+        if allowed is None or action not in allowed:
+            raise HerdrPuppetError(
+                "startup_gate_unsupported",
+                "The startup gate or action is outside the harness allowlist.",
+            )
+        existing = current.get("startup_gate_operations", [])
+        if any(item.get("gate") == gate for item in existing):
+            raise HerdrPuppetError(
+                "startup_gate_replay",
+                "Each startup gate may be handled at most once per lease.",
+            )
+        if binding["regular_launch"]["unrestricted"] is not True:
+            raise HerdrPuppetError(
+                "startup_gate_unrestricted_posture_missing",
+                "Startup-gate handling requires the bound unrestricted posture.",
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "startup_gate_status_blocked",
+                "Structural status blocked startup-gate handling.",
+                details={"blockers": status["blockers"]},
+            )
+        keys = list(allowed[action])
+        if keys:
+            client.run_keys(
+                current["session"]["socket"],
+                current["pane_id"],
+                keys,
+            )
+        operator_digest = sha256_text(operator_id)
+        worktree_digest = sha256_text(source_worktree)
+        key_vector_digest = sha256_text(
+            json.dumps(keys, separators=(",", ":"), ensure_ascii=False)
+        )
+        operation = {
+            "gate": gate,
+            "action": action,
+            "seq": seq,
+            "observed_at": now(),
+            "operator_sha256": operator_digest,
+            "worktree_sha256": worktree_digest,
+            "key_vector_sha256": key_vector_digest,
+            "pane_input_mutated": bool(keys),
+        }
+        updated = json.loads(json.dumps(current))
+        updated["startup_gate_operations"] = [
+            *existing,
+            operation,
+        ]
+        updated["next_seq"] = seq + 1
+        atomic_json(locked_lease_path, updated)
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "qualification.startup-gate",
+                "observed",
+                seq=seq,
+                data={
+                    "pane_id": updated["pane_id"],
+                    "gate": gate,
+                    "action": action,
+                    "operator_id_sha256": operator_digest,
+                    "worktree_sha256": worktree_digest,
+                    "key_vector_sha256": key_vector_digest,
+                    "pane_input_mutated": bool(keys),
+                    "single_use": True,
+                    "pre_readiness": True,
+                    "transcript_read": False,
+                },
+            ),
+        )
+    return {
+        "schema": "herdr-puppet.qualification-startup-gate.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "pane_id": updated["pane_id"],
+        "harness": updated["harness"],
+        "gate": gate,
+        "action": action,
+        "seq": seq,
+        "next_seq": updated["next_seq"],
+        "operator_id_sha256": operator_digest,
+        "worktree_sha256": worktree_digest,
+        "key_vector_sha256": key_vector_digest,
+        "pane_input_mutated": bool(keys),
+        "single_use": True,
+        "pre_readiness": True,
+        "transcript_read": False,
+    }
+
+
 def qualification_harness_ready(
     client: HerdrClient,
     *,
@@ -2006,6 +2614,20 @@ def qualification_harness_ready(
                 "shell_readiness_not_proven",
                 "Harness readiness may be verified only after a shell STATUS beacon.",
             )
+        binding = _validate_record_binding(current)
+        if "harness_launch" not in current:
+            raise HerdrPuppetError(
+                "harness_launch_missing",
+                "Harness readiness requires the controller-attested regular launch.",
+            )
+        if current["harness"] == "cursor" and not any(
+            operation.get("gate") == "workspace_trust"
+            for operation in current.get("startup_gate_operations", [])
+        ):
+            raise HerdrPuppetError(
+                "cursor_workspace_trust_unresolved",
+                "Cursor Workspace Trust must be handled before ordinary readiness.",
+            )
         status = structural_status(client, lease_payload=current)
         if status["result"] != "ok":
             raise HerdrPuppetError(
@@ -2044,6 +2666,10 @@ def qualification_harness_ready(
                         "shell_readiness": _shell_readiness(updated),
                         "harness_readiness": HARNESS_READY,
                         "transcript_read": False,
+                        "binding_fingerprint": binding["fingerprint"],
+                        "startup_gate_count": len(
+                            updated.get("startup_gate_operations", [])
+                        ),
                     },
                 ),
             )
@@ -2057,6 +2683,10 @@ def qualification_harness_ready(
         "shell_readiness": _shell_readiness(updated),
         "harness_readiness": HARNESS_READY,
         "already_ready": already_ready,
+        "binding_fingerprint": binding["fingerprint"],
+        "startup_gate_count": len(
+            updated.get("startup_gate_operations", [])
+        ),
         "transcript_read": False,
     }
 
@@ -2069,6 +2699,7 @@ def qualification_send(
     seq: int,
     text: str,
     text_file: str | None = None,
+    instruction_manifest: dict[str, Any] | None = None,
     allow_live: bool,
     run_root: Path | None = None,
 ) -> dict[str, Any]:
@@ -2096,6 +2727,19 @@ def qualification_send(
                 "Pane input requires explicit source/operator-bound harness readiness.",
                 details={"expected": HARNESS_READY, "actual": readiness},
             )
+        binding = _validate_record_binding(current)
+        checked_instruction_manifest: dict[str, Any] | None = None
+        if instruction_manifest is not None:
+            checked_instruction_manifest = validate_instruction_manifest(
+                instruction_manifest,
+                binding_value=binding,
+                rendered=text.encode("utf-8"),
+            )
+            if checked_instruction_manifest["run_id"] != current["run_id"]:
+                raise HerdrPuppetError(
+                    "instruction_wrapper_run_mismatch",
+                    "The instruction wrapper does not match the leased run.",
+                )
         status = structural_status(client, lease_payload=current)
         if status["result"] != "ok":
             raise HerdrPuppetError(
@@ -2151,6 +2795,23 @@ def qualification_send(
                             if tracked_text_file is not None
                             else "not_applicable"
                         ),
+                        "instruction_wrapper": (
+                            {
+                                "schema": checked_instruction_manifest["schema"],
+                                "plane": checked_instruction_manifest["plane"],
+                                "policy_fingerprint": checked_instruction_manifest[
+                                    "policy_fingerprint"
+                                ],
+                                "binding_fingerprint": checked_instruction_manifest[
+                                    "binding_fingerprint"
+                                ],
+                                "rendered_sha256": checked_instruction_manifest[
+                                    "rendered_sha256"
+                                ],
+                            }
+                            if checked_instruction_manifest is not None
+                            else None
+                        ),
                     },
                 ),
             )
@@ -2180,6 +2841,23 @@ def qualification_send(
             "caller_owned" if tracked_text_file is not None else "not_applicable"
         ),
         "prompt_persisted": False,
+        "instruction_wrapper": (
+            {
+                "schema": checked_instruction_manifest["schema"],
+                "plane": checked_instruction_manifest["plane"],
+                "policy_fingerprint": checked_instruction_manifest[
+                    "policy_fingerprint"
+                ],
+                "binding_fingerprint": checked_instruction_manifest[
+                    "binding_fingerprint"
+                ],
+                "rendered_sha256": checked_instruction_manifest[
+                    "rendered_sha256"
+                ],
+            }
+            if checked_instruction_manifest is not None
+            else None
+        ),
         "transcript_read": False,
     }
 
@@ -2260,6 +2938,215 @@ def qualification_reconcile_send(
         "prompt_sha256": digest,
         "evidence": evidence,
         "herdr_mutated": False,
+        "transcript_read": False,
+    }
+
+
+def _view_identity(lease: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "session": lease["session"]["name"],
+        "workspace_id": lease["workspace"]["id"],
+        "tab_id": lease["tab_id"],
+        "pane_id": lease["pane_id"],
+        "terminal_id": lease["terminal_id"],
+        "ssh_pid": lease["ssh"]["pid"],
+        "ssh_target": lease["ssh"]["target"],
+    }
+
+
+def qualification_view_begin(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    nonce: str,
+    operator_id: str,
+    confirm_native_tui_visible: bool,
+    allow_live: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize the native-view checkpoint.",
+        )
+    if not confirm_native_tui_visible:
+        raise HerdrPuppetError(
+            "native_tui_not_confirmed",
+            "The operator must confirm the exact leased native TUI is visible.",
+        )
+    if (
+        re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", nonce) is None
+        or re.fullmatch(r"[A-Za-z0-9._@:-]{1,128}", operator_id) is None
+    ):
+        raise HerdrPuppetError(
+            "invalid_view_checkpoint",
+            "The view nonce or operator identity is invalid.",
+        )
+    nonce_digest = sha256_text(nonce)
+    operator_digest = sha256_text(operator_id)
+    for event in read_events(run_root):
+        if (
+            event.get("kind") in {VIEW_BEGIN_KIND, VIEW_COMPLETE_KIND}
+            and event.get("nonce_sha256") == nonce_digest
+        ):
+            raise HerdrPuppetError(
+                "view_checkpoint_replay",
+                "A native-view checkpoint nonce may be used only once.",
+            )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "view_status_blocked",
+                "Structural status blocked the native-view checkpoint.",
+                details={"blockers": status["blockers"]},
+            )
+        identity = _view_identity(current)
+        identity_digest = sha256_text(
+            json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        )
+        append_event(
+            run_root,
+            make_event(
+                current["run_id"],
+                VIEW_BEGIN_KIND,
+                "observed",
+                nonce_sha256=nonce_digest,
+                data={
+                    "operator_id_sha256": operator_digest,
+                    "identity_sha256": identity_digest,
+                    "native_tui_visible": True,
+                    "detach_reattach_pending": True,
+                    "transcript_read": False,
+                },
+            ),
+        )
+    return {
+        "schema": "herdr-puppet.qualification-view-begin.v1",
+        "result": "ok",
+        "run_id": current["run_id"],
+        "nonce_sha256": nonce_digest,
+        "operator_id_sha256": operator_digest,
+        "identity_sha256": identity_digest,
+        "native_tui_visible": True,
+        "detach_reattach_pending": True,
+        "transcript_read": False,
+    }
+
+
+def qualification_view_complete(
+    client: HerdrClient,
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    nonce: str,
+    operator_id: str,
+    evidence: str,
+    confirm_detached_reattached: bool,
+    allow_live: bool,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize detach/reattach completion.",
+        )
+    if (
+        not confirm_detached_reattached
+        or evidence != "operator_observed_real_client_detach_reattach"
+    ):
+        raise HerdrPuppetError(
+            "detach_reattach_not_confirmed",
+            "Completion requires operator-observed real client detach/reattach.",
+        )
+    if (
+        re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", nonce) is None
+        or re.fullmatch(r"[A-Za-z0-9._@:-]{1,128}", operator_id) is None
+    ):
+        raise HerdrPuppetError(
+            "invalid_view_checkpoint",
+            "The view nonce or operator identity is invalid.",
+        )
+    nonce_digest = sha256_text(nonce)
+    operator_digest = sha256_text(operator_id)
+    begins = [
+        event
+        for event in read_events(run_root)
+        if event.get("kind") == VIEW_BEGIN_KIND
+        and event.get("nonce_sha256") == nonce_digest
+    ]
+    completes = [
+        event
+        for event in read_events(run_root)
+        if event.get("kind") == VIEW_COMPLETE_KIND
+        and event.get("nonce_sha256") == nonce_digest
+    ]
+    if len(begins) != 1 or completes:
+        raise HerdrPuppetError(
+            "view_checkpoint_missing_or_replayed",
+            "Detach/reattach completion requires exactly one unmatched begin record.",
+        )
+    begin_data = begins[0].get("data") or {}
+    if begin_data.get("operator_id_sha256") != operator_digest:
+        raise HerdrPuppetError(
+            "view_checkpoint_operator_mismatch",
+            "Detach/reattach completion must use the same operator identity.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "view_status_blocked",
+                "Structural status blocked detach/reattach completion.",
+                details={"blockers": status["blockers"]},
+            )
+        identity = _view_identity(current)
+        identity_digest = sha256_text(
+            json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        )
+        if identity_digest != begin_data.get("identity_sha256"):
+            raise HerdrPuppetError(
+                "view_identity_drift",
+                "Leased identities changed across client detach/reattach.",
+            )
+        append_event(
+            run_root,
+            make_event(
+                current["run_id"],
+                VIEW_COMPLETE_KIND,
+                "observed",
+                nonce_sha256=nonce_digest,
+                data={
+                    "operator_id_sha256": operator_digest,
+                    "identity_sha256": identity_digest,
+                    "native_tui_visible": True,
+                    "real_client_detach_reattach": True,
+                    "leased_identities_unchanged": True,
+                    "transcript_read": False,
+                },
+            ),
+        )
+    return {
+        "schema": "herdr-puppet.qualification-view-complete.v1",
+        "result": "ok",
+        "run_id": current["run_id"],
+        "nonce_sha256": nonce_digest,
+        "operator_id_sha256": operator_digest,
+        "identity_sha256": identity_digest,
+        "native_tui_visible": True,
+        "real_client_detach_reattach": True,
+        "leased_identities_unchanged": True,
         "transcript_read": False,
     }
 

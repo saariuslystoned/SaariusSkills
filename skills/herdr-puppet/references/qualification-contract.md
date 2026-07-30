@@ -13,13 +13,16 @@ The first useful dogfood run should:
 4. verify the exact tab, pane, terminal, and foreground SSH target;
 5. submit one harmless shell STATUS preflight through atomic `pane run`;
 6. observe its unique STATUS beacon before any follow-on submission;
-7. start one harness only after its own runtime posture is separately approved;
-8. independently prove the harness input surface is ready;
-9. send one bounded task prompt with the next lease sequence;
-10. use one generated terminal nonce checkpoint;
-11. prove client detach/reattach without changing the leased identities;
-12. preserve and inventory the tab at the terminal milestone;
-13. record gaps and improvement candidates without copying transcript text.
+7. compare a fresh in-row census with one controller-attested harness binding;
+8. start one canonical harness through the dedicated regular launch operation;
+9. handle only an exact observed allowlisted pre-readiness startup gate;
+10. independently prove the harness input surface is ready;
+11. send one bound wrapped task prompt, prove consumption, and send one
+    separately sequenced steering turn;
+12. use one generated terminal nonce checkpoint;
+13. prove a real client detach/reattach without changing leased identities;
+14. preserve and inventory the tab at the terminal milestone;
+15. record gaps and improvement candidates without copying transcript text.
 
 ## Prompt mode
 
@@ -91,6 +94,50 @@ execution completed. The run receipt therefore records
 Ordinary interactive harness prompts remain on `qualification-send`; do not
 replace them with shell commands.
 
+## Five-harness regular rows
+
+A campaign row is regular and interactive only when its canonical harness ID
+is one of `agy|codex|claude|cursor|grok`, its plan and lease reference one
+controller-attested binding, and the runtime launch uses
+`qualification-harness-launch`. The binding includes the current remote
+executable/version/help fingerprints, an enrolled dedicated-user profile
+route, no explicit model selector, current default model/effort observation or
+honest `unavailable`, the unrestricted launch-vector hash, controller adapter
+and protocol fingerprints, exact worktree, instruction plane, and explicit
+unsupported capability values.
+
+The binding census happens before plan creation. Each row repeats the current
+remote census from inside its new leased Herdr pane after shell STATUS. Copy
+out only that sanitized census artifact, then run
+`harness-census-verify`. Authentication stores, status bodies, environment
+dumps, and raw output are never copied. A timestamp may advance; any bound
+fact mismatch fails the row before launch.
+
+Every form of `exec <harness>` is forbidden because replacing the leased shell
+can remove foreground SSH identity. Generic direct launch through
+`qualification-run` is also forbidden after shell readiness. The bound
+dedicated launch is exactly once, at the next sequence, unrestricted, and
+contains no model selector.
+
+## Startup gates and instruction plane
+
+Startup-gate handling is pre-readiness, sequence-bound, exact-worktree-bound,
+single-use, and controller-attested by an operator. Cursor Workspace Trust
+must have either its exact allowlisted acceptance or a recorded
+`not_present` result before ordinary readiness. Codex and Claude trust,
+security acknowledgement, or bypass confirmation may be handled only when the
+operator sees that exact surface and the task-owned worktree and unrestricted
+posture are already authorized. Only the bounded key vectors defined by the
+controller may be sent. Login, enrollment, account selection, credentials,
+and unrelated UI are never startup gates.
+
+Create the first message with `instruction-wrapper-create`. Its manifest binds
+the universal, harness-specific, default-unresolved, and regular lifecycle
+layers to the binding fingerprint, run ID, initial-message plane, and rendered
+body hash. The first `qualification-send` must carry that manifest. The
+separate steering turn uses a later lease sequence and an ordinary private
+text file.
+
 ## Harness readiness
 
 Treat a successful `qualification-send` receipt as pane transport acceptance
@@ -116,6 +163,15 @@ Plan status and lease status serve different lifecycle moments. Use
 create, the plan's owned label must exist, so plan status is expected to reject
 reuse; use `status --lease-json` or `maintenance-checkpoint` for every
 post-create structural check.
+
+## Native view and detach/reattach
+
+`qualification-view-begin` records the operator-observed native TUI and hashes
+the exact leased session/workspace/tab/pane/terminal/SSH identity. The
+controller must then detach and reattach a real task-owned Herdr client.
+`qualification-view-complete` accepts the same nonce and operator only after
+that real action and only when a fresh structural join yields the unchanged
+identity hash. The record pair is not a substitute for the client action.
 
 ## Checkpoint and token waits
 
@@ -226,9 +282,9 @@ perform it.
 
 ## Harness posture and tab lifecycle
 
-Herdr transport qualification never implies YOLO or auto-approval behavior in
-the target harness. The caller must separately authorize and pass the exact
-harness flag for the bounded launch. The controller journal records transport
+Herdr transport qualification never implies broader YOLO or auto-approval
+authority in the target harness. The caller must separately authorize the
+bound unrestricted regular launch. The controller journal records transport
 identity and submissions; it does not reinterpret that flag as push, merge,
 deploy, secret, account, device, or cleanup authority.
 

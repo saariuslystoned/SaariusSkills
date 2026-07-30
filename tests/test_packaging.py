@@ -142,7 +142,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("status --lease-json", skill)
         self.assertIn("must not be rewritten as a", skill)
         self.assertIn('"method": "pane.send_input"', compact_client)
-        self.assertIn('"keys": ["enter"]', compact_client)
+        self.assertIn('selected_keys = ["enter"]', compact_client)
+        self.assertIn('"keys": selected_keys', compact_client)
         self.assertIn('"pane", "run"', compact_client)
         self.assertIn('"<redacted-command>"', compact_client)
         self.assertIn("socket.AF_UNIX", client)
@@ -165,12 +166,34 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('add_argument("--confirm-tab-id"', cli)
         self.assertIn('add_argument("--allow-live-cleanup"', cli)
         self.assertIn('"qualification-harness-ready"', cli)
+        self.assertIn('"qualification-harness-launch"', cli)
+        self.assertIn('"qualification-startup-gate"', cli)
+        self.assertIn('"qualification-view-begin"', cli)
+        self.assertIn('"qualification-view-complete"', cli)
+        self.assertIn('"harness-census-verify"', cli)
+        self.assertIn('"instruction-wrapper-create"', cli)
         self.assertIn('"remote-task-file-register"', cli)
         self.assertIn('"lease-migrate-v1"', cli)
+        self.assertTrue(
+            (HERDR_SKILL / "scripts" / "harness_census.py").is_file()
+        )
+        self.assertTrue(
+            (
+                HERDR_SKILL
+                / "templates"
+                / "instructions"
+                / "catalog.json"
+            ).is_file()
+        )
 
     def test_herdr_puppet_schemas_parse(self) -> None:
         references = HERDR_SKILL / "references"
-        for name in ("plan.schema.json", "lease.schema.json", "event.schema.json"):
+        for name in (
+            "plan.schema.json",
+            "lease.schema.json",
+            "event.schema.json",
+            "harness-binding.schema.json",
+        ):
             schema = json.loads((references / name).read_text(encoding="utf-8"))
             self.assertEqual(
                 schema["$schema"],
@@ -211,6 +234,8 @@ class PackagingTests(unittest.TestCase):
                 "shell_readiness",
                 "harness_readiness",
                 "source",
+                "harness_binding",
+                "startup_gate_operations",
                 "proof_root",
                 "caller_text_files",
                 "caller_text_files_removed",

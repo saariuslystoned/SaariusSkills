@@ -17,15 +17,25 @@ from .core import (
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_harness_launch,
     qualification_harness_ready,
     qualification_reconcile_send,
     qualification_run,
     qualification_send,
+    qualification_startup_gate,
     qualification_token_probe,
+    qualification_view_begin,
+    qualification_view_complete,
     register_remote_task_file,
     structural_status,
 )
 from .errors import HerdrPuppetError
+from .harness_binding import (
+    build_harness_binding,
+    compile_instruction_wrapper,
+    verify_remote_census,
+    write_create_only,
+)
 from .herdr_client import MAX_PROMPT_BYTES, HerdrClient, load_json
 from .journal import (
     append_event,
@@ -134,11 +144,28 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--repo", required=True)
     plan_parser.add_argument("--worktree", required=True)
     plan_parser.add_argument("--proof-root", required=True)
+    plan_parser.add_argument("--harness-binding-json", required=True)
     plan_parser.add_argument("--ordinal", type=int, default=1)
     plan_parser.add_argument("--live-mutation-authorized", action="store_true")
     plan_parser.add_argument("--facts-json")
     plan_parser.add_argument("--output")
     _common_live(plan_parser)
+
+    binding = subparsers.add_parser("harness-binding-create")
+    binding.add_argument("--census-json", required=True)
+    binding.add_argument("--repo", required=True)
+    binding.add_argument("--output", required=True)
+
+    recensus = subparsers.add_parser("harness-census-verify")
+    recensus.add_argument("--harness-binding-json", required=True)
+    recensus.add_argument("--census-json", required=True)
+
+    wrapper = subparsers.add_parser("instruction-wrapper-create")
+    wrapper.add_argument("--harness-binding-json", required=True)
+    wrapper.add_argument("--run-id", required=True)
+    wrapper.add_argument("--task-file", required=True)
+    wrapper.add_argument("--prompt-output", required=True)
+    wrapper.add_argument("--manifest-output", required=True)
 
     status_parser = subparsers.add_parser("status")
     record = status_parser.add_mutually_exclusive_group(required=True)
@@ -195,6 +222,37 @@ def build_parser() -> argparse.ArgumentParser:
     run_command.add_argument("--allow-live-qualification", action="store_true")
     _common_live(run_command)
 
+    harness_launch = subparsers.add_parser("qualification-harness-launch")
+    harness_launch.add_argument("--lease-json", required=True)
+    harness_launch.add_argument("--seq", type=int, required=True)
+    harness_launch.add_argument("--run-root", required=True)
+    harness_launch.add_argument(
+        "--allow-live-qualification",
+        action="store_true",
+    )
+    _common_live(harness_launch)
+
+    startup_gate = subparsers.add_parser("qualification-startup-gate")
+    startup_gate.add_argument("--lease-json", required=True)
+    startup_gate.add_argument("--seq", type=int, required=True)
+    startup_gate.add_argument("--gate", required=True)
+    startup_gate.add_argument("--action", required=True)
+    startup_gate.add_argument("--source-worktree", required=True)
+    startup_gate.add_argument("--operator-id", required=True)
+    startup_gate.add_argument(
+        "--evidence",
+        choices=["operator_observed_exact_gate"],
+        required=True,
+    )
+    startup_gate.add_argument("--confirm-exact-worktree", action="store_true")
+    startup_gate.add_argument("--confirm-unrestricted", action="store_true")
+    startup_gate.add_argument("--run-root", required=True)
+    startup_gate.add_argument(
+        "--allow-live-qualification",
+        action="store_true",
+    )
+    _common_live(startup_gate)
+
     harness_ready = subparsers.add_parser("qualification-harness-ready")
     harness_ready.add_argument("--lease-json", required=True)
     harness_ready.add_argument("--source-repo", required=True)
@@ -220,6 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_source.add_argument("--text-file")
     send_source.add_argument("--stdin", action="store_true", dest="prompt_stdin")
     send.add_argument("--run-root")
+    send.add_argument("--instruction-manifest-json")
     send.add_argument("--allow-live-qualification", action="store_true")
     _common_live(send)
 
@@ -259,6 +318,41 @@ def build_parser() -> argparse.ArgumentParser:
     beacon.add_argument("--run-root", required=True)
     beacon.add_argument("--allow-live-qualification", action="store_true")
     _common_live(beacon, default_timeout_seconds=510.0)
+
+    view_begin = subparsers.add_parser("qualification-view-begin")
+    view_begin.add_argument("--lease-json", required=True)
+    view_begin.add_argument("--nonce", required=True)
+    view_begin.add_argument("--operator-id", required=True)
+    view_begin.add_argument(
+        "--confirm-native-tui-visible",
+        action="store_true",
+    )
+    view_begin.add_argument("--run-root", required=True)
+    view_begin.add_argument(
+        "--allow-live-qualification",
+        action="store_true",
+    )
+    _common_live(view_begin)
+
+    view_complete = subparsers.add_parser("qualification-view-complete")
+    view_complete.add_argument("--lease-json", required=True)
+    view_complete.add_argument("--nonce", required=True)
+    view_complete.add_argument("--operator-id", required=True)
+    view_complete.add_argument(
+        "--evidence",
+        choices=["operator_observed_real_client_detach_reattach"],
+        required=True,
+    )
+    view_complete.add_argument(
+        "--confirm-detached-reattached",
+        action="store_true",
+    )
+    view_complete.add_argument("--run-root", required=True)
+    view_complete.add_argument(
+        "--allow-live-qualification",
+        action="store_true",
+    )
+    _common_live(view_complete)
 
     remote_file = subparsers.add_parser("remote-task-file-register")
     remote_file.add_argument("--lease-json", required=True)
@@ -321,6 +415,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             repo=args.repo,
             worktree=args.worktree,
             proof_root=args.proof_root,
+            harness_binding=load_json(args.harness_binding_json),
             ordinal=args.ordinal,
             live_mutation_authorized=args.live_mutation_authorized,
             facts=facts,
@@ -335,6 +430,83 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 )
             atomic_json(output, payload)
         return payload
+    if args.command == "harness-binding-create":
+        binding = build_harness_binding(
+            load_json(args.census_json),
+            repo=args.repo,
+        )
+        write_create_only(
+            Path(args.output),
+            (
+                json.dumps(
+                    binding,
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8"),
+        )
+        return {
+            "schema": "herdr-puppet.harness-binding-create.v1",
+            "result": "ok",
+            "harness": binding["harness"],
+            "fingerprint": binding["fingerprint"],
+            "profile_route": binding["profile"]["route"],
+            "profile_enrollment": binding["profile"]["enrollment_state"],
+            "explicit_model_selector": False,
+            "observed_model": binding["model_observation"]["model"],
+            "observed_effort": binding["model_observation"]["effort"],
+            "launch_vector_sha256": binding["regular_launch"][
+                "vector_sha256"
+            ],
+            "instruction_plane": binding["instructions"]["plane"],
+            "remote_harness_pid": "unavailable",
+            "targeted_halt": "unsupported",
+            "recovery": "unsupported",
+            "crash_persistence": "unsupported",
+            "raw_output_retained": False,
+        }
+    if args.command == "harness-census-verify":
+        return verify_remote_census(
+            binding_value=load_json(args.harness_binding_json),
+            census_value=load_json(args.census_json),
+        )
+    if args.command == "instruction-wrapper-create":
+        task = _read_prompt(
+            text_file=args.task_file,
+            prompt_stdin=False,
+        )
+        rendered, manifest = compile_instruction_wrapper(
+            binding_value=load_json(args.harness_binding_json),
+            run_id=args.run_id,
+            task=task,
+        )
+        write_create_only(Path(args.prompt_output), rendered)
+        write_create_only(
+            Path(args.manifest_output),
+            (
+                json.dumps(
+                    manifest,
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8"),
+        )
+        return {
+            "schema": "herdr-puppet.instruction-wrapper-create.v1",
+            "result": "ok",
+            "harness": manifest["harness"],
+            "run_id": manifest["run_id"],
+            "binding_fingerprint": manifest["binding_fingerprint"],
+            "plane": manifest["plane"],
+            "policy_fingerprint": manifest["policy_fingerprint"],
+            "rendered_sha256": manifest["rendered_sha256"],
+            "byte_count": manifest["byte_count"],
+            "task_body_retained": False,
+        }
     if args.command == "status":
         return structural_status(
             _client(args),
@@ -398,6 +570,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
         )
+    if args.command == "qualification-harness-launch":
+        return qualification_harness_launch(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            seq=args.seq,
+            run_root=Path(args.run_root),
+            allow_live=args.allow_live_qualification,
+        )
+    if args.command == "qualification-startup-gate":
+        return qualification_startup_gate(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            seq=args.seq,
+            gate=args.gate,
+            action=args.action,
+            source_worktree=args.source_worktree,
+            operator_id=args.operator_id,
+            evidence=args.evidence,
+            confirm_exact_worktree=args.confirm_exact_worktree,
+            confirm_unrestricted=args.confirm_unrestricted,
+            run_root=Path(args.run_root),
+            allow_live=args.allow_live_qualification,
+        )
     if args.command == "qualification-harness-ready":
         return qualification_harness_ready(
             _client(args),
@@ -416,6 +613,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             text_file=args.text_file,
             prompt_stdin=args.prompt_stdin,
         )
+        instruction_manifest = (
+            load_json(args.instruction_manifest_json)
+            if args.instruction_manifest_json
+            else None
+        )
         return qualification_send(
             _client(args),
             lease_payload=load_json(args.lease_json),
@@ -423,6 +625,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             seq=args.seq,
             text=text,
             text_file=args.text_file,
+            instruction_manifest=instruction_manifest,
             run_root=Path(args.run_root) if args.run_root else None,
             allow_live=args.allow_live_qualification,
         )
@@ -461,6 +664,29 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             lines=args.lines,
             timeout_ms=args.timeout_ms,
             run_root=Path(args.run_root) if args.run_root else None,
+            allow_live=args.allow_live_qualification,
+        )
+    if args.command == "qualification-view-begin":
+        return qualification_view_begin(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            nonce=args.nonce,
+            operator_id=args.operator_id,
+            confirm_native_tui_visible=args.confirm_native_tui_visible,
+            run_root=Path(args.run_root),
+            allow_live=args.allow_live_qualification,
+        )
+    if args.command == "qualification-view-complete":
+        return qualification_view_complete(
+            _client(args),
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            nonce=args.nonce,
+            operator_id=args.operator_id,
+            evidence=args.evidence,
+            confirm_detached_reattached=args.confirm_detached_reattached,
+            run_root=Path(args.run_root),
             allow_live=args.allow_live_qualification,
         )
     if args.command == "remote-task-file-register":

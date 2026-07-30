@@ -286,11 +286,32 @@ class HerdrClient:
                 details={"command": safe_command},
             ) from exc
 
-    def run_input(self, socket_path: str, pane_id: str, text: str) -> Any:
-        if not text.strip():
+    def run_input(
+        self,
+        socket_path: str,
+        pane_id: str,
+        text: str,
+        *,
+        keys: list[str] | None = None,
+    ) -> Any:
+        selected_keys = ["enter"] if keys is None else list(keys)
+        if keys is None and not text.strip():
             raise HerdrPuppetError(
                 "prompt_empty",
                 "The prompt must contain non-whitespace text.",
+            )
+        if keys is not None and (
+            text
+            or not selected_keys
+            or len(selected_keys) > 4
+            or any(
+                key not in {"a", "enter", "up", "down"}
+                for key in selected_keys
+            )
+        ):
+            raise HerdrPuppetError(
+                "startup_gate_key_vector_invalid",
+                "The startup-gate key vector is outside the bounded allowlist.",
             )
         text_bytes = text.encode("utf-8")
         if len(text_bytes) > MAX_PROMPT_BYTES:
@@ -306,7 +327,7 @@ class HerdrClient:
             "params": {
                 "pane_id": pane_id,
                 "text": text,
-                "keys": ["enter"],
+                "keys": selected_keys,
             },
         }
         encoded = json.dumps(
@@ -411,6 +432,14 @@ class HerdrClient:
                 "sequence before another send.",
             )
         return result
+
+    def run_keys(
+        self,
+        socket_path: str,
+        pane_id: str,
+        keys: list[str],
+    ) -> Any:
+        return self.run_input(socket_path, pane_id, "", keys=keys)
 
     @staticmethod
     def _read_socket_line(connection: socket.socket) -> bytes:

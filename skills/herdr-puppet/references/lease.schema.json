@@ -19,6 +19,8 @@
     "shell_readiness",
     "harness_readiness",
     "source",
+    "harness_binding",
+    "startup_gate_operations",
     "proof_root",
     "caller_text_files",
     "caller_text_files_removed",
@@ -28,7 +30,7 @@
     "schema": {"const": "herdr-puppet.lease.v1"},
     "state": {"enum": ["active", "preserved"]},
     "run_id": {"type": "string", "minLength": 1},
-    "harness": {"type": "string", "minLength": 1},
+    "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
     "session": {"$ref": "#/$defs/session"},
     "workspace": {
       "type": "object",
@@ -80,6 +82,31 @@
         "worktree": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
+    },
+    "harness_binding": {"$ref": "harness-binding.schema.json"},
+    "harness_launch": {
+      "type": "object",
+      "required": [
+        "seq",
+        "launched_at",
+        "command_sha256",
+        "binding_fingerprint",
+        "launch_vector_sha256",
+        "remote_harness_pid"
+      ],
+      "properties": {
+        "seq": {"type": "integer", "minimum": 2},
+        "launched_at": {"type": "string", "format": "date-time"},
+        "command_sha256": {"$ref": "#/$defs/sha256"},
+        "binding_fingerprint": {"$ref": "#/$defs/sha256"},
+        "launch_vector_sha256": {"$ref": "#/$defs/sha256"},
+        "remote_harness_pid": {"const": "unavailable"}
+      },
+      "additionalProperties": false
+    },
+    "startup_gate_operations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/startupGateOperation"}
     },
     "proof_root": {"type": "string", "minLength": 1},
     "caller_text_files": {
@@ -137,6 +164,48 @@
     ]
   },
   "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "startupGateOperation": {
+      "type": "object",
+      "required": [
+        "gate",
+        "action",
+        "seq",
+        "observed_at",
+        "operator_sha256",
+        "worktree_sha256",
+        "key_vector_sha256",
+        "pane_input_mutated"
+      ],
+      "properties": {
+        "gate": {
+          "enum": [
+            "workspace_trust",
+            "security_acknowledgement",
+            "permission_bypass_confirmation"
+          ]
+        },
+        "action": {
+          "enum": [
+            "accept",
+            "accept_selected",
+            "select_accept",
+            "acknowledge",
+            "not_present"
+          ]
+        },
+        "seq": {"type": "integer", "minimum": 1},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "operator_sha256": {"$ref": "#/$defs/sha256"},
+        "worktree_sha256": {"$ref": "#/$defs/sha256"},
+        "key_vector_sha256": {"$ref": "#/$defs/sha256"},
+        "pane_input_mutated": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
     "remoteTaskFile": {
       "type": "object",
       "required": ["path", "ssh_target", "state", "registered_at"],

@@ -9,6 +9,8 @@ Every live run must begin with an operator-approved capability containing:
 - exact parent workspace ID and expected display label;
 - exact expected SSH target;
 - run ID, harness, source repository/worktree, proof root, and allowed mode;
+- canonical harness identity plus one versioned controller-attested binding for
+  its executable/profile/launch/adapters/instruction plane;
 - an explicit statement that the parent session remains operator-owned.
 
 Herdr 0.7.3 exposes no server PID, boot nonce, start time, or native
@@ -37,6 +39,7 @@ capability
   -> newly created tab ID
   -> pane ID + terminal ID
   -> foreground SSH PID + argv + target
+  -> harness-binding fingerprint + regular-launch fingerprint
   -> monotonically increasing submission sequence
 ```
 
@@ -55,6 +58,10 @@ different from the capability or lease. Also stop when:
 - the connection dropped, handed off, or restarted, or the socket/protocol
   changed;
 - a caller tries to skip or replay a submission sequence;
+- the in-row remote census differs from the bound executable, profile,
+  worktree, model observation, or regular launch;
+- a generic or shell-replacing harness launch bypasses the bound launch
+  operation;
 - an operation would target the parent session or an unleased tab.
 
 ## Separate gates
@@ -63,6 +70,13 @@ Live Herdr qualification authorizes only the exact tab/pane operations in the
 lease. Obtain separate authorization for unrestricted harness flags, source
 delivery, deploys, sends, spending, secrets, accounts/security, deletion, or
 other externally consequential actions.
+
+An authorized regular campaign may bind unrestricted flags into the
+controller-attested launch vector. That binding does not broaden task
+authority. Startup-gate input is separately constrained to an exact
+task-owned worktree, a single lease sequence, one observed allowlisted gate,
+and one use before readiness. It never authorizes login, account enrollment,
+credentials, or unrelated UI.
 
 Maintenance observations do not add deletion authority. A run may inventory
 and classify only resources joined through its exact lease or explicitly named

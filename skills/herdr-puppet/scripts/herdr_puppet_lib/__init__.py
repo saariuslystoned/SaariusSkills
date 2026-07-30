@@ -12,16 +12,21 @@ from .core import (
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_harness_launch,
     qualification_harness_ready,
     qualification_reconcile_send,
     qualification_run,
     qualification_send,
+    qualification_startup_gate,
     qualification_token_probe,
+    qualification_view_begin,
+    qualification_view_complete,
     register_remote_task_file,
     structural_status,
     validate_legacy_lease,
 )
 from .errors import HerdrPuppetError
+from .harness_binding import verify_remote_census
 
 __all__ = [
     "SUPPORTED_HERDR_PROTOCOL",
@@ -36,12 +41,17 @@ __all__ = [
     "plan",
     "preserve_lease",
     "qualification_beacon_wait",
+    "qualification_harness_launch",
     "qualification_harness_ready",
     "qualification_reconcile_send",
     "qualification_run",
     "qualification_send",
+    "qualification_startup_gate",
     "qualification_token_probe",
+    "qualification_view_begin",
+    "qualification_view_complete",
     "register_remote_task_file",
     "structural_status",
     "validate_legacy_lease",
+    "verify_remote_census",
 ]

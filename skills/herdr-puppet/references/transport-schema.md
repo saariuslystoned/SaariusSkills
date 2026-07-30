@@ -1,7 +1,9 @@
 # Transport schema
 
-Herdr-Puppet uses three versioned JSON records:
+Herdr-Puppet uses four versioned JSON records:
 
+- `herdr-puppet.harness-binding.v1`: controller-attested remote harness,
+  profile, launch, adapter, source, and instruction-plane identity.
 - `herdr-puppet.plan.v1`: source-only intent plus the explicit parent
   capability.
 - `herdr-puppet.lease.v1`: exact owned tab/pane/terminal/SSH identity and the
@@ -13,6 +15,7 @@ The JSON Schemas in this directory are normative for their public fields:
 - [plan.schema.json](plan.schema.json)
 - [lease.schema.json](lease.schema.json)
 - [event.schema.json](event.schema.json)
+- [harness-binding.schema.json](harness-binding.schema.json)
 
 `herdr-puppet.lease.v1` has one strict canonical shape. Current controller
 operations reject historical lease-v1 files that omit the readiness/file
@@ -21,7 +24,8 @@ such a file explicitly with `lease-migrate-v1`; ordinary status, probe,
 preservation, cleanup, and journal-refresh paths never perform an implicit
 compatibility migration. Runtime validation enforces the canonical nested
 authority objects, integer fields, safe label, unique arrays, and RFC 3339
-evidence times before migration may write.
+evidence times before migration may write. Migration never invents a harness
+binding; an unbound historical lease remains non-qualifying evidence.
 
 ## Plan lifecycle
 
@@ -61,6 +65,9 @@ ssh.target
 next_seq
 shell_readiness
 harness_readiness
+harness_binding
+harness_launch
+startup_gate_operations
 caller_text_files
 caller_text_files_removed
 remote_task_files
@@ -112,6 +119,17 @@ unchanged. A zero exit advances the sequence but records
 `execution_acceptance: unverified`; it does not establish shell, harness, MCP,
 or task readiness.
 
+After the first STATUS checkpoint, use `qualification-run` for the exact
+in-row census helper. The controller compares that sanitized census with the
+plan/lease binding through `harness-census-verify`. Recorded time may advance;
+executable/version/help fingerprints, enrolled dedicated-user profile,
+default-model observation, launch vector, host, and source worktree may not.
+The generic shell-command surface rejects every harness launch after shell
+readiness. Only `qualification-harness-launch` may submit the bound regular
+launch vector, once, at the exact next sequence. It deliberately records
+`remote_harness_pid: unavailable`; Herdr's foreground SSH PID is a different
+identity.
+
 The controller never writes or copies prompt or command content, so callers
 own the lifecycle of any input file. If an orchestration bridge cannot
 reliably half-close stdin, create one private task-owned input file, use
@@ -128,6 +146,20 @@ worktree, an explicit operator identity, bounded
 join before advancing `harness_readiness` to `operator_verified`.
 `qualification-send` and send reconciliation require that state even at
 sequence 1. Noninteractive AGY remains on `qualification-run`.
+
+Before readiness, `qualification-startup-gate` accepts only a
+harness-specific allowlisted gate/action, exact worktree and unrestricted
+posture confirmation, one safe operator ID, and the exact next sequence.
+Allowlisted key vectors are bounded to `a`, `enter`, `up`, and `down`.
+`not_present` advances the sequence without pane input. Cursor readiness
+requires a recorded Workspace Trust result. Each gate is single-use and every
+gate operation becomes invalid after readiness.
+
+The first ordinary prompt may carry a
+`herdr-puppet.instruction-wrapper.v1` manifest. The controller recomputes the
+rendered body hash and verifies the binding, run ID, universal/harness/model/
+lifecycle layers, and `initial_message_wrapper` plane before dispatch.
+Wrapper manifests and events retain hashes and sizes, never the task body.
 
 The explicit legacy adapter preserves that split. A historical
 `harness_readiness: status_verified` value migrates to

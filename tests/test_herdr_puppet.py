@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import multiprocessing
+import os
 import re
 import shutil
 import socket
@@ -31,22 +33,34 @@ from herdr_puppet_lib.core import (  # noqa: E402
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_harness_launch,
     qualification_harness_ready,
     qualification_reconcile_send,
     qualification_run,
     qualification_send,
+    qualification_startup_gate,
     qualification_token_probe,
+    qualification_view_begin,
+    qualification_view_complete,
     register_remote_task_file,
     structural_status,
     validate_legacy_lease,
     validate_lease,
 )
+from herdr_puppet_lib import cli as herdr_cli  # noqa: E402
 from herdr_puppet_lib.cli import _read_prompt, build_parser  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
 from herdr_puppet_lib.herdr_client import (  # noqa: E402
     MAX_PROMPT_BYTES,
     HerdrClient,
     load_json,
+)
+from herdr_puppet_lib.harness_binding import (  # noqa: E402
+    build_harness_binding,
+    compile_instruction_wrapper,
+    validate_harness_binding,
+    validate_instruction_manifest,
+    verify_remote_census,
 )
 from herdr_puppet_lib.journal import (  # noqa: E402
     append_event,
@@ -199,6 +213,17 @@ class FakeClient:
         self.sent.append(("input", pane_id, text))
         return ""
 
+    def run_keys(
+        self,
+        socket_path: str,
+        pane_id: str,
+        keys: list[str],
+    ) -> str:
+        if socket_path != self.server["socket"]:
+            raise AssertionError(f"wrong socket: {socket_path}")
+        self.sent.append(("keys", pane_id, ",".join(keys)))
+        return ""
+
     def run_command(self, session: str, pane_id: str, command: str) -> str:
         self._session(session)
         self.ran.append(("run", pane_id, command))
@@ -290,6 +315,7 @@ def make_plan(
     *,
     live_mutation_authorized: bool = True,
 ) -> dict[str, Any]:
+    binding = sample_binding()
     return plan(
         client,
         session="operator-session",
@@ -301,8 +327,91 @@ def make_plan(
         repo="example/SaariusSkills",
         worktree="/redacted/worktree",
         proof_root="/redacted/proof",
+        harness_binding=binding,
         live_mutation_authorized=live_mutation_authorized,
     )
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def sample_binding(
+    *,
+    harness: str = "agy",
+    repo: str = "example/SaariusSkills",
+    worktree: str = "/redacted/worktree",
+) -> dict[str, Any]:
+    commands = {
+        "agy": (
+            "agy",
+            [
+                "--dangerously-skip-permissions",
+                "--sandbox=false",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ],
+        ),
+        "codex": ("codex", ["--dangerously-bypass-approvals-and-sandbox"]),
+        "claude": ("claude", ["--dangerously-skip-permissions"]),
+        "cursor": ("cursor-agent", ["--yolo", "--sandbox", "disabled"]),
+        "grok": ("grok", ["--always-approve", "--sandbox", "off"]),
+    }
+    command, flags = commands[harness]
+    executable = {
+        "command": command,
+        "path": f"/usr/local/bin/{command}",
+        "version": f"{command} test-version",
+        "sha256": "1" * 64,
+        "version_sha256": "2" * 64,
+        "help_sha256": "3" * 64,
+    }
+    executable["fingerprint"] = _digest(executable)
+    vector = {
+        "argv": [executable["path"], *flags],
+        "environment": {
+            "HOME": "/redacted/home",
+            "LANG": "C",
+            "LC_ALL": "C",
+            "TERM": "xterm-256color",
+        },
+    }
+    census = {
+        "schema": "herdr-puppet.remote-harness-census.v1",
+        "harness": harness,
+        "host": "worker-02.example",
+        "recorded_at": "2026-07-30T12:00:00Z",
+        "executable": executable,
+        "profile": {
+            "route": "dedicated_os_user_profile",
+            "root": "/redacted/home",
+            "isolation": "dedicated_remote_user",
+            "enrollment_state": "enrolled",
+            "status_exit": 0,
+            "raw_output_retained": False,
+        },
+        "regular_launch": {
+            **vector,
+            "unrestricted": True,
+            "explicit_model_selector": False,
+            "vector_sha256": _digest(vector),
+        },
+        "model_observation": {
+            "selection": "current_default",
+            "model": "unavailable",
+            "effort": "unavailable",
+        },
+        "source": {"worktree": worktree},
+        "raw_output_retained": False,
+    }
+    return build_harness_binding(census, repo=repo)
 
 
 class DoctorAndPlanTests(unittest.TestCase):
@@ -333,6 +442,7 @@ class DoctorAndPlanTests(unittest.TestCase):
         self.assertIn("server_socket_missing", result["blockers"])
 
     def test_plan_is_source_only_and_deterministic(self) -> None:
+        binding = sample_binding()
         result = plan(
             FakeClient(),
             session="operator-session",
@@ -344,6 +454,7 @@ class DoctorAndPlanTests(unittest.TestCase):
             repo="example/SaariusSkills",
             worktree="/redacted/worktree",
             proof_root="/redacted/proof",
+            harness_binding=binding,
             facts=fixture("plan-ok.json"),
         )
         self.assertRegex(
@@ -355,6 +466,7 @@ class DoctorAndPlanTests(unittest.TestCase):
         self.assertFalse(result["session"]["incarnation_proven"])
 
     def test_plan_rejects_workspace_label_mismatch(self) -> None:
+        binding = sample_binding()
         with self.assertRaisesRegex(
             HerdrPuppetError, "exact workspace ID and label"
         ):
@@ -369,6 +481,7 @@ class DoctorAndPlanTests(unittest.TestCase):
                 repo="example/SaariusSkills",
                 worktree="/redacted/worktree",
                 proof_root="/redacted/proof",
+                harness_binding=binding,
                 facts=fixture("plan-ok.json"),
             )
 
@@ -640,6 +753,85 @@ class HerdrClientTests(unittest.TestCase):
         self.assertEqual(args.timeout_ms, 480_000)
         self.assertEqual(args.timeout_seconds, 510.0)
 
+    def test_remote_census_is_body_free_for_all_canonical_harnesses(
+        self,
+    ) -> None:
+        commands = {
+            "agy": "agy",
+            "codex": "codex",
+            "claude": "claude",
+            "cursor": "cursor-agent",
+            "grok": "grok",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_root = root / "bin"
+            profile_root = root / "profile"
+            worktree = root / "worktree"
+            binary_root.mkdir()
+            profile_root.mkdir()
+            worktree.mkdir()
+            executable_body = """#!/bin/sh
+case "$1" in
+  --version) echo "fake 1.0.0" ;;
+  --help) echo "fake help" ;;
+  login) echo "Logged in using ChatGPT" ;;
+  auth) echo '{"loggedIn":true}' ;;
+  status) echo '{"loggedIn":true}' ;;
+  models) echo "subscription models available" ;;
+  *) exit 2 ;;
+esac
+"""
+            for command in commands.values():
+                executable = binary_root / command
+                executable.write_text(executable_body, encoding="utf-8")
+                executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(binary_root)
+                + os.pathsep
+                + environment.get("PATH", "")
+            )
+            for harness, command in commands.items():
+                with self.subTest(harness=harness):
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            str(
+                                ROOT
+                                / "skills"
+                                / "herdr-puppet"
+                                / "scripts"
+                                / "harness_census.py"
+                            ),
+                            "--harness",
+                            harness,
+                            "--host",
+                            "worker.example",
+                            "--profile-root",
+                            str(profile_root),
+                            "--worktree",
+                            str(worktree),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env=environment,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    payload = json.loads(completed.stdout)
+                    self.assertEqual(payload["harness"], harness)
+                    self.assertEqual(
+                        payload["executable"]["command"],
+                        command,
+                    )
+                    self.assertEqual(
+                        payload["profile"]["enrollment_state"],
+                        "enrolled",
+                    )
+                    self.assertFalse(payload["raw_output_retained"])
+                    self.assertNotIn("subscription models", completed.stdout)
+
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
     def test_wait_output_honors_controller_cap_and_maps_native_timeout(
         self,
@@ -823,6 +1015,24 @@ class QualificationTests(unittest.TestCase):
         ready["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
         return self.persist_lease(ready)
 
+    def mark_harness_launched(self, lease: dict[str, Any]) -> dict[str, Any]:
+        launched = copy.deepcopy(lease)
+        launched["shell_readiness"] = "status_verified"
+        launched["next_seq"] = max(launched["next_seq"], 3)
+        launched["harness_launch"] = {
+            "seq": 2,
+            "launched_at": "2026-07-30T12:01:00Z",
+            "command_sha256": "4" * 64,
+            "binding_fingerprint": launched["harness_binding"][
+                "fingerprint"
+            ],
+            "launch_vector_sha256": launched["harness_binding"][
+                "regular_launch"
+            ]["vector_sha256"],
+            "remote_harness_pid": "unavailable",
+        }
+        return self.persist_lease(launched)
+
     def submit_for_beacon(self, lease: dict[str, Any]) -> dict[str, Any]:
         qualification_run(
             self.client,
@@ -923,6 +1133,20 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(migrated["caller_text_files_removed"], [])
         self.assertEqual(migrated["remote_task_files"], [])
 
+    def test_unbound_legacy_lease_cannot_be_attested_retroactively(self) -> None:
+        legacy = self.create_lease()
+        legacy.pop("harness_binding")
+        legacy.pop("startup_gate_operations")
+        legacy.pop("shell_readiness")
+        legacy["harness_readiness"] = "status_verified"
+        validate_legacy_lease(legacy)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            migrate_legacy_lease(legacy)
+        self.assertEqual(
+            caught.exception.code,
+            "legacy_harness_binding_unavailable",
+        )
+
     def test_legacy_lease_file_migration_is_locked_and_idempotent(self) -> None:
         legacy = self.create_lease()
         legacy.pop("shell_readiness")
@@ -1004,6 +1228,12 @@ class QualificationTests(unittest.TestCase):
             ),
             "missing_source_repo": lambda payload: payload["source"].pop(
                 "repo"
+            ),
+            "missing_harness_binding": lambda payload: payload.pop(
+                "harness_binding"
+            ),
+            "missing_startup_gate_operations": lambda payload: payload.pop(
+                "startup_gate_operations"
             ),
             "non_rfc3339_readiness_time": operator_ready,
             "non_array_caller_files": lambda payload: payload.__setitem__(
@@ -1803,24 +2033,25 @@ class QualificationTests(unittest.TestCase):
             (run_root / "events.jsonl").read_text(encoding="utf-8"),
         )
 
-    def test_run_allows_harness_launcher_that_returns_to_shell(self) -> None:
+    def test_run_rejects_generic_harness_launcher_even_when_shell_survives(self) -> None:
         lease = self.create_lease()
         lease["next_seq"] = 2
         lease["shell_readiness"] = "status_verified"
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         command = "cd /private/worktree && agy --prompt @private-task"
 
-        result = qualification_run(
-            self.client,
-            lease_payload=lease,
-            lease_path=self.lease_path,
-            seq=2,
-            command=command,
-            allow_live=True,
-        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                command=command,
+                allow_live=True,
+            )
 
-        self.assertEqual(result["next_seq"], 3)
-        self.assertEqual(self.client.ran, [("run", "w2:p1", command)])
+        self.assertEqual(caught.exception.code, "generic_harness_launch_forbidden")
+        self.assertEqual(self.client.ran, [])
 
     def test_status_beacon_unlocks_followon_run_in_shared_sequence(self) -> None:
         lease = self.create_lease()
@@ -1853,7 +2084,7 @@ class QualificationTests(unittest.TestCase):
             lease_payload=load_json(self.lease_path),
             lease_path=self.lease_path,
             seq=2,
-            command="agy launcher --print-timeout 420s",
+            command="python3 bounded-census.py",
             allow_live=True,
             run_root=run_root,
         )
@@ -1862,7 +2093,7 @@ class QualificationTests(unittest.TestCase):
             self.client.ran,
             [
                 ("run", "w2:p1", "shell status preflight"),
-                ("run", "w2:p1", "agy launcher --print-timeout 420s"),
+                ("run", "w2:p1", "python3 bounded-census.py"),
             ],
         )
 
@@ -1970,8 +2201,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_harness_readiness_binds_operator_and_exact_source(self) -> None:
         lease = self.create_lease()
-        lease["shell_readiness"] = "status_verified"
-        self.persist_lease(lease)
+        lease = self.mark_harness_launched(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         with self.assertRaises(HerdrPuppetError) as caught:
@@ -2013,11 +2243,11 @@ class QualificationTests(unittest.TestCase):
             self.client,
             lease_payload=updated,
             lease_path=self.lease_path,
-            seq=1,
+            seq=3,
             text="bounded prompt",
             allow_live=True,
         )
-        self.assertEqual(sent["next_seq"], 2)
+        self.assertEqual(sent["next_seq"], 4)
 
     def test_send_rejects_replay_before_mutation(self) -> None:
         lease = self.create_lease()
@@ -2805,8 +3035,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_beacon_wait_does_not_overwrite_harness_readiness(self) -> None:
         lease = self.create_lease()
-        lease["shell_readiness"] = "status_verified"
-        self.persist_lease(lease)
+        lease = self.mark_harness_launched(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         lease = self.submit_for_beacon(lease)
@@ -3020,6 +3249,299 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("private prompt body", serialized)
         self.assertNotIn("private prompt body", state)
         self.assertEqual(refreshed["state"], "active")
+
+    def test_binding_records_all_controller_attested_boundaries(self) -> None:
+        binding = sample_binding(harness="codex")
+        checked = validate_harness_binding(binding)
+        self.assertEqual(checked["harness"], "codex")
+        self.assertEqual(
+            checked["profile"]["isolation"],
+            "dedicated_remote_user",
+        )
+        self.assertFalse(
+            checked["regular_launch"]["explicit_model_selector"]
+        )
+        self.assertEqual(
+            checked["model_observation"],
+            {
+                "selection": "current_default",
+                "model": "unavailable",
+                "effort": "unavailable",
+            },
+        )
+        self.assertEqual(
+            checked["capabilities"],
+            {
+                "remote_harness_pid": "unavailable",
+                "targeted_halt": "unsupported",
+                "recovery": "unsupported",
+                "crash_persistence": "unsupported",
+            },
+        )
+
+    def test_in_row_recensus_must_match_bound_remote_facts(self) -> None:
+        binding = sample_binding(harness="claude")
+        census = {
+            "schema": "herdr-puppet.remote-harness-census.v1",
+            "harness": binding["harness"],
+            "host": binding["remote"]["host"],
+            "recorded_at": binding["attestation"]["census_recorded_at"],
+            "executable": binding["remote"]["executable"],
+            "profile": binding["profile"],
+            "regular_launch": binding["regular_launch"],
+            "model_observation": binding["model_observation"],
+            "source": {"worktree": binding["source"]["worktree"]},
+            "raw_output_retained": False,
+        }
+        result = verify_remote_census(
+            binding_value=binding,
+            census_value=census,
+        )
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(
+            result["binding_fingerprint"],
+            binding["fingerprint"],
+        )
+        census["executable"] = dict(census["executable"])
+        census["executable"]["version"] = "changed"
+        census["executable"]["fingerprint"] = _digest(
+            {
+                key: census["executable"][key]
+                for key in (
+                    "command",
+                    "path",
+                    "version",
+                    "sha256",
+                    "version_sha256",
+                    "help_sha256",
+                )
+            }
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            verify_remote_census(
+                binding_value=binding,
+                census_value=census,
+            )
+        self.assertEqual(caught.exception.code, "harness_recensus_mismatch")
+
+    def test_cli_send_forwards_bound_instruction_manifest(self) -> None:
+        lease_path = self.root / "cli-lease.json"
+        prompt_path = self.root / "cli-prompt.txt"
+        manifest_path = self.root / "cli-manifest.json"
+        lease_path.write_text("{}\n", encoding="utf-8")
+        prompt_path.write_text("wrapped prompt\n", encoding="utf-8")
+        manifest_path.write_text('{"schema":"test"}\n', encoding="utf-8")
+        args = build_parser().parse_args(
+            [
+                "qualification-send",
+                "--lease-json",
+                str(lease_path),
+                "--seq",
+                "4",
+                "--text-file",
+                str(prompt_path),
+                "--instruction-manifest-json",
+                str(manifest_path),
+                "--allow-live-qualification",
+            ]
+        )
+        with mock.patch.object(
+            herdr_cli,
+            "qualification_send",
+            return_value={"result": "ok"},
+        ) as send:
+            result = herdr_cli.run(args)
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(
+            send.call_args.kwargs["instruction_manifest"],
+            {"schema": "test"},
+        )
+
+    def test_plan_rejects_noncanonical_harness_before_mutation(self) -> None:
+        with self.assertRaises(HerdrPuppetError) as caught:
+            plan(
+                self.client,
+                session="operator-session",
+                workspace_id="w2",
+                workspace_label="worker-02",
+                expected_ssh_target="worker@worker-02.example",
+                run_id="run-invalid-harness",
+                harness="gemini",
+                repo="example/SaariusSkills",
+                worktree="/redacted/worktree",
+                proof_root="/redacted/proof",
+                harness_binding=sample_binding(),
+            )
+        self.assertEqual(caught.exception.code, "noncanonical_harness")
+
+    def test_dedicated_harness_launch_binds_vector_and_omits_exec(self) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        lease["next_seq"] = 2
+        self.persist_lease(lease)
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+
+        result = qualification_harness_launch(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            allow_live=True,
+            run_root=run_root,
+        )
+
+        self.assertEqual(result["next_seq"], 3)
+        self.assertFalse(result["explicit_model_selector"])
+        self.assertEqual(result["remote_harness_pid"], "unavailable")
+        self.assertEqual(result["targeted_halt"], "unsupported")
+        self.assertEqual(len(self.client.ran), 1)
+        command = self.client.ran[0][2]
+        self.assertIn("agy", command)
+        self.assertNotRegex(command, r"(?:^|&&)\s*exec\s+")
+        updated = load_json(self.lease_path)
+        self.assertEqual(
+            updated["harness_launch"]["launch_vector_sha256"],
+            lease["harness_binding"]["regular_launch"]["vector_sha256"],
+        )
+
+    def test_cursor_workspace_trust_is_pre_readiness_single_use(self) -> None:
+        client = FakeClient()
+        binding = sample_binding(harness="cursor")
+        plan_payload = plan(
+            client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id="run-cursor-gate",
+            harness="cursor",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str((self.root / "cursor-run").resolve()),
+            harness_binding=binding,
+            live_mutation_authorized=True,
+        )
+        run_root = self.root / "cursor-run"
+        initialize_journal(run_root, plan_payload)
+        lease_path = self.root / "cursor-lease.json"
+        lease = create_qualification_tab(
+            client,
+            plan_payload=plan_payload,
+            lease_path=lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+            run_root=run_root,
+        )
+        lease["shell_readiness"] = "status_verified"
+        lease["next_seq"] = 2
+        lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        qualification_harness_launch(
+            client,
+            lease_payload=lease,
+            lease_path=lease_path,
+            seq=2,
+            allow_live=True,
+            run_root=run_root,
+        )
+        launched = load_json(lease_path)
+        gate = qualification_startup_gate(
+            client,
+            lease_payload=launched,
+            lease_path=lease_path,
+            seq=3,
+            gate="workspace_trust",
+            action="accept",
+            source_worktree="/redacted/worktree",
+            operator_id="operator-cursor",
+            evidence="operator_observed_exact_gate",
+            confirm_exact_worktree=True,
+            confirm_unrestricted=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertTrue(gate["pane_input_mutated"])
+        self.assertEqual(client.sent, [("keys", "w2:p1", "a")])
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_startup_gate(
+                client,
+                lease_payload=load_json(lease_path),
+                lease_path=lease_path,
+                seq=4,
+                gate="workspace_trust",
+                action="accept",
+                source_worktree="/redacted/worktree",
+                operator_id="operator-cursor",
+                evidence="operator_observed_exact_gate",
+                confirm_exact_worktree=True,
+                confirm_unrestricted=True,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "startup_gate_replay")
+
+    def test_instruction_wrapper_is_bound_to_first_send(self) -> None:
+        binding = self.plan["harness_binding"]
+        rendered, manifest = compile_instruction_wrapper(
+            binding_value=binding,
+            run_id=self.plan["run_id"],
+            task="Emit the requested checkpoint and remain available.",
+        )
+        validate_instruction_manifest(
+            manifest,
+            binding_value=binding,
+            rendered=rendered,
+        )
+        lease = self.mark_harness_ready(self.create_lease())
+        result = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text=rendered.decode("utf-8"),
+            instruction_manifest=manifest,
+            allow_live=True,
+        )
+        self.assertEqual(
+            result["instruction_wrapper"]["plane"],
+            "initial_message_wrapper",
+        )
+        self.assertEqual(
+            result["instruction_wrapper"]["binding_fingerprint"],
+            binding["fingerprint"],
+        )
+
+    def test_view_checkpoint_binds_real_detach_reattach_evidence(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        begun = qualification_view_begin(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="VIEW-DETACH-1",
+            operator_id="operator-view",
+            confirm_native_tui_visible=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        completed = qualification_view_complete(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="VIEW-DETACH-1",
+            operator_id="operator-view",
+            evidence="operator_observed_real_client_detach_reattach",
+            confirm_detached_reattached=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(
+            begun["identity_sha256"],
+            completed["identity_sha256"],
+        )
+        self.assertTrue(completed["real_client_detach_reattach"])
+        self.assertTrue(completed["leased_identities_unchanged"])
 
 
 class ContractDocTests(unittest.TestCase):
