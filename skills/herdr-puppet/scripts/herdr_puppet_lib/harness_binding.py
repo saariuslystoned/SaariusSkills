@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .claude_hooks import (
+    CLAUDE_BASE_FLAGS,
+    claude_launch_flags,
+    validate_lifecycle_observation,
+)
 from .errors import HerdrPuppetError
 
 
@@ -30,7 +35,7 @@ HARNESS_LAUNCH_SPECS = {
     },
     "claude": {
         "command": "claude",
-        "flags": ["--dangerously-skip-permissions"],
+        "flags": CLAUDE_BASE_FLAGS,
     },
     "cursor": {
         "command": "cursor-agent",
@@ -41,10 +46,28 @@ HARNESS_LAUNCH_SPECS = {
         "flags": ["--always-approve", "--sandbox", "off"],
     },
 }
-BINDING_SCHEMA = "herdr-puppet.harness-binding.v1"
-CENSUS_SCHEMA = "herdr-puppet.remote-harness-census.v1"
+HISTORICAL_HARNESS_LAUNCH_FLAGS = {
+    "agy": [
+        "--dangerously-skip-permissions",
+        "--sandbox=false",
+        "--new-project",
+        "--log-file",
+        "/dev/null",
+    ],
+    "codex": ["--dangerously-bypass-approvals-and-sandbox"],
+    "claude": ["--dangerously-skip-permissions"],
+    "cursor": ["--yolo", "--sandbox", "disabled"],
+    "grok": ["--always-approve", "--sandbox", "off"],
+}
+BINDING_SCHEMA = "herdr-puppet.harness-binding.v2"
+HISTORICAL_BINDING_SCHEMA = "herdr-puppet.harness-binding.v1"
+CENSUS_SCHEMA = "herdr-puppet.remote-harness-census.v2"
 INSTRUCTION_MANIFEST_SCHEMA = "herdr-puppet.instruction-wrapper.v1"
 INSTRUCTION_PLANE = "initial_message_wrapper"
+HISTORICAL_INSTRUCTION_MANIFEST_SCHEMA = (
+    "herdr-puppet.instruction-wrapper.v1"
+)
+HISTORICAL_INSTRUCTION_PLANE = "initial_message_wrapper"
 MAX_TEXT_BYTES = 32 * 1024
 MAX_TEMPLATE_BYTES = 64 * 1024
 ISOLATED_LAUNCH_PATH = (
@@ -186,6 +209,19 @@ def binding_fingerprint(value: Mapping[str, Any]) -> str:
     return _sha256_bytes(_canonical_bytes(_binding_payload(value)))
 
 
+def remote_census_facts_fingerprint(value: Mapping[str, Any]) -> str:
+    """Fingerprint stable census facts while allowing observation time to advance."""
+    return _sha256_bytes(
+        _canonical_bytes(
+            {
+                key: item
+                for key, item in value.items()
+                if key != "recorded_at"
+            }
+        )
+    )
+
+
 def _skill_root(skill_root: Path | None = None) -> Path:
     root = (
         Path(skill_root)
@@ -231,7 +267,10 @@ def harness_adapter_fingerprint(skill_root: Path | None = None) -> str:
     return _source_fingerprint(
         root,
         [
+            "scripts/claude_hook_marker.py",
             "scripts/harness_census.py",
+            "scripts/herdr_puppet_lib/claude_hook_marker.py",
+            "scripts/herdr_puppet_lib/claude_hooks.py",
             "scripts/herdr_puppet_lib/harness_binding.py",
             *templates,
         ],
@@ -243,6 +282,7 @@ def transport_adapter_fingerprint(skill_root: Path | None = None) -> str:
     return _source_fingerprint(
         root,
         [
+            "scripts/herdr_puppet_lib/__init__.py",
             "scripts/herdr_puppet_lib/cli.py",
             "scripts/herdr_puppet_lib/core.py",
             "scripts/herdr_puppet_lib/herdr_client.py",
@@ -361,7 +401,11 @@ def instruction_policy_fingerprint(skill_root: Path | None = None) -> str:
     return fingerprint
 
 
-def validate_remote_census(value: Any) -> dict[str, Any]:
+def validate_remote_census(
+    value: Any,
+    *,
+    skill_root: Path | None = None,
+) -> dict[str, Any]:
     census = _require_exact_fields(
         value,
         {
@@ -372,6 +416,7 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
             "executable",
             "profile",
             "regular_launch",
+            "lifecycle_observation",
             "model_observation",
             "source",
             "raw_output_retained",
@@ -491,6 +536,18 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
             "The dedicated remote-user profile is not controller-observed enrolled.",
             details={"harness": harness},
         )
+    source = _require_exact_fields(
+        census["source"],
+        {"worktree"},
+        "census source",
+    )
+    _require_text(source["worktree"], "census source worktree", absolute=True)
+    lifecycle = validate_lifecycle_observation(
+        census["lifecycle_observation"],
+        harness=harness,
+        source_worktree=source["worktree"],
+        skill_root=_skill_root(skill_root),
+    )
     launch = _require_exact_fields(
         census["regular_launch"],
         {
@@ -505,15 +562,19 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
     )
     argv = launch["argv"]
     environment = launch["environment"]
+    expected_argv = [
+        executable["path"],
+        *(
+            claude_launch_flags(lifecycle)
+            if harness == "claude"
+            else HARNESS_LAUNCH_SPECS[harness]["flags"]
+        ),
+    ]
     if (
         not isinstance(argv, list)
         or len(argv) < 2
         or any(not isinstance(item, str) or not item for item in argv)
-        or argv
-        != [
-            executable["path"],
-            *HARNESS_LAUNCH_SPECS[harness]["flags"],
-        ]
+        or argv != expected_argv
     ):
         raise HerdrPuppetError(
             "invalid_remote_census",
@@ -566,12 +627,6 @@ def validate_remote_census(value: Any) -> dict[str, Any]:
         )
     for field in ("model", "effort"):
         _require_safe_value(model[field], f"census observed {field}")
-    source = _require_exact_fields(
-        census["source"],
-        {"worktree"},
-        "census source",
-    )
-    _require_text(source["worktree"], "census source worktree", absolute=True)
     if census["raw_output_retained"] is not False:
         raise HerdrPuppetError(
             "invalid_remote_census",
@@ -586,8 +641,8 @@ def build_harness_binding(
     repo: str,
     skill_root: Path | None = None,
 ) -> dict[str, Any]:
-    census = validate_remote_census(census_value)
     root = _skill_root(skill_root)
+    census = validate_remote_census(census_value, skill_root=root)
     _require_text(repo, "source repository")
     template_rows, policy_fingerprint = _template_catalog(root)
     required_layers = [
@@ -612,6 +667,7 @@ def build_harness_binding(
         "profile": dict(census["profile"]),
         "model_observation": dict(census["model_observation"]),
         "regular_launch": dict(census["regular_launch"]),
+        "lifecycle_observation": dict(census["lifecycle_observation"]),
         "adapters": {
             "harness_fingerprint": harness_adapter_fingerprint(root),
             "transport_fingerprint": transport_adapter_fingerprint(root),
@@ -653,26 +709,43 @@ def validate_harness_binding(
     expected_worktree: str | None = None,
     skill_root: Path | None = None,
     verify_current_adapters: bool = True,
+    allow_historical: bool = False,
 ) -> dict[str, Any]:
+    historical = (
+        isinstance(value, dict)
+        and value.get("schema") == HISTORICAL_BINDING_SCHEMA
+    )
+    if historical and not allow_historical:
+        raise HerdrPuppetError(
+            "legacy_harness_binding_requires_recensus",
+            "Harness-binding v1 is historical evidence; fresh qualification "
+            "requires a new census and v2 binding.",
+        )
+    binding_fields = {
+        "schema",
+        "harness",
+        "remote",
+        "profile",
+        "model_observation",
+        "regular_launch",
+        "adapters",
+        "source",
+        "instructions",
+        "capabilities",
+        "attestation",
+        "fingerprint",
+    }
+    if not historical:
+        binding_fields.add("lifecycle_observation")
     binding = _require_exact_fields(
         value,
-        {
-            "schema",
-            "harness",
-            "remote",
-            "profile",
-            "model_observation",
-            "regular_launch",
-            "adapters",
-            "source",
-            "instructions",
-            "capabilities",
-            "attestation",
-            "fingerprint",
-        },
+        binding_fields,
         "harness binding",
     )
-    if binding["schema"] != BINDING_SCHEMA:
+    if binding["schema"] not in {
+        BINDING_SCHEMA,
+        HISTORICAL_BINDING_SCHEMA,
+    }:
         raise HerdrPuppetError(
             "invalid_harness_binding",
             "The harness binding schema is unsupported.",
@@ -747,6 +820,21 @@ def validate_harness_binding(
                 "invalid_harness_binding",
                 "Only Cursor may carry a provisional interactive profile.",
             )
+    validation_root = (
+        _skill_root(skill_root)
+        if verify_current_adapters and not historical
+        else None
+    )
+    lifecycle = (
+        None
+        if historical
+        else validate_lifecycle_observation(
+            binding["lifecycle_observation"],
+            harness=harness,
+            source_worktree=source["worktree"],
+            skill_root=validation_root,
+        )
+    )
     launch = _require_exact_fields(
         binding["regular_launch"],
         {
@@ -768,7 +856,15 @@ def validate_harness_binding(
     }
     expected_launch_argv = [
         executable["path"],
-        *HARNESS_LAUNCH_SPECS[harness]["flags"],
+        *(
+            HISTORICAL_HARNESS_LAUNCH_FLAGS[harness]
+            if historical
+            else (
+                claude_launch_flags(lifecycle)
+                if harness == "claude" and lifecycle is not None
+                else HARNESS_LAUNCH_SPECS[harness]["flags"]
+            )
+        ),
     ]
     if (
         launch["inherit_environment"] is not False
@@ -823,9 +919,19 @@ def validate_harness_binding(
         {"schema", "plane", "policy_fingerprint", "layers"},
         "binding instructions",
     )
+    expected_instruction_schema = (
+        HISTORICAL_INSTRUCTION_MANIFEST_SCHEMA
+        if historical
+        else INSTRUCTION_MANIFEST_SCHEMA
+    )
+    expected_instruction_plane = (
+        HISTORICAL_INSTRUCTION_PLANE
+        if historical
+        else INSTRUCTION_PLANE
+    )
     if (
-        instructions["schema"] != INSTRUCTION_MANIFEST_SCHEMA
-        or instructions["plane"] != INSTRUCTION_PLANE
+        instructions["schema"] != expected_instruction_schema
+        or instructions["plane"] != expected_instruction_plane
         or instructions["layers"]
         != [
             "universal",
@@ -891,8 +997,9 @@ def validate_harness_binding(
             "harness_binding_fingerprint_mismatch",
             "The harness binding fingerprint does not match its payload.",
         )
-    if verify_current_adapters:
-        root = _skill_root(skill_root)
+    if verify_current_adapters and not historical:
+        root = validation_root
+        assert root is not None
         if (
             adapters["harness_fingerprint"] != harness_adapter_fingerprint(root)
             or adapters["transport_fingerprint"]
@@ -918,13 +1025,14 @@ def verify_remote_census(
         binding_value,
         skill_root=skill_root,
     )
-    census = validate_remote_census(census_value)
+    census = validate_remote_census(census_value, skill_root=skill_root)
     expected = {
         "harness": binding["harness"],
         "host": binding["remote"]["host"],
         "executable": binding["remote"]["executable"],
         "profile": binding["profile"],
         "regular_launch": binding["regular_launch"],
+        "lifecycle_observation": binding["lifecycle_observation"],
         "model_observation": binding["model_observation"],
         "source": {"worktree": binding["source"]["worktree"]},
         "raw_output_retained": False,
@@ -966,6 +1074,7 @@ def verify_remote_census(
         "observed_model": census["model_observation"]["model"],
         "observed_effort": census["model_observation"]["effort"],
         "launch_vector_sha256": census["regular_launch"]["vector_sha256"],
+        "lifecycle_strategy": census["lifecycle_observation"]["strategy"],
         "source_worktree": census["source"]["worktree"],
         "explicit_model_selector": False,
         "raw_output_retained": False,

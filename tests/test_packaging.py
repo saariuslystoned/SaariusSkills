@@ -193,6 +193,7 @@ class PackagingTests(unittest.TestCase):
             "lease.schema.json",
             "event.schema.json",
             "harness-binding.schema.json",
+            "harness-binding-v1.schema.json",
         ):
             schema = json.loads((references / name).read_text(encoding="utf-8"))
             self.assertEqual(
@@ -258,6 +259,9 @@ class PackagingTests(unittest.TestCase):
                 "caller_text_files",
                 "caller_text_files_removed",
                 "remote_task_files",
+                "interactive_sends",
+                "pending_interactive_send",
+                "pending_sequence_operation",
             },
         )
         readiness_rule = lease_schema["allOf"][0]

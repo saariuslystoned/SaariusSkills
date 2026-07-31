@@ -36,13 +36,19 @@ hand-composed Herdr mutations when the script owns the operation.
    named session, and an unambiguous workspace.
 3. Run the bounded `harness_census.py` against the dedicated remote-user
    profile without inspecting auth stores. Create a controller-attested
-   binding with `harness-binding-create`; it freezes executable/version/help
-   fingerprints, enrolled or Cursor-provisional (`interactive_pending`
+   binding with `harness-binding-create`; current schemas are
+   `herdr-puppet.remote-harness-census.v2` and
+   `herdr-puppet.harness-binding.v2`, and the binding freezes
+   executable/version/help fingerprints, enrolled or Cursor-provisional (`interactive_pending`
    + `null` status) profile route, current default-model observation,
    unrestricted regular launch with no model selector, adapter/protocol
    fingerprints, worktree, instruction plane, and honest unsupported
-   capabilities. Run `plan` with that binding. Save plan and binding outside
-   public source when they contain local paths or host/account identity.
+   capabilities. For Claude rows only, choose run-id before census, pass
+   `--run-id` with an absent `--claude-hook-root`, require `--settings` in
+   `claude --help`, and bind the source-owned helper, exact interpreter
+   identity, and derived settings fingerprint. Run `plan` with that binding.
+   Save plan and binding outside public source when they contain local paths or
+   host/account identity.
    Cursor's provisional state means the census deliberately skipped its
    auth/status surface; it is not an enrollment claim. A successful
    provisional census exits zero because evidence collection completed, not
@@ -65,7 +71,10 @@ hand-composed Herdr mutations when the script owns the operation.
    `harness_readiness: status_verified` value, run the explicit
    `lease-migrate-v1` adapter before status, journal refresh, probe,
    preservation, or cleanup. An unbound historical lease cannot be
-   controller-attested retroactively and remains historical evidence only.
+   controller-attested retroactively and remains historical evidence only. A
+   canonical lease carrying a valid binding-v1 remains available for status,
+   preservation, maintenance, and exact cleanup, but every fresh qualification
+   transition requires recensus and a binding-v2 plan.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. The controller focuses that exact newly created
    tab in the plan's target workspace so the run is operator-visible and Herdr
@@ -80,14 +89,20 @@ hand-composed Herdr mutations when the script owns the operation.
    records only the command hash. Its acknowledgement proves only that the
    Herdr CLI returned success. It does not prove shell execution, harness
    readiness, prompt acceptance, MCP readiness, task start, or task completion.
+   Shell run, harness launch, and startup-gate operations are durably reserved
+   before Herdr mutation. An unfinalized reservation blocks replay; preserve
+   that row instead of guessing whether the mutation landed.
 8. Follow the regular interactive order exactly: atomic shell STATUS preflight;
    strict STATUS beacon wait; in-row executable/profile/version/help census
    written create-only by `harness_census.py --output` followed by its strict
    completion STATUS beacon; `harness-census-verify` against the plan binding; one
-   `qualification-harness-launch`; any exact observed pre-readiness gate;
-   independently recorded readiness; one wrapped initial message; proof of
-   consumption; one separately sequenced steering turn; native TUI
-   view/detach/reattach checkpoint; and one strict terminal beacon. The
+   `qualification-harness-launch`; for Claude, eight registered marker paths
+   plus an `armed` SessionStart receipt; any exact observed pre-readiness gate;
+   independently recorded readiness; one wrapped initial message; for Claude,
+   a bound `initial` UserPromptSubmit plus Stop/StopFailure receipt before one
+   separately sequenced steering turn, followed by the bound `steering`
+   receipt; native TUI view/detach/reattach checkpoint; and one strict terminal
+   beacon. The
    dedicated launch operation alone may start a qualifying harness.
    It starts from an empty process environment and restores only the exact
    bound `HOME`, deterministic `PATH`, locale, and terminal values. Never
@@ -130,6 +145,19 @@ hand-composed Herdr mutations when the script owns the operation.
    against the exact leased source and ready input surface. Shell STATUS never
    authorizes pane input, including sequence 1. `qualification-run` never
    launches a harness; noninteractive AGY remains unsupported.
+   Claude submit keys remain transport choreography: multiline sends use
+   `["enter", "enter"]`; every other send uses `["enter"]`.
+   The UserPromptSubmit hook hashes only the bounded in-memory `prompt` field
+   and retains no raw input; all other hook events leave stdin unread. Only the
+   receipt whose prompt fingerprints match the controller's exact send history
+   proves that Claude submitted and completed or failed a turn. Hook execution
+   uses an isolated settings-embedded verifier that checks the resolved running
+   interpreter plus the bound interpreter and helper before Python executes the
+   helper; that helper then checks the bound implementation.
+   Generate observation commands through
+   `qualification-claude-receipt-command`, never by directly executing the
+   mutable worktree helper. Claude rows never use
+   `qualification-reconcile-send`.
    Serialize sends and let the lease reject stale, skipped, duplicate, or
    replayed sequences. Send ordinary AGY steering as a plain message with no
    slash-command prefix.
@@ -139,7 +167,11 @@ hand-composed Herdr mutations when the script owns the operation.
    requires its own topology, accounting, timeout, and cleanup proof. Preserve
    an operator-selected slash command verbatim. Supply prompts through
    `--stdin` or a bounded UTF-8 `--text-file`, never controller argv. Treat
-   `herdr_input_outcome_unknown` as a hard stop and never retry speculatively.
+   a pending or unknown delivery reservation as a hard stop and never retry
+   speculatively. The controller reserves each send durably before Herdr
+   mutation. Only a non-Claude second steering send with the exact pending
+   reservation may use `qualification-reconcile-send`; an uncertain initial
+   send or any uncertain Claude send requires preservation and a fresh row.
    A send receipt remains scoped to `herdr_pane_input_only` and proves no
    shell, harness, prompt, MCP, or task readiness.
 10. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
@@ -228,13 +260,20 @@ including one created early merely to hold `plan.json`.
 ```bash
 python3 scripts/herdr_puppet.py doctor \
   --session <session>
-
 python3 scripts/harness_census.py \
   --harness <agy|codex|claude|cursor|grok> \
   --host <remote-host> \
   --profile-root <dedicated-remote-user-home> \
   --worktree <exact-remote-worktree> > <private-census.json>
-
+# For Claude, bind the native lifecycle:
+python3 scripts/harness_census.py \
+  --harness claude \
+  --host <remote-host> \
+  --profile-root <dedicated-remote-user-home> \
+  --worktree <exact-remote-worktree> \
+  --run-id <run-id> \
+  --claude-hook-root <exact-absent-marker-root> \
+  > <private-census.json>
 # Inside the leased row, never shell-redirect the census output. Use:
 python3 scripts/harness_census.py \
   --harness <agy|codex|claude|cursor|grok> \
@@ -243,59 +282,75 @@ python3 scripts/harness_census.py \
   --worktree <exact-remote-worktree> \
   --output <exact-create-only-remote-census.json> \
   --checkpoint-nonce <unique-census-status-nonce>
-
+# For Claude, include the two additional flags above with the same run lineage:
+# --run-id <run-id> --claude-hook-root <exact-absent-marker-root>
 python3 scripts/herdr_puppet.py harness-binding-create \
   --census-json <private-census.json> \
   --repo <owner/repo> \
   --output <private-binding.json>
-
 python3 scripts/herdr_puppet.py plan \
   --session <session> \
   --workspace-id <workspace-id> \
   --workspace-label <label> \
   --expected-ssh-target <user@host> \
   --run-id <run-id> \
+  --harness <agy|codex|claude|cursor|grok> \
   --repo <owner/repo> \
   --worktree <path> \
   --proof-root <run-root> \
   --harness-binding-json <private-binding.json> \
   --live-mutation-authorized
-
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
-
 python3 scripts/herdr_puppet.py lease-migrate-v1 \
   --lease-json <historical-lease.json>
-
 python3 scripts/herdr_puppet.py journal-init \
   --plan-json <plan.json> \
   --run-root <run-root>
-
 python3 scripts/herdr_puppet.py journal-show \
   --run-root <run-root>
-
 python3 scripts/herdr_puppet.py qualification-create-tab \
   --plan-json <plan.json> \
   --lease-json <lease.json> \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py qualification-run \
   --lease-json <lease.json> \
   --seq <next-seq> \
   --text-file <task-owned-command-file> \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py harness-census-verify \
+  --lease-json <lease.json> \
   --harness-binding-json <private-binding.json> \
-  --census-json <in-row-census.json>
-
+  --census-json <in-row-census.json> \
+  --run-root <run-root>
+# Repeat once for each of the eight exact marker names in the qualification
+# contract, before launching Claude:
+python3 scripts/herdr_puppet.py remote-task-file-register \
+  --lease-json <lease.json> \
+  --remote-path </exact/claude-hook-root/one-exact-marker-name.json> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --confirm-caller-owned \
+  --run-root <run-root>
 python3 scripts/herdr_puppet.py qualification-harness-launch \
   --lease-json <lease.json> \
   --seq <next-seq> \
   --run-root <run-root> \
   --allow-live-qualification
-
+# Claude only: generate the source-bound, pre-execution-verified observe command.
+# Execute the returned argv/shell_command without alteration over the exact
+# leased SSH target, copy only the sanitized JSON locally, and
+# record `armed` before readiness. Repeat as `initial` after the first send and
+# `steering` after the second send. This route is operational provenance, not
+# cryptographic proof of remote origin.
+python3 scripts/herdr_puppet.py qualification-claude-receipt-command \
+  --lease-json <lease.json> > <private-receipt-command.json>
+python3 scripts/herdr_puppet.py qualification-claude-lifecycle-observe \
+  --lease-json <lease.json> \
+  --receipt-json <controller-local-sanitized-receipt.json> \
+  --phase <armed|initial|steering> \
+  --run-root <run-root>
 python3 scripts/herdr_puppet.py qualification-startup-gate \
   --lease-json <lease.json> \
   --seq <next-seq> \
@@ -308,7 +363,6 @@ python3 scripts/herdr_puppet.py qualification-startup-gate \
   --confirm-unrestricted \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --lease-json <lease.json> \
   --nonce <unique-checkpoint-nonce> \
@@ -317,7 +371,6 @@ python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --timeout-seconds 510 \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py qualification-harness-ready \
   --lease-json <lease.json> \
   --source-repo <exact-leased-repo> \
@@ -327,15 +380,32 @@ python3 scripts/herdr_puppet.py qualification-harness-ready \
   --confirm-ready \
   --run-root <run-root> \
   --allow-live-qualification
-
+# Initial message: the wrapper manifest is mandatory.
 python3 scripts/herdr_puppet.py qualification-send \
   --lease-json <lease.json> \
   --seq <next-seq> \
-  --text-file <rendered-wrapper-or-steering-file> \
+  --text-file <rendered-wrapper-file> \
   --instruction-manifest-json <manifest-for-first-message.json> \
   --run-root <run-root> \
   --allow-live-qualification
-
+# After controller-observed initial consumption (STATUS for non-Claude, the
+# bound initial lifecycle receipt for Claude), send exactly one plain steering
+# turn with no instruction manifest.
+python3 scripts/herdr_puppet.py qualification-send \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --text-file <steering-file> \
+  --run-root <run-root> \
+  --allow-live-qualification
+# Only for an exact pending/unknown non-Claude steering reservation whose
+# application is independently proven. This performs no Herdr mutation.
+python3 scripts/herdr_puppet.py qualification-reconcile-send \
+  --lease-json <lease.json> \
+  --seq <same-pending-seq> \
+  --text-file <same-steering-file> \
+  --evidence <concise-structural-evidence> \
+  --confirm-applied \
+  --run-root <run-root>
 python3 scripts/herdr_puppet.py qualification-view-begin \
   --lease-json <lease.json> \
   --nonce <unique-view-nonce> \
@@ -343,7 +413,6 @@ python3 scripts/herdr_puppet.py qualification-view-begin \
   --confirm-native-tui-visible \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py qualification-view-complete \
   --lease-json <lease.json> \
   --nonce <same-view-nonce> \
@@ -352,7 +421,6 @@ python3 scripts/herdr_puppet.py qualification-view-complete \
   --confirm-detached-reattached \
   --run-root <run-root> \
   --allow-live-qualification
-
 python3 scripts/herdr_puppet.py remote-task-file-register \
   --lease-json <lease.json> \
   --remote-path </exact/remote/task-file> \
@@ -360,18 +428,15 @@ python3 scripts/herdr_puppet.py remote-task-file-register \
   --source-worktree <exact-leased-worktree> \
   --confirm-caller-owned \
   --run-root <run-root>
-
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <human_gate|route_superseded|milestone_complete|operator_stop>
-
 python3 scripts/herdr_puppet.py maintenance-checkpoint \
   --lease-json <lease.json> \
   --run-root <run-root> \
   --remote-task-file-removed </exact/remote/task-file> \
   --remote-removal-evidence operator_verified_remote_absence \
   --confirm-remote-removed
-
 python3 scripts/herdr_puppet.py cleanup-preserved-tab \
   --lease-json <lease.json> \
   --run-root <run-root> \

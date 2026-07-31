@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,12 +13,62 @@ from typing import Any
 from .errors import HerdrPuppetError
 
 
+MAX_JOURNAL_EVENT_BYTES = 64 * 1024
+MAX_JOURNAL_BYTES = 16 * 1024 * 1024
+MAX_PLAN_BYTES = 1024 * 1024
+
+
+def _open_owned_regular(path: Path, flags: int) -> int:
+    safe_flags = flags | getattr(os, "O_CLOEXEC", 0)
+    safe_flags |= getattr(os, "O_NOFOLLOW", 0)
+    safe_flags |= getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(path, safe_flags)
+    file_stat = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(file_stat.st_mode)
+        or file_stat.st_uid != os.getuid()
+    ):
+        os.close(descriptor)
+        raise OSError("path is not a caller-owned regular file")
+    return descriptor
+
+
+def _load_bounded_plan(plan_path: Path) -> dict[str, Any]:
+    descriptor: int | None = None
+    try:
+        descriptor = _open_owned_regular(plan_path, os.O_RDONLY)
+        plan_stat = os.fstat(descriptor)
+        if plan_stat.st_size > MAX_PLAN_BYTES:
+            raise OSError("oversized plan")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            encoded = stream.read(MAX_PLAN_BYTES + 1)
+        if len(encoded) > MAX_PLAN_BYTES:
+            raise OSError("oversized plan")
+        plan = json.loads(encoded.decode("utf-8"))
+        if not isinstance(plan, dict):
+            raise ValueError("plan must be an object")
+        return plan
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -34,6 +85,7 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -52,6 +104,7 @@ def atomic_text(path: Path, value: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -59,19 +112,50 @@ def atomic_text(path: Path, value: str) -> None:
 
 def append_event(run_root: Path, event: dict[str, Any]) -> None:
     events_path = run_root / "events.jsonl"
-    if not events_path.exists():
+    encoded = json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
+    encoded_bytes = encoded.encode("utf-8")
+    if len(encoded_bytes) > MAX_JOURNAL_EVENT_BYTES:
+        raise HerdrPuppetError(
+            "journal_event_too_large",
+            "The controller journal event exceeds its bounded size.",
+        )
+    descriptor: int | None = None
+    try:
+        descriptor = _open_owned_regular(
+            events_path,
+            os.O_WRONLY | os.O_APPEND,
+        )
+    except OSError as exc:
         raise HerdrPuppetError(
             "journal_not_initialized",
             "Initialize the controller journal before appending events.",
             details={"run_root": str(run_root)},
-        )
-    encoded = json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
-    with events_path.open("a", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        handle.write(encoded)
-        handle.flush()
-        os.fsync(handle.fileno())
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        ) from exc
+    try:
+        with os.fdopen(
+            descriptor,
+            "a",
+            encoding="utf-8",
+        ) as handle:
+            descriptor = None
+            file_descriptor = handle.fileno()
+            fcntl.flock(file_descriptor, fcntl.LOCK_EX)
+            if os.fstat(file_descriptor).st_size + len(encoded_bytes) > (
+                MAX_JOURNAL_BYTES
+            ):
+                fcntl.flock(file_descriptor, fcntl.LOCK_UN)
+                raise HerdrPuppetError(
+                    "journal_byte_limit",
+                    "The controller journal would exceed its bounded byte limit.",
+                    details={"maximum": MAX_JOURNAL_BYTES},
+                )
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(file_descriptor)
+            fcntl.flock(file_descriptor, fcntl.LOCK_UN)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     atomic_text(run_root / "heartbeat", event["timestamp"] + "\n")
 
 
@@ -189,33 +273,68 @@ def read_events(run_root: Path, *, maximum: int = 10_000) -> list[dict[str, Any]
             details={"run_root": str(run_root)},
         )
     events: list[dict[str, Any]] = []
-    for line_number, line in enumerate(
-        events_path.read_text(encoding="utf-8").splitlines(),
-        start=1,
-    ):
-        if not line:
-            continue
-        if len(events) >= maximum:
-            raise HerdrPuppetError(
-                "journal_event_limit",
-                "The controller journal exceeds the bounded event limit.",
-                details={"maximum": maximum},
-            )
+    total_bytes = 0
+    descriptor: int | None = None
+    try:
+        descriptor = _open_owned_regular(events_path, os.O_RDONLY)
+    except OSError as exc:
+        raise HerdrPuppetError(
+            "journal_not_initialized",
+            "The controller journal does not exist or is unsafe.",
+            details={"run_root": str(run_root)},
+        ) from exc
+    with os.fdopen(descriptor, "rb") as handle:
+        descriptor = None
+        fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise HerdrPuppetError(
-                "invalid_journal_event",
-                "The controller journal contains malformed JSON.",
-                details={"line": line_number},
-            ) from exc
-        if not isinstance(event, dict) or event.get("schema") != "herdr-puppet.event.v1":
-            raise HerdrPuppetError(
-                "invalid_journal_event",
-                "The controller journal contains an unsupported event.",
-                details={"line": line_number},
-            )
-        events.append(event)
+            line_number = 0
+            while True:
+                encoded = handle.readline(MAX_JOURNAL_EVENT_BYTES + 1)
+                if not encoded:
+                    break
+                line_number += 1
+                total_bytes += len(encoded)
+                if len(encoded) > MAX_JOURNAL_EVENT_BYTES:
+                    raise HerdrPuppetError(
+                        "journal_event_too_large",
+                        "The controller journal contains an oversized event.",
+                        details={"line": line_number},
+                    )
+                if total_bytes > MAX_JOURNAL_BYTES:
+                    raise HerdrPuppetError(
+                        "journal_byte_limit",
+                        "The controller journal exceeds its bounded byte limit.",
+                        details={"maximum": MAX_JOURNAL_BYTES},
+                    )
+                if not encoded.strip():
+                    continue
+                if len(events) >= maximum:
+                    raise HerdrPuppetError(
+                        "journal_event_limit",
+                        "The controller journal exceeds the bounded event limit.",
+                        details={"maximum": maximum},
+                    )
+                try:
+                    line = encoded.decode("utf-8")
+                    event = json.loads(line)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise HerdrPuppetError(
+                        "invalid_journal_event",
+                        "The controller journal contains malformed JSON.",
+                        details={"line": line_number},
+                    ) from exc
+                if (
+                    not isinstance(event, dict)
+                    or event.get("schema") != "herdr-puppet.event.v1"
+                ):
+                    raise HerdrPuppetError(
+                        "invalid_journal_event",
+                        "The controller journal contains an unsupported event.",
+                        details={"line": line_number},
+                    )
+                events.append(event)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     return events
 
 
@@ -227,18 +346,20 @@ def require_initialized_journal(
 ) -> None:
     plan_path = run_root / "plan.json"
     events_path = run_root / "events.jsonl"
-    if not plan_path.exists() or not events_path.exists():
-        raise HerdrPuppetError(
-            "journal_not_initialized",
-            "Initialize the controller journal before mutating Herdr.",
-            details={"run_root": str(run_root)},
-        )
     try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        plan = _load_bounded_plan(plan_path)
+        events_descriptor = _open_owned_regular(events_path, os.O_RDONLY)
+        os.close(events_descriptor)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
         raise HerdrPuppetError(
             "journal_not_initialized",
-            "The controller journal plan is unreadable or malformed.",
+            "Initialize the controller journal before mutating Herdr; its "
+            "plan is unreadable or malformed.",
             details={"run_root": str(run_root)},
         ) from exc
     if plan.get("run_id") != run_id:
@@ -317,8 +438,13 @@ def summarize_journal(run_root: Path, *, recent_limit: int = 20) -> dict[str, An
 def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[str, Any]:
     plan_path = run_root / "plan.json"
     try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        plan = _load_bounded_plan(plan_path)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
         raise HerdrPuppetError(
             "invalid_journal_plan",
             "The controller journal plan could not be read.",

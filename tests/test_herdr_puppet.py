@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,9 @@ from herdr_puppet_lib.core import (  # noqa: E402
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_claude_lifecycle_observe,
+    qualification_claude_receipt_command,
+    qualification_harness_census_verify,
     qualification_harness_launch,
     qualification_harness_ready,
     qualification_reconcile_send,
@@ -51,6 +55,22 @@ from herdr_puppet_lib.core import (  # noqa: E402
 from herdr_puppet_lib import cli as herdr_cli  # noqa: E402
 from herdr_puppet_lib.cli import _read_prompt, build_parser  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
+from herdr_puppet_lib.claude_hooks import (  # noqa: E402
+    CLAUDE_MARKER_NAMES,
+    build_claude_lifecycle_observation,
+    checkpoint_lifecycle_observation,
+    claude_helper_exec_argv,
+    claude_hook_settings,
+    claude_launch_flags,
+    validate_claude_hook_receipt,
+)
+from herdr_puppet_lib.claude_hook_marker import (  # noqa: E402
+    ClaudeHookMarkerError,
+    canonical_bytes as canonical_hook_bytes,
+    marker_payload,
+    observe as observe_claude_hooks,
+    record_event as record_claude_hook,
+)
 from herdr_puppet_lib.herdr_client import (  # noqa: E402
     MAX_PROMPT_BYTES,
     HerdrClient,
@@ -66,6 +86,7 @@ from herdr_puppet_lib.harness_binding import (  # noqa: E402
 )
 from herdr_puppet_lib.journal import (  # noqa: E402
     append_event,
+    atomic_json,
     initialize_journal,
     make_event,
     read_events,
@@ -283,11 +304,13 @@ class FakeClient:
 
 def multiprocessing_same_seq_run(
     lease_path_text: str,
+    run_root_text: str,
     marker_path_text: str,
     start_event: Any,
     result_queue: Any,
 ) -> None:
     lease_path = Path(lease_path_text)
+    run_root = Path(run_root_text)
     marker_path = Path(marker_path_text)
     lease = load_json(lease_path)
     client = FakeClient()
@@ -311,8 +334,12 @@ def multiprocessing_same_seq_run(
             lease_payload=lease,
             lease_path=lease_path,
             seq=1,
-            command="same-sequence",
+            command=(
+                "printf '%s\\n' "
+                "'HERDR_PUPPET_STATUS MULTIPROCESS-STATUS-1'"
+            ),
             allow_live=True,
+            run_root=run_root,
         )
     except HerdrPuppetError as exc:
         result_queue.put(exc.code)
@@ -358,6 +385,7 @@ def sample_binding(
     harness: str = "agy",
     repo: str = "example/SaariusSkills",
     worktree: str = "/redacted/worktree",
+    run_id: str = "run-20260723-a",
 ) -> dict[str, Any]:
     commands = {
         "agy": (
@@ -385,6 +413,50 @@ def sample_binding(
         "help_sha256": "3" * 64,
     }
     executable["fingerprint"] = _digest(executable)
+    if harness == "claude":
+        local_helper = (
+            ROOT
+            / "skills"
+            / "herdr-puppet"
+            / "scripts"
+            / "claude_hook_marker.py"
+        )
+        local_implementation = (
+            ROOT
+            / "skills"
+            / "herdr-puppet"
+            / "scripts"
+            / "herdr_puppet_lib"
+            / "claude_hook_marker.py"
+        )
+        lifecycle_observation = build_claude_lifecycle_observation(
+            run_id=run_id,
+            marker_root=f"/redacted/claude-hooks/{run_id}",
+            helper_path=str(
+                Path(worktree)
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            ),
+            helper_sha256=hashlib.sha256(local_helper.read_bytes()).hexdigest(),
+            implementation_path=str(
+                Path(worktree)
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            ),
+            implementation_sha256=hashlib.sha256(
+                local_implementation.read_bytes()
+            ).hexdigest(),
+            interpreter_path="/usr/bin/python3",
+            interpreter_sha256="4" * 64,
+        )
+        flags = claude_launch_flags(lifecycle_observation)
+    else:
+        lifecycle_observation = checkpoint_lifecycle_observation()
     vector = {
         "argv": [executable["path"], *flags],
         "environment": {
@@ -400,7 +472,7 @@ def sample_binding(
         "inherit_environment": False,
     }
     census = {
-        "schema": "herdr-puppet.remote-harness-census.v1",
+        "schema": "herdr-puppet.remote-harness-census.v2",
         "harness": harness,
         "host": "worker-02.example",
         "recorded_at": "2026-07-30T12:00:00Z",
@@ -419,6 +491,7 @@ def sample_binding(
             "explicit_model_selector": False,
             "vector_sha256": _digest(vector),
         },
+        "lifecycle_observation": lifecycle_observation,
         "model_observation": {
             "selection": "current_default",
             "model": "unavailable",
@@ -428,6 +501,836 @@ def sample_binding(
         "raw_output_retained": False,
     }
     return build_harness_binding(census, repo=repo)
+
+
+def sample_census_from_binding(
+    binding: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "herdr-puppet.remote-harness-census.v2",
+        "harness": binding["harness"],
+        "host": binding["remote"]["host"],
+        "recorded_at": binding["attestation"]["census_recorded_at"],
+        "executable": copy.deepcopy(binding["remote"]["executable"]),
+        "profile": copy.deepcopy(binding["profile"]),
+        "regular_launch": copy.deepcopy(binding["regular_launch"]),
+        "lifecycle_observation": copy.deepcopy(
+            binding["lifecycle_observation"]
+        ),
+        "model_observation": copy.deepcopy(binding["model_observation"]),
+        "source": {"worktree": binding["source"]["worktree"]},
+        "raw_output_retained": False,
+    }
+
+
+def claude_hook_receipt(
+    binding: dict[str, Any],
+    *,
+    session_start: int = 1,
+    user_prompt_submit: int = 0,
+    stop: int = 0,
+    stop_failure: int = 0,
+    prompt_sha256s: list[str] | None = None,
+) -> dict[str, Any]:
+    observation = binding["lifecycle_observation"]
+    counts = {
+        "session_start": session_start,
+        "user_prompt_submit": user_prompt_submit,
+        "stop": stop,
+        "stop_failure": stop_failure,
+    }
+    prompt_sha256s = list(prompt_sha256s or [])
+    if len(prompt_sha256s) != user_prompt_submit:
+        raise AssertionError(
+            "synthetic Claude receipts need one hash per submitted prompt"
+        )
+    markers = []
+    for event in sorted(counts):
+        for ordinal in range(1, counts[event] + 1):
+            prompt_sha256 = (
+                prompt_sha256s[ordinal - 1]
+                if event == "user_prompt_submit"
+                else None
+            )
+            encoded = canonical_hook_bytes(
+                marker_payload(
+                    run_id=observation["run_id"],
+                    probe_id=observation["probe_id"],
+                    event=event,
+                    ordinal=ordinal,
+                    prompt_sha256=prompt_sha256,
+                )
+            ) + b"\n"
+            marker = {
+                "event": event,
+                "ordinal": ordinal,
+                "sha256": hashlib.sha256(encoded).hexdigest(),
+            }
+            if prompt_sha256 is not None:
+                marker["prompt_sha256"] = prompt_sha256
+            markers.append(marker)
+    return {
+        "schema": "herdr-puppet.claude-hook-receipt.v1",
+        "run_id": observation["run_id"],
+        "probe_id": observation["probe_id"],
+        "markers": markers,
+        "counts": counts,
+        "marker_set_sha256": hashlib.sha256(
+            canonical_hook_bytes(markers)
+        ).hexdigest(),
+        "stdin_read": user_prompt_submit > 0,
+        "raw_input_retained": False,
+        "transcript_read": False,
+    }
+
+
+class ClaudeHookMarkerTests(unittest.TestCase):
+    def test_native_hook_overflow_sentinel_invalidates_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "markers"
+            run_id = "run-hook-overflow"
+            probe_id = "8" * 64
+            record_claude_hook(
+                root_value=str(root),
+                run_id=run_id,
+                probe_id=probe_id,
+                event="session_start",
+            )
+            for ordinal in (1, 2):
+                record_claude_hook(
+                    root_value=str(root),
+                    run_id=run_id,
+                    probe_id=probe_id,
+                    event="user_prompt_submit",
+                    prompt_sha256=str(ordinal) * 64,
+                )
+                record_claude_hook(
+                    root_value=str(root),
+                    run_id=run_id,
+                    probe_id=probe_id,
+                    event="stop",
+                )
+            with self.assertRaises(ClaudeHookMarkerError):
+                record_claude_hook(
+                    root_value=str(root),
+                    run_id=run_id,
+                    probe_id=probe_id,
+                    event="user_prompt_submit",
+                    prompt_sha256="3" * 64,
+                )
+            overflow = root / "overflow.json"
+            self.assertTrue(overflow.is_file())
+            self.assertEqual(stat.S_IMODE(overflow.stat().st_mode), 0o600)
+            self.assertNotIn("3" * 64, overflow.read_text(encoding="utf-8"))
+            with self.assertRaises(ClaudeHookMarkerError):
+                observe_claude_hooks(
+                    root_value=str(root),
+                    run_id=run_id,
+                    probe_id=probe_id,
+                )
+
+    def test_claude_hook_settings_use_isolated_exec_form(self) -> None:
+        binding = sample_binding(harness="claude")
+        observation = binding["lifecycle_observation"]
+        settings = claude_hook_settings(observation)
+        handlers = [
+            handler
+            for groups in settings["hooks"].values()
+            for group in groups
+            for handler in group["hooks"]
+        ]
+        self.assertEqual(len(handlers), 4)
+        for handler in handlers:
+            self.assertEqual(
+                handler["command"],
+                observation["interpreter"]["path"],
+            )
+            self.assertEqual(handler["args"][0], "-I")
+            self.assertEqual(handler["args"][1], "-c")
+            self.assertEqual(
+                handler["args"][3],
+                observation["interpreter"]["path"],
+            )
+            self.assertEqual(
+                handler["args"][4],
+                observation["interpreter"]["sha256"],
+            )
+            self.assertEqual(
+                handler["args"][5],
+                observation["helper"]["path"],
+            )
+            self.assertEqual(
+                handler["args"][6],
+                observation["helper"]["sha256"],
+            )
+            self.assertNotIn("shell", handler)
+
+    def test_claude_helper_bootstrap_rejects_preexecution_helper_drift(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory) / "worktree"
+            helper = (
+                worktree
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            )
+            implementation = (
+                helper.parent
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            )
+            helper.parent.mkdir(parents=True)
+            implementation.parent.mkdir(parents=True)
+            source_helper = (
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            )
+            source_implementation = (
+                source_helper.parent
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            )
+            shutil.copy2(source_helper, helper)
+            shutil.copy2(source_implementation, implementation)
+            interpreter = Path(sys.executable).resolve()
+            observation = build_claude_lifecycle_observation(
+                run_id="run-bootstrap-drift",
+                marker_root=str(Path(directory) / "markers"),
+                helper_path=str(helper),
+                helper_sha256=hashlib.sha256(helper.read_bytes()).hexdigest(),
+                implementation_path=str(implementation),
+                implementation_sha256=hashlib.sha256(
+                    implementation.read_bytes()
+                ).hexdigest(),
+                interpreter_path=str(interpreter),
+                interpreter_sha256=hashlib.sha256(
+                    interpreter.read_bytes()
+                ).hexdigest(),
+            )
+            helper.write_text(
+                "print('{\"schema\":\"forged\"}')\n",
+                encoding="utf-8",
+            )
+            argv = claude_helper_exec_argv(
+                observation,
+                [
+                    "observe",
+                    "--root",
+                    observation["marker_root"],
+                    "--run-id",
+                    observation["run_id"],
+                    "--probe-id",
+                    observation["probe_id"],
+                    "--implementation-sha256",
+                    observation["implementation"]["sha256"],
+                ],
+            )
+            completed = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertEqual(completed.stdout, "")
+            self.assertEqual(completed.stderr, "")
+            shutil.copy2(source_helper, helper)
+            wrong_interpreter = copy.deepcopy(observation)
+            wrong_interpreter["interpreter"]["sha256"] = "0" * 64
+            wrong_argv = claude_helper_exec_argv(
+                wrong_interpreter,
+                [
+                    "observe",
+                    "--root",
+                    observation["marker_root"],
+                    "--run-id",
+                    observation["run_id"],
+                    "--probe-id",
+                    observation["probe_id"],
+                    "--implementation-sha256",
+                    observation["implementation"]["sha256"],
+                ],
+            )
+            wrong_completed = subprocess.run(
+                wrong_argv,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(wrong_completed.returncode, 2)
+            self.assertEqual(wrong_completed.stdout, "")
+            helper.unlink()
+            os.mkfifo(helper)
+            fifo_helper = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            self.assertEqual(fifo_helper.returncode, 2)
+            helper.unlink()
+            shutil.copy2(source_helper, helper)
+            implementation.unlink()
+            os.mkfifo(implementation)
+            fifo_implementation = subprocess.run(
+                claude_helper_exec_argv(
+                    observation,
+                    [
+                        "observe",
+                        "--root",
+                        observation["marker_root"],
+                        "--run-id",
+                        observation["run_id"],
+                        "--probe-id",
+                        observation["probe_id"],
+                        "--implementation-sha256",
+                        observation["implementation"]["sha256"],
+                    ],
+                ),
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            self.assertEqual(fifo_implementation.returncode, 2)
+
+    def test_native_hook_helper_is_silent_and_retains_no_input(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "markers"
+            prompt_sentinel = "PRIVATE-PROMPT-MUST-NOT-PERSIST"
+            transcript_sentinel = "/private/transcripts/MUST-NOT-PERSIST.jsonl"
+            hook_stdin = json.dumps(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "prompt": prompt_sentinel,
+                    "transcript_path": transcript_sentinel,
+                }
+            )
+            helper = (
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            )
+            implementation = (
+                helper.parent
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            )
+            implementation_sha256 = hashlib.sha256(
+                implementation.read_bytes()
+            ).hexdigest()
+            base = [
+                sys.executable,
+                str(helper),
+                "record",
+                "--root",
+                str(root),
+                "--run-id",
+                "run-hook-silent",
+                "--probe-id",
+                "a" * 64,
+                "--implementation-sha256",
+                implementation_sha256,
+            ]
+            completed = subprocess.run(
+                [*base, "--event", "session_start"],
+                input=hook_stdin,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(completed.stdout, "")
+            self.assertEqual(completed.stderr, "")
+            for event in ("user_prompt_submit", "stop"):
+                event_result = subprocess.run(
+                    [*base, "--event", event],
+                    input=hook_stdin,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(event_result.returncode, 0)
+                self.assertEqual(event_result.stdout, "")
+                self.assertEqual(event_result.stderr, "")
+            receipt = observe_claude_hooks(
+                root_value=str(root),
+                run_id="run-hook-silent",
+                probe_id="a" * 64,
+            )
+            self.assertEqual(
+                receipt["counts"],
+                {
+                    "session_start": 1,
+                    "user_prompt_submit": 1,
+                    "stop": 1,
+                    "stop_failure": 0,
+                },
+            )
+            self.assertIs(receipt["stdin_read"], True)
+            prompt_markers = [
+                marker
+                for marker in receipt["markers"]
+                if marker["event"] == "user_prompt_submit"
+            ]
+            self.assertEqual(
+                prompt_markers[0]["prompt_sha256"],
+                hashlib.sha256(prompt_sentinel.encode()).hexdigest(),
+            )
+            self.assertNotIn(
+                prompt_sentinel,
+                json.dumps(receipt),
+            )
+            self.assertNotIn(transcript_sentinel, json.dumps(receipt))
+            self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
+            for marker in root.iterdir():
+                self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+                marker_bytes = marker.read_bytes()
+                self.assertNotIn(prompt_sentinel.encode(), marker_bytes)
+                self.assertNotIn(transcript_sentinel.encode(), marker_bytes)
+
+    def test_native_hook_accepts_maximum_escaped_controller_prompt(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "markers"
+            helper = (
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            )
+            implementation = (
+                helper.parent
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            )
+            implementation_sha256 = hashlib.sha256(
+                implementation.read_bytes()
+            ).hexdigest()
+            base = [
+                sys.executable,
+                str(helper),
+                "record",
+                "--root",
+                str(root),
+                "--run-id",
+                "run-hook-max-prompt",
+                "--probe-id",
+                "9" * 64,
+                "--implementation-sha256",
+                implementation_sha256,
+            ]
+            started = subprocess.run(
+                [*base, "--event", "session_start"],
+                input="",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(started.returncode, 0)
+            prompt = "\n" * MAX_PROMPT_BYTES
+            hook_input = json.dumps(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "prompt": prompt,
+                }
+            )
+            self.assertGreater(len(hook_input.encode("utf-8")), 512 * 1024)
+            submitted = subprocess.run(
+                [*base, "--event", "user_prompt_submit"],
+                input=hook_input,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(submitted.returncode, 0)
+            receipt = observe_claude_hooks(
+                root_value=str(root),
+                run_id="run-hook-max-prompt",
+                probe_id="9" * 64,
+            )
+            prompt_marker = next(
+                marker
+                for marker in receipt["markers"]
+                if marker["event"] == "user_prompt_submit"
+            )
+            self.assertEqual(
+                prompt_marker["prompt_sha256"],
+                hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            )
+
+    def test_native_hook_helper_bounds_events_and_rejects_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "markers"
+            record_claude_hook(
+                root_value=str(root),
+                run_id="run-hook-bounds",
+                probe_id="b" * 64,
+                event="session_start",
+            )
+            for prompt_sha256 in ("c" * 64, "d" * 64):
+                record_claude_hook(
+                    root_value=str(root),
+                    run_id="run-hook-bounds",
+                    probe_id="b" * 64,
+                    event="user_prompt_submit",
+                    prompt_sha256=prompt_sha256,
+                )
+            with self.assertRaises(ClaudeHookMarkerError):
+                record_claude_hook(
+                    root_value=str(root),
+                    run_id="run-hook-bounds",
+                    probe_id="b" * 64,
+                    event="user_prompt_submit",
+                    prompt_sha256="e" * 64,
+                )
+            (root / "unexpected.txt").write_text("residue", encoding="utf-8")
+            with self.assertRaises(ClaudeHookMarkerError):
+                observe_claude_hooks(
+                    root_value=str(root),
+                    run_id="run-hook-bounds",
+                    probe_id="b" * 64,
+                )
+            helper = (
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "claude_hook_marker.py"
+            )
+            implementation = (
+                helper.parent
+                / "herdr_puppet_lib"
+                / "claude_hook_marker.py"
+            )
+            implementation_sha256 = hashlib.sha256(
+                implementation.read_bytes()
+            ).hexdigest()
+            failed_record = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "record",
+                    "--root",
+                    str(root),
+                    "--run-id",
+                    "run-hook-bounds",
+                    "--probe-id",
+                    "b" * 64,
+                    "--event",
+                    "stop",
+                    "--implementation-sha256",
+                    implementation_sha256,
+                ],
+                input="PRIVATE-STOP-INPUT-MUST-REMAIN-UNREAD",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(failed_record.returncode, 0)
+            self.assertEqual(failed_record.stdout, "")
+            self.assertEqual(failed_record.stderr, "")
+            failed_prompt_record = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "record",
+                    "--root",
+                    str(root),
+                    "--run-id",
+                    "run-hook-bounds",
+                    "--probe-id",
+                    "b" * 64,
+                    "--event",
+                    "user_prompt_submit",
+                    "--implementation-sha256",
+                    implementation_sha256,
+                ],
+                input="{malformed hook json",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(failed_prompt_record.returncode, 0)
+            self.assertEqual(failed_prompt_record.stdout, "")
+            self.assertEqual(failed_prompt_record.stderr, "")
+            failed_observe = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    "observe",
+                    "--root",
+                    str(root),
+                    "--run-id",
+                    "run-hook-bounds",
+                    "--probe-id",
+                    "b" * 64,
+                    "--implementation-sha256",
+                    implementation_sha256,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(failed_observe.returncode, 2)
+            self.assertEqual(failed_observe.stdout, "")
+            self.assertEqual(failed_observe.stderr, "")
+
+    def test_claude_binding_carries_source_bound_native_hooks(self) -> None:
+        binding = sample_binding(
+            harness="claude",
+            run_id="run-claude-binding",
+        )
+        lifecycle = binding["lifecycle_observation"]
+        self.assertEqual(
+            lifecycle["strategy"],
+            "claude_native_hook_markers",
+        )
+        argv = binding["regular_launch"]["argv"]
+        self.assertEqual(argv[1:3], ["--dangerously-skip-permissions", "--settings"])
+        settings = json.loads(argv[3])
+        self.assertEqual(
+            set(settings["hooks"]),
+            {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure"},
+        )
+        self.assertEqual(
+            settings["hooks"]["SessionStart"][0]["matcher"],
+            "startup",
+        )
+        self.assertNotIn(
+            "matcher",
+            settings["hooks"]["UserPromptSubmit"][0],
+        )
+        serialized = json.dumps(settings)
+        self.assertIn(lifecycle["helper"]["path"], serialized)
+        self.assertIn(lifecycle["probe_id"], serialized)
+        self.assertNotIn("PRIVATE-PROMPT-MUST-NOT-PERSIST", serialized)
+
+        forged = copy.deepcopy(binding)
+        forged["lifecycle_observation"]["settings_sha256"] = "f" * 64
+        forged["fingerprint"] = binding_fingerprint(forged)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            validate_harness_binding(forged)
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_lifecycle_observation",
+        )
+        forged_helper = copy.deepcopy(binding)
+        forged_helper["lifecycle_observation"]["helper"]["path"] = (
+            "/tmp/unbound-claude-hook-marker.py"
+        )
+        forged_helper["fingerprint"] = binding_fingerprint(forged_helper)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            validate_harness_binding(forged_helper)
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_lifecycle_observation",
+        )
+
+    def test_receipt_classifies_submission_completion_and_failure(self) -> None:
+        binding = sample_binding(
+            harness="claude",
+            run_id="run-claude-receipts",
+        )
+        observation = binding["lifecycle_observation"]
+        prompt_one = "a" * 64
+        prompt_two = "b" * 64
+        cases = [
+            (
+                "armed",
+                claude_hook_receipt(binding),
+                "armed",
+                [],
+            ),
+            (
+                "initial",
+                claude_hook_receipt(binding),
+                "submission_not_observed",
+                [prompt_one],
+            ),
+            (
+                "initial",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    prompt_sha256s=[prompt_one],
+                ),
+                "response_pending",
+                [prompt_one],
+            ),
+            (
+                "initial",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    stop=1,
+                    prompt_sha256s=[prompt_one],
+                ),
+                "response_completed",
+                [prompt_one],
+            ),
+            (
+                "initial",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    stop_failure=1,
+                    prompt_sha256s=[prompt_one],
+                ),
+                "response_failed",
+                [prompt_one],
+            ),
+            (
+                "steering",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    stop=1,
+                    prompt_sha256s=[prompt_one],
+                ),
+                "submission_not_observed",
+                [prompt_one, prompt_two],
+            ),
+            (
+                "steering",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=2,
+                    stop=1,
+                    prompt_sha256s=[prompt_one, prompt_two],
+                ),
+                "response_pending",
+                [prompt_one, prompt_two],
+            ),
+            (
+                "steering",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=2,
+                    stop=2,
+                    prompt_sha256s=[prompt_one, prompt_two],
+                ),
+                "response_completed",
+                [prompt_one, prompt_two],
+            ),
+            (
+                "steering",
+                claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=2,
+                    stop=1,
+                    stop_failure=1,
+                    prompt_sha256s=[prompt_one, prompt_two],
+                ),
+                "response_failed",
+                [prompt_one, prompt_two],
+            ),
+        ]
+        for phase, receipt, expected, expected_prompts in cases:
+            with self.subTest(phase=phase, expected=expected):
+                _checked, classification = validate_claude_hook_receipt(
+                    receipt,
+                    observation=observation,
+                    phase=phase,
+                    expected_prompt_sha256s=expected_prompts,
+                )
+                self.assertEqual(classification, expected)
+
+    def test_receipt_rejects_wrong_identity_counts_ordinals_and_hashes(
+        self,
+    ) -> None:
+        binding = sample_binding(
+            harness="claude",
+            run_id="run-claude-invalid-receipts",
+        )
+        observation = binding["lifecycle_observation"]
+        cases: dict[str, tuple[dict[str, Any], str]] = {}
+        wrong_run = claude_hook_receipt(binding)
+        wrong_run["run_id"] = "run-wrong"
+        cases["run"] = (wrong_run, "armed")
+        wrong_probe = claude_hook_receipt(binding)
+        wrong_probe["probe_id"] = "f" * 64
+        cases["probe"] = (wrong_probe, "armed")
+        wrong_counts = claude_hook_receipt(binding)
+        wrong_counts["counts"]["session_start"] = 2
+        cases["counts"] = (wrong_counts, "armed")
+        boolean_counts = claude_hook_receipt(binding)
+        boolean_counts["counts"] = {
+            event: bool(count)
+            for event, count in boolean_counts["counts"].items()
+        }
+        cases["boolean_counts"] = (boolean_counts, "armed")
+        wrong_ordinal = claude_hook_receipt(binding)
+        wrong_ordinal["markers"][0]["ordinal"] = 2
+        cases["ordinal"] = (wrong_ordinal, "armed")
+        wrong_hash = claude_hook_receipt(binding)
+        wrong_hash["markers"][0]["sha256"] = "e" * 64
+        cases["marker_hash"] = (wrong_hash, "armed")
+        wrong_set_hash = claude_hook_receipt(binding)
+        wrong_set_hash["marker_set_sha256"] = "d" * 64
+        cases["marker_set_hash"] = (wrong_set_hash, "armed")
+        for name, (receipt, phase) in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    validate_claude_hook_receipt(
+                        receipt,
+                        observation=observation,
+                        phase=phase,
+                        expected_prompt_sha256s=[],
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    "invalid_claude_hook_receipt",
+                )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            validate_claude_hook_receipt(
+                claude_hook_receipt(binding),
+                observation=observation,
+                phase="unknown",
+                expected_prompt_sha256s=[],
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_lifecycle_phase",
+        )
+
+    def test_receipt_rejects_private_extra_fields_without_echo(self) -> None:
+        binding = sample_binding(
+            harness="claude",
+            run_id="run-claude-private-extra",
+        )
+        observation = binding["lifecycle_observation"]
+        for field in ("prompt", "transcript_path", "hook_input"):
+            sentinel = f"PRIVATE-{field.upper()}-MUST-NOT-ECHO"
+            receipt = claude_hook_receipt(binding)
+            receipt[field] = sentinel
+            with self.subTest(field=field):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    validate_claude_hook_receipt(
+                        receipt,
+                        observation=observation,
+                        phase="armed",
+                        expected_prompt_sha256s=[],
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    "invalid_claude_hook_receipt",
+                )
+                self.assertNotIn(
+                    sentinel,
+                    json.dumps(caught.exception.as_json()),
+                )
 
 
 class DoctorAndPlanTests(unittest.TestCase):
@@ -500,6 +1403,31 @@ class DoctorAndPlanTests(unittest.TestCase):
                 harness_binding=binding,
                 facts=fixture("plan-ok.json"),
             )
+
+    def test_plan_rejects_claude_lifecycle_run_mismatch(self) -> None:
+        binding = sample_binding(
+            harness="claude",
+            run_id="run-bound-claude",
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            plan(
+                FakeClient(),
+                session="operator-session",
+                workspace_id="w2",
+                workspace_label="worker-02",
+                expected_ssh_target="worker@worker-02.example",
+                run_id="run-different-claude",
+                harness="claude",
+                repo="example/SaariusSkills",
+                worktree="/redacted/worktree",
+                proof_root="/redacted/proof",
+                harness_binding=binding,
+                facts=fixture("plan-ok.json"),
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_lifecycle_run_mismatch",
+        )
 
 
 class HerdrClientTests(unittest.TestCase):
@@ -697,6 +1625,8 @@ class HerdrClientTests(unittest.TestCase):
                 "1",
                 "--text-file",
                 "command.txt",
+                "--run-root",
+                "run",
             ]
         )
         from_stdin = parser.parse_args(
@@ -707,6 +1637,8 @@ class HerdrClientTests(unittest.TestCase):
                 "--seq",
                 "1",
                 "--stdin",
+                "--run-root",
+                "run",
             ]
         )
         self.assertEqual(from_file.text_file, "command.txt")
@@ -727,6 +1659,8 @@ class HerdrClientTests(unittest.TestCase):
                 "1",
                 "--text-file",
                 "command.txt",
+                "--run-root",
+                "run",
                 "--stdin",
             ],
             [
@@ -787,11 +1721,13 @@ class HerdrClientTests(unittest.TestCase):
             binary_root.mkdir()
             profile_root.mkdir()
             worktree.mkdir()
+            hook_parent = root / "claude-hook-runs"
+            hook_parent.mkdir()
             cursor_status_marker = root / "cursor-status-was-called"
             executable_body = """#!/bin/sh
 case "$1" in
   --version) echo "fake 1.0.0" ;;
-  --help) echo "fake help" ;;
+  --help) echo "fake help --settings" ;;
   login) echo "Logged in using ChatGPT" ;;
   auth) echo '{"loggedIn":true}' ;;
   status) echo '{"loggedIn":true}' ;;
@@ -824,25 +1760,35 @@ esac
             )
             for harness, command in commands.items():
                 with self.subTest(harness=harness):
+                    census_command = [
+                        sys.executable,
+                        str(
+                            ROOT
+                            / "skills"
+                            / "herdr-puppet"
+                            / "scripts"
+                            / "harness_census.py"
+                        ),
+                        "--harness",
+                        harness,
+                        "--host",
+                        "worker.example",
+                        "--profile-root",
+                        str(profile_root),
+                        "--worktree",
+                        str(ROOT if harness == "claude" else worktree),
+                    ]
+                    if harness == "claude":
+                        census_command.extend(
+                            [
+                                "--run-id",
+                                "run-census-claude",
+                                "--claude-hook-root",
+                                str(hook_parent / "run-census-claude"),
+                            ]
+                        )
                     completed = subprocess.run(
-                        [
-                            sys.executable,
-                            str(
-                                ROOT
-                                / "skills"
-                                / "herdr-puppet"
-                                / "scripts"
-                                / "harness_census.py"
-                            ),
-                            "--harness",
-                            harness,
-                            "--host",
-                            "worker.example",
-                            "--profile-root",
-                            str(profile_root),
-                            "--worktree",
-                            str(worktree),
-                        ],
+                        census_command,
                         check=False,
                         capture_output=True,
                         text=True,
@@ -867,7 +1813,7 @@ esac
                     self.assertNotIn("subscription models", completed.stdout)
             self.assertFalse(cursor_status_marker.exists())
             row_census = root / "row-census.json"
-            row_nonce = "CENSUS-STATUS-20260730-A1"
+            row_nonce = "CENSUS-STATUS-0730-A1"
             row_command = [
                 sys.executable,
                 str(
@@ -909,7 +1855,7 @@ esac
                 "codex",
             )
             cursor_row_census = root / "cursor-row-census.json"
-            cursor_row_nonce = "CURSOR-CENSUS-20260730-A1"
+            cursor_row_nonce = "CURSOR-CENSUS-0730-A1"
             cursor_row_completed = subprocess.run(
                 [
                     sys.executable,
@@ -974,6 +1920,117 @@ esac
                     "harness"
                 ],
                 "codex",
+            )
+
+    def test_remote_census_enforces_claude_lifecycle_arguments_and_settings(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_root = root / "bin"
+            profile_root = root / "profile"
+            hook_parent = root / "hooks"
+            binary_root.mkdir()
+            profile_root.mkdir()
+            hook_parent.mkdir()
+            claude = binary_root / "claude"
+            claude.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  --version) echo 'fake 1.0.0' ;;\n"
+                "  --help) echo 'fake help with --settings-file only' ;;\n"
+                "  auth) echo '{\"loggedIn\":true}' ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            claude.chmod(0o755)
+            codex = binary_root / "codex"
+            codex.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  --version) echo 'fake 1.0.0' ;;\n"
+                "  --help) echo 'fake help' ;;\n"
+                "  login) echo 'Logged in using ChatGPT' ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            codex.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(binary_root)
+                + os.pathsep
+                + environment.get("PATH", "")
+            )
+            census_script = str(
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "harness_census.py"
+            )
+            common = [
+                "--host",
+                "worker.example",
+                "--profile-root",
+                str(profile_root),
+                "--worktree",
+                str(ROOT),
+            ]
+            missing_lifecycle = subprocess.run(
+                [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "claude",
+                    *common,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(missing_lifecycle.returncode, 0)
+            non_claude_lifecycle = subprocess.run(
+                [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "codex",
+                    *common,
+                    "--run-id",
+                    "run-census-invalid",
+                    "--claude-hook-root",
+                    str(hook_parent / "non-claude"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(non_claude_lifecycle.returncode, 0)
+            missing_settings = subprocess.run(
+                [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "claude",
+                    *common,
+                    "--run-id",
+                    "run-census-no-settings",
+                    "--claude-hook-root",
+                    str(hook_parent / "run-census-no-settings"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(missing_settings.returncode, 0)
+            self.assertIn(
+                "does not advertise --settings",
+                missing_settings.stderr,
             )
 
     @mock.patch("herdr_puppet_lib.herdr_client.subprocess.run")
@@ -1212,6 +2269,27 @@ class QualificationTests(unittest.TestCase):
         )
         return lease
 
+    def default_run_root(self) -> Path:
+        return self.root / "run"
+
+    def initialize_default_journal(self) -> Path:
+        run_root = self.default_run_root()
+        if not run_root.exists():
+            initialize_journal(run_root, self.plan)
+        return run_root
+
+    def wrapped_initial(
+        self,
+        lease: dict[str, Any],
+        task: str = "bounded qualification task",
+    ) -> tuple[str, dict[str, Any]]:
+        rendered, manifest = compile_instruction_wrapper(
+            binding_value=lease["harness_binding"],
+            run_id=lease["run_id"],
+            task=task,
+        )
+        return rendered.decode("utf-8"), manifest
+
     def mark_harness_ready(self, lease: dict[str, Any]) -> dict[str, Any]:
         ready = (
             copy.deepcopy(lease)
@@ -1228,14 +2306,15 @@ class QualificationTests(unittest.TestCase):
         self,
         harness: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        harness_binding = sample_binding(harness=harness)
+        run_id = f"run-ready-{harness}"
+        harness_binding = sample_binding(harness=harness, run_id=run_id)
         bound_plan = plan(
             self.client,
             session="operator-session",
             workspace_id="w2",
             workspace_label="worker-02",
             expected_ssh_target="worker@worker-02.example",
-            run_id=f"run-ready-{harness}",
+            run_id=run_id,
             harness=harness,
             repo="example/SaariusSkills",
             worktree="/redacted/worktree",
@@ -1270,14 +2349,55 @@ class QualificationTests(unittest.TestCase):
         }
         return self.persist_lease(launched)
 
+    def register_claude_marker_files(
+        self,
+        lease: dict[str, Any],
+        run_root: Path,
+    ) -> dict[str, Any]:
+        marker_root = lease["harness_binding"]["lifecycle_observation"][
+            "marker_root"
+        ]
+        current = lease
+        for marker_name in CLAUDE_MARKER_NAMES:
+            register_remote_task_file(
+                lease_payload=current,
+                lease_path=self.lease_path,
+                remote_path=f"{marker_root}/{marker_name}",
+                source_repo=current["source"]["repo"],
+                source_worktree=current["source"]["worktree"],
+                confirm_caller_owned=True,
+                run_root=run_root,
+            )
+            current = load_json(self.lease_path)
+        return current
+
+    def verify_in_row_census(
+        self,
+        lease: dict[str, Any],
+        run_root: Path,
+    ) -> dict[str, Any]:
+        result = qualification_harness_census_verify(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            census=sample_census_from_binding(lease["harness_binding"]),
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "ok")
+        return load_json(self.lease_path)
+
     def submit_for_beacon(self, lease: dict[str, Any]) -> dict[str, Any]:
+        run_root = self.initialize_default_journal()
         qualification_run(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            command="printf beacon-submission",
+            command=(
+                "printf '%s\\n' "
+                "'HERDR_PUPPET_STATUS BEACON-SUBMISSION-1'"
+            ),
             allow_live=True,
+            run_root=run_root,
         )
         return json.loads(self.lease_path.read_text(encoding="utf-8"))
 
@@ -1287,12 +2407,17 @@ class QualificationTests(unittest.TestCase):
         lease, bound_plan = self._ready_lease_for_harness("codex")
         run_root = self.root / "run"
         initialize_journal(run_root, bound_plan)
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "bounded prompt",
+        )
         qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="bounded prompt",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
             run_root=run_root,
         )
@@ -1419,6 +2544,64 @@ class QualificationTests(unittest.TestCase):
             caught.exception.code,
             "legacy_harness_binding_unavailable",
         )
+
+    def test_binding_v1_allows_maintenance_but_not_fresh_qualification(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        historical_binding = lease["harness_binding"]
+        historical_binding["schema"] = "herdr-puppet.harness-binding.v1"
+        historical_binding.pop("lifecycle_observation")
+        historical_binding["fingerprint"] = binding_fingerprint(
+            historical_binding
+        )
+        self.persist_lease(lease)
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
+        validate_lease(lease)
+        self.assertEqual(
+            structural_status(self.client, lease_payload=lease)["result"],
+            "ok",
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                command="printf must-not-run",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "legacy_harness_binding_requires_recensus",
+        )
+        self.assertEqual(self.client.ran, [])
+        active_maintenance = maintenance_checkpoint(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            run_root=run_root,
+        )
+        self.assertEqual(active_maintenance["classification"], "active")
+        preserve_lease(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+            run_root=run_root,
+        )
+        preserved = load_json(self.lease_path)
+        cleanup = cleanup_preserved_tab(
+            self.client,
+            lease_payload=preserved,
+            lease_path=self.lease_path,
+            confirm_tab_id=preserved["tab_id"],
+            allow_live_cleanup=True,
+            run_root=run_root,
+        )
+        self.assertEqual(cleanup["result"], "ok")
+        self.assertTrue(cleanup["cleanup_performed"])
 
     def test_legacy_lease_file_migration_is_locked_and_idempotent(self) -> None:
         legacy = self.create_lease()
@@ -1567,6 +2750,32 @@ class QualificationTests(unittest.TestCase):
             caught.exception.code,
             "legacy_lease_requires_migration",
         )
+
+    def test_generic_journal_append_cannot_forge_controller_events(self) -> None:
+        for kind in (
+            "journal.initialized",
+            "qualification.claude-lifecycle",
+        ):
+            args = build_parser().parse_args(
+                [
+                    "journal-append",
+                    "--run-root",
+                    str(self.root / "unused-run"),
+                    "--run-id",
+                    "run-forged-event",
+                    "--kind",
+                    kind,
+                    "--result",
+                    "observed",
+                ]
+            )
+            with self.subTest(kind=kind):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    herdr_cli.run(args)
+                self.assertEqual(
+                    caught.exception.code,
+                    "controller_event_kind_reserved",
+                )
 
     def test_create_tab_requires_initialized_journal_before_mutation(self) -> None:
         run_root = self.root / "uninitialized-run"
@@ -2097,12 +3306,16 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS HASHED-COMMAND-1'"
+        )
         result = qualification_run(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=1,
-            command="private shell command",
+            command=command,
             allow_live=True,
             run_root=run_root,
         )
@@ -2112,7 +3325,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(updated["next_seq"], 2)
         self.assertEqual(
             result["command_sha256"],
-            sha256_text("private shell command"),
+            sha256_text(command),
         )
         self.assertTrue(result["herdr_cli_acknowledged"])
         self.assertEqual(result["submission_mode"], "atomic_shell_command")
@@ -2120,14 +3333,14 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(result["readiness_advanced"])
         self.assertEqual(result["harness_readiness"], "unverified")
         self.assertFalse(result["transcript_read"])
-        self.assertNotIn("private shell command", json.dumps(result))
-        self.assertNotIn("private shell command", events)
+        self.assertNotIn(command, json.dumps(result))
+        self.assertNotIn(command, events)
         self.assertIn('"kind":"qualification.run"', events)
         self.assertIn('"command_sha256"', events)
         self.assertIn('"transcript_read":false', events)
         self.assertEqual(
             self.client.ran,
-            [("run", "w2:p1", "private shell command")],
+            [("run", "w2:p1", command)],
         )
         self.assertEqual(self.client.sent, [])
 
@@ -2136,7 +3349,11 @@ class QualificationTests(unittest.TestCase):
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         command_path = self.root / "failing-command.txt"
-        command_path.write_text("private failing command", encoding="utf-8")
+        command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS FAILING-COMMAND-1'"
+        )
+        command_path.write_text(command, encoding="utf-8")
 
         def reject_run(*args: Any, **kwargs: Any) -> str:
             raise HerdrPuppetError(
@@ -2162,7 +3379,7 @@ class QualificationTests(unittest.TestCase):
                 lease_payload=lease,
                 lease_path=self.lease_path,
                 seq=1,
-                command="private failing command",
+                command=command,
                 text_file=str(command_path),
                 allow_live=True,
                 run_root=run_root,
@@ -2170,26 +3387,54 @@ class QualificationTests(unittest.TestCase):
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertEqual(updated["next_seq"], 1)
-        self.assertEqual(updated["caller_text_files"], [])
+        self.assertEqual(
+            updated["caller_text_files"],
+            [str(command_path.resolve())],
+        )
+        self.assertEqual(
+            updated["pending_sequence_operation"]["operation"],
+            "run",
+        )
         self.assertNotIn(
-            "private failing command",
+            command,
             json.dumps(caught.exception.as_json()),
         )
-        self.assertNotIn("private failing command", events)
+        self.assertNotIn(command, events)
         self.assertNotIn('"kind":"qualification.run"', events)
+        with self.assertRaises(HerdrPuppetError) as replay:
+            qualification_run(
+                self.client,
+                lease_payload=updated,
+                lease_path=self.lease_path,
+                seq=1,
+                command=command,
+                text_file=str(command_path),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            replay.exception.code,
+            "qualification_sequence_delivery_unknown",
+        )
 
     def test_run_tracks_retained_caller_command_file(self) -> None:
         command_path = self.root / "command.txt"
-        command_path.write_text("private command", encoding="utf-8")
+        command = (
+            "printf '%s\\n' "
+            "'HERDR_PUPPET_STATUS TRACKED-COMMAND-1'"
+        )
+        command_path.write_text(command, encoding="utf-8")
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         result = qualification_run(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=1,
-            command="private command",
+            command=command,
             text_file=str(command_path),
             allow_live=True,
+            run_root=run_root,
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         normalized_command_path = str(command_path.resolve())
@@ -2199,19 +3444,24 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(result["controller_command_persisted"])
         self.assertEqual(result["caller_input_file_lifecycle"], "caller_owned")
         self.assertNotIn(normalized_command_path, json.dumps(result))
-        self.assertNotIn("private command", json.dumps(result))
+        self.assertNotIn(command, json.dumps(result))
 
     def test_run_does_not_retain_missing_caller_command_file(self) -> None:
         missing_command_path = self.root / "missing-command.txt"
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         result = qualification_run(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=1,
-            command="private command",
+            command=(
+                "printf '%s\\n' "
+                "'HERDR_PUPPET_STATUS MISSING-COMMAND-1'"
+            ),
             text_file=str(missing_command_path),
             allow_live=True,
+            run_root=run_root,
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(updated["caller_text_files"], [])
@@ -2221,14 +3471,19 @@ class QualificationTests(unittest.TestCase):
 
     def test_run_rejects_live_sequence_and_structural_gate_failures(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_run(
                 self.client,
                 lease_payload=lease,
                 lease_path=self.lease_path,
                 seq=1,
-                command="do not run",
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS LIVE-GATE-STATUS-1'"
+                ),
                 allow_live=False,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "live_qualification_not_authorized")
 
@@ -2240,6 +3495,7 @@ class QualificationTests(unittest.TestCase):
                 seq=2,
                 command="do not run",
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "send_sequence_mismatch")
 
@@ -2250,8 +3506,12 @@ class QualificationTests(unittest.TestCase):
                 lease_payload=lease,
                 lease_path=self.lease_path,
                 seq=1,
-                command="do not run",
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS STRUCTURAL-GATE-1'"
+                ),
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "prerun_status_blocked")
         self.assertEqual(self.client.ran, [])
@@ -2262,6 +3522,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_run_preserves_followon_shell_readiness_gate(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         lease["next_seq"] = 2
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         with self.assertRaises(HerdrPuppetError) as caught:
@@ -2272,6 +3533,7 @@ class QualificationTests(unittest.TestCase):
                 seq=2,
                 command="next command",
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "shell_readiness_not_proven")
         self.assertEqual(self.client.ran, [])
@@ -2285,6 +3547,7 @@ class QualificationTests(unittest.TestCase):
             seq=2,
             command="next command",
             allow_live=True,
+            run_root=run_root,
         )
         self.assertEqual(result["next_seq"], 3)
         self.assertEqual(result["shell_readiness"], "status_verified")
@@ -2374,43 +3637,21 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
-        first = qualification_run(
-            self.client,
-            lease_payload=lease,
-            lease_path=self.lease_path,
-            seq=1,
-            command="arbitrary first shell command",
-            allow_live=True,
-            run_root=run_root,
-        )
-        self.assertFalse(first["shell_status_probe"])
-        qualification_beacon_wait(
-            self.client,
-            lease_payload=load_json(self.lease_path),
-            lease_path=self.lease_path,
-            nonce="UNRELATED-FAILED-WAIT-1",
-            lines=80,
-            allow_live=True,
-            run_root=run_root,
-        )
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_run(
                 self.client,
-                lease_payload=load_json(self.lease_path),
+                lease_payload=lease,
                 lease_path=self.lease_path,
-                seq=2,
-                command=(
-                    "printf '%s\\n' "
-                    "'HERDR_PUPPET_STATUS SHELL-RETRY-STATUS-2'"
-                ),
+                seq=1,
+                command="arbitrary first shell command",
                 allow_live=True,
                 run_root=run_root,
             )
         self.assertEqual(
             caught.exception.code,
-            "shell_status_retry_not_authorized",
+            "initial_shell_status_probe_required",
         )
-        self.assertEqual(len(self.client.ran), 1)
+        self.assertEqual(self.client.ran, [])
 
     def test_shell_status_retry_is_narrow_and_single_use(self) -> None:
         lease = self.create_lease()
@@ -2537,6 +3778,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_run_rejects_generic_harness_launcher_even_when_shell_survives(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         lease["next_seq"] = 2
         lease["shell_readiness"] = "status_verified"
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
@@ -2550,10 +3792,80 @@ class QualificationTests(unittest.TestCase):
                 seq=2,
                 command=command,
                 allow_live=True,
+                run_root=run_root,
             )
 
         self.assertEqual(caught.exception.code, "generic_harness_launch_forbidden")
         self.assertEqual(self.client.ran, [])
+
+    def test_run_rejects_wrapped_launchers_for_all_harnesses(self) -> None:
+        for harness in ("agy", "codex", "claude", "cursor", "grok"):
+            with self.subTest(harness=harness):
+                client = FakeClient()
+                binding = sample_binding(
+                    harness=harness,
+                    run_id=f"run-wrapped-{harness}",
+                )
+                run_root = self.root / f"run-wrapped-{harness}"
+                lease_path = self.root / f"lease-wrapped-{harness}.json"
+                bound_plan = plan(
+                    client,
+                    session="operator-session",
+                    workspace_id="w2",
+                    workspace_label="worker-02",
+                    expected_ssh_target="worker@worker-02.example",
+                    run_id=f"run-wrapped-{harness}",
+                    harness=harness,
+                    repo="example/SaariusSkills",
+                    worktree="/redacted/worktree",
+                    proof_root=str(run_root.resolve()),
+                    harness_binding=binding,
+                    live_mutation_authorized=True,
+                )
+                initialize_journal(run_root, bound_plan)
+                lease = create_qualification_tab(
+                    client,
+                    plan_payload=bound_plan,
+                    lease_path=lease_path,
+                    allow_live=True,
+                    settle_seconds=0.1,
+                    run_root=run_root,
+                )
+                lease["shell_readiness"] = "status_verified"
+                lease["next_seq"] = 2
+                lease_path.write_text(json.dumps(lease), encoding="utf-8")
+                command_name = binding["remote"]["executable"]["command"]
+                commands = (
+                    f"command {command_name}",
+                    f"( {command_name} )",
+                    f"nohup {command_name}",
+                    f"HARNESS_MODE=test {command_name}",
+                    f"exec env HARNESS_MODE=test {command_name}",
+                    binding["remote"]["executable"]["path"],
+                    f"sh -c '{command_name} --version'",
+                    f"bash -lc 'exec {command_name}'",
+                    f"eval '{command_name}'",
+                )
+                for command in commands:
+                    with self.subTest(harness=harness, command=command):
+                        with self.assertRaises(HerdrPuppetError) as caught:
+                            qualification_run(
+                                client,
+                                lease_payload=load_json(lease_path),
+                                lease_path=lease_path,
+                                seq=2,
+                                command=command,
+                                allow_live=True,
+                                run_root=run_root,
+                            )
+                        self.assertIn(
+                            caught.exception.code,
+                            {
+                                "generic_harness_launch_forbidden",
+                                "shell_replacing_harness_launcher",
+                                "nested_shell_command_forbidden",
+                            },
+                        )
 
     def test_status_beacon_unlocks_followon_run_in_shared_sequence(self) -> None:
         lease = self.create_lease()
@@ -2564,7 +3876,10 @@ class QualificationTests(unittest.TestCase):
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=1,
-            command="shell status preflight",
+            command=(
+                "printf '%s\\n' "
+                "'HERDR_PUPPET_STATUS SHELL-READY-1'"
+            ),
             allow_live=True,
             run_root=run_root,
         )
@@ -2594,13 +3909,19 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             self.client.ran,
             [
-                ("run", "w2:p1", "shell status preflight"),
+                (
+                    "run",
+                    "w2:p1",
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS SHELL-READY-1'",
+                ),
                 ("run", "w2:p1", "python3 bounded-census.py"),
             ],
         )
 
     def test_cross_process_same_sequence_mutates_herdr_at_most_once(self) -> None:
         self.create_lease()
+        run_root = self.initialize_default_journal()
         marker_path = self.root / "run-marker.txt"
         marker_path.touch()
         context = multiprocessing.get_context("fork")
@@ -2611,6 +3932,7 @@ class QualificationTests(unittest.TestCase):
                 target=multiprocessing_same_seq_run,
                 args=(
                     str(self.lease_path),
+                    str(run_root),
                     str(marker_path),
                     start_event,
                     result_queue,
@@ -2634,6 +3956,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_run_and_preserve_serialize_without_lost_sequence(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         run_entered = threading.Event()
         release_run = threading.Event()
         preserve_done = threading.Event()
@@ -2653,8 +3976,12 @@ class QualificationTests(unittest.TestCase):
                     lease_payload=lease,
                     lease_path=self.lease_path,
                     seq=1,
-                    command="bounded",
+                    command=(
+                        "printf '%s\\n' "
+                        "'HERDR_PUPPET_STATUS SERIALIZED-RUN-1'"
+                    ),
                     allow_live=True,
+                    run_root=run_root,
                 )
             except HerdrPuppetError as exc:
                 errors.append(exc.code)
@@ -2687,6 +4014,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_shell_status_does_not_authorize_first_pane_input(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         lease["shell_readiness"] = "status_verified"
         self.persist_lease(lease)
         with self.assertRaises(HerdrPuppetError) as caught:
@@ -2697,6 +4025,7 @@ class QualificationTests(unittest.TestCase):
                 seq=1,
                 text="must not send",
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "harness_readiness_not_proven")
         self.assertEqual(self.client.sent, [])
@@ -2741,13 +4070,19 @@ class QualificationTests(unittest.TestCase):
             updated["harness_readiness_operator"],
             "operator-a",
         )
+        initial_text, manifest = self.wrapped_initial(
+            updated,
+            "bounded prompt",
+        )
         sent = qualification_send(
             self.client,
             lease_payload=updated,
             lease_path=self.lease_path,
             seq=3,
-            text="bounded prompt",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
+            run_root=run_root,
         )
         self.assertEqual(sent["next_seq"], 4)
 
@@ -2793,12 +4128,14 @@ class QualificationTests(unittest.TestCase):
                 seq=lease["next_seq"],
                 text="must not send",
                 allow_live=True,
+                run_root=self.root / "cursor-forged-ready",
             )
         self.assertEqual(caught.exception.code, "invalid_lease")
         self.assertEqual(self.client.sent, [])
 
     def test_send_rejects_replay_before_mutation(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         with self.assertRaisesRegex(HerdrPuppetError, "stale, skipped"):
             qualification_send(
                 self.client,
@@ -2807,11 +4144,13 @@ class QualificationTests(unittest.TestCase):
                 seq=2,
                 text="bounded prompt",
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(self.client.sent, [])
 
     def test_send_rejects_followup_prompt_without_status_beacon(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         lease["next_seq"] = 2
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         with self.assertRaisesRegex(
@@ -2825,20 +4164,25 @@ class QualificationTests(unittest.TestCase):
                 seq=2,
                 text="next prompt",
                 allow_live=True,
+                run_root=run_root,
             )
 
     def test_send_allows_followup_prompt_after_status_beacon(self) -> None:
         lease = self.create_lease()
         lease["next_seq"] = 2
         lease = self.mark_harness_ready(lease)
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(lease, "next prompt")
         send_seq = lease["next_seq"]
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=send_seq,
-            text="next prompt",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
+            run_root=run_root,
         )
         self.assertEqual(result["next_seq"], send_seq + 1)
         self.assertEqual(result["harness_readiness"], "operator_verified")
@@ -2847,12 +4191,24 @@ class QualificationTests(unittest.TestCase):
         lease, plan_payload = self._ready_lease_for_harness("claude")
         run_root = self.root / "run"
         initialize_journal(run_root, plan_payload)
+        qualification_claude_lifecycle_observe(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(plan_payload["harness_binding"]),
+            phase="armed",
+            run_root=run_root,
+        )
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "line one\nline two",
+        )
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="line one\nline two",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
             run_root=run_root,
         )
@@ -2871,7 +4227,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(send_data["submit_key_vector"], ["enter", "enter"])
         self.assertEqual(
             self.client.sent,
-            [("input", "w2:p1", "line one\nline two")],
+            [("input", "w2:p1", initial_text)],
         )
         self.assertEqual(self.client.sent_key_vectors, [["enter", "enter"]])
 
@@ -2879,11 +4235,45 @@ class QualificationTests(unittest.TestCase):
         lease, plan_payload = self._ready_lease_for_harness("claude")
         run_root = self.root / "run"
         initialize_journal(run_root, plan_payload)
-        result = qualification_send(
+        qualification_claude_lifecycle_observe(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(plan_payload["harness_binding"]),
+            phase="armed",
+            run_root=run_root,
+        )
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "establish initial turn",
+        )
+        qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
+            text=initial_text,
+            instruction_manifest=manifest,
+            allow_live=True,
+            run_root=run_root,
+        )
+        qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                plan_payload["harness_binding"],
+                user_prompt_submit=1,
+                stop=1,
+                prompt_sha256s=[sha256_text(initial_text)],
+            ),
+            phase="initial",
+            run_root=run_root,
+        )
+        steering_lease = load_json(self.lease_path)
+        result = qualification_send(
+            self.client,
+            lease_payload=steering_lease,
+            lease_path=self.lease_path,
+            seq=steering_lease["next_seq"],
             text="single line prompt",
             allow_live=True,
             run_root=run_root,
@@ -2895,7 +4285,9 @@ class QualificationTests(unittest.TestCase):
             .splitlines()
         ]
         send_data = next(
-            event["data"] for event in send_events if event.get("kind") == "qualification.send"
+            event["data"]
+            for event in reversed(send_events)
+            if event.get("kind") == "qualification.send"
         )
         self.assertEqual(result["submit_key_count"], 1)
         self.assertEqual(result["submit_key_vector"], ["enter"])
@@ -2903,20 +4295,459 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(send_data["submit_key_vector"], ["enter"])
         self.assertEqual(
             self.client.sent,
-            [("input", "w2:p1", "single line prompt")],
+            [
+                ("input", "w2:p1", initial_text),
+                ("input", "w2:p1", "single line prompt"),
+            ],
         )
-        self.assertEqual(self.client.sent_key_vectors, [["enter"]])
+        self.assertEqual(
+            self.client.sent_key_vectors,
+            [["enter", "enter"], ["enter"]],
+        )
+
+    def test_claude_unknown_send_cannot_bypass_lifecycle_by_reconciliation(
+        self,
+    ) -> None:
+        lease, plan_payload = self._ready_lease_for_harness("claude")
+        run_root = self.root / "run"
+        initialize_journal(run_root, plan_payload)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_reconcile_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text="private unknown-outcome prompt",
+                evidence="independent_native_marker",
+                confirm_applied=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_send_reconciliation_unsupported",
+        )
+        self.assertEqual(self.client.sent, [])
+
+    def test_malformed_claude_lifecycle_journal_cannot_unlock_send(self) -> None:
+        lease, plan_payload = self._ready_lease_for_harness("claude")
+        run_root = self.root / "run"
+        initialize_journal(run_root, plan_payload)
+        lifecycle = lease["harness_binding"]["lifecycle_observation"]
+        append_event(
+            run_root,
+            make_event(
+                lease["run_id"],
+                "qualification.claude-lifecycle",
+                "observed",
+                data={
+                    "phase": "armed",
+                    "classification": "armed",
+                    "probe_id": lifecycle["probe_id"],
+                },
+            ),
+        )
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "must not send",
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text=initial_text,
+                instruction_manifest=manifest,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_lifecycle_journal",
+        )
+        self.assertEqual(self.client.sent, [])
+
+    def test_in_row_census_reverification_ignores_only_newer_recorded_at(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        self.persist_lease(lease)
+        run_root = self.initialize_default_journal()
+        census = sample_census_from_binding(lease["harness_binding"])
+        first = qualification_harness_census_verify(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            census=census,
+            run_root=run_root,
+        )
+        refreshed = copy.deepcopy(census)
+        refreshed["recorded_at"] = "2099-07-30T12:00:00Z"
+        second = qualification_harness_census_verify(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            census=refreshed,
+            run_root=run_root,
+        )
+        self.assertFalse(first["already_verified"])
+        self.assertTrue(second["already_verified"])
+        events = [
+            event
+            for event in read_events(run_root)
+            if event.get("kind")
+            == "qualification.harness-census-verified"
+        ]
+        self.assertEqual(len(events), 1)
+
+    def test_claude_lifecycle_gates_readiness_steering_and_third_send(self) -> None:
+        run_id = "run-claude-lifecycle"
+        run_root = self.root / "claude-lifecycle-run"
+        binding = sample_binding(harness="claude", run_id=run_id)
+        initial_rendered, initial_manifest = compile_instruction_wrapper(
+            binding_value=binding,
+            run_id=run_id,
+            task="private initial body",
+        )
+        initial_text = initial_rendered.decode("utf-8")
+        steering_text = "private steering body"
+        initial_sha256 = sha256_text(initial_text)
+        steering_sha256 = sha256_text(steering_text)
+        plan_payload = plan(
+            self.client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id=run_id,
+            harness="claude",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str(run_root.resolve()),
+            harness_binding=binding,
+            live_mutation_authorized=True,
+        )
+        initialize_journal(run_root, plan_payload)
+        lease = create_qualification_tab(
+            self.client,
+            plan_payload=plan_payload,
+            lease_path=self.lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+            run_root=run_root,
+        )
+        lease["shell_readiness"] = "status_verified"
+        lease["next_seq"] = 2
+        self.persist_lease(lease)
+        lease = self.verify_in_row_census(lease, run_root)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_harness_launch(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=2,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_marker_registration_incomplete",
+        )
+        self.assertEqual(self.client.ran, [])
+        lease = self.register_claude_marker_files(lease, run_root)
+        qualification_harness_launch(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            allow_live=True,
+            run_root=run_root,
+        )
+        launched = load_json(self.lease_path)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_harness_ready(
+                self.client,
+                lease_payload=launched,
+                lease_path=self.lease_path,
+                source_repo="example/SaariusSkills",
+                source_worktree="/redacted/worktree",
+                operator_id="test-operator",
+                evidence="operator_observed_ready_input",
+                confirm_ready=True,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "claude_lifecycle_not_proven")
+
+        armed = qualification_claude_lifecycle_observe(
+            lease_payload=launched,
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(binding),
+            phase="armed",
+            run_root=run_root,
+        )
+        self.assertEqual(armed["classification"], "armed")
+        armed_again = qualification_claude_lifecycle_observe(
+            lease_payload=launched,
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(binding),
+            phase="armed",
+            run_root=run_root,
+        )
+        self.assertTrue(armed_again["already_observed"])
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_claude_lifecycle_observe(
+                lease_payload=launched,
+                lease_path=self.lease_path,
+                receipt=claude_hook_receipt(binding),
+                phase="initial",
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_lifecycle_send_count_mismatch",
+        )
+        qualification_harness_ready(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            source_repo="example/SaariusSkills",
+            source_worktree="/redacted/worktree",
+            operator_id="test-operator",
+            evidence="operator_observed_ready_input",
+            confirm_ready=True,
+            allow_live=True,
+            run_root=run_root,
+        )
+        ready = load_json(self.lease_path)
+        qualification_send(
+            self.client,
+            lease_payload=ready,
+            lease_path=self.lease_path,
+            seq=ready["next_seq"],
+            text=initial_text,
+            instruction_manifest=initial_manifest,
+            allow_live=True,
+            run_root=run_root,
+        )
+        armed_after_initial = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(binding),
+            phase="armed",
+            run_root=run_root,
+        )
+        self.assertTrue(armed_after_initial["already_observed"])
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                nonce="CLAUDE-INITIAL-1",
+                lines=80,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "claude_lifecycle_not_proven")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_claude_lifecycle_observe(
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                receipt=claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    prompt_sha256s=["f" * 64],
+                ),
+                phase="initial",
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt",
+        )
+        pending = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                binding,
+                user_prompt_submit=1,
+                prompt_sha256s=[initial_sha256],
+            ),
+            phase="initial",
+            run_root=run_root,
+        )
+        self.assertEqual(pending["classification"], "response_pending")
+        pending_again = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                binding,
+                user_prompt_submit=1,
+                prompt_sha256s=[initial_sha256],
+            ),
+            phase="initial",
+            run_root=run_root,
+        )
+        self.assertTrue(pending_again["already_observed"])
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_claude_lifecycle_observe(
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                receipt=claude_hook_receipt(binding),
+                phase="initial",
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_lifecycle_receipt_regression",
+        )
+        initial = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                binding,
+                user_prompt_submit=1,
+                stop=1,
+                prompt_sha256s=[initial_sha256],
+            ),
+            phase="initial",
+            run_root=run_root,
+        )
+        self.assertEqual(initial["classification"], "response_completed")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_claude_lifecycle_observe(
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                receipt=claude_hook_receipt(
+                    binding,
+                    user_prompt_submit=1,
+                    stop_failure=1,
+                    prompt_sha256s=[initial_sha256],
+                ),
+                phase="initial",
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "claude_lifecycle_terminal_conflict",
+        )
+        after_initial = load_json(self.lease_path)
+        qualification_send(
+            self.client,
+            lease_payload=after_initial,
+            lease_path=self.lease_path,
+            seq=after_initial["next_seq"],
+            text=steering_text,
+            allow_live=True,
+            run_root=run_root,
+        )
+        initial_after_steering = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                binding,
+                user_prompt_submit=1,
+                stop=1,
+                prompt_sha256s=[initial_sha256],
+            ),
+            phase="initial",
+            run_root=run_root,
+        )
+        self.assertTrue(initial_after_steering["already_observed"])
+        steering = qualification_claude_lifecycle_observe(
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            receipt=claude_hook_receipt(
+                binding,
+                user_prompt_submit=2,
+                stop=2,
+                prompt_sha256s=[initial_sha256, steering_sha256],
+            ),
+            phase="steering",
+            run_root=run_root,
+        )
+        self.assertEqual(steering["classification"], "response_completed")
+        after_steering = load_json(self.lease_path)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=after_steering,
+                lease_path=self.lease_path,
+                seq=after_steering["next_seq"],
+                text="must not become a third bounded send",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "claude_lifecycle_send_limit")
+        events = read_events(run_root)
+        lifecycle_events = [
+            event
+            for event in events
+            if event.get("kind") == "qualification.claude-lifecycle"
+        ]
+        self.assertEqual(len(lifecycle_events), 4)
+        send_events = [
+            event
+            for event in events
+            if event.get("kind") == "qualification.send"
+        ]
+        self.assertEqual(len(send_events), 2)
+        terminal_by_phase = {
+            event["data"]["phase"]: event
+            for event in lifecycle_events
+            if event["data"]["classification"] == "response_completed"
+        }
+        for index, phase in enumerate(("initial", "steering")):
+            lifecycle_event = terminal_by_phase[phase]
+            send_event = send_events[index]
+            self.assertEqual(lifecycle_event["result"], "observed")
+            self.assertEqual(lifecycle_event["seq"], send_event["seq"])
+            self.assertEqual(
+                lifecycle_event["prompt_sha256"],
+                send_event["prompt_sha256"],
+            )
+            self.assertEqual(
+                lifecycle_event["data"]["send_seq"],
+                send_event["seq"],
+            )
+            self.assertIs(
+                lifecycle_event["data"]["receipt_verified"],
+                True,
+            )
+        refreshed = refresh_state(run_root, after_steering)
+        self.assertEqual(refreshed["result"], "ok")
+        private_surface = "\n".join(
+            [
+                (run_root / "events.jsonl").read_text(encoding="utf-8"),
+                json.dumps(summarize_journal(run_root), sort_keys=True),
+                (run_root / "STATE.md").read_text(encoding="utf-8"),
+            ]
+        )
+        lifecycle = binding["lifecycle_observation"]
+        for private_value in (
+            initial_text,
+            steering_text,
+            lifecycle["marker_root"],
+            lifecycle["helper"]["path"],
+            lifecycle["interpreter"]["path"],
+            binding["regular_launch"]["argv"][3],
+        ):
+            self.assertNotIn(private_value, private_surface)
 
     def test_send_uses_single_enter_for_non_claude_multiline_prompt(self) -> None:
         lease = self.mark_harness_ready(self.create_lease())
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "line one\nline two",
+        )
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="line one\nline two",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
             run_root=run_root,
         )
@@ -2935,7 +4766,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(send_data["submit_key_vector"], ["enter"])
         self.assertEqual(
             self.client.sent,
-            [("input", "w2:p1", "line one\nline two")],
+            [("input", "w2:p1", initial_text)],
         )
         self.assertEqual(self.client.sent_key_vectors, [["enter"]])
 
@@ -2944,12 +4775,17 @@ class QualificationTests(unittest.TestCase):
         lease = self.mark_harness_ready(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "bounded prompt",
+        )
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="bounded prompt",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
             run_root=run_root,
         )
@@ -2966,11 +4802,125 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("bounded prompt", events)
         self.assertEqual(
             self.client.sent,
-            [("input", "w2:p1", "bounded prompt")],
+            [("input", "w2:p1", initial_text)],
         )
+
+    def test_send_journal_failure_fails_closed_against_extra_initial(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "first bounded task",
+        )
+        def fail_completed_send_event(
+            run_path: Path,
+            event: dict[str, Any],
+        ) -> None:
+            if event.get("kind") == "qualification.send":
+                raise RuntimeError("simulated journal failure")
+            append_event(run_path, event)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.append_event",
+            side_effect=fail_completed_send_event,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "journal failure"):
+                qualification_send(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    seq=lease["next_seq"],
+                    text=initial_text,
+                    instruction_manifest=manifest,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        advanced = load_json(self.lease_path)
+        self.assertEqual(len(advanced["interactive_sends"]), 1)
+        self.assertIsNone(advanced["pending_interactive_send"])
+        replacement_text, replacement_manifest = self.wrapped_initial(
+            advanced,
+            "must not become another initial task",
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=advanced,
+                lease_path=self.lease_path,
+                seq=advanced["next_seq"],
+                text=replacement_text,
+                instruction_manifest=replacement_manifest,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "qualification_send_history_diverged",
+        )
+        self.assertEqual(len(self.client.sent), 1)
+
+    def test_send_ack_then_finalize_failure_blocks_replay(self) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "one bounded task",
+        )
+
+        def fail_completed_lease_write(
+            path: Path,
+            payload: dict[str, Any],
+        ) -> None:
+            if (
+                payload.get("pending_interactive_send") is None
+                and payload.get("interactive_sends")
+            ):
+                raise RuntimeError("simulated lease finalize failure")
+            atomic_json(path, payload)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.atomic_json",
+            side_effect=fail_completed_lease_write,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "finalize failure"):
+                qualification_send(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    seq=lease["next_seq"],
+                    text=initial_text,
+                    instruction_manifest=manifest,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        reserved = load_json(self.lease_path)
+        self.assertEqual(len(self.client.sent), 1)
+        self.assertEqual(reserved["next_seq"], lease["next_seq"])
+        self.assertEqual(reserved["interactive_sends"], [])
+        self.assertEqual(
+            reserved["pending_interactive_send"]["prompt_sha256"],
+            sha256_text(initial_text),
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=reserved,
+                lease_path=self.lease_path,
+                seq=reserved["next_seq"],
+                text=initial_text,
+                instruction_manifest=manifest,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "qualification_send_delivery_unknown",
+        )
+        self.assertEqual(len(self.client.sent), 1)
 
     def test_send_rejects_assembled_checkpoint_line_before_mutation(self) -> None:
         lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_send(
                 self.client,
@@ -2982,6 +4932,7 @@ class QualificationTests(unittest.TestCase):
                     "HERDR_PUPPET_DONE PROMPT-ECHO-1\r\n"
                 ),
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "checkpoint_echo_unsafe")
         self.assertEqual(self.client.sent, [])
@@ -2989,6 +4940,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_send_rejects_terminal_normalized_checkpoint_token(self) -> None:
         lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
         for suffix in (" ", "\t", "`.", "\u00a0"):
             with self.subTest(suffix=repr(suffix)):
                 with self.assertRaises(HerdrPuppetError) as caught:
@@ -3002,6 +4954,7 @@ class QualificationTests(unittest.TestCase):
                             f"PROMPT-ECHO-3{suffix}"
                         ),
                         allow_live=True,
+                        run_root=run_root,
                     )
                 self.assertEqual(
                     caught.exception.code,
@@ -3011,16 +4964,21 @@ class QualificationTests(unittest.TestCase):
 
     def test_send_allows_split_checkpoint_composition_instruction(self) -> None:
         lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "On completion, join the prefix HERDR_PUPPET_, the class DONE, "
+            "one space, and nonce PROMPT-ECHO-2 as one terminal line.",
+        )
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text=(
-                "On completion, join the prefix HERDR_PUPPET_, the class DONE, "
-                "one space, and nonce PROMPT-ECHO-2 as one terminal line."
-            ),
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
+            run_root=run_root,
         )
         self.assertTrue(result["checkpoint_echo_protected"])
         self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
@@ -3033,13 +4991,18 @@ class QualificationTests(unittest.TestCase):
             lease = self.mark_harness_ready(lease)
             run_root = self.root / "run"
             initialize_journal(run_root, self.plan)
+            initial_text, manifest = self.wrapped_initial(
+                lease,
+                "via file",
+            )
             result = qualification_send(
                 self.client,
                 lease_payload=lease,
                 lease_path=self.lease_path,
                 seq=lease["next_seq"],
-                text="via file",
+                text=initial_text,
                 text_file=str(prompt_path),
+                instruction_manifest=manifest,
                 allow_live=True,
                 run_root=run_root,
             )
@@ -3058,14 +5021,21 @@ class QualificationTests(unittest.TestCase):
         missing_prompt = self.root / "missing.txt"
         if missing_prompt.exists():
             missing_prompt.unlink()
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "missing file",
+        )
         result = qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="missing file",
+            text=initial_text,
             text_file=str(missing_prompt),
+            instruction_manifest=manifest,
             allow_live=True,
+            run_root=run_root,
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         self.assertEqual(result["caller_text_file_retained"], False)
@@ -3077,6 +5047,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_partial_send_reconciliation_requires_evidence(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         with self.assertRaisesRegex(HerdrPuppetError, "explicit evidence"):
             qualification_reconcile_send(
                 self.client,
@@ -3086,6 +5057,22 @@ class QualificationTests(unittest.TestCase):
                 text="already applied",
                 evidence="remote_process_match",
                 confirm_applied=False,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            json.loads(self.lease_path.read_text(encoding="utf-8"))["next_seq"],
+            1,
+        )
+        with self.assertRaisesRegex(HerdrPuppetError, "bounded"):
+            qualification_reconcile_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=1,
+                text="already applied",
+                evidence="x" * 1025,
+                confirm_applied=True,
+                run_root=run_root,
             )
         self.assertEqual(
             json.loads(self.lease_path.read_text(encoding="utf-8"))["next_seq"],
@@ -3095,18 +5082,202 @@ class QualificationTests(unittest.TestCase):
     def test_partial_send_reconciliation_advances_without_herdr_mutation(self) -> None:
         lease = self.create_lease()
         lease = self.mark_harness_ready(lease)
-        result = qualification_reconcile_send(
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "establish initial turn",
+        )
+        qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
+            text=initial_text,
+            instruction_manifest=manifest,
+            allow_live=True,
+            run_root=run_root,
+        )
+        steering_lease = load_json(self.lease_path)
+        self.client.read_payload = (
+            "HERDR_PUPPET_STATUS RECONCILE-INITIAL-1"
+        )
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=steering_lease,
+            lease_path=self.lease_path,
+            nonce="RECONCILE-INITIAL-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        steering_lease = load_json(self.lease_path)
+        sent_before = list(self.client.sent)
+        with mock.patch.object(
+            self.client,
+            "run_input",
+            side_effect=RuntimeError("simulated unknown delivery"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unknown delivery"):
+                qualification_send(
+                    self.client,
+                    lease_payload=steering_lease,
+                    lease_path=self.lease_path,
+                    seq=steering_lease["next_seq"],
+                    text="already applied",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        steering_lease = load_json(self.lease_path)
+        self.assertEqual(
+            steering_lease["pending_interactive_send"]["phase"],
+            "steering",
+        )
+        result = qualification_reconcile_send(
+            self.client,
+            lease_payload=steering_lease,
+            lease_path=self.lease_path,
+            seq=steering_lease["next_seq"],
             text="already applied",
             evidence="herdr_success_exit+remote_process_match",
             confirm_applied=True,
+            run_root=run_root,
         )
-        self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
+        self.assertEqual(result["next_seq"], steering_lease["next_seq"] + 1)
         self.assertFalse(result["herdr_mutated"])
-        self.assertEqual(self.client.sent, [])
+        self.assertEqual(self.client.sent, sent_before)
+
+    def test_reconciliation_repairs_missing_completion_event_idempotently(
+        self,
+    ) -> None:
+        lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "establish initial turn",
+        )
+        qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text=initial_text,
+            instruction_manifest=manifest,
+            allow_live=True,
+            run_root=run_root,
+        )
+        steering_lease = load_json(self.lease_path)
+        self.client.read_payload = "HERDR_PUPPET_STATUS RECONCILE-REPAIR-1"
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=steering_lease,
+            lease_path=self.lease_path,
+            nonce="RECONCILE-REPAIR-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        steering_lease = load_json(self.lease_path)
+        steering_seq = steering_lease["next_seq"]
+        with mock.patch.object(
+            self.client,
+            "run_input",
+            side_effect=RuntimeError("simulated unknown delivery"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unknown delivery"):
+                qualification_send(
+                    self.client,
+                    lease_payload=steering_lease,
+                    lease_path=self.lease_path,
+                    seq=steering_seq,
+                    text="already applied",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        pending = load_json(self.lease_path)
+
+        def fail_reconcile_event(
+            run_path: Path,
+            event: dict[str, Any],
+        ) -> None:
+            if event.get("kind") == "qualification.send-reconciled":
+                raise RuntimeError("simulated reconcile journal failure")
+            append_event(run_path, event)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.append_event",
+            side_effect=fail_reconcile_event,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "journal failure"):
+                qualification_reconcile_send(
+                    self.client,
+                    lease_payload=pending,
+                    lease_path=self.lease_path,
+                    seq=steering_seq,
+                    text="already applied",
+                    evidence="source_bound_terminal_artifact",
+                    confirm_applied=True,
+                    run_root=run_root,
+                )
+        completed = load_json(self.lease_path)
+        self.assertIsNone(completed["pending_interactive_send"])
+        self.assertEqual(
+            completed["interactive_sends"][-1]["transport"],
+            "reconciled",
+        )
+        repaired = qualification_reconcile_send(
+            self.client,
+            lease_payload=completed,
+            lease_path=self.lease_path,
+            seq=steering_seq,
+            text="already applied",
+            evidence="source_bound_terminal_artifact",
+            confirm_applied=True,
+            run_root=run_root,
+        )
+        self.assertTrue(repaired["already_reconciled"])
+        self.assertTrue(repaired["completion_event_repaired"])
+        self.assertEqual(
+            len(
+                [
+                    event
+                    for event in read_events(run_root)
+                    if event.get("kind") == "qualification.send-reconciled"
+                ]
+            ),
+            1,
+        )
+        with self.assertRaisesRegex(
+            HerdrPuppetError,
+            "does not match the durable",
+        ):
+            qualification_reconcile_send(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=steering_seq,
+                text="already applied",
+                evidence="contradictory_evidence",
+                confirm_applied=True,
+                run_root=run_root,
+            )
+        with mock.patch.object(
+            self.client,
+            "snapshot",
+            side_effect=AssertionError("idempotent retry touched Herdr"),
+        ):
+            replayed = qualification_reconcile_send(
+                self.client,
+                lease_payload=load_json(self.lease_path),
+                lease_path=self.lease_path,
+                seq=steering_seq,
+                text="already applied",
+                evidence="source_bound_terminal_artifact",
+                confirm_applied=True,
+                run_root=run_root,
+            )
+        self.assertTrue(replayed["already_reconciled"])
+        self.assertEqual(
+            replayed["evidence"],
+            "source_bound_terminal_artifact",
+        )
 
     def test_preserved_lease_rejects_run_send_reconciliation_and_waits(
         self,
@@ -3114,7 +5285,8 @@ class QualificationTests(unittest.TestCase):
         lease = self.create_lease()
         lease["state"] = "preserved"
         self.persist_lease(lease)
-        initialize_journal(self.root / "run", self.plan)
+        run_root = self.root / "run"
+        initialize_journal(run_root, self.plan)
         for operation in (
             lambda: qualification_run(
                 self.client,
@@ -3123,6 +5295,7 @@ class QualificationTests(unittest.TestCase):
                 seq=1,
                 command="do not run",
                 allow_live=True,
+                run_root=run_root,
             ),
             lambda: qualification_send(
                 self.client,
@@ -3131,6 +5304,7 @@ class QualificationTests(unittest.TestCase):
                 seq=1,
                 text="do not send",
                 allow_live=True,
+                run_root=run_root,
             ),
             lambda: qualification_reconcile_send(
                 self.client,
@@ -3140,6 +5314,7 @@ class QualificationTests(unittest.TestCase):
                 text="do not reconcile",
                 evidence="none",
                 confirm_applied=True,
+                run_root=run_root,
             ),
             lambda: qualification_token_probe(
                 self.client,
@@ -3377,6 +5552,83 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("bounded prompt", serialized)
         self.assertNotIn("bounded prompt", events)
 
+    def test_early_done_preserves_without_qualifying_two_turn_row(self) -> None:
+        lease, run_root = self.ready_codex_submission()
+        self.client.read_payload = (
+            "• HERDR_PUPPET_DONE EARLY-DONE-CODEX-1"
+        )
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="EARLY-DONE-CODEX-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(result["checkpoint"], "DONE")
+        self.assertTrue(result["auto_preserved"])
+        self.assertEqual(result["interactive_send_count"], 1)
+        self.assertFalse(result["qualification_complete"])
+
+    def test_two_turn_done_marks_qualification_complete(self) -> None:
+        lease, run_root = self.ready_codex_submission()
+        self.client.read_payload = (
+            "• HERDR_PUPPET_STATUS CODEX-INITIAL-OK-1"
+        )
+        first = qualification_beacon_wait(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            nonce="CODEX-INITIAL-OK-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertFalse(first["qualification_complete"])
+        steering_lease = load_json(self.lease_path)
+        qualification_send(
+            self.client,
+            lease_payload=steering_lease,
+            lease_path=self.lease_path,
+            seq=steering_lease["next_seq"],
+            text="separate steering turn",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.client.read_payload = (
+            "• HERDR_PUPPET_DONE CODEX-FINAL-DONE-1"
+        )
+        final = qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="CODEX-FINAL-DONE-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(final["interactive_send_count"], 2)
+        self.assertTrue(final["qualification_complete"])
+        self.assertEqual(final["lease_state"], "preserved")
+
+    def test_post_readiness_beacon_rejects_untracked_sequence_advance(
+        self,
+    ) -> None:
+        lease, run_root = self.ready_codex_submission()
+        lease["next_seq"] += 1
+        self.persist_lease(lease)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce="STALE-SEND-BEACON-1",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "beacon_submission_not_latest_interactive_send",
+        )
+
     def test_codex_beacon_wait_rejects_non_native_bullet_shape(self) -> None:
         self.assert_ready_codex_checkpoint_miss(
             "• note: HERDR_PUPPET_STATUS CHECKPOINT-88"
@@ -3427,6 +5679,8 @@ class QualificationTests(unittest.TestCase):
 
     def test_codex_send_rejects_bulleted_assembled_checkpoint(self) -> None:
         lease, _bound_plan = self._ready_lease_for_harness("codex")
+        run_root = self.root / "run"
+        initialize_journal(run_root, _bound_plan)
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_send(
                 self.client,
@@ -3435,6 +5689,7 @@ class QualificationTests(unittest.TestCase):
                 seq=lease["next_seq"],
                 text="• HERDR_PUPPET_DONE PROMPT-ECHO-4",
                 allow_live=True,
+                run_root=run_root,
             )
         self.assertEqual(caught.exception.code, "checkpoint_echo_unsafe")
         self.assertEqual(self.client.sent, [])
@@ -3830,6 +6085,7 @@ class QualificationTests(unittest.TestCase):
             seq=2,
             command="next submission",
             allow_live=True,
+            run_root=run_root,
         )
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_beacon_wait(
@@ -3900,64 +6156,26 @@ class QualificationTests(unittest.TestCase):
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
         self.assertNotIn('"kind":"qualification.beacon"', events)
 
-    def test_beacon_wait_does_not_overwrite_harness_readiness(self) -> None:
+    def test_shell_command_after_harness_launch_is_rejected(self) -> None:
         lease = self.create_lease()
         lease = self.mark_harness_launched(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
-        lease = self.submit_for_beacon(lease)
-        wait_entered = threading.Event()
-        release_wait = threading.Event()
-        errors: list[str] = []
-
-        def blocked_wait(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            wait_entered.set()
-            release_wait.wait(2)
-            return {
-                "type": "output_matched",
-                "revision": 11,
-                "matched_line": "HERDR_PUPPET_STATUS READY-RACE-1",
-            }
-
-        self.client.wait_output = blocked_wait  # type: ignore[method-assign]
-
-        def wait_for_beacon() -> None:
-            try:
-                qualification_beacon_wait(
-                    self.client,
-                    lease_payload=lease,
-                    lease_path=self.lease_path,
-                    nonce="READY-RACE-1",
-                    allow_live=True,
-                    run_root=run_root,
-                )
-            except HerdrPuppetError as exc:
-                errors.append(exc.code)
-
-        waiter = threading.Thread(target=wait_for_beacon)
-        waiter.start()
-        self.assertTrue(wait_entered.wait(1))
-        qualification_harness_ready(
-            self.client,
-            lease_payload=lease,
-            lease_path=self.lease_path,
-            source_repo=lease["source"]["repo"],
-            source_worktree=lease["source"]["worktree"],
-            operator_id="operator-race",
-            evidence="operator_observed_ready_input",
-            confirm_ready=True,
-            allow_live=True,
-            run_root=run_root,
-        )
-        release_wait.set()
-        waiter.join(2)
-        self.assertEqual(errors, ["lease_changed_during_wait"])
-        updated = load_json(self.lease_path)
-        self.assertEqual(updated["harness_readiness"], "operator_verified")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                command="python3 late-census.py",
+                allow_live=True,
+                run_root=run_root,
+            )
         self.assertEqual(
-            updated["harness_readiness_operator"],
-            "operator-race",
+            caught.exception.code,
+            "shell_command_after_harness_launch_forbidden",
         )
+        self.assertEqual(self.client.ran, [])
 
     def test_token_probe_rejects_stale_active_payload_after_preserve(self) -> None:
         lease = self.create_lease()
@@ -4096,12 +6314,17 @@ class QualificationTests(unittest.TestCase):
         lease = self.mark_harness_ready(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "private prompt body",
+        )
         qualification_send(
             self.client,
             lease_payload=lease,
             lease_path=self.lease_path,
             seq=lease["next_seq"],
-            text="private prompt body",
+            text=initial_text,
+            instruction_manifest=manifest,
             allow_live=True,
             run_root=run_root,
         )
@@ -4158,6 +6381,36 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertIsNone(checked["profile"]["status_exit"])
 
+    def test_frozen_historical_binding_validator_covers_all_harnesses(
+        self,
+    ) -> None:
+        for harness in ("agy", "codex", "claude", "cursor", "grok"):
+            binding = sample_binding(harness=harness)
+            binding["schema"] = "herdr-puppet.harness-binding.v1"
+            binding.pop("lifecycle_observation")
+            if harness == "claude":
+                binding["regular_launch"]["argv"] = [
+                    binding["remote"]["executable"]["path"],
+                    "--dangerously-skip-permissions",
+                ]
+                vector = {
+                    "argv": binding["regular_launch"]["argv"],
+                    "environment": binding["regular_launch"]["environment"],
+                    "inherit_environment": False,
+                }
+                binding["regular_launch"]["vector_sha256"] = _digest(vector)
+            binding["fingerprint"] = binding_fingerprint(binding)
+            with self.subTest(harness=harness):
+                checked = validate_harness_binding(
+                    binding,
+                    allow_historical=True,
+                    verify_current_adapters=False,
+                )
+                self.assertEqual(
+                    checked["schema"],
+                    "herdr-puppet.harness-binding.v1",
+                )
+
     def test_non_cursor_binding_profiles_reject_interactive_pending(self) -> None:
         for harness in ("agy", "codex", "claude", "grok"):
             binding = sample_binding(harness=harness)
@@ -4172,13 +6425,14 @@ class QualificationTests(unittest.TestCase):
     def test_in_row_recensus_must_match_bound_remote_facts(self) -> None:
         binding = sample_binding(harness="claude")
         census = {
-            "schema": "herdr-puppet.remote-harness-census.v1",
+            "schema": "herdr-puppet.remote-harness-census.v2",
             "harness": binding["harness"],
             "host": binding["remote"]["host"],
             "recorded_at": binding["attestation"]["census_recorded_at"],
             "executable": binding["remote"]["executable"],
             "profile": binding["profile"],
             "regular_launch": binding["regular_launch"],
+            "lifecycle_observation": binding["lifecycle_observation"],
             "model_observation": binding["model_observation"],
             "source": {"worktree": binding["source"]["worktree"]},
             "raw_output_retained": False,
@@ -4192,6 +6446,41 @@ class QualificationTests(unittest.TestCase):
             result["binding_fingerprint"],
             binding["fingerprint"],
         )
+        drifted_census = copy.deepcopy(census)
+        lifecycle = binding["lifecycle_observation"]
+        drifted_lifecycle = build_claude_lifecycle_observation(
+            run_id=lifecycle["run_id"],
+            marker_root=lifecycle["marker_root"] + "-drifted",
+            helper_path=lifecycle["helper"]["path"],
+            helper_sha256=lifecycle["helper"]["sha256"],
+            implementation_path=lifecycle["implementation"]["path"],
+            implementation_sha256=lifecycle["implementation"]["sha256"],
+            interpreter_path=lifecycle["interpreter"]["path"],
+            interpreter_sha256=lifecycle["interpreter"]["sha256"],
+        )
+        drifted_census["lifecycle_observation"] = drifted_lifecycle
+        drifted_census["regular_launch"] = copy.deepcopy(
+            drifted_census["regular_launch"]
+        )
+        drifted_census["regular_launch"]["argv"] = [
+            binding["remote"]["executable"]["path"],
+            *claude_launch_flags(drifted_lifecycle),
+        ]
+        drifted_vector = {
+            "argv": drifted_census["regular_launch"]["argv"],
+            "environment": drifted_census["regular_launch"]["environment"],
+            "inherit_environment": False,
+        }
+        drifted_census["regular_launch"]["vector_sha256"] = _digest(
+            drifted_vector
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            verify_remote_census(
+                binding_value=binding,
+                census_value=drifted_census,
+            )
+        self.assertEqual(caught.exception.code, "harness_recensus_mismatch")
+
         census["executable"] = dict(census["executable"])
         census["executable"]["version"] = "changed"
         census["executable"]["fingerprint"] = _digest(
@@ -4220,13 +6509,14 @@ class QualificationTests(unittest.TestCase):
         binding["profile"]["status_exit"] = None
         binding["fingerprint"] = binding_fingerprint(binding)
         census = {
-            "schema": "herdr-puppet.remote-harness-census.v1",
+            "schema": "herdr-puppet.remote-harness-census.v2",
             "harness": binding["harness"],
             "host": binding["remote"]["host"],
             "recorded_at": binding["attestation"]["census_recorded_at"],
             "executable": binding["remote"]["executable"],
             "profile": dict(binding["profile"]),
             "regular_launch": binding["regular_launch"],
+            "lifecycle_observation": binding["lifecycle_observation"],
             "model_observation": binding["model_observation"],
             "source": {"worktree": binding["source"]["worktree"]},
             "raw_output_retained": False,
@@ -4239,6 +6529,126 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             result["binding_fingerprint"],
             binding["fingerprint"],
+        )
+
+    def test_cli_claude_lifecycle_dispatches_only_bounded_regular_receipt(
+        self,
+    ) -> None:
+        lease_path = self.root / "claude-cli-lease.json"
+        receipt_path = self.root / "claude-cli-receipt.json"
+        lease_path.write_text("{}\n", encoding="utf-8")
+        receipt_path.write_text(
+            '{"schema":"test-receipt"}\n',
+            encoding="utf-8",
+        )
+        args = build_parser().parse_args(
+            [
+                "qualification-claude-lifecycle-observe",
+                "--lease-json",
+                str(lease_path),
+                "--receipt-json",
+                str(receipt_path),
+                "--phase",
+                "initial",
+                "--run-root",
+                str(self.root / "run"),
+            ]
+        )
+        with mock.patch.object(
+            herdr_cli,
+            "qualification_claude_lifecycle_observe",
+            return_value={"result": "observed"},
+        ) as observe:
+            result = herdr_cli.run(args)
+        self.assertEqual(result, {"result": "observed"})
+        self.assertEqual(
+            observe.call_args.kwargs["receipt"],
+            {"schema": "test-receipt"},
+        )
+        self.assertEqual(observe.call_args.kwargs["phase"], "initial")
+
+        oversized = self.root / "oversized-receipt.json"
+        oversized.write_bytes(b"{" + b"x" * (64 * 1024) + b"}")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli._load_bounded_receipt(str(oversized))
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt_file",
+        )
+
+        symlink = self.root / "symlink-receipt.json"
+        symlink.symlink_to(receipt_path)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli._load_bounded_receipt(str(symlink))
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt_file",
+        )
+
+        fifo = self.root / "fifo-receipt.json"
+        os.mkfifo(fifo)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli._load_bounded_receipt(str(fifo))
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt_file",
+        )
+
+        duplicate_field = self.root / "duplicate-field-receipt.json"
+        duplicate_field.write_text(
+            '{"schema":"one","schema":"two"}\n',
+            encoding="utf-8",
+        )
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli._load_bounded_receipt(str(duplicate_field))
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt_file",
+        )
+
+        non_object = self.root / "non-object-receipt.json"
+        non_object.write_text("[]\n", encoding="utf-8")
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli._load_bounded_receipt(str(non_object))
+        self.assertEqual(
+            caught.exception.code,
+            "invalid_claude_hook_receipt_file",
+        )
+
+    def test_claude_receipt_command_uses_bound_preexecution_verifier(
+        self,
+    ) -> None:
+        lease, _plan = self._ready_lease_for_harness("claude")
+        result = qualification_claude_receipt_command(
+            lease_payload=lease,
+            lease_path=self.lease_path,
+        )
+        lifecycle = lease["harness_binding"]["lifecycle_observation"]
+        argv = result["argv"]
+        self.assertEqual(argv[:3], [lifecycle["interpreter"]["path"], "-I", "-c"])
+        self.assertEqual(argv[4], lifecycle["interpreter"]["path"])
+        self.assertEqual(argv[5], lifecycle["interpreter"]["sha256"])
+        self.assertEqual(argv[6], lifecycle["helper"]["path"])
+        self.assertEqual(argv[7], lifecycle["helper"]["sha256"])
+        self.assertEqual(argv[8], "observe")
+        self.assertIn(lifecycle["implementation"]["sha256"], argv)
+        self.assertNotIn("prompt", json.dumps(result).lower())
+        parsed = build_parser().parse_args(
+            [
+                "qualification-claude-receipt-command",
+                "--lease-json",
+                str(self.lease_path),
+            ]
+        )
+        with mock.patch.object(
+            herdr_cli,
+            "qualification_claude_receipt_command",
+            return_value={"result": "ok"},
+        ) as command:
+            self.assertEqual(herdr_cli.run(parsed), {"result": "ok"})
+        self.assertEqual(
+            command.call_args.kwargs["lease_path"],
+            self.lease_path,
         )
 
     def test_cli_send_forwards_bound_instruction_manifest(self) -> None:
@@ -4259,6 +6669,8 @@ class QualificationTests(unittest.TestCase):
                 str(prompt_path),
                 "--instruction-manifest-json",
                 str(manifest_path),
+                "--run-root",
+                str(self.root / "run"),
                 "--allow-live-qualification",
             ]
         )
@@ -4272,6 +6684,10 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             send.call_args.kwargs["instruction_manifest"],
             {"schema": "test"},
+        )
+        self.assertEqual(
+            send.call_args.kwargs["run_root"],
+            self.root / "run",
         )
 
     def test_plan_rejects_noncanonical_harness_before_mutation(self) -> None:
@@ -4298,6 +6714,7 @@ class QualificationTests(unittest.TestCase):
         self.persist_lease(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
+        lease = self.verify_in_row_census(lease, run_root)
 
         result = qualification_harness_launch(
             self.client,
@@ -4322,6 +6739,63 @@ class QualificationTests(unittest.TestCase):
             updated["harness_launch"]["launch_vector_sha256"],
             lease["harness_binding"]["regular_launch"]["vector_sha256"],
         )
+
+    def test_harness_launch_ack_then_finalize_failure_blocks_second_launch(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        lease["shell_readiness"] = "status_verified"
+        lease["next_seq"] = 2
+        self.persist_lease(lease)
+        run_root = self.initialize_default_journal()
+        lease = self.verify_in_row_census(lease, run_root)
+
+        def fail_launch_completion(
+            path: Path,
+            payload: dict[str, Any],
+        ) -> None:
+            if (
+                "harness_launch" in payload
+                and payload.get("pending_sequence_operation") is None
+            ):
+                raise RuntimeError("simulated launch finalize failure")
+            atomic_json(path, payload)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.atomic_json",
+            side_effect=fail_launch_completion,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "finalize failure"):
+                qualification_harness_launch(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    seq=2,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        reserved = load_json(self.lease_path)
+        self.assertEqual(len(self.client.ran), 1)
+        self.assertNotIn("harness_launch", reserved)
+        self.assertEqual(reserved["next_seq"], 2)
+        self.assertEqual(
+            reserved["pending_sequence_operation"]["operation"],
+            "harness_launch",
+        )
+        with self.assertRaises(HerdrPuppetError) as replay:
+            qualification_harness_launch(
+                self.client,
+                lease_payload=reserved,
+                lease_path=self.lease_path,
+                seq=2,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            replay.exception.code,
+            "qualification_sequence_delivery_unknown",
+        )
+        self.assertEqual(len(self.client.ran), 1)
 
     def test_regular_launch_clears_parent_agent_environment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -4443,6 +6917,13 @@ class QualificationTests(unittest.TestCase):
         lease["shell_readiness"] = "status_verified"
         lease["next_seq"] = 2
         lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        qualification_harness_census_verify(
+            lease_payload=lease,
+            lease_path=lease_path,
+            census=sample_census_from_binding(binding),
+            run_root=run_root,
+        )
+        lease = load_json(lease_path)
         qualification_harness_launch(
             client,
             lease_payload=lease,
@@ -4487,6 +6968,112 @@ class QualificationTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "startup_gate_replay")
 
+    def test_startup_gate_ack_then_finalize_failure_blocks_replay(self) -> None:
+        client = FakeClient()
+        binding = sample_binding(harness="cursor")
+        run_root = self.root / "cursor-gate-unknown"
+        plan_payload = plan(
+            client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id="run-cursor-gate-unknown",
+            harness="cursor",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str(run_root.resolve()),
+            harness_binding=binding,
+            live_mutation_authorized=True,
+        )
+        initialize_journal(run_root, plan_payload)
+        lease_path = self.root / "cursor-gate-unknown-lease.json"
+        lease = create_qualification_tab(
+            client,
+            plan_payload=plan_payload,
+            lease_path=lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+            run_root=run_root,
+        )
+        lease["shell_readiness"] = "status_verified"
+        lease["next_seq"] = 2
+        atomic_json(lease_path, lease)
+        qualification_harness_census_verify(
+            lease_payload=lease,
+            lease_path=lease_path,
+            census=sample_census_from_binding(binding),
+            run_root=run_root,
+        )
+        qualification_harness_launch(
+            client,
+            lease_payload=load_json(lease_path),
+            lease_path=lease_path,
+            seq=2,
+            allow_live=True,
+            run_root=run_root,
+        )
+        launched = load_json(lease_path)
+
+        def fail_gate_completion(
+            path: Path,
+            payload: dict[str, Any],
+        ) -> None:
+            if (
+                payload.get("startup_gate_operations")
+                and payload.get("pending_sequence_operation") is None
+            ):
+                raise RuntimeError("simulated gate finalize failure")
+            atomic_json(path, payload)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.atomic_json",
+            side_effect=fail_gate_completion,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "finalize failure"):
+                qualification_startup_gate(
+                    client,
+                    lease_payload=launched,
+                    lease_path=lease_path,
+                    seq=3,
+                    gate="workspace_trust",
+                    action="accept",
+                    source_worktree="/redacted/worktree",
+                    operator_id="operator-cursor",
+                    evidence="operator_observed_exact_gate",
+                    confirm_exact_worktree=True,
+                    confirm_unrestricted=True,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        reserved = load_json(lease_path)
+        self.assertEqual(
+            reserved["pending_sequence_operation"]["operation"],
+            "startup_gate",
+        )
+        self.assertEqual(client.sent, [("keys", "w2:p1", "a")])
+        with self.assertRaises(HerdrPuppetError) as replay:
+            qualification_startup_gate(
+                client,
+                lease_payload=reserved,
+                lease_path=lease_path,
+                seq=3,
+                gate="workspace_trust",
+                action="accept",
+                source_worktree="/redacted/worktree",
+                operator_id="operator-cursor",
+                evidence="operator_observed_exact_gate",
+                confirm_exact_worktree=True,
+                confirm_unrestricted=True,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            replay.exception.code,
+            "qualification_sequence_delivery_unknown",
+        )
+        self.assertEqual(client.sent, [("keys", "w2:p1", "a")])
+
     def test_instruction_wrapper_is_bound_to_first_send(self) -> None:
         binding = self.plan["harness_binding"]
         rendered, manifest = compile_instruction_wrapper(
@@ -4500,6 +7087,18 @@ class QualificationTests(unittest.TestCase):
             rendered=rendered,
         )
         lease = self.mark_harness_ready(self.create_lease())
+        run_root = self.initialize_default_journal()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                text=rendered.decode("utf-8"),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "instruction_wrapper_required")
         result = qualification_send(
             self.client,
             lease_payload=lease,
@@ -4508,6 +7107,7 @@ class QualificationTests(unittest.TestCase):
             text=rendered.decode("utf-8"),
             instruction_manifest=manifest,
             allow_live=True,
+            run_root=run_root,
         )
         self.assertEqual(
             result["instruction_wrapper"]["plane"],
@@ -4516,6 +7116,22 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             result["instruction_wrapper"]["binding_fingerprint"],
             binding["fingerprint"],
+        )
+        steering_lease = load_json(self.lease_path)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=steering_lease,
+                lease_path=self.lease_path,
+                seq=steering_lease["next_seq"],
+                text="steer separately",
+                instruction_manifest=manifest,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "instruction_wrapper_steering_forbidden",
         )
 
     def test_view_checkpoint_binds_real_detach_reattach_evidence(self) -> None:

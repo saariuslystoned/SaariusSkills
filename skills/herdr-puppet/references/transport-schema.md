@@ -1,8 +1,10 @@
 # Transport schema
 
-Herdr-Puppet uses four versioned JSON records:
+Herdr-Puppet uses five primary versioned JSON records:
 
-- `herdr-puppet.harness-binding.v1`: controller-attested remote harness,
+- `herdr-puppet.remote-harness-census.v2`: body-free remote executable,
+  profile, launch, source, and lifecycle attestation.
+- `herdr-puppet.harness-binding.v2`: controller-attested remote harness,
   profile, launch, adapter, source, and instruction-plane identity.
 - `herdr-puppet.plan.v1`: source-only intent plus the explicit parent
   capability.
@@ -16,6 +18,25 @@ The JSON Schemas in this directory are normative for their public fields:
 - [lease.schema.json](lease.schema.json)
 - [event.schema.json](event.schema.json)
 - [harness-binding.schema.json](harness-binding.schema.json)
+- [harness-binding-v1.schema.json](harness-binding-v1.schema.json), frozen
+  only for historical status, preservation, maintenance, and exact cleanup.
+
+`herdr-puppet.remote-harness-census.v1` and
+`herdr-puppet.harness-binding.v1` are historical evidence only and cannot be
+upgraded into native lifecycle evidence; rows use census/binding `v2`
+end-to-end for fresh lineage. A canonical lease carrying a valid historical
+binding remains inspectable and cleanable through the bounded maintenance
+surfaces, but every fresh qualification transition rejects it and requires a
+new census and v2 plan.
+
+For live Claude rows, harness census binds both source and run identity:
+the census must use `--run-id`, the marker root must be absent before
+launch via `--claude-hook-root`, and `claude --help` must include
+`--settings`. The helper is source-owned; the exact interpreter identity and
+derived settings are hash-bound. Transport operations validate sequence,
+binding, and receipt consistency. Copying a receipt file over the exact leased
+SSH target supplies operational provenance, not cryptographic remote-origin
+proof.
 
 `herdr-puppet.lease.v1` has one strict canonical shape. Current controller
 operations reject historical lease-v1 files that omit the readiness/file
@@ -71,14 +92,18 @@ startup_gate_operations
 caller_text_files
 caller_text_files_removed
 remote_task_files
+interactive_sends
+pending_interactive_send
 ```
 
 Every lease mutation uses one exact sibling lock file, reloads the lease from
 disk inside that cross-process lock, and joins immutable lease identity before
 checking mutable state. A caller supplies the expected sequence; equality with
 the reloaded `next_seq` is mandatory. The selected Herdr operation and atomic
-sequence advance occur while the lock is held, so two processes submitting the
-same sequence produce at most one Herdr mutation. Beacon waits durably reserve
+sequence advance occur while the lock is held, so concurrent processes cannot
+both pass the same sequence. Interactive sends additionally reserve their
+delivery durably before Herdr mutation so a controller or host interruption
+cannot make replay look safe. Beacon waits durably reserve
 one of the nonce's two allowed attempts in the journal while holding that same
 lease lock, then snapshot and release the lock during the long blocking wait.
 They reacquire it and reject any full-lease revision change or missing/ambiguous
@@ -106,10 +131,27 @@ describe the prefix, checkpoint class, and nonce as separate prompt fragments.
 This keeps rendered user input from matching the output watcher. The adapter
 rechecks the socket file identity after connecting and before dispatch. That
 inode check narrows path-replacement races; it does not prove a native Herdr
-server incarnation. A lost, malformed, or mismatched acknowledgement is an
-unknown delivery outcome. Never retry that sequence: stop and use
-`qualification-reconcile-send` only after independent evidence establishes
-that the original input was applied.
+server incarnation.
+
+A send is first reserved in the canonical lease as
+`pending_interactive_send` with exact sequence, phase, prompt hash, wrapper
+state, and `pending_or_unknown` delivery state. The controller fsyncs the
+replacement lease and parent directory before asking Herdr to mutate. After a
+valid acknowledgement it atomically clears the reservation, appends the send
+to the two-entry `interactive_sends` ledger, and advances `next_seq`. The
+controller journal must match that completed ledger. A crash, timeout, lost or
+mismatched acknowledgement, or failed final lease write leaves a durable
+reservation and blocks replay.
+
+`qualification-reconcile-send` is not a generic recovery path. It accepts only
+the exact pending second steering send on a non-Claude row, after one completed
+wrapped initial send and controller-observed STATUS consumption. It requires
+the same sequence and prompt hash plus independent evidence that the text was
+applied, clears the reservation without another Herdr mutation, and records
+transport `reconciled`. An unknown initial send or any unknown Claude send must
+be preserved and restarted as a fresh row. If the lease finalizes reconciliation
+but its completion event does not, an exact retry repairs only that missing
+journal event; it never sends pane input again.
 
 `qualification-run` is the shell-command surface. It accepts non-empty UTF-8
 command content only through standard input or a caller-owned `--text-file`,
@@ -118,8 +160,11 @@ with the same 256 KiB limit, then calls Herdr 0.7.3
 accepts the command in its own argv. The downstream Herdr CLI necessarily
 receives the command argument defined by that interface, so the adapter passes
 a fully redacted safe command to every error path, discards stdout, and records
-only the command hash. A nonzero or timed-out Herdr call leaves `next_seq`
-unchanged. A zero exit advances the sequence but records
+only the command hash. Before the Herdr call, the lease records an exact
+`pending_sequence_operation`. A nonzero, timeout, interruption, or failed final
+lease write leaves `next_seq` unchanged and that reservation blocks replay;
+preserve the row. A finalized zero exit clears the reservation, advances the
+sequence, and records
 `submission_mode: atomic_shell_command` and
 `execution_acceptance: unverified`; it does not establish shell, harness, MCP,
 or task readiness.
@@ -130,14 +175,18 @@ checkpoint. The helper fsyncs the completed JSON before emitting STATUS; wait
 for that beacon before copying the file. A successful `pane run` acknowledgement
 or an empty output path is not completion. The controller compares that
 sanitized census with the
-plan/lease binding through `harness-census-verify`. Recorded time may advance;
+plan/lease binding through `harness-census-verify`. Its journal fingerprint
+covers stable census facts and deliberately excludes only `recorded_at`, so a
+newer observation of identical facts is idempotent. Recorded time may advance;
 executable/version/help fingerprints, enrolled dedicated-user profile,
 default-model observation, launch vector, host, and source worktree may not.
 The generic shell-command surface rejects every harness launch after shell
 readiness. Only `qualification-harness-launch` may submit the bound regular
 launch vector, once, at the exact next sequence. It deliberately records
 `remote_harness_pid: unavailable`; Herdr's foreground SSH PID is a different
-identity.
+identity. Harness launch and startup-gate input use the same durable
+pre-mutation reservation. An unfinalized reservation is unknown delivery, not
+permission to launch or press the gate again.
 
 Non-cursor harnesses must remain on an enrolled dedicated-user profile with
 `status_exit: 0` for this comparison. Cursor may report the provisional
@@ -177,7 +226,7 @@ Allowlisted key vectors are bounded to `a`, `enter`, `up`, and `down`.
 requires a recorded Workspace Trust result. Each gate is single-use and every
 gate operation becomes invalid after readiness.
 
-The first ordinary prompt may carry a
+The first ordinary prompt must carry a
 `herdr-puppet.instruction-wrapper.v1` manifest. The controller recomputes the
 rendered body hash and verifies the binding, run ID, universal/harness/model/
 lifecycle layers, and `initial_message_wrapper` plane before dispatch.
@@ -210,6 +259,38 @@ a path hash. Final maintenance accepts one exact registered path, explicit
 confirmation, and either `operator_verified_remote_absence` or
 `source_bound_terminal_artifact` before marking `removal_verified`.
 `cleanup-preserved-tab` rejects an unverified registered remote file.
+
+For Claude lifecycle rows, the registered remote task paths must be the eight
+expected marker names under the exact run-bound hook root:
+
+- `session_start-0001.json`
+- `user_prompt_submit-0001.json`
+- `user_prompt_submit-0002.json`
+- `stop-0001.json`
+- `stop-0002.json`
+- `stop_failure-0001.json`
+- `stop_failure-0002.json`
+- `overflow.json`
+
+Claude settings execute isolated Python `-I -c` with a settings-embedded
+bootstrap. That bootstrap checks the resolved running interpreter path, hashes
+the bound interpreter, then opens the bound helper without following symlinks
+and checks its owner, size, and SHA-256 before compiling it. The helper performs
+the same source-bound check on the implementation before compiling it. The
+overflow sentinel makes extra or conflicting hook events receipt-invalid.
+`qualification-claude-receipt-command` derives this same pre-execution-verified
+route for observation; directly invoking the mutable worktree helper is not
+qualifying evidence. The verified helper reads the markers and emits one
+sanitized receipt.
+That receipt is copied to a caller-owned bounded regular file on the controller;
+`qualification-claude-lifecycle-observe` reads only that local file and never
+reads the remote marker root or pane transcript. UserPromptSubmit hook JSON is
+read only in bounded memory so its `prompt` field can be hashed; the raw input
+and prompt are never retained, and other hook events leave stdin unread. The
+receipt exposes only the prompt fingerprints needed to bind native submission
+to the controller's exact sequenced sends. When cleanup is authorized, move
+the exact marker root recoverably, verify every registered path is absent, and
+record the removal evidence through maintenance.
 
 `lease-preserve` atomically changes an active lease to `preserved`, records one
 bounded reason, and performs no Herdr mutation. A preserved tab remains visible

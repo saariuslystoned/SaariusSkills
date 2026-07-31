@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,9 @@ from .core import (
     plan,
     preserve_lease,
     qualification_beacon_wait,
+    qualification_claude_lifecycle_observe,
+    qualification_claude_receipt_command,
+    qualification_harness_census_verify,
     qualification_harness_launch,
     qualification_harness_ready,
     qualification_reconcile_send,
@@ -31,9 +36,9 @@ from .core import (
 )
 from .errors import HerdrPuppetError
 from .harness_binding import (
+    CANONICAL_HARNESSES,
     build_harness_binding,
     compile_instruction_wrapper,
-    verify_remote_census,
     write_create_only,
 )
 from .herdr_client import MAX_PROMPT_BYTES, HerdrClient, load_json
@@ -123,6 +128,72 @@ def _read_prompt(*, text_file: str | None, prompt_stdin: bool) -> str:
     return prompt
 
 
+def _load_bounded_receipt(path_value: str) -> dict[str, Any]:
+    def reject_duplicate_fields(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON field")
+            result[key] = value
+        return result
+
+    path = Path(path_value)
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        path_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(path_stat.st_mode)
+            or path_stat.st_uid != os.getuid()
+            or path_stat.st_size > 64 * 1024
+        ):
+            raise HerdrPuppetError(
+                "invalid_claude_hook_receipt_file",
+                "The Claude hook receipt must be one caller-owned bounded regular file.",
+            )
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            encoded = stream.read((64 * 1024) + 1)
+        if len(encoded) > 64 * 1024:
+            raise HerdrPuppetError(
+                "invalid_claude_hook_receipt_file",
+                "The Claude hook receipt must be one caller-owned bounded regular file.",
+            )
+        payload = json.loads(
+            encoded.decode("utf-8"),
+            object_pairs_hook=reject_duplicate_fields,
+        )
+    except HerdrPuppetError:
+        raise
+    except (
+        OSError,
+        UnicodeDecodeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
+        raise HerdrPuppetError(
+            "invalid_claude_hook_receipt_file",
+            "The Claude hook receipt file is unavailable or malformed.",
+        ) from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if not isinstance(payload, dict):
+        raise HerdrPuppetError(
+            "invalid_claude_hook_receipt_file",
+            "The Claude hook receipt must contain one JSON object.",
+        )
+    return payload
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Exact-identity Herdr controller and qualification journal."
@@ -140,7 +211,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--workspace-label", required=True)
     plan_parser.add_argument("--expected-ssh-target", required=True)
     plan_parser.add_argument("--run-id", required=True)
-    plan_parser.add_argument("--harness", default="agy")
+    plan_parser.add_argument(
+        "--harness",
+        choices=CANONICAL_HARNESSES,
+        required=True,
+    )
     plan_parser.add_argument("--repo", required=True)
     plan_parser.add_argument("--worktree", required=True)
     plan_parser.add_argument("--proof-root", required=True)
@@ -157,8 +232,10 @@ def build_parser() -> argparse.ArgumentParser:
     binding.add_argument("--output", required=True)
 
     recensus = subparsers.add_parser("harness-census-verify")
+    recensus.add_argument("--lease-json", required=True)
     recensus.add_argument("--harness-binding-json", required=True)
     recensus.add_argument("--census-json", required=True)
+    recensus.add_argument("--run-root", required=True)
 
     wrapper = subparsers.add_parser("instruction-wrapper-create")
     wrapper.add_argument("--harness-binding-json", required=True)
@@ -218,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="prompt_stdin",
     )
-    run_command.add_argument("--run-root")
+    run_command.add_argument("--run-root", required=True)
     run_command.add_argument("--allow-live-qualification", action="store_true")
     _common_live(run_command)
 
@@ -271,13 +348,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _common_live(harness_ready)
 
+    claude_lifecycle = subparsers.add_parser(
+        "qualification-claude-lifecycle-observe"
+    )
+    claude_lifecycle.add_argument("--lease-json", required=True)
+    claude_lifecycle.add_argument("--receipt-json", required=True)
+    claude_lifecycle.add_argument(
+        "--phase",
+        choices=["armed", "initial", "steering"],
+        required=True,
+    )
+    claude_lifecycle.add_argument("--run-root", required=True)
+
+    claude_receipt_command = subparsers.add_parser(
+        "qualification-claude-receipt-command"
+    )
+    claude_receipt_command.add_argument("--lease-json", required=True)
+
     send = subparsers.add_parser("qualification-send")
     send.add_argument("--lease-json", required=True)
     send.add_argument("--seq", type=int, required=True)
     send_source = send.add_mutually_exclusive_group(required=True)
     send_source.add_argument("--text-file")
     send_source.add_argument("--stdin", action="store_true", dest="prompt_stdin")
-    send.add_argument("--run-root")
+    send.add_argument("--run-root", required=True)
     send.add_argument("--instruction-manifest-json")
     send.add_argument("--allow-live-qualification", action="store_true")
     _common_live(send)
@@ -294,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reconcile.add_argument("--evidence", required=True)
     reconcile.add_argument("--confirm-applied", action="store_true")
-    reconcile.add_argument("--run-root")
+    reconcile.add_argument("--run-root", required=True)
     _common_live(reconcile)
 
     probe = subparsers.add_parser("qualification-token-probe")
@@ -460,6 +554,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "launch_vector_sha256": binding["regular_launch"][
                 "vector_sha256"
             ],
+            "lifecycle_strategy": binding["lifecycle_observation"][
+                "strategy"
+            ],
             "instruction_plane": binding["instructions"]["plane"],
             "remote_harness_pid": "unavailable",
             "targeted_halt": "unsupported",
@@ -468,9 +565,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "raw_output_retained": False,
         }
     if args.command == "harness-census-verify":
-        return verify_remote_census(
-            binding_value=load_json(args.harness_binding_json),
-            census_value=load_json(args.census_json),
+        lease = load_json(args.lease_json)
+        binding = load_json(args.harness_binding_json)
+        if lease.get("harness_binding") != binding:
+            raise HerdrPuppetError(
+                "harness_binding_mismatch",
+                "The census binding must exactly match the leased binding.",
+            )
+        return qualification_harness_census_verify(
+            lease_payload=lease,
+            lease_path=Path(args.lease_json),
+            census=load_json(args.census_json),
+            run_root=Path(args.run_root),
         )
     if args.command == "instruction-wrapper-create":
         task = _read_prompt(
@@ -521,6 +627,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "journal-init":
         return initialize_journal(Path(args.run_root), load_json(args.plan_json))
     if args.command == "journal-append":
+        if args.kind.startswith(("journal.", "qualification.")):
+            raise HerdrPuppetError(
+                "controller_event_kind_reserved",
+                "Generic journal append cannot create controller-owned events.",
+            )
         data = load_json(args.data_json) if args.data_json else None
         event = make_event(
             args.run_id,
@@ -553,7 +664,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             lease_path=Path(args.lease_json),
             allow_live=args.allow_live_qualification,
             settle_seconds=args.settle_seconds,
-            run_root=Path(args.run_root) if args.run_root else None,
+            run_root=Path(args.run_root),
         )
     if args.command == "qualification-run":
         command = _read_prompt(
@@ -567,7 +678,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             seq=args.seq,
             command=command,
             text_file=args.text_file,
-            run_root=Path(args.run_root) if args.run_root else None,
+            run_root=Path(args.run_root),
             allow_live=args.allow_live_qualification,
         )
     if args.command == "qualification-harness-launch":
@@ -608,6 +719,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             allow_live=args.allow_live_qualification,
             run_root=Path(args.run_root),
         )
+    if args.command == "qualification-claude-lifecycle-observe":
+        return qualification_claude_lifecycle_observe(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            receipt=_load_bounded_receipt(args.receipt_json),
+            phase=args.phase,
+            run_root=Path(args.run_root),
+        )
+    if args.command == "qualification-claude-receipt-command":
+        return qualification_claude_receipt_command(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+        )
     if args.command == "qualification-send":
         text = _read_prompt(
             text_file=args.text_file,
@@ -626,7 +750,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             text=text,
             text_file=args.text_file,
             instruction_manifest=instruction_manifest,
-            run_root=Path(args.run_root) if args.run_root else None,
+            run_root=Path(args.run_root),
             allow_live=args.allow_live_qualification,
         )
     if args.command == "qualification-reconcile-send":

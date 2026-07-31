@@ -13,18 +13,27 @@ The first useful dogfood run should:
 4. verify the exact tab, pane, terminal, and foreground SSH target;
 5. submit one harmless shell STATUS preflight through atomic `pane run`;
 6. observe its unique STATUS beacon before any follow-on submission;
-7. compare a fresh in-row census with one controller-attested harness binding;
-8. start one canonical harness through the dedicated regular launch operation;
-9. handle only an exact observed allowlisted pre-readiness startup gate;
-10. independently prove the harness input surface is ready;
-11. send one bound wrapped task prompt through one atomic `pane.send_input`
-    request; use two `enter` keys only for multiline Claude submits and one `enter`
-    for all other submits, prove consumption, and send one separately sequenced
-    steering turn;
-12. use one generated terminal nonce checkpoint;
-13. prove a real client detach/reattach without changing leased identities;
-14. preserve and inventory the tab at the terminal milestone;
-15. record gaps and improvement candidates without copying transcript text.
+7. compare a fresh in-row census with one controller-attested harness binding
+   (for Claude: `harness_census.py` requires `--run-id`, an absent
+   `--claude-hook-root`, the source-owned helper, exact interpreter identity,
+   derived `settings_sha256`, and native lifecycle observation bound into
+   `herdr-puppet.harness-binding.v2`);
+8. for Claude, register all eight possible marker-file paths before launch;
+9. start one canonical harness through the dedicated regular launch operation;
+10. for Claude, validate and journal the `armed` SessionStart receipt;
+11. handle only an exact observed allowlisted pre-readiness startup gate;
+12. independently prove the harness input surface is ready;
+13. send one bound wrapped task prompt through one atomic `pane.send_input`
+    request; use two `enter` keys only for multiline Claude submits and one
+    `enter` for all other submits;
+14. for Claude, require a bound `initial` receipt with UserPromptSubmit plus
+    Stop or StopFailure; only `response_completed` permits steering;
+15. send one separately sequenced steering turn and, for Claude, require its
+    bound `steering` receipt;
+16. use one generated terminal nonce checkpoint;
+17. prove a real client detach/reattach without changing leased identities;
+18. preserve and inventory the tab at the terminal milestone;
+19. record gaps and improvement candidates without copying transcript text.
 
 ## Prompt mode
 
@@ -106,7 +115,12 @@ for non-cursor rows or a Cursor provisional `interactive_pending` + `null`
 status pair before launch, no explicit model selector, current default
 model/effort observation or honest `unavailable`, the unrestricted launch-vector
 hash, controller adapter and protocol fingerprints, exact worktree, instruction
-plane, and explicit unsupported capability values.
+plane, and explicit unsupported capability values. The active schema is
+`herdr-puppet.harness-binding.v2`. Historical v1 bindings are historical
+evidence only and must be superseded by fresh census/replan; do not synthesize
+v1 for live runs. Their frozen validator remains available only so an existing
+canonical leased row can be inspected, preserved, inventoried, and closed
+through exact owner cleanup without stranding its tab.
 
 For Cursor, `interactive_pending` is a deliberate pre-launch state. The census
 skips Cursor's auth/status command rather than triggering account or Keychain
@@ -116,8 +130,11 @@ sends until the exact regular launch, Workspace Trust operation, and
 operator-observed ready input all succeed. Login, account, or credential UI is
 a human gate.
 
-The binding census happens before plan creation. Each row repeats the current
-remote census from inside its new leased Herdr pane after shell STATUS. Use
+The binding census happens before plan creation. For Claude, choose `run-id`
+before plan creation and pass the same `run-id` plus absent
+`--claude-hook-root` through census; later row verification uses that lineage.
+Each row repeats the current remote census from inside its new leased Herdr pane
+after shell STATUS. Use
 `harness_census.py --output <exact-task-file> --checkpoint-nonce <nonce>` so
 the helper creates the output once, fsyncs it, and emits a strict STATUS only
 after the JSON is complete. Wait for that exact beacon before copying out the
@@ -126,6 +143,29 @@ is not completion proof and can expose an empty-but-existing file.
 Authentication stores, status bodies, environment
 dumps, and raw output are never copied. A timestamp may advance; any bound
 fact mismatch fails the row before launch.
+
+For Claude, the hook marker root must be absent before census.
+Before launch, register all eight task-owned marker files under that marker root:
+
+- `session_start-0001.json`
+- `user_prompt_submit-0001.json`
+- `user_prompt_submit-0002.json`
+- `stop-0001.json`
+- `stop-0002.json`
+- `stop_failure-0001.json`
+- `stop_failure-0002.json`
+- `overflow.json`
+
+After launch, use `qualification-claude-receipt-command` to derive the exact
+isolated observe command from the current lease. Its settings-embedded
+bootstrap verifies the resolved running interpreter plus the bound interpreter
+and helper bytes before executing the helper; the helper then verifies the
+bound implementation bytes. Execute that generated command
+without alteration over the exact leased SSH target, copy only its bounded
+sanitized JSON to a caller-owned local file, and validate that file through
+`qualification-claude-lifecycle-observe`. The exact route provides operational
+provenance; receipt validation proves internal binding and sequence
+consistency, not cryptographic remote origin.
 
 Every form of `exec <harness>` is forbidden because replacing the leased shell
 can remove foreground SSH identity. Generic direct launch through
@@ -166,7 +206,66 @@ the universal, harness-specific, default-unresolved, and regular lifecycle
 layers to the binding fingerprint, run ID, initial-message plane, and rendered
 body hash. The first `qualification-send` must carry that manifest. The
 separate steering turn uses a later lease sequence and an ordinary private
-text file.
+text file with no manifest. Before a non-Claude steering send, a
+controller-observed STATUS beacon must bind to the initial send sequence.
+
+## Claude native lifecycle proof
+
+Claude rows use `qualification-claude-lifecycle-observe` instead of generic
+checkpoint-only send proof. Each send phase must be observed in order:
+`armed` after launch before the initial prompt, `initial` after initial prompt and
+before steering, `steering` after steering prompt.
+
+The lifecycle observation includes one `session_start`, up to two
+`user_prompt_submit`, up to two `stop`, and up to two `stop_failure` markers.
+An eighth `overflow.json` sentinel invalidates the receipt if any extra or
+conflicting hook event appears. All marker paths are expected under the exact
+run-bound hook root and are
+registered before launch. The row validates the receipt locally from `--receipt-json`
+against the leased `harness_binding`; only the expected sequence and count
+transitions advance.
+
+Receipt and helper policy intentionally rejects prompt retention. The
+UserPromptSubmit hook reads its bounded hook JSON only in memory, hashes the
+`prompt` field, and retains neither the raw input nor prompt. SessionStart,
+Stop, and StopFailure leave hook stdin unread. The helper never opens the
+transcript path, emits nothing for record operations, and reports
+`stdin_read: true` only after at least one prompt fingerprint was recorded.
+The helper and implementation are source-owned, while the interpreter identity
+and derived settings are hash-bound. Native hook handlers use isolated Python
+`-I -c`: the settings-embedded bootstrap checks the resolved running
+interpreter path and hashes the bound interpreter and helper before compiling
+the helper, and the helper opens and hashes the implementation before
+compiling it. The same generated bootstrap route is mandatory for receipt
+observation; direct execution of the worktree helper is not qualifying
+evidence. The controller requires prompt fingerprints to equal the exact
+sequenced send history.
+`response_completed` means the native Stop hook fired for that phase. It does
+not prove instruction compliance, the requested checkpoint, or task success;
+the strict terminal beacon remains separate.
+After terminal lifecycle proof and route completion, move the exact run-bound
+marker root recoverably when cleanup is authorized, verify every registered
+path is absent, and record that removal evidence through maintenance.
+
+`qualification-reconcile-send` is unsupported for Claude lifecycle rows; when a
+send outcome is uncertain, preserve the row and start a fresh bounded run.
+
+Every interactive send is first recorded in the canonical lease as an exact
+`pending_or_unknown` reservation while the lease lock is held and before Herdr
+input. An acknowledged send is then promoted to the bounded
+`interactive_sends` ledger and advances `next_seq`. A crash, timeout, or write
+failure that leaves the reservation pending blocks replay. Reconciliation is
+limited to the exact pending second steering send on a non-Claude row, after
+one wrapped initial send, controller-observed initial consumption, and
+independent proof that the steering text was applied. It performs no Herdr
+mutation. Pending initial sends and all pending Claude sends require
+preservation and a fresh row.
+
+Shell run, harness launch, and startup-gate operations likewise carry one
+`pending_sequence_operation` reservation before Herdr mutation. Finalization
+clears it and advances the sequence. Any interruption or failed final write
+leaves delivery unknown and blocks further qualification mutation; preserve
+the row rather than replaying the command, launch, or key vector.
 
 ## Harness readiness
 

@@ -54,7 +54,12 @@
       },
       "additionalProperties": false
     },
-    "harness_binding": {"$ref": "harness-binding.schema.json"},
+    "harness_binding": {
+      "oneOf": [
+        {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v1.schema.json"}
+      ]
+    },
     "proof_root": {"type": "string", "minLength": 1},
     "safety": {
       "type": "object",

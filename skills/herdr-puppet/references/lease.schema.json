@@ -24,7 +24,10 @@
     "proof_root",
     "caller_text_files",
     "caller_text_files_removed",
-    "remote_task_files"
+    "remote_task_files",
+    "interactive_sends",
+    "pending_interactive_send",
+    "pending_sequence_operation"
   ],
   "properties": {
     "schema": {"const": "herdr-puppet.lease.v1"},
@@ -83,7 +86,12 @@
       },
       "additionalProperties": false
     },
-    "harness_binding": {"$ref": "harness-binding.schema.json"},
+    "harness_binding": {
+      "oneOf": [
+        {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v1.schema.json"}
+      ]
+    },
     "harness_launch": {
       "type": "object",
       "required": [
@@ -122,6 +130,124 @@
     "remote_task_files": {
       "type": "array",
       "items": {"$ref": "#/$defs/remoteTaskFile"}
+    },
+    "interactive_sends": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "initial"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": true}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "steering"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"enum": ["direct", "reconciled"]},
+            "instruction_wrapper_verified": {"const": false}
+          },
+          "additionalProperties": false
+        }
+      ],
+      "items": false,
+      "maxItems": 2,
+      "minItems": 0
+    },
+    "pending_interactive_send": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "initial"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": true},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "steering"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": false},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pending_sequence_operation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "operation",
+            "seq",
+            "payload_sha256",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "operation": {
+              "enum": ["run", "harness_launch", "startup_gate"]
+            },
+            "seq": {"type": "integer", "minimum": 1},
+            "payload_sha256": {"$ref": "#/$defs/sha256"},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "preserved_reason": {
       "enum": [
@@ -313,6 +439,18 @@
             "minContains": 1
           }
         }
+      }
+    },
+    {
+      "not": {
+        "properties": {
+          "pending_interactive_send": {"type": "object"},
+          "pending_sequence_operation": {"type": "object"}
+        },
+        "required": [
+          "pending_interactive_send",
+          "pending_sequence_operation"
+        ]
       }
     }
   ],

@@ -6,48 +6,37 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from herdr_puppet_lib.harness_binding import ISOLATED_LAUNCH_PATH
+from herdr_puppet_lib.claude_hook_marker import validate_absent_root
+from herdr_puppet_lib.claude_hooks import (
+    CLAUDE_HELPER_RELATIVE_PATH,
+    CLAUDE_IMPLEMENTATION_RELATIVE_PATH,
+    build_runtime_claude_lifecycle_observation,
+    checkpoint_lifecycle_observation,
+    claude_launch_flags,
+)
+from herdr_puppet_lib.harness_binding import (
+    HARNESS_LAUNCH_SPECS,
+    ISOLATED_LAUNCH_PATH,
+)
 
 
 HARNESSES = {
-    "agy": {
-        "command": "agy",
-        "flags": [
-            "--dangerously-skip-permissions",
-            "--sandbox=false",
-            "--new-project",
-            "--log-file",
-            "/dev/null",
-        ],
-        "status": ["models"],
-    },
-    "codex": {
-        "command": "codex",
-        "flags": ["--dangerously-bypass-approvals-and-sandbox"],
-        "status": ["login", "status"],
-    },
-    "claude": {
-        "command": "claude",
-        "flags": ["--dangerously-skip-permissions"],
-        "status": ["auth", "status"],
-    },
-    "cursor": {
-        "command": "cursor-agent",
-        "flags": ["--yolo", "--sandbox", "disabled"],
-    },
-    "grok": {
-        "command": "grok",
-        "flags": ["--always-approve", "--sandbox", "off"],
-        "status": ["models"],
-    },
+    harness: dict(specification)
+    for harness, specification in HARNESS_LAUNCH_SPECS.items()
 }
+HARNESSES["agy"]["status"] = ["models"]
+HARNESSES["codex"]["status"] = ["login", "status"]
+HARNESSES["claude"]["status"] = ["auth", "status"]
+HARNESSES["grok"]["status"] = ["models"]
 MAX_OUTPUT = 64 * 1024
 TIMEOUT_SECONDS = 20
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -86,16 +75,68 @@ def now() -> str:
 
 
 def bounded(argv: list[str], env: dict[str, str]) -> tuple[int, bytes]:
-    result = subprocess.run(
+    process = subprocess.Popen(
         argv,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=TIMEOUT_SECONDS,
-        check=False,
         env=env,
     )
-    return result.returncode, result.stdout[:MAX_OUTPUT]
+    if process.stdout is None:
+        process.kill()
+        process.wait()
+        raise RuntimeError("census output pipe is unavailable")
+    descriptor = process.stdout.fileno()
+    os.set_blocking(descriptor, False)
+    selector = selectors.DefaultSelector()
+    selector.register(descriptor, selectors.EVENT_READ)
+    output = bytearray()
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    eof = False
+    try:
+        while not eof:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, TIMEOUT_SECONDS)
+            events = selector.select(min(remaining, 0.25))
+            for _key, _mask in events:
+                try:
+                    chunk = os.read(descriptor, 8192)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    eof = True
+                    selector.unregister(descriptor)
+                    break
+                output.extend(chunk)
+                if len(output) > MAX_OUTPUT:
+                    raise RuntimeError("census output exceeds its bounded size")
+            if process.poll() is not None and not events:
+                try:
+                    chunk = os.read(descriptor, 8192)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    eof = True
+                else:
+                    output.extend(chunk)
+                    if len(output) > MAX_OUTPUT:
+                        raise RuntimeError(
+                            "census output exceeds its bounded size"
+                        )
+        return process.wait(), bytes(output)
+    except Exception:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+    finally:
+        selector.close()
+        process.stdout.close()
 
 
 def clean_text(value: bytes) -> str:
@@ -148,16 +189,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worktree", required=True)
     parser.add_argument("--output")
     parser.add_argument("--checkpoint-nonce")
+    parser.add_argument("--run-id")
+    parser.add_argument("--claude-hook-root")
     args = parser.parse_args(argv)
     if bool(args.output) != bool(args.checkpoint_nonce):
         raise RuntimeError(
             "--output and --checkpoint-nonce must be supplied together"
         )
     if args.checkpoint_nonce and re.fullmatch(
-        r"[A-Za-z0-9._:-]{8,128}",
+        r"[A-Za-z0-9._:-]{8,24}",
         args.checkpoint_nonce,
     ) is None:
         raise RuntimeError("checkpoint nonce is invalid")
+    if args.harness == "claude":
+        if not args.run_id or not args.claude_hook_root:
+            raise RuntimeError(
+                "Claude census requires --run-id and --claude-hook-root"
+            )
+        if re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", args.run_id) is None:
+            raise RuntimeError("run id is invalid")
+    elif args.run_id or args.claude_hook_root:
+        raise RuntimeError(
+            "Claude lifecycle arguments are valid only for the Claude harness"
+        )
 
     mapping = HARNESSES[args.harness]
     discovered = shutil.which(mapping["command"])
@@ -172,6 +226,45 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("profile root is not the current dedicated user")
     if not worktree.is_dir() or worktree.stat().st_uid != os.getuid():
         raise RuntimeError("worktree is not an owned directory")
+    if args.harness == "claude":
+        helper = (
+            Path(__file__).resolve(strict=True).parent
+            / "claude_hook_marker.py"
+        ).resolve(strict=True)
+        expected_helper = (
+            worktree / CLAUDE_HELPER_RELATIVE_PATH
+        )
+        if helper != expected_helper or not helper.is_file() or helper.is_symlink():
+            raise RuntimeError("Claude hook helper is not source-bound")
+        implementation = (
+            Path(__file__).resolve(strict=True).parent
+            / "herdr_puppet_lib"
+            / "claude_hook_marker.py"
+        ).resolve(strict=True)
+        expected_implementation = (
+            worktree / CLAUDE_IMPLEMENTATION_RELATIVE_PATH
+        )
+        if (
+            implementation != expected_implementation
+            or not implementation.is_file()
+            or implementation.is_symlink()
+        ):
+            raise RuntimeError(
+                "Claude hook implementation is not source-bound"
+            )
+        interpreter = Path(sys.executable).resolve(strict=True)
+        if not interpreter.is_file() or interpreter.is_symlink():
+            raise RuntimeError("Python interpreter is unavailable or unsafe")
+        hook_root = validate_absent_root(args.claude_hook_root)
+        lifecycle_observation = build_runtime_claude_lifecycle_observation(
+            run_id=args.run_id,
+            marker_root=str(hook_root),
+            helper_path=helper,
+            implementation_path=implementation,
+            interpreter_path=interpreter,
+        )
+    else:
+        lifecycle_observation = checkpoint_lifecycle_observation()
 
     environment = {
         "HOME": str(profile_root),
@@ -190,6 +283,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     if version_rc != 0 or help_rc != 0:
         raise RuntimeError("version/help census failed")
+    if (
+        args.harness == "claude"
+        and re.search(
+            r"(?<![A-Za-z0-9_-])--settings(?![A-Za-z0-9_-])",
+            clean_text(help_output),
+        )
+        is None
+    ):
+        raise RuntimeError("Claude executable does not advertise --settings")
     if args.harness == "cursor":
         enrollment_state = "interactive_pending"
         status_exit = None
@@ -222,14 +324,21 @@ def main(argv: list[str] | None = None) -> int:
         "LC_ALL": "C",
         "TERM": "xterm-256color",
     }
-    launch_argv = [str(executable), *mapping["flags"]]
+    launch_argv = [
+        str(executable),
+        *(
+            claude_launch_flags(lifecycle_observation)
+            if args.harness == "claude"
+            else mapping["flags"]
+        ),
+    ]
     vector = {
         "argv": launch_argv,
         "environment": launch_environment,
         "inherit_environment": False,
     }
     payload = {
-        "schema": "herdr-puppet.remote-harness-census.v1",
+        "schema": "herdr-puppet.remote-harness-census.v2",
         "harness": args.harness,
         "host": args.host,
         "recorded_at": now(),
@@ -248,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             "explicit_model_selector": False,
             "vector_sha256": sha256_bytes(canonical_bytes(vector)),
         },
+        "lifecycle_observation": lifecycle_observation,
         "model_observation": {
             "selection": "current_default",
             "model": "unavailable",

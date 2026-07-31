@@ -13,13 +13,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from .claude_hooks import (
+    CLAUDE_MARKER_NAMES,
+    PHASE_SUBMISSIONS,
+    claude_helper_exec_argv,
+    validate_claude_hook_receipt,
+)
 from .errors import HerdrPuppetError
 from .harness_binding import (
     CANONICAL_HARNESSES,
     INSTRUCTION_PLANE,
     binding_fingerprint,
+    remote_census_facts_fingerprint,
     validate_harness_binding,
     validate_instruction_manifest,
+    verify_remote_census,
 )
 from .herdr_client import HerdrClient, load_json
 from .journal import (
@@ -44,6 +52,7 @@ DEFAULT_BEACON_TIMEOUT_MS = 480_000
 MAX_BEACON_TIMEOUT_MS = 3_600_000
 MAX_BEACON_WAIT_ATTEMPTS = 2
 MAX_SHELL_STATUS_SUBMISSIONS = 2
+MAX_RECONCILIATION_EVIDENCE_BYTES = 1024
 BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
 REMOTE_FILE_REGISTERED = "registered"
 REMOTE_FILE_REMOVED = "removal_verified"
@@ -107,6 +116,7 @@ PRESERVE_REASONS = {
     "operator_stop",
     "route_superseded",
 }
+CLAUDE_LIFECYCLE_EVENT = "qualification.claude-lifecycle"
 RFC3339_TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
     r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
@@ -155,6 +165,9 @@ LEASE_FIELDS = {
     "caller_text_files",
     "caller_text_files_removed",
     "remote_task_files",
+    "interactive_sends",
+    "pending_interactive_send",
+    "pending_sequence_operation",
     "harness_binding",
     "harness_launch",
     "startup_gate_operations",
@@ -186,6 +199,9 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
     "caller_text_files",
     "caller_text_files_removed",
     "remote_task_files",
+    "interactive_sends",
+    "pending_interactive_send",
+    "pending_sequence_operation",
 }
 LEGACY_OPTIONAL_CANONICAL_FIELDS = {
     "shell_readiness",
@@ -193,12 +209,49 @@ LEGACY_OPTIONAL_CANONICAL_FIELDS = {
     "caller_text_files",
     "caller_text_files_removed",
     "remote_task_files",
+    "interactive_sends",
+    "pending_interactive_send",
+    "pending_sequence_operation",
     "harness_binding",
     "startup_gate_operations",
 }
 LEGACY_LEASE_REQUIRED_FIELDS = (
     CANONICAL_LEASE_REQUIRED_FIELDS - LEGACY_OPTIONAL_CANONICAL_FIELDS
 )
+
+
+def _shell_tokens(command: str) -> list[str]:
+    try:
+        lexer = shlex.shlex(
+            command,
+            posix=True,
+            punctuation_chars=";&|()<>",
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
+    except ValueError as exc:
+        raise HerdrPuppetError(
+            "shell_command_unparseable",
+            "The shell command cannot be safely classified.",
+        ) from exc
+
+
+def _token_names_bound_harness(
+    token: str,
+    *,
+    executable: str,
+    command_name: str,
+) -> bool:
+    candidates = [token]
+    if "=" in token:
+        candidates.append(token.rsplit("=", 1)[1])
+    for candidate in candidates:
+        if candidate == executable:
+            return True
+        if Path(candidate).name.lower() == command_name.lower():
+            return True
+    return False
 
 
 def _reject_shell_replacing_harness_launcher(
@@ -208,16 +261,23 @@ def _reject_shell_replacing_harness_launcher(
     harness_binary = HARNESS_COMMANDS.get(harness, Path(harness.strip()).name)
     if not harness_binary:
         return
-    shell_replacing_launcher = re.compile(
-        rf"(?:^|&&|;|\|\|)[ \t]*exec[ \t]+"
-        rf"(?:[^ \t;&|]*/)?{re.escape(harness_binary)}(?:[ \t]|$)",
-        re.IGNORECASE | re.MULTILINE,
-    )
-    if shell_replacing_launcher.search(command):
-        raise HerdrPuppetError(
-            "shell_replacing_harness_launcher",
-            "The launcher must return to the leased shell after the harness exits.",
-        )
+    tokens = _shell_tokens(command)
+    for index, token in enumerate(tokens):
+        if token.lower() != "exec":
+            continue
+        for candidate in tokens[index + 1 :]:
+            if candidate in {";", "&&", "||", "|", "&"}:
+                break
+            if _token_names_bound_harness(
+                candidate,
+                executable="",
+                command_name=harness_binary,
+            ):
+                raise HerdrPuppetError(
+                    "shell_replacing_harness_launcher",
+                    "The launcher must return to the leased shell after the "
+                    "harness exits.",
+                )
 
 
 def _reject_generic_harness_launcher(
@@ -226,17 +286,40 @@ def _reject_generic_harness_launcher(
 ) -> None:
     executable = binding["remote"]["executable"]["path"]
     command_name = HARNESS_COMMANDS[binding["harness"]]
-    pattern = re.compile(
-        rf"(?:^|&&|;|\|\|)[ \t]*(?:env[ \t]+(?:[^;&|]+[ \t]+)?)?"
-        rf"(?:{re.escape(executable)}|(?:[^ \t;&|]*/)?{re.escape(command_name)})"
-        rf"(?:[ \t]|$)",
-        re.IGNORECASE | re.MULTILINE,
-    )
-    if pattern.search(command):
+    if any(
+        _token_names_bound_harness(
+            token,
+            executable=executable,
+            command_name=command_name,
+        )
+        for token in _shell_tokens(command)
+    ):
         raise HerdrPuppetError(
             "generic_harness_launch_forbidden",
             "Use the controller-attested qualification-harness-launch operation.",
         )
+
+
+def _reject_nested_shell_command(command: str) -> None:
+    nested_shells = {
+        "sh",
+        "bash",
+        "zsh",
+        "dash",
+        "ksh",
+        "mksh",
+        "ash",
+        "fish",
+        "eval",
+    }
+    for token in _shell_tokens(command):
+        candidate = token.rsplit("=", 1)[-1]
+        if Path(candidate).name.lower() in nested_shells:
+            raise HerdrPuppetError(
+                "nested_shell_command_forbidden",
+                "The bounded qualification shell surface rejects nested shell "
+                "and eval launchers.",
+            )
 
 
 @contextmanager
@@ -329,6 +412,194 @@ def _as_text_file_list(raw_value: Any) -> list[str]:
             "Prompt-file tracking paths must be unique.",
         )
     return values
+
+
+def _as_interactive_sends(
+    raw_value: Any,
+    *,
+    next_seq: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_value, list) or len(raw_value) > 2:
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Interactive send state must be a bounded array.",
+        )
+    normalized: list[dict[str, Any]] = []
+    previous_seq = 0
+    for index, item in enumerate(raw_value):
+        expected_phase = "initial" if index == 0 else "steering"
+        if (
+            not isinstance(item, dict)
+            or set(item)
+            != {
+                "seq",
+                "phase",
+                "prompt_sha256",
+                "transport",
+                "instruction_wrapper_verified",
+            }
+            or isinstance(item["seq"], bool)
+            or not isinstance(item["seq"], int)
+            or item["seq"] <= previous_seq
+            or item["seq"] >= next_seq
+            or item["phase"] != expected_phase
+            or item["transport"] not in {"direct", "reconciled"}
+            or not isinstance(item["instruction_wrapper_verified"], bool)
+            or not isinstance(item["prompt_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", item["prompt_sha256"]) is None
+            or (
+                index == 0
+                and (
+                    item["transport"] != "direct"
+                    or item["instruction_wrapper_verified"] is not True
+                )
+            )
+            or (
+                index == 1
+                and item["instruction_wrapper_verified"] is not False
+            )
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Interactive send state is malformed or non-monotonic.",
+            )
+        previous_seq = item["seq"]
+        normalized.append(dict(item))
+    return normalized
+
+
+def _as_pending_interactive_send(
+    raw_value: Any,
+    *,
+    next_seq: int,
+    completed_sends: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    expected_phase = "initial" if not completed_sends else "steering"
+    if (
+        len(completed_sends) >= 2
+        or not isinstance(raw_value, dict)
+        or set(raw_value)
+        != {
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified",
+            "delivery_state",
+            "reserved_at",
+        }
+        or isinstance(raw_value["seq"], bool)
+        or raw_value["seq"] != next_seq
+        or raw_value["phase"] != expected_phase
+        or raw_value["transport"] != "direct"
+        or raw_value["delivery_state"] != "pending_or_unknown"
+        or not _is_rfc3339_timestamp(raw_value["reserved_at"])
+        or not isinstance(raw_value["prompt_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", raw_value["prompt_sha256"]) is None
+        or raw_value["instruction_wrapper_verified"]
+        is not (expected_phase == "initial")
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Pending interactive-send state is malformed or replayable.",
+        )
+    return dict(raw_value)
+
+
+def _as_pending_sequence_operation(
+    raw_value: Any,
+    *,
+    next_seq: int,
+) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    if (
+        not isinstance(raw_value, dict)
+        or set(raw_value)
+        != {
+            "operation",
+            "seq",
+            "payload_sha256",
+            "delivery_state",
+            "reserved_at",
+        }
+        or raw_value["operation"]
+        not in {"run", "harness_launch", "startup_gate"}
+        or isinstance(raw_value["seq"], bool)
+        or raw_value["seq"] != next_seq
+        or not isinstance(raw_value["payload_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", raw_value["payload_sha256"]) is None
+        or raw_value["delivery_state"] != "pending_or_unknown"
+        or not _is_rfc3339_timestamp(raw_value["reserved_at"])
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Pending sequence-operation state is malformed or replayable.",
+        )
+    return dict(raw_value)
+
+
+def _require_no_pending_sequence_operation(
+    lease: dict[str, Any],
+) -> None:
+    pending = _as_pending_sequence_operation(
+        lease.get("pending_sequence_operation"),
+        next_seq=lease["next_seq"],
+    )
+    if pending is not None:
+        raise HerdrPuppetError(
+            "qualification_sequence_delivery_unknown",
+            "A durably reserved sequence operation may already have reached "
+            "Herdr; preserve the row and do not replay it.",
+            details={
+                "operation": pending["operation"],
+                "seq": pending["seq"],
+            },
+        )
+
+
+def _reserve_sequence_operation(
+    *,
+    lease: dict[str, Any],
+    lease_path: Path,
+    run_root: Path,
+    operation: str,
+    seq: int,
+    payload_sha256: str,
+) -> dict[str, Any]:
+    _require_no_pending_sequence_operation(lease)
+    if lease.get("pending_interactive_send") is not None:
+        raise HerdrPuppetError(
+            "qualification_send_delivery_unknown",
+            "A pending interactive send blocks another sequence mutation.",
+        )
+    reserved = json.loads(json.dumps(lease))
+    reserved["pending_sequence_operation"] = {
+        "operation": operation,
+        "seq": seq,
+        "payload_sha256": payload_sha256,
+        "delivery_state": "pending_or_unknown",
+        "reserved_at": now(),
+    }
+    atomic_json(lease_path, reserved)
+    append_event(
+        run_root,
+        make_event(
+            reserved["run_id"],
+            "qualification.sequence-operation-reserved",
+            "observed",
+            seq=seq,
+            data={
+                "operation": operation,
+                "payload_sha256": payload_sha256,
+                "delivery_state": "pending_or_unknown",
+                "herdr_mutated": False,
+            },
+        ),
+    )
+    return reserved
 
 
 def _normalize_remote_task_path(path: str) -> str:
@@ -594,7 +865,25 @@ def _validate_record_binding(payload: dict[str, Any]) -> dict[str, Any]:
         expected_harness=payload.get("harness"),
         expected_repo=source.get("repo"),
         expected_worktree=source.get("worktree"),
+        verify_current_adapters=(
+            binding.get("schema") != "herdr-puppet.harness-binding.v1"
+        ),
+        allow_historical=True,
     )
+
+
+def _require_current_record_binding(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    binding = _validate_record_binding(payload)
+    if binding.get("schema") == "herdr-puppet.harness-binding.v1":
+        raise HerdrPuppetError(
+            "legacy_harness_binding_requires_recensus",
+            "Harness-binding v1 remains available for status, preservation, "
+            "maintenance, and exact cleanup only; fresh qualification requires "
+            "a new census and v2 plan.",
+        )
+    return binding
 
 
 def _validate_harness_launch_record(
@@ -980,6 +1269,27 @@ def _validate_lease(
         payload.get("remote_task_files", []),
         expected_ssh_target=ssh_target,
     )
+    interactive_sends = _as_interactive_sends(
+        payload.get("interactive_sends", []),
+        next_seq=payload["next_seq"],
+    )
+    pending_interactive_send = _as_pending_interactive_send(
+        payload.get("pending_interactive_send"),
+        next_seq=payload["next_seq"],
+        completed_sends=interactive_sends,
+    )
+    pending_sequence_operation = _as_pending_sequence_operation(
+        payload.get("pending_sequence_operation"),
+        next_seq=payload["next_seq"],
+    )
+    if (
+        pending_interactive_send is not None
+        and pending_sequence_operation is not None
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Only one pending Herdr mutation may exist.",
+        )
     if (
         "preserved_reason" in payload
         and payload["preserved_reason"] not in PRESERVE_REASONS
@@ -1041,6 +1351,9 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
     migrated.setdefault("caller_text_files", [])
     migrated.setdefault("caller_text_files_removed", [])
     migrated.setdefault("remote_task_files", [])
+    migrated.setdefault("interactive_sends", [])
+    migrated.setdefault("pending_interactive_send", None)
+    migrated.setdefault("pending_sequence_operation", None)
     migrated.setdefault("startup_gate_operations", [])
     validate_lease(migrated)
     return migrated
@@ -1204,6 +1517,14 @@ def plan(
         expected_repo=repo,
         expected_worktree=worktree,
     )
+    if (
+        harness == "claude"
+        and checked_binding["lifecycle_observation"]["run_id"] != run_id
+    ):
+        raise HerdrPuppetError(
+            "claude_lifecycle_run_mismatch",
+            "The Claude lifecycle observation must bind the exact plan run id.",
+        )
     doctor_facts = facts.get("doctor") if facts else None
     doctor_result = doctor(client, session, facts=doctor_facts)
     if doctor_result["result"] != "ok":
@@ -1435,6 +1756,7 @@ def register_remote_task_file(
     normalized_path = _normalize_remote_task_path(remote_path)
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
         if (
@@ -2049,6 +2371,7 @@ def create_qualification_tab(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
+    _require_current_record_binding(plan_payload)
     _live_gate(plan_payload, allow_live)
     with _lease_lock(lease_path) as locked_lease_path:
         return _create_qualification_tab_locked(
@@ -2071,6 +2394,7 @@ def _create_qualification_tab_locked(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
+    _require_current_record_binding(plan_payload)
     _live_gate(plan_payload, allow_live)
     if run_root is not None:
         require_initialized_journal(
@@ -2170,6 +2494,9 @@ def _create_qualification_tab_locked(
         "caller_text_files": [],
         "caller_text_files_removed": [],
         "remote_task_files": [],
+        "interactive_sends": [],
+        "pending_interactive_send": None,
+        "pending_sequence_operation": None,
     }
     validate_lease(lease)
     atomic_json(lease_path, lease)
@@ -2211,10 +2538,14 @@ def qualification_run(
     command: str,
     text_file: str | None = None,
     allow_live: bool,
-    run_root: Path | None = None,
+    run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
+    )
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -2222,22 +2553,35 @@ def qualification_run(
         )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current)
         if seq != current["next_seq"]:
             raise HerdrPuppetError(
                 "send_sequence_mismatch",
                 "Send sequence is stale, skipped, duplicate, or replayed.",
                 details={"expected": current["next_seq"], "received": seq},
             )
-        _reject_shell_replacing_harness_launcher(command, current["harness"])
-        if seq > 1 and isinstance(current.get("harness_binding"), dict):
-            _reject_generic_harness_launcher(
-                command,
-                current["harness_binding"],
+        if "harness_launch" in current:
+            raise HerdrPuppetError(
+                "shell_command_after_harness_launch_forbidden",
+                "Shell commands are forbidden after the regular interactive "
+                "harness launch.",
             )
+        _reject_shell_replacing_harness_launcher(command, current["harness"])
+        _reject_generic_harness_launcher(
+            command,
+            current["harness_binding"],
+        )
+        _reject_nested_shell_command(command)
         shell_readiness = _shell_readiness(current)
         shell_status_probe = _is_strict_shell_status_probe(command)
+        if seq == 1 and not shell_status_probe:
+            raise HerdrPuppetError(
+                "initial_shell_status_probe_required",
+                "The first shell submission must be the strict STATUS probe.",
+            )
         shell_status_retry = False
         if seq > 1 and shell_readiness != SHELL_READY:
             _require_bounded_shell_status_retry(
@@ -2262,26 +2606,37 @@ def qualification_run(
         session = current["session"]["name"]
         pane_id = current["pane_id"]
         harness_readiness = current.get("harness_readiness", "unverified")
-        client.run_command(session, pane_id, command)
         digest = sha256_text(command)
-        updated = json.loads(json.dumps(current))
-        updated["next_seq"] = seq + 1
+        reservation_base = json.loads(json.dumps(current))
         if tracked_text_file is not None and text_file_retained:
-            updated["caller_text_files"] = _dedupe_preserve_order(
-                _as_text_file_list(updated.get("caller_text_files", []))
+            reservation_base["caller_text_files"] = _dedupe_preserve_order(
+                _as_text_file_list(
+                    reservation_base.get("caller_text_files", [])
+                )
                 + [tracked_text_file]
             )
+        reserved = _reserve_sequence_operation(
+            lease=reservation_base,
+            lease_path=locked_lease_path,
+            run_root=run_root,
+            operation="run",
+            seq=seq,
+            payload_sha256=digest,
+        )
+        client.run_command(session, pane_id, command)
+        updated = json.loads(json.dumps(reserved))
+        updated["pending_sequence_operation"] = None
+        updated["next_seq"] = seq + 1
         atomic_json(locked_lease_path, updated)
-        if run_root is not None:
-            append_event(
-                run_root,
-                make_event(
-                    updated["run_id"],
-                    "qualification.run",
-                    "ok",
-                    seq=seq,
-                    command_sha256=digest,
-                    data={
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "qualification.run",
+                "ok",
+                seq=seq,
+                command_sha256=digest,
+                data={
                         "pane_id": pane_id,
                         "input_request": "pane run",
                         "herdr_cli_acknowledged": True,
@@ -2307,9 +2662,9 @@ def qualification_run(
                             if tracked_text_file is not None
                             else "not_applicable"
                         ),
-                    },
-                ),
-            )
+                },
+            ),
+        )
     return {
         "schema": "herdr-puppet.qualification-run.v1",
         "result": "ok",
@@ -2363,6 +2718,155 @@ def _regular_launch_command(binding: dict[str, Any]) -> str:
     )
 
 
+def qualification_harness_census_verify(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    census: dict[str, Any],
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
+    )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        binding = _require_current_record_binding(current)
+        if current["state"] != "active":
+            raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current)
+        if _shell_readiness(current) != SHELL_READY:
+            raise HerdrPuppetError(
+                "shell_readiness_not_proven",
+                "In-row census verification requires a STATUS-verified shell.",
+            )
+        if "harness_launch" in current:
+            raise HerdrPuppetError(
+                "harness_already_launched",
+                "In-row census verification must happen before harness launch.",
+            )
+        verification = verify_remote_census(
+            binding_value=binding,
+            census_value=census,
+        )
+        census_sha256 = remote_census_facts_fingerprint(census)
+        matches = [
+            event
+            for event in read_events(run_root)
+            if event.get("run_id") == current["run_id"]
+            and event.get("kind") == "qualification.harness-census-verified"
+            and event.get("result") == "observed"
+        ]
+        already_verified = False
+        if matches:
+            latest_data = matches[-1].get("data")
+            if (
+                len(matches) != 1
+                or not isinstance(latest_data, dict)
+                or latest_data.get("binding_fingerprint")
+                != binding["fingerprint"]
+                or latest_data.get("census_sha256") != census_sha256
+            ):
+                raise HerdrPuppetError(
+                    "harness_recensus_verification_conflict",
+                    "The row already carries a different in-row census verification.",
+                )
+            already_verified = True
+        if not already_verified:
+            append_event(
+                run_root,
+                make_event(
+                    current["run_id"],
+                    "qualification.harness-census-verified",
+                    "observed",
+                    data={
+                        "binding_fingerprint": binding["fingerprint"],
+                        "census_sha256": census_sha256,
+                        "executable_fingerprint": verification[
+                            "executable_fingerprint"
+                        ],
+                        "launch_vector_sha256": verification[
+                            "launch_vector_sha256"
+                        ],
+                        "lifecycle_strategy": verification[
+                            "lifecycle_strategy"
+                        ],
+                        "raw_output_retained": False,
+                        "transcript_read": False,
+                    },
+                ),
+            )
+    return {
+        **verification,
+        "schema": "herdr-puppet.qualification-harness-census-verify.v1",
+        "run_id": current["run_id"],
+        "census_sha256": census_sha256,
+        "already_verified": already_verified,
+        "transcript_read": False,
+    }
+
+
+def _require_in_row_census_verification(
+    run_root: Path,
+    *,
+    lease: dict[str, Any],
+    binding: dict[str, Any],
+) -> None:
+    matches = [
+        event
+        for event in read_events(run_root)
+        if event.get("run_id") == lease["run_id"]
+        and event.get("kind") == "qualification.harness-census-verified"
+        and event.get("result") == "observed"
+        and isinstance(event.get("data"), dict)
+        and event["data"].get("binding_fingerprint")
+        == binding["fingerprint"]
+    ]
+    if len(matches) != 1:
+        raise HerdrPuppetError(
+            "harness_recensus_verification_missing",
+            "Regular harness launch requires one exact in-row census verification.",
+        )
+
+
+def _require_claude_marker_registrations(
+    lease: dict[str, Any],
+    binding: dict[str, Any],
+) -> None:
+    if lease["harness"] != "claude":
+        return
+    marker_root = binding["lifecycle_observation"]["marker_root"]
+    expected_paths = {
+        posixpath.join(marker_root, name)
+        for name in CLAUDE_MARKER_NAMES
+    }
+    remote_files = _as_remote_task_files(
+        lease.get("remote_task_files", []),
+        expected_ssh_target=lease["ssh"]["target"],
+    )
+    registered_paths = {
+        item["path"]
+        for item in remote_files
+        if item["state"] == REMOTE_FILE_REGISTERED
+    }
+    if (
+        len(remote_files) != len(CLAUDE_MARKER_NAMES)
+        or registered_paths != expected_paths
+    ):
+        raise HerdrPuppetError(
+            "claude_marker_registration_incomplete",
+            "Claude launch requires all exact run-bound marker paths "
+            "registered and none removed.",
+            details={
+                "expected_count": len(CLAUDE_MARKER_NAMES),
+                "registered_count": len(registered_paths),
+                "total_remote_file_count": len(remote_files),
+            },
+        )
+
+
 def qualification_harness_launch(
     client: HerdrClient,
     *,
@@ -2383,6 +2887,7 @@ def qualification_harness_launch(
         current = _reload_locked_lease(lease_payload, locked_lease_path)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current)
         if seq != current["next_seq"]:
             raise HerdrPuppetError(
                 "send_sequence_mismatch",
@@ -2399,7 +2904,7 @@ def qualification_harness_launch(
                 "harness_already_launched",
                 "A lease permits exactly one controller-attested harness launch.",
             )
-        binding = _validate_record_binding(current)
+        binding = _require_current_record_binding(current)
         if (
             binding["regular_launch"]["explicit_model_selector"] is not False
             or binding["regular_launch"]["unrestricted"] is not True
@@ -2408,6 +2913,12 @@ def qualification_harness_launch(
                 "invalid_regular_launch",
                 "The bound launch must be unrestricted and omit model selection.",
             )
+        _require_in_row_census_verification(
+            run_root,
+            lease=current,
+            binding=binding,
+        )
+        _require_claude_marker_registrations(current, binding)
         status = structural_status(client, lease_payload=current)
         if status["result"] != "ok":
             raise HerdrPuppetError(
@@ -2417,13 +2928,22 @@ def qualification_harness_launch(
             )
         command = _regular_launch_command(binding)
         _reject_shell_replacing_harness_launcher(command, current["harness"])
+        command_digest = sha256_text(command)
+        reserved = _reserve_sequence_operation(
+            lease=current,
+            lease_path=locked_lease_path,
+            run_root=run_root,
+            operation="harness_launch",
+            seq=seq,
+            payload_sha256=command_digest,
+        )
         client.run_command(
             current["session"]["name"],
             current["pane_id"],
             command,
         )
-        command_digest = sha256_text(command)
-        updated = json.loads(json.dumps(current))
+        updated = json.loads(json.dumps(reserved))
+        updated["pending_sequence_operation"] = None
         updated["harness_launch"] = {
             "seq": seq,
             "launched_at": now(),
@@ -2485,6 +3005,540 @@ def qualification_harness_launch(
     }
 
 
+def _qualification_send_history(
+    run_root: Path,
+    *,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    sends = [
+        event
+        for event in read_events(run_root)
+        if event.get("run_id") == run_id
+        and (
+            (
+                event.get("kind") == "qualification.send"
+                and event.get("result") == "ok"
+            )
+            or (
+                event.get("kind") == "qualification.send-reconciled"
+                and event.get("result") == "observed"
+            )
+        )
+    ]
+    if len(sends) > 2:
+        raise HerdrPuppetError(
+            "invalid_qualification_send_history",
+            "Controller send history exceeds its bounded two-turn contract.",
+        )
+    previous_seq = 0
+    for index, event in enumerate(sends):
+        seq = event.get("seq")
+        prompt_sha256 = event.get("prompt_sha256")
+        data = event.get("data")
+        expected_phase = "initial" if index == 0 else "steering"
+        expected_transport = (
+            "direct"
+            if event.get("kind") == "qualification.send"
+            else "reconciled"
+        )
+        if (
+            isinstance(seq, bool)
+            or not isinstance(seq, int)
+            or seq <= previous_seq
+            or not isinstance(prompt_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", prompt_sha256) is None
+            or not isinstance(data, dict)
+            or data.get("phase") != expected_phase
+            or (
+                index == 0
+                and (
+                    expected_transport != "direct"
+                    or not isinstance(data.get("instruction_wrapper"), dict)
+                )
+            )
+            or (
+                index == 1
+                and data.get("instruction_wrapper") is not None
+                and expected_transport == "direct"
+            )
+        ):
+            raise HerdrPuppetError(
+                "invalid_qualification_send_history",
+                "Controller send history is malformed or non-monotonic.",
+            )
+        previous_seq = seq
+    return sends
+
+
+def _qualification_send_state(
+    lease: dict[str, Any],
+    run_root: Path,
+    *,
+    allow_pending: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    _require_no_pending_sequence_operation(lease)
+    lease_sends = _as_interactive_sends(
+        lease.get("interactive_sends", []),
+        next_seq=lease["next_seq"],
+    )
+    journal_state = _qualification_journal_send_state(
+        run_root,
+        run_id=lease["run_id"],
+    )
+    if lease_sends != journal_state:
+        raise HerdrPuppetError(
+            "qualification_send_history_diverged",
+            "Canonical lease send state and controller journal disagree; "
+            "preserve the row and do not submit more input.",
+        )
+    pending = _as_pending_interactive_send(
+        lease.get("pending_interactive_send"),
+        next_seq=lease["next_seq"],
+        completed_sends=lease_sends,
+    )
+    if pending is not None and not allow_pending:
+        raise HerdrPuppetError(
+            "qualification_send_delivery_unknown",
+            "A durably reserved interactive send may already have reached Herdr; "
+            "do not replay it. Preserve the row, or use the narrow steering-only "
+            "reconciliation path when supported.",
+            details={
+                "seq": pending["seq"],
+                "phase": pending["phase"],
+            },
+        )
+    return lease_sends, pending
+
+
+def _qualification_journal_send_state(
+    run_root: Path,
+    *,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    journal_sends = _qualification_send_history(
+        run_root,
+        run_id=run_id,
+    )
+    return [
+        {
+            "seq": event["seq"],
+            "phase": event["data"]["phase"],
+            "prompt_sha256": event["prompt_sha256"],
+            "transport": (
+                "direct"
+                if event["kind"] == "qualification.send"
+                else "reconciled"
+            ),
+            "instruction_wrapper_verified": isinstance(
+                event["data"].get("instruction_wrapper"),
+                dict,
+            ),
+        }
+        for event in journal_sends
+    ]
+
+
+def _qualification_reconciled_evidence(
+    run_root: Path,
+    *,
+    run_id: str,
+    seq: int,
+    prompt_sha256: str,
+) -> str:
+    matches = [
+        event
+        for event in read_events(run_root)
+        if event.get("run_id") == run_id
+        and event.get("kind") == "qualification.send-reconciled"
+        and event.get("result") == "observed"
+        and event.get("seq") == seq
+        and event.get("prompt_sha256") == prompt_sha256
+    ]
+    if len(matches) != 1:
+        raise HerdrPuppetError(
+            "qualification_reconciliation_evidence_missing",
+            "The durable reconciliation event is missing or ambiguous.",
+        )
+    data = matches[0].get("data")
+    stored = data.get("evidence") if isinstance(data, dict) else None
+    if (
+        not isinstance(stored, str)
+        or not stored.strip()
+        or "\x00" in stored
+        or len(stored.encode("utf-8"))
+        > MAX_RECONCILIATION_EVIDENCE_BYTES
+    ):
+        raise HerdrPuppetError(
+            "invalid_qualification_reconciliation_evidence",
+            "The durable reconciliation evidence is malformed.",
+        )
+    return stored
+
+
+def _require_qualification_send_consistency(
+    lease: dict[str, Any],
+    run_root: Path,
+) -> list[dict[str, Any]]:
+    lease_sends, _pending = _qualification_send_state(
+        lease,
+        run_root,
+        allow_pending=False,
+    )
+    return lease_sends
+
+
+def _require_initial_send_consumption(
+    run_root: Path,
+    *,
+    run_id: str,
+    initial_send: dict[str, Any],
+) -> None:
+    matches = [
+        event
+        for event in read_events(run_root)
+        if event.get("run_id") == run_id
+        and event.get("kind") == "qualification.beacon"
+        and event.get("result") == "observed"
+        and event.get("seq") == initial_send["seq"]
+        and isinstance(event.get("data"), dict)
+        and event["data"].get("checkpoint") == "STATUS"
+    ]
+    if not matches:
+        raise HerdrPuppetError(
+            "initial_send_consumption_not_proven",
+            "The separate steering turn requires a controller-observed STATUS "
+            "checkpoint for the wrapped initial send.",
+        )
+
+
+def _claude_lifecycle_events(
+    run_root: Path,
+    *,
+    binding: dict[str, Any],
+    phase: str,
+) -> list[dict[str, Any]]:
+    probe_id = binding["lifecycle_observation"]["probe_id"]
+    matches = [
+        event
+        for event in read_events(run_root)
+        if event.get("kind") == CLAUDE_LIFECYCLE_EVENT
+        and event.get("result") == "observed"
+        and event.get("run_id") == binding["lifecycle_observation"]["run_id"]
+        and isinstance(event.get("data"), dict)
+        and event["data"].get("probe_id") == probe_id
+        and event["data"].get("phase") == phase
+    ]
+    expected_data_fields = {
+        "phase",
+        "classification",
+        "probe_id",
+        "send_seq",
+        "counts",
+        "marker_set_sha256",
+        "receipt_verified",
+        "stdin_read",
+        "raw_input_retained",
+        "transcript_read",
+    }
+    for event in matches:
+        data = event["data"]
+        counts = data.get("counts")
+        if (
+            set(data) != expected_data_fields
+            or data.get("classification")
+            not in {
+                "armed",
+                "submission_not_observed",
+                "response_pending",
+                "response_completed",
+                "response_failed",
+            }
+            or (
+                data.get("send_seq") is not None
+                and (
+                    isinstance(data["send_seq"], bool)
+                    or not isinstance(data["send_seq"], int)
+                    or data["send_seq"] < 1
+                )
+            )
+            or not isinstance(counts, dict)
+            or set(counts)
+            != {
+                "session_start",
+                "user_prompt_submit",
+                "stop",
+                "stop_failure",
+            }
+            or any(
+                isinstance(count, bool)
+                or not isinstance(count, int)
+                or count < 0
+                for count in counts.values()
+            )
+            or not isinstance(data.get("marker_set_sha256"), str)
+            or re.fullmatch(
+                r"[0-9a-f]{64}", data["marker_set_sha256"]
+            )
+            is None
+            or data.get("receipt_verified") is not True
+            or data.get("stdin_read")
+            is not bool(counts.get("user_prompt_submit"))
+            or data.get("raw_input_retained") is not False
+            or data.get("transcript_read") is not False
+        ):
+            raise HerdrPuppetError(
+                "invalid_claude_lifecycle_journal",
+                "A Claude lifecycle journal event is malformed.",
+            )
+    return matches
+
+
+def _require_claude_lifecycle_phase(
+    *,
+    run_root: Path,
+    binding: dict[str, Any],
+    phase: str,
+    classification: str,
+) -> dict[str, Any]:
+    expected_submissions = PHASE_SUBMISSIONS.get(phase)
+    if expected_submissions is None:
+        raise HerdrPuppetError(
+            "invalid_claude_lifecycle_phase",
+            "Claude lifecycle phase must be armed, initial, or steering.",
+        )
+    sends = _qualification_send_history(
+        run_root,
+        run_id=binding["lifecycle_observation"]["run_id"],
+    )
+    matches = _claude_lifecycle_events(
+        run_root,
+        binding=binding,
+        phase=phase,
+    )
+    if not matches or matches[-1]["data"].get("classification") != classification:
+        raise HerdrPuppetError(
+            "claude_lifecycle_not_proven",
+            "The required Claude native lifecycle phase is not proven.",
+            details={
+                "phase": phase,
+                "expected_classification": classification,
+            },
+        )
+    latest = matches[-1]
+    if expected_submissions == 0:
+        bound = "seq" not in latest and "prompt_sha256" not in latest
+    else:
+        if len(sends) < expected_submissions:
+            bound = False
+        else:
+            send = sends[expected_submissions - 1]
+            bound = (
+                latest.get("seq") == send["seq"]
+                and latest.get("prompt_sha256") == send["prompt_sha256"]
+                and latest["data"].get("send_seq") == send["seq"]
+            )
+    if not bound:
+        raise HerdrPuppetError(
+            "claude_lifecycle_send_binding_invalid",
+            "The Claude lifecycle receipt is not bound to its exact controller send.",
+        )
+    return latest
+
+
+def qualification_claude_lifecycle_observe(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    receipt: dict[str, Any],
+    phase: str,
+    run_root: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    _require_optional_lease_journal(run_root, lease_payload)
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["harness"] != "claude":
+            raise HerdrPuppetError(
+                "claude_lifecycle_wrong_harness",
+                "Native Claude lifecycle receipts apply only to Claude rows.",
+            )
+        if current["state"] not in {"active", "preserved"}:
+            raise HerdrPuppetError(
+                "lease_state_invalid",
+                "Claude lifecycle observation requires an active or preserved lease.",
+            )
+        if "harness_launch" not in current:
+            raise HerdrPuppetError(
+                "harness_launch_missing",
+                "Claude lifecycle observation requires the bound harness launch.",
+            )
+        binding = _require_current_record_binding(current)
+        expected_submissions = PHASE_SUBMISSIONS.get(phase)
+        if expected_submissions is None:
+            raise HerdrPuppetError(
+                "invalid_claude_lifecycle_phase",
+                "Claude lifecycle phase must be armed, initial, or steering.",
+            )
+        send_state = _require_qualification_send_consistency(
+            current,
+            run_root,
+        )
+        if len(send_state) < expected_submissions:
+            raise HerdrPuppetError(
+                "claude_lifecycle_send_count_mismatch",
+                "The Claude lifecycle phase does not match controller send history.",
+                details={
+                    "phase": phase,
+                    "expected": expected_submissions,
+                    "observed": len(send_state),
+                },
+            )
+        phase_send_state = send_state[:expected_submissions]
+        if phase == "initial":
+            _require_claude_lifecycle_phase(
+                run_root=run_root,
+                binding=binding,
+                phase="armed",
+                classification="armed",
+            )
+        elif phase == "steering":
+            _require_claude_lifecycle_phase(
+                run_root=run_root,
+                binding=binding,
+                phase="initial",
+                classification="response_completed",
+            )
+        checked_receipt, classification = validate_claude_hook_receipt(
+            receipt,
+            observation=binding["lifecycle_observation"],
+            phase=phase,
+            expected_prompt_sha256s=[
+                item["prompt_sha256"] for item in phase_send_state
+            ],
+        )
+        existing = _claude_lifecycle_events(
+            run_root,
+            binding=binding,
+            phase=phase,
+        )
+        already_observed = False
+        if existing:
+            previous = existing[-1]["data"]
+            previous_counts = previous.get("counts")
+            if (
+                previous.get("marker_set_sha256")
+                == checked_receipt["marker_set_sha256"]
+                and previous.get("classification") == classification
+            ):
+                already_observed = True
+            else:
+                if previous.get("classification") in {
+                    "armed",
+                    "response_completed",
+                    "response_failed",
+                }:
+                    raise HerdrPuppetError(
+                        "claude_lifecycle_terminal_conflict",
+                        "A terminal Claude lifecycle phase cannot be replaced.",
+                    )
+                if (
+                    not isinstance(previous_counts, dict)
+                    or set(previous_counts) != set(checked_receipt["counts"])
+                    or any(
+                        checked_receipt["counts"][event]
+                        < previous_counts.get(event, -1)
+                        for event in checked_receipt["counts"]
+                    )
+                ):
+                    raise HerdrPuppetError(
+                        "claude_lifecycle_receipt_regression",
+                        "Claude lifecycle receipt counts cannot regress.",
+                    )
+                classification_rank = {
+                    "submission_not_observed": 0,
+                    "response_pending": 1,
+                    "response_completed": 2,
+                    "response_failed": 2,
+                }
+                if classification_rank.get(
+                    classification, -1
+                ) < classification_rank.get(
+                    previous.get("classification"), -1
+                ):
+                    raise HerdrPuppetError(
+                        "claude_lifecycle_receipt_regression",
+                        "Claude lifecycle classification cannot regress.",
+                    )
+        if not already_observed and len(send_state) != expected_submissions:
+            raise HerdrPuppetError(
+                "claude_lifecycle_send_count_mismatch",
+                "Only an identical prior Claude lifecycle receipt may be replayed "
+                "after the row advances.",
+                details={
+                    "phase": phase,
+                    "expected": expected_submissions,
+                    "observed": len(send_state),
+                },
+            )
+        bound_send = (
+            phase_send_state[expected_submissions - 1]
+            if expected_submissions
+            else None
+        )
+        if already_observed:
+            _require_claude_lifecycle_phase(
+                run_root=run_root,
+                binding=binding,
+                phase=phase,
+                classification=classification,
+            )
+        if not already_observed:
+            append_event(
+                run_root,
+                make_event(
+                    current["run_id"],
+                    CLAUDE_LIFECYCLE_EVENT,
+                    "observed",
+                    seq=bound_send["seq"] if bound_send else None,
+                    prompt_sha256=(
+                        bound_send["prompt_sha256"] if bound_send else None
+                    ),
+                    data={
+                        "phase": phase,
+                        "classification": classification,
+                        "probe_id": checked_receipt["probe_id"],
+                        "send_seq": (
+                            bound_send["seq"] if bound_send else None
+                        ),
+                        "counts": checked_receipt["counts"],
+                        "marker_set_sha256": checked_receipt[
+                            "marker_set_sha256"
+                        ],
+                        "receipt_verified": True,
+                        "stdin_read": checked_receipt["stdin_read"],
+                        "raw_input_retained": False,
+                        "transcript_read": False,
+                    },
+                ),
+            )
+    return {
+        "schema": "herdr-puppet.qualification-claude-lifecycle.v1",
+        "result": "observed",
+        "run_id": current["run_id"],
+        "phase": phase,
+        "classification": classification,
+        "probe_id": checked_receipt["probe_id"],
+        "counts": checked_receipt["counts"],
+        "marker_set_sha256": checked_receipt["marker_set_sha256"],
+        "send_seq": bound_send["seq"] if bound_send else None,
+        "already_observed": already_observed,
+        "receipt_verified": True,
+        "stdin_read": checked_receipt["stdin_read"],
+        "raw_input_retained": False,
+        "transcript_read": False,
+    }
+
+
 def qualification_startup_gate(
     client: HerdrClient,
     *,
@@ -2529,6 +3583,7 @@ def qualification_startup_gate(
         current = _reload_locked_lease(lease_payload, locked_lease_path)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current)
         if seq != current["next_seq"]:
             raise HerdrPuppetError(
                 "send_sequence_mismatch",
@@ -2540,7 +3595,7 @@ def qualification_startup_gate(
                 "startup_gate_after_readiness_forbidden",
                 "Startup gates may be handled only before ordinary readiness.",
             )
-        binding = _validate_record_binding(current)
+        binding = _require_current_record_binding(current)
         if "harness_launch" not in current:
             raise HerdrPuppetError(
                 "harness_launch_missing",
@@ -2579,17 +3634,38 @@ def qualification_startup_gate(
                 details={"blockers": status["blockers"]},
             )
         keys = list(allowed[action])
+        operator_digest = sha256_text(operator_id)
+        worktree_digest = sha256_text(source_worktree)
+        key_vector_digest = sha256_text(
+            json.dumps(keys, separators=(",", ":"), ensure_ascii=False)
+        )
+        gate_payload_digest = sha256_text(
+            json.dumps(
+                {
+                    "gate": gate,
+                    "action": action,
+                    "operator_sha256": operator_digest,
+                    "worktree_sha256": worktree_digest,
+                    "key_vector_sha256": key_vector_digest,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        reserved = _reserve_sequence_operation(
+            lease=current,
+            lease_path=locked_lease_path,
+            run_root=run_root,
+            operation="startup_gate",
+            seq=seq,
+            payload_sha256=gate_payload_digest,
+        )
         if keys:
             client.run_keys(
                 current["session"]["socket"],
                 current["pane_id"],
                 keys,
             )
-        operator_digest = sha256_text(operator_id)
-        worktree_digest = sha256_text(source_worktree)
-        key_vector_digest = sha256_text(
-            json.dumps(keys, separators=(",", ":"), ensure_ascii=False)
-        )
         operation = {
             "gate": gate,
             "action": action,
@@ -2600,7 +3676,8 @@ def qualification_startup_gate(
             "key_vector_sha256": key_vector_digest,
             "pane_input_mutated": bool(keys),
         }
-        updated = json.loads(json.dumps(current))
+        updated = json.loads(json.dumps(reserved))
+        updated["pending_sequence_operation"] = None
         updated["startup_gate_operations"] = [
             *existing,
             operation,
@@ -2690,6 +3767,7 @@ def qualification_harness_ready(
         current = _reload_locked_lease(lease_payload, locked_lease_path)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current)
         if (
             current["source"].get("repo") != source_repo
             or current["source"].get("worktree") != source_worktree
@@ -2703,11 +3781,18 @@ def qualification_harness_ready(
                 "shell_readiness_not_proven",
                 "Harness readiness may be verified only after a shell STATUS beacon.",
             )
-        binding = _validate_record_binding(current)
+        binding = _require_current_record_binding(current)
         if "harness_launch" not in current:
             raise HerdrPuppetError(
                 "harness_launch_missing",
                 "Harness readiness requires the controller-attested regular launch.",
+            )
+        if current["harness"] == "claude":
+            _require_claude_lifecycle_phase(
+                run_root=run_root,
+                binding=binding,
+                phase="armed",
+                classification="armed",
             )
         if current["harness"] == "cursor" and not any(
             operation.get("gate") == "workspace_trust"
@@ -2780,6 +3865,54 @@ def qualification_harness_ready(
     }
 
 
+def qualification_claude_receipt_command(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+) -> dict[str, Any]:
+    validate_lease(lease_payload)
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        if current["harness"] != "claude":
+            raise HerdrPuppetError(
+                "claude_lifecycle_wrong_harness",
+                "Native Claude receipt generation applies only to Claude rows.",
+            )
+        if current["state"] not in {"active", "preserved"}:
+            raise HerdrPuppetError(
+                "lease_state_invalid",
+                "Claude receipt generation requires an active or preserved lease.",
+            )
+        binding = _require_current_record_binding(current)
+        observation = binding["lifecycle_observation"]
+        argv = claude_helper_exec_argv(
+            observation,
+            [
+                "observe",
+                "--root",
+                observation["marker_root"],
+                "--run-id",
+                observation["run_id"],
+                "--probe-id",
+                observation["probe_id"],
+                "--implementation-sha256",
+                observation["implementation"]["sha256"],
+            ],
+        )
+    return {
+        "schema": "herdr-puppet.claude-receipt-command.v1",
+        "result": "ok",
+        "run_id": current["run_id"],
+        "ssh_target": current["ssh"]["target"],
+        "argv": argv,
+        "shell_command": shlex.join(argv),
+        "helper_sha256": observation["helper"]["sha256"],
+        "implementation_sha256": observation["implementation"]["sha256"],
+        "raw_input_retained": False,
+        "transcript_read": False,
+    }
+
+
 def qualification_send(
     client: HerdrClient,
     *,
@@ -2790,10 +3923,14 @@ def qualification_send(
     text_file: str | None = None,
     instruction_manifest: dict[str, Any] | None = None,
     allow_live: bool,
-    run_root: Path | None = None,
+    run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
+    )
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -2823,7 +3960,55 @@ def qualification_send(
                 "Pane input requires explicit source/operator-bound harness readiness.",
                 details={"expected": HARNESS_READY, "actual": readiness},
             )
-        binding = _validate_record_binding(current)
+        binding = _require_current_record_binding(current)
+        prior_sends = _require_qualification_send_consistency(
+            current,
+            run_root,
+        )
+        if len(prior_sends) >= 2:
+            raise HerdrPuppetError(
+                (
+                    "claude_lifecycle_send_limit"
+                    if current["harness"] == "claude"
+                    else "qualification_send_limit"
+                ),
+                "A qualification row permits exactly one wrapped initial "
+                "send and one separate steering send.",
+            )
+        phase = "initial" if not prior_sends else "steering"
+        if phase == "initial" and instruction_manifest is None:
+            raise HerdrPuppetError(
+                "instruction_wrapper_required",
+                "The first interactive send requires its validated instruction "
+                "wrapper manifest.",
+            )
+        if phase == "steering" and instruction_manifest is not None:
+            raise HerdrPuppetError(
+                "instruction_wrapper_steering_forbidden",
+                "The separate steering send must not repeat an instruction "
+                "wrapper manifest.",
+            )
+        if current["harness"] == "claude":
+            if phase == "initial":
+                _require_claude_lifecycle_phase(
+                    run_root=run_root,
+                    binding=binding,
+                    phase="armed",
+                    classification="armed",
+                )
+            else:
+                _require_claude_lifecycle_phase(
+                    run_root=run_root,
+                    binding=binding,
+                    phase="initial",
+                    classification="response_completed",
+                )
+        elif phase == "steering":
+            _require_initial_send_consumption(
+                run_root,
+                run_id=current["run_id"],
+                initial_send=prior_sends[0],
+            )
         checked_instruction_manifest: dict[str, Any] | None = None
         if instruction_manifest is not None:
             checked_instruction_manifest = validate_instruction_manifest(
@@ -2855,26 +4040,71 @@ def qualification_send(
             text_file_retained = _is_prompt_file_retained(tracked_text_file)
         socket_path = current["session"]["socket"]
         pane_id = current["pane_id"]
-        client.run_input(socket_path, pane_id, text, keys=submit_keys)
         digest = sha256_text(text)
-        updated = json.loads(json.dumps(current))
-        updated["next_seq"] = seq + 1
+        reservation = {
+            "seq": seq,
+            "phase": phase,
+            "prompt_sha256": digest,
+            "transport": "direct",
+            "instruction_wrapper_verified": (
+                checked_instruction_manifest is not None
+            ),
+            "delivery_state": "pending_or_unknown",
+            "reserved_at": now(),
+        }
+        reserved = json.loads(json.dumps(current))
+        reserved["pending_interactive_send"] = reservation
         if tracked_text_file is not None and text_file_retained:
-            updated["caller_text_files"] = _dedupe_preserve_order(
-                _as_text_file_list(updated.get("caller_text_files", []))
+            reserved["caller_text_files"] = _dedupe_preserve_order(
+                _as_text_file_list(reserved.get("caller_text_files", []))
                 + [tracked_text_file]
             )
+        atomic_json(locked_lease_path, reserved)
+        append_event(
+            run_root,
+            make_event(
+                reserved["run_id"],
+                "qualification.send-reserved",
+                "observed",
+                seq=seq,
+                prompt_sha256=digest,
+                data={
+                    "phase": phase,
+                    "pane_id": pane_id,
+                    "delivery_state": "pending_or_unknown",
+                    "instruction_wrapper_verified": (
+                        checked_instruction_manifest is not None
+                    ),
+                    "herdr_mutated": False,
+                },
+            ),
+        )
+        client.run_input(socket_path, pane_id, text, keys=submit_keys)
+        updated = json.loads(json.dumps(reserved))
+        updated["next_seq"] = seq + 1
+        updated["pending_interactive_send"] = None
+        updated["interactive_sends"] = prior_sends + [
+            {
+                "seq": seq,
+                "phase": phase,
+                "prompt_sha256": digest,
+                "transport": "direct",
+                "instruction_wrapper_verified": (
+                    checked_instruction_manifest is not None
+                ),
+            }
+        ]
         atomic_json(locked_lease_path, updated)
-        if run_root is not None:
-            append_event(
-                run_root,
-                make_event(
-                    updated["run_id"],
-                    "qualification.send",
-                    "ok",
-                    seq=seq,
-                    prompt_sha256=digest,
-                    data={
+        append_event(
+            run_root,
+            make_event(
+                updated["run_id"],
+                "qualification.send",
+                "ok",
+                seq=seq,
+                prompt_sha256=digest,
+                data={
+                        "phase": phase,
                         "pane_id": pane_id,
                         "input_request": "pane.send_input",
                         "transport_acknowledged": True,
@@ -2916,9 +4146,9 @@ def qualification_send(
                             if checked_instruction_manifest is not None
                             else None
                         ),
-                    },
-                ),
-            )
+                },
+            ),
+        )
     return {
         "schema": "herdr-puppet.qualification-send.v1",
         "result": "ok",
@@ -2978,47 +4208,169 @@ def qualification_reconcile_send(
     text: str,
     evidence: str,
     confirm_applied: bool,
-    run_root: Path | None = None,
+    run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    require_initialized_journal(
+        run_root,
+        run_id=lease_payload["run_id"],
+        proof_root=lease_payload["proof_root"],
+    )
     if not confirm_applied:
         raise HerdrPuppetError(
             "partial_send_not_confirmed",
             "Reconciliation requires explicit evidence that the text was applied.",
         )
-    if not evidence.strip():
+    if (
+        not evidence.strip()
+        or "\x00" in evidence
+        or len(evidence.encode("utf-8"))
+        > MAX_RECONCILIATION_EVIDENCE_BYTES
+    ):
         raise HerdrPuppetError(
             "partial_send_evidence_missing",
-            "Reconciliation requires a concise structural evidence label.",
+            "Reconciliation requires a concise bounded structural evidence label.",
+            details={
+                "maximum_bytes": MAX_RECONCILIATION_EVIDENCE_BYTES,
+            },
         )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
-        if seq != current["next_seq"]:
+        if current["harness"] == "claude":
+            raise HerdrPuppetError(
+                "claude_send_reconciliation_unsupported",
+                "Claude lifecycle qualification cannot reconcile an unknown send; "
+                "preserve the row and start a fresh bounded run.",
+            )
+        _require_no_pending_sequence_operation(current)
+        digest = sha256_text(text)
+        lease_sends = _as_interactive_sends(
+            current.get("interactive_sends", []),
+            next_seq=current["next_seq"],
+        )
+        journal_state = _qualification_journal_send_state(
+            run_root,
+            run_id=current["run_id"],
+        )
+        completed_reconcile = (
+            len(lease_sends) == 2
+            and lease_sends[1]["phase"] == "steering"
+            and lease_sends[1]["transport"] == "reconciled"
+        )
+        repair_completion_event = False
+        if completed_reconcile:
+            completed_send = lease_sends[1]
+            if (
+                completed_send["seq"] != seq
+                or completed_send["prompt_sha256"] != digest
+                or completed_send["instruction_wrapper_verified"] is not False
+                or current["next_seq"] != seq + 1
+                or current.get("pending_interactive_send") is not None
+            ):
+                raise HerdrPuppetError(
+                    "steering_reconciliation_reservation_mismatch",
+                    "The completed reconciliation does not match this exact retry.",
+                )
+            if journal_state == lease_sends[:1]:
+                repair_completion_event = True
+            elif journal_state != lease_sends:
+                raise HerdrPuppetError(
+                    "qualification_send_history_diverged",
+                    "Canonical lease send state and controller journal disagree.",
+                )
+            if not repair_completion_event:
+                durable_evidence = _qualification_reconciled_evidence(
+                    run_root,
+                    run_id=current["run_id"],
+                    seq=seq,
+                    prompt_sha256=digest,
+                )
+                if evidence != durable_evidence:
+                    raise HerdrPuppetError(
+                        "steering_reconciliation_evidence_mismatch",
+                        "The retry evidence does not match the durable "
+                        "reconciliation event.",
+                    )
+                evidence = durable_evidence
+            prior_sends = lease_sends[:1]
+            pending_send = None
+        else:
+            prior_sends, pending_send = _qualification_send_state(
+                current,
+                run_root,
+                allow_pending=True,
+            )
+        if (
+            len(prior_sends) != 1
+            or prior_sends[0]["transport"] != "direct"
+            or prior_sends[0]["phase"] != "initial"
+            or prior_sends[0]["instruction_wrapper_verified"] is not True
+        ):
+            raise HerdrPuppetError(
+                "steering_reconciliation_prerequisite_missing",
+                "Send reconciliation is limited to the second steering turn "
+                "after one proven wrapped initial send.",
+            )
+        if not completed_reconcile and (
+            pending_send is None
+            or pending_send["phase"] != "steering"
+            or pending_send["seq"] != seq
+            or pending_send["prompt_sha256"] != digest
+            or pending_send["instruction_wrapper_verified"] is not False
+        ):
+            raise HerdrPuppetError(
+                "steering_reconciliation_reservation_mismatch",
+                "Reconciliation requires the exact durably reserved, "
+                "delivery-unknown steering send.",
+            )
+        _require_initial_send_consumption(
+            run_root,
+            run_id=current["run_id"],
+            initial_send=prior_sends[0],
+        )
+        expected_next_seq = seq + 1 if completed_reconcile else seq
+        if current["next_seq"] != expected_next_seq:
             raise HerdrPuppetError(
                 "send_sequence_mismatch",
                 "Send sequence is stale, skipped, duplicate, or replayed.",
-                details={"expected": current["next_seq"], "received": seq},
+                details={
+                    "expected": expected_next_seq,
+                    "received": current["next_seq"],
+                },
             )
         if current.get("harness_readiness") != HARNESS_READY:
             raise HerdrPuppetError(
                 "harness_readiness_not_proven",
                 "Pane-input reconciliation requires explicit harness readiness.",
             )
-        status = structural_status(client, lease_payload=current)
-        if status["result"] != "ok":
-            raise HerdrPuppetError(
-                "reconcile_status_blocked",
-                "Structural status blocked partial-send reconciliation.",
-                details={"blockers": status["blockers"]},
-            )
-        digest = sha256_text(text)
-        updated = json.loads(json.dumps(current))
-        updated["next_seq"] = seq + 1
-        atomic_json(locked_lease_path, updated)
-        if run_root is not None:
+        if not completed_reconcile:
+            status = structural_status(client, lease_payload=current)
+            if status["result"] != "ok":
+                raise HerdrPuppetError(
+                    "reconcile_status_blocked",
+                    "Structural status blocked partial-send reconciliation.",
+                    details={"blockers": status["blockers"]},
+                )
+        if completed_reconcile:
+            updated = current
+        else:
+            updated = json.loads(json.dumps(current))
+            updated["next_seq"] = seq + 1
+            updated["pending_interactive_send"] = None
+            updated["interactive_sends"] = prior_sends + [
+                {
+                    "seq": seq,
+                    "phase": "steering",
+                    "prompt_sha256": digest,
+                    "transport": "reconciled",
+                    "instruction_wrapper_verified": False,
+                }
+            ]
+            atomic_json(locked_lease_path, updated)
+        if not completed_reconcile or repair_completion_event:
             append_event(
                 run_root,
                 make_event(
@@ -3028,10 +4380,12 @@ def qualification_reconcile_send(
                     seq=seq,
                     prompt_sha256=digest,
                     data={
-                        "pane_id": updated["pane_id"],
-                        "evidence": evidence,
-                        "harness_readiness": HARNESS_READY,
-                        "herdr_mutated": False,
+                            "phase": "steering",
+                            "pane_id": updated["pane_id"],
+                            "evidence": evidence,
+                            "harness_readiness": HARNESS_READY,
+                            "herdr_mutated": False,
+                            "completion_event_repaired": repair_completion_event,
                     },
                 ),
             )
@@ -3045,6 +4399,8 @@ def qualification_reconcile_send(
         "prompt_sha256": digest,
         "evidence": evidence,
         "herdr_mutated": False,
+        "already_reconciled": completed_reconcile,
+        "completion_event_repaired": repair_completion_event,
         "transcript_read": False,
     }
 
@@ -3105,6 +4461,7 @@ def qualification_view_begin(
             )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
         status = structural_status(client, lease_payload=current)
@@ -3209,6 +4566,7 @@ def qualification_view_complete(
         )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         if current["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
         status = structural_status(client, lease_payload=current)
@@ -3288,6 +4646,7 @@ def qualification_token_probe(
         )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
         drifted = _lease_revision_drifted_fields(lease_payload, current)
         if drifted:
             raise HerdrPuppetError(
@@ -3565,6 +4924,9 @@ def qualification_beacon_wait(
             lease_payload,
             locked_lease_path,
         )
+        current_binding = _require_current_record_binding(
+            current_before_wait
+        )
         if current_before_wait["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
         submission_seq = current_before_wait["next_seq"] - 1
@@ -3573,6 +4935,32 @@ def qualification_beacon_wait(
                 "beacon_submission_missing",
                 "Beacon waits require a prior sequenced submission.",
             )
+        interactive_send_count = 0
+        if current_before_wait.get("harness_readiness") == HARNESS_READY:
+            interactive_sends = _require_qualification_send_consistency(
+                current_before_wait,
+                run_root,
+            )
+            send_count = len(interactive_sends)
+            interactive_send_count = send_count
+            if send_count not in {1, 2}:
+                raise HerdrPuppetError(
+                    "qualification_send_count_mismatch",
+                    "Post-readiness beacon waits require one or two bound sends.",
+                )
+            if interactive_sends[-1]["seq"] != submission_seq:
+                raise HerdrPuppetError(
+                    "beacon_submission_not_latest_interactive_send",
+                    "A post-readiness beacon must bind to the latest exact "
+                    "interactive send sequence.",
+                )
+            if current_before_wait["harness"] == "claude":
+                _require_claude_lifecycle_phase(
+                    run_root=run_root,
+                    binding=current_binding,
+                    phase=("initial" if send_count == 1 else "steering"),
+                    classification="response_completed",
+                )
         status = structural_status(client, lease_payload=current_before_wait)
         if status["result"] != "ok":
             raise HerdrPuppetError(
@@ -3675,6 +5063,11 @@ def qualification_beacon_wait(
         if checkpoint == "STATUS"
         else "failed"
     )
+    qualification_complete = (
+        checkpoint == "DONE"
+        and current_before_wait.get("harness_readiness") == HARNESS_READY
+        and interactive_send_count == 2
+    )
     auto_preserved = checkpoint in {"ACTION_REQUIRED", "DONE"}
     with _lease_lock(lease_path) as locked_lease_path:
         current_after_wait = _reload_locked_lease(
@@ -3723,6 +5116,8 @@ def qualification_beacon_wait(
                         "harness_readiness",
                         "unverified",
                     ),
+                    "interactive_send_count": interactive_send_count,
+                    "qualification_complete": qualification_complete,
                 },
             ),
         )
@@ -3754,6 +5149,8 @@ def qualification_beacon_wait(
         "timeout_source": timeout_source,
         "revision": revision,
         "auto_preserved": auto_preserved,
+        "interactive_send_count": interactive_send_count,
+        "qualification_complete": qualification_complete,
         "shell_readiness": _shell_readiness(updated),
         "harness_readiness": updated.get("harness_readiness", "unverified"),
         "lease_state": updated["state"],
