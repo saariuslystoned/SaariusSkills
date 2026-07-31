@@ -3833,6 +3833,30 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "generic_harness_launch_forbidden")
         self.assertEqual(self.client.ran, [])
 
+    def test_run_allows_harness_name_as_non_command_argument(self) -> None:
+        lease = self.create_lease()
+        run_root = self.initialize_default_journal()
+        lease["next_seq"] = 2
+        lease["shell_readiness"] = "status_verified"
+        self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
+        command = (
+            "/private/harness_census.py --harness agy "
+            "--output /private/census.json"
+        )
+
+        result = qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            command=command,
+            allow_live=True,
+            run_root=run_root,
+        )
+
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(self.client.ran[-1], ("run", "w2:p1", command))
+
     def test_run_rejects_wrapped_launchers_for_all_harnesses(self) -> None:
         for harness in ("agy", "codex", "claude", "cursor", "grok"):
             with self.subTest(harness=harness):

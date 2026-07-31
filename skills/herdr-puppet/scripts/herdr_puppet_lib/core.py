@@ -254,6 +254,67 @@ def _token_names_bound_harness(
     return False
 
 
+def _is_shell_assignment(token: str) -> bool:
+    name, separator, _value = token.partition("=")
+    return bool(
+        separator
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+    )
+
+
+def _shell_command_segments(tokens: list[str]) -> list[list[str]]:
+    boundaries = {";", "&&", "||", "|", "&", "(", ")"}
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in boundaries:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _unwrap_shell_command(
+    segment: list[str],
+) -> tuple[list[str], str | None]:
+    wrappers: list[str] = []
+    index = 0
+    while index < len(segment):
+        token = segment[index]
+        if _is_shell_assignment(token):
+            index += 1
+            continue
+        name = Path(token).name.lower()
+        if name in {"command", "exec", "nohup", "time"}:
+            wrappers.append(name)
+            index += 1
+            while index < len(segment) and segment[index].startswith("-"):
+                index += 1
+            continue
+        if name == "env":
+            wrappers.append(name)
+            index += 1
+            while index < len(segment):
+                candidate = segment[index]
+                if _is_shell_assignment(candidate):
+                    index += 1
+                    continue
+                if candidate in {"-u", "--unset", "-C", "--chdir"}:
+                    index += 2
+                    continue
+                if candidate.startswith("-"):
+                    index += 1
+                    continue
+                break
+            continue
+        return wrappers, token
+    return wrappers, None
+
+
 def _reject_shell_replacing_harness_launcher(
     command: str,
     harness: str,
@@ -261,23 +322,22 @@ def _reject_shell_replacing_harness_launcher(
     harness_binary = HARNESS_COMMANDS.get(harness, Path(harness.strip()).name)
     if not harness_binary:
         return
-    tokens = _shell_tokens(command)
-    for index, token in enumerate(tokens):
-        if token.lower() != "exec":
-            continue
-        for candidate in tokens[index + 1 :]:
-            if candidate in {";", "&&", "||", "|", "&"}:
-                break
-            if _token_names_bound_harness(
+    for segment in _shell_command_segments(_shell_tokens(command)):
+        wrappers, candidate = _unwrap_shell_command(segment)
+        if (
+            "exec" in wrappers
+            and candidate is not None
+            and _token_names_bound_harness(
                 candidate,
                 executable="",
                 command_name=harness_binary,
-            ):
-                raise HerdrPuppetError(
-                    "shell_replacing_harness_launcher",
-                    "The launcher must return to the leased shell after the "
-                    "harness exits.",
-                )
+            )
+        ):
+            raise HerdrPuppetError(
+                "shell_replacing_harness_launcher",
+                "The launcher must return to the leased shell after the "
+                "harness exits.",
+            )
 
 
 def _reject_generic_harness_launcher(
@@ -286,18 +346,18 @@ def _reject_generic_harness_launcher(
 ) -> None:
     executable = binding["remote"]["executable"]["path"]
     command_name = HARNESS_COMMANDS[binding["harness"]]
-    if any(
-        _token_names_bound_harness(
-            token,
+    for segment in _shell_command_segments(_shell_tokens(command)):
+        _wrappers, candidate = _unwrap_shell_command(segment)
+        if candidate is not None and _token_names_bound_harness(
+            candidate,
             executable=executable,
             command_name=command_name,
-        )
-        for token in _shell_tokens(command)
-    ):
-        raise HerdrPuppetError(
-            "generic_harness_launch_forbidden",
-            "Use the controller-attested qualification-harness-launch operation.",
-        )
+        ):
+            raise HerdrPuppetError(
+                "generic_harness_launch_forbidden",
+                "Use the controller-attested qualification-harness-launch "
+                "operation.",
+            )
 
 
 def _reject_nested_shell_command(command: str) -> None:
