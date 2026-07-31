@@ -2498,6 +2498,41 @@ class QualificationTests(unittest.TestCase):
         self.assertIn('"shell_transport_only":true', events)
         self.assertIn('"harness_started":false', events)
 
+    def test_create_tab_rolls_back_exact_unqualified_candidate(self) -> None:
+        run_root = self.root / "run"
+        wrong_target = copy.deepcopy(self.plan)
+        wrong_target["expected_ssh_target"] = "worker@wrong.example"
+        initialize_journal(run_root, wrong_target)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            create_qualification_tab(
+                self.client,
+                plan_payload=wrong_target,
+                lease_path=self.lease_path,
+                allow_live=True,
+                settle_seconds=0.01,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "candidate_tab_not_qualified")
+        self.assertEqual(
+            caught.exception.details,
+            {
+                "rollback_performed": True,
+                "rollback_verified": True,
+                "ambiguous_candidate_count": 0,
+            },
+        )
+        self.assertEqual(self.client.closed_tabs, ["w2:t1"])
+        self.assertEqual(self.client.tab_rows, [])
+        self.assertEqual(self.client.pane_rows, [])
+        self.assertFalse(self.lease_path.exists())
+        rollback_events = [
+            event
+            for event in read_events(run_root)
+            if event.get("kind") == "qualification.tab-create-rolled-back"
+        ]
+        self.assertEqual(len(rollback_events), 1)
+        self.assertTrue(rollback_events[0]["data"]["absence_verified"])
+
     def test_lease_validation_rejects_unknown_schema_field(self) -> None:
         lease = self.create_lease()
         lease["unexpected"] = True

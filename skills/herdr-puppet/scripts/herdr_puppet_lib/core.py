@@ -2464,9 +2464,114 @@ def _create_qualification_tab_locked(
                 break
         time.sleep(0.2)
     if new_tab is None or new_pane is None or ssh_process is None:
+        rollback_snapshot = client.snapshot(session)
+        rollback_candidates = [
+            item
+            for item in rollback_snapshot["tabs"]
+            if item.get("workspace_id") == workspace_id
+            and item.get("tab_id") not in before_tabs
+            and item.get("label") == plan_payload["owned_label"]
+            and item.get("tab_id")
+        ]
+        rollback_performed = False
+        rollback_verified = False
+        rollback_tab_id: str | None = None
+        rollback_pane_id: str | None = None
+        rollback_ssh_pid: int | None = None
+        if len(rollback_candidates) == 1:
+            rollback_tab_id = rollback_candidates[0]["tab_id"]
+            rollback_panes = [
+                item
+                for item in rollback_snapshot["panes"]
+                if item.get("workspace_id") == workspace_id
+                and item.get("tab_id") == rollback_tab_id
+            ]
+            if len(rollback_panes) == 1:
+                rollback_pane_id = rollback_panes[0].get("pane_id")
+                if isinstance(rollback_pane_id, str):
+                    try:
+                        rollback_process_info = client.process_info(
+                            session,
+                            rollback_pane_id,
+                        )
+                    except HerdrPuppetError:
+                        rollback_process_info = {}
+                    rollback_processes = rollback_process_info.get(
+                        "foreground_processes",
+                    )
+                    if isinstance(rollback_processes, list):
+                        rollback_ssh_processes = [
+                            item
+                            for item in rollback_processes
+                            if isinstance(item, dict)
+                            and isinstance(item.get("argv"), list)
+                            and item["argv"]
+                            and Path(str(item["argv"][0])).name == "ssh"
+                            and isinstance(item.get("pid"), int)
+                            and item["pid"] > 0
+                        ]
+                        if len(rollback_ssh_processes) == 1:
+                            rollback_ssh_pid = rollback_ssh_processes[0]["pid"]
+            try:
+                client.close_tab(session, rollback_tab_id)
+            except HerdrPuppetError as exc:
+                raise HerdrPuppetError(
+                    "candidate_tab_rollback_failed",
+                    "The exact transaction-created tab could not be rolled back.",
+                    details={"tab_id": rollback_tab_id},
+                ) from exc
+            rollback_performed = True
+            after_rollback = client.snapshot(session)
+            rollback_verified = (
+                not any(
+                    item.get("tab_id") == rollback_tab_id
+                    for item in after_rollback["tabs"]
+                )
+                and not any(
+                    item.get("tab_id") == rollback_tab_id
+                    for item in after_rollback["panes"]
+                )
+                and (
+                    rollback_ssh_pid is None
+                    or client.wait_pid_absence(rollback_ssh_pid)
+                )
+            )
+            if not rollback_verified:
+                raise HerdrPuppetError(
+                    "candidate_tab_rollback_unverified",
+                    "The exact transaction-created tab rollback could not be "
+                    "verified.",
+                    details={"tab_id": rollback_tab_id},
+                )
+            if run_root is not None:
+                append_event(
+                    run_root,
+                    make_event(
+                        plan_payload["run_id"],
+                        "qualification.tab-create-rolled-back",
+                        "observed",
+                        data={
+                            "tab_id": rollback_tab_id,
+                            "pane_id": rollback_pane_id,
+                            "ssh_pid_observed": rollback_ssh_pid is not None,
+                            "absence_verified": True,
+                            "reason": "post_create_identity_unqualified",
+                            "transcript_read": False,
+                        },
+                    ),
+                )
         raise HerdrPuppetError(
             "candidate_tab_not_qualified",
             "The new tab did not resolve to one expected SSH pane in time.",
+            details={
+                "rollback_performed": rollback_performed,
+                "rollback_verified": rollback_verified,
+                "ambiguous_candidate_count": (
+                    len(rollback_candidates)
+                    if not rollback_performed
+                    else 0
+                ),
+            },
         )
     lease = {
         "schema": "herdr-puppet.lease.v1",
