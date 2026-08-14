@@ -7,16 +7,19 @@ Herdr-Puppet uses six primary versioned JSON records:
   profile, launch, source, and lifecycle attestation.
 - `herdr-puppet.harness-binding.v3`: controller-attested remote harness,
   profile, launch, adapter, source, and instruction-plane identity.
-- `herdr-puppet.plan.v1`: source-only intent plus the explicit parent
-  capability.
-- `herdr-puppet.lease.v1`: exact owned tab/pane/terminal/SSH identity and the
-  next legal submission sequence.
+- `herdr-puppet.plan.v2`: source-only intent, explicit parent capability,
+  destination authority, and its canonical fingerprint.
+- `herdr-puppet.lease.v2`: exact owned tab/pane/terminal/SSH identity, selected
+  authority fingerprint, and the next legal submission sequence.
 - `herdr-puppet.event.v1`: append-only controller journal event.
 
 The JSON Schemas in this directory are normative for their public fields:
 
 - [plan.schema.json](plan.schema.json)
 - [lease.schema.json](lease.schema.json)
+- [plan-v1.schema.json](plan-v1.schema.json) and
+  [lease-v1.schema.json](lease-v1.schema.json), frozen from `f73caf2` as
+  historical structural contracts,
 - [event.schema.json](event.schema.json)
 - [destination-catalog.schema.json](destination-catalog.schema.json)
 - [remote-harness-census.schema.json](remote-harness-census.schema.json)
@@ -33,6 +36,12 @@ binding remains inspectable and cleanable through the bounded maintenance
 surfaces, but every fresh qualification transition rejects it and requires a
 new census and v3 plan.
 
+The active census-v3 JSON Schema expresses static profile state/status pairs
+and harness-specific lifecycle shapes. Runtime `validate_remote_census` remains
+the semantic authority for derived fingerprints, source/path joins, and other
+dynamic cross-field facts JSON Schema cannot honestly express. Census-v2 is a
+frozen historical structural artifact, not current qualification authority.
+
 AGY v3 census requires `--model gemini-3.7-flash-high`, an exact `--model`
 help token, and exactly one model-list row whose first TSV cell equals that
 name. Missing, default, ambiguous, or unavailable selection fails without
@@ -47,29 +56,33 @@ binding, and receipt consistency. Copying a receipt file over the exact leased
 SSH target supplies operational provenance, not cryptographic remote-origin
 proof.
 
-`herdr-puppet.lease.v1` has one strict canonical shape. Current controller
-operations reject historical lease-v1 files that omit destination-selection,
-readiness, or file
-fields or use the former `harness_readiness: status_verified` value. Upgrade
-such a file explicitly with `lease-migrate-v1`; ordinary status, probe,
-preservation, cleanup, and journal-refresh paths never perform an implicit
-compatibility migration. Runtime validation enforces the canonical nested
-authority objects, integer fields, safe label, unique arrays, and RFC 3339
-evidence times before migration may write. Migration never invents a harness
-binding; it derives only the controller-created legacy fresh-tab ordinal and
-never invents a named machine. An unbound historical lease remains
-non-qualifying evidence.
+`herdr-puppet.lease.v2` is the strict active shape. Historical lease-v1 remains
+available for status, preservation, maintenance, and exact cleanup, while all
+fresh qualification transitions require v2. Upgrade v1 explicitly with
+`lease-migrate-v1`; ordinary operations never migrate implicitly. Runtime
+validation enforces canonical nested authority, deterministic labels, integer
+fields, unique arrays, and RFC 3339 evidence before migration writes. Migration
+never invents a harness binding or named machine: it derives only
+`legacy_explicit`, `machine: null`, the recorded workspace label, and the
+label-derived fresh-tab ordinal, then computes v2 authority. An unbound
+historical lease remains non-qualifying evidence. Binding-v1/v2 remains valid
+for historical status and maintenance after migration.
 
 ## Plan lifecycle
 
 `plan` is non-mutating. Its preferred route resolves `--machine` from one
 bounded catalog whose profiles contain exactly `name`, `workspace_label`, and
 `ssh_target`; the catalog must be one caller-owned, regular, bounded,
-non-symlink file and the label must resolve to one live workspace. The complete old
+non-symlink file and the label must resolve to one live workspace. Schema
+`uniqueItems` rejects byte-identical rows; runtime catalog validation is the
+property-wise uniqueness authority for profile names and workspace labels. The complete old
 workspace-ID/label/SSH triple remains a mutually exclusive compatibility
 route, and `--ordinal` is only a deprecated alias for `--tab-ordinal`.
 Every plan requests a fresh tab. Creating it changes `state` from
 `planned` to an independently stored lease with `state: active`.
+
+Plan-v1 is frozen read-only/status evidence. It cannot initialize new mutation
+authority or create a tab; a fresh active plan-v2 is required.
 
 The CLI writes the private plan only to create-only `--output` and emits a
 sanitized selection receipt containing machine, workspace label, fresh-tab
@@ -84,6 +97,14 @@ any tab, pane, SSH process, or lease is created. The plan's canonical
 later consumers resolve and compare those paths, so copying an otherwise
 matching journal to another root cannot split lease-global event or beacon
 attempt history.
+
+Initialization validates the full active plan, hashes its canonical JSON, and
+records both that digest and its selected-authority fingerprint in the first
+event. Create exact-matches the loaded journal plan to the incoming plan before
+any Herdr call. Every later active lease/journal preflight independently
+projects and compares run/harness, session, destination machine/workspace/fresh
+ordinal, deterministic label, SSH target, source, proof root, complete harness
+binding, and model identity from the stored plan and lease.
 
 The create mutation focuses the exact new tab in the plan's target workspace.
 Herdr 0.7.3 owns focus at the server, so this also makes that workspace and tab
@@ -101,6 +122,7 @@ destination_selection.machine
 destination_selection.workspace_label
 destination_selection.tab.request=fresh
 destination_selection.tab.ordinal
+selected_authority_sha256
 workspace_id
 tab_id
 pane_id

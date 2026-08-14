@@ -10,6 +10,7 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 64,
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "required": ["name", "workspace_label", "ssh_target"],

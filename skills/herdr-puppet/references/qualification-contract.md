@@ -204,11 +204,12 @@ otherwise canonical checkpoint line. Submitted prompts may not contain an
 assembled checkpoint token.
 
 Create the first message with `instruction-wrapper-create`. Its manifest binds
-the universal, harness-specific, default-unresolved, and regular lifecycle
+the universal, harness-specific, harness-selected model (AGY's explicit Gemini
+3.7 layer or default-unresolved for other harnesses), and regular lifecycle
 layers to the binding fingerprint, run ID, initial-message plane, and rendered
-body hash. The first `qualification-send` must carry that manifest. The
-separate steering turn uses a later lease sequence and an ordinary private
-text file with no manifest. Before a non-Claude steering send, a
+body hash. The first `qualification-send` must carry that manifest. The separate
+steering turn uses a later lease sequence and an ordinary private text file with
+no manifest. Before a non-Claude steering send, a
 controller-observed STATUS beacon must bind to the initial send sequence.
 
 ## Claude native lifecycle proof

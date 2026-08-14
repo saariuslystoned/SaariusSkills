@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.harness == "agy":
         if not args.model:
             raise RuntimeError("AGY census requires --model")
-    elif args.model:
+    elif args.model is not None:
         raise RuntimeError("--model is valid only for the AGY harness")
     if args.harness == "claude":
         if not args.run_id or not args.claude_hook_root:

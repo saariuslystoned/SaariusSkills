@@ -14,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from .authority import (
+    deterministic_owned_label,
+    destination_selection_for_record,
+    selected_authority_sha256,
+)
 from .claude_hooks import (
     CLAUDE_MARKER_NAMES,
     PHASE_SUBMISSIONS,
@@ -57,6 +62,10 @@ MAX_RECONCILIATION_EVIDENCE_BYTES = 1024
 MAX_DESTINATION_CATALOG_BYTES = 256 * 1024
 DESTINATION_CATALOG_SCHEMA = "herdr-puppet.destination-catalog.v1"
 DESTINATION_RECEIPT_SCHEMA = "herdr-puppet.destination-selection-receipt.v1"
+PLAN_SCHEMA = "herdr-puppet.plan.v2"
+HISTORICAL_PLAN_SCHEMA = "herdr-puppet.plan.v1"
+LEASE_SCHEMA = "herdr-puppet.lease.v2"
+HISTORICAL_LEASE_SCHEMA = "herdr-puppet.lease.v1"
 BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
 REMOTE_FILE_REGISTERED = "registered"
 REMOTE_FILE_REMOVED = "removal_verified"
@@ -137,6 +146,7 @@ LEASE_IDENTITY_FIELDS = (
     "session",
     "workspace",
     "destination_selection",
+    "selected_authority_sha256",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -155,6 +165,7 @@ LEASE_FIELDS = {
     "session",
     "workspace",
     "destination_selection",
+    "selected_authority_sha256",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -191,6 +202,7 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
     "session",
     "workspace",
     "destination_selection",
+    "selected_authority_sha256",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -212,6 +224,7 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
 }
 LEGACY_OPTIONAL_CANONICAL_FIELDS = {
     "destination_selection",
+    "selected_authority_sha256",
     "shell_readiness",
     "harness_readiness",
     "caller_text_files",
@@ -226,6 +239,10 @@ LEGACY_OPTIONAL_CANONICAL_FIELDS = {
 LEGACY_LEASE_REQUIRED_FIELDS = (
     CANONICAL_LEASE_REQUIRED_FIELDS - LEGACY_OPTIONAL_CANONICAL_FIELDS
 )
+HISTORICAL_LEASE_FIELDS = LEASE_FIELDS - {
+    "destination_selection",
+    "selected_authority_sha256",
+}
 
 
 def _shell_tokens(command: str) -> list[str]:
@@ -436,9 +453,11 @@ def _assert_same_lease_identity(
 def _reload_locked_lease(
     lease_payload: dict[str, Any],
     lease_path: Path,
+    *,
+    allow_historical: bool = False,
 ) -> dict[str, Any]:
     current = load_json(lease_path)
-    validate_lease(current)
+    _validate_maintainable_lease(current, allow_historical=allow_historical)
     _assert_same_lease_identity(lease_payload, current)
     return current
 
@@ -446,12 +465,14 @@ def _reload_locked_lease(
 def _require_optional_lease_journal(
     run_root: Path | None,
     lease_payload: dict[str, Any],
+    *,
+    allow_historical: bool = False,
 ) -> None:
     if run_root is not None:
         require_initialized_journal(
             run_root,
-            run_id=lease_payload["run_id"],
-            proof_root=lease_payload["proof_root"],
+            lease_payload=lease_payload,
+            allow_historical_plan=allow_historical,
         )
 
 
@@ -896,12 +917,15 @@ def _require_exact_object_fields(
     payload: dict[str, Any],
     key: str,
     fields: set[str],
+    *,
+    error_code: str = "invalid_lease",
+    record_name: str = "Lease",
 ) -> dict[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict) or set(value) != fields:
         raise HerdrPuppetError(
-            "invalid_lease",
-            f"Lease {key} must contain exactly the normative fields.",
+            error_code,
+            f"{record_name} {key} must contain exactly the normative fields.",
             details={
                 "field": key,
                 "missing_fields": sorted(
@@ -1066,6 +1090,18 @@ def _validate_startup_gate_operations(
 
 
 def validate_plan(payload: dict[str, Any]) -> None:
+    _validate_plan(payload, historical=False)
+
+
+def validate_historical_plan(payload: dict[str, Any]) -> None:
+    _validate_plan(payload, historical=True)
+
+
+def _validate_plan(
+    payload: dict[str, Any],
+    *,
+    historical: bool,
+) -> None:
     required_fields = {
         "schema",
         "state",
@@ -1081,6 +1117,10 @@ def validate_plan(payload: dict[str, Any]) -> None:
         "proof_root",
         "safety",
     }
+    if historical:
+        required_fields.remove("destination_selection")
+    else:
+        required_fields.add("selected_authority_sha256")
     if set(payload) != required_fields:
         raise HerdrPuppetError(
             "invalid_plan",
@@ -1090,7 +1130,8 @@ def validate_plan(payload: dict[str, Any]) -> None:
                 "unexpected_fields": sorted(set(payload) - required_fields),
             },
         )
-    if payload.get("schema") != "herdr-puppet.plan.v1":
+    expected_schema = HISTORICAL_PLAN_SCHEMA if historical else PLAN_SCHEMA
+    if payload.get("schema") != expected_schema:
         raise HerdrPuppetError("invalid_plan_schema", "Unsupported plan schema.")
     if payload.get("state") != "planned":
         raise HerdrPuppetError("invalid_plan_state", "The plan is not in planned state.")
@@ -1107,21 +1148,79 @@ def validate_plan(payload: dict[str, Any]) -> None:
             "noncanonical_harness",
             "Harness must be one of agy, codex, claude, cursor, or grok.",
         )
-    for key in ("session", "workspace", "source", "safety"):
-        if not isinstance(payload.get(key), dict):
-            raise HerdrPuppetError(
-                "invalid_plan",
-                f"Required object field is missing: {key}",
-            )
-    selection = _validate_destination_selection(
-        payload["destination_selection"]
+    session = _require_exact_object_fields(
+        payload,
+        "session",
+        {"name", "version", "protocol", "socket", "incarnation_proven"},
+        error_code="invalid_plan",
+        record_name="Plan",
     )
-    if selection["workspace_label"] != payload["workspace"].get("label"):
+    for key in ("name", "version", "socket"):
+        _require_string(session, key)
+    if (
+        isinstance(session.get("protocol"), bool)
+        or not isinstance(session.get("protocol"), int)
+        or session["protocol"] < 1
+    ):
         raise HerdrPuppetError(
-            "invalid_destination_selection",
-            "The destination selection workspace does not match the plan.",
+            "invalid_plan",
+            "Plan session protocol must be a positive integer.",
         )
-    safety = payload["safety"]
+    workspace = _require_exact_object_fields(
+        payload,
+        "workspace",
+        {"id", "label"},
+        error_code="invalid_plan",
+        record_name="Plan",
+    )
+    for key in ("id", "label"):
+        _require_string(workspace, key)
+    source = _require_exact_object_fields(
+        payload,
+        "source",
+        {"repo", "worktree"},
+        error_code="invalid_plan",
+        record_name="Plan",
+    )
+    for key in ("repo", "worktree"):
+        _require_string(source, key)
+    safety = _require_exact_object_fields(
+        payload,
+        "safety",
+        {
+            "parent_session_mutation",
+            "adopt_existing_tab",
+            "ordinary_transcript_read",
+            "live_mutation_authorized",
+        },
+        error_code="invalid_plan",
+        record_name="Plan",
+    )
+    owned_label = payload["owned_label"]
+    if re.fullmatch(r"puppet-[a-z0-9-]+", owned_label) is None:
+        raise HerdrPuppetError(
+            "invalid_plan",
+            "Plan owned_label does not match the canonical pattern.",
+        )
+    if not historical:
+        selection = _validate_destination_selection(
+            payload["destination_selection"]
+        )
+        if selection["workspace_label"] != workspace["label"]:
+            raise HerdrPuppetError(
+                "invalid_destination_selection",
+                "The destination selection workspace does not match the plan.",
+            )
+        expected_label = deterministic_owned_label(
+            payload["run_id"],
+            payload["harness"],
+            selection["tab"]["ordinal"],
+        )
+        if owned_label != expected_label:
+            raise HerdrPuppetError(
+                "owned_label_authority_mismatch",
+                "The plan owned label does not match run, harness, and ordinal authority.",
+            )
     if safety.get("parent_session_mutation") is not False:
         raise HerdrPuppetError(
             "parent_session_mutation_forbidden",
@@ -1137,16 +1236,46 @@ def validate_plan(payload: dict[str, Any]) -> None:
             "ordinary_transcript_read_forbidden",
             "A plan may not authorize ordinary transcript reads.",
         )
-    session = payload["session"]
+    if not isinstance(safety.get("live_mutation_authorized"), bool):
+        raise HerdrPuppetError(
+            "invalid_plan",
+            "Plan live mutation authorization must be boolean.",
+        )
     if session.get("incarnation_proven") is not False:
         raise HerdrPuppetError(
             "server_incarnation_claim_forbidden",
             "Herdr 0.7.3 does not expose a server-incarnation authority field.",
         )
+    historical_binding = payload.get("harness_binding")
+    if historical and (
+        not isinstance(historical_binding, dict)
+        or historical_binding.get("schema")
+        not in {
+            "herdr-puppet.harness-binding.v1",
+            "herdr-puppet.harness-binding.v2",
+        }
+    ):
+        raise HerdrPuppetError(
+            "invalid_harness_binding",
+            "Historical plan-v1 accepts only its frozen binding-v1/v2 authority.",
+        )
     _validate_record_binding(payload)
+    if not historical:
+        expected_authority = selected_authority_sha256(payload)
+        if payload.get("selected_authority_sha256") != expected_authority:
+            raise HerdrPuppetError(
+                "selected_authority_fingerprint_mismatch",
+                "The plan selected-authority fingerprint does not match its facts.",
+            )
 
 
 def validate_lease(payload: dict[str, Any]) -> None:
+    if payload.get("schema") == HISTORICAL_LEASE_SCHEMA:
+        validate_legacy_lease(payload)
+        raise HerdrPuppetError(
+            "legacy_lease_requires_migration",
+            "Historical lease-v1 requires explicit migration before active qualification.",
+        )
     _validate_lease(payload, allow_legacy=False)
 
 
@@ -1154,14 +1283,33 @@ def validate_legacy_lease(payload: dict[str, Any]) -> None:
     _validate_lease(payload, allow_legacy=True)
 
 
+def _validate_maintainable_lease(
+    payload: dict[str, Any],
+    *,
+    allow_historical: bool,
+) -> None:
+    if payload.get("schema") == LEASE_SCHEMA:
+        validate_lease(payload)
+        return
+    if allow_historical and payload.get("schema") == HISTORICAL_LEASE_SCHEMA:
+        validate_legacy_lease(payload)
+        return
+    raise HerdrPuppetError(
+        "invalid_lease_schema",
+        "Unsupported lease schema for this operation.",
+    )
+
+
 def _validate_lease(
     payload: dict[str, Any],
     *,
     allow_legacy: bool,
 ) -> None:
-    if payload.get("schema") != "herdr-puppet.lease.v1":
+    expected_schema = HISTORICAL_LEASE_SCHEMA if allow_legacy else LEASE_SCHEMA
+    if payload.get("schema") != expected_schema:
         raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
-    unexpected_fields = sorted(set(payload) - LEASE_FIELDS)
+    allowed_fields = HISTORICAL_LEASE_FIELDS if allow_legacy else LEASE_FIELDS
+    unexpected_fields = sorted(set(payload) - allowed_fields)
     if unexpected_fields:
         raise HerdrPuppetError(
             "invalid_lease",
@@ -1245,6 +1393,7 @@ def _validate_lease(
     )
     for key in ("id", "label"):
         _require_string(workspace, key)
+    selection: dict[str, Any] | None = None
     if "destination_selection" in payload:
         selection = _validate_destination_selection(
             payload["destination_selection"]
@@ -1253,6 +1402,16 @@ def _validate_lease(
             raise HerdrPuppetError(
                 "invalid_destination_selection",
                 "The leased destination workspace does not match its receipt.",
+            )
+        expected_label = deterministic_owned_label(
+            payload["run_id"],
+            payload["harness"],
+            selection["tab"]["ordinal"],
+        )
+        if owned_label != expected_label:
+            raise HerdrPuppetError(
+                "owned_label_authority_mismatch",
+                "The lease owned label does not match run, harness, and ordinal authority.",
             )
     ssh = _require_exact_object_fields(
         payload,
@@ -1288,7 +1447,27 @@ def _validate_lease(
         _require_string(source, key)
     binding: dict[str, Any] | None = None
     if "harness_binding" in payload:
+        historical_binding = payload["harness_binding"]
+        if allow_legacy and (
+            not isinstance(historical_binding, dict)
+            or historical_binding.get("schema")
+            not in {
+                "herdr-puppet.harness-binding.v1",
+                "herdr-puppet.harness-binding.v2",
+            }
+        ):
+            raise HerdrPuppetError(
+                "invalid_harness_binding",
+                "Historical lease-v1 accepts only its frozen binding-v1/v2 authority.",
+            )
         binding = _validate_record_binding(payload)
+    if not allow_legacy:
+        expected_authority = selected_authority_sha256(payload)
+        if payload.get("selected_authority_sha256") != expected_authority:
+            raise HerdrPuppetError(
+                "selected_authority_fingerprint_mismatch",
+                "The lease selected-authority fingerprint does not match its facts.",
+            )
     if "harness_launch" in payload:
         if binding is None:
             raise HerdrPuppetError(
@@ -1438,6 +1617,9 @@ def _validate_lease(
 
 
 def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("schema") == LEASE_SCHEMA:
+        validate_lease(payload)
+        return json.loads(json.dumps(payload))
     validate_legacy_lease(payload)
     if "harness_binding" not in payload:
         raise HerdrPuppetError(
@@ -1445,6 +1627,7 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
             "An unbound historical lease cannot be attested retroactively.",
         )
     migrated = json.loads(json.dumps(payload))
+    migrated["schema"] = LEASE_SCHEMA
     legacy_status_ready = (
         migrated.get("harness_readiness") == LEGACY_HARNESS_STATUS
     )
@@ -1464,20 +1647,8 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
     migrated.setdefault("pending_interactive_send", None)
     migrated.setdefault("pending_sequence_operation", None)
     migrated.setdefault("startup_gate_operations", [])
-    if "destination_selection" not in migrated:
-        ordinal_match = re.search(r"-(\d+)$", migrated["owned_label"])
-        if ordinal_match is None:
-            raise HerdrPuppetError(
-                "legacy_destination_selection_unavailable",
-                "The historical lease tab ordinal cannot be derived safely.",
-            )
-        migrated["destination_selection"] = _destination_selection_receipt(
-            mode="legacy_explicit",
-            machine=None,
-            workspace_label=migrated["workspace"]["label"],
-            tab_ordinal=int(ordinal_match.group(1)),
-            legacy_ordinal_alias=True,
-        )
+    migrated["destination_selection"] = destination_selection_for_record(payload)
+    migrated["selected_authority_sha256"] = selected_authority_sha256(migrated)
     validate_lease(migrated)
     return migrated
 
@@ -1487,10 +1658,16 @@ def migrate_legacy_lease_file(
     lease_payload: dict[str, Any],
     lease_path: Path,
 ) -> dict[str, Any]:
-    validate_legacy_lease(lease_payload)
+    if lease_payload.get("schema") == LEASE_SCHEMA:
+        validate_lease(lease_payload)
+    else:
+        validate_legacy_lease(lease_payload)
     with _lease_lock(lease_path) as locked_lease_path:
         current = load_json(locked_lease_path)
-        validate_legacy_lease(current)
+        if current.get("schema") == LEASE_SCHEMA:
+            validate_lease(current)
+        else:
+            validate_legacy_lease(current)
         _assert_same_lease_identity(lease_payload, current)
         migrated = migrate_legacy_lease(current)
         changed_fields = sorted(
@@ -1827,15 +2004,7 @@ def _find_workspace_by_label(
 
 
 def _label(run_id: str, harness: str, ordinal: int) -> str:
-    safe_harness = re.sub(r"[^a-z0-9]+", "-", harness.lower()).strip("-")
-    safe_run = re.sub(r"[^a-z0-9]+", "", run_id.lower())
-    if not safe_harness or not safe_run:
-        raise HerdrPuppetError(
-            "invalid_label_material",
-            "Run ID and harness must produce a deterministic label.",
-        )
-    run_digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:6]
-    return f"puppet-{safe_harness}-{safe_run[:8]}-{run_digest}-{ordinal}"
+    return deterministic_owned_label(run_id, harness, ordinal)
 
 
 def plan(
@@ -1972,7 +2141,7 @@ def plan(
         legacy_ordinal_alias=ordinal is not None,
     )
     payload = {
-        "schema": "herdr-puppet.plan.v1",
+        "schema": PLAN_SCHEMA,
         "state": "planned",
         "run_id": run_id,
         "harness": harness,
@@ -2000,6 +2169,7 @@ def plan(
             "live_mutation_authorized": bool(live_mutation_authorized),
         },
     }
+    payload["selected_authority_sha256"] = selected_authority_sha256(payload)
     validate_plan(payload)
     return payload
 
@@ -2066,9 +2236,12 @@ def structural_status(
     payload = lease_payload if lease_payload is not None else plan_payload
     assert payload is not None
     if lease_payload is not None:
-        validate_lease(payload)
+        _validate_maintainable_lease(payload, allow_historical=True)
     else:
-        validate_plan(payload)
+        if payload.get("schema") == HISTORICAL_PLAN_SCHEMA:
+            validate_historical_plan(payload)
+        else:
+            validate_plan(payload)
     session = payload["session"]["name"]
     doctor_result = doctor(client, session)
     if doctor_result["result"] != "ok":
@@ -2283,7 +2456,7 @@ def maintenance_checkpoint(
     remote_removal_evidence: str | None = None,
     confirm_remote_removed: bool = False,
 ) -> dict[str, Any]:
-    validate_lease(lease_payload)
+    _validate_maintainable_lease(lease_payload, allow_historical=True)
     removal_requested = any(
         (
             remote_removed_path is not None,
@@ -2303,11 +2476,15 @@ def maintenance_checkpoint(
         )
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
+        allow_historical_plan=True,
     )
     with _lease_lock(lease_path) as locked_lease_path:
-        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        current = _reload_locked_lease(
+            lease_payload,
+            locked_lease_path,
+            allow_historical=True,
+        )
         return _maintenance_checkpoint_locked(
             client,
             lease_payload=current,
@@ -2329,9 +2506,9 @@ def _maintenance_checkpoint_locked(
     remote_removal_evidence: str | None,
     confirm_remote_removed: bool,
 ) -> dict[str, Any]:
-    validate_lease(lease_payload)
+    _validate_maintainable_lease(lease_payload, allow_historical=True)
     current_from_disk = load_json(lease_path)
-    validate_lease(current_from_disk)
+    _validate_maintainable_lease(current_from_disk, allow_historical=True)
     _assert_same_lease_identity(lease_payload, current_from_disk)
     remote_files = _as_remote_task_files(
         current_from_disk.get("remote_task_files", []),
@@ -2604,9 +2781,13 @@ def cleanup_preserved_tab(
     confirm_tab_id: str,
     allow_live_cleanup: bool,
 ) -> dict[str, Any]:
-    validate_lease(lease_payload)
+    _validate_maintainable_lease(lease_payload, allow_historical=True)
     with _lease_lock(lease_path) as locked_lease_path:
-        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        current = _reload_locked_lease(
+            lease_payload,
+            locked_lease_path,
+            allow_historical=True,
+        )
         return _cleanup_preserved_tab_locked(
             client,
             lease_payload=current,
@@ -2626,7 +2807,7 @@ def _cleanup_preserved_tab_locked(
     confirm_tab_id: str,
     allow_live_cleanup: bool,
 ) -> dict[str, Any]:
-    validate_lease(lease_payload)
+    _validate_maintainable_lease(lease_payload, allow_historical=True)
     if lease_payload["state"] != "preserved":
         raise HerdrPuppetError(
             "cleanup_lease_not_preserved",
@@ -2648,11 +2829,11 @@ def _cleanup_preserved_tab_locked(
         )
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
+        allow_historical_plan=True,
     )
     current = load_json(lease_path)
-    validate_lease(current)
+    _validate_maintainable_lease(current, allow_historical=True)
     _assert_same_lease_identity(lease_payload, current)
     if current["state"] != "preserved":
         raise HerdrPuppetError(
@@ -2677,7 +2858,7 @@ def _cleanup_preserved_tab_locked(
         )
 
     after_maintenance = load_json(lease_path)
-    validate_lease(after_maintenance)
+    _validate_maintainable_lease(after_maintenance, allow_historical=True)
     _assert_same_lease_identity(current, after_maintenance)
     current = after_maintenance
     if any(
@@ -2818,8 +2999,8 @@ def create_qualification_tab(
     plan_payload: dict[str, Any],
     lease_path: Path,
     allow_live: bool,
+    run_root: Path,
     settle_seconds: float = 10.0,
-    run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
     _require_current_record_binding(plan_payload)
@@ -2841,18 +3022,16 @@ def _create_qualification_tab_locked(
     plan_payload: dict[str, Any],
     lease_path: Path,
     allow_live: bool,
+    run_root: Path,
     settle_seconds: float = 10.0,
-    run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_plan(plan_payload)
     _require_current_record_binding(plan_payload)
     _live_gate(plan_payload, allow_live)
-    if run_root is not None:
-        require_initialized_journal(
-            run_root,
-            run_id=plan_payload["run_id"],
-            proof_root=plan_payload["proof_root"],
-        )
+    require_initialized_journal(
+        run_root,
+        plan_payload=plan_payload,
+    )
     before_status = structural_status(client, plan_payload=plan_payload)
     if before_status["result"] != "ok":
         raise HerdrPuppetError(
@@ -2994,23 +3173,22 @@ def _create_qualification_tab_locked(
                     "verified.",
                     details={"tab_id": rollback_tab_id},
                 )
-            if run_root is not None:
-                append_event(
-                    run_root,
-                    make_event(
-                        plan_payload["run_id"],
-                        "qualification.tab-create-rolled-back",
-                        "observed",
-                        data={
-                            "tab_id": rollback_tab_id,
-                            "pane_id": rollback_pane_id,
-                            "ssh_pid_observed": rollback_ssh_pid is not None,
-                            "absence_verified": True,
-                            "reason": "post_create_identity_unqualified",
-                            "transcript_read": False,
-                        },
-                    ),
-                )
+            append_event(
+                run_root,
+                make_event(
+                    plan_payload["run_id"],
+                    "qualification.tab-create-rolled-back",
+                    "observed",
+                    data={
+                        "tab_id": rollback_tab_id,
+                        "pane_id": rollback_pane_id,
+                        "ssh_pid_observed": rollback_ssh_pid is not None,
+                        "absence_verified": True,
+                        "reason": "post_create_identity_unqualified",
+                        "transcript_read": False,
+                    },
+                ),
+            )
         raise HerdrPuppetError(
             "candidate_tab_not_qualified",
             "The new tab did not resolve to one expected SSH pane in time.",
@@ -3025,13 +3203,15 @@ def _create_qualification_tab_locked(
             },
         )
     lease = {
-        "schema": "herdr-puppet.lease.v1",
+        "schema": LEASE_SCHEMA,
         "state": "active",
         "run_id": plan_payload["run_id"],
         "harness": plan_payload["harness"],
-        "session": plan_payload["session"],
-        "workspace": plan_payload["workspace"],
-        "destination_selection": plan_payload["destination_selection"],
+        "session": json.loads(json.dumps(plan_payload["session"])),
+        "workspace": json.loads(json.dumps(plan_payload["workspace"])),
+        "destination_selection": json.loads(
+            json.dumps(plan_payload["destination_selection"])
+        ),
         "owned_label": plan_payload["owned_label"],
         "tab_id": new_tab["tab_id"],
         "pane_id": new_pane["pane_id"],
@@ -3044,8 +3224,10 @@ def _create_qualification_tab_locked(
         "next_seq": 1,
         "shell_readiness": "unverified",
         "harness_readiness": "unverified",
-        "source": plan_payload["source"],
-        "harness_binding": plan_payload["harness_binding"],
+        "source": json.loads(json.dumps(plan_payload["source"])),
+        "harness_binding": json.loads(
+            json.dumps(plan_payload["harness_binding"])
+        ),
         "startup_gate_operations": [],
         "proof_root": plan_payload["proof_root"],
         "caller_text_files": [],
@@ -3055,41 +3237,39 @@ def _create_qualification_tab_locked(
         "pending_interactive_send": None,
         "pending_sequence_operation": None,
     }
+    lease["selected_authority_sha256"] = selected_authority_sha256(lease)
     validate_lease(lease)
     atomic_json(lease_path, lease)
-    if run_root is not None:
-        append_event(
-            run_root,
-            make_event(
-                lease["run_id"],
-                "qualification.tab-created",
-                "ok",
-                data={
-                    "tab_id": lease["tab_id"],
-                    "pane_id": lease["pane_id"],
-                    "terminal_id": lease["terminal_id"],
-                    "ssh_pid": lease["ssh"]["pid"],
-                    "destination_selection": lease[
-                        "destination_selection"
-                    ],
-                    "fresh_tab_created": True,
-                    "shell_transport_only": True,
-                    "harness_started": False,
-                    "shell_readiness": "unverified",
-                    "harness_readiness": "unverified",
-                    "harness_binding_fingerprint": lease["harness_binding"][
-                        "fingerprint"
-                    ],
-                    "model_selection": lease["harness_binding"][
-                        "model_observation"
-                    ],
-                    "remote_harness_pid": "unavailable",
-                    "targeted_halt": "unsupported",
-                    "recovery": "unsupported",
-                    "crash_persistence": "unsupported",
-                },
-            ),
-        )
+    append_event(
+        run_root,
+        make_event(
+            lease["run_id"],
+            "qualification.tab-created",
+            "ok",
+            data={
+                "tab_id": lease["tab_id"],
+                "pane_id": lease["pane_id"],
+                "terminal_id": lease["terminal_id"],
+                "ssh_pid": lease["ssh"]["pid"],
+                "destination_selection": lease["destination_selection"],
+                "fresh_tab_created": True,
+                "shell_transport_only": True,
+                "harness_started": False,
+                "shell_readiness": "unverified",
+                "harness_readiness": "unverified",
+                "harness_binding_fingerprint": lease["harness_binding"][
+                    "fingerprint"
+                ],
+                "model_selection": lease["harness_binding"][
+                    "model_observation"
+                ],
+                "remote_harness_pid": "unavailable",
+                "targeted_halt": "unsupported",
+                "recovery": "unsupported",
+                "crash_persistence": "unsupported",
+            },
+        ),
+    )
     return lease
 
 
@@ -3107,8 +3287,7 @@ def qualification_run(
     validate_lease(lease_payload)
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
     )
     if not allow_live:
         raise HerdrPuppetError(
@@ -3292,8 +3471,7 @@ def qualification_harness_census_verify(
     validate_lease(lease_payload)
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
     )
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
@@ -4495,8 +4673,7 @@ def qualification_send(
     validate_lease(lease_payload)
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
     )
     if not allow_live:
         raise HerdrPuppetError(
@@ -4780,8 +4957,7 @@ def qualification_reconcile_send(
     validate_lease(lease_payload)
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
     )
     if not confirm_applied:
         raise HerdrPuppetError(
@@ -5190,12 +5366,15 @@ def qualification_token_probe(
     lease_path: Path,
     nonce: str,
     allow_live: bool,
+    run_root: Path,
     lines: int = 40,
     timeout_ms: int = 30_000,
-    run_root: Path | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    require_initialized_journal(
+        run_root,
+        lease_payload=lease_payload,
+    )
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -5482,8 +5661,7 @@ def qualification_beacon_wait(
         )
     require_initialized_journal(
         run_root,
-        run_id=lease_payload["run_id"],
-        proof_root=lease_payload["proof_root"],
+        lease_payload=lease_payload,
     )
     nonce_digest = sha256_text(nonce)
     with _lease_lock(lease_path) as locked_lease_path:
@@ -5731,8 +5909,12 @@ def preserve_lease(
     reason: str,
     run_root: Path | None = None,
 ) -> dict[str, Any]:
-    validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _validate_maintainable_lease(lease_payload, allow_historical=True)
+    _require_optional_lease_journal(
+        run_root,
+        lease_payload,
+        allow_historical=True,
+    )
     if reason not in PRESERVE_REASONS:
         raise HerdrPuppetError(
             "invalid_preserve_reason",
@@ -5740,7 +5922,11 @@ def preserve_lease(
             details={"supported": sorted(PRESERVE_REASONS)},
         )
     with _lease_lock(lease_path) as locked_lease_path:
-        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        current = _reload_locked_lease(
+            lease_payload,
+            locked_lease_path,
+            allow_historical=True,
+        )
         if current["state"] == "preserved":
             return {
                 "schema": "herdr-puppet.lease-preserve.v1",

@@ -297,6 +297,7 @@ def transport_adapter_fingerprint(skill_root: Path | None = None) -> str:
         root,
         [
             "scripts/herdr_puppet_lib/__init__.py",
+            "scripts/herdr_puppet_lib/authority.py",
             "scripts/herdr_puppet_lib/cli.py",
             "scripts/herdr_puppet_lib/core.py",
             "scripts/herdr_puppet_lib/herdr_client.py",
@@ -304,8 +305,12 @@ def transport_adapter_fingerprint(skill_root: Path | None = None) -> str:
             "references/destination-catalog.schema.json",
             "references/event.schema.json",
             "references/harness-binding.schema.json",
+            "references/harness-binding-v2.schema.json",
+            "references/harness-binding-v1.schema.json",
             "references/lease.schema.json",
+            "references/lease-v1.schema.json",
             "references/plan.schema.json",
+            "references/plan-v1.schema.json",
             "references/remote-harness-census.schema.json",
         ],
     )

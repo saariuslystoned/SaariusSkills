@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/remote-harness-census-v2.schema.json",
   "title": "Herdr-Puppet historical remote harness census v2",
+  "$comment": "Frozen historical structural artifact only; it is not active qualification authority and intentionally does not claim runtime semantic completeness.",
   "type": "object",
   "required": [
     "schema",

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/remote-harness-census.schema.json",
   "title": "Herdr-Puppet remote harness census v3",
+  "$comment": "This schema is the active structural contract. The runtime validate_remote_census validator is authoritative for dynamic fingerprints, source joins, and other cross-field semantic facts JSON Schema cannot express.",
   "type": "object",
   "required": [
     "schema",
@@ -61,6 +62,16 @@
         "status_exit": {"oneOf": [{"const": 0}, {"type": "null"}]},
         "raw_output_retained": {"const": false}
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"enrollment_state": {"const": "enrolled"}},
+            "required": ["enrollment_state"]
+          },
+          "then": {"properties": {"status_exit": {"const": 0}}},
+          "else": {"properties": {"status_exit": {"type": "null"}}}
+        }
+      ],
       "additionalProperties": false
     },
     "regular_launch": {
@@ -91,7 +102,7 @@
       },
       "additionalProperties": false
     },
-    "lifecycle_observation": {"type": "object"},
+    "lifecycle_observation": {"$ref": "#/$defs/lifecycleObservation"},
     "model_observation": {
       "type": "object",
       "required": ["selection", "model", "effort"],
@@ -114,6 +125,99 @@
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "pathSha256": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "checkpointLifecycle": {
+      "type": "object",
+      "required": ["schema", "strategy", "raw_input_retained"],
+      "properties": {
+        "schema": {"const": "herdr-puppet.lifecycle-observation.v1"},
+        "strategy": {"const": "strict_checkpoint_only"},
+        "raw_input_retained": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "claudeLifecycle": {
+      "type": "object",
+      "required": [
+        "schema",
+        "strategy",
+        "run_id",
+        "probe_id",
+        "marker_root",
+        "interpreter",
+        "helper",
+        "implementation",
+        "event_limits",
+        "settings_sha256",
+        "stdin_policy",
+        "stdout_policy",
+        "raw_input_retained"
+      ],
+      "properties": {
+        "schema": {"const": "herdr-puppet.lifecycle-observation.v1"},
+        "strategy": {"const": "claude_native_hook_markers"},
+        "run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "probe_id": {"$ref": "#/$defs/sha256"},
+        "marker_root": {
+          "type": "string",
+          "pattern": "^/[^\\u0000\\r\\n]+$"
+        },
+        "interpreter": {
+          "type": "object",
+          "required": ["path", "sha256", "argv"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^/"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "argv": {
+              "type": "array",
+              "prefixItems": [
+                {"type": "string", "pattern": "^/"},
+                {"const": "-I"},
+                {"const": "-c"}
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "additionalProperties": false
+        },
+        "helper": {"$ref": "#/$defs/pathSha256"},
+        "implementation": {"$ref": "#/$defs/pathSha256"},
+        "event_limits": {
+          "const": {
+            "session_start": 1,
+            "user_prompt_submit": 2,
+            "stop": 2,
+            "stop_failure": 2
+          }
+        },
+        "settings_sha256": {"$ref": "#/$defs/sha256"},
+        "stdin_policy": {
+          "const": "user_prompt_hashed_in_memory_other_events_unread"
+        },
+        "stdout_policy": {"const": "empty"},
+        "raw_input_retained": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "lifecycleObservation": {
+      "oneOf": [
+        {"$ref": "#/$defs/checkpointLifecycle"},
+        {"$ref": "#/$defs/claudeLifecycle"}
+      ]
     }
   },
   "allOf": [
@@ -161,6 +265,38 @@
           },
           "regular_launch": {
             "properties": {"explicit_model_selector": {"const": false}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"const": "claude"}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "lifecycle_observation": {"$ref": "#/$defs/claudeLifecycle"}
+        }
+      },
+      "else": {
+        "properties": {
+          "lifecycle_observation": {"$ref": "#/$defs/checkpointLifecycle"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"const": "cursor"}},
+        "required": ["harness"]
+      },
+      "else": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "enrollment_state": {"const": "enrolled"},
+              "status_exit": {"const": 0}
+            }
           }
         }
       }

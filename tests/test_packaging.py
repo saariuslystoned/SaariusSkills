@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -190,7 +191,9 @@ class PackagingTests(unittest.TestCase):
         references = HERDR_SKILL / "references"
         for name in (
             "plan.schema.json",
+            "plan-v1.schema.json",
             "lease.schema.json",
+            "lease-v1.schema.json",
             "event.schema.json",
             "destination-catalog.schema.json",
             "harness-binding.schema.json",
@@ -207,6 +210,36 @@ class PackagingTests(unittest.TestCase):
         lease_schema = json.loads(
             (references / "lease.schema.json").read_text(encoding="utf-8")
         )
+        plan_schema = json.loads(
+            (references / "plan.schema.json").read_text(encoding="utf-8")
+        )
+        historical_plan_schema = json.loads(
+            (references / "plan-v1.schema.json").read_text(encoding="utf-8")
+        )
+        historical_lease_schema = json.loads(
+            (references / "lease-v1.schema.json").read_text(encoding="utf-8")
+        )
+        frozen_schema_digests = {
+            "plan-v1.schema.json": (
+                historical_plan_schema,
+                "19159fe3c798e49ed9774f3c3b7732f2048ce9874373a1da5d8a59f6222d2c56",
+            ),
+            "lease-v1.schema.json": (
+                historical_lease_schema,
+                "c0e39e58591c7ab3cb1926fd7051c51bed987f2c54fd8967a92d74ca3fbd4715",
+            ),
+        }
+        for name, (schema, expected_digest) in frozen_schema_digests.items():
+            with self.subTest(frozen_schema=name):
+                canonical = json.dumps(
+                    schema,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                self.assertEqual(
+                    hashlib.sha256(canonical).hexdigest(),
+                    expected_digest,
+                )
         event_schema = json.loads(
             (references / "event.schema.json").read_text(encoding="utf-8")
         )
@@ -260,6 +293,23 @@ class PackagingTests(unittest.TestCase):
             census_schema["properties"]["schema"]["const"],
             "herdr-puppet.remote-harness-census.v3",
         )
+        self.assertIn("runtime validate_remote_census", census_schema["$comment"])
+        self.assertEqual(
+            census_schema["$defs"]["checkpointLifecycle"]["properties"][
+                "strategy"
+            ]["const"],
+            "strict_checkpoint_only",
+        )
+        self.assertEqual(
+            census_schema["$defs"]["claudeLifecycle"]["properties"][
+                "strategy"
+            ]["const"],
+            "claude_native_hook_markers",
+        )
+        census_conditions = json.dumps(census_schema["allOf"], sort_keys=True)
+        self.assertIn("interactive_pending", json.dumps(census_schema))
+        self.assertIn("claudeLifecycle", census_conditions)
+        self.assertIn('"status_exit": {"const": 0}', census_conditions)
         census_agy_argv = census_schema["allOf"][0]["then"][
             "properties"
         ]["regular_launch"]["properties"]["argv"]["prefixItems"]
@@ -284,6 +334,54 @@ class PackagingTests(unittest.TestCase):
             destination_schema["properties"]["profiles"]["items"][
                 "additionalProperties"
             ]
+        )
+        self.assertTrue(
+            destination_schema["properties"]["profiles"]["uniqueItems"]
+        )
+        self.assertEqual(
+            plan_schema["properties"]["schema"]["const"],
+            "herdr-puppet.plan.v2",
+        )
+        self.assertIn("selected_authority_sha256", plan_schema["required"])
+        self.assertEqual(
+            lease_schema["properties"]["schema"]["const"],
+            "herdr-puppet.lease.v2",
+        )
+        self.assertEqual(
+            historical_plan_schema["properties"]["schema"]["const"],
+            "herdr-puppet.plan.v1",
+        )
+        self.assertTrue(
+            historical_plan_schema["$id"].endswith("/plan-v1.schema.json")
+        )
+        self.assertNotIn(
+            "destination_selection",
+            historical_plan_schema["properties"],
+        )
+        self.assertEqual(
+            historical_plan_schema["properties"]["harness_binding"]["oneOf"],
+            [
+                {"$ref": "harness-binding-v2.schema.json"},
+                {"$ref": "harness-binding-v1.schema.json"},
+            ],
+        )
+        self.assertEqual(
+            historical_lease_schema["properties"]["schema"]["const"],
+            "herdr-puppet.lease.v1",
+        )
+        self.assertTrue(
+            historical_lease_schema["$id"].endswith("/lease-v1.schema.json")
+        )
+        self.assertNotIn(
+            "destination_selection",
+            historical_lease_schema["properties"],
+        )
+        self.assertEqual(
+            historical_lease_schema["properties"]["harness_binding"]["oneOf"],
+            [
+                {"$ref": "harness-binding-v2.schema.json"},
+                {"$ref": "harness-binding-v1.schema.json"},
+            ],
         )
         lease_cross_fields = json.dumps(
             lease_schema["allOf"],
@@ -312,6 +410,7 @@ class PackagingTests(unittest.TestCase):
                 "session",
                 "workspace",
                 "destination_selection",
+                "selected_authority_sha256",
                 "owned_label",
                 "tab_id",
                 "pane_id",

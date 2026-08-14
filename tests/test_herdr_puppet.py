@@ -53,11 +53,17 @@ from herdr_puppet_lib.core import (  # noqa: E402
     structural_status,
     validate_legacy_lease,
     validate_lease,
+    validate_plan,
     validate_destination_catalog,
 )
 from herdr_puppet_lib import cli as herdr_cli  # noqa: E402
 from herdr_puppet_lib.cli import _read_prompt, build_parser  # noqa: E402
 from herdr_puppet_lib.errors import HerdrPuppetError  # noqa: E402
+from herdr_puppet_lib.authority import (  # noqa: E402
+    deterministic_owned_label,
+    selected_authority,
+    selected_authority_sha256,
+)
 from herdr_puppet_lib.claude_hooks import (  # noqa: E402
     CLAUDE_MARKER_NAMES,
     build_claude_lifecycle_observation,
@@ -81,6 +87,7 @@ from herdr_puppet_lib.herdr_client import (  # noqa: E402
 )
 from herdr_puppet_lib.harness_binding import (  # noqa: E402
     AGY_REQUIRED_MODEL,
+    HISTORICAL_HARNESS_LAUNCH_FLAGS,
     build_harness_binding,
     compile_instruction_wrapper,
     binding_fingerprint,
@@ -105,6 +112,47 @@ FIXTURES = ROOT / "fixtures" / "herdr-puppet"
 
 def fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def refresh_selected_authority(record: dict[str, Any]) -> dict[str, Any]:
+    record["selected_authority_sha256"] = selected_authority_sha256(record)
+    return record
+
+
+def historical_lease_v1(record: dict[str, Any]) -> dict[str, Any]:
+    historical = copy.deepcopy(record)
+    historical["schema"] = "herdr-puppet.lease.v1"
+    historical.pop("destination_selection", None)
+    historical.pop("selected_authority_sha256", None)
+    binding = historical.get("harness_binding")
+    if isinstance(binding, dict) and binding.get("schema") == (
+        "herdr-puppet.harness-binding.v3"
+    ):
+        binding["schema"] = "herdr-puppet.harness-binding.v2"
+        binding["regular_launch"]["argv"] = [
+            binding["remote"]["executable"]["path"],
+            *HISTORICAL_HARNESS_LAUNCH_FLAGS[historical["harness"]],
+        ]
+        binding["regular_launch"]["explicit_model_selector"] = False
+        binding["regular_launch"]["vector_sha256"] = hashlib.sha256(
+            json.dumps(
+                {
+                    "argv": binding["regular_launch"]["argv"],
+                    "environment": binding["regular_launch"]["environment"],
+                    "inherit_environment": False,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        binding["model_observation"] = {
+            "selection": "current_default",
+            "model": "unavailable",
+            "effort": "unavailable",
+        }
+        binding["instructions"]["layers"][2] = "model/default-unresolved"
+        binding["fingerprint"] = binding_fingerprint(binding)
+    return historical
 
 
 class FakeClient:
@@ -1479,6 +1527,11 @@ class DoctorAndPlanTests(unittest.TestCase):
         duplicate = copy.deepcopy(base)
         duplicate["profiles"][1]["name"] = "aiworker-01"
         invalid_catalogs.append(duplicate)
+        duplicate_label = copy.deepcopy(base)
+        duplicate_label["profiles"][1]["workspace_label"] = (
+            duplicate_label["profiles"][0]["workspace_label"]
+        )
+        invalid_catalogs.append(duplicate_label)
         missing = copy.deepcopy(base)
         del missing["profiles"][0]["ssh_target"]
         invalid_catalogs.append(missing)
@@ -2488,6 +2541,32 @@ esac
             )
             self.assertNotEqual(non_agy.returncode, 0)
             self.assertIn("valid only for the AGY harness", non_agy.stderr)
+            non_agy_empty = subprocess.run(
+                [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "codex",
+                    "--host",
+                    "worker.example",
+                    "--profile-root",
+                    str(profile_root),
+                    "--worktree",
+                    str(worktree),
+                    "--model",
+                    "",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(non_agy_empty.returncode, 0)
+            self.assertIn(
+                "valid only for the AGY harness",
+                non_agy_empty.stderr,
+            )
+            self.assertNotIn("executable not found", non_agy_empty.stderr)
 
     def test_remote_census_enforces_claude_lifecycle_arguments_and_settings(
         self,
@@ -2815,19 +2894,29 @@ class QualificationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.plan["proof_root"] = str((self.root / "run").resolve())
+        refresh_selected_authority(self.plan)
         self.lease_path = self.root / "lease.json"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
     def create_lease(self) -> dict[str, Any]:
-        return create_qualification_tab(
-            self.client,
-            plan_payload=self.plan,
-            lease_path=self.lease_path,
-            allow_live=True,
-            settle_seconds=0.1,
-        )
+        run_root = self.default_run_root()
+        created_journal = not run_root.exists()
+        if created_journal:
+            initialize_journal(run_root, self.plan)
+        try:
+            return create_qualification_tab(
+                self.client,
+                plan_payload=self.plan,
+                lease_path=self.lease_path,
+                allow_live=True,
+                run_root=run_root,
+                settle_seconds=0.1,
+            )
+        finally:
+            if created_journal:
+                shutil.rmtree(run_root)
 
     def persist_lease(self, lease: dict[str, Any]) -> dict[str, Any]:
         self.lease_path.write_text(
@@ -2889,13 +2978,19 @@ class QualificationTests(unittest.TestCase):
             harness_binding=harness_binding,
             live_mutation_authorized=True,
         )
-        bound_lease = create_qualification_tab(
-            self.client,
-            plan_payload=bound_plan,
-            lease_path=self.lease_path,
-            allow_live=True,
-            settle_seconds=0.1,
-        )
+        run_root = self.root / "run"
+        initialize_journal(run_root, bound_plan)
+        try:
+            bound_lease = create_qualification_tab(
+                self.client,
+                plan_payload=bound_plan,
+                lease_path=self.lease_path,
+                allow_live=True,
+                run_root=run_root,
+                settle_seconds=0.1,
+            )
+        finally:
+            shutil.rmtree(run_root)
         return self.mark_harness_ready(bound_lease), bound_plan
 
     def mark_harness_launched(self, lease: dict[str, Any]) -> dict[str, Any]:
@@ -3017,6 +3112,7 @@ class QualificationTests(unittest.TestCase):
                 plan_payload=blocked_plan,
                 lease_path=self.lease_path,
                 allow_live=True,
+                run_root=self.root / "not-used",
             )
         with self.assertRaisesRegex(HerdrPuppetError, "Both the plan capability"):
             create_qualification_tab(
@@ -3024,6 +3120,7 @@ class QualificationTests(unittest.TestCase):
                 plan_payload=self.plan,
                 lease_path=self.lease_path,
                 allow_live=False,
+                run_root=self.root / "not-used",
             )
 
     def test_create_tab_never_adopts_duplicate_label(self) -> None:
@@ -3136,6 +3233,7 @@ class QualificationTests(unittest.TestCase):
         serialized_events = json.dumps(events, sort_keys=True)
         self.assertNotIn("worker@aiworker-02.example", serialized_events)
         self.assertNotIn("destination-catalog-ok.json", serialized_events)
+        refresh_state(run_root, lease)
         state = (run_root / "STATE.md").read_text(encoding="utf-8")
         self.assertIn("machine: `aiworker-02`", state)
         self.assertIn("workspace_label: `aiworker-02`", state)
@@ -3153,6 +3251,7 @@ class QualificationTests(unittest.TestCase):
         run_root = self.root / "run"
         wrong_target = copy.deepcopy(self.plan)
         wrong_target["expected_ssh_target"] = "worker@wrong.example"
+        refresh_selected_authority(wrong_target)
         initialize_journal(run_root, wrong_target)
         with self.assertRaises(HerdrPuppetError) as caught:
             create_qualification_tab(
@@ -3195,8 +3294,139 @@ class QualificationTests(unittest.TestCase):
             ["unexpected"],
         )
 
+    def test_active_plan_and_lease_reconstruct_deterministic_owned_label(
+        self,
+    ) -> None:
+        malformed_plan = copy.deepcopy(self.plan)
+        malformed_plan["destination_selection"]["tab"]["ordinal"] = 9
+        refresh_selected_authority(malformed_plan)
+        with self.assertRaises(HerdrPuppetError) as plan_error:
+            validate_plan(malformed_plan)
+        self.assertEqual(
+            plan_error.exception.code,
+            "owned_label_authority_mismatch",
+        )
+
+        malformed_lease = self.create_lease()
+        malformed_lease["destination_selection"]["tab"]["ordinal"] = 9
+        refresh_selected_authority(malformed_lease)
+        with self.assertRaises(HerdrPuppetError) as lease_error:
+            validate_lease(malformed_lease)
+        self.assertEqual(
+            lease_error.exception.code,
+            "owned_label_authority_mismatch",
+        )
+
+    def test_selected_authority_projects_every_independent_identity_edge(
+        self,
+    ) -> None:
+        mutations = {
+            "run": (("run_id",), "different-run"),
+            "harness": (("harness",), "codex"),
+            "session": (("session", "socket"), "/different/herdr.sock"),
+            "machine": (
+                ("destination_selection", "machine"),
+                "different-machine",
+            ),
+            "destination_workspace": (
+                ("destination_selection", "workspace_label"),
+                "different-workspace",
+            ),
+            "fresh_request": (
+                ("destination_selection", "tab", "request"),
+                "existing",
+            ),
+            "ordinal": (
+                ("destination_selection", "tab", "ordinal"),
+                2,
+            ),
+            "workspace_id": (("workspace", "id"), "different-id"),
+            "owned_label": (("owned_label",), "puppet-different-1"),
+            "ssh_target": (
+                ("expected_ssh_target",),
+                "worker@different.example",
+            ),
+            "source": (("source", "worktree"), "/different/worktree"),
+            "proof_root": (("proof_root",), "/different/proof"),
+            "binding": (
+                ("harness_binding", "attestation", "recorded_at"),
+                "2026-08-14T00:00:01Z",
+            ),
+            "model": (
+                ("harness_binding", "model_observation", "model"),
+                "different-model",
+            ),
+        }
+        baseline = selected_authority_sha256(self.plan)
+        for name, (path, replacement) in mutations.items():
+            with self.subTest(name=name):
+                altered = copy.deepcopy(self.plan)
+                target: dict[str, Any] = altered
+                for segment in path[:-1]:
+                    target = target[segment]
+                target[path[-1]] = replacement
+                self.assertNotEqual(
+                    selected_authority_sha256(altered),
+                    baseline,
+                )
+                self.assertNotEqual(
+                    selected_authority(altered),
+                    selected_authority(self.plan),
+                )
+
+    def test_historical_plan_is_status_only_and_cannot_create(self) -> None:
+        historical = copy.deepcopy(self.plan)
+        historical["schema"] = "herdr-puppet.plan.v1"
+        historical.pop("destination_selection")
+        historical.pop("selected_authority_sha256")
+        historical["harness_binding"] = historical_lease_v1(
+            {
+                "harness": historical["harness"],
+                "harness_binding": historical["harness_binding"],
+            }
+        )["harness_binding"]
+        status = structural_status(self.client, plan_payload=historical)
+        self.assertEqual(status["result"], "ok")
+        with mock.patch.object(
+            self.client,
+            "create_tab",
+            wraps=self.client.create_tab,
+        ) as create_tab:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                create_qualification_tab(
+                    self.client,
+                    plan_payload=historical,
+                    lease_path=self.lease_path,
+                    allow_live=True,
+                    settle_seconds=0.1,
+                    run_root=self.root / "run",
+                )
+        self.assertEqual(caught.exception.code, "invalid_plan")
+        create_tab.assert_not_called()
+        self.assertFalse(self.lease_path.exists())
+
+    def test_historical_v1_records_reject_post_f73_binding_v3(self) -> None:
+        plan_v1_with_binding_v3 = copy.deepcopy(self.plan)
+        plan_v1_with_binding_v3["schema"] = "herdr-puppet.plan.v1"
+        plan_v1_with_binding_v3.pop("destination_selection")
+        plan_v1_with_binding_v3.pop("selected_authority_sha256")
+        with self.assertRaises(HerdrPuppetError) as plan_error:
+            structural_status(
+                self.client,
+                plan_payload=plan_v1_with_binding_v3,
+            )
+        self.assertEqual(plan_error.exception.code, "invalid_harness_binding")
+
+        lease_v1_with_binding_v3 = copy.deepcopy(self.create_lease())
+        lease_v1_with_binding_v3["schema"] = "herdr-puppet.lease.v1"
+        lease_v1_with_binding_v3.pop("destination_selection")
+        lease_v1_with_binding_v3.pop("selected_authority_sha256")
+        with self.assertRaises(HerdrPuppetError) as lease_error:
+            validate_legacy_lease(lease_v1_with_binding_v3)
+        self.assertEqual(lease_error.exception.code, "invalid_harness_binding")
+
     def test_legacy_lease_requires_explicit_canonical_migration(self) -> None:
-        legacy = self.create_lease()
+        legacy = historical_lease_v1(self.create_lease())
         legacy.pop("shell_readiness")
         legacy["harness_readiness"] = "status_verified"
         legacy.pop("caller_text_files")
@@ -3211,14 +3441,75 @@ class QualificationTests(unittest.TestCase):
         )
         migrated = migrate_legacy_lease(legacy)
         validate_lease(migrated)
+        self.assertEqual(migrated["schema"], "herdr-puppet.lease.v2")
+        self.assertEqual(
+            migrated["destination_selection"],
+            {
+                "schema": "herdr-puppet.destination-selection-receipt.v1",
+                "mode": "legacy_explicit",
+                "machine": None,
+                "workspace_label": legacy["workspace"]["label"],
+                "tab": {"request": "fresh", "ordinal": 1},
+                "legacy_ordinal_alias": True,
+                "catalog_path_retained": False,
+                "ssh_target_retained": False,
+                "existing_tab_adoption": False,
+            },
+        )
+        self.assertEqual(
+            migrated["selected_authority_sha256"],
+            selected_authority_sha256(migrated),
+        )
         self.assertEqual(migrated["shell_readiness"], "status_verified")
         self.assertEqual(migrated["harness_readiness"], "unverified")
         self.assertEqual(migrated["caller_text_files"], [])
         self.assertEqual(migrated["caller_text_files_removed"], [])
         self.assertEqual(migrated["remote_task_files"], [])
 
+    def test_historical_lease_v1_retains_bounded_maintenance_lifecycle(
+        self,
+    ) -> None:
+        historical = historical_lease_v1(self.create_lease())
+        self.persist_lease(historical)
+        run_root = self.root / "run"
+        self.plan["harness_binding"] = copy.deepcopy(
+            historical["harness_binding"]
+        )
+        refresh_selected_authority(self.plan)
+        initialize_journal(run_root, self.plan)
+        self.assertEqual(
+            structural_status(self.client, lease_payload=historical)["result"],
+            "ok",
+        )
+        maintenance = maintenance_checkpoint(
+            self.client,
+            lease_payload=historical,
+            lease_path=self.lease_path,
+            run_root=run_root,
+        )
+        self.assertEqual(maintenance["classification"], "active")
+        current = load_json(self.lease_path)
+        preserve_lease(
+            lease_payload=current,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+            run_root=run_root,
+        )
+        preserved = load_json(self.lease_path)
+        self.assertEqual(preserved["schema"], "herdr-puppet.lease.v1")
+        cleanup = cleanup_preserved_tab(
+            self.client,
+            lease_payload=preserved,
+            lease_path=self.lease_path,
+            run_root=run_root,
+            confirm_tab_id=preserved["tab_id"],
+            allow_live_cleanup=True,
+        )
+        self.assertEqual(cleanup["result"], "ok")
+        self.assertTrue(cleanup["cleanup_performed"])
+
     def test_unbound_legacy_lease_cannot_be_attested_retroactively(self) -> None:
-        legacy = self.create_lease()
+        legacy = historical_lease_v1(self.create_lease())
         legacy.pop("harness_binding")
         legacy.pop("startup_gate_operations")
         legacy.pop("shell_readiness")
@@ -3229,6 +3520,35 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.code,
             "legacy_harness_binding_unavailable",
+        )
+
+    def test_v1_to_v2_migration_preserves_historical_binding_v2(self) -> None:
+        client = FakeClient()
+        codex_plan = make_plan(client, harness="codex")
+        codex_plan["proof_root"] = str((self.root / "codex-run").resolve())
+        refresh_selected_authority(codex_plan)
+        run_root = self.root / "codex-run"
+        initialize_journal(run_root, codex_plan)
+        active = create_qualification_tab(
+            client,
+            plan_payload=codex_plan,
+            lease_path=self.lease_path,
+            allow_live=True,
+            run_root=run_root,
+            settle_seconds=0.1,
+        )
+        historical = historical_lease_v1(active)
+        historical["harness_binding"]["schema"] = (
+            "herdr-puppet.harness-binding.v2"
+        )
+        historical["harness_binding"]["fingerprint"] = binding_fingerprint(
+            historical["harness_binding"]
+        )
+        migrated = migrate_legacy_lease(historical)
+        validate_lease(migrated)
+        self.assertEqual(
+            migrated["harness_binding"]["schema"],
+            "herdr-puppet.harness-binding.v2",
         )
 
     def test_binding_v1_allows_maintenance_but_not_fresh_qualification(
@@ -3269,6 +3589,9 @@ class QualificationTests(unittest.TestCase):
         historical_binding["fingerprint"] = binding_fingerprint(
             historical_binding
         )
+        refresh_selected_authority(lease)
+        self.plan["harness_binding"] = copy.deepcopy(historical_binding)
+        refresh_selected_authority(self.plan)
         self.persist_lease(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
@@ -3318,7 +3641,7 @@ class QualificationTests(unittest.TestCase):
         self.assertTrue(cleanup["cleanup_performed"])
 
     def test_legacy_lease_file_migration_is_locked_and_idempotent(self) -> None:
-        legacy = self.create_lease()
+        legacy = historical_lease_v1(self.create_lease())
         legacy.pop("shell_readiness")
         legacy["harness_readiness"] = "status_verified"
         legacy.pop("remote_task_files")
@@ -3330,7 +3653,14 @@ class QualificationTests(unittest.TestCase):
         self.assertTrue(first["migrated"])
         self.assertEqual(
             first["changed_fields"],
-            ["harness_readiness", "remote_task_files", "shell_readiness"],
+            [
+                "destination_selection",
+                "harness_readiness",
+                "remote_task_files",
+                "schema",
+                "selected_authority_sha256",
+                "shell_readiness",
+            ],
         )
         canonical = load_json(self.lease_path)
         validate_lease(canonical)
@@ -3438,7 +3768,7 @@ class QualificationTests(unittest.TestCase):
     def test_legacy_migration_never_writes_schema_invalid_nested_identity(
         self,
     ) -> None:
-        legacy = self.create_lease()
+        legacy = historical_lease_v1(self.create_lease())
         legacy.pop("shell_readiness")
         legacy["harness_readiness"] = "status_verified"
         legacy["session"].pop("socket")
@@ -3452,18 +3782,21 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_lease")
         self.assertEqual(self.lease_path.read_bytes(), before)
 
-    def test_journal_refresh_rejects_legacy_lease_until_migrated(self) -> None:
+    def test_journal_refresh_retains_historical_lease_status_evidence(self) -> None:
         lease = self.create_lease()
         run_root = self.root / "run"
-        initialize_journal(run_root, self.plan)
-        legacy = copy.deepcopy(lease)
+        legacy = historical_lease_v1(lease)
         legacy.pop("shell_readiness")
-        with self.assertRaises(HerdrPuppetError) as caught:
-            refresh_state(run_root, legacy)
-        self.assertEqual(
-            caught.exception.code,
-            "legacy_lease_requires_migration",
+        self.plan["harness_binding"] = copy.deepcopy(
+            legacy["harness_binding"]
         )
+        refresh_selected_authority(self.plan)
+        initialize_journal(run_root, self.plan)
+        result = refresh_state(run_root, legacy)
+        self.assertEqual(result["state"], "active")
+        state = (run_root / "STATE.md").read_text(encoding="utf-8")
+        self.assertIn("workspace_label: `worker-02`", state)
+        self.assertIn("tab_ordinal: `1`", state)
 
     def test_generic_journal_append_cannot_forge_controller_events(self) -> None:
         for kind in (
@@ -3509,6 +3842,70 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(self.client.pane_rows, [])
         self.assertFalse(self.lease_path.exists())
 
+    def test_create_tab_core_requires_run_root_before_mutation(self) -> None:
+        with mock.patch.object(
+            self.client,
+            "create_tab",
+            wraps=self.client.create_tab,
+        ) as create_tab:
+            with self.assertRaises(TypeError):
+                create_qualification_tab(
+                    self.client,
+                    plan_payload=self.plan,
+                    lease_path=self.lease_path,
+                    allow_live=True,
+                    settle_seconds=0.1,
+                )
+        create_tab.assert_not_called()
+        self.assertFalse(self.lease_path.exists())
+
+    def test_journal_initialization_validates_plan_before_creating_root(
+        self,
+    ) -> None:
+        run_root = self.root / "invalid-plan-run"
+        malformed = copy.deepcopy(self.plan)
+        malformed["proof_root"] = str(run_root.resolve())
+        malformed["destination_selection"]["tab"]["ordinal"] = 2
+        refresh_selected_authority(malformed)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            initialize_journal(run_root, malformed)
+        self.assertEqual(
+            caught.exception.code,
+            "owned_label_authority_mismatch",
+        )
+        self.assertFalse(run_root.exists())
+
+    def test_extra_nested_plan_field_is_rejected_before_herdr_or_lease(
+        self,
+    ) -> None:
+        run_root = self.root / "nested-plan-run"
+        journal_plan = copy.deepcopy(self.plan)
+        journal_plan["proof_root"] = str(run_root.resolve())
+        refresh_selected_authority(journal_plan)
+        initialize_journal(run_root, journal_plan)
+        malformed = copy.deepcopy(journal_plan)
+        malformed["session"]["unexpected"] = "must-fail-before-create"
+        refresh_selected_authority(malformed)
+        with mock.patch.object(
+            self.client,
+            "create_tab",
+            wraps=self.client.create_tab,
+        ) as create_tab:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                create_qualification_tab(
+                    self.client,
+                    plan_payload=malformed,
+                    lease_path=self.lease_path,
+                    allow_live=True,
+                    run_root=run_root,
+                    settle_seconds=0.1,
+                )
+        self.assertEqual(caught.exception.code, "invalid_plan")
+        create_tab.assert_not_called()
+        self.assertEqual(self.client.tab_rows, [])
+        self.assertEqual(self.client.pane_rows, [])
+        self.assertFalse(self.lease_path.exists())
+
     def test_create_tab_rejects_journal_from_another_run_before_mutation(
         self,
     ) -> None:
@@ -3516,6 +3913,12 @@ class QualificationTests(unittest.TestCase):
         wrong_plan = copy.deepcopy(self.plan)
         wrong_plan["run_id"] = "different-run"
         wrong_plan["proof_root"] = str(run_root.resolve())
+        wrong_plan["owned_label"] = deterministic_owned_label(
+            wrong_plan["run_id"],
+            wrong_plan["harness"],
+            wrong_plan["destination_selection"]["tab"]["ordinal"],
+        )
+        refresh_selected_authority(wrong_plan)
         initialize_journal(run_root, wrong_plan)
         with self.assertRaisesRegex(
             HerdrPuppetError,
@@ -3532,6 +3935,219 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(self.client.tab_rows, [])
         self.assertEqual(self.client.pane_rows, [])
         self.assertFalse(self.lease_path.exists())
+
+    def test_create_tab_rejects_same_run_root_cross_machine_and_ordinal(
+        self,
+    ) -> None:
+        client = FakeClient()
+        client.workspace_rows = [
+            {"workspace_id": "w-ai1", "label": "aiworker-01"},
+            {"workspace_id": "w-ai2", "label": "aiworker-02"},
+        ]
+        facts = fixture("plan-ok.json")
+        facts["workspaces"] = copy.deepcopy(client.workspace_rows)
+        run_root = self.root / "cross-machine-run"
+        binding = sample_binding()
+        common = {
+            "session": "operator-session",
+            "destination_catalog": fixture("destination-catalog-ok.json"),
+            "run_id": "same-run-machine-swap",
+            "harness": "agy",
+            "repo": "example/SaariusSkills",
+            "worktree": "/redacted/worktree",
+            "proof_root": str(run_root.resolve()),
+            "harness_binding": binding,
+            "live_mutation_authorized": True,
+            "facts": facts,
+        }
+        journal_plan = plan(
+            client,
+            machine="aiworker-01",
+            tab_ordinal=1,
+            **common,
+        )
+        incoming_plan = plan(
+            client,
+            machine="aiworker-02",
+            tab_ordinal=2,
+            **common,
+        )
+        initialize_journal(run_root, journal_plan)
+        lease_path = self.root / "cross-machine-lease.json"
+        with mock.patch.object(
+            client,
+            "create_tab",
+            wraps=client.create_tab,
+        ) as create_tab:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                create_qualification_tab(
+                    client,
+                    plan_payload=incoming_plan,
+                    lease_path=lease_path,
+                    allow_live=True,
+                    settle_seconds=0.1,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "journal_plan_mismatch")
+        create_tab.assert_not_called()
+        self.assertFalse(lease_path.exists())
+
+    def test_create_tab_rejects_same_run_root_cross_harness_and_model(
+        self,
+    ) -> None:
+        client = FakeClient()
+        run_root = self.root / "cross-harness-run"
+        common = {
+            "session": "operator-session",
+            "workspace_id": "w2",
+            "workspace_label": "worker-02",
+            "expected_ssh_target": "worker@worker-02.example",
+            "run_id": "same-run-harness-swap",
+            "repo": "example/SaariusSkills",
+            "worktree": "/redacted/worktree",
+            "proof_root": str(run_root.resolve()),
+            "live_mutation_authorized": True,
+            "facts": fixture("plan-ok.json"),
+        }
+        journal_plan = plan(
+            client,
+            harness="agy",
+            harness_binding=sample_binding(harness="agy"),
+            **common,
+        )
+        incoming_plan = plan(
+            client,
+            harness="codex",
+            harness_binding=sample_binding(harness="codex"),
+            **common,
+        )
+        initialize_journal(run_root, journal_plan)
+        lease_path = self.root / "cross-harness-lease.json"
+        with mock.patch.object(
+            client,
+            "create_tab",
+            wraps=client.create_tab,
+        ) as create_tab:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                create_qualification_tab(
+                    client,
+                    plan_payload=incoming_plan,
+                    lease_path=lease_path,
+                    allow_live=True,
+                    settle_seconds=0.1,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "journal_plan_mismatch")
+        create_tab.assert_not_called()
+        self.assertFalse(lease_path.exists())
+
+    def test_later_preflight_rejects_cross_ordinal_journal_authority(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        swapped_plan = copy.deepcopy(self.plan)
+        swapped_plan["destination_selection"]["tab"]["ordinal"] = 2
+        swapped_plan["owned_label"] = deterministic_owned_label(
+            swapped_plan["run_id"],
+            swapped_plan["harness"],
+            2,
+        )
+        refresh_selected_authority(swapped_plan)
+        initialize_journal(run_root, swapped_plan)
+        before = self.lease_path.read_bytes()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS LATER-MISMATCH-1'"
+                ),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "journal_lease_authority_mismatch")
+        self.assertEqual(self.client.ran, [])
+        self.assertEqual(self.lease_path.read_bytes(), before)
+
+    def test_later_preflight_rejects_cross_harness_model_authority(self) -> None:
+        lease = self.create_lease()
+        run_root = self.root / "run"
+        swapped_plan = plan(
+            self.client,
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id=lease["run_id"],
+            harness="codex",
+            repo=lease["source"]["repo"],
+            worktree=lease["source"]["worktree"],
+            proof_root=str(run_root.resolve()),
+            harness_binding=sample_binding(harness="codex"),
+            live_mutation_authorized=True,
+            facts=fixture("plan-ok.json"),
+        )
+        initialize_journal(run_root, swapped_plan)
+        before = self.lease_path.read_bytes()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_run(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                command=(
+                    "printf '%s\\n' "
+                    "'HERDR_PUPPET_STATUS LATER-MISMATCH-2'"
+                ),
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(caught.exception.code, "journal_lease_authority_mismatch")
+        self.assertEqual(self.client.ran, [])
+        self.assertEqual(self.lease_path.read_bytes(), before)
+
+    def test_journal_initialization_digest_and_authority_are_verified(self) -> None:
+        for field in ("plan_sha256", "selected_authority_sha256"):
+            with self.subTest(field=field):
+                client = FakeClient()
+                plan_payload = make_plan(client)
+                run_root = self.root / f"tampered-{field}"
+                plan_payload["proof_root"] = str(run_root.resolve())
+                refresh_selected_authority(plan_payload)
+                initialize_journal(run_root, plan_payload)
+                events = read_events(run_root)
+                events[0]["data"][field] = "0" * 64
+                (run_root / "events.jsonl").write_text(
+                    "".join(
+                        json.dumps(event, sort_keys=True, separators=(",", ":"))
+                        + "\n"
+                        for event in events
+                    ),
+                    encoding="utf-8",
+                )
+                lease_path = self.root / f"tampered-{field}-lease.json"
+                with mock.patch.object(
+                    client,
+                    "create_tab",
+                    wraps=client.create_tab,
+                ) as create_tab:
+                    with self.assertRaises(HerdrPuppetError) as caught:
+                        create_qualification_tab(
+                            client,
+                            plan_payload=plan_payload,
+                            lease_path=lease_path,
+                            allow_live=True,
+                            settle_seconds=0.1,
+                            run_root=run_root,
+                        )
+                self.assertEqual(
+                    caught.exception.code,
+                    "journal_initialization_authority_invalid",
+                )
+                create_tab.assert_not_called()
+                self.assertFalse(lease_path.exists())
 
     def test_status_detects_terminal_and_process_drift(self) -> None:
         lease = self.create_lease()
@@ -4843,11 +5459,14 @@ class QualificationTests(unittest.TestCase):
             harness_binding=binding,
             live_mutation_authorized=True,
         )
+        run_root = self.root / "cursor-forged-ready"
+        initialize_journal(run_root, cursor_plan)
         lease = create_qualification_tab(
             self.client,
             plan_payload=cursor_plan,
             lease_path=self.lease_path,
             allow_live=True,
+            run_root=run_root,
             settle_seconds=0.1,
         )
         lease = self.mark_harness_launched(lease)
@@ -6061,6 +6680,7 @@ class QualificationTests(unittest.TestCase):
                 lease_path=self.lease_path,
                 nonce="DO-NOT-PROBE",
                 allow_live=True,
+                run_root=run_root,
             ),
             lambda: qualification_beacon_wait(
                 self.client,
@@ -6396,6 +7016,7 @@ class QualificationTests(unittest.TestCase):
     def test_pre_readiness_codex_beacon_wait_rejects_tui_bullet(self) -> None:
         self.plan = make_plan(self.client, harness="codex")
         self.plan["proof_root"] = str((self.root / "run").resolve())
+        refresh_selected_authority(self.plan)
         lease = self.create_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
@@ -6777,6 +7398,7 @@ class QualificationTests(unittest.TestCase):
         shutil.copytree(run_root, alternate_root)
         copied_plan = load_json(alternate_root / "plan.json")
         copied_plan["proof_root"] = str(alternate_root.resolve())
+        refresh_selected_authority(copied_plan)
         (alternate_root / "plan.json").write_text(
             json.dumps(copied_plan),
             encoding="utf-8",
@@ -6918,6 +7540,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_token_probe_rejects_stale_active_payload_after_preserve(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         stale_active = copy.deepcopy(lease)
         preserve_lease(
             lease_payload=lease,
@@ -6936,12 +7559,14 @@ class QualificationTests(unittest.TestCase):
                     lease_path=self.lease_path,
                     nonce="TOKEN-STALE-ACTIVE",
                     allow_live=True,
+                    run_root=run_root,
                 )
         self.assertEqual(caught.exception.code, "stale_lease_payload")
         wait_output.assert_not_called()
 
     def test_token_probe_rejects_stale_preserved_caller_payload(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         stale_preserved = copy.deepcopy(lease)
         stale_preserved["state"] = "preserved"
         stale_preserved["preserved_reason"] = "operator_stop"
@@ -6959,6 +7584,7 @@ class QualificationTests(unittest.TestCase):
                     lease_path=self.lease_path,
                     nonce="TOKEN-STALE-PRESERVED",
                     allow_live=True,
+                    run_root=run_root,
                 )
         self.assertEqual(caught.exception.code, "stale_lease_payload")
         wait_output.assert_not_called()
@@ -7002,6 +7628,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_token_probe_never_emits_pane_text(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         self.client.read_payload = {
             "result": {
                 "text": "unrelated private-looking pane text\nTOKEN-12345"
@@ -7013,6 +7640,7 @@ class QualificationTests(unittest.TestCase):
             lease_path=self.lease_path,
             nonce="TOKEN-12345",
             allow_live=True,
+            run_root=run_root,
             lines=20,
         )
         self.assertTrue(result["matched"])
@@ -7023,6 +7651,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_token_probe_accepts_raw_herdr_text_without_emitting_it(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         self.client.read_payload = "private-looking text\nTOKEN-RAW"
         result = qualification_token_probe(
             self.client,
@@ -7030,6 +7659,7 @@ class QualificationTests(unittest.TestCase):
             lease_path=self.lease_path,
             nonce="TOKEN-RAW",
             allow_live=True,
+            run_root=run_root,
             lines=20,
         )
         self.assertTrue(result["matched"])
@@ -7038,6 +7668,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_token_probe_rejects_unbounded_window(self) -> None:
         lease = self.create_lease()
+        run_root = self.initialize_default_journal()
         with self.assertRaisesRegex(HerdrPuppetError, "between 1 and 80"):
             qualification_token_probe(
                 self.client,
@@ -7045,6 +7676,7 @@ class QualificationTests(unittest.TestCase):
                 lease_path=self.lease_path,
                 nonce="TOKEN",
                 allow_live=True,
+                run_root=run_root,
                 lines=81,
             )
 

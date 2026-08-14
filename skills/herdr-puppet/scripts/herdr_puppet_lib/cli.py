@@ -410,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--nonce", required=True)
     probe.add_argument("--lines", type=int, default=40)
     probe.add_argument("--timeout-ms", type=int, default=30_000)
-    probe.add_argument("--run-root")
+    probe.add_argument("--run-root", required=True)
     probe.add_argument("--allow-live-qualification", action="store_true")
     _common_live(probe, default_timeout_seconds=35.0)
 
@@ -803,7 +803,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             nonce=args.nonce,
             lines=args.lines,
             timeout_ms=args.timeout_ms,
-            run_root=Path(args.run_root) if args.run_root else None,
+            run_root=Path(args.run_root),
             allow_live=args.allow_live_qualification,
         )
     if args.command == "qualification-beacon-wait":

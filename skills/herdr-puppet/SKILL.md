@@ -58,23 +58,20 @@ hand-composed Herdr mutations when the script owns the operation.
    failures, and concise observations; never copy pane output into the
    journal. The plan's exact `proof_root` is the one allowed journal
    `run_root`; initialization and every later journal use reject any alternate
-   or copied root. `qualification-create-tab` preflights that matching
-   initialized journal and refuses to create a tab or lease when it is absent
-   or belongs to another run.
+   or copied root. Initialization binds the exact plan digest and selected
+   authority. `qualification-create-tab` exact-matches that stored plan before
+   any Herdr call and refuses a missing, swapped, or cross-run journal.
 5. Run structural `status --plan-json` before tab creation. Once a lease
    exists, stop rechecking the now-consumed plan: its owned label is expected
    to exist and plan status must reject it. Use `status --lease-json` or
    `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
-   Current operations accept only the canonical lease-v1 shape. If a historical
-   lease lacks the additive readiness/file fields or carries the former
-   `harness_readiness: status_verified` value, run the explicit
-   `lease-migrate-v1` adapter before status, journal refresh, probe,
-   preservation, or cleanup. An unbound historical lease cannot be
-   controller-attested retroactively and remains historical evidence only. A
-   canonical lease carrying a valid binding-v1/v2 remains available for status,
-   preservation, maintenance, and exact cleanup, but every fresh qualification
-   transition requires recensus and a binding-v3 plan.
+   Fresh mutation accepts only active plan-v2/lease-v2 authority. Historical
+   plan-v1 is read-only/status evidence. Historical lease-v1 retains status,
+   preservation, maintenance, and exact-cleanup compatibility; use the explicit
+   `lease-migrate-v1` adapter for v2. An unbound historical lease remains
+   evidence only. Binding-v1/v2 leases remain maintainable, but every fresh
+   qualification transition requires recensus and a binding-v3 plan.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. The controller focuses that exact newly created
    tab in the plan's target workspace so the run is operator-visible and Herdr
@@ -136,8 +133,9 @@ hand-composed Herdr mutations when the script owns the operation.
    operation, registered task-file authority, sequence contract, terminal
    evidence, and exact removal proof.
 9. Use `instruction-wrapper-create` for the first regular interactive message.
-   The versioned wrapper composes universal, harness, default-unresolved, and
-   regular lifecycle layers, and binds its manifest to the run and harness
+   The versioned wrapper composes universal, harness, harness-selected model
+   (explicit Gemini 3.7 for AGY; default-unresolved otherwise), and regular
+   lifecycle layers, and binds its manifest to the run and harness
    binding. Pass that manifest to the first `qualification-send`; a mismatch
    fails before pane input. Use `qualification-send` only for ordinary interactive
    harness prompts
