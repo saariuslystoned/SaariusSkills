@@ -3271,7 +3271,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(result["result"], "not_matched")
         self.assertIsNone(result["checkpoint"])
 
-    def test_create_tab_requires_both_live_gates(self) -> None:
+    def test_create_tab_requires_both_live_gates_set(self) -> None:
         blocked_plan = make_plan(self.client, live_mutation_authorized=False)
         with self.assertRaisesRegex(HerdrPuppetError, "Both the plan capability"):
             create_qualification_tab(
@@ -5789,7 +5789,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_lease")
         self.assertEqual(self.client.sent, [])
 
-    def test_send_rejects_replay_before_mutation(self) -> None:
+    def test_send_rejects_replay_prior_to_mutation(self) -> None:
         lease = self.create_lease()
         run_root = self.initialize_default_journal()
         with self.assertRaisesRegex(HerdrPuppetError, "stale, skipped"):
