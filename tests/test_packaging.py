@@ -21,7 +21,7 @@ class PackagingTests(unittest.TestCase):
         )
         expected_root = {
             "name": "saarius-skills",
-            "description": "Experimental agent workflows and Herdr transport tools.",
+            "description": "Experimental agent supervision, Herdr transport, and progressive product-decision workflows.",
         }
         market = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
@@ -30,7 +30,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.1.0")
+        self.assertEqual(plugin["version"], "0.2.0")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -93,7 +93,11 @@ class PackagingTests(unittest.TestCase):
     def test_no_placeholders(self) -> None:
         placeholder = "[" + "TODO:"
         for path in ROOT.rglob("*"):
-            if not path.is_file() or ".git" in path.parts:
+            if not path.is_file() or {
+                ".git",
+                ".ruff_cache",
+                "__pycache__",
+            }.intersection(path.parts):
                 continue
             if path.suffix not in {".md", ".json", ".yaml", ".py", ""}:
                 continue
