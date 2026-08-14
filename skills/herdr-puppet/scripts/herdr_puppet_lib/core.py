@@ -53,6 +53,12 @@ SUPPORTED_HERDR_PROTOCOL = 16
 CHECKPOINT_KINDS = ("STATUS", "ACTION_REQUIRED", "DONE")
 SHELL_READY = "status_verified"
 HARNESS_READY = "operator_verified"
+HARNESS_CHECKPOINT_PENDING = "checkpoint_pending"
+HARNESS_CHECKPOINT_READY = "checkpoint_verified"
+HARNESS_INPUT_ADMITTED = {
+    HARNESS_READY,
+    HARNESS_CHECKPOINT_READY,
+}
 LEGACY_HARNESS_STATUS = "status_verified"
 DEFAULT_BEACON_TIMEOUT_MS = 480_000
 MAX_BEACON_TIMEOUT_MS = 3_600_000
@@ -64,7 +70,8 @@ DESTINATION_CATALOG_SCHEMA = "herdr-puppet.destination-catalog.v1"
 DESTINATION_RECEIPT_SCHEMA = "herdr-puppet.destination-selection-receipt.v1"
 PLAN_SCHEMA = "herdr-puppet.plan.v2"
 HISTORICAL_PLAN_SCHEMA = "herdr-puppet.plan.v1"
-LEASE_SCHEMA = "herdr-puppet.lease.v2"
+LEASE_SCHEMA = "herdr-puppet.lease.v3"
+PREVIOUS_LEASE_SCHEMA = "herdr-puppet.lease.v2"
 HISTORICAL_LEASE_SCHEMA = "herdr-puppet.lease.v1"
 BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
 REMOTE_FILE_REGISTERED = "registered"
@@ -177,6 +184,8 @@ LEASE_FIELDS = {
     "harness_readiness_evidence",
     "harness_readiness_operator",
     "harness_readiness_verified_at",
+    "harness_readiness_submission_seq",
+    "harness_readiness_nonce_sha256",
     "source",
     "proof_root",
     "caller_text_files",
@@ -239,7 +248,11 @@ LEGACY_OPTIONAL_CANONICAL_FIELDS = {
 LEGACY_LEASE_REQUIRED_FIELDS = (
     CANONICAL_LEASE_REQUIRED_FIELDS - LEGACY_OPTIONAL_CANONICAL_FIELDS
 )
-HISTORICAL_LEASE_FIELDS = LEASE_FIELDS - {
+PREVIOUS_LEASE_FIELDS = LEASE_FIELDS - {
+    "harness_readiness_submission_seq",
+    "harness_readiness_nonce_sha256",
+}
+HISTORICAL_LEASE_FIELDS = PREVIOUS_LEASE_FIELDS - {
     "destination_selection",
     "selected_authority_sha256",
 }
@@ -836,6 +849,10 @@ def _shell_readiness(payload: dict[str, Any]) -> str:
     return "unverified"
 
 
+def _harness_input_admitted(payload: dict[str, Any]) -> bool:
+    return payload.get("harness_readiness") in HARNESS_INPUT_ADMITTED
+
+
 def _is_strict_shell_status_probe(command: str) -> bool:
     return (
         re.fullmatch(
@@ -1283,17 +1300,27 @@ def _validate_plan(
 
 
 def validate_lease(payload: dict[str, Any]) -> None:
-    if payload.get("schema") == HISTORICAL_LEASE_SCHEMA:
+    if payload.get("schema") in {
+        PREVIOUS_LEASE_SCHEMA,
+        HISTORICAL_LEASE_SCHEMA,
+    }:
         validate_legacy_lease(payload)
         raise HerdrPuppetError(
             "legacy_lease_requires_migration",
-            "Historical lease-v1 requires explicit migration before active qualification.",
+            "Historical lease-v1/v2 requires explicit migration before active "
+            "qualification.",
         )
-    _validate_lease(payload, allow_legacy=False)
+    _validate_lease(payload, lease_version=3)
 
 
 def validate_legacy_lease(payload: dict[str, Any]) -> None:
-    _validate_lease(payload, allow_legacy=True)
+    if payload.get("schema") == PREVIOUS_LEASE_SCHEMA:
+        _validate_lease(payload, lease_version=2)
+        return
+    if payload.get("schema") == HISTORICAL_LEASE_SCHEMA:
+        _validate_lease(payload, lease_version=1)
+        return
+    raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
 
 
 def _validate_maintainable_lease(
@@ -1304,7 +1331,10 @@ def _validate_maintainable_lease(
     if payload.get("schema") == LEASE_SCHEMA:
         validate_lease(payload)
         return
-    if allow_historical and payload.get("schema") == HISTORICAL_LEASE_SCHEMA:
+    if allow_historical and payload.get("schema") in {
+        PREVIOUS_LEASE_SCHEMA,
+        HISTORICAL_LEASE_SCHEMA,
+    }:
         validate_legacy_lease(payload)
         return
     raise HerdrPuppetError(
@@ -1316,12 +1346,25 @@ def _validate_maintainable_lease(
 def _validate_lease(
     payload: dict[str, Any],
     *,
-    allow_legacy: bool,
+    lease_version: int,
 ) -> None:
-    expected_schema = HISTORICAL_LEASE_SCHEMA if allow_legacy else LEASE_SCHEMA
+    schemas = {
+        1: HISTORICAL_LEASE_SCHEMA,
+        2: PREVIOUS_LEASE_SCHEMA,
+        3: LEASE_SCHEMA,
+    }
+    expected_schema = schemas.get(lease_version)
+    if expected_schema is None:
+        raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
     if payload.get("schema") != expected_schema:
         raise HerdrPuppetError("invalid_lease_schema", "Unsupported lease schema.")
-    allowed_fields = HISTORICAL_LEASE_FIELDS if allow_legacy else LEASE_FIELDS
+    allowed_fields = (
+        HISTORICAL_LEASE_FIELDS
+        if lease_version == 1
+        else PREVIOUS_LEASE_FIELDS
+        if lease_version == 2
+        else LEASE_FIELDS
+    )
     unexpected_fields = sorted(set(payload) - allowed_fields)
     if unexpected_fields:
         raise HerdrPuppetError(
@@ -1338,7 +1381,7 @@ def _validate_lease(
         )
     canonical_missing = sorted(CANONICAL_LEASE_REQUIRED_FIELDS - set(payload))
     legacy_readiness = payload.get("harness_readiness") == LEGACY_HARNESS_STATUS
-    if not allow_legacy and (canonical_missing or legacy_readiness):
+    if lease_version != 1 and (canonical_missing or legacy_readiness):
         raise HerdrPuppetError(
             "legacy_lease_requires_migration",
             "Historical lease-v1 shape requires explicit canonical migration.",
@@ -1461,7 +1504,7 @@ def _validate_lease(
     binding: dict[str, Any] | None = None
     if "harness_binding" in payload:
         historical_binding = payload["harness_binding"]
-        if allow_legacy and (
+        if lease_version == 1 and (
             not isinstance(historical_binding, dict)
             or historical_binding.get("schema")
             not in {
@@ -1474,7 +1517,7 @@ def _validate_lease(
                 "Historical lease-v1 accepts only its frozen binding-v1/v2 authority.",
             )
         binding = _validate_record_binding(payload)
-    if not allow_legacy:
+    if lease_version != 1:
         expected_authority = selected_authority_sha256(payload)
         if payload.get("selected_authority_sha256") != expected_authority:
             raise HerdrPuppetError(
@@ -1518,50 +1561,17 @@ def _validate_lease(
         )
     harness_readiness = payload.get("harness_readiness", "unverified")
     allowed_harness_readiness = {"unverified", HARNESS_READY}
-    if allow_legacy:
+    if lease_version == 1:
         allowed_harness_readiness.add(LEGACY_HARNESS_STATUS)
+    if lease_version == 3:
+        allowed_harness_readiness.update(
+            {HARNESS_CHECKPOINT_PENDING, HARNESS_CHECKPOINT_READY}
+        )
     if harness_readiness not in allowed_harness_readiness:
         raise HerdrPuppetError(
             "invalid_lease",
             "Unexpected harness readiness state.",
             details={"harness_readiness": harness_readiness},
-        )
-    if harness_readiness == HARNESS_READY:
-        if (
-            payload.get("shell_readiness") != SHELL_READY
-            or "harness_launch" not in payload
-            or (
-                payload["harness"] == "cursor"
-                and not any(
-                    operation.get("gate") == "workspace_trust"
-                    for operation in startup_gate_operations
-                )
-            )
-            or payload.get("harness_readiness_evidence")
-            != "operator_observed_ready_input"
-            or not isinstance(payload.get("harness_readiness_operator"), str)
-            or not re.fullmatch(
-                r"[A-Za-z0-9._@:-]{1,128}",
-                payload["harness_readiness_operator"],
-            )
-            or not _is_rfc3339_timestamp(
-                payload.get("harness_readiness_verified_at")
-            )
-        ):
-            raise HerdrPuppetError(
-                "invalid_lease",
-                "Operator-verified readiness requires shell and launch proof, "
-                "all required startup gates, bounded evidence, and a "
-                "verification time.",
-            )
-    elif (
-        "harness_readiness_evidence" in payload
-        or "harness_readiness_operator" in payload
-        or "harness_readiness_verified_at" in payload
-    ):
-        raise HerdrPuppetError(
-            "invalid_lease",
-            "Unverified or legacy readiness may not carry operator evidence.",
         )
     for field in CONTROLLER_FILE_FIELDS:
         if field in payload:
@@ -1583,6 +1593,124 @@ def _validate_lease(
         payload.get("pending_sequence_operation"),
         next_seq=payload["next_seq"],
     )
+    readiness_evidence_fields = {
+        "harness_readiness_evidence",
+        "harness_readiness_operator",
+        "harness_readiness_verified_at",
+        "harness_readiness_submission_seq",
+        "harness_readiness_nonce_sha256",
+    }
+    if harness_readiness == HARNESS_READY:
+        if (
+            (lease_version == 3 and payload["harness"] == "agy")
+            or payload.get("shell_readiness") != SHELL_READY
+            or "harness_launch" not in payload
+            or (
+                payload["harness"] == "cursor"
+                and not any(
+                    operation.get("gate") == "workspace_trust"
+                    for operation in startup_gate_operations
+                )
+            )
+            or payload.get("harness_readiness_evidence")
+            != "operator_observed_ready_input"
+            or not isinstance(payload.get("harness_readiness_operator"), str)
+            or not re.fullmatch(
+                r"[A-Za-z0-9._@:-]{1,128}",
+                payload["harness_readiness_operator"],
+            )
+            or not _is_rfc3339_timestamp(
+                payload.get("harness_readiness_verified_at")
+            )
+            or "harness_readiness_submission_seq" in payload
+            or "harness_readiness_nonce_sha256" in payload
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Operator-verified readiness requires shell and launch proof, "
+                "all required startup gates, bounded operator evidence, and a "
+                "verification time.",
+            )
+    elif harness_readiness == HARNESS_CHECKPOINT_PENDING:
+        readiness_seq = payload.get("harness_readiness_submission_seq")
+        if (
+            payload["harness"] != "agy"
+            or payload.get("shell_readiness") != SHELL_READY
+            or "harness_launch" not in payload
+            or len(interactive_sends) != 1
+            or interactive_sends[0]["phase"] != "initial"
+            or startup_gate_operations
+            or isinstance(readiness_seq, bool)
+            or not isinstance(readiness_seq, int)
+            or readiness_seq != interactive_sends[0]["seq"]
+            or readiness_seq != payload["harness_launch"]["seq"] + 1
+            or re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(payload.get("harness_readiness_nonce_sha256", "")),
+            )
+            is None
+            or pending_interactive_send is not None
+            or pending_sequence_operation is not None
+            or any(
+                field in payload
+                for field in {
+                    "harness_readiness_evidence",
+                    "harness_readiness_operator",
+                    "harness_readiness_verified_at",
+                }
+            )
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Checkpoint-pending readiness is limited to one acknowledged "
+                "wrapped AGY initial send and its exact expected nonce after "
+                "the bound launch.",
+            )
+    elif harness_readiness == HARNESS_CHECKPOINT_READY:
+        readiness_seq = payload.get("harness_readiness_submission_seq")
+        if (
+            payload["harness"] != "agy"
+            or payload.get("shell_readiness") != SHELL_READY
+            or "harness_launch" not in payload
+            or not interactive_sends
+            or interactive_sends[0]["phase"] != "initial"
+            or startup_gate_operations
+            or isinstance(readiness_seq, bool)
+            or not isinstance(readiness_seq, int)
+            or readiness_seq != interactive_sends[0]["seq"]
+            or readiness_seq != payload["harness_launch"]["seq"] + 1
+            or payload.get("harness_readiness_evidence")
+            != "strict_initial_status_checkpoint"
+            or "harness_readiness_operator" in payload
+            or pending_sequence_operation is not None
+            or not _is_rfc3339_timestamp(
+                payload.get("harness_readiness_verified_at")
+            )
+            or re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(payload.get("harness_readiness_nonce_sha256", "")),
+            )
+            is None
+        ):
+            raise HerdrPuppetError(
+                "invalid_lease",
+                "Checkpoint-verified readiness requires one exact AGY initial "
+                "send and its strict STATUS nonce evidence.",
+            )
+    elif (
+        any(field in payload for field in readiness_evidence_fields)
+        or (
+            lease_version == 3
+            and harness_readiness == "unverified"
+            and bool(interactive_sends)
+        )
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Unverified or legacy readiness may not carry completed readiness "
+            "evidence, and active unverified readiness may not carry a "
+            "completed interactive send.",
+        )
     if (
         pending_interactive_send is not None
         and pending_sequence_operation is not None
@@ -1653,6 +1781,25 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
         or migrated["harness_readiness"] == LEGACY_HARNESS_STATUS
     ):
         migrated["harness_readiness"] = "unverified"
+    if (
+        migrated["harness"] == "agy"
+        and migrated["harness_readiness"] == HARNESS_READY
+    ):
+        # Frozen lease-v1/v2 allowed operator-ready AGY rows. Active lease-v3
+        # makes AGY readiness checkpoint-driven, so explicit migration keeps
+        # the row maintainable but never carries the old human observation
+        # forward as pane-input authority.
+        if migrated.get("interactive_sends"):
+            raise HerdrPuppetError(
+                "legacy_agy_readiness_requires_fresh_row",
+                "A historical AGY row with completed input remains maintainable "
+                "as a historical lease but cannot migrate its operator readiness into the "
+                "checkpoint-driven active state; preserve it and create a fresh row.",
+            )
+        migrated["harness_readiness"] = "unverified"
+        migrated.pop("harness_readiness_evidence", None)
+        migrated.pop("harness_readiness_operator", None)
+        migrated.pop("harness_readiness_verified_at", None)
     migrated.setdefault("caller_text_files", [])
     migrated.setdefault("caller_text_files_removed", [])
     migrated.setdefault("remote_task_files", [])
@@ -1670,7 +1817,16 @@ def migrate_legacy_lease_file(
     *,
     lease_payload: dict[str, Any],
     lease_path: Path,
+    receipt_schema: str = "herdr-puppet.lease-migrate.v1",
 ) -> dict[str, Any]:
+    if receipt_schema not in {
+        "herdr-puppet.lease-migrate.v1",
+        "herdr-puppet.lease-migrate-v1.v1",
+    }:
+        raise HerdrPuppetError(
+            "invalid_migration_receipt_schema",
+            "Migration receipt schema must be a controller-owned supported value.",
+        )
     if lease_payload.get("schema") == LEASE_SCHEMA:
         validate_lease(lease_payload)
     else:
@@ -1692,7 +1848,7 @@ def migrate_legacy_lease_file(
         if changed_fields:
             atomic_json(locked_lease_path, migrated)
     return {
-        "schema": "herdr-puppet.lease-migrate-v1.v1",
+        "schema": receipt_schema,
         "result": "ok",
         "run_id": migrated["run_id"],
         "migrated": bool(changed_fields),
@@ -3948,24 +4104,36 @@ def _require_qualification_send_consistency(
 def _require_initial_send_consumption(
     run_root: Path,
     *,
-    run_id: str,
+    lease: dict[str, Any],
     initial_send: dict[str, Any],
 ) -> None:
     matches = [
         event
         for event in read_events(run_root)
-        if event.get("run_id") == run_id
+        if event.get("run_id") == lease["run_id"]
         and event.get("kind") == "qualification.beacon"
         and event.get("result") == "observed"
         and event.get("seq") == initial_send["seq"]
         and isinstance(event.get("data"), dict)
         and event["data"].get("checkpoint") == "STATUS"
     ]
-    if not matches:
+    if lease.get("harness_readiness") == HARNESS_CHECKPOINT_READY:
+        expected_seq = lease.get("harness_readiness_submission_seq")
+        expected_nonce = lease.get("harness_readiness_nonce_sha256")
+        evidence_matches = [
+            event
+            for event in matches
+            if event.get("seq") == expected_seq
+            and event.get("nonce_sha256") == expected_nonce
+        ]
+        evidence_is_exact = len(matches) == 1 and len(evidence_matches) == 1
+    else:
+        evidence_is_exact = bool(matches)
+    if not evidence_is_exact:
         raise HerdrPuppetError(
             "initial_send_consumption_not_proven",
-            "The separate steering turn requires a controller-observed STATUS "
-            "checkpoint for the wrapped initial send.",
+            "The separate steering turn requires one exact controller-observed "
+            "STATUS checkpoint for the wrapped initial send and its bound nonce.",
         )
 
 
@@ -4348,7 +4516,11 @@ def qualification_startup_gate(
                 "Startup-gate sequence is stale, skipped, duplicate, or replayed.",
                 details={"expected": current["next_seq"], "received": seq},
             )
-        if current.get("harness_readiness") == HARNESS_READY:
+        if current.get("harness_readiness") in {
+            HARNESS_READY,
+            HARNESS_CHECKPOINT_PENDING,
+            HARNESS_CHECKPOINT_READY,
+        }:
             raise HerdrPuppetError(
                 "startup_gate_after_readiness_forbidden",
                 "Startup gates may be handled only before ordinary readiness.",
@@ -4502,6 +4674,13 @@ def qualification_harness_ready(
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
             "The command flag must authorize harness readiness verification.",
+        )
+    if lease_payload["harness"] == "agy":
+        raise HerdrPuppetError(
+            "agy_readiness_is_checkpoint_driven",
+            "AGY does not require operator-observed input readiness. Submit the "
+            "single wrapped initial prompt after its bound launch, then wait "
+            "for the strict nonce checkpoint.",
         )
     if not confirm_ready:
         raise HerdrPuppetError(
@@ -4682,6 +4861,7 @@ def qualification_send(
     instruction_manifest: dict[str, Any] | None = None,
     allow_live: bool,
     run_root: Path,
+    checkpoint_nonce: str | None = None,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
     require_initialized_journal(
@@ -4710,13 +4890,6 @@ def qualification_send(
                 "Send sequence is stale, skipped, duplicate, or replayed.",
                 details={"expected": current["next_seq"], "received": seq},
             )
-        readiness = current.get("harness_readiness", "unverified")
-        if readiness != HARNESS_READY:
-            raise HerdrPuppetError(
-                "harness_readiness_not_proven",
-                "Pane input requires explicit source/operator-bound harness readiness.",
-                details={"expected": HARNESS_READY, "actual": readiness},
-            )
         binding = _require_current_record_binding(current)
         prior_sends = _require_qualification_send_consistency(
             current,
@@ -4733,6 +4906,59 @@ def qualification_send(
                 "send and one separate steering send.",
             )
         phase = "initial" if not prior_sends else "steering"
+        readiness = current.get("harness_readiness", "unverified")
+        checkpoint_driven_initial = (
+            current["harness"] == "agy"
+            and phase == "initial"
+            and readiness == "unverified"
+        )
+        if checkpoint_driven_initial:
+            if (
+                _shell_readiness(current) != SHELL_READY
+                or "harness_launch" not in current
+                or current.get("startup_gate_operations") != []
+                or current["next_seq"]
+                != current["harness_launch"]["seq"] + 1
+            ):
+                raise HerdrPuppetError(
+                    "agy_bound_launch_missing",
+                    "AGY's autonomous initial send requires shell STATUS and "
+                    "the exact immediately preceding controller-attested launch.",
+                )
+            if checkpoint_nonce is None or re.fullmatch(
+                r"[A-Za-z0-9._:-]{8,24}", checkpoint_nonce
+            ) is None:
+                raise HerdrPuppetError(
+                    "agy_checkpoint_nonce_required",
+                    "AGY's autonomous initial send requires the exact 8-24 "
+                    "character checkpoint nonce that its first wait will use.",
+                )
+            if normalized_text.count(checkpoint_nonce) != 1:
+                raise HerdrPuppetError(
+                    "agy_checkpoint_nonce_not_bound_to_prompt",
+                    "AGY's wrapped initial prompt must contain its expected "
+                    "checkpoint nonce exactly once as a split checkpoint fragment.",
+                )
+        elif checkpoint_nonce is not None:
+            raise HerdrPuppetError(
+                "checkpoint_nonce_not_applicable",
+                "An initial checkpoint nonce is accepted only for AGY's first "
+                "autonomous send.",
+            )
+        elif not _harness_input_admitted(current):
+            raise HerdrPuppetError(
+                (
+                    "harness_readiness_checkpoint_pending"
+                    if readiness == HARNESS_CHECKPOINT_PENDING
+                    else "harness_readiness_not_proven"
+                ),
+                "Pane input requires operator readiness or AGY's strict "
+                "initial STATUS checkpoint.",
+                details={
+                    "expected": sorted(HARNESS_INPUT_ADMITTED),
+                    "actual": readiness,
+                },
+            )
         if phase == "initial" and instruction_manifest is None:
             raise HerdrPuppetError(
                 "instruction_wrapper_required",
@@ -4763,7 +4989,7 @@ def qualification_send(
         elif phase == "steering":
             _require_initial_send_consumption(
                 run_root,
-                run_id=current["run_id"],
+                lease=current,
                 initial_send=prior_sends[0],
             )
         checked_instruction_manifest: dict[str, Any] | None = None
@@ -4851,6 +5077,21 @@ def qualification_send(
                 ),
             }
         ]
+        if checkpoint_driven_initial:
+            updated["harness_readiness"] = HARNESS_CHECKPOINT_PENDING
+            updated["harness_readiness_submission_seq"] = seq
+            updated["harness_readiness_nonce_sha256"] = sha256_text(
+                checkpoint_nonce
+            )
+        post_send_readiness = updated.get(
+            "harness_readiness",
+            "unverified",
+        )
+        harness_acceptance = (
+            "unverified"
+            if checkpoint_driven_initial
+            else post_send_readiness
+        )
         atomic_json(locked_lease_path, updated)
         append_event(
             run_root,
@@ -4868,8 +5109,8 @@ def qualification_send(
                         "acceptance_scope": "herdr_pane_input_only",
                         "outcome": "pane_input_accepted",
                         "shell_readiness": _shell_readiness(current),
-                        "harness_readiness": readiness,
-                        "harness_acceptance": "operator_verified",
+                        "harness_readiness": post_send_readiness,
+                        "harness_acceptance": harness_acceptance,
                         "checkpoint_echo_protected": True,
                         "caller_text_file_retained": text_file_retained,
                         "prompt_file_tracked": tracked_text_file is not None,
@@ -4907,7 +5148,7 @@ def qualification_send(
             ),
         )
     return {
-        "schema": "herdr-puppet.qualification-send.v1",
+        "schema": "herdr-puppet.qualification-send.v2",
         "result": "ok",
         "run_id": updated["run_id"],
         "pane_id": pane_id,
@@ -4918,8 +5159,8 @@ def qualification_send(
         "acceptance_scope": "herdr_pane_input_only",
         "outcome": "pane_input_accepted",
         "shell_readiness": _shell_readiness(updated),
-        "harness_readiness": readiness,
-        "harness_acceptance": "operator_verified",
+        "harness_readiness": post_send_readiness,
+        "harness_acceptance": harness_acceptance,
         "checkpoint_echo_protected": True,
         "caller_text_file_retained": text_file_retained,
         "prompt_file_tracked": tracked_text_file is not None,
@@ -5084,7 +5325,7 @@ def qualification_reconcile_send(
             )
         _require_initial_send_consumption(
             run_root,
-            run_id=current["run_id"],
+            lease=current,
             initial_send=prior_sends[0],
         )
         expected_next_seq = seq + 1 if completed_reconcile else seq
@@ -5097,7 +5338,7 @@ def qualification_reconcile_send(
                     "received": current["next_seq"],
                 },
             )
-        if current.get("harness_readiness") != HARNESS_READY:
+        if not _harness_input_admitted(current):
             raise HerdrPuppetError(
                 "harness_readiness_not_proven",
                 "Pane-input reconciliation requires explicit harness readiness.",
@@ -5139,7 +5380,10 @@ def qualification_reconcile_send(
                             "phase": "steering",
                             "pane_id": updated["pane_id"],
                             "evidence": evidence,
-                            "harness_readiness": HARNESS_READY,
+                            "harness_readiness": current.get(
+                                "harness_readiness",
+                                "unverified",
+                            ),
                             "herdr_mutated": False,
                             "completion_event_repaired": repair_completion_event,
                     },
@@ -5687,6 +5931,23 @@ def qualification_beacon_wait(
         )
         if current_before_wait["state"] != "active":
             raise HerdrPuppetError("lease_not_active", "The lease is not active.")
+        _require_no_pending_sequence_operation(current_before_wait)
+        if current_before_wait.get("pending_interactive_send") is not None:
+            raise HerdrPuppetError(
+                "qualification_send_delivery_unknown",
+                "A checkpoint wait cannot adjudicate a delivery-unknown send; "
+                "preserve the row and do not wait, resend, or reconcile it.",
+            )
+        if (
+            current_before_wait["harness"] == "agy"
+            and "harness_launch" in current_before_wait
+            and current_before_wait.get("harness_readiness") == "unverified"
+        ):
+            raise HerdrPuppetError(
+                "agy_initial_checkpoint_missing",
+                "After AGY launch, a checkpoint wait requires the acknowledged "
+                "wrapped initial send and its pre-bound nonce.",
+            )
         submission_seq = current_before_wait["next_seq"] - 1
         if submission_seq < 1:
             raise HerdrPuppetError(
@@ -5694,23 +5955,66 @@ def qualification_beacon_wait(
                 "Beacon waits require a prior sequenced submission.",
             )
         interactive_send_count = 0
-        if current_before_wait.get("harness_readiness") == HARNESS_READY:
+        readiness_before_wait = current_before_wait.get(
+            "harness_readiness",
+            "unverified",
+        )
+        if (
+            readiness_before_wait == HARNESS_CHECKPOINT_PENDING
+            or _harness_input_admitted(current_before_wait)
+        ):
             interactive_sends = _require_qualification_send_consistency(
                 current_before_wait,
                 run_root,
             )
             send_count = len(interactive_sends)
             interactive_send_count = send_count
-            if send_count not in {1, 2}:
+            if (
+                readiness_before_wait == HARNESS_CHECKPOINT_PENDING
+                and (
+                    current_before_wait["harness"] != "agy"
+                    or send_count != 1
+                )
+            ):
+                raise HerdrPuppetError(
+                    "agy_initial_checkpoint_state_invalid",
+                    "Checkpoint-pending AGY readiness requires exactly one "
+                    "wrapped initial send.",
+                )
+            if (
+                readiness_before_wait != HARNESS_CHECKPOINT_PENDING
+                and send_count not in {1, 2}
+            ):
                 raise HerdrPuppetError(
                     "qualification_send_count_mismatch",
-                    "Post-readiness beacon waits require one or two bound sends.",
+                    "Admitted beacon waits require one or two bound sends.",
                 )
             if interactive_sends[-1]["seq"] != submission_seq:
                 raise HerdrPuppetError(
                     "beacon_submission_not_latest_interactive_send",
                     "A post-readiness beacon must bind to the latest exact "
                     "interactive send sequence.",
+                )
+            if (
+                current_before_wait["harness"] == "agy"
+                and send_count == 1
+                and readiness_before_wait
+                in {HARNESS_CHECKPOINT_PENDING, HARNESS_CHECKPOINT_READY}
+                and (
+                    current_before_wait.get(
+                        "harness_readiness_submission_seq"
+                    )
+                    != submission_seq
+                    or current_before_wait.get(
+                        "harness_readiness_nonce_sha256"
+                    )
+                    != nonce_digest
+                )
+            ):
+                raise HerdrPuppetError(
+                    "agy_checkpoint_nonce_mismatch",
+                    "AGY's first wait must use the exact nonce bound before its "
+                    "autonomous initial send.",
                 )
             if current_before_wait["harness"] == "claude":
                 _require_claude_lifecycle_phase(
@@ -5749,7 +6053,7 @@ def qualification_beacon_wait(
     # matching the logical line the harness emitted.
     allow_codex_assistant_marker = (
         current_before_wait["harness"] == "codex"
-        and current_before_wait.get("harness_readiness") == HARNESS_READY
+        and _harness_input_admitted(current_before_wait)
     )
     presentation_prefix = (
         r"[ \t\u00a0]*(?:•[ \t\u00a0]+)?"
@@ -5823,7 +6127,7 @@ def qualification_beacon_wait(
     )
     qualification_complete = (
         checkpoint == "DONE"
-        and current_before_wait.get("harness_readiness") == HARNESS_READY
+        and _harness_input_admitted(current_before_wait)
         and interactive_send_count == 2
     )
     auto_preserved = checkpoint in {"ACTION_REQUIRED", "DONE"}
@@ -5842,6 +6146,16 @@ def qualification_beacon_wait(
         updated = json.loads(json.dumps(current_after_wait))
         if checkpoint == "STATUS":
             updated["shell_readiness"] = SHELL_READY
+            if (
+                readiness_before_wait == HARNESS_CHECKPOINT_PENDING
+                and current_after_wait["harness"] == "agy"
+                and interactive_send_count == 1
+            ):
+                updated["harness_readiness"] = HARNESS_CHECKPOINT_READY
+                updated["harness_readiness_evidence"] = (
+                    "strict_initial_status_checkpoint"
+                )
+                updated["harness_readiness_verified_at"] = now()
         preserve_reason: str | None = None
         if auto_preserved:
             preserve_reason = (
@@ -5892,7 +6206,7 @@ def qualification_beacon_wait(
                 ),
             )
     return {
-        "schema": "herdr-puppet.qualification-beacon-wait.v1",
+        "schema": "herdr-puppet.qualification-beacon-wait.v2",
         "result": result if checkpoint else "not_matched",
         "run_id": updated["run_id"],
         "pane_id": updated["pane_id"],

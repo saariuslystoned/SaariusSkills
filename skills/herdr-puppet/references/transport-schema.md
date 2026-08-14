@@ -9,7 +9,7 @@ Herdr-Puppet uses six primary versioned JSON records:
   profile, launch, adapter, source, and instruction-plane identity.
 - `herdr-puppet.plan.v2`: source-only intent, explicit parent capability,
   destination authority, and its canonical fingerprint.
-- `herdr-puppet.lease.v2`: exact owned tab/pane/terminal/SSH identity, selected
+- `herdr-puppet.lease.v3`: exact owned tab/pane/terminal/SSH identity, selected
   authority fingerprint, and the next legal submission sequence.
 - `herdr-puppet.event.v1`: append-only controller journal event.
 
@@ -17,8 +17,9 @@ The JSON Schemas in this directory are normative for their public fields:
 
 - [plan.schema.json](plan.schema.json)
 - [lease.schema.json](lease.schema.json)
-- [plan-v1.schema.json](plan-v1.schema.json) and
-  [lease-v1.schema.json](lease-v1.schema.json), frozen from `f73caf2` as
+- [lease-v1.schema.json](lease-v1.schema.json),
+  [lease-v2.schema.json](lease-v2.schema.json), and
+  [plan-v1.schema.json](plan-v1.schema.json), frozen from `f73caf2` as
   historical structural contracts,
 - [event.schema.json](event.schema.json)
 - [destination-catalog.schema.json](destination-catalog.schema.json)
@@ -56,17 +57,21 @@ binding, and receipt consistency. Copying a receipt file over the exact leased
 SSH target supplies operational provenance, not cryptographic remote-origin
 proof.
 
-`herdr-puppet.lease.v2` is the strict active shape. Historical lease-v1 remains
-available for status, preservation, maintenance, and exact cleanup, while all
-fresh qualification transitions require v2. Upgrade v1 explicitly with
-`lease-migrate-v1`; ordinary operations never migrate implicitly. Runtime
-validation enforces canonical nested authority, deterministic labels, integer
-fields, unique arrays, and RFC 3339 evidence before migration writes. Migration
-never invents a harness binding or named machine: it derives only
-`legacy_explicit`, `machine: null`, the recorded workspace label, and the
-label-derived fresh-tab ordinal, then computes v2 authority. An unbound
-historical lease remains non-qualifying evidence. Binding-v1/v2 remains valid
-for historical status and maintenance after migration.
+`herdr-puppet.lease.v3` is the strict active shape. Historical lease-v1 and
+lease-v2 remain for status, preservation, maintenance, and exact cleanup, while
+all fresh qualification transitions require v3. Upgrade legacy v1/v2 with
+`lease-migrate`; `lease-migrate-v1` remains a v1-only compatibility alias.
+The generic command emits `herdr-puppet.lease-migrate.v1`; the compatibility
+alias preserves its historical `herdr-puppet.lease-migrate-v1.v1` receipt.
+Ordinary operations do not migrate implicitly. Runtime validation enforces
+canonical nested authority, deterministic labels, integer fields, unique arrays,
+and RFC 3339 evidence before migration writes. Migration never promotes
+readiness or invents checkpoint evidence; it may conservatively normalize or
+demote legacy readiness. It otherwise derives only `legacy_explicit`, `machine:
+null`, the recorded workspace label, and the label-derived fresh-tab ordinal,
+then computes v3 authority. An unbound historical lease remains
+non-qualifying evidence. Binding-v1/v2 remains valid for historical status
+and maintenance after migration.
 
 ## Plan lifecycle
 
@@ -133,6 +138,11 @@ ssh.target
 next_seq
 shell_readiness
 harness_readiness
+harness_readiness_evidence
+harness_readiness_operator
+harness_readiness_verified_at
+harness_readiness_submission_seq
+harness_readiness_nonce_sha256
 harness_binding
 harness_launch
 startup_gate_operations
@@ -141,6 +151,7 @@ caller_text_files_removed
 remote_task_files
 interactive_sends
 pending_interactive_send
+pending_sequence_operation
 ```
 
 Every lease mutation uses one exact sibling lock file, reloads the lease from
@@ -179,6 +190,10 @@ This keeps rendered user input from matching the output watcher. The adapter
 rechecks the socket file identity after connecting and before dispatch. That
 inode check narrows path-replacement races; it does not prove a native Herdr
 server incarnation.
+
+`qualification-send` emits `herdr-puppet.qualification-send.v2`; bounded waits emit
+`herdr-puppet.qualification-beacon-wait.v2`. Their v1 receipts remain
+historical artifacts and are not emitted by the active controller.
 
 A send is first reserved in the canonical lease as
 `pending_interactive_send` with exact sequence, phase, prompt hash, wrapper
@@ -254,22 +269,28 @@ reliably half-close stdin, create one private task-owned input file, use
 `--text-file`, require the exact sequence acknowledgement, and then remove
 only that file. Acceptance of either operation is not execution proof.
 
-New leases begin with both `shell_readiness: unverified` and
+New leases begin with `shell_readiness: unverified` and
 `harness_readiness: unverified`. A strict shell `STATUS` checkpoint advances
 only `shell_readiness` to `status_verified`; later `qualification-run`
-submissions fail closed until that transition, except for one strict
-sequence-2 STATUS retry after the journal records a failed wait for the sole
-sequence-1 run and classifies that first command as the same strict probe.
-That exception accepts only the canonical standalone `printf` probe with a
-new safe nonce, records `shell_status_retry: true`, and cannot start a harness
-or recur at sequence 3. Interactive pane input is separate:
+submissions fail closed until that transition, except for one strict sequence-2
+`STATUS` retry after the journal records a failed wait for the sole sequence-1
+run and classifies that first command as the same strict probe.
+That exception accepts only the canonical standalone `printf` probe with a new
+safe nonce, records `shell_status_retry: true`, and cannot start a harness or
+recur at sequence 3.
+AGY rows then stay `harness_acceptance=unverified` and
+`harness_readiness=checkpoint_pending` after the initial wrapped send with
+`--checkpoint-nonce`; exact `HERDR_PUPPET_STATUS <nonce>` at that sequence
+advances to `checkpoint_verified` and allows steering. `qualification-harness-ready`
+is not used for AGY.
+Interactive pane input is separate:
 `qualification-harness-ready` requires the exact leased repo and worktree, an
 explicit operator identity, bounded
 `operator_observed_ready_input` evidence, confirmation, and a fresh structural
 join before advancing `harness_readiness` to `operator_verified`.
-`qualification-send` and send reconciliation require that state even at
-sequence 1. `qualification-run` rejects every harness launcher;
-noninteractive AGY is unsupported in this version.
+`qualification-send` and send reconciliation require that state even at sequence 1
+for Codex/Claude/Cursor/Grok. AGY has no operator-ready gate and keeps the same
+`qualification-run` noninteractive restriction.
 
 Before readiness, `qualification-startup-gate` accepts only a
 harness-specific allowlisted gate/action, exact worktree and unrestricted
@@ -278,6 +299,11 @@ Allowlisted key vectors are bounded to `a`, `enter`, `up`, and `down`.
 `not_present` advances the sequence without pane input. Cursor readiness
 requires a recorded Workspace Trust result. Each gate is single-use and every
 gate operation becomes invalid after readiness.
+
+Cursor permits only Workspace Trust with `accept` or `not_present`. Codex and
+Claude permit Workspace Trust, security acknowledgement, and permission-bypass
+confirmation with their exact action allowlists. AGY and Grok require an empty
+startup-gate ledger.
 
 The first ordinary prompt must carry a
 `herdr-puppet.instruction-wrapper.v1` manifest. The controller recomputes the
@@ -360,6 +386,9 @@ same nonce and submission sequence. Each attempt is consumed by its durable
 pre-wait
 reservation, including when the controller exits before finalization. A
 matched nonce, cross-sequence reuse, or third reservation is rejected.
+After the second `not_matched`, the controller must explicitly
+`lease-preserve --reason checkpoint_failed` before leaving the run; no timeout
+automatically preserves or authorizes replay.
 
 Preservation is not tab cleanup. A later tab close requires separately
 authorized `cleanup-preserved-tab`, an initialized journal, a preserved lease,

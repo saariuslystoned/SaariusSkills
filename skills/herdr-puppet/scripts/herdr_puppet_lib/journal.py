@@ -412,6 +412,7 @@ def require_initialized_journal(
         HISTORICAL_LEASE_SCHEMA,
         HISTORICAL_PLAN_SCHEMA,
         LEASE_SCHEMA,
+        PREVIOUS_LEASE_SCHEMA,
         PLAN_SCHEMA,
         validate_historical_plan,
         validate_lease,
@@ -439,7 +440,8 @@ def require_initialized_journal(
             validate_lease(lease_payload)
         elif (
             allow_historical_plan
-            and lease_payload.get("schema") == HISTORICAL_LEASE_SCHEMA
+            and lease_payload.get("schema")
+            in {PREVIOUS_LEASE_SCHEMA, HISTORICAL_LEASE_SCHEMA}
         ):
             validate_legacy_lease(lease_payload)
         else:
@@ -588,6 +590,7 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
     from .core import (
         HISTORICAL_LEASE_SCHEMA,
         HISTORICAL_PLAN_SCHEMA,
+        PREVIOUS_LEASE_SCHEMA,
         validate_historical_plan,
         validate_lease,
         validate_legacy_lease,
@@ -599,7 +602,10 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
     else:
         validate_plan(plan)
     if lease is not None:
-        if lease.get("schema") == HISTORICAL_LEASE_SCHEMA:
+        if lease.get("schema") in {
+            PREVIOUS_LEASE_SCHEMA,
+            HISTORICAL_LEASE_SCHEMA,
+        }:
             validate_legacy_lease(lease)
         else:
             validate_lease(lease)

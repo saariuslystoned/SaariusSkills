@@ -66,13 +66,12 @@ hand-composed Herdr mutations when the script owns the operation.
    to exist and plan status must reject it. Use `status --lease-json` or
    `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
-   Fresh mutation accepts only active plan-v2/lease-v2 authority. Historical
-   plan-v1 is read-only/status evidence. Historical lease-v1 retains status,
-   preservation, maintenance, and exact-cleanup compatibility; use the explicit
-   `lease-migrate-v1` adapter for v2. An unbound historical lease remains
-   evidence only. Binding-v1/v2 leases remain maintainable, but every fresh
-   qualification transition requires recensus and an active plan-v2 carrying
-   a binding-v3 record.
+   Fresh mutation accepts only active plan-v2/lease-v3 authority. Historical
+   plan-v1 is read-only/status evidence. Historical lease-v1/v2 keeps status,
+   preservation, maintenance, and exact-cleanup compatibility; it is not
+   eligible for fresh qualification. Upgrade to v3 with `lease-migrate`
+   (`lease-migrate-v1` remains a v1-only compatibility alias). An unbound
+   historical lease remains evidence only.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. The controller focuses that exact newly created
    tab in the plan's target workspace so the run is operator-visible and Herdr
@@ -96,12 +95,11 @@ hand-composed Herdr mutations when the script owns the operation.
    completion STATUS beacon; `harness-census-verify` against the plan binding; one
    `qualification-harness-launch`; for Claude, eight registered marker paths
    plus an `armed` SessionStart receipt; any exact observed pre-readiness gate;
-   independently recorded readiness; one wrapped initial message; for Claude,
+   for non-AGY, independently recorded readiness; one wrapped initial message; for Claude,
    a bound `initial` UserPromptSubmit plus Stop/StopFailure receipt before one
    separately sequenced steering turn, followed by the bound `steering`
    receipt; native TUI view/detach/reattach checkpoint; and one strict terminal
-   beacon. The
-   dedicated launch operation alone may start a qualifying harness.
+   beacon. The dedicated launch operation alone may start a qualifying harness.
    It starts from an empty process environment and restores only the exact
    bound `HOME`, deterministic `PATH`, locale, and terminal values. Never
    inherit controller, prior-agent, or Herdr process variables into a row.
@@ -117,20 +115,24 @@ hand-composed Herdr mutations when the script owns the operation.
    initialized journal. This bounded retry exists for a newly inherited
    remote terminal that is still settling; it does not authorize another
    command, a third probe, or any harness launch.
+   AGY rows send one wrapped initial message with the caller-supplied
+   `--checkpoint-nonce` immediately after launch and await the bound
+   `HERDR_PUPPET_STATUS <nonce>` on that sequence; no operator readiness
+   question is used. Non-AGY rows handle any exact allowlisted startup gate
+   when present, then require `qualification-harness-ready` before their initial prompt.
    Cursor Workspace Trust must be recorded through
-   `qualification-startup-gate` before readiness. Use the bounded Codex or
-   Claude reducers only when the operator sees the exact allowlisted trust,
-   security acknowledgement, or bypass-confirmation surface for the exact
-   task-owned worktree. `not_present` records observation without sending
-   input. Never use this surface for login, enrollment, credentials, or
-   unrelated UI.
+   `qualification-startup-gate` before readiness for non-AGY rows. Use the
+   bounded Codex or Claude reducers only when the operator sees the exact
+   allowlisted trust, security acknowledgement, or bypass-confirmation surface
+   for the exact task-owned worktree. `not_present` records observation
+   without sending input. Never use this surface for login, enrollment,
+   credentials, or unrelated UI.
    Earlier AGY 1.1.7 diagnostics used a private prompt file plus
    `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`. Retain
    that shape as historical evidence only. This controller deliberately
    rejects every harness launcher submitted through `qualification-run`,
-   including non-`exec` AGY `--print`; there is no supported noninteractive
-   qualification path in this version. Do not attempt the old recipe through
-   the live controller. A future path needs its own controller-attested
+   including non-`exec` AGY `--print`. There is no supported noninteractive AGY qualification recipe. Use `qualification-send` only for ordinary interactive
+   qualification. Do not attempt the old recipe. A future path needs its own controller-attested
    operation, registered task-file authority, sequence contract, terminal
    evidence, and exact removal proof.
 9. Use `instruction-wrapper-create` for the first regular interactive message.
@@ -138,12 +140,13 @@ hand-composed Herdr mutations when the script owns the operation.
    (explicit Gemini 3.7 for AGY; default-unresolved otherwise), and regular
    lifecycle layers, and binds its manifest to the run and harness
    binding. Pass that manifest to the first `qualification-send`; a mismatch
-   fails before pane input. Use `qualification-send` only for ordinary interactive
-   harness prompts
-   after `qualification-harness-ready` records explicit operator confirmation
-   against the exact leased source and ready input surface. Shell STATUS never
-   authorizes pane input, including sequence 1. `qualification-run` never
-   launches a harness; noninteractive AGY remains unsupported.
+   fails before pane input. For AGY, include `--checkpoint-nonce` on that first
+   wrapped send and do not run `qualification-harness-ready` beforehand.
+   Non-AGY rows still require `qualification-harness-ready` before
+   interactive prompt sends against the exact leased source and ready input
+   surface. Shell STATUS never authorizes pane input, including sequence 1.
+   `qualification-run` never launches a harness; noninteractive AGY remains
+   unsupported.
    Claude submit keys remain transport choreography: multiline sends use
    `["enter", "enter"]`; every other send uses `["enter"]`.
    The UserPromptSubmit hook hashes only the bounded in-memory `prompt` field
@@ -179,10 +182,11 @@ hand-composed Herdr mutations when the script owns the operation.
    `<nonce>` is 8-24 safe identifier characters (`[A-Za-z0-9._:-]`). The
    submitted harness prompt must name the prefix/class rule and real nonce as
    separate fragments; never include their fully assembled strict token.
-   After operator-verified readiness, the waiter admits Codex's one proven
-   native assistant marker: exactly one leading U+2022 bullet plus horizontal
-   separation. It does not normalize bullets for shell checks or other
-   harnesses.
+   After AGY checkpoint verification, the waiter advances to the steering turn.
+   After operator-verified non-AGY readiness, the waiter admits Codex's one
+   proven native assistant marker: exactly one leading U+2022 bullet plus
+   horizontal separation. It does not normalize bullets for shell checks or
+   other harnesses.
    `qualification-send` rejects an assembled token before mutation so a
    TUI-rendered user prompt cannot satisfy the output watcher. The command returns
    only the checkpoint class and hashes, never pane text. Use
@@ -190,8 +194,8 @@ hand-composed Herdr mutations when the script owns the operation.
     `not_matched` result proves only that the strict line was absent from the
     bounded window; it does not prove the worker, SSH process, harness, or tab
     went offline and is not itself a human gate. The same submission nonce may
-    receive one bounded re-wait after its first `not_matched`; a matched nonce
-    is terminal and any third attempt or cross-sequence reuse is rejected.
+    receive one bounded re-wait after its first `not_matched`; after a second miss, preserve with `checkpoint_failed` and use a fresh row. A matched nonce
+    is terminal; any third attempt or cross-sequence reuse is rejected.
     Each attempt is durably reserved under the exact lease lock before Herdr
     receives the wait request, so concurrent callers cannot exceed the cap.
     A separately validated terminal artifact may prove the task result and
@@ -239,14 +243,10 @@ hand-composed Herdr mutations when the script owns the operation.
     lessons into this skill; keep transient incident detail in the run packet.
 
 The controller-attested binding selects one regular unrestricted launch posture
-only after the caller explicitly authorizes that bounded qualification.
-Transport qualification flags authorize only the named Herdr operation.
-Unrestricted or auto-approval flags do not authorize source delivery, merge,
-deploy, sends, secrets, accounts, devices, security changes, or cleanup.
-Likewise, closing a preserved tab is a separate exact-target maintenance
-action: it requires operator authority, the leased tab identity, and
-post-close process-exit proof. Never infer either behavior from "puppet",
-"Herdr", a label, or `--allow-live-qualification`.
+after bounded qualification authorization. Transport flags never authorize
+source delivery, deploy/merge, sends, spending, account/security, or cleanup.
+Closing a preserved tab remains a separate maintenance surface requiring
+operator authority, exact leased target IDs, and post-close proof.
 
 ## Commands
 
@@ -303,8 +303,10 @@ python3 scripts/herdr_puppet.py plan \
   --live-mutation-authorized
 # Deprecated compatibility accepts only the complete legacy workspace/SSH triple and `--ordinal`; never mix routes or ordinal flags.
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
+python3 scripts/herdr_puppet.py lease-migrate \
+  --lease-json <legacy-lease.json>
 python3 scripts/herdr_puppet.py lease-migrate-v1 \
-  --lease-json <historical-lease.json>
+  --lease-json <historical-v1-lease.json>
 python3 scripts/herdr_puppet.py journal-init \
   --plan-json <plan.json> \
   --run-root <run-root>
@@ -320,6 +322,11 @@ python3 scripts/herdr_puppet.py qualification-run \
   --seq <next-seq> \
   --text-file <task-owned-command-file> \
   --run-root <run-root> \
+  --allow-live-qualification
+# Shell preflight: wait for its STATUS before any census or harness launch.
+python3 scripts/herdr_puppet.py qualification-beacon-wait \
+  --lease-json <lease.json> --nonce <shell-status-nonce> --lines 80 \
+  --timeout-ms 480000 --timeout-seconds 510 --run-root <run-root> \
   --allow-live-qualification
 python3 scripts/herdr_puppet.py harness-census-verify \
   --lease-json <lease.json> \
@@ -353,6 +360,7 @@ python3 scripts/herdr_puppet.py qualification-claude-lifecycle-observe \
   --receipt-json <controller-local-sanitized-receipt.json> \
   --phase <armed|initial|steering> \
   --run-root <run-root>
+# Cursor/Codex/Claude only, when an exact allowlisted startup gate is visible.
 python3 scripts/herdr_puppet.py qualification-startup-gate \
   --lease-json <lease.json> \
   --seq <next-seq> \
@@ -365,14 +373,7 @@ python3 scripts/herdr_puppet.py qualification-startup-gate \
   --confirm-unrestricted \
   --run-root <run-root> \
   --allow-live-qualification
-python3 scripts/herdr_puppet.py qualification-beacon-wait \
-  --lease-json <lease.json> \
-  --nonce <unique-checkpoint-nonce> \
-  --lines 80 \
-  --timeout-ms 480000 \
-  --timeout-seconds 510 \
-  --run-root <run-root> \
-  --allow-live-qualification
+# Non-AGY rows keep operator-ready gating.
 python3 scripts/herdr_puppet.py qualification-harness-ready \
   --lease-json <lease.json> \
   --source-repo <exact-leased-repo> \
@@ -382,17 +383,22 @@ python3 scripts/herdr_puppet.py qualification-harness-ready \
   --confirm-ready \
   --run-root <run-root> \
   --allow-live-qualification
-# Initial message: the wrapper manifest is mandatory.
+# Initial wrapper is mandatory; AGY adds `--checkpoint-nonce` and skips `qualification-harness-ready`.
 python3 scripts/herdr_puppet.py qualification-send \
   --lease-json <lease.json> \
   --seq <next-seq> \
   --text-file <rendered-wrapper-file> \
   --instruction-manifest-json <manifest-for-first-message.json> \
+  --checkpoint-nonce <agy-checkpoint-nonce> \
   --run-root <run-root> \
   --allow-live-qualification
-# After controller-observed initial consumption (STATUS for non-Claude, the
-# bound initial lifecycle receipt for Claude), send exactly one plain steering
-# turn with no instruction manifest.
+# AGY/Codex/Cursor/Grok only: wait now for initial STATUS; AGY never asks for ready-input confirmation.
+python3 scripts/herdr_puppet.py qualification-beacon-wait \
+  --lease-json <lease.json> --nonce <agy-checkpoint-nonce|non-claude-initial-status-nonce> --lines 80 \
+  --timeout-ms 480000 --timeout-seconds 510 --run-root <run-root> \
+  --allow-live-qualification
+# Then send one steering turn: non-Claude rows require that STATUS; Claude
+# instead requires its bound initial lifecycle receipt.
 python3 scripts/herdr_puppet.py qualification-send \
   --lease-json <lease.json> \
   --seq <next-seq> \
@@ -432,7 +438,7 @@ python3 scripts/herdr_puppet.py remote-task-file-register \
   --run-root <run-root>
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
-  --reason <human_gate|route_superseded|milestone_complete|operator_stop>
+  --reason <checkpoint_failed|human_gate|route_superseded|milestone_complete|operator_stop>
 python3 scripts/herdr_puppet.py maintenance-checkpoint \
   --lease-json <lease.json> \
   --run-root <run-root> \
@@ -446,12 +452,9 @@ python3 scripts/herdr_puppet.py cleanup-preserved-tab \
   --allow-live-cleanup
 ```
 
-This version has no supported noninteractive AGY qualification recipe.
-`qualification-run` rejects the historical
-`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s` launcher
-before Herdr mutation, as it does every other generic harness launch. Use the
-regular interactive lifecycle above. Do not improvise a `--print` carve-out.
-
+Noninteractive AGY is unsupported. `qualification-run` rejects the historical
+`agy --prompt ... --print-timeout 420s` launcher before mutation; use the
+interactive lifecycle above. Do not improvise a `--print` carve-out.
 Create the first regular prompt and its manifest before
 `qualification-send`:
 
@@ -464,11 +467,10 @@ python3 scripts/herdr_puppet.py instruction-wrapper-create \
   --manifest-output <private-manifest.json>
 ```
 
-Live qualification commands additionally require
-`--allow-live-qualification`. That flag confirms transport mutation only. It
-does not authorize unrestricted or auto-approval harness flags, pushes, pull
-requests, merges, deploys, sends, spending, secret access, account/security
-changes, tab closure, process reaping, or destructive cleanup.
+Live qualification commands additionally require `--allow-live-qualification`.
+That flag confirms only transport mutation. It does not authorize deploy,
+merge, cleanup, spending, secret access, account/security changes, or
+process/tab termination.
 
 ## Preserve the boundary
 

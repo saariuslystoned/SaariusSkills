@@ -72,6 +72,12 @@ different from the capability or lease. Also stop when:
 - a generic or shell-replacing harness launch bypasses the bound launch
   operation;
 - an operation would target the parent session or an unleased tab.
+- AGY checkpoint gating fails closed when status verification is not exact:
+  - missing or wrong `--checkpoint-nonce`,
+  - pending or unknown delivery,
+  - timeout,
+  - sequence replay.
+- `qualification-harness-ready` does not apply to AGY.
 
 ## Separate gates
 
@@ -82,10 +88,10 @@ other externally consequential actions.
 
 An authorized regular campaign may bind unrestricted flags into the
 controller-attested launch vector. That binding does not broaden task
-authority. Startup-gate input is separately constrained to an exact
-task-owned worktree, a single lease sequence, one observed allowlisted gate,
-and one use before readiness. It never authorizes login, account enrollment,
-credentials, or unrelated UI.
+authority. Startup-gate input applies only to Cursor, Codex, and Claude, and is
+separately constrained to an exact task-owned worktree, a single lease
+sequence, one observed allowlisted gate, and one use before readiness. It
+never authorizes login, account enrollment, credentials, or unrelated UI.
 
 Maintenance observations do not add deletion authority. A run may inventory
 and classify only resources joined through its exact lease or explicitly named

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/lease.schema.json",
-  "title": "Herdr-Puppet lease v3",
+  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/lease-v2.schema.json",
+  "title": "Herdr-Puppet lease v2",
   "type": "object",
   "required": [
     "schema",
@@ -32,7 +32,7 @@
     "pending_sequence_operation"
   ],
   "properties": {
-    "schema": {"const": "herdr-puppet.lease.v3"},
+    "schema": {"const": "herdr-puppet.lease.v2"},
     "state": {"enum": ["active", "preserved"]},
     "run_id": {"type": "string", "minLength": 1},
     "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
@@ -71,29 +71,16 @@
       "enum": ["unverified", "status_verified"]
     },
     "harness_readiness": {
-      "enum": [
-        "unverified",
-        "operator_verified",
-        "checkpoint_pending",
-        "checkpoint_verified"
-      ]
+      "enum": ["unverified", "operator_verified"]
     },
     "harness_readiness_evidence": {
-      "enum": [
-        "operator_observed_ready_input",
-        "strict_initial_status_checkpoint"
-      ]
+      "const": "operator_observed_ready_input"
     },
     "harness_readiness_operator": {
       "type": "string",
       "pattern": "^[A-Za-z0-9._@:-]{1,128}$"
     },
     "harness_readiness_verified_at": {"type": "string", "format": "date-time"},
-    "harness_readiness_submission_seq": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "harness_readiness_nonce_sha256": {"$ref": "#/$defs/sha256"},
     "source": {
       "type": "object",
       "required": ["repo", "worktree"],
@@ -282,6 +269,18 @@
     "cleanup_reconciled_absence": {"type": "boolean"}
   },
   "dependentRequired": {
+    "harness_readiness_evidence": [
+      "harness_readiness_operator",
+      "harness_readiness_verified_at"
+    ],
+    "harness_readiness_operator": [
+      "harness_readiness_evidence",
+      "harness_readiness_verified_at"
+    ],
+    "harness_readiness_verified_at": [
+      "harness_readiness_evidence",
+      "harness_readiness_operator"
+    ],
     "cleanup_state": [
       "cleanup_verified_at",
       "cleanup_reconciled_absence"
@@ -394,20 +393,6 @@
         "key_vector_sha256": {"$ref": "#/$defs/sha256"},
         "pane_input_mutated": {"type": "boolean"}
       },
-      "allOf": [
-        {
-          "if": {
-            "properties": {"action": {"const": "not_present"}},
-            "required": ["action"]
-          },
-          "then": {
-            "properties": {"pane_input_mutated": {"const": false}}
-          },
-          "else": {
-            "properties": {"pane_input_mutated": {"const": true}}
-          }
-        }
-      ],
       "additionalProperties": false
     },
     "remoteTaskFile": {
@@ -483,200 +468,15 @@
           "harness_readiness_verified_at"
         ],
         "properties": {
-          "harness": {
-            "enum": ["codex", "claude", "cursor", "grok"]
-          },
-          "shell_readiness": {"const": "status_verified"},
-          "harness_readiness_evidence": {
-            "const": "operator_observed_ready_input"
-          }
-        },
-        "not": {
-          "anyOf": [
-            {"required": ["harness_readiness_submission_seq"]},
-            {"required": ["harness_readiness_nonce_sha256"]}
-          ]
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "harness_readiness": {"const": "checkpoint_pending"}
+          "shell_readiness": {"const": "status_verified"}
         }
       },
-      "then": {
-        "required": [
-          "harness_launch",
-          "harness_readiness_submission_seq",
-          "harness_readiness_nonce_sha256"
-        ],
-        "properties": {
-          "harness": {"const": "agy"},
-          "shell_readiness": {"const": "status_verified"},
-          "interactive_sends": {
-            "minItems": 1,
-            "maxItems": 1
-          },
-          "pending_interactive_send": {"type": "null"},
-          "pending_sequence_operation": {"type": "null"},
-          "startup_gate_operations": {"maxItems": 0}
-        },
+      "else": {
         "not": {
           "anyOf": [
             {"required": ["harness_readiness_evidence"]},
             {"required": ["harness_readiness_operator"]},
             {"required": ["harness_readiness_verified_at"]}
-          ]
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "harness_readiness": {"const": "checkpoint_verified"}
-        }
-      },
-      "then": {
-        "required": [
-          "harness_launch",
-          "harness_readiness_evidence",
-          "harness_readiness_verified_at",
-          "harness_readiness_submission_seq",
-          "harness_readiness_nonce_sha256"
-        ],
-        "properties": {
-          "harness": {"const": "agy"},
-          "shell_readiness": {"const": "status_verified"},
-          "harness_readiness_evidence": {
-            "const": "strict_initial_status_checkpoint"
-          },
-          "interactive_sends": {"minItems": 1, "maxItems": 2},
-          "pending_sequence_operation": {"type": "null"},
-          "startup_gate_operations": {"maxItems": 0}
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "pending_interactive_send": {"type": "object"}
-              },
-              "required": ["pending_interactive_send"]
-            },
-            "then": {
-              "properties": {
-                "interactive_sends": {"minItems": 1, "maxItems": 1},
-                "pending_interactive_send": {
-                  "type": "object",
-                  "properties": {"phase": {"const": "steering"}}
-                }
-              }
-            }
-          }
-        ],
-        "not": {
-          "required": ["harness_readiness_operator"]
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {"harness": {"enum": ["agy", "grok"]}},
-        "required": ["harness"]
-      },
-      "then": {
-        "properties": {
-          "startup_gate_operations": {"maxItems": 0}
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {"harness": {"const": "cursor"}},
-        "required": ["harness"]
-      },
-      "then": {
-        "properties": {
-          "startup_gate_operations": {
-            "items": {
-              "allOf": [
-                {"$ref": "#/$defs/startupGateOperation"},
-                {
-                  "properties": {
-                    "gate": {"const": "workspace_trust"},
-                    "action": {"enum": ["accept", "not_present"]}
-                  },
-                  "required": ["gate", "action"]
-                }
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {"harness": {"enum": ["codex", "claude"]}},
-        "required": ["harness"]
-      },
-      "then": {
-        "properties": {
-          "startup_gate_operations": {
-            "items": {
-              "allOf": [
-                {"$ref": "#/$defs/startupGateOperation"},
-                {
-                  "oneOf": [
-                    {
-                      "properties": {
-                        "gate": {"const": "workspace_trust"},
-                        "action": {
-                          "enum": ["accept_selected", "select_accept", "not_present"]
-                        }
-                      },
-                      "required": ["gate", "action"]
-                    },
-                    {
-                      "properties": {
-                        "gate": {"const": "security_acknowledgement"},
-                        "action": {"enum": ["acknowledge", "not_present"]}
-                      },
-                      "required": ["gate", "action"]
-                    },
-                    {
-                      "properties": {
-                        "gate": {"const": "permission_bypass_confirmation"},
-                        "action": {
-                          "enum": ["accept_selected", "select_accept", "not_present"]
-                        }
-                      },
-                      "required": ["gate", "action"]
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "harness_readiness": {"const": "unverified"}
-        }
-      },
-      "then": {
-        "properties": {
-          "interactive_sends": {"maxItems": 0}
-        },
-        "not": {
-          "anyOf": [
-            {"required": ["harness_readiness_evidence"]},
-            {"required": ["harness_readiness_operator"]},
-            {"required": ["harness_readiness_verified_at"]},
-            {"required": ["harness_readiness_submission_seq"]},
-            {"required": ["harness_readiness_nonce_sha256"]}
           ]
         }
       }

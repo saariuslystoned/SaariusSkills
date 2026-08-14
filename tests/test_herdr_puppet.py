@@ -25,6 +25,7 @@ LIB = ROOT / "skills" / "herdr-puppet" / "scripts"
 sys.path.insert(0, str(LIB))
 
 from herdr_puppet_lib.core import (  # noqa: E402
+    STARTUP_GATE_ACTIONS,
     _regular_launch_command,
     cleanup_preserved_tab,
     create_qualification_tab,
@@ -154,6 +155,14 @@ def historical_lease_v1(record: dict[str, Any]) -> dict[str, Any]:
         binding["instructions"]["layers"][2] = "model/default-unresolved"
         binding["fingerprint"] = binding_fingerprint(binding)
     return historical
+
+
+def previous_lease_v2(record: dict[str, Any]) -> dict[str, Any]:
+    previous = copy.deepcopy(record)
+    previous["schema"] = "herdr-puppet.lease.v2"
+    previous.pop("harness_readiness_submission_seq", None)
+    previous.pop("harness_readiness_nonce_sha256", None)
+    return previous
 
 
 class FakeClient:
@@ -3113,7 +3122,22 @@ class QualificationTests(unittest.TestCase):
         )
         return rendered.decode("utf-8"), manifest
 
+    def create_lease_for_harness(self, harness: str) -> dict[str, Any]:
+        self.plan = make_plan(self.client, harness=harness)
+        self.plan["proof_root"] = str((self.root / "run").resolve())
+        refresh_selected_authority(self.plan)
+        return self.create_lease()
+
+    def create_operator_ready_lease(self) -> dict[str, Any]:
+        return self.mark_harness_ready(
+            self.create_lease_for_harness("codex")
+        )
+
     def mark_harness_ready(self, lease: dict[str, Any]) -> dict[str, Any]:
+        if lease["harness"] == "agy":
+            raise AssertionError(
+                "active AGY readiness is checkpoint-driven in lease-v3"
+            )
         ready = (
             copy.deepcopy(lease)
             if "harness_launch" in lease
@@ -3212,6 +3236,85 @@ class QualificationTests(unittest.TestCase):
             run_root=run_root,
         )
         self.assertEqual(result["result"], "ok")
+        return load_json(self.lease_path)
+
+    def launch_agy_through_controller(self) -> tuple[dict[str, Any], Path]:
+        lease = self.create_lease()
+        run_root = self.initialize_default_journal()
+        qualification_run(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=1,
+            command=(
+                "printf '%s\\n' "
+                "'HERDR_PUPPET_STATUS AGY-SHELL-READY-1'"
+            ),
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.client.read_payload = (
+            "HERDR_PUPPET_STATUS AGY-SHELL-READY-1"
+        )
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            nonce="AGY-SHELL-READY-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        lease = self.verify_in_row_census(load_json(self.lease_path), run_root)
+        qualification_harness_launch(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=2,
+            allow_live=True,
+            run_root=run_root,
+        )
+        return load_json(self.lease_path), run_root
+
+    def send_agy_initial(
+        self,
+        lease: dict[str, Any],
+        run_root: Path,
+        nonce: str,
+    ) -> dict[str, Any]:
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "perform the bounded task, then join prefix HERDR_PUPPET_, "
+            f"class STATUS, one space, and nonce {nonce}",
+        )
+        qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text=initial_text,
+            instruction_manifest=manifest,
+            checkpoint_nonce=nonce,
+            allow_live=True,
+            run_root=run_root,
+        )
+        return load_json(self.lease_path)
+
+    def verify_agy_initial_checkpoint(
+        self,
+        pending: dict[str, Any],
+        run_root: Path,
+        nonce: str,
+    ) -> dict[str, Any]:
+        self.client.read_payload = f"HERDR_PUPPET_STATUS {nonce}"
+        qualification_beacon_wait(
+            self.client,
+            lease_payload=pending,
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
         return load_json(self.lease_path)
 
     def submit_for_beacon(self, lease: dict[str, Any]) -> dict[str, Any]:
@@ -3608,7 +3711,7 @@ class QualificationTests(unittest.TestCase):
         )
         migrated = migrate_legacy_lease(legacy)
         validate_lease(migrated)
-        self.assertEqual(migrated["schema"], "herdr-puppet.lease.v2")
+        self.assertEqual(migrated["schema"], "herdr-puppet.lease.v3")
         self.assertEqual(
             migrated["destination_selection"],
             {
@@ -3674,6 +3777,89 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertEqual(cleanup["result"], "ok")
         self.assertTrue(cleanup["cleanup_performed"])
+
+    def test_lease_v2_agy_operator_ready_remains_maintainable_and_migrates_safe(
+        self,
+    ) -> None:
+        active = self.mark_harness_launched(self.create_lease())
+        active["harness_readiness"] = "operator_verified"
+        active["harness_readiness_evidence"] = (
+            "operator_observed_ready_input"
+        )
+        active["harness_readiness_operator"] = "legacy-operator"
+        active["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
+        previous = previous_lease_v2(active)
+
+        validate_legacy_lease(previous)
+        self.persist_lease(previous)
+        run_root = self.initialize_default_journal()
+        self.assertEqual(
+            maintenance_checkpoint(
+                self.client,
+                lease_payload=previous,
+                lease_path=self.lease_path,
+                run_root=run_root,
+            )["classification"],
+            "active",
+        )
+        migrated = migrate_legacy_lease(previous)
+        validate_lease(migrated)
+        self.assertEqual(migrated["schema"], "herdr-puppet.lease.v3")
+        self.assertEqual(migrated["harness_readiness"], "unverified")
+        self.assertNotIn("harness_readiness_evidence", migrated)
+        self.assertNotIn("harness_readiness_operator", migrated)
+        self.assertNotIn("harness_readiness_verified_at", migrated)
+
+    def test_lease_v2_agy_with_completed_input_is_maintenance_only(self) -> None:
+        active = self.mark_harness_launched(self.create_lease())
+        active["next_seq"] = 4
+        active["interactive_sends"] = [
+            {
+                "seq": 3,
+                "phase": "initial",
+                "prompt_sha256": "a" * 64,
+                "transport": "direct",
+                "instruction_wrapper_verified": True,
+            }
+        ]
+        active["harness_readiness"] = "operator_verified"
+        active["harness_readiness_evidence"] = (
+            "operator_observed_ready_input"
+        )
+        active["harness_readiness_operator"] = "legacy-operator"
+        active["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
+        previous = previous_lease_v2(active)
+
+        validate_legacy_lease(previous)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            migrate_legacy_lease(previous)
+        self.assertEqual(
+            caught.exception.code,
+            "legacy_agy_readiness_requires_fresh_row",
+        )
+
+    def test_active_agy_operator_ready_and_v2_checkpoint_state_fail_closed(
+        self,
+    ) -> None:
+        active = self.mark_harness_launched(self.create_lease())
+        active["harness_readiness"] = "operator_verified"
+        active["harness_readiness_evidence"] = (
+            "operator_observed_ready_input"
+        )
+        active["harness_readiness_operator"] = "forged-operator"
+        active["harness_readiness_verified_at"] = "2026-07-26T00:00:00Z"
+        with self.assertRaises(HerdrPuppetError) as active_error:
+            validate_lease(active)
+        self.assertEqual(active_error.exception.code, "invalid_lease")
+
+        previous = previous_lease_v2(active)
+        previous["harness_readiness"] = "checkpoint_pending"
+        previous.pop("harness_readiness_evidence")
+        previous.pop("harness_readiness_operator")
+        previous.pop("harness_readiness_verified_at")
+        with self.assertRaises(HerdrPuppetError) as previous_error:
+            validate_legacy_lease(previous)
+        self.assertEqual(previous_error.exception.code, "invalid_lease")
 
     def test_unbound_legacy_lease_cannot_be_attested_retroactively(self) -> None:
         legacy = historical_lease_v1(self.create_lease())
@@ -3817,6 +4003,7 @@ class QualificationTests(unittest.TestCase):
             lease_payload=legacy,
             lease_path=self.lease_path,
         )
+        self.assertEqual(first["schema"], "herdr-puppet.lease-migrate.v1")
         self.assertTrue(first["migrated"])
         self.assertEqual(
             first["changed_fields"],
@@ -3835,11 +4022,43 @@ class QualificationTests(unittest.TestCase):
             lease_payload=canonical,
             lease_path=self.lease_path,
         )
+        self.assertEqual(second["schema"], "herdr-puppet.lease-migrate.v1")
         self.assertFalse(second["migrated"])
         self.assertEqual(second["changed_fields"], [])
 
+    def test_lease_migrate_v1_cli_alias_is_idempotent_and_rejects_v2(
+        self,
+    ) -> None:
+        legacy = historical_lease_v1(self.create_lease())
+        self.persist_lease(legacy)
+        args = build_parser().parse_args(
+            ["lease-migrate-v1", "--lease-json", str(self.lease_path)]
+        )
+        first = herdr_cli.run(args)
+        second = herdr_cli.run(args)
+        self.assertEqual(first["schema"], "herdr-puppet.lease-migrate-v1.v1")
+        self.assertEqual(second["schema"], "herdr-puppet.lease-migrate-v1.v1")
+        self.assertTrue(first["migrated"])
+        self.assertFalse(second["migrated"])
+        canonical = load_json(self.lease_path)
+        self.assertEqual(canonical["schema"], "herdr-puppet.lease.v3")
+
+        previous = previous_lease_v2(canonical)
+        self.persist_lease(previous)
+        with self.assertRaises(HerdrPuppetError) as caught:
+            herdr_cli.run(args)
+        self.assertEqual(caught.exception.code, "lease_migrate_v1_wrong_source")
+
+        self.persist_lease(previous)
+        generic_args = build_parser().parse_args(
+            ["lease-migrate", "--lease-json", str(self.lease_path)]
+        )
+        generic = herdr_cli.run(generic_args)
+        self.assertEqual(generic["schema"], "herdr-puppet.lease-migrate.v1")
+        self.assertTrue(generic["migrated"])
+
     def test_readiness_evidence_is_accepted_only_for_operator_ready(self) -> None:
-        base_lease = self.create_lease()
+        base_lease = self.create_lease_for_harness("codex")
         unlaunched = copy.deepcopy(base_lease)
         unlaunched["shell_readiness"] = "status_verified"
         unlaunched["harness_readiness"] = "operator_verified"
@@ -5665,7 +5884,9 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(updated["next_seq"], 2)
         self.assertEqual(updated["state"], "preserved")
 
-    def test_shell_status_does_not_authorize_first_pane_input(self) -> None:
+    def test_shell_status_without_bound_agy_launch_does_not_authorize_input(
+        self,
+    ) -> None:
         lease = self.create_lease()
         run_root = self.initialize_default_journal()
         lease["shell_readiness"] = "status_verified"
@@ -5680,11 +5901,764 @@ class QualificationTests(unittest.TestCase):
                 allow_live=True,
                 run_root=run_root,
             )
-        self.assertEqual(caught.exception.code, "harness_readiness_not_proven")
+        self.assertEqual(caught.exception.code, "agy_bound_launch_missing")
         self.assertEqual(self.client.sent, [])
 
+    def test_agy_initial_send_is_checkpoint_driven_without_operator_ready(
+        self,
+    ) -> None:
+        lease, run_root = self.launch_agy_through_controller()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "perform one bounded task, then join prefix HERDR_PUPPET_, "
+            "class STATUS, one space, and nonce AGYAUTO-READY-1",
+        )
+        initial_seq = lease["next_seq"]
+
+        sent = qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=initial_seq,
+            text=initial_text,
+            instruction_manifest=manifest,
+            checkpoint_nonce="AGYAUTO-READY-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+
+        pending = load_json(self.lease_path)
+        validate_lease(pending)
+        self.assertEqual(sent["schema"], "herdr-puppet.qualification-send.v2")
+        self.assertEqual(sent["harness_readiness"], "checkpoint_pending")
+        self.assertEqual(sent["harness_acceptance"], "unverified")
+        self.assertEqual(pending["harness_readiness"], "checkpoint_pending")
+        self.assertNotIn("harness_readiness_operator", pending)
+        self.assertEqual(len(self.client.sent), 1)
+        self.assertEqual(
+            pending["harness_readiness_submission_seq"],
+            pending["harness_launch"]["seq"] + 1,
+        )
+
+        self.client.read_payload = "HERDR_PUPPET_STATUS AGYAUTO-READY-1"
+        observed = qualification_beacon_wait(
+            self.client,
+            lease_payload=pending,
+            lease_path=self.lease_path,
+            nonce="AGYAUTO-READY-1",
+            allow_live=True,
+            lines=20,
+            run_root=run_root,
+        )
+
+        ready = load_json(self.lease_path)
+        validate_lease(ready)
+        self.assertEqual(
+            observed["schema"],
+            "herdr-puppet.qualification-beacon-wait.v2",
+        )
+        self.assertEqual(observed["checkpoint"], "STATUS")
+        self.assertEqual(
+            observed["harness_readiness"],
+            "checkpoint_verified",
+        )
+        self.assertEqual(ready["harness_readiness"], "checkpoint_verified")
+        self.assertEqual(
+            ready["harness_readiness_evidence"],
+            "strict_initial_status_checkpoint",
+        )
+        self.assertEqual(
+            ready["harness_readiness_submission_seq"],
+            initial_seq,
+        )
+        self.assertEqual(
+            ready["harness_readiness_nonce_sha256"],
+            sha256_text("AGYAUTO-READY-1"),
+        )
+        self.assertNotIn("harness_readiness_operator", ready)
+
+        steering = qualification_send(
+            self.client,
+            lease_payload=ready,
+            lease_path=self.lease_path,
+            seq=ready["next_seq"],
+            text="continue with the separately bounded steering task",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(steering["harness_readiness"], "checkpoint_verified")
+        self.assertEqual(
+            steering["harness_acceptance"],
+            "checkpoint_verified",
+        )
+        self.assertEqual(len(self.client.sent), 2)
+
+    def test_agy_autonomous_initial_requires_bound_nonce_and_rejects_non_agy(
+        self,
+    ) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "join prefix HERDR_PUPPET_, class STATUS, one space, and nonce "
+            "AGY-BOUND-NONCE-1",
+        )
+        for checkpoint_nonce, expected_code in (
+            (None, "agy_checkpoint_nonce_required"),
+            ("short", "agy_checkpoint_nonce_required"),
+            (
+                "AGY-OTHER-NONCE-1",
+                "agy_checkpoint_nonce_not_bound_to_prompt",
+            ),
+        ):
+            with self.subTest(checkpoint_nonce=checkpoint_nonce):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    qualification_send(
+                        self.client,
+                        lease_payload=lease,
+                        lease_path=self.lease_path,
+                        seq=lease["next_seq"],
+                        text=initial_text,
+                        instruction_manifest=manifest,
+                        checkpoint_nonce=checkpoint_nonce,
+                        allow_live=True,
+                        run_root=run_root,
+                    )
+                self.assertEqual(caught.exception.code, expected_code)
+        self.assertEqual(self.client.sent, [])
+        self.assertEqual(load_json(self.lease_path), lease)
+
+    def test_non_agy_rejects_checkpoint_nonce_before_mutation(self) -> None:
+        codex = self.create_operator_ready_lease()
+        codex_run = self.initialize_default_journal()
+        codex_text, codex_manifest = self.wrapped_initial(
+            codex,
+            "bounded non-AGY task",
+        )
+        with self.assertRaises(HerdrPuppetError) as non_agy:
+            qualification_send(
+                self.client,
+                lease_payload=codex,
+                lease_path=self.lease_path,
+                seq=codex["next_seq"],
+                text=codex_text,
+                instruction_manifest=codex_manifest,
+                checkpoint_nonce="NOT-APPLICABLE-1",
+                allow_live=True,
+                run_root=codex_run,
+            )
+        self.assertEqual(
+            non_agy.exception.code,
+            "checkpoint_nonce_not_applicable",
+        )
+
+    def test_agy_postlaunch_wait_before_initial_never_calls_herdr(self) -> None:
+        launched, run_root = self.launch_agy_through_controller()
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=launched,
+                    lease_path=self.lease_path,
+                    nonce="AGY-NO-INITIAL-1",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "agy_initial_checkpoint_missing")
+        wait_output.assert_not_called()
+
+    def test_agy_unknown_initial_delivery_blocks_wait_replay_and_reconcile(
+        self,
+    ) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        nonce = "AGY-UNKNOWN-INIT-1"
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "join prefix HERDR_PUPPET_, class STATUS, one space, and nonce "
+            + nonce,
+        )
+        with mock.patch.object(
+            self.client,
+            "run_input",
+            side_effect=RuntimeError("unknown initial delivery"),
+        ) as run_input:
+            with self.assertRaisesRegex(RuntimeError, "unknown initial"):
+                qualification_send(
+                    self.client,
+                    lease_payload=lease,
+                    lease_path=self.lease_path,
+                    seq=lease["next_seq"],
+                    text=initial_text,
+                    instruction_manifest=manifest,
+                    checkpoint_nonce=nonce,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        self.assertEqual(run_input.call_count, 1)
+        unknown = load_json(self.lease_path)
+        validate_lease(unknown)
+        self.assertEqual(unknown["harness_readiness"], "unverified")
+        self.assertEqual(
+            unknown["pending_interactive_send"]["phase"],
+            "initial",
+        )
+
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as wait_error:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=unknown,
+                    lease_path=self.lease_path,
+                    nonce=nonce,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        self.assertEqual(
+            wait_error.exception.code,
+            "qualification_send_delivery_unknown",
+        )
+        wait_output.assert_not_called()
+        with self.assertRaises(HerdrPuppetError) as replay:
+            qualification_send(
+                self.client,
+                lease_payload=unknown,
+                lease_path=self.lease_path,
+                seq=unknown["next_seq"],
+                text=initial_text,
+                instruction_manifest=manifest,
+                checkpoint_nonce=nonce,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            replay.exception.code,
+            "qualification_send_delivery_unknown",
+        )
+        with self.assertRaises(HerdrPuppetError) as reconcile:
+            qualification_reconcile_send(
+                self.client,
+                lease_payload=unknown,
+                lease_path=self.lease_path,
+                seq=unknown["next_seq"],
+                text=initial_text,
+                evidence="remote_process_match",
+                confirm_applied=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            reconcile.exception.code,
+            "steering_reconciliation_prerequisite_missing",
+        )
+        self.assertEqual(run_input.call_count, 1)
+
+    def test_agy_first_wait_rejects_wrong_nonce_before_herdr(self) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        pending = self.send_agy_initial(
+            lease,
+            run_root,
+            "AGY-EXACT-NONCE-1",
+        )
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as caught:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=pending,
+                    lease_path=self.lease_path,
+                    nonce="AGY-WRONG-NONCE-1",
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        self.assertEqual(caught.exception.code, "agy_checkpoint_nonce_mismatch")
+        wait_output.assert_not_called()
+
+    def test_agy_checkpoint_state_requires_exact_seq_and_nonce_fields(self) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        pending = self.send_agy_initial(
+            lease,
+            run_root,
+            "AGY-STATE-BINDING-1",
+        )
+        mutations = []
+        without_seq = copy.deepcopy(pending)
+        without_seq.pop("harness_readiness_submission_seq")
+        mutations.append(without_seq)
+        without_nonce = copy.deepcopy(pending)
+        without_nonce.pop("harness_readiness_nonce_sha256")
+        mutations.append(without_nonce)
+        wrong_seq = copy.deepcopy(pending)
+        wrong_seq["harness_readiness_submission_seq"] += 1
+        mutations.append(wrong_seq)
+        for forged in mutations:
+            with self.subTest(fields=sorted(forged)):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    validate_lease(forged)
+                self.assertEqual(caught.exception.code, "invalid_lease")
+
+        unverified = copy.deepcopy(pending)
+        unverified["harness_readiness"] = "unverified"
+        unverified.pop("harness_readiness_submission_seq")
+        unverified.pop("harness_readiness_nonce_sha256")
+        with self.assertRaises(HerdrPuppetError) as unverified_error:
+            validate_lease(unverified)
+        self.assertEqual(unverified_error.exception.code, "invalid_lease")
+
+    def test_agy_action_required_preserves_without_verifying_readiness(self) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        nonce = "AGY-ACTION-GATE-1"
+        pending = self.send_agy_initial(lease, run_root, nonce)
+        self.client.read_payload = f"HERDR_PUPPET_ACTION_REQUIRED {nonce}"
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=pending,
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            run_root=run_root,
+        )
+        preserved = load_json(self.lease_path)
+        self.assertEqual(result["result"], "human_gate")
+        self.assertEqual(preserved["state"], "preserved")
+        self.assertEqual(preserved["preserved_reason"], "human_gate")
+        self.assertEqual(
+            preserved["harness_readiness"],
+            "checkpoint_pending",
+        )
+        self.assertNotIn("harness_readiness_evidence", preserved)
+
+    def test_agy_checkpoint_timeout_never_resends_or_admits_steering(
+        self,
+    ) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        initial_text, manifest = self.wrapped_initial(
+            lease,
+            "perform one bounded task, then join prefix HERDR_PUPPET_, "
+            "class STATUS, one space, and nonce AGYAUTO-MISS-1",
+        )
+        qualification_send(
+            self.client,
+            lease_payload=lease,
+            lease_path=self.lease_path,
+            seq=lease["next_seq"],
+            text=initial_text,
+            instruction_manifest=manifest,
+            checkpoint_nonce="AGYAUTO-MISS-1",
+            allow_live=True,
+            run_root=run_root,
+        )
+        pending = load_json(self.lease_path)
+        result = qualification_beacon_wait(
+            self.client,
+            lease_payload=pending,
+            lease_path=self.lease_path,
+            nonce="AGYAUTO-MISS-1",
+            allow_live=True,
+            lines=20,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(result["result"], "not_matched")
+        still_pending = load_json(self.lease_path)
+        self.assertEqual(
+            still_pending["harness_readiness"],
+            "checkpoint_pending",
+        )
+        second = qualification_beacon_wait(
+            self.client,
+            lease_payload=still_pending,
+            lease_path=self.lease_path,
+            nonce="AGYAUTO-MISS-1",
+            allow_live=True,
+            lines=20,
+            timeout_ms=1,
+            run_root=run_root,
+        )
+        self.assertEqual(second["result"], "not_matched")
+        still_pending = load_json(self.lease_path)
+        with mock.patch.object(
+            self.client,
+            "wait_output",
+            wraps=self.client.wait_output,
+        ) as wait_output:
+            with self.assertRaises(HerdrPuppetError) as exhausted:
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=still_pending,
+                    lease_path=self.lease_path,
+                    nonce="AGYAUTO-MISS-1",
+                    allow_live=True,
+                    lines=20,
+                    timeout_ms=1,
+                    run_root=run_root,
+                )
+        self.assertEqual(exhausted.exception.code, "beacon_rewait_limit")
+        wait_output.assert_not_called()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_send(
+                self.client,
+                lease_payload=still_pending,
+                lease_path=self.lease_path,
+                seq=still_pending["next_seq"],
+                text="must not steer before checkpoint",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "harness_readiness_checkpoint_pending",
+        )
+        self.assertEqual(len(self.client.sent), 1)
+        preserved = preserve_lease(
+            lease_payload=still_pending,
+            lease_path=self.lease_path,
+            reason="checkpoint_failed",
+            run_root=run_root,
+        )
+        self.assertEqual(preserved["state"], "preserved")
+        self.assertEqual(preserved["reason"], "checkpoint_failed")
+        self.assertEqual(
+            load_json(self.lease_path)["preserved_reason"],
+            "checkpoint_failed",
+        )
+
+    def test_agy_checkpoint_evidence_tampering_blocks_steering(self) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        nonce = "AGY-EVIDENCE-EXACT-1"
+        pending = self.send_agy_initial(lease, run_root, nonce)
+        ready = self.verify_agy_initial_checkpoint(pending, run_root, nonce)
+
+        tampered = copy.deepcopy(ready)
+        tampered["harness_readiness_nonce_sha256"] = "f" * 64
+        self.persist_lease(tampered)
+        validate_lease(tampered)
+        with self.assertRaises(HerdrPuppetError) as hash_error:
+            qualification_send(
+                self.client,
+                lease_payload=tampered,
+                lease_path=self.lease_path,
+                seq=tampered["next_seq"],
+                text="must not steer with altered evidence",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            hash_error.exception.code,
+            "initial_send_consumption_not_proven",
+        )
+
+        self.persist_lease(ready)
+        append_event(
+            run_root,
+            make_event(
+                ready["run_id"],
+                "qualification.beacon",
+                "observed",
+                seq=ready["harness_readiness_submission_seq"],
+                nonce_sha256=sha256_text("AGY-CONFLICT-NONCE-1"),
+                data={"checkpoint": "STATUS", "pane_id": ready["pane_id"]},
+            ),
+        )
+        with self.assertRaises(HerdrPuppetError) as duplicate:
+            qualification_send(
+                self.client,
+                lease_payload=ready,
+                lease_path=self.lease_path,
+                seq=ready["next_seq"],
+                text="must not steer with ambiguous evidence",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            duplicate.exception.code,
+            "initial_send_consumption_not_proven",
+        )
+        self.assertEqual(len(self.client.sent), 1)
+
+    def test_agy_checkpoint_event_failure_repairs_with_same_nonce_only(
+        self,
+    ) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        nonce = "AGY-EVENT-REPAIR-1"
+        pending = self.send_agy_initial(lease, run_root, nonce)
+        self.client.read_payload = f"HERDR_PUPPET_STATUS {nonce}"
+
+        def fail_beacon_event(
+            run_path: Path,
+            event: dict[str, Any],
+        ) -> None:
+            if event.get("kind") == "qualification.beacon":
+                raise RuntimeError("simulated beacon journal failure")
+            append_event(run_path, event)
+
+        with mock.patch(
+            "herdr_puppet_lib.core.append_event",
+            side_effect=fail_beacon_event,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "journal failure"):
+                qualification_beacon_wait(
+                    self.client,
+                    lease_payload=pending,
+                    lease_path=self.lease_path,
+                    nonce=nonce,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        ready_without_event = load_json(self.lease_path)
+        self.assertEqual(
+            ready_without_event["harness_readiness"],
+            "checkpoint_verified",
+        )
+        with self.assertRaises(HerdrPuppetError) as wrong_nonce:
+            qualification_beacon_wait(
+                self.client,
+                lease_payload=ready_without_event,
+                lease_path=self.lease_path,
+                nonce="AGY-EVENT-WRONG-1",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            wrong_nonce.exception.code,
+            "agy_checkpoint_nonce_mismatch",
+        )
+        repaired = qualification_beacon_wait(
+            self.client,
+            lease_payload=ready_without_event,
+            lease_path=self.lease_path,
+            nonce=nonce,
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(repaired["checkpoint"], "STATUS")
+        steering = qualification_send(
+            self.client,
+            lease_payload=load_json(self.lease_path),
+            lease_path=self.lease_path,
+            seq=ready_without_event["next_seq"],
+            text="continue after repaired exact evidence",
+            allow_live=True,
+            run_root=run_root,
+        )
+        self.assertEqual(steering["harness_readiness"], "checkpoint_verified")
+
+    def test_agy_unknown_steering_remains_valid_and_reconcilable(self) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        nonce = "AGY-STEER-READY-1"
+        pending = self.send_agy_initial(lease, run_root, nonce)
+        ready = self.verify_agy_initial_checkpoint(pending, run_root, nonce)
+        steering_text = "perform the separately bounded steering action"
+        original_run_input = self.client.run_input
+
+        def accepted_but_unknown(*args: Any, **kwargs: Any) -> str:
+            original_run_input(*args, **kwargs)
+            raise RuntimeError("unknown steering delivery")
+
+        with mock.patch.object(
+            self.client,
+            "run_input",
+            side_effect=accepted_but_unknown,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unknown steering"):
+                qualification_send(
+                    self.client,
+                    lease_payload=ready,
+                    lease_path=self.lease_path,
+                    seq=ready["next_seq"],
+                    text=steering_text,
+                    allow_live=True,
+                    run_root=run_root,
+                )
+        unknown = load_json(self.lease_path)
+        validate_lease(unknown)
+        self.assertEqual(
+            unknown["pending_interactive_send"]["phase"],
+            "steering",
+        )
+        sent_before = list(self.client.sent)
+        reconciled = qualification_reconcile_send(
+            self.client,
+            lease_payload=unknown,
+            lease_path=self.lease_path,
+            seq=unknown["next_seq"],
+            text=steering_text,
+            evidence="herdr_success_exit+remote_process_match",
+            confirm_applied=True,
+            run_root=run_root,
+        )
+        self.assertFalse(reconciled["herdr_mutated"])
+        self.assertEqual(self.client.sent, sent_before)
+        completed = load_json(self.lease_path)
+        self.assertEqual(
+            completed["interactive_sends"][1]["transport"],
+            "reconciled",
+        )
+
+    def test_non_agy_initial_send_still_requires_operator_readiness(
+        self,
+    ) -> None:
+        for harness in ("codex", "claude", "cursor", "grok"):
+            with self.subTest(harness=harness):
+                case = QualificationTests(methodName=self._testMethodName)
+                case.setUp()
+                try:
+                    lease = case.mark_harness_launched(
+                        case.create_lease_for_harness(harness)
+                    )
+                    run_root = case.initialize_default_journal()
+                    initial_text, manifest = case.wrapped_initial(
+                        lease,
+                        "must remain operator gated",
+                    )
+                    with self.assertRaises(HerdrPuppetError) as caught:
+                        qualification_send(
+                            case.client,
+                            lease_payload=lease,
+                            lease_path=case.lease_path,
+                            seq=lease["next_seq"],
+                            text=initial_text,
+                            instruction_manifest=manifest,
+                            allow_live=True,
+                            run_root=run_root,
+                        )
+                    self.assertEqual(
+                        caught.exception.code,
+                        "harness_readiness_not_proven",
+                    )
+                    self.assertEqual(case.client.sent, [])
+                finally:
+                    case.tearDown()
+
+    def test_startup_gate_runtime_enforces_exact_harness_action_matrix(
+        self,
+    ) -> None:
+        allowed_cases = [
+            (harness, gate, action)
+            for harness, gates in STARTUP_GATE_ACTIONS.items()
+            for gate, actions in gates.items()
+            for action in actions
+        ]
+        for harness, gate, action in allowed_cases:
+            with self.subTest(
+                outcome="allowed",
+                harness=harness,
+                gate=gate,
+                action=action,
+            ):
+                case = QualificationTests(methodName=self._testMethodName)
+                case.setUp()
+                try:
+                    lease = case.mark_harness_launched(
+                        case.create_lease_for_harness(harness)
+                    )
+                    run_root = case.initialize_default_journal()
+                    result = qualification_startup_gate(
+                        case.client,
+                        lease_payload=lease,
+                        lease_path=case.lease_path,
+                        seq=lease["next_seq"],
+                        gate=gate,
+                        action=action,
+                        source_worktree=lease["source"]["worktree"],
+                        operator_id="operator-gate-matrix",
+                        evidence="operator_observed_exact_gate",
+                        confirm_exact_worktree=True,
+                        confirm_unrestricted=True,
+                        allow_live=True,
+                        run_root=run_root,
+                    )
+                    self.assertIs(
+                        result["pane_input_mutated"],
+                        action != "not_present",
+                    )
+                finally:
+                    case.tearDown()
+
+        rejected_cases = (
+            ("agy", "workspace_trust", "not_present"),
+            ("grok", "workspace_trust", "not_present"),
+            ("cursor", "security_acknowledgement", "acknowledge"),
+            ("codex", "workspace_trust", "accept"),
+            ("claude", "security_acknowledgement", "accept_selected"),
+        )
+        for harness, gate, action in rejected_cases:
+            with self.subTest(
+                outcome="rejected",
+                harness=harness,
+                gate=gate,
+                action=action,
+            ):
+                case = QualificationTests(methodName=self._testMethodName)
+                case.setUp()
+                try:
+                    lease = case.mark_harness_launched(
+                        case.create_lease_for_harness(harness)
+                    )
+                    run_root = case.initialize_default_journal()
+                    with self.assertRaises(HerdrPuppetError) as caught:
+                        qualification_startup_gate(
+                            case.client,
+                            lease_payload=lease,
+                            lease_path=case.lease_path,
+                            seq=lease["next_seq"],
+                            gate=gate,
+                            action=action,
+                            source_worktree=lease["source"]["worktree"],
+                            operator_id="operator-gate-matrix",
+                            evidence="operator_observed_exact_gate",
+                            confirm_exact_worktree=True,
+                            confirm_unrestricted=True,
+                            allow_live=True,
+                            run_root=run_root,
+                        )
+                    self.assertEqual(caught.exception.code, "startup_gate_unsupported")
+                    self.assertEqual(case.client.sent, [])
+                finally:
+                    case.tearDown()
+
+    def test_agy_operator_ready_transition_is_rejected_as_workflow_halt(
+        self,
+    ) -> None:
+        lease = self.mark_harness_launched(self.create_lease())
+        run_root = self.initialize_default_journal()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            qualification_harness_ready(
+                self.client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                source_repo=lease["source"]["repo"],
+                source_worktree=lease["source"]["worktree"],
+                operator_id="operator-a",
+                evidence="operator_observed_ready_input",
+                confirm_ready=True,
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "agy_readiness_is_checkpoint_driven",
+        )
+
     def test_harness_readiness_binds_operator_and_exact_source(self) -> None:
-        lease = self.create_lease()
+        lease = self.create_lease_for_harness("codex")
         lease = self.mark_harness_launched(lease)
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
@@ -5805,28 +6779,25 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(self.client.sent, [])
 
     def test_send_rejects_followup_prompt_without_status_beacon(self) -> None:
-        lease = self.create_lease()
+        lease = self.mark_harness_launched(
+            self.create_lease_for_harness("codex")
+        )
         run_root = self.initialize_default_journal()
-        lease["next_seq"] = 2
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
-        with self.assertRaisesRegex(
-            HerdrPuppetError,
-            "source/operator-bound harness readiness",
-        ):
+        with self.assertRaises(HerdrPuppetError) as caught:
             qualification_send(
                 self.client,
                 lease_payload=lease,
                 lease_path=self.lease_path,
-                seq=2,
+                seq=lease["next_seq"],
                 text="next prompt",
                 allow_live=True,
                 run_root=run_root,
             )
+        self.assertEqual(caught.exception.code, "harness_readiness_not_proven")
 
     def test_send_allows_followup_prompt_after_status_beacon(self) -> None:
-        lease = self.create_lease()
-        lease["next_seq"] = 2
-        lease = self.mark_harness_ready(lease)
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(lease, "next prompt")
         send_seq = lease["next_seq"]
@@ -6390,7 +7361,7 @@ class QualificationTests(unittest.TestCase):
             self.assertNotIn(private_value, private_surface)
 
     def test_send_uses_single_enter_for_non_claude_multiline_prompt(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         initial_text, manifest = self.wrapped_initial(
@@ -6427,8 +7398,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(self.client.sent_key_vectors, [["enter"]])
 
     def test_send_hashes_prompt_and_atomically_advances_sequence(self) -> None:
-        lease = self.create_lease()
-        lease = self.mark_harness_ready(lease)
+        lease = self.create_operator_ready_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         initial_text, manifest = self.wrapped_initial(
@@ -6447,6 +7417,7 @@ class QualificationTests(unittest.TestCase):
         )
         updated = json.loads(self.lease_path.read_text(encoding="utf-8"))
         events = (run_root / "events.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(result["schema"], "herdr-puppet.qualification-send.v2")
         self.assertEqual(result["next_seq"], lease["next_seq"] + 1)
         self.assertTrue(result["transport_acknowledged"])
         self.assertEqual(result["acceptance_scope"], "herdr_pane_input_only")
@@ -6462,7 +7433,7 @@ class QualificationTests(unittest.TestCase):
         )
 
     def test_send_journal_failure_fails_closed_against_extra_initial(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(
             lease,
@@ -6516,7 +7487,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(len(self.client.sent), 1)
 
     def test_send_ack_then_finalize_failure_blocks_replay(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(
             lease,
@@ -6575,7 +7546,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(len(self.client.sent), 1)
 
     def test_send_rejects_assembled_checkpoint_line_before_mutation(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_send(
@@ -6595,7 +7566,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(load_json(self.lease_path)["next_seq"], lease["next_seq"])
 
     def test_send_rejects_terminal_normalized_checkpoint_token(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         for suffix in (" ", "\t", "`.", "\u00a0"):
             with self.subTest(suffix=repr(suffix)):
@@ -6619,7 +7590,7 @@ class QualificationTests(unittest.TestCase):
                 self.assertEqual(self.client.sent, [])
 
     def test_send_allows_split_checkpoint_composition_instruction(self) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(
             lease,
@@ -6643,8 +7614,7 @@ class QualificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             prompt_path = Path(directory) / "prompt.txt"
             prompt_path.write_text("from file", encoding="utf-8")
-            lease = self.create_lease()
-            lease = self.mark_harness_ready(lease)
+            lease = self.create_operator_ready_lease()
             run_root = self.root / "run"
             initialize_journal(run_root, self.plan)
             initial_text, manifest = self.wrapped_initial(
@@ -6672,8 +7642,7 @@ class QualificationTests(unittest.TestCase):
             self.assertNotIn(normalized_prompt_path, json.dumps(result))
 
     def test_send_does_not_track_missing_prompt_file(self) -> None:
-        lease = self.create_lease()
-        lease = self.mark_harness_ready(lease)
+        lease = self.create_operator_ready_lease()
         missing_prompt = self.root / "missing.txt"
         if missing_prompt.exists():
             missing_prompt.unlink()
@@ -6736,8 +7705,7 @@ class QualificationTests(unittest.TestCase):
         )
 
     def test_partial_send_reconciliation_advances_without_herdr_mutation(self) -> None:
-        lease = self.create_lease()
-        lease = self.mark_harness_ready(lease)
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(
             lease,
@@ -6804,7 +7772,7 @@ class QualificationTests(unittest.TestCase):
     def test_reconciliation_repairs_missing_completion_event_idempotently(
         self,
     ) -> None:
-        lease = self.mark_harness_ready(self.create_lease())
+        lease = self.create_operator_ready_lease()
         run_root = self.initialize_default_journal()
         initial_text, manifest = self.wrapped_initial(
             lease,
@@ -7994,8 +8962,7 @@ class QualificationTests(unittest.TestCase):
             )
 
     def test_journal_summary_and_state_are_transcript_blind(self) -> None:
-        lease = self.create_lease()
-        lease = self.mark_harness_ready(lease)
+        lease = self.create_operator_ready_lease()
         run_root = self.root / "run"
         initialize_journal(run_root, self.plan)
         initial_text, manifest = self.wrapped_initial(
@@ -8429,6 +9396,8 @@ class QualificationTests(unittest.TestCase):
                 str(prompt_path),
                 "--instruction-manifest-json",
                 str(manifest_path),
+                "--checkpoint-nonce",
+                "AGY-CLI-NONCE-1",
                 "--run-root",
                 str(self.root / "run"),
                 "--allow-live-qualification",
@@ -8448,6 +9417,10 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(
             send.call_args.kwargs["run_root"],
             self.root / "run",
+        )
+        self.assertEqual(
+            send.call_args.kwargs["checkpoint_nonce"],
+            "AGY-CLI-NONCE-1",
         )
 
     def test_plan_rejects_noncanonical_harness_before_mutation(self) -> None:
@@ -8557,6 +9530,28 @@ class QualificationTests(unittest.TestCase):
             "qualification_sequence_delivery_unknown",
         )
         self.assertEqual(len(self.client.ran), 1)
+        initial_text, manifest = self.wrapped_initial(
+            reserved,
+            "join prefix HERDR_PUPPET_, class STATUS, one space, and nonce "
+            "AGY-LAUNCH-UNKNOWN-1",
+        )
+        with self.assertRaises(HerdrPuppetError) as blocked_send:
+            qualification_send(
+                self.client,
+                lease_payload=reserved,
+                lease_path=self.lease_path,
+                seq=reserved["next_seq"],
+                text=initial_text,
+                instruction_manifest=manifest,
+                checkpoint_nonce="AGY-LAUNCH-UNKNOWN-1",
+                allow_live=True,
+                run_root=run_root,
+            )
+        self.assertEqual(
+            blocked_send.exception.code,
+            "qualification_sequence_delivery_unknown",
+        )
+        self.assertEqual(self.client.sent, [])
 
     def test_regular_launch_clears_parent_agent_environment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -8836,6 +9831,7 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(client.sent, [("keys", "w2:p1", "a")])
 
     def test_instruction_wrapper_is_bound_to_first_send(self) -> None:
+        lease = self.create_operator_ready_lease()
         binding = self.plan["harness_binding"]
         rendered, manifest = compile_instruction_wrapper(
             binding_value=binding,
@@ -8847,7 +9843,6 @@ class QualificationTests(unittest.TestCase):
             binding_value=binding,
             rendered=rendered,
         )
-        lease = self.mark_harness_ready(self.create_lease())
         run_root = self.initialize_default_journal()
         with self.assertRaises(HerdrPuppetError) as caught:
             qualification_send(
@@ -8943,6 +9938,17 @@ class ContractDocTests(unittest.TestCase):
         self.assertIn("Use `qualification-send` only for ordinary interactive", text)
         self.assertIn("Keep the controller plan file outside the intended run root", text)
         self.assertIn("focuses that exact newly created", text)
+        self.assertIn("AGY never asks for ready-input confirmation", text)
+        agy_initial = text.index("--checkpoint-nonce <agy-checkpoint-nonce>")
+        agy_wait = text.index("# AGY/Codex/Cursor/Grok only: wait now")
+        steering = text.index("# Then send one steering turn")
+        self.assertLess(agy_initial, agy_wait)
+        self.assertLess(agy_wait, steering)
+        shell_run = text.index("qualification-run \\")
+        shell_wait = text.index("# Shell preflight: wait for its STATUS")
+        census_verify = text.index("harness-census-verify \\")
+        self.assertLess(shell_run, shell_wait)
+        self.assertLess(shell_wait, census_verify)
 
     def test_qualification_contract_keeps_prompt_mode_narrow(self) -> None:
         text = (
@@ -8969,6 +9975,7 @@ class ContractDocTests(unittest.TestCase):
             "Ordinary interactive harness prompts remain on `qualification-send`",
             text,
         )
+        self.assertIn("for non-AGY, send one bound wrapped task prompt", text)
         self.assertNotIn("submit the launcher through", text)
         self.assertNotIn("normal 420-second AGY recipe", text)
         self.assertIn("`journal-init` owns creating", text)

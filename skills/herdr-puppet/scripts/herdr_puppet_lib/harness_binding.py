@@ -308,6 +308,7 @@ def transport_adapter_fingerprint(skill_root: Path | None = None) -> str:
             "references/harness-binding-v2.schema.json",
             "references/harness-binding-v1.schema.json",
             "references/lease.schema.json",
+            "references/lease-v2.schema.json",
             "references/lease-v1.schema.json",
             "references/plan.schema.json",
             "references/plan-v1.schema.json",
