@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
-  "version": "0.1.0",
-  "description": "Experimental agent workflows and Herdr transport tools.",
+  "version": "0.2.0",
+  "description": "Experimental agent supervision, Herdr transport, and progressive product-decision workflows.",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -12,6 +12,8 @@
   "keywords": [
     "agent-skills",
     "grilltrack",
+    "puppet",
+    "agent-orchestration",
     "product-development",
     "herdr",
     "agent-transport"
@@ -19,8 +21,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Saarius Skills",
-    "shortDescription": "Product cycles and truthful Herdr agent transport.",
-    "longDescription": "Experimental Agent Skills for cumulative product decisions and exact-identity, transcript-blind Herdr agent transport.",
+    "shortDescription": "Agent supervision, Herdr transport, and product decisions.",
+    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, bounded implementation, verification, and honest closeout.",
     "developerName": "Saariusly Stoned",
     "category": "Productivity",
     "capabilities": [
@@ -30,6 +32,7 @@
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
       "Help me decide and build the next product slice with GrillTrack.",
+      "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
       "Use Herdr-Puppet to plan and journal one explicitly owned remote-agent pane."
     ]
   }

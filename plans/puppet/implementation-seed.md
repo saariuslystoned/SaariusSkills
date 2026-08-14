@@ -186,9 +186,21 @@ python3 skills/puppet/scripts/adapter_lab.py scaffold \
   --manifest /abs/census.json \
   --out skills/puppet/scripts/puppet_lib/generated
 python3 skills/puppet/scripts/adapter_lab.py probe \
-  --target agy \
-  --profile interactive-v1 \
-  --proof-root /abs/proof-root
+  --target codex \
+  --profile source-free-pass-b-v2 \
+  --session-profile regular \
+  --proof-root /abs/proof-root \
+  --manifest /abs/codex-doctor.json \
+  --mapping /abs/codex-yolo-mapping.json \
+  --authorization /abs/campaign-authorization.json \
+  --controller codex-controller \
+  --campaign-id campaign-id \
+  --goal-repo /abs/goal-repo \
+  --goal-repository owner/repo \
+  --goal-commit COMMIT_SHA \
+  --goal-path plans/puppet/codex-goal-regular-qualification.md \
+  --goal-sha256 GOAL_SHA256 \
+  --subscription-profile-root /abs/private-codex-profile
 python3 skills/puppet/scripts/adapter_lab.py verify --run /abs/proof-root
 ```
 
@@ -364,7 +376,11 @@ Behavior:
   `submitted`, and target-acknowledged; transport success alone is not proof the
   parent consumed the steering turn.
 
-For AGY, every substantive message must begin with exactly one literal `/teamwork-preview`. Reject `/btw`, `/side`, empty messages, and duplicated prefixes. The caller supplies the content; the adapter supplies the prefix.
+For AGY `teamwork-preview` sessions, only the initial substantive message begins
+with exactly one literal `/teamwork-preview`. Reject `/btw`, `/side`, empty
+messages, and caller-supplied profile prefixes. The caller supplies content; the
+adapter supplies the selected native launch command. Follow-ups are ordinary
+unprefixed steering messages.
 
 ### `status`
 
@@ -683,7 +699,8 @@ Requirements:
 - Live launch is allowed only when the installed AGY fingerprint maps to its
   verified permission-bypass behavior with the sandbox disabled or absent.
 - Model and effort selection use verified launch flags when available; otherwise use a deterministic, separately proven selector. Never silently accept model drift.
-- Initial and follow-up substantive messages begin with exactly one `/teamwork-preview`.
+- The initial substantive message begins with exactly one selected native profile
+  command; follow-ups remain unprefixed.
 - `/btw`, `/side`, duplicate prefixes, and direct transcript inspection are prohibited.
 - Prefer one persistent AGY parent and no nested AGY process.
 - Use AGY-native helpers, messaging, scheduling, and task management from the target parent.
@@ -1133,11 +1150,23 @@ interaction.
 ### Phase 5: separately gated migration
 
 - Keep `teamwork-preview` installed during development and while any active lane references it.
+- Treat the existing skill, runner, scripts, and dependencies as migration
+  inputs rather than a permanent sibling runtime. Puppet must own replacement
+  implementations; accepted Puppet operation cannot retain a runtime dependency
+  on the legacy skill.
+- Inventory and separately qualify every useful behavior before switching any
+  caller: auth-preserving interactive AGY birth, exact model/effort and quota
+  binding, literal initial native-command delivery, protected prompt-file
+  transport, fresh process/window-per-milestone behavior, phase/window labels,
+  preserved audit windows, active-window selection, and authentic read-only
+  tmux viewing.
 - Run one complete `agy-computer-use`-style milestone through `puppet`.
 - Search known skill, automation, launcher, and repo references for `teamwork-preview`.
 - Switch those references deliberately.
 - Halt or preserve every old managed session.
-- Remove the old skill recoverably only after the new path passes acceptance.
+- Remove the old skill, its scripts, and now-unused dependencies recoverably
+  only after the Puppet-owned replacements pass acceptance and the reference
+  inventory reaches zero.
 
 Do not delete or rewrite the active `teamwork-preview` skill as part of early implementation.
 
@@ -1218,7 +1247,8 @@ substitute for these real behaviors.
   transcript, or secret material.
 - One command launches an exact target in a durable tmux session.
 - The human receives a functioning read-only attach command.
-- Every AGY substantive message begins with exactly one `/teamwork-preview` without relying on controller memory.
+- Every AGY session applies its selected native profile command exactly once to
+  the initial substantive message without relying on controller memory.
 - Every live adapter is YOLO-only; the package warns users upfront, requires an
   explicit local acknowledgement, proves the exact current-version
   auto-approve/sandbox-disable mapping, and otherwise fails closed.

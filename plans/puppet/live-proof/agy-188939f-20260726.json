@@ -1,0 +1,82 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "agy",
+  "source_head": "188939f5d71a3a498db67bb078be59b242799749",
+  "observed_at": "2026-07-26T13:19:18Z",
+  "scope": "pass_b_qualified_and_public_mutating_session_pending_read_only_control_and_final_source_stable_rerun",
+  "runtime": {
+    "name": "Antigravity CLI",
+    "version": "1.1.7",
+    "executable_sha256": "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8",
+    "authentication": "same_user_shared_vendor_auth_config_uninspected",
+    "model_selection": "current_provider_default",
+    "observed_model": "unavailable",
+    "session_profile": "regular",
+    "permission_mode": "dangerously_skip_permissions",
+    "sandbox_mode": "false",
+    "model_or_effort_selector_injected": false
+  },
+  "pass_b": {
+    "run_id": "agy-pass-b-188939f-20260726",
+    "target_pid": 87146,
+    "receipt_sha256": "eb29adb8cff2aefacf274d1caa83556ddf31bb44014c720a38271e31ee5e24d8",
+    "halt_sha256": "4f5c962947f4b55db146bad5243e1e1277d4b6ef3c5a1fe188b1e4916884d3df",
+    "controller_attestation_receipt_digest": "922136fc1b219605bdd55e7a088f6dc78bb22bc7c165e36909233478e41e356e",
+    "ready_checkpoint": true,
+    "sequenced_steering": true,
+    "accepted": true,
+    "pre_target_population": 0,
+    "post_target_population": 0,
+    "exact_owned_halt": true
+  },
+  "qualification": {
+    "qualified_manifest_fingerprint": "24638bb7db9e0fd7ccce5281aed731687f3f2aa548eab677380445448cc6f806",
+    "qualified_manifest_file_sha256": "8f2705ab7b643a4dc854918b5df112e8c373b687f5aab65a0fe3d0b64bb49ada",
+    "session_profile": "regular",
+    "public_launch_authorized": true
+  },
+  "public_mutating_session": {
+    "session": "puppet-agy-public-188939f-20260726",
+    "run_id": "agy-public-mutating-188939f-20260726",
+    "target_pid": 94734,
+    "entry_mode": "cockpit_explicit",
+    "candidate_commit": "a7beda6f652f6fb71e68cc1571f2d5f5333f582b",
+    "integrated_commit": "0538f29ce897b687eea8a55fd2ceedce30d8ecf3",
+    "checkpoint_id": "ce5a6c4fcb28947e777010bfab49901cf27b7890db92514d55cc9e051ceee089",
+    "source_handoff_sha256": "dc019f456dd4170c18228db3a0ad70708d0f8b8d8f66560f30ef097fcdc07da7",
+    "controller_review_sha256": "fc298fd22cd04a715b3020fdca4129821c6a2fc830bc48d4c38f91454fa7fda0",
+    "verdict_sha256": "97ffba2205816af15d78236f4a6639660aec757fa875af055d5c595453b2a1d9",
+    "state_receipt_sha256": "9776ab69d48b95a205e23525b1b90c02a080eb7ec45a13248bad444686565303",
+    "controller_verdict": "source_accept",
+    "focused_tests": 14,
+    "full_tests": 790,
+    "skill_validation": "pass",
+    "exact_owned_halt": true,
+    "tmux_preserved": true
+  },
+  "native_view": {
+    "terminal_app": "iTerm",
+    "new_read_only_clients": 1,
+    "controller_attached": false,
+    "native_tui": true,
+    "viewer_attached": true,
+    "ticket_sha256": "5cae865b5bf55baa3df7a0f001dd8184dfa0f32685c5468b80c93d9574aa3502",
+    "pane_body_captured": false
+  },
+  "controller_verification": {
+    "pass_b_reverified": true,
+    "public_doctor_launch_ready": true,
+    "public_checkpoint_independently_reviewed": true,
+    "candidate_worktree_clean": true,
+    "target_commit_integrated": true,
+    "transcript_or_body_retained": false,
+    "auth_or_config_store_inspected": false,
+    "operator_global_config_modified": false
+  },
+  "non_claims": [
+    "The public mutating session reached its source checkpoint before a follow-up send; Puppet correctly rejected steering after source acceptance.",
+    "A distinct read-only cockpit control session remains to be exercised with steering before checkpoint import.",
+    "The provider-selected model identity remains unavailable.",
+    "A final rerun is required after later qualifying source changes."
+  ]
+}
