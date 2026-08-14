@@ -27,14 +27,8 @@ The regular lifecycle for one qualified harness target is:
 plan -> doctor -> launch -> send -> status -> halt
 ```
 
-1. **Onboard once.** Prepare or rejoin one durable private profile per user,
-   harness, and account with `onboard` (or the single-target `profile-init` /
-   `profile-status`). Reuse every `ready` profile without prompting; a login
-   handoff is a human-only account action for a profile the provider reports
-   logged out. See
-   [subscription-profiles.md](references/subscription-profiles.md).
-2. **Compile a plan.** `plan` builds a source-only operator packet before any
-   profile, doctor, launch, or lifecycle command:
+1. **Compile a plan.** `plan` builds a source-only operator packet before any
+   onboard, profile, doctor, launch, or lifecycle command:
 
    ```bash
    python3 <skill-root>/scripts/puppet.py plan \
@@ -59,6 +53,13 @@ plan -> doctor -> launch -> send -> status -> halt
    any live launch. An unqualified target's plan is doctor-only and carries a
    human gate; see
    [qualification-contract.md](references/qualification-contract.md).
+2. **Onboard only when the plan admits it.** A previously completed onboard
+   for a warm, ready, qualified profile is a prerequisite, not this step: reuse
+   that profile and skip to `doctor`. Run `onboard` (or single-target
+   `profile-init` / `profile-status`) only for first-use or recovery after the
+   plan's human gate names that profile action. A login handoff remains a
+   human-only account action for a profile the provider reports logged out.
+   See [subscription-profiles.md](references/subscription-profiles.md).
 3. **Doctor.** `doctor --profile-root <private-profile>` validates the current
    executable, YOLO mapping, repository, authorization, tmux, proof root, and
    collision state. Stop on a missing, invalid, unauthenticated, or

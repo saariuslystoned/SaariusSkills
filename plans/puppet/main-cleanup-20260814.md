@@ -16,7 +16,7 @@ without merging #5 as-is.
 | PR #5 campaign head | `410fcf5b17c2e69903a3f8ca40ee06ad230c87fd` |
 | campaign implementation head | `544a347` (five-harness closeout binding) |
 | merge base | `23f3b0c8062c7cffaadabee3154477285ccac0f3` |
-| PR #18 head (OPEN, not touched) | `e9792ee26cc9cbd836078f192d81d933a22ecfe8` |
+| PR #18 (preparation: OPEN; now MERGED as `1b8dfd94`) | `e9792ee26cc9cbd836078f192d81d933a22ecfe8` |
 
 Divergence: `origin/main` is 39 commits ahead of the merge base (the hardened
 `herdr-puppet` vertical plus the #9 and #17 merges); the campaign branch is
@@ -65,11 +65,11 @@ side; the rest are path-disjoint additions.
   (an explicit pre-decode bracket-depth scan) is noted as a non-blocking
   follow-up.
 
-## Prepared on this branch (#18 still open — no replay yet)
+## Prepared while #18 was still open
 
-PR #18 (`herdr-agy-autoready`) was OPEN at preparation time, so per the lane
-contract the 241-commit replay is deferred and this branch carries only work
-that applies cleanly after that rebase:
+PR #18 (`herdr-agy-autoready`) was OPEN at preparation time. The 241-commit
+replay waited for that merge; this section records only the work that had to
+apply cleanly after rebase. #18 is now MERGED (`1b8dfd94`).
 
 1. `skills/puppet/SKILL.md` — full rewrite. The ordinary operator loop
    (`plan → doctor → launch → send → status → halt`) is the front door; the

@@ -42,6 +42,10 @@ later runs with repeated prompts.
 
 ## Onboarding
 
+Onboard only after a source-only `plan` and only when that plan admits
+first-use or recovery. A previously completed onboard for a ready
+qualified profile is not repeated.
+
 Run first-use or recovery onboarding for the selected harnesses:
 
 ```bash
