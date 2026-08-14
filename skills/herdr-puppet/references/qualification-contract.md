@@ -22,19 +22,24 @@ The first useful dogfood run should:
 8. for Claude, register all eight possible marker-file paths before launch;
 9. start one canonical harness through the dedicated regular launch operation;
 10. for Claude, validate and journal the `armed` SessionStart receipt;
-11. handle only an exact observed allowlisted pre-readiness startup gate;
-12. independently prove the harness input surface is ready;
-13. send one bound wrapped task prompt through one atomic `pane.send_input`
-    request; use two `enter` keys only for multiline Claude submits and one
-    `enter` for all other submits;
-14. for Claude, require a bound `initial` receipt with UserPromptSubmit plus
-    Stop or StopFailure; only `response_completed` permits steering;
-15. send one separately sequenced steering turn and, for Claude, require its
-    bound `steering` receipt;
-16. use one generated terminal nonce checkpoint;
-17. prove a real client detach/reattach without changing leased identities;
-18. preserve and inventory the tab at the terminal milestone;
-19. record gaps and improvement candidates without copying transcript text.
+11. handle only an exact observed allowlisted pre-readiness startup gate for
+   non-AGY rows;
+12. independently prove the harness input surface is ready (non-AGY);
+13. AGY uses an autonomous checkpoint gate: send one wrapped task prompt with
+   `--checkpoint-nonce` through atomic `pane.send_input`, then verify the exact
+   `HERDR_PUPPET_STATUS <same-nonce>` on the matching bound sequence before
+   steering.
+14. for non-AGY, send one bound wrapped task prompt through one atomic
+   `pane.send_input` request; use two `enter` keys only for multiline Claude
+   submits and one `enter` for all other submits;
+15. for Claude, require a bound `initial` receipt with UserPromptSubmit plus
+   Stop or StopFailure; only `response_completed` permits steering;
+16. send one separately sequenced steering turn and, for Claude, require its
+   bound `steering` receipt;
+17. use one generated terminal nonce checkpoint;
+18. prove a real client detach/reattach without changing leased identities;
+19. preserve and inventory the tab at the terminal milestone;
+20. record gaps and improvement candidates without copying transcript text.
 
 ## Prompt mode
 
@@ -182,14 +187,14 @@ select another profile or contaminate the qualifying process.
 ## Startup gates and instruction plane
 
 Startup-gate handling is pre-readiness, sequence-bound, exact-worktree-bound,
-single-use, and controller-attested by an operator. Cursor Workspace Trust
-must have either its exact allowlisted acceptance or a recorded
-`not_present` result before ordinary readiness. Codex and Claude trust,
-security acknowledgement, or bypass confirmation may be handled only when the
-operator sees that exact surface and the task-owned worktree and unrestricted
-posture are already authorized. Only the bounded key vectors defined by the
-controller may be sent. Login, enrollment, account selection, credentials,
-and unrelated UI are never startup gates.
+single-use, and controller-attested by an operator. Cursor supports only
+Workspace Trust with `accept` or `not_present`, and requires one of those before
+ordinary readiness. Codex and Claude support Workspace Trust, security
+acknowledgement, and permission-bypass confirmation with only the exact actions
+in the controller allowlist. AGY and Grok have no startup-gate operation. A gate
+may be handled only when the operator sees that exact surface and the task-owned
+worktree and unrestricted posture are already authorized. Login, enrollment,
+account selection, credentials, and unrelated UI are never startup gates.
 
 Strict checkpoint matching treats leading or trailing horizontal space, tabs,
 and non-breaking spaces added by an interactive TUI as presentation padding.
@@ -207,7 +212,11 @@ Create the first message with `instruction-wrapper-create`. Its manifest binds
 the universal, harness-specific, harness-selected model (AGY's explicit Gemini
 3.7 layer or default-unresolved for other harnesses), and regular lifecycle
 layers to the binding fingerprint, run ID, initial-message plane, and rendered
-body hash. The first `qualification-send` must carry that manifest. The separate
+body hash. The first `qualification-send` must carry that manifest. For AGY,
+include `--checkpoint-nonce` on the first send, and keep
+`harness_acceptance=unverified` with `harness_readiness=checkpoint_pending` until
+an exact `HERDR_PUPPET_STATUS <nonce>` is observed at the bound sequence.
+The separate
 steering turn uses a later lease sequence and an ordinary private text file with
 no manifest. Before a non-Claude steering send, a
 controller-observed STATUS beacon must bind to the initial send sequence.
@@ -274,17 +283,26 @@ the row rather than replaying the command, launch, or key vector.
 
 Treat a successful `qualification-send` receipt as pane transport acceptance
 only, and a successful `qualification-run` receipt as Herdr CLI acceptance
-only. Before the first interactive task, record the operator's observation of
-the exact leased tab's ready input surface through
-`qualification-harness-ready`. Bind the transition to the exact leased repo
-and worktree, an explicit operator identity, bounded
-`operator_observed_ready_input` evidence, and `--confirm-ready`. The command
-requires shell readiness and rechecks structural identity before advancing
-`harness_readiness` to `operator_verified`. `qualification-send` requires that
-state even for sequence 1. A shell STATUS, product name, banner, fixed wait,
-process count, SSH client, or missing receipt file does not prove harness
-readiness. `qualification-run` never launches a harness; noninteractive AGY is
-unsupported in this version.
+only. For Codex/Claude/Cursor/Grok, record the operator's observation of the exact
+leased tab's ready input surface through `qualification-harness-ready` before
+the first interactive task. Bind that transition to the exact leased repo and
+worktree, an explicit operator identity, bounded `operator_observed_ready_input`
+evidence, and `--confirm-ready`. The command requires shell readiness and
+rechecks structural identity before advancing `harness_readiness` to
+`operator_verified`; `qualification-send` requires that state even for sequence 1.
+A shell STATUS, product name, banner, fixed wait, process count, SSH client, or
+missing receipt file does not prove harness readiness.
+AGY rows skip `qualification-harness-ready` and remain on checkpoint gating.
+`qualification-run` never launches a harness; noninteractive AGY is unsupported
+in this version.
+
+If AGY sees wrong-or-missing checkpoint token, pending/unknown delivery,
+or replay under the same sequence, fail closed: preserve and restart as a
+fresh row.
+
+The same applies to historical v1/v2 AGY rows: any legacy row with completed
+operator-ready input is treated as maintenance-only or fresh-row evidence only;
+it must not be resumed for live qualification.
 
 If a launcher submission lands before the harness is ready, do not immediately
 resubmit the task. Reconcile from independent operator or structural evidence,
@@ -335,6 +353,9 @@ HERDR_PUPPET_ACTION_REQUIRED <nonce>
 HERDR_PUPPET_DONE <nonce>
 ```
 <nonce> is limited to safe identifier characters and a length of 8-24.
+For AGY, this first STATUS line must use the exact `--checkpoint-nonce`
+fragment from the initial wrapped send sequence; only that success moves the row
+from `checkpoint_pending` to `checkpoint_verified`.
 For harness input, give the nonce and the output composition rule separately;
 never place the fully assembled token containing the real nonce in the submitted
 prompt. `qualification-send` rejects such a token before pane mutation. This
@@ -359,19 +380,21 @@ native wait and a 510 s controller cap. A native or controller timeout returns
 `not_matched` is narrowly scoped evidence: no strict checkpoint line matched
 inside the bounded wait. It does not mean input delivery failed, the remote
 worker went offline, SSH exited, the harness stopped, or a human gate exists.
-Do not convert it into any of those claims. One re-wait is allowed with the
-same nonce only while the lease still identifies the same submission. The
-second `not_matched` exhausts that nonce; a matched STATUS, DONE, or
-ACTION_REQUIRED also makes it terminal. Cross-sequence reuse and a third wait
-are rejected. Before each Herdr wait, the controller durably reserves the
-attempt in the journal while holding the exact lease lock. Reservations, not
-only completed results, consume the two-attempt allowance, so concurrent
-waiters cannot all pass the cap and an interrupted wait fails closed. Final
-processing requires the exact unique reservation. The journal is bound to the
-plan proof root, so a caller cannot obtain another two attempts by copying the
-same-run journal elsewhere. Recheck structural status and independent
-source/proof artifacts without reading the transcript; never speculatively
-resend the same prompt.
+Do not convert it into any of those claims. Wrong nonce, pending/unknown
+delivery, or sequence replay is fail-closed and requires preservation plus a
+fresh row, never resend. The first `not_matched` leaves the row active and
+permits one re-wait with the same nonce only while the lease still identifies
+the same submission. The second `not_matched` exhausts that nonce; explicitly
+`lease-preserve --reason checkpoint_failed` before leaving the run, then start a
+fresh row. A matched STATUS, DONE, or ACTION_REQUIRED is terminal.
+Before each Herdr wait, the controller durably reserves the attempt in the
+journal while holding the exact lease lock. Reservations, not only completed
+results, consume the two-attempt allowance, so concurrent waiters cannot all
+pass the cap and an interrupted wait fails closed. Final processing requires
+the exact unique reservation. The journal is bound to the plan proof root, so a
+caller cannot obtain another two attempts by copying the same-run journal
+elsewhere. Recheck structural status and independent source/proof artifacts
+without reading the transcript; never speculatively resend the same prompt.
 
 A validated terminal artifact may independently prove that the bounded task
 completed. In that case, record the artifact verdict, run

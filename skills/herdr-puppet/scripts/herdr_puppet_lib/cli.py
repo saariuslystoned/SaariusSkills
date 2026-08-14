@@ -264,8 +264,10 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--lease-json")
     _common_live(status_parser)
 
-    migrate_lease = subparsers.add_parser("lease-migrate-v1")
+    migrate_lease = subparsers.add_parser("lease-migrate")
     migrate_lease.add_argument("--lease-json", required=True)
+    migrate_lease_v1 = subparsers.add_parser("lease-migrate-v1")
+    migrate_lease_v1.add_argument("--lease-json", required=True)
 
     journal_init = subparsers.add_parser("journal-init")
     journal_init.add_argument("--plan-json", required=True)
@@ -387,6 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_source.add_argument("--stdin", action="store_true", dest="prompt_stdin")
     send.add_argument("--run-root", required=True)
     send.add_argument("--instruction-manifest-json")
+    send.add_argument("--checkpoint-nonce")
     send.add_argument("--allow-live-qualification", action="store_true")
     _common_live(send)
 
@@ -646,10 +649,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             plan_payload=load_json(args.plan_json) if args.plan_json else None,
             lease_payload=load_json(args.lease_json) if args.lease_json else None,
         )
-    if args.command == "lease-migrate-v1":
+    if args.command in {"lease-migrate", "lease-migrate-v1"}:
+        lease_payload = load_json(args.lease_json)
+        if (
+            args.command == "lease-migrate-v1"
+            and lease_payload.get("schema")
+            not in {
+                "herdr-puppet.lease.v1",
+                "herdr-puppet.lease.v3",
+            }
+        ):
+            raise HerdrPuppetError(
+                "lease_migrate_v1_wrong_source",
+                "The compatibility alias lease-migrate-v1 accepts a frozen "
+                "lease-v1 source or its already-active lease-v3 result; use "
+                "lease-migrate for lease-v2.",
+            )
         return migrate_legacy_lease_file(
-            lease_payload=load_json(args.lease_json),
+            lease_payload=lease_payload,
             lease_path=Path(args.lease_json),
+            receipt_schema=(
+                "herdr-puppet.lease-migrate-v1.v1"
+                if args.command == "lease-migrate-v1"
+                else "herdr-puppet.lease-migrate.v1"
+            ),
         )
     if args.command == "journal-init":
         return initialize_journal(Path(args.run_root), load_json(args.plan_json))
@@ -779,6 +802,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             instruction_manifest=instruction_manifest,
             run_root=Path(args.run_root),
             allow_live=args.allow_live_qualification,
+            checkpoint_nonce=args.checkpoint_nonce,
         )
     if args.command == "qualification-reconcile-send":
         text = _read_prompt(

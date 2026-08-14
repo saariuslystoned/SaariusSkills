@@ -174,7 +174,9 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('"harness-census-verify"', cli)
         self.assertIn('"instruction-wrapper-create"', cli)
         self.assertIn('"remote-task-file-register"', cli)
+        self.assertIn('"lease-migrate"', cli)
         self.assertIn('"lease-migrate-v1"', cli)
+        self.assertIn('add_argument("--checkpoint-nonce")', cli)
         self.assertTrue(
             (HERDR_SKILL / "scripts" / "harness_census.py").is_file()
         )
@@ -193,6 +195,7 @@ class PackagingTests(unittest.TestCase):
             "plan.schema.json",
             "plan-v1.schema.json",
             "lease.schema.json",
+            "lease-v2.schema.json",
             "lease-v1.schema.json",
             "event.schema.json",
             "destination-catalog.schema.json",
@@ -216,6 +219,9 @@ class PackagingTests(unittest.TestCase):
         historical_plan_schema = json.loads(
             (references / "plan-v1.schema.json").read_text(encoding="utf-8")
         )
+        previous_lease_schema = json.loads(
+            (references / "lease-v2.schema.json").read_text(encoding="utf-8")
+        )
         historical_lease_schema = json.loads(
             (references / "lease-v1.schema.json").read_text(encoding="utf-8")
         )
@@ -223,6 +229,10 @@ class PackagingTests(unittest.TestCase):
             "plan-v1.schema.json": (
                 historical_plan_schema,
                 "19159fe3c798e49ed9774f3c3b7732f2048ce9874373a1da5d8a59f6222d2c56",
+            ),
+            "lease-v2.schema.json": (
+                previous_lease_schema,
+                "b144118a1680389c0cf9a233d55e9cac924e6904798b34d02bda33ee55ff6736",
             ),
             "lease-v1.schema.json": (
                 historical_lease_schema,
@@ -345,7 +355,14 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("selected_authority_sha256", plan_schema["required"])
         self.assertEqual(
             lease_schema["properties"]["schema"]["const"],
+            "herdr-puppet.lease.v3",
+        )
+        self.assertEqual(
+            previous_lease_schema["properties"]["schema"]["const"],
             "herdr-puppet.lease.v2",
+        )
+        self.assertTrue(
+            previous_lease_schema["$id"].endswith("/lease-v2.schema.json")
         )
         self.assertEqual(
             historical_plan_schema["properties"]["schema"]["const"],
@@ -388,10 +405,20 @@ class PackagingTests(unittest.TestCase):
             sort_keys=True,
         )
         self.assertIn("workspace_trust", lease_cross_fields)
+        self.assertIn("security_acknowledgement", lease_cross_fields)
+        self.assertIn("permission_bypass_confirmation", lease_cross_fields)
+        self.assertIn('\"agy\", \"grok\"', lease_cross_fields)
+        self.assertIn('\"accept\", \"not_present\"', lease_cross_fields)
+        self.assertIn('\"phase\": {\"const\": \"steering\"}', lease_cross_fields)
         self.assertIn("minContains", lease_cross_fields)
         self.assertEqual(
             lease_schema["properties"]["harness_readiness"]["enum"],
-            ["unverified", "operator_verified"],
+            [
+                "unverified",
+                "operator_verified",
+                "checkpoint_pending",
+                "checkpoint_verified",
+            ],
         )
         self.assertEqual(
             lease_schema["properties"]["shell_readiness"]["enum"],
@@ -400,6 +427,12 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("caller_text_files", lease_schema["properties"])
         self.assertIn("caller_text_files_removed", lease_schema["properties"])
         self.assertIn("remote_task_files", lease_schema["properties"])
+        self.assertIn("harness_readiness_submission_seq", lease_schema["properties"])
+        self.assertIn("harness_readiness_nonce_sha256", lease_schema["properties"])
+        transport_adapter = (
+            HERDR_SKILL / "scripts" / "herdr_puppet_lib" / "harness_binding.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"references/lease-v2.schema.json"', transport_adapter)
         self.assertEqual(
             set(lease_schema["required"]),
             {
@@ -445,7 +478,10 @@ class PackagingTests(unittest.TestCase):
             readiness_rule["then"]["properties"]["shell_readiness"]["const"],
             "status_verified",
         )
-        self.assertIn("else", readiness_rule)
+        self.assertEqual(
+            readiness_rule["then"]["properties"]["harness"]["enum"],
+            ["codex", "claude", "cursor", "grok"],
+        )
         self.assertIn("command_sha256", event_schema["properties"])
 
     def test_herdr_puppet_packages_bounded_peekaboo_fallback(self) -> None:
