@@ -71,7 +71,8 @@ hand-composed Herdr mutations when the script owns the operation.
    preservation, maintenance, and exact-cleanup compatibility; use the explicit
    `lease-migrate-v1` adapter for v2. An unbound historical lease remains
    evidence only. Binding-v1/v2 leases remain maintainable, but every fresh
-   qualification transition requires recensus and a binding-v3 plan.
+   qualification transition requires recensus and an active plan-v2 carrying
+   a binding-v3 record.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. The controller focuses that exact newly created
    tab in the plan's target workspace so the run is operator-visible and Herdr

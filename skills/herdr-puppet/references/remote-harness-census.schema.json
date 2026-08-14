@@ -20,7 +20,10 @@
   "properties": {
     "schema": {"const": "herdr-puppet.remote-harness-census.v3"},
     "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
-    "host": {"type": "string", "minLength": 1},
+    "host": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@:+/-]{1,512}$"
+    },
     "recorded_at": {"type": "string", "format": "date-time"},
     "executable": {
       "type": "object",

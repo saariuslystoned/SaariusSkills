@@ -462,17 +462,30 @@ def _reload_locked_lease(
     return current
 
 
-def _require_optional_lease_journal(
+def _require_active_lease_journal(
     run_root: Path | None,
     lease_payload: dict[str, Any],
-    *,
-    allow_historical: bool = False,
+) -> None:
+    if run_root is None:
+        raise HerdrPuppetError(
+            "journal_root_required",
+            "Active lease operations require the exact initialized journal root.",
+        )
+    require_initialized_journal(
+        run_root,
+        lease_payload=lease_payload,
+    )
+
+
+def _require_optional_preserve_journal(
+    run_root: Path | None,
+    lease_payload: dict[str, Any],
 ) -> None:
     if run_root is not None:
         require_initialized_journal(
             run_root,
             lease_payload=lease_payload,
-            allow_historical_plan=allow_historical,
+            allow_historical_plan=True,
         )
 
 
@@ -973,7 +986,7 @@ def _require_current_record_binding(
             "legacy_harness_binding_requires_recensus",
             "Harness-binding v1/v2 remains available for status, preservation, "
             "maintenance, and exact cleanup only; fresh qualification requires "
-            "a new census and v3 plan.",
+            "a new census and active plan-v2 carrying a binding-v3 record.",
         )
     return binding
 
@@ -2371,7 +2384,7 @@ def register_remote_task_file(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not confirm_caller_owned:
         raise HerdrPuppetError(
             "remote_task_file_ownership_not_confirmed",
@@ -3619,7 +3632,7 @@ def qualification_harness_launch(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -4099,7 +4112,7 @@ def qualification_claude_lifecycle_observe(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     with _lease_lock(lease_path) as locked_lease_path:
         current = _reload_locked_lease(lease_payload, locked_lease_path)
         if current["harness"] != "claude":
@@ -4301,7 +4314,7 @@ def qualification_startup_gate(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -4484,7 +4497,7 @@ def qualification_harness_ready(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -5172,7 +5185,7 @@ def qualification_view_begin(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -5260,7 +5273,7 @@ def qualification_view_complete(
     run_root: Path,
 ) -> dict[str, Any]:
     validate_lease(lease_payload)
-    _require_optional_lease_journal(run_root, lease_payload)
+    _require_active_lease_journal(run_root, lease_payload)
     if not allow_live:
         raise HerdrPuppetError(
             "live_qualification_not_authorized",
@@ -5910,11 +5923,7 @@ def preserve_lease(
     run_root: Path | None = None,
 ) -> dict[str, Any]:
     _validate_maintainable_lease(lease_payload, allow_historical=True)
-    _require_optional_lease_journal(
-        run_root,
-        lease_payload,
-        allow_historical=True,
-    )
+    _require_optional_preserve_journal(run_root, lease_payload)
     if reason not in PRESERVE_REASONS:
         raise HerdrPuppetError(
             "invalid_preserve_reason",

@@ -34,7 +34,7 @@ and cannot be upgraded into current model/lifecycle evidence; rows use v3
 end-to-end for fresh lineage. A canonical lease carrying a valid historical
 binding remains inspectable and cleanable through the bounded maintenance
 surfaces, but every fresh qualification transition rejects it and requires a
-new census and v3 plan.
+new census plus an active plan-v2 carrying a binding-v3 record.
 
 The active census-v3 JSON Schema expresses static profile state/status pairs
 and harness-specific lifecycle shapes. Runtime `validate_remote_census` remains
@@ -244,6 +244,9 @@ Non-cursor harnesses must remain on an enrolled dedicated-user profile with
 an explicit temporary state. Its census process exits zero when that body-free
 provisional record is written; this is census success, not an enrollment or
 readiness claim.
+An unsuccessful non-Cursor enrollment probe emits neither an active v3 census
+record nor a completion checkpoint: `unavailable` is not an active v3 profile
+state.
 
 The controller never writes or copies prompt or command content, so callers
 own the lifecycle of any input file. If an orchestration bridge cannot

@@ -234,6 +234,15 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     atomic_json(run_root / "plan.json", plan)
     (run_root / "events.jsonl").touch(exist_ok=False)
     selection = destination_selection_for_record(plan)
+    binding_schema = plan["harness_binding"]["schema"]
+    next_action = (
+        "create one qualification-owned tab after the live gate"
+        if binding_schema == "herdr-puppet.harness-binding.v3"
+        else (
+            "maintenance only; recensus and create a new active plan-v2 "
+            "carrying binding-v3 before fresh qualification"
+        )
+    )
     state = (
         "# Herdr-Puppet run state\n\n"
         f"- run_id: `{plan['run_id']}`\n"
@@ -248,7 +257,7 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
         f"- model: `{plan['harness_binding']['model_observation']['model']}`\n"
         f"- model_effort: `{plan['harness_binding']['model_observation']['effort']}`\n"
         "- transcript_boundary: `controller journal only`\n"
-        "- next: create one qualification-owned tab after the live gate\n"
+        f"- next: {next_action}\n"
     )
     proof = (
         "# Herdr-Puppet dogfood proof\n\n"

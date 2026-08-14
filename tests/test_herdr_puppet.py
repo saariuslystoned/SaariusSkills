@@ -93,6 +93,7 @@ from herdr_puppet_lib.harness_binding import (  # noqa: E402
     binding_fingerprint,
     validate_harness_binding,
     validate_instruction_manifest,
+    validate_remote_census,
     verify_remote_census,
 )
 from herdr_puppet_lib.journal import (  # noqa: E402
@@ -2250,7 +2251,9 @@ esac
                     )
                     self.assertEqual(completed.returncode, 0, completed.stderr)
                     payload = json.loads(completed.stdout)
+                    validated = validate_remote_census(payload)
                     self.assertEqual(payload["harness"], harness)
+                    self.assertEqual(validated, payload)
                     self.assertEqual(
                         payload["executable"]["command"],
                         command,
@@ -2267,6 +2270,25 @@ esac
                     self.assertNotIn(
                         "private inventory description",
                         completed.stdout,
+                    )
+                    census_schema = json.loads(
+                        (
+                            ROOT
+                            / "skills"
+                            / "herdr-puppet"
+                            / "references"
+                            / "remote-harness-census.schema.json"
+                        ).read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(
+                        payload["schema"],
+                        census_schema["properties"]["schema"]["const"],
+                    )
+                    self.assertIsNotNone(
+                        re.fullmatch(
+                            census_schema["properties"]["host"]["pattern"],
+                            payload["host"],
+                        )
                     )
             self.assertFalse(cursor_status_marker.exists())
             row_census = root / "row-census.json"
@@ -2378,6 +2400,151 @@ esac
                 ],
                 "codex",
             )
+
+    def test_remote_census_rejects_unsafe_host_before_probe_or_output(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_root = root / "bin"
+            profile_root = root / "profile"
+            worktree = root / "worktree"
+            marker = root / "executable-was-probed"
+            binary_root.mkdir()
+            profile_root.mkdir()
+            worktree.mkdir()
+            executable = binary_root / "codex"
+            executable.write_text(
+                "#!/bin/sh\n"
+                f": > {str(marker)!r}\n"
+                "case \"$1\" in\n"
+                "  --version) echo 'fake 1.0.0' ;;\n"
+                "  --help) echo 'fake help' ;;\n"
+                "  login) echo 'Logged in using ChatGPT' ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(binary_root)
+                + os.pathsep
+                + environment.get("PATH", "")
+            )
+            census_script = str(
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "harness_census.py"
+            )
+            for index, host in enumerate(
+                ("", "worker host", "worker\nhost", "worker;host"),
+                start=1,
+            ):
+                output = root / f"unsafe-{index}.json"
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        census_script,
+                        "--harness",
+                        "codex",
+                        "--host",
+                        host,
+                        "--profile-root",
+                        str(profile_root),
+                        "--worktree",
+                        str(worktree),
+                        "--output",
+                        str(output),
+                        "--checkpoint-nonce",
+                        f"UNSAFE-HOST-{index:02d}",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+                with self.subTest(host=host):
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn(
+                        "host must be one bounded safe identifier",
+                        completed.stderr,
+                    )
+                    self.assertEqual(completed.stdout, "")
+                    self.assertFalse(output.exists())
+                    self.assertFalse(marker.exists())
+
+    def test_remote_census_non_enrolled_emits_no_invalid_v3_record(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_root = root / "bin"
+            profile_root = root / "profile"
+            worktree = root / "worktree"
+            binary_root.mkdir()
+            profile_root.mkdir()
+            worktree.mkdir()
+            executable = binary_root / "codex"
+            executable.write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  --version) echo 'fake 1.0.0' ;;\n"
+                "  --help) echo 'fake help' ;;\n"
+                "  login) echo 'private enrollment response'; exit 7 ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(binary_root)
+                + os.pathsep
+                + environment.get("PATH", "")
+            )
+            output = root / "must-not-exist.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(
+                        ROOT
+                        / "skills"
+                        / "herdr-puppet"
+                        / "scripts"
+                        / "harness_census.py"
+                    ),
+                    "--harness",
+                    "codex",
+                    "--host",
+                    "worker.example",
+                    "--profile-root",
+                    str(profile_root),
+                    "--worktree",
+                    str(worktree),
+                    "--output",
+                    str(output),
+                    "--checkpoint-nonce",
+                    "UNENROLLED-CENSUS-01",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                "no active v3 census was emitted",
+                completed.stderr,
+            )
+            self.assertNotIn(
+                "private enrollment response",
+                completed.stdout + completed.stderr,
+            )
+            self.assertEqual(completed.stdout, "")
+            self.assertFalse(output.exists())
 
     def test_agy_census_requires_exact_model_help_and_first_tsv_cell(
         self,
@@ -3798,6 +3965,26 @@ class QualificationTests(unittest.TestCase):
         self.assertIn("workspace_label: `worker-02`", state)
         self.assertIn("tab_ordinal: `1`", state)
 
+    def test_journal_initialization_marks_historical_binding_maintenance_only(
+        self,
+    ) -> None:
+        historical = historical_lease_v1(self.create_lease())
+        run_root = self.root / "historical-binding-run"
+        historical_plan = copy.deepcopy(self.plan)
+        historical_plan["proof_root"] = str(run_root.resolve())
+        historical_plan["harness_binding"] = copy.deepcopy(
+            historical["harness_binding"]
+        )
+        refresh_selected_authority(historical_plan)
+        initialize_journal(run_root, historical_plan)
+        state = (run_root / "STATE.md").read_text(encoding="utf-8")
+        self.assertIn("next: maintenance only; recensus", state)
+        self.assertIn("active plan-v2 carrying binding-v3", state)
+        self.assertNotIn(
+            "next: create one qualification-owned tab after the live gate",
+            state,
+        )
+
     def test_generic_journal_append_cannot_forge_controller_events(self) -> None:
         for kind in (
             "journal.initialized",
@@ -3858,6 +4045,117 @@ class QualificationTests(unittest.TestCase):
                 )
         create_tab.assert_not_called()
         self.assertFalse(self.lease_path.exists())
+
+    def test_remote_task_registration_rejects_missing_active_journal_before_mutation(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        before = self.lease_path.read_bytes()
+        with self.assertRaises(HerdrPuppetError) as caught:
+            register_remote_task_file(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                remote_path="/srv/agy/tasks/must-not-register.txt",
+                source_repo=lease["source"]["repo"],
+                source_worktree=lease["source"]["worktree"],
+                confirm_caller_owned=True,
+                run_root=None,  # type: ignore[arg-type]
+            )
+        self.assertEqual(caught.exception.code, "journal_root_required")
+        self.assertEqual(self.lease_path.read_bytes(), before)
+        self.assertEqual(load_json(self.lease_path)["remote_task_files"], [])
+
+    def test_all_active_journal_callers_reject_explicit_none_before_mutation(
+        self,
+    ) -> None:
+        lease = self.create_lease()
+        before = self.lease_path.read_bytes()
+        guarded_client = mock.Mock(spec=FakeClient)
+        operations = {
+            "remote_task_registration": lambda: register_remote_task_file(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                remote_path="/srv/agy/tasks/none-journal.txt",
+                source_repo=lease["source"]["repo"],
+                source_worktree=lease["source"]["worktree"],
+                confirm_caller_owned=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "harness_launch": lambda: qualification_harness_launch(
+                guarded_client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                allow_live=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "claude_lifecycle_observe": lambda: qualification_claude_lifecycle_observe(
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                receipt={},
+                phase="armed",
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "startup_gate": lambda: qualification_startup_gate(
+                guarded_client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                seq=lease["next_seq"],
+                gate="security_acknowledgement",
+                action="accept",
+                source_worktree=lease["source"]["worktree"],
+                operator_id="test-operator",
+                evidence="operator_observed_exact_gate",
+                confirm_exact_worktree=True,
+                confirm_unrestricted=True,
+                allow_live=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "harness_ready": lambda: qualification_harness_ready(
+                guarded_client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                source_repo=lease["source"]["repo"],
+                source_worktree=lease["source"]["worktree"],
+                operator_id="test-operator",
+                evidence="operator_observed_ready_input",
+                confirm_ready=True,
+                allow_live=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "view_begin": lambda: qualification_view_begin(
+                guarded_client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce="NONE-JOURNAL-VIEW-BEGIN",
+                operator_id="test-operator",
+                confirm_native_tui_visible=True,
+                allow_live=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+            "view_complete": lambda: qualification_view_complete(
+                guarded_client,
+                lease_payload=lease,
+                lease_path=self.lease_path,
+                nonce="NONE-JOURNAL-VIEW-DONE",
+                operator_id="test-operator",
+                evidence="operator_observed_real_client_detach_reattach",
+                confirm_detached_reattached=True,
+                allow_live=True,
+                run_root=None,  # type: ignore[arg-type]
+            ),
+        }
+        for name, operation in operations.items():
+            with self.subTest(operation=name):
+                guarded_client.reset_mock()
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    operation()
+                self.assertEqual(
+                    caught.exception.code,
+                    "journal_root_required",
+                )
+                self.assertEqual(guarded_client.mock_calls, [])
+                self.assertEqual(self.lease_path.read_bytes(), before)
 
     def test_journal_initialization_validates_plan_before_creating_root(
         self,
@@ -6724,6 +7022,21 @@ class QualificationTests(unittest.TestCase):
             events,
             (run_root / "events.jsonl").read_text(encoding="utf-8"),
         )
+
+    def test_historical_preserve_remains_compatible_without_journal(self) -> None:
+        historical = historical_lease_v1(self.create_lease())
+        self.persist_lease(historical)
+        self.assertFalse(self.default_run_root().exists())
+        result = preserve_lease(
+            lease_payload=historical,
+            lease_path=self.lease_path,
+            reason="operator_stop",
+        )
+        preserved = load_json(self.lease_path)
+        self.assertEqual(result["state"], "preserved")
+        self.assertEqual(preserved["schema"], "herdr-puppet.lease.v1")
+        self.assertEqual(preserved["state"], "preserved")
+        self.assertFalse(self.default_run_root().exists())
 
     def test_preserve_lease_rejects_unbounded_reason(self) -> None:
         lease = self.create_lease()

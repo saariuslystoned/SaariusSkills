@@ -28,6 +28,7 @@ from herdr_puppet_lib.harness_binding import (
     CENSUS_SCHEMA,
     HARNESS_LAUNCH_SPECS,
     ISOLATED_LAUNCH_PATH,
+    validate_remote_census,
 )
 
 
@@ -46,6 +47,7 @@ AGY_MODEL_HELP_TOKEN = re.compile(
     r"(?<![A-Za-z0-9_-])--model(?![A-Za-z0-9_-])"
 )
 DEFAULT_MODEL_ALIASES = {"default", "current", "current-default", "auto"}
+CENSUS_HOST = re.compile(r"[A-Za-z0-9._@:+/-]{1,512}")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -229,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--claude-hook-root")
     parser.add_argument("--model")
     args = parser.parse_args(argv)
+    if CENSUS_HOST.fullmatch(args.host) is None:
+        raise RuntimeError("host must be one bounded safe identifier")
     if bool(args.output) != bool(args.checkpoint_nonce):
         raise RuntimeError(
             "--output and --checkpoint-nonce must be supplied together"
@@ -355,6 +359,11 @@ def main(argv: list[str] | None = None) -> int:
             else "unavailable"
         )
         status_exit = status_rc
+    if enrollment_state not in {"enrolled", "interactive_pending"}:
+        raise RuntimeError(
+            "dedicated remote-user profile is not enrolled; "
+            "no active v3 census was emitted"
+        )
     executable_facts = {
         "command": mapping["command"],
         "path": str(executable),
@@ -423,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
         "source": {"worktree": str(worktree)},
         "raw_output_retained": False,
     }
+    validate_remote_census(payload)
     serialized = canonical_bytes(payload) + b"\n"
     if args.output:
         output = Path(args.output)
@@ -447,12 +457,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         sys.stdout.buffer.write(serialized)
-    return (
-        0
-        if payload["profile"]["enrollment_state"]
-        in {"enrolled", "interactive_pending"}
-        else 3
-    )
+    return 0
 
 
 if __name__ == "__main__":
