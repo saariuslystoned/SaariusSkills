@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .authority import (
+    canonical_sha256,
+    destination_selection_for_record,
+    selected_authority,
+    selected_authority_sha256,
+)
 from .errors import HerdrPuppetError
 
 
@@ -212,6 +218,11 @@ def _require_bound_run_root(run_root: Path, plan: dict[str, Any]) -> None:
 
 
 def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    # Local import avoids a module cycle; a fresh journal is mutation authority
+    # and therefore accepts only the active plan schema.
+    from .core import validate_plan
+
+    validate_plan(plan)
     _require_bound_run_root(run_root, plan)
     if run_root.exists():
         raise HerdrPuppetError(
@@ -222,14 +233,31 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     run_root.mkdir(parents=True)
     atomic_json(run_root / "plan.json", plan)
     (run_root / "events.jsonl").touch(exist_ok=False)
+    selection = destination_selection_for_record(plan)
+    binding_schema = plan["harness_binding"]["schema"]
+    next_action = (
+        "create one qualification-owned tab after the live gate"
+        if binding_schema == "herdr-puppet.harness-binding.v3"
+        else (
+            "maintenance only; recensus and create a new active plan-v2 "
+            "carrying binding-v3 before fresh qualification"
+        )
+    )
     state = (
         "# Herdr-Puppet run state\n\n"
         f"- run_id: `{plan['run_id']}`\n"
         "- state: `planned`\n"
         f"- harness: `{plan['harness']}`\n"
         f"- owned_label: `{plan['owned_label']}`\n"
+        f"- destination_mode: `{selection['mode']}`\n"
+        f"- machine: `{selection['machine'] or 'legacy-explicit'}`\n"
+        f"- workspace_label: `{selection['workspace_label']}`\n"
+        "- tab_request: `fresh`\n"
+        f"- tab_ordinal: `{selection['tab']['ordinal']}`\n"
+        f"- model: `{plan['harness_binding']['model_observation']['model']}`\n"
+        f"- model_effort: `{plan['harness_binding']['model_observation']['effort']}`\n"
         "- transcript_boundary: `controller journal only`\n"
-        "- next: create one qualification-owned tab after the live gate\n"
+        f"- next: {next_action}\n"
     )
     proof = (
         "# Herdr-Puppet dogfood proof\n\n"
@@ -252,7 +280,17 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
         plan["run_id"],
         "journal.initialized",
         "ok",
-        data={"owned_label": plan["owned_label"]},
+        data={
+            "plan_schema": plan["schema"],
+            "plan_sha256": canonical_sha256(plan),
+            "selected_authority_sha256": selected_authority_sha256(plan),
+            "owned_label": plan["owned_label"],
+            "destination_selection": selection,
+            "fresh_tab_required": True,
+            "model_selection": plan["harness_binding"][
+                "model_observation"
+            ],
+        },
     )
     append_event(run_root, event)
     return {
@@ -341,9 +379,17 @@ def read_events(run_root: Path, *, maximum: int = 10_000) -> list[dict[str, Any]
 def require_initialized_journal(
     run_root: Path,
     *,
-    run_id: str,
-    proof_root: str,
-) -> None:
+    run_id: str | None = None,
+    proof_root: str | None = None,
+    plan_payload: dict[str, Any] | None = None,
+    lease_payload: dict[str, Any] | None = None,
+    allow_historical_plan: bool = False,
+) -> dict[str, Any]:
+    if plan_payload is not None and lease_payload is not None:
+        raise HerdrPuppetError(
+            "journal_authority_ambiguous",
+            "Journal preflight accepts exactly one plan or lease authority.",
+        )
     plan_path = run_root / "plan.json"
     events_path = run_root / "events.jsonl"
     try:
@@ -362,11 +408,62 @@ def require_initialized_journal(
             "plan is unreadable or malformed.",
             details={"run_root": str(run_root)},
         ) from exc
+    from .core import (
+        HISTORICAL_LEASE_SCHEMA,
+        HISTORICAL_PLAN_SCHEMA,
+        LEASE_SCHEMA,
+        PLAN_SCHEMA,
+        validate_historical_plan,
+        validate_lease,
+        validate_legacy_lease,
+        validate_plan,
+    )
+
+    if plan.get("schema") == PLAN_SCHEMA:
+        validate_plan(plan)
+        active_plan = True
+    elif allow_historical_plan and plan.get("schema") == HISTORICAL_PLAN_SCHEMA:
+        validate_historical_plan(plan)
+        active_plan = False
+    else:
+        raise HerdrPuppetError(
+            "historical_plan_requires_replan",
+            "Fresh mutation requires an active plan and journal; historical plan-v1 is read-only evidence.",
+        )
+    if plan_payload is not None:
+        validate_plan(plan_payload)
+        run_id = plan_payload["run_id"]
+        proof_root = plan_payload["proof_root"]
+    elif lease_payload is not None:
+        if lease_payload.get("schema") == LEASE_SCHEMA:
+            validate_lease(lease_payload)
+        elif (
+            allow_historical_plan
+            and lease_payload.get("schema") == HISTORICAL_LEASE_SCHEMA
+        ):
+            validate_legacy_lease(lease_payload)
+        else:
+            raise HerdrPuppetError(
+                "invalid_lease_schema",
+                "This journal operation does not accept a historical lease.",
+            )
+        run_id = lease_payload["run_id"]
+        proof_root = lease_payload["proof_root"]
+    if not isinstance(run_id, str) or not run_id:
+        raise HerdrPuppetError(
+            "journal_run_mismatch",
+            "Journal preflight requires one exact run id.",
+        )
     if plan.get("run_id") != run_id:
         raise HerdrPuppetError(
             "journal_run_mismatch",
             "The controller journal belongs to a different run.",
             details={"run_root": str(run_root)},
+        )
+    if plan_payload is not None and plan != plan_payload:
+        raise HerdrPuppetError(
+            "journal_plan_mismatch",
+            "The incoming plan does not exactly match the initialized journal plan.",
         )
     _require_bound_run_root(run_root, plan)
     if (
@@ -391,6 +488,44 @@ def require_initialized_journal(
             "The controller journal has no matching initialization event.",
             details={"run_root": str(run_root)},
         )
+    initialization_data = events[0].get("data")
+    if not isinstance(initialization_data, dict):
+        raise HerdrPuppetError(
+            "journal_initialization_authority_invalid",
+            "The journal initialization event has no authority binding.",
+        )
+    if active_plan:
+        expected_initialization = {
+            "plan_schema": plan["schema"],
+            "plan_sha256": canonical_sha256(plan),
+            "selected_authority_sha256": selected_authority_sha256(plan),
+        }
+        mismatches = [
+            field
+            for field, expected in expected_initialization.items()
+            if initialization_data.get(field) != expected
+        ]
+        if mismatches:
+            raise HerdrPuppetError(
+                "journal_initialization_authority_invalid",
+                "The journal initialization event does not match its stored plan authority.",
+                details={"fields": mismatches},
+            )
+    if lease_payload is not None:
+        plan_authority = selected_authority(plan)
+        lease_authority = selected_authority(lease_payload)
+        if plan_authority != lease_authority:
+            differing_fields = sorted(
+                field
+                for field in set(plan_authority) | set(lease_authority)
+                if plan_authority.get(field) != lease_authority.get(field)
+            )
+            raise HerdrPuppetError(
+                "journal_lease_authority_mismatch",
+                "The stored plan and lease select different exact authority.",
+                details={"fields": differing_fields},
+            )
+    return plan
 
 
 def summarize_journal(run_root: Path, *, recent_limit: int = 20) -> dict[str, Any]:
@@ -450,22 +585,43 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
             "The controller journal plan could not be read.",
         ) from exc
     _require_bound_run_root(run_root, plan)
-    if lease is not None:
-        # Local import avoids a module cycle while keeping this public helper
-        # strict even when it is called outside the CLI.
-        from .core import validate_lease
+    from .core import (
+        HISTORICAL_LEASE_SCHEMA,
+        HISTORICAL_PLAN_SCHEMA,
+        validate_historical_plan,
+        validate_lease,
+        validate_legacy_lease,
+        validate_plan,
+    )
 
-        validate_lease(lease)
+    if plan.get("schema") == HISTORICAL_PLAN_SCHEMA:
+        validate_historical_plan(plan)
+    else:
+        validate_plan(plan)
+    if lease is not None:
+        if lease.get("schema") == HISTORICAL_LEASE_SCHEMA:
+            validate_legacy_lease(lease)
+        else:
+            validate_lease(lease)
         if lease["run_id"] != plan.get("run_id"):
             raise HerdrPuppetError(
                 "journal_run_mismatch",
                 "The lease belongs to a different controller journal run.",
             )
+    require_initialized_journal(
+        run_root,
+        run_id=plan["run_id"] if lease is None else None,
+        proof_root=plan["proof_root"] if lease is None else None,
+        lease_payload=lease,
+        allow_historical_plan=True,
+    )
     events = read_events(run_root)
     last = events[-1] if events else None
     repairs = sum(event.get("result") == "repair" for event in events)
     failures = sum(event.get("result") == "failed" for event in events)
     state = lease.get("state", "planned") if lease else "planned"
+    selection = destination_selection_for_record(plan)
+    model = plan["harness_binding"]["model_observation"]
     lines = [
         "# Herdr-Puppet run state",
         "",
@@ -473,6 +629,13 @@ def refresh_state(run_root: Path, lease: dict[str, Any] | None = None) -> dict[s
         f"- state: `{state}`",
         f"- harness: `{plan['harness']}`",
         f"- owned_label: `{plan['owned_label']}`",
+        f"- destination_mode: `{selection['mode']}`",
+        f"- machine: `{selection['machine'] or 'legacy-explicit'}`",
+        f"- workspace_label: `{selection['workspace_label']}`",
+        "- tab_request: `fresh`",
+        f"- tab_ordinal: `{selection['tab']['ordinal']}`",
+        f"- model: `{model['model']}`",
+        f"- model_effort: `{model['effort']}`",
         f"- event_count: `{len(events)}`",
         f"- repair_count: `{repairs}`",
         f"- failure_count: `{failures}`",

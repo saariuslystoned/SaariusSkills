@@ -28,20 +28,20 @@ hand-composed Herdr mutations when the script owns the operation.
 
 ## Run the controller loop
 
-1. Obtain an explicit parent-session capability: exact session, workspace ID,
-   workspace label, expected SSH target, run ID, source slice, proof root, and
-   allowed mode. Harness identity is canonical:
+1. Obtain an explicit parent-session capability: exact session, named machine
+   from a fail-closed destination catalog, fresh-tab ordinal, run ID, source
+   slice, proof root, and allowed mode. Harness identity is canonical:
    `agy|codex|claude|cursor|grok`.
 2. Run `doctor`. Require the supported Herdr version and protocol, one live
    named session, and an unambiguous workspace.
 3. Run the bounded `harness_census.py` against the dedicated remote-user
    profile without inspecting auth stores. Create a controller-attested
    binding with `harness-binding-create`; current schemas are
-   `herdr-puppet.remote-harness-census.v2` and
-   `herdr-puppet.harness-binding.v2`, and the binding freezes
+   `herdr-puppet.remote-harness-census.v3` and
+   `herdr-puppet.harness-binding.v3`, and the binding freezes
    executable/version/help fingerprints, enrolled or Cursor-provisional (`interactive_pending`
-   + `null` status) profile route, current default-model observation,
-   unrestricted regular launch with no model selector, adapter/protocol
+   + `null` status) profile route, default-model observation except AGY's exact
+   `gemini-3.7-flash-high` selection, unrestricted regular launch, adapter/protocol
    fingerprints, worktree, instruction plane, and honest unsupported
    capabilities. For Claude rows only, choose run-id before census, pass
    `--run-id` with an absent `--claude-hook-root`, require `--settings` in
@@ -58,23 +58,21 @@ hand-composed Herdr mutations when the script owns the operation.
    failures, and concise observations; never copy pane output into the
    journal. The plan's exact `proof_root` is the one allowed journal
    `run_root`; initialization and every later journal use reject any alternate
-   or copied root. `qualification-create-tab` preflights that matching
-   initialized journal and refuses to create a tab or lease when it is absent
-   or belongs to another run.
+   or copied root. Initialization binds the exact plan digest and selected
+   authority. `qualification-create-tab` exact-matches that stored plan before
+   any Herdr call and refuses a missing, swapped, or cross-run journal.
 5. Run structural `status --plan-json` before tab creation. Once a lease
    exists, stop rechecking the now-consumed plan: its owned label is expected
    to exist and plan status must reject it. Use `status --lease-json` or
    `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
-   Current operations accept only the canonical lease-v1 shape. If a historical
-   lease lacks the additive readiness/file fields or carries the former
-   `harness_readiness: status_verified` value, run the explicit
-   `lease-migrate-v1` adapter before status, journal refresh, probe,
-   preservation, or cleanup. An unbound historical lease cannot be
-   controller-attested retroactively and remains historical evidence only. A
-   canonical lease carrying a valid binding-v1 remains available for status,
-   preservation, maintenance, and exact cleanup, but every fresh qualification
-   transition requires recensus and a binding-v2 plan.
+   Fresh mutation accepts only active plan-v2/lease-v2 authority. Historical
+   plan-v1 is read-only/status evidence. Historical lease-v1 retains status,
+   preservation, maintenance, and exact-cleanup compatibility; use the explicit
+   `lease-migrate-v1` adapter for v2. An unbound historical lease remains
+   evidence only. Binding-v1/v2 leases remain maintainable, but every fresh
+   qualification transition requires recensus and an active plan-v2 carrying
+   a binding-v3 record.
 6. For a live qualification, create a new deterministic tab through
    `qualification-create-tab`. The controller focuses that exact newly created
    tab in the plan's target workspace so the run is operator-visible and Herdr
@@ -136,8 +134,9 @@ hand-composed Herdr mutations when the script owns the operation.
    operation, registered task-file authority, sequence contract, terminal
    evidence, and exact removal proof.
 9. Use `instruction-wrapper-create` for the first regular interactive message.
-   The versioned wrapper composes universal, harness, default-unresolved, and
-   regular lifecycle layers, and binds its manifest to the run and harness
+   The versioned wrapper composes universal, harness, harness-selected model
+   (explicit Gemini 3.7 for AGY; default-unresolved otherwise), and regular
+   lifecycle layers, and binds its manifest to the run and harness
    binding. Pass that manifest to the first `qualification-send`; a mismatch
    fails before pane input. Use `qualification-send` only for ordinary interactive
    harness prompts
@@ -265,6 +264,7 @@ python3 scripts/harness_census.py \
   --host <remote-host> \
   --profile-root <dedicated-remote-user-home> \
   --worktree <exact-remote-worktree> > <private-census.json>
+# AGY rows also require: --model gemini-3.7-flash-high
 # For Claude, bind the native lifecycle:
 python3 scripts/harness_census.py \
   --harness claude \
@@ -282,7 +282,7 @@ python3 scripts/harness_census.py \
   --worktree <exact-remote-worktree> \
   --output <exact-create-only-remote-census.json> \
   --checkpoint-nonce <unique-census-status-nonce>
-# For Claude, include the two additional flags above with the same run lineage:
+# For AGY add --model gemini-3.7-flash-high; for Claude add the lineage flags:
 # --run-id <run-id> --claude-hook-root <exact-absent-marker-root>
 python3 scripts/herdr_puppet.py harness-binding-create \
   --census-json <private-census.json> \
@@ -290,16 +290,18 @@ python3 scripts/herdr_puppet.py harness-binding-create \
   --output <private-binding.json>
 python3 scripts/herdr_puppet.py plan \
   --session <session> \
-  --workspace-id <workspace-id> \
-  --workspace-label <label> \
-  --expected-ssh-target <user@host> \
+  --machine <catalog-profile-name> \
+  --destination-catalog-json <private-catalog.json> \
+  --tab-ordinal <positive-ordinal> \
   --run-id <run-id> \
   --harness <agy|codex|claude|cursor|grok> \
   --repo <owner/repo> \
   --worktree <path> \
   --proof-root <run-root> \
   --harness-binding-json <private-binding.json> \
+  --output <private-plan.json> \
   --live-mutation-authorized
+# Deprecated compatibility accepts only the complete legacy workspace/SSH triple and `--ordinal`; never mix routes or ordinal flags.
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
 python3 scripts/herdr_puppet.py lease-migrate-v1 \
   --lease-json <historical-lease.json>

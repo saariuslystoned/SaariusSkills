@@ -7,7 +7,8 @@ ordinary operation and does not make an arbitrary operator tab controller-owned.
 
 The first useful dogfood run should:
 
-1. pass `doctor` and create a non-mutating plan;
+1. pass `doctor`, resolve one named destination, and create a non-mutating
+   fresh-tab plan with a sanitized selection receipt;
 2. initialize an append-only controller journal;
 3. create exactly one new tab in the authorized workspace;
 4. verify the exact tab, pane, terminal, and foreground SSH target;
@@ -17,7 +18,7 @@ The first useful dogfood run should:
    (for Claude: `harness_census.py` requires `--run-id`, an absent
    `--claude-hook-root`, the source-owned helper, exact interpreter identity,
    derived `settings_sha256`, and native lifecycle observation bound into
-   `herdr-puppet.harness-binding.v2`);
+   `herdr-puppet.harness-binding.v3`);
 8. for Claude, register all eight possible marker-file paths before launch;
 9. start one canonical harness through the dedicated regular launch operation;
 10. for Claude, validate and journal the `armed` SessionStart receipt;
@@ -112,11 +113,11 @@ controller-attested binding, and the runtime launch uses
 `qualification-harness-launch`. The binding includes the current remote
 executable/version/help fingerprints, an enrolled dedicated-user profile route
 for non-cursor rows or a Cursor provisional `interactive_pending` + `null`
-status pair before launch, no explicit model selector, current default
-model/effort observation or honest `unavailable`, the unrestricted launch-vector
+status pair before launch, current default model/effort observation or honest
+`unavailable` except AGY's explicit `gemini-3.7-flash-high`, the unrestricted launch-vector
 hash, controller adapter and protocol fingerprints, exact worktree, instruction
 plane, and explicit unsupported capability values. The active schema is
-`herdr-puppet.harness-binding.v2`. Historical v1 bindings are historical
+`herdr-puppet.harness-binding.v3`. Historical v1/v2 bindings are historical
 evidence only and must be superseded by fresh census/replan; do not synthesize
 v1 for live runs. Their frozen validator remains available only so an existing
 canonical leased row can be inspected, preserved, inventoried, and closed
@@ -170,8 +171,9 @@ consistency, not cryptographic remote origin.
 Every form of `exec <harness>` is forbidden because replacing the leased shell
 can remove foreground SSH identity. Generic direct launch through
 `qualification-run` is also forbidden after shell readiness. The bound
-dedicated launch is exactly once, at the next sequence, unrestricted, and
-contains no model selector. The launch uses `/usr/bin/env -i`, then supplies
+dedicated launch is exactly once, at the next sequence, and unrestricted. AGY
+alone carries the exact `--model gemini-3.7-flash-high` selector proven by its
+help token and first TSV model cell. The launch uses `/usr/bin/env -i`, then supplies
 only the census-bound `HOME`, deterministic system/Homebrew `PATH`, `LANG`,
 `LC_ALL`, and `TERM`. `inherit_environment: false` is part of the hashed
 launch vector, so controller, prior-agent, and Herdr variables cannot silently
@@ -202,11 +204,12 @@ otherwise canonical checkpoint line. Submitted prompts may not contain an
 assembled checkpoint token.
 
 Create the first message with `instruction-wrapper-create`. Its manifest binds
-the universal, harness-specific, default-unresolved, and regular lifecycle
+the universal, harness-specific, harness-selected model (AGY's explicit Gemini
+3.7 layer or default-unresolved for other harnesses), and regular lifecycle
 layers to the binding fingerprint, run ID, initial-message plane, and rendered
-body hash. The first `qualification-send` must carry that manifest. The
-separate steering turn uses a later lease sequence and an ordinary private
-text file with no manifest. Before a non-Claude steering send, a
+body hash. The first `qualification-send` must carry that manifest. The separate
+steering turn uses a later lease sequence and an ordinary private text file with
+no manifest. Before a non-Claude steering send, a
 controller-observed STATUS beacon must bind to the initial send sequence.
 
 ## Claude native lifecycle proof

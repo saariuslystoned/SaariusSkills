@@ -1,53 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/harness-binding.schema.json",
-  "title": "Herdr-Puppet controller-attested harness binding v3",
+  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/remote-harness-census.schema.json",
+  "title": "Herdr-Puppet remote harness census v3",
+  "$comment": "This schema is the active structural contract. The runtime validate_remote_census validator is authoritative for dynamic fingerprints, source joins, and other cross-field semantic facts JSON Schema cannot express.",
   "type": "object",
   "required": [
     "schema",
     "harness",
-    "remote",
+    "host",
+    "recorded_at",
+    "executable",
     "profile",
-    "model_observation",
     "regular_launch",
     "lifecycle_observation",
-    "adapters",
+    "model_observation",
     "source",
-    "instructions",
-    "capabilities",
-    "attestation",
-    "fingerprint"
+    "raw_output_retained"
   ],
   "properties": {
-    "schema": {"const": "herdr-puppet.harness-binding.v3"},
+    "schema": {"const": "herdr-puppet.remote-harness-census.v3"},
     "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
-    "remote": {
+    "host": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@:+/-]{1,512}$"
+    },
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "executable": {
       "type": "object",
-      "required": ["host", "executable"],
+      "required": [
+        "command",
+        "path",
+        "version",
+        "sha256",
+        "version_sha256",
+        "help_sha256",
+        "fingerprint"
+      ],
       "properties": {
-        "host": {"type": "string", "minLength": 1},
-        "executable": {
-          "type": "object",
-          "required": [
-            "command",
-            "path",
-            "version",
-            "sha256",
-            "version_sha256",
-            "help_sha256",
-            "fingerprint"
-          ],
-          "properties": {
-            "command": {"type": "string", "minLength": 1},
-            "path": {"type": "string", "pattern": "^/"},
-            "version": {"type": "string", "minLength": 1},
-            "sha256": {"$ref": "#/$defs/sha256"},
-            "version_sha256": {"$ref": "#/$defs/sha256"},
-            "help_sha256": {"$ref": "#/$defs/sha256"},
-            "fingerprint": {"$ref": "#/$defs/sha256"}
-          },
-          "additionalProperties": false
-        }
+        "command": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "pattern": "^/"},
+        "version": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "version_sha256": {"$ref": "#/$defs/sha256"},
+        "help_sha256": {"$ref": "#/$defs/sha256"},
+        "fingerprint": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false
     },
@@ -66,49 +62,19 @@
         "root": {"type": "string", "pattern": "^/"},
         "isolation": {"const": "dedicated_remote_user"},
         "enrollment_state": {"enum": ["enrolled", "interactive_pending"]},
-        "status_exit": {
-          "oneOf": [{"const": 0}, {"type": "null"}]
-        },
+        "status_exit": {"oneOf": [{"const": 0}, {"type": "null"}]},
         "raw_output_retained": {"const": false}
       },
       "allOf": [
         {
           "if": {
-            "properties": {
-              "enrollment_state": {"const": "enrolled"}
-            },
+            "properties": {"enrollment_state": {"const": "enrolled"}},
             "required": ["enrollment_state"]
           },
-          "then": {
-            "properties": {
-              "status_exit": {"const": 0}
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "enrollment_state": {"const": "interactive_pending"}
-            },
-            "required": ["enrollment_state"]
-          },
-          "then": {
-            "properties": {
-              "status_exit": {"type": "null"}
-            }
-          }
+          "then": {"properties": {"status_exit": {"const": 0}}},
+          "else": {"properties": {"status_exit": {"type": "null"}}}
         }
       ],
-      "additionalProperties": false
-    },
-    "model_observation": {
-      "type": "object",
-      "required": ["selection", "model", "effort"],
-      "properties": {
-        "selection": {"enum": ["current_default", "explicit"]},
-        "model": {"type": "string", "minLength": 1},
-        "effort": {"type": "string", "minLength": 1}
-      },
       "additionalProperties": false
     },
     "regular_launch": {
@@ -139,83 +105,31 @@
       },
       "additionalProperties": false
     },
-    "lifecycle_observation": {
-      "oneOf": [
-        {"$ref": "#/$defs/checkpointLifecycleObservation"},
-        {"$ref": "#/$defs/claudeLifecycleObservation"}
-      ]
-    },
-    "adapters": {
+    "lifecycle_observation": {"$ref": "#/$defs/lifecycleObservation"},
+    "model_observation": {
       "type": "object",
-      "required": [
-        "harness_fingerprint",
-        "transport_fingerprint",
-        "protocol_fingerprint"
-      ],
+      "required": ["selection", "model", "effort"],
       "properties": {
-        "harness_fingerprint": {"$ref": "#/$defs/sha256"},
-        "transport_fingerprint": {"$ref": "#/$defs/sha256"},
-        "protocol_fingerprint": {"$ref": "#/$defs/sha256"}
+        "selection": {"enum": ["current_default", "explicit"]},
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     },
     "source": {
       "type": "object",
-      "required": ["repo", "worktree"],
-      "properties": {
-        "repo": {"type": "string", "minLength": 1},
-        "worktree": {"type": "string", "pattern": "^/"}
-      },
+      "required": ["worktree"],
+      "properties": {"worktree": {"type": "string", "pattern": "^/"}},
       "additionalProperties": false
     },
-    "instructions": {
-      "type": "object",
-      "required": ["schema", "plane", "policy_fingerprint", "layers"],
-      "properties": {
-        "schema": {"const": "herdr-puppet.instruction-wrapper.v1"},
-        "plane": {"const": "initial_message_wrapper"},
-        "policy_fingerprint": {"$ref": "#/$defs/sha256"},
-        "layers": {
-          "type": "array",
-          "minItems": 4,
-          "maxItems": 4,
-          "items": {"type": "string", "minLength": 1}
-        }
-      },
-      "additionalProperties": false
-    },
-    "capabilities": {
-      "const": {
-        "remote_harness_pid": "unavailable",
-        "targeted_halt": "unsupported",
-        "recovery": "unsupported",
-        "crash_persistence": "unsupported"
-      }
-    },
-    "attestation": {
-      "type": "object",
-      "required": [
-        "kind",
-        "recorded_at",
-        "census_recorded_at",
-        "raw_output_retained"
-      ],
-      "properties": {
-        "kind": {"const": "controller_attested"},
-        "recorded_at": {"type": "string", "format": "date-time"},
-        "census_recorded_at": {"type": "string", "format": "date-time"},
-        "raw_output_retained": {"const": false}
-      },
-      "additionalProperties": false
-    },
-    "fingerprint": {"$ref": "#/$defs/sha256"}
+    "raw_output_retained": {"const": false}
   },
   "$defs": {
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
-    "executableIdentity": {
+    "pathSha256": {
       "type": "object",
       "required": ["path", "sha256"],
       "properties": {
@@ -224,7 +138,7 @@
       },
       "additionalProperties": false
     },
-    "checkpointLifecycleObservation": {
+    "checkpointLifecycle": {
       "type": "object",
       "required": ["schema", "strategy", "raw_input_retained"],
       "properties": {
@@ -234,7 +148,7 @@
       },
       "additionalProperties": false
     },
-    "claudeLifecycleObservation": {
+    "claudeLifecycle": {
       "type": "object",
       "required": [
         "schema",
@@ -259,7 +173,10 @@
           "pattern": "^[A-Za-z0-9._:-]{1,128}$"
         },
         "probe_id": {"$ref": "#/$defs/sha256"},
-        "marker_root": {"type": "string", "pattern": "^/"},
+        "marker_root": {
+          "type": "string",
+          "pattern": "^/[^\\u0000\\r\\n]+$"
+        },
         "interpreter": {
           "type": "object",
           "required": ["path", "sha256", "argv"],
@@ -280,8 +197,8 @@
           },
           "additionalProperties": false
         },
-        "helper": {"$ref": "#/$defs/executableIdentity"},
-        "implementation": {"$ref": "#/$defs/executableIdentity"},
+        "helper": {"$ref": "#/$defs/pathSha256"},
+        "implementation": {"$ref": "#/$defs/pathSha256"},
         "event_limits": {
           "const": {
             "session_start": 1,
@@ -298,48 +215,15 @@
         "raw_input_retained": {"const": false}
       },
       "additionalProperties": false
+    },
+    "lifecycleObservation": {
+      "oneOf": [
+        {"$ref": "#/$defs/checkpointLifecycle"},
+        {"$ref": "#/$defs/claudeLifecycle"}
+      ]
     }
   },
   "allOf": [
-    {
-      "if": {
-        "properties": {"harness": {"const": "cursor"}},
-        "required": ["harness"]
-      },
-      "else": {
-        "properties": {
-          "profile": {
-            "properties": {
-              "enrollment_state": {"const": "enrolled"}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {"harness": {"const": "claude"}},
-        "required": ["harness"]
-      },
-      "then": {
-        "properties": {
-          "lifecycle_observation": {
-            "properties": {
-              "strategy": {"const": "claude_native_hook_markers"}
-            }
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "lifecycle_observation": {
-            "properties": {
-              "strategy": {"const": "strict_checkpoint_only"}
-            }
-          }
-        }
-      }
-    },
     {
       "if": {
         "properties": {"harness": {"const": "agy"}},
@@ -384,6 +268,38 @@
           },
           "regular_launch": {
             "properties": {"explicit_model_selector": {"const": false}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"const": "claude"}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "lifecycle_observation": {"$ref": "#/$defs/claudeLifecycle"}
+        }
+      },
+      "else": {
+        "properties": {
+          "lifecycle_observation": {"$ref": "#/$defs/checkpointLifecycle"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"const": "cursor"}},
+        "required": ["harness"]
+      },
+      "else": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "enrollment_state": {"const": "enrolled"},
+              "status_exit": {"const": 0}
+            }
           }
         }
       }
