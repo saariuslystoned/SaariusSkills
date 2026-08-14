@@ -1,6 +1,6 @@
 ---
 name: herdr-puppet
-description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, or inspect and improve a Herdr-Puppet dogfood run. Do not use it to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
+description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, recover bounded Screen Sharing or VNC observation when Computer Use cannot resolve a visible window, or inspect and improve a Herdr-Puppet dogfood run. Do not use it to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
 ---
 
 # Herdr-Puppet
@@ -19,6 +19,9 @@ Read:
   creating, validating, or recovering a lease.
 - [references/qualification-contract.md](references/qualification-contract.md)
   before any live qualification or bounded token probe.
+- [references/desktop-observation-fallback.md](references/desktop-observation-fallback.md)
+  when Computer Use cannot resolve a visible Screen Sharing or VNC window and
+  the route needs operator-visible desktop proof.
 
 Use `scripts/herdr_puppet.py` for deterministic calls. Do not replace it with
 hand-composed Herdr mutations when the script owns the operation.
@@ -27,79 +30,443 @@ hand-composed Herdr mutations when the script owns the operation.
 
 1. Obtain an explicit parent-session capability: exact session, workspace ID,
    workspace label, expected SSH target, run ID, source slice, proof root, and
-   allowed mode.
+   allowed mode. Harness identity is canonical:
+   `agy|codex|claude|cursor|grok`.
 2. Run `doctor`. Require the supported Herdr version and protocol, one live
    named session, and an unambiguous workspace.
-3. Run `plan`. Save the JSON plan outside public source when it contains local
-   paths or host/account identity.
-4. Initialize a controller journal. Record structural events, prompt hashes,
-   sequence numbers, checkpoint results, failures, and concise observations;
-   never copy pane output into the journal.
-5. Run structural `status` before every mutation. Stop on any session,
+3. Run the bounded `harness_census.py` against the dedicated remote-user
+   profile without inspecting auth stores. Create a controller-attested
+   binding with `harness-binding-create`; current schemas are
+   `herdr-puppet.remote-harness-census.v2` and
+   `herdr-puppet.harness-binding.v2`, and the binding freezes
+   executable/version/help fingerprints, enrolled or Cursor-provisional (`interactive_pending`
+   + `null` status) profile route, current default-model observation,
+   unrestricted regular launch with no model selector, adapter/protocol
+   fingerprints, worktree, instruction plane, and honest unsupported
+   capabilities. For Claude rows only, choose run-id before census, pass
+   `--run-id` with an absent `--claude-hook-root`, require `--settings` in
+   `claude --help`, and bind the source-owned helper, exact interpreter
+   identity, and derived settings fingerprint. Run `plan` with that binding.
+   Save plan and binding outside public source when they contain local paths or
+   host/account identity.
+   Cursor's provisional state means the census deliberately skipped its
+   auth/status surface; it is not an enrollment claim. A successful
+   provisional census exits zero because evidence collection completed, not
+   because enrollment or readiness was proven.
+4. Initialize a controller journal before any live tab mutation. Record
+   structural events, prompt hashes, sequence numbers, checkpoint results,
+   failures, and concise observations; never copy pane output into the
+   journal. The plan's exact `proof_root` is the one allowed journal
+   `run_root`; initialization and every later journal use reject any alternate
+   or copied root. `qualification-create-tab` preflights that matching
+   initialized journal and refuses to create a tab or lease when it is absent
+   or belongs to another run.
+5. Run structural `status --plan-json` before tab creation. Once a lease
+   exists, stop rechecking the now-consumed plan: its owned label is expected
+   to exist and plan status must reject it. Use `status --lease-json` or
+   `maintenance-checkpoint` before every later mutation. Stop on any session,
    workspace, tab, pane, terminal, label, socket, or SSH-target mismatch.
+   Current operations accept only the canonical lease-v1 shape. If a historical
+   lease lacks the additive readiness/file fields or carries the former
+   `harness_readiness: status_verified` value, run the explicit
+   `lease-migrate-v1` adapter before status, journal refresh, probe,
+   preservation, or cleanup. An unbound historical lease cannot be
+   controller-attested retroactively and remains historical evidence only. A
+   canonical lease carrying a valid binding-v1 remains available for status,
+   preservation, maintenance, and exact cleanup, but every fresh qualification
+   transition requires recensus and a binding-v2 plan.
 6. For a live qualification, create a new deterministic tab through
-   `qualification-create-tab`. Never adopt an existing tab or process.
-7. Send ordinary AGY steering as a plain message with no slash-command prefix.
+   `qualification-create-tab`. The controller focuses that exact newly created
+   tab in the plan's target workspace so the run is operator-visible and Herdr
+   output waits can observe it. Herdr 0.7.3 focus is server-owned, so this
+   intentionally changes the isolated operator session's visible workspace and
+   tab; it grants no authority to navigate, adopt, or close any other tab.
+   Never adopt an existing tab or process.
+7. Use `qualification-run` for shell commands, including the harmless shell
+   STATUS preflight and the in-row census. Supply the command
+   through `--stdin` or a bounded UTF-8 `--text-file`; never place it in the
+   controller's arguments. The adapter invokes Herdr 0.7.3 `pane run` once and
+   records only the command hash. Its acknowledgement proves only that the
+   Herdr CLI returned success. It does not prove shell execution, harness
+   readiness, prompt acceptance, MCP readiness, task start, or task completion.
+   Shell run, harness launch, and startup-gate operations are durably reserved
+   before Herdr mutation. An unfinalized reservation blocks replay; preserve
+   that row instead of guessing whether the mutation landed.
+8. Follow the regular interactive order exactly: atomic shell STATUS preflight;
+   strict STATUS beacon wait; in-row executable/profile/version/help census
+   written create-only by `harness_census.py --output` followed by its strict
+   completion STATUS beacon; `harness-census-verify` against the plan binding; one
+   `qualification-harness-launch`; for Claude, eight registered marker paths
+   plus an `armed` SessionStart receipt; any exact observed pre-readiness gate;
+   independently recorded readiness; one wrapped initial message; for Claude,
+   a bound `initial` UserPromptSubmit plus Stop/StopFailure receipt before one
+   separately sequenced steering turn, followed by the bound `steering`
+   receipt; native TUI view/detach/reattach checkpoint; and one strict terminal
+   beacon. The
+   dedicated launch operation alone may start a qualifying harness.
+   It starts from an empty process environment and restores only the exact
+   bound `HOME`, deterministic `PATH`, locale, and terminal values. Never
+   inherit controller, prior-agent, or Herdr process variables into a row.
+   `qualification-run` rejects generic harness launches as well as every
+   shell-replacing `exec <harness>` form. Regular rows never use `/goal`,
+   `/loop`, or `/teamwork-preview`.
+   The matching STATUS checkpoint advances shell readiness only and is the
+   follow-on shell gate; a successful API acknowledgement is not.
+   If the first STATUS wait records no checkpoint, `qualification-run` permits
+   exactly one additional pre-readiness submission at sequence 2, and only
+   when it is the canonical standalone
+   `printf '%s\n' 'HERDR_PUPPET_STATUS <new-nonce>'` probe in the same
+   initialized journal. This bounded retry exists for a newly inherited
+   remote terminal that is still settling; it does not authorize another
+   command, a third probe, or any harness launch.
+   Cursor Workspace Trust must be recorded through
+   `qualification-startup-gate` before readiness. Use the bounded Codex or
+   Claude reducers only when the operator sees the exact allowlisted trust,
+   security acknowledgement, or bypass-confirmation surface for the exact
+   task-owned worktree. `not_present` records observation without sending
+   input. Never use this surface for login, enrollment, credentials, or
+   unrelated UI.
+   Earlier AGY 1.1.7 diagnostics used a private prompt file plus
+   `agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s`. Retain
+   that shape as historical evidence only. This controller deliberately
+   rejects every harness launcher submitted through `qualification-run`,
+   including non-`exec` AGY `--print`; there is no supported noninteractive
+   qualification path in this version. Do not attempt the old recipe through
+   the live controller. A future path needs its own controller-attested
+   operation, registered task-file authority, sequence contract, terminal
+   evidence, and exact removal proof.
+9. Use `instruction-wrapper-create` for the first regular interactive message.
+   The versioned wrapper composes universal, harness, default-unresolved, and
+   regular lifecycle layers, and binds its manifest to the run and harness
+   binding. Pass that manifest to the first `qualification-send`; a mismatch
+   fails before pane input. Use `qualification-send` only for ordinary interactive
+   harness prompts
+   after `qualification-harness-ready` records explicit operator confirmation
+   against the exact leased source and ready input surface. Shell STATUS never
+   authorizes pane input, including sequence 1. `qualification-run` never
+   launches a harness; noninteractive AGY remains unsupported.
+   Claude submit keys remain transport choreography: multiline sends use
+   `["enter", "enter"]`; every other send uses `["enter"]`.
+   The UserPromptSubmit hook hashes only the bounded in-memory `prompt` field
+   and retains no raw input; all other hook events leave stdin unread. Only the
+   receipt whose prompt fingerprints match the controller's exact send history
+   proves that Claude submitted and completed or failed a turn. Hook execution
+   uses an isolated settings-embedded verifier that checks the resolved running
+   interpreter plus the bound interpreter and helper before Python executes the
+   helper; that helper then checks the bound implementation.
+   Generate observation commands through
+   `qualification-claude-receipt-command`, never by directly executing the
+   mutable worktree helper. Claude rows never use
+   `qualification-reconcile-send`.
+   Serialize sends and let the lease reject stale, skipped, duplicate, or
+   replayed sequences. Send ordinary AGY steering as a plain message with no
+   slash-command prefix.
    Never inject `/teamwork-preview` automatically. Use it only when the
    operator explicitly requests a separately bounded 4-20-helper fan-out; one
    AGY root remains the integration writer, and that experimental hierarchy
-   requires its own topology, accounting, timeout, and cleanup proof.
-8. Drive only that leased pane through `qualification-send`. Serialize sends
-   and let the lease reject stale, skipped, duplicate, or replayed sequences.
-9. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
+   requires its own topology, accounting, timeout, and cleanup proof. Preserve
+   an operator-selected slash command verbatim. Supply prompts through
+   `--stdin` or a bounded UTF-8 `--text-file`, never controller argv. Treat
+   a pending or unknown delivery reservation as a hard stop and never retry
+   speculatively. The controller reserves each send durably before Herdr
+   mutation. Only a non-Claude second steering send with the exact pending
+   reservation may use `qualification-reconcile-send`; an uncertain initial
+   send or any uncertain Claude send requires preservation and a fresh row.
+   A send receipt remains scoped to `herdr_pane_input_only` and proves no
+   shell, harness, prompt, MCP, or task readiness.
+10. Use `qualification-beacon-wait` for a generated checkpoint nonce during a
    declared qualification. Require the harness to emit exactly one line shaped
-   as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`. The command returns
+   as `HERDR_PUPPET_<STATUS|ACTION_REQUIRED|DONE> <nonce>`, where
+   `<nonce>` is 8-24 safe identifier characters (`[A-Za-z0-9._:-]`). The
+   submitted harness prompt must name the prefix/class rule and real nonce as
+   separate fragments; never include their fully assembled strict token.
+   After operator-verified readiness, the waiter admits Codex's one proven
+   native assistant marker: exactly one leading U+2022 bullet plus horizontal
+   separation. It does not normalize bullets for shell checks or other
+   harnesses.
+   `qualification-send` rejects an assembled token before mutation so a
+   TUI-rendered user prompt cannot satisfy the output watcher. The command returns
    only the checkpoint class and hashes, never pane text. Use
-   `qualification-token-probe` only for lower-level transport diagnosis.
-10. Preserve the owned tab with `lease-preserve` at a human gate, superseded
-    route, completed milestone, or operator stop. Preservation changes only
-    the controller lease and rejects further input; it does not close the tab.
-11. Review the journal after each useful checkpoint. Promote only repeatable
+   `qualification-token-probe` only for lower-level transport diagnosis. A
+    `not_matched` result proves only that the strict line was absent from the
+    bounded window; it does not prove the worker, SSH process, harness, or tab
+    went offline and is not itself a human gate. The same submission nonce may
+    receive one bounded re-wait after its first `not_matched`; a matched nonce
+    is terminal and any third attempt or cross-sequence reuse is rejected.
+    Each attempt is durably reserved under the exact lease lock before Herdr
+    receives the wait request, so concurrent callers cannot exceed the cap.
+    A separately validated terminal artifact may prove the task result and
+    justify explicit `lease-preserve`, but it must not be rewritten as a
+    matched `DONE` checkpoint.
+    The waiter has an independent controller hard timeout. `DONE` and
+    `ACTION_REQUIRED` automatically preserve the lease while leaving the tab
+    visible. When the operator reports the exact nonce line directly from the
+    exact owned tab, treat that checkpoint as terminal, journal the
+    observation, and preserve immediately; process or receipt polling cannot
+    override it.
+11. Preserve the owned tab with `lease-preserve` at a superseded route,
+    operator stop, or a terminal checkpoint reported outside the waiter.
+    Preservation changes only the controller lease and rejects further
+    submissions; it does not close the tab.
+12. Run `maintenance-checkpoint` at every milestone boundary and before
+    leaving the run. Inventory only
+    exact run-owned resources already joined by the lease or named in
+    structured harness events: tab, pane, terminal, foreground SSH PID,
+    controller-local caller text files, registered remote task files, and
+    explicitly recorded child processes. Classify
+    each as active, preserved, stale, or ambiguous. Require the caller to remove
+    only its acknowledged task-owned prompt file. For a remote file, final
+    maintenance records the exact registered path and one bounded removal
+    evidence class; public receipts emit neither that path nor a path hash.
+    Never close a pane or reap a process
+    from its label, name, or age; journal repeat residue as a
+    `maintenance_candidate` and route exact cleanup through a separately
+    authorized owner-specific maintenance tool.
+13. When the operator explicitly authorizes cleanup, run
+    `cleanup-preserved-tab` with the exact leased tab ID repeated through
+    `--confirm-tab-id`. It accepts only a preserved lease and initialized
+    journal, closes no other tab, verifies the exact tab and pane disappeared
+    and the leased foreground SSH PID is absent, then records the closed state.
+    A stale but unrecorded lease may be reconciled only after the same absence
+    and PID-absence checks. PID reuse blocks cleanup rather than being treated
+    as success. Never target a display ordinal or label.
+14. For a qualifying row, bracket a real task-owned Herdr client
+    detach/reattach with `qualification-view-begin` and
+    `qualification-view-complete`. Confirm the native TUI before detach and
+    require the exact session/workspace/tab/pane/terminal/SSH identities to
+    remain unchanged after reattach. Merely calling the two record operations
+    without a real client detach/reattach is not proof.
+15. Review the journal after each useful checkpoint. Promote only repeatable
     lessons into this skill; keep transient incident detail in the run packet.
+
+The controller-attested binding selects one regular unrestricted launch posture
+only after the caller explicitly authorizes that bounded qualification.
+Transport qualification flags authorize only the named Herdr operation.
+Unrestricted or auto-approval flags do not authorize source delivery, merge,
+deploy, sends, secrets, accounts, devices, security changes, or cleanup.
+Likewise, closing a preserved tab is a separate exact-target maintenance
+action: it requires operator authority, the leased tab identity, and
+post-close process-exit proof. Never infer either behavior from "puppet",
+"Herdr", a label, or `--allow-live-qualification`.
 
 ## Commands
 
 Run from the skill directory:
 
+Keep the controller plan file outside the intended run root. `journal-init`
+creates that run root atomically and refuses any pre-existing directory,
+including one created early merely to hold `plan.json`.
+
 ```bash
 python3 scripts/herdr_puppet.py doctor \
   --session <session>
-
+python3 scripts/harness_census.py \
+  --harness <agy|codex|claude|cursor|grok> \
+  --host <remote-host> \
+  --profile-root <dedicated-remote-user-home> \
+  --worktree <exact-remote-worktree> > <private-census.json>
+# For Claude, bind the native lifecycle:
+python3 scripts/harness_census.py \
+  --harness claude \
+  --host <remote-host> \
+  --profile-root <dedicated-remote-user-home> \
+  --worktree <exact-remote-worktree> \
+  --run-id <run-id> \
+  --claude-hook-root <exact-absent-marker-root> \
+  > <private-census.json>
+# Inside the leased row, never shell-redirect the census output. Use:
+python3 scripts/harness_census.py \
+  --harness <agy|codex|claude|cursor|grok> \
+  --host <remote-host> \
+  --profile-root <dedicated-remote-user-home> \
+  --worktree <exact-remote-worktree> \
+  --output <exact-create-only-remote-census.json> \
+  --checkpoint-nonce <unique-census-status-nonce>
+# For Claude, include the two additional flags above with the same run lineage:
+# --run-id <run-id> --claude-hook-root <exact-absent-marker-root>
+python3 scripts/herdr_puppet.py harness-binding-create \
+  --census-json <private-census.json> \
+  --repo <owner/repo> \
+  --output <private-binding.json>
 python3 scripts/herdr_puppet.py plan \
   --session <session> \
   --workspace-id <workspace-id> \
   --workspace-label <label> \
   --expected-ssh-target <user@host> \
   --run-id <run-id> \
+  --harness <agy|codex|claude|cursor|grok> \
   --repo <owner/repo> \
   --worktree <path> \
-  --proof-root <path>
-
+  --proof-root <run-root> \
+  --harness-binding-json <private-binding.json> \
+  --live-mutation-authorized
 python3 scripts/herdr_puppet.py status --plan-json <plan.json>
-
+python3 scripts/herdr_puppet.py lease-migrate-v1 \
+  --lease-json <historical-lease.json>
 python3 scripts/herdr_puppet.py journal-init \
   --plan-json <plan.json> \
   --run-root <run-root>
-
 python3 scripts/herdr_puppet.py journal-show \
   --run-root <run-root>
-
+python3 scripts/herdr_puppet.py qualification-create-tab \
+  --plan-json <plan.json> \
+  --lease-json <lease.json> \
+  --run-root <run-root> \
+  --allow-live-qualification
+python3 scripts/herdr_puppet.py qualification-run \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --text-file <task-owned-command-file> \
+  --run-root <run-root> \
+  --allow-live-qualification
+python3 scripts/herdr_puppet.py harness-census-verify \
+  --lease-json <lease.json> \
+  --harness-binding-json <private-binding.json> \
+  --census-json <in-row-census.json> \
+  --run-root <run-root>
+# Repeat once for each of the eight exact marker names in the qualification
+# contract, before launching Claude:
+python3 scripts/herdr_puppet.py remote-task-file-register \
+  --lease-json <lease.json> \
+  --remote-path </exact/claude-hook-root/one-exact-marker-name.json> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --confirm-caller-owned \
+  --run-root <run-root>
+python3 scripts/herdr_puppet.py qualification-harness-launch \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --run-root <run-root> \
+  --allow-live-qualification
+# Claude only: generate the source-bound, pre-execution-verified observe command.
+# Execute the returned argv/shell_command without alteration over the exact
+# leased SSH target, copy only the sanitized JSON locally, and
+# record `armed` before readiness. Repeat as `initial` after the first send and
+# `steering` after the second send. This route is operational provenance, not
+# cryptographic proof of remote origin.
+python3 scripts/herdr_puppet.py qualification-claude-receipt-command \
+  --lease-json <lease.json> > <private-receipt-command.json>
+python3 scripts/herdr_puppet.py qualification-claude-lifecycle-observe \
+  --lease-json <lease.json> \
+  --receipt-json <controller-local-sanitized-receipt.json> \
+  --phase <armed|initial|steering> \
+  --run-root <run-root>
+python3 scripts/herdr_puppet.py qualification-startup-gate \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --gate <workspace_trust|security_acknowledgement|permission_bypass_confirmation> \
+  --action <allowlisted-action> \
+  --source-worktree <exact-leased-worktree> \
+  --operator-id <operator-id> \
+  --evidence operator_observed_exact_gate \
+  --confirm-exact-worktree \
+  --confirm-unrestricted \
+  --run-root <run-root> \
+  --allow-live-qualification
 python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --lease-json <lease.json> \
   --nonce <unique-checkpoint-nonce> \
+  --lines 80 \
+  --timeout-ms 480000 \
+  --timeout-seconds 510 \
   --run-root <run-root> \
   --allow-live-qualification
-
+python3 scripts/herdr_puppet.py qualification-harness-ready \
+  --lease-json <lease.json> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --operator-id <operator-id> \
+  --evidence operator_observed_ready_input \
+  --confirm-ready \
+  --run-root <run-root> \
+  --allow-live-qualification
+# Initial message: the wrapper manifest is mandatory.
+python3 scripts/herdr_puppet.py qualification-send \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --text-file <rendered-wrapper-file> \
+  --instruction-manifest-json <manifest-for-first-message.json> \
+  --run-root <run-root> \
+  --allow-live-qualification
+# After controller-observed initial consumption (STATUS for non-Claude, the
+# bound initial lifecycle receipt for Claude), send exactly one plain steering
+# turn with no instruction manifest.
+python3 scripts/herdr_puppet.py qualification-send \
+  --lease-json <lease.json> \
+  --seq <next-seq> \
+  --text-file <steering-file> \
+  --run-root <run-root> \
+  --allow-live-qualification
+# Only for an exact pending/unknown non-Claude steering reservation whose
+# application is independently proven. This performs no Herdr mutation.
+python3 scripts/herdr_puppet.py qualification-reconcile-send \
+  --lease-json <lease.json> \
+  --seq <same-pending-seq> \
+  --text-file <same-steering-file> \
+  --evidence <concise-structural-evidence> \
+  --confirm-applied \
+  --run-root <run-root>
+python3 scripts/herdr_puppet.py qualification-view-begin \
+  --lease-json <lease.json> \
+  --nonce <unique-view-nonce> \
+  --operator-id <operator-id> \
+  --confirm-native-tui-visible \
+  --run-root <run-root> \
+  --allow-live-qualification
+python3 scripts/herdr_puppet.py qualification-view-complete \
+  --lease-json <lease.json> \
+  --nonce <same-view-nonce> \
+  --operator-id <operator-id> \
+  --evidence operator_observed_real_client_detach_reattach \
+  --confirm-detached-reattached \
+  --run-root <run-root> \
+  --allow-live-qualification
+python3 scripts/herdr_puppet.py remote-task-file-register \
+  --lease-json <lease.json> \
+  --remote-path </exact/remote/task-file> \
+  --source-repo <exact-leased-repo> \
+  --source-worktree <exact-leased-worktree> \
+  --confirm-caller-owned \
+  --run-root <run-root>
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <human_gate|route_superseded|milestone_complete|operator_stop>
+python3 scripts/herdr_puppet.py maintenance-checkpoint \
+  --lease-json <lease.json> \
+  --run-root <run-root> \
+  --remote-task-file-removed </exact/remote/task-file> \
+  --remote-removal-evidence operator_verified_remote_absence \
+  --confirm-remote-removed
+python3 scripts/herdr_puppet.py cleanup-preserved-tab \
+  --lease-json <lease.json> \
+  --run-root <run-root> \
+  --confirm-tab-id <exact-tab-id> \
+  --allow-live-cleanup
+```
+
+This version has no supported noninteractive AGY qualification recipe.
+`qualification-run` rejects the historical
+`agy --prompt @/exact/task-owned-prompt-file --print-timeout 420s` launcher
+before Herdr mutation, as it does every other generic harness launch. Use the
+regular interactive lifecycle above. Do not improvise a `--print` carve-out.
+
+Create the first regular prompt and its manifest before
+`qualification-send`:
+
+```bash
+python3 scripts/herdr_puppet.py instruction-wrapper-create \
+  --harness-binding-json <private-binding.json> \
+  --run-id <run-id> \
+  --task-file <private-task-file> \
+  --prompt-output <private-rendered-prompt-file> \
+  --manifest-output <private-manifest.json>
 ```
 
 Live qualification commands additionally require
 `--allow-live-qualification`. That flag confirms transport mutation only. It
-does not authorize unrestricted harness flags, pushes, pull requests, merges,
-deploys, sends, spending, secret access, account/security changes, or
-destructive cleanup.
+does not authorize unrestricted or auto-approval harness flags, pushes, pull
+requests, merges, deploys, sends, spending, secret access, account/security
+changes, tab closure, process reaping, or destructive cleanup.
 
 ## Preserve the boundary
 
@@ -113,8 +480,17 @@ destructive cleanup.
   material, or environment contents in a public proof.
 - Keep ordinary `status` transcript-blind. Only the separately gated
   qualification token and beacon waits may use Herdr's blocking `wait output`;
-  both must discard the returned text window.
+  both necessarily receive a bounded surrounding text window in controller
+  memory and must discard it without emitting or persisting it.
 - Treat the journal as review input, not automatic permission to broaden the
   skill.
+- Treat maintenance inventory as routing evidence, not deletion authority.
+  `cleanup-preserved-tab` is the only close adapter: it still requires explicit
+  operator authority, a preserved exact lease, repeated tab-ID confirmation,
+  and verified tab, pane, and foreground-SSH-PID absence.
 - Leave `halt` and `recover` unavailable until exact remote-process identity
   and fail-closed recovery have independent qualification.
+- Keep `remote_harness_pid: unavailable`, `targeted_halt: unsupported`,
+  `recovery: unsupported`, and `crash_persistence: unsupported` explicit.
+  Foreground SSH identity and exact-tab cleanup do not prove those
+  remote-process capabilities.

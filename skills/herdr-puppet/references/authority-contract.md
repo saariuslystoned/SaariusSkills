@@ -9,6 +9,8 @@ Every live run must begin with an operator-approved capability containing:
 - exact parent workspace ID and expected display label;
 - exact expected SSH target;
 - run ID, harness, source repository/worktree, proof root, and allowed mode;
+- canonical harness identity plus one versioned controller-attested binding for
+  its executable/profile/launch/adapters/instruction plane;
 - an explicit statement that the parent session remains operator-owned.
 
 Herdr 0.7.3 exposes no server PID, boot nonce, start time, or native
@@ -37,7 +39,8 @@ capability
   -> newly created tab ID
   -> pane ID + terminal ID
   -> foreground SSH PID + argv + target
-  -> monotonically increasing send sequence
+  -> harness-binding fingerprint + regular-launch fingerprint
+  -> monotonically increasing submission sequence
 ```
 
 A label is never an authority edge. It is checked only as drift evidence after
@@ -54,7 +57,11 @@ different from the capability or lease. Also stop when:
 - the tab or pane moved to another workspace;
 - the connection dropped, handed off, or restarted, or the socket/protocol
   changed;
-- a caller tries to skip or replay a send sequence;
+- a caller tries to skip or replay a submission sequence;
+- the in-row remote census differs from the bound executable, profile,
+  worktree, model observation, or regular launch;
+- a generic or shell-replacing harness launch bypasses the bound launch
+  operation;
 - an operation would target the parent session or an unleased tab.
 
 ## Separate gates
@@ -63,3 +70,31 @@ Live Herdr qualification authorizes only the exact tab/pane operations in the
 lease. Obtain separate authorization for unrestricted harness flags, source
 delivery, deploys, sends, spending, secrets, accounts/security, deletion, or
 other externally consequential actions.
+
+An authorized regular campaign may bind unrestricted flags into the
+controller-attested launch vector. That binding does not broaden task
+authority. Startup-gate input is separately constrained to an exact
+task-owned worktree, a single lease sequence, one observed allowlisted gate,
+and one use before readiness. It never authorizes login, account enrollment,
+credentials, or unrelated UI.
+
+Maintenance observations do not add deletion authority. A run may inventory
+and classify only resources joined through its exact lease or explicitly named
+by sanitized structured harness events. Labels, process names, apparent age,
+and familiar paths are insufficient cleanup identity. Preserve ambiguous
+resources, journal recurring residue as a maintenance candidate, and require a
+separately authorized owner-specific reaper before closing panes or terminating
+processes.
+
+`maintenance-checkpoint` is the transcript-blind inventory surface. Its
+classification and recommendation do not authorize the recommended action.
+Report exact tab, pane, and terminal IDs beside any human-facing ordinal or
+label so a display position is never mistaken for authority.
+
+`cleanup-preserved-tab` is the bounded owner-specific close surface. It
+requires separate operator authority, an initialized journal, a preserved
+lease, an exact repeated tab-ID confirmation, and post-close proof that the
+leased tab, pane, and foreground SSH PID are absent. PID reuse fails closed
+rather than being accepted as absence. It does not close by
+label, ordinal, age, focus, or search result, and it never sends a process
+termination signal directly.

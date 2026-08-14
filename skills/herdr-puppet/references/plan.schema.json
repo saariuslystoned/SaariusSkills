@@ -13,6 +13,7 @@
     "expected_ssh_target",
     "owned_label",
     "source",
+    "harness_binding",
     "proof_root",
     "safety"
   ],
@@ -20,7 +21,7 @@
     "schema": {"const": "herdr-puppet.plan.v1"},
     "state": {"const": "planned"},
     "run_id": {"type": "string", "minLength": 1},
-    "harness": {"type": "string", "minLength": 1},
+    "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
     "session": {
       "type": "object",
       "required": ["name", "version", "protocol", "socket", "incarnation_proven"],
@@ -52,6 +53,12 @@
         "worktree": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
+    },
+    "harness_binding": {
+      "oneOf": [
+        {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v1.schema.json"}
+      ]
     },
     "proof_root": {"type": "string", "minLength": 1},
     "safety": {

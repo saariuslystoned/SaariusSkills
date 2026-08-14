@@ -119,6 +119,12 @@ class PackagingTests(unittest.TestCase):
             / "herdr_puppet_lib"
             / "herdr_client.py"
         ).read_text(encoding="utf-8")
+        cli = (
+            HERDR_SKILL
+            / "scripts"
+            / "herdr_puppet_lib"
+            / "cli.py"
+        ).read_text(encoding="utf-8")
         compact_client = " ".join(client.split())
         self.assertLessEqual(len(skill.splitlines()), 500)
         self.assertIn("$herdr-puppet", metadata)
@@ -126,7 +132,25 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("transcript-blind", skill)
         self.assertIn("Never inject `/teamwork-preview` automatically", skill)
         self.assertIn("lease-preserve", skill)
+        self.assertIn("cleanup-preserved-tab", skill)
+        self.assertIn("lease-migrate-v1", skill)
+        self.assertIn("qualification-harness-ready", skill)
+        self.assertIn("operator_observed_ready_input", skill)
+        self.assertIn("remote-task-file-register", skill)
+        self.assertIn("--timeout-ms 480000", skill)
+        self.assertIn("--timeout-seconds 510", skill)
+        self.assertIn("status --lease-json", skill)
+        self.assertIn("must not be rewritten as a", skill)
+        self.assertIn('"method": "pane.send_input"', compact_client)
+        self.assertIn('selected_keys = ["enter"]', compact_client)
+        self.assertIn('"keys": selected_keys', compact_client)
         self.assertIn('"pane", "run"', compact_client)
+        self.assertIn('"<redacted-command>"', compact_client)
+        self.assertIn("socket.AF_UNIX", client)
+        self.assertNotIn('add_argument("--text")', cli)
+        self.assertNotIn('add_argument("--command")', cli)
+        self.assertIn('"qualification-run"', cli)
+        self.assertIn('add_argument("--stdin"', cli)
         self.assertIn('"wait", "output"', compact_client)
         self.assertIn('"api", "snapshot"', compact_client)
         self.assertNotIn('"pane", "read"', compact_client)
@@ -135,16 +159,145 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('"server", "stop"', compact_client)
         self.assertNotIn('"session", "stop"', compact_client)
         self.assertNotIn('"workspace", "close"', compact_client)
-        self.assertNotIn('"tab", "close"', compact_client)
+        self.assertIn('"tab", "close"', compact_client)
+        self.assertNotIn('"pane", "close"', compact_client)
+        self.assertNotIn("SIGTERM", client)
+        self.assertNotIn("SIGKILL", client)
+        self.assertIn('add_argument("--confirm-tab-id"', cli)
+        self.assertIn('add_argument("--allow-live-cleanup"', cli)
+        self.assertIn('"qualification-harness-ready"', cli)
+        self.assertIn('"qualification-harness-launch"', cli)
+        self.assertIn('"qualification-startup-gate"', cli)
+        self.assertIn('"qualification-view-begin"', cli)
+        self.assertIn('"qualification-view-complete"', cli)
+        self.assertIn('"harness-census-verify"', cli)
+        self.assertIn('"instruction-wrapper-create"', cli)
+        self.assertIn('"remote-task-file-register"', cli)
+        self.assertIn('"lease-migrate-v1"', cli)
+        self.assertTrue(
+            (HERDR_SKILL / "scripts" / "harness_census.py").is_file()
+        )
+        self.assertTrue(
+            (
+                HERDR_SKILL
+                / "templates"
+                / "instructions"
+                / "catalog.json"
+            ).is_file()
+        )
 
     def test_herdr_puppet_schemas_parse(self) -> None:
         references = HERDR_SKILL / "references"
-        for name in ("plan.schema.json", "lease.schema.json", "event.schema.json"):
+        for name in (
+            "plan.schema.json",
+            "lease.schema.json",
+            "event.schema.json",
+            "harness-binding.schema.json",
+            "harness-binding-v1.schema.json",
+        ):
             schema = json.loads((references / name).read_text(encoding="utf-8"))
             self.assertEqual(
                 schema["$schema"],
                 "https://json-schema.org/draft/2020-12/schema",
             )
+        lease_schema = json.loads(
+            (references / "lease.schema.json").read_text(encoding="utf-8")
+        )
+        event_schema = json.loads(
+            (references / "event.schema.json").read_text(encoding="utf-8")
+        )
+        binding_schema = json.loads(
+            (references / "harness-binding.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            binding_schema["properties"]["profile"]["properties"][
+                "enrollment_state"
+            ]["enum"],
+            ["enrolled", "interactive_pending"],
+        )
+        self.assertIn("allOf", binding_schema)
+        lease_cross_fields = json.dumps(
+            lease_schema["allOf"],
+            sort_keys=True,
+        )
+        self.assertIn("workspace_trust", lease_cross_fields)
+        self.assertIn("minContains", lease_cross_fields)
+        self.assertEqual(
+            lease_schema["properties"]["harness_readiness"]["enum"],
+            ["unverified", "operator_verified"],
+        )
+        self.assertEqual(
+            lease_schema["properties"]["shell_readiness"]["enum"],
+            ["unverified", "status_verified"],
+        )
+        self.assertIn("caller_text_files", lease_schema["properties"])
+        self.assertIn("caller_text_files_removed", lease_schema["properties"])
+        self.assertIn("remote_task_files", lease_schema["properties"])
+        self.assertEqual(
+            set(lease_schema["required"]),
+            {
+                "schema",
+                "state",
+                "run_id",
+                "harness",
+                "session",
+                "workspace",
+                "owned_label",
+                "tab_id",
+                "pane_id",
+                "terminal_id",
+                "ssh",
+                "next_seq",
+                "shell_readiness",
+                "harness_readiness",
+                "source",
+                "harness_binding",
+                "startup_gate_operations",
+                "proof_root",
+                "caller_text_files",
+                "caller_text_files_removed",
+                "remote_task_files",
+                "interactive_sends",
+                "pending_interactive_send",
+                "pending_sequence_operation",
+            },
+        )
+        readiness_rule = lease_schema["allOf"][0]
+        self.assertEqual(
+            readiness_rule["then"]["required"],
+            [
+                "harness_launch",
+                "harness_readiness_evidence",
+                "harness_readiness_operator",
+                "harness_readiness_verified_at",
+            ],
+        )
+        self.assertEqual(
+            readiness_rule["then"]["properties"]["shell_readiness"]["const"],
+            "status_verified",
+        )
+        self.assertIn("else", readiness_rule)
+        self.assertIn("command_sha256", event_schema["properties"])
+
+    def test_herdr_puppet_packages_bounded_peekaboo_fallback(self) -> None:
+        skill = (HERDR_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        fallback = (
+            HERDR_SKILL
+            / "references"
+            / "desktop-observation-fallback.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("desktop-observation-fallback.md", skill)
+        self.assertIn("Computer Use", skill)
+        self.assertIn("peekaboo permissions --json", fallback)
+        self.assertIn("peekaboo image --mode screen", fallback)
+        self.assertIn('peekaboo list windows --app "Screen Sharing"', fallback)
+        self.assertIn("Control Screen", fallback)
+        self.assertIn("negative bounds", fallback)
+        self.assertIn("infer an authentication gate", fallback)
+        self.assertIn("Use Pixel Use MCP for phone semantics", fallback)
+        self.assertIn("Never enter or retrieve a password", fallback)
 
 
 if __name__ == "__main__":

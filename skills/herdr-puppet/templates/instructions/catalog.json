@@ -1,0 +1,13 @@
+{
+  "schema": "herdr-puppet.instruction-catalog.v1",
+  "universal": "universal.md",
+  "model": "model/default-unresolved.md",
+  "lifecycle": "lifecycle/regular.md",
+  "harnesses": {
+    "agy": "harness/agy.md",
+    "codex": "harness/codex.md",
+    "claude": "harness/claude.md",
+    "cursor": "harness/cursor.md",
+    "grok": "harness/grok.md"
+  }
+}

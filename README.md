@@ -33,14 +33,28 @@ The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
 append-only dogfood journals, gated qualification tab creation,
 sequence-checked input, partial-send reconciliation, and a bounded exact-nonce
 wait with strict `STATUS` / `ACTION_REQUIRED` / `DONE` checkpoint
-classification. Ordinary status never reads pane text. Parent-session mutation,
-pre-existing-tab adoption, generic transcript capture, halt, and recovery remain
-disabled.
+classification. Pane input receipts explicitly do not claim harness readiness
+or task submission. Waits have an independent controller hard timeout,
+terminal checkpoints preserve the lease automatically, and
+`maintenance-checkpoint` inventories exact run-owned structure without closing
+anything. Separately authorized `cleanup-preserved-tab` closes only an exact
+confirmed preserved tab and verifies tab, pane, and foreground-SSH-PID absence.
+Ordinary status never reads pane text.
+Parent-session mutation, pre-existing-tab adoption, generic transcript capture,
+halt, and recovery remain disabled.
 
-The first live dogfood lane uses one newly owned, persistently visible AGY pane
-on a remote worker. Its machine-local controller journal is deliberately not a
-public transcript or promotion claim; curated public proof will follow only
-after the behavior and redaction boundaries survive review.
+Current status is tracked by a five-row, transcript-blind qualification bundle at
+implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
+`plans/puppet/herdr-puppet-proof.md`:
+
+- AGY: PASS
+- Cursor: BLOCKED_LOGIN_ENROLLMENT
+- Grok: PASS
+- Claude Code: FAIL
+- Codex CLI: FAIL
+
+The run remains experimental, and these outcomes are not a universal PASS claim
+for all harnesses.
 
 ## GrillTrack
 
@@ -149,8 +163,8 @@ invocation, but it is never required when the user's intent is already clear.
   exact-identity Herdr transport and dogfood workflow.
 - `skills/herdr-puppet/scripts/herdr_puppet.py`: a standard-library controller
   for doctor, plan, status, journals, and gated qualification operations.
-- `skills/herdr-puppet/references/`: authority, transport, qualification, and
-  versioned JSON-schema contracts.
+- `skills/herdr-puppet/references/`: authority, transport, qualification,
+  desktop-observation fallback, and versioned JSON-schema contracts.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

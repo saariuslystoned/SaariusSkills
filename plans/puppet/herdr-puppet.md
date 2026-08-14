@@ -1,6 +1,18 @@
 # Herdr-Puppet Plan
 
-Status: discovery proof passed; implementation not started.
+Status: implementation present; the current experimental five-row qualification
+bundle is incomplete at
+`8ee87d8ed9882043762ca1877e54cb844072d685`.
+
+## Current Row Evidence (implementation head `8ee87d8ed9882043762ca1877e54cb844072d685`)
+
+- `hp58-agy-20260730-r1` — PASS
+- `hp58-cursor-20260730-r1` — BLOCKED_LOGIN_ENROLLMENT
+- `hp58-grok-20260730-r1` — PASS
+- `hp58-claude-20260730-r1` — FAIL
+- `hp58-codex-20260730-r1` — FAIL
+
+This is not a universal PASS claim; it is a bounded experimental qualification set.
 
 ## Decision
 
@@ -44,7 +56,7 @@ persistence, and recovery are hardened.
 
 ## Proven Primitive
 
-The 2026-07-23 live proof showed that Herdr 0.7.3 can:
+The 2026-07-23 discovery proof showed that Herdr 0.7.3 can:
 
 1. host a remote macOS worker through SSH;
 2. host three uniquely labeled AGY tabs;
@@ -57,12 +69,20 @@ The 2026-07-23 live proof showed that Herdr 0.7.3 can:
 See [`herdr-puppet-proof.md`](herdr-puppet-proof.md) and
 [`herdr-puppet-behavior-report.json`](herdr-puppet-behavior-report.json).
 
-The proof does not yet establish:
+An updated five-row bundle on implementation head
+`8ee87d8ed9882043762ca1877e54cb844072d685` added:
 
-- safe Herdr client detach and reattach;
+- AGY: PASS
+- Cursor: BLOCKED_LOGIN_ENROLLMENT
+- Grok: PASS
+- Claude: FAIL
+- Codex: FAIL
+
+The current five-row bundle has not yet established full Puppet transport readiness:
+
 - recovery after a Herdr server crash;
 - fail-closed operation after tab, pane, SSH, TTY, or remote-process drift;
-- Puppet-compatible transcript-blind ordinary operation;
+- Puppet-compatible transcript-blind ordinary operation across all harnesses;
 - authority to reuse an arbitrary operator-owned Herdr session.
 
 ## Target Architecture
@@ -307,15 +327,9 @@ Keep their budgets and mutation ownership separate. A combined campaign must
 cap the product of top-level panes and per-harness helpers rather than assuming
 both limits can be independently maximized.
 
-## First Implementation Slice
+## Current Slice Status (post-qualification)
 
-Open a separate implementation PR after this plan lands:
-
-1. initialize `skills/herdr-puppet/` with the packaged skill creator;
-2. implement only read-only discovery and source-only planning;
-3. define versioned authority, lease, and proof schemas;
-4. add fixtures and adversarial unit tests;
-5. leave all live mutations disabled.
-
-That slice should establish the authority boundary before adding the exciting
-part.
+This plan’s original first implementation slice has moved into execution on
+head `8ee87d8ed9882043762ca1877e54cb844072d685`; this repository now tracks
+five-row qualification outcomes above. Keep this plan as history for phase goals,
+and bind any later code changes to fresh evidence.
