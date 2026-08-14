@@ -6,11 +6,12 @@ Every live run must begin with an operator-approved capability containing:
 
 - exact Herdr executable version and protocol;
 - exact named session selector, socket path, live version, and protocol;
-- exact parent workspace ID and expected display label;
-- exact expected SSH target;
+- one exact named destination profile containing only name, workspace label,
+  and SSH target, resolved once to the live workspace ID;
+- one positive tab ordinal and an explicit fresh-tab request;
 - run ID, harness, source repository/worktree, proof root, and allowed mode;
 - canonical harness identity plus one versioned controller-attested binding for
-  its executable/profile/launch/adapters/instruction plane;
+  its executable/profile/model/launch/adapters/instruction plane;
 - an explicit statement that the parent session remains operator-owned.
 
 Herdr 0.7.3 exposes no server PID, boot nonce, start time, or native
@@ -35,7 +36,8 @@ Join authority in this order:
 ```text
 capability
   -> session selector + socket path + live compatibility
-  -> workspace ID
+  -> named machine + workspace label -> unique workspace ID
+  -> fresh-tab request + tab ordinal
   -> newly created tab ID
   -> pane ID + terminal ID
   -> foreground SSH PID + argv + target
@@ -52,6 +54,10 @@ Stop before mutation when any required field is missing, duplicated, stale, or
 different from the capability or lease. Also stop when:
 
 - the requested deterministic label already exists;
+- the catalog is malformed, duplicated, contains extra profile fields, lacks
+  the selected machine, or its workspace label does not resolve exactly once;
+- named and legacy destination routes or modern and deprecated ordinal flags
+  are mixed;
 - more than one pane appears in the new tab;
 - the foreground process is not the expected SSH target;
 - the tab or pane moved to another workspace;
@@ -60,6 +66,9 @@ different from the capability or lease. Also stop when:
 - a caller tries to skip or replay a submission sequence;
 - the in-row remote census differs from the bound executable, profile,
   worktree, model observation, or regular launch;
+- AGY does not advertise the exact `--model` token, its requested model is
+  missing/default/ambiguous/unavailable in the first TSV cell, or its launch is
+  not exactly bound to `gemini-3.7-flash-high`;
 - a generic or shell-replacing harness launch bypasses the bound launch
   operation;
 - an operation would target the parent session or an unleased tab.

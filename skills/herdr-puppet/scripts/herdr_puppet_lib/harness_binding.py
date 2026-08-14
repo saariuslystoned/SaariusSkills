@@ -18,10 +18,13 @@ from .errors import HerdrPuppetError
 
 
 CANONICAL_HARNESSES = ("agy", "codex", "claude", "cursor", "grok")
+AGY_REQUIRED_MODEL = "gemini-3.7-flash-high"
 HARNESS_LAUNCH_SPECS = {
     "agy": {
         "command": "agy",
         "flags": [
+            "--model",
+            AGY_REQUIRED_MODEL,
             "--dangerously-skip-permissions",
             "--sandbox=false",
             "--new-project",
@@ -59,9 +62,12 @@ HISTORICAL_HARNESS_LAUNCH_FLAGS = {
     "cursor": ["--yolo", "--sandbox", "disabled"],
     "grok": ["--always-approve", "--sandbox", "off"],
 }
-BINDING_SCHEMA = "herdr-puppet.harness-binding.v2"
-HISTORICAL_BINDING_SCHEMA = "herdr-puppet.harness-binding.v1"
-CENSUS_SCHEMA = "herdr-puppet.remote-harness-census.v2"
+BINDING_SCHEMA = "herdr-puppet.harness-binding.v3"
+HISTORICAL_BINDING_SCHEMAS = {
+    "herdr-puppet.harness-binding.v1",
+    "herdr-puppet.harness-binding.v2",
+}
+CENSUS_SCHEMA = "herdr-puppet.remote-harness-census.v3"
 INSTRUCTION_MANIFEST_SCHEMA = "herdr-puppet.instruction-wrapper.v1"
 INSTRUCTION_PLANE = "initial_message_wrapper"
 HISTORICAL_INSTRUCTION_MANIFEST_SCHEMA = (
@@ -84,6 +90,14 @@ _SECRET_SHAPES = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\b(?:ghp|github_pat|sk)-[A-Za-z0-9_-]{16,}\b"),
 )
+
+
+def _model_layer(harness: str) -> str:
+    return (
+        "model/agy-gemini-3.7-flash-high"
+        if harness == "agy"
+        else "model/default-unresolved"
+    )
 
 
 def _now() -> str:
@@ -287,10 +301,12 @@ def transport_adapter_fingerprint(skill_root: Path | None = None) -> str:
             "scripts/herdr_puppet_lib/core.py",
             "scripts/herdr_puppet_lib/herdr_client.py",
             "scripts/herdr_puppet_lib/journal.py",
+            "references/destination-catalog.schema.json",
             "references/event.schema.json",
             "references/harness-binding.schema.json",
             "references/lease.schema.json",
             "references/plan.schema.json",
+            "references/remote-harness-census.schema.json",
         ],
     )
 
@@ -323,13 +339,13 @@ def _template_catalog(skill_root: Path) -> tuple[list[dict[str, str]], str]:
             "instruction_catalog_invalid",
             "The instruction template catalog is unavailable or malformed.",
         ) from exc
-    expected = {"schema", "universal", "model", "lifecycle", "harnesses"}
+    expected = {"schema", "universal", "models", "lifecycle", "harnesses"}
     if not isinstance(catalog, dict) or set(catalog) != expected:
         raise HerdrPuppetError(
             "instruction_catalog_invalid",
             "The instruction template catalog shape is invalid.",
         )
-    if catalog["schema"] != "herdr-puppet.instruction-catalog.v1":
+    if catalog["schema"] != "herdr-puppet.instruction-catalog.v2":
         raise HerdrPuppetError(
             "instruction_catalog_invalid",
             "The instruction template catalog version is unsupported.",
@@ -340,9 +356,22 @@ def _template_catalog(skill_root: Path) -> tuple[list[dict[str, str]], str]:
             "instruction_catalog_invalid",
             "The instruction catalog harness map is invalid.",
         )
+    models = catalog["models"]
+    if not isinstance(models, dict) or set(models) != {
+        "default_unresolved",
+        "agy_gemini_3_7_flash_high",
+    }:
+        raise HerdrPuppetError(
+            "instruction_catalog_invalid",
+            "The instruction catalog model map is invalid.",
+        )
     paths = [
         ("universal", catalog["universal"]),
-        ("model/default-unresolved", catalog["model"]),
+        ("model/default-unresolved", models["default_unresolved"]),
+        (
+            "model/agy-gemini-3.7-flash-high",
+            models["agy_gemini_3_7_flash_high"],
+        ),
         ("lifecycle/regular", catalog["lifecycle"]),
     ]
     rows: list[dict[str, str]] = []
@@ -595,11 +624,11 @@ def validate_remote_census(
     if (
         launch["inherit_environment"] is not False
         or launch["unrestricted"] is not True
-        or launch["explicit_model_selector"] is not False
+        or launch["explicit_model_selector"] is not (harness == "agy")
     ):
         raise HerdrPuppetError(
             "invalid_remote_census",
-            "The regular launch must be unrestricted and omit model selectors.",
+            "The regular launch model-selection posture is invalid.",
         )
     expected_vector = _sha256_bytes(
         _canonical_bytes(
@@ -620,7 +649,17 @@ def validate_remote_census(
         {"selection", "model", "effort"},
         "census model observation",
     )
-    if model["selection"] != "current_default":
+    if harness == "agy":
+        if model != {
+            "selection": "explicit",
+            "model": AGY_REQUIRED_MODEL,
+            "effort": "high",
+        }:
+            raise HerdrPuppetError(
+                "invalid_remote_census",
+                "The AGY census must bind the required explicit model.",
+            )
+    elif model["selection"] != "current_default":
         raise HerdrPuppetError(
             "invalid_remote_census",
             "The census must observe the current default without selecting a model.",
@@ -648,7 +687,7 @@ def build_harness_binding(
     required_layers = [
         "universal",
         f"harness/{census['harness']}",
-        "model/default-unresolved",
+        _model_layer(census["harness"]),
         "lifecycle/regular",
     ]
     catalog_layer_names = {row["name"] for row in template_rows}
@@ -711,15 +750,15 @@ def validate_harness_binding(
     verify_current_adapters: bool = True,
     allow_historical: bool = False,
 ) -> dict[str, Any]:
-    historical = (
-        isinstance(value, dict)
-        and value.get("schema") == HISTORICAL_BINDING_SCHEMA
-    )
+    schema = value.get("schema") if isinstance(value, dict) else None
+    historical_v1 = schema == "herdr-puppet.harness-binding.v1"
+    historical_v2 = schema == "herdr-puppet.harness-binding.v2"
+    historical = schema in HISTORICAL_BINDING_SCHEMAS
     if historical and not allow_historical:
         raise HerdrPuppetError(
             "legacy_harness_binding_requires_recensus",
-            "Harness-binding v1 is historical evidence; fresh qualification "
-            "requires a new census and v2 binding.",
+            "Harness-binding v1/v2 is historical evidence; fresh qualification "
+            "requires a new census and v3 binding.",
         )
     binding_fields = {
         "schema",
@@ -735,7 +774,7 @@ def validate_harness_binding(
         "attestation",
         "fingerprint",
     }
-    if not historical:
+    if not historical_v1:
         binding_fields.add("lifecycle_observation")
     binding = _require_exact_fields(
         value,
@@ -744,7 +783,7 @@ def validate_harness_binding(
     )
     if binding["schema"] not in {
         BINDING_SCHEMA,
-        HISTORICAL_BINDING_SCHEMA,
+        *HISTORICAL_BINDING_SCHEMAS,
     }:
         raise HerdrPuppetError(
             "invalid_harness_binding",
@@ -827,7 +866,7 @@ def validate_harness_binding(
     )
     lifecycle = (
         None
-        if historical
+        if historical_v1
         else validate_lifecycle_observation(
             binding["lifecycle_observation"],
             harness=harness,
@@ -858,18 +897,23 @@ def validate_harness_binding(
         executable["path"],
         *(
             HISTORICAL_HARNESS_LAUNCH_FLAGS[harness]
-            if historical
+            if historical_v1
             else (
                 claude_launch_flags(lifecycle)
                 if harness == "claude" and lifecycle is not None
-                else HARNESS_LAUNCH_SPECS[harness]["flags"]
+                else (
+                    HISTORICAL_HARNESS_LAUNCH_FLAGS[harness]
+                    if historical_v2
+                    else HARNESS_LAUNCH_SPECS[harness]["flags"]
+                )
             )
         ),
     ]
     if (
         launch["inherit_environment"] is not False
         or launch.get("unrestricted") is not True
-        or launch.get("explicit_model_selector") is not False
+        or launch.get("explicit_model_selector")
+        is not (harness == "agy" and not historical)
         or launch.get("argv") != expected_launch_argv
         or launch.get("environment") != expected_launch_environment
     ):
@@ -892,13 +936,23 @@ def validate_harness_binding(
             "The binding regular launch vector changed.",
         )
     model = binding["model_observation"]
-    if (
-        not isinstance(model, dict)
-        or set(model) != {"selection", "model", "effort"}
-        or model["selection"] != "current_default"
-        or not isinstance(model["model"], str)
-        or not isinstance(model["effort"], str)
-    ):
+    model_is_valid = (
+        isinstance(model, dict)
+        and set(model) == {"selection", "model", "effort"}
+        and isinstance(model["model"], str)
+        and isinstance(model["effort"], str)
+        and (
+            model["selection"] == "current_default"
+            if historical or harness != "agy"
+            else model
+            == {
+                "selection": "explicit",
+                "model": AGY_REQUIRED_MODEL,
+                "effort": "high",
+            }
+        )
+    )
+    if not model_is_valid:
         raise HerdrPuppetError(
             "invalid_harness_binding",
             "The binding model observation is invalid.",
@@ -936,7 +990,11 @@ def validate_harness_binding(
         != [
             "universal",
             f"harness/{harness}",
-            "model/default-unresolved",
+            (
+                "model/default-unresolved"
+                if historical
+                else _model_layer(harness)
+            ),
             "lifecycle/regular",
         ]
     ):
@@ -1076,7 +1134,9 @@ def verify_remote_census(
         "launch_vector_sha256": census["regular_launch"]["vector_sha256"],
         "lifecycle_strategy": census["lifecycle_observation"]["strategy"],
         "source_worktree": census["source"]["worktree"],
-        "explicit_model_selector": False,
+        "explicit_model_selector": census["regular_launch"][
+            "explicit_model_selector"
+        ],
         "raw_output_retained": False,
     }
 
@@ -1116,10 +1176,17 @@ def compile_instruction_wrapper(
     catalog = json.loads(
         (template_root / "catalog.json").read_text(encoding="utf-8")
     )
+    models = catalog["models"]
+    model_layer = _model_layer(binding["harness"])
+    model_path = (
+        models["agy_gemini_3_7_flash_high"]
+        if binding["harness"] == "agy"
+        else models["default_unresolved"]
+    )
     layer_specs = [
         ("universal", catalog["universal"]),
         (f"harness/{binding['harness']}", catalog["harnesses"][binding["harness"]]),
-        ("model/default-unresolved", catalog["model"]),
+        (model_layer, model_path),
         ("lifecycle/regular", catalog["lifecycle"]),
     ]
     runtime = _canonical_bytes(
@@ -1239,7 +1306,7 @@ def validate_instruction_manifest(
     expected_names = [
         "universal",
         f"harness/{binding['harness']}",
-        "model/default-unresolved",
+        _model_layer(binding["harness"]),
         "lifecycle/regular",
         "runtime_contract",
         "task_packet",

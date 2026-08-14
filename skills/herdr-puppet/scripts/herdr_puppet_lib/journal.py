@@ -228,6 +228,13 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
         "- state: `planned`\n"
         f"- harness: `{plan['harness']}`\n"
         f"- owned_label: `{plan['owned_label']}`\n"
+        f"- destination_mode: `{plan['destination_selection']['mode']}`\n"
+        f"- machine: `{plan['destination_selection']['machine'] or 'legacy-explicit'}`\n"
+        f"- workspace_label: `{plan['destination_selection']['workspace_label']}`\n"
+        "- tab_request: `fresh`\n"
+        f"- tab_ordinal: `{plan['destination_selection']['tab']['ordinal']}`\n"
+        f"- model: `{plan['harness_binding']['model_observation']['model']}`\n"
+        f"- model_effort: `{plan['harness_binding']['model_observation']['effort']}`\n"
         "- transcript_boundary: `controller journal only`\n"
         "- next: create one qualification-owned tab after the live gate\n"
     )
@@ -252,7 +259,14 @@ def initialize_journal(run_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
         plan["run_id"],
         "journal.initialized",
         "ok",
-        data={"owned_label": plan["owned_label"]},
+        data={
+            "owned_label": plan["owned_label"],
+            "destination_selection": plan["destination_selection"],
+            "fresh_tab_required": True,
+            "model_selection": plan["harness_binding"][
+                "model_observation"
+            ],
+        },
     )
     append_event(run_root, event)
     return {

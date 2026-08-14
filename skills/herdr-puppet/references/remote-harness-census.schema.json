@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/remote-harness-census.schema.json",
+  "title": "Herdr-Puppet remote harness census v3",
+  "type": "object",
+  "required": [
+    "schema",
+    "harness",
+    "host",
+    "recorded_at",
+    "executable",
+    "profile",
+    "regular_launch",
+    "lifecycle_observation",
+    "model_observation",
+    "source",
+    "raw_output_retained"
+  ],
+  "properties": {
+    "schema": {"const": "herdr-puppet.remote-harness-census.v3"},
+    "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
+    "host": {"type": "string", "minLength": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "executable": {
+      "type": "object",
+      "required": [
+        "command",
+        "path",
+        "version",
+        "sha256",
+        "version_sha256",
+        "help_sha256",
+        "fingerprint"
+      ],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "pattern": "^/"},
+        "version": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "version_sha256": {"$ref": "#/$defs/sha256"},
+        "help_sha256": {"$ref": "#/$defs/sha256"},
+        "fingerprint": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "route",
+        "root",
+        "isolation",
+        "enrollment_state",
+        "status_exit",
+        "raw_output_retained"
+      ],
+      "properties": {
+        "route": {"const": "dedicated_os_user_profile"},
+        "root": {"type": "string", "pattern": "^/"},
+        "isolation": {"const": "dedicated_remote_user"},
+        "enrollment_state": {"enum": ["enrolled", "interactive_pending"]},
+        "status_exit": {"oneOf": [{"const": 0}, {"type": "null"}]},
+        "raw_output_retained": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "regular_launch": {
+      "type": "object",
+      "required": [
+        "argv",
+        "environment",
+        "inherit_environment",
+        "unrestricted",
+        "explicit_model_selector",
+        "vector_sha256"
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "environment": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string"}
+        },
+        "inherit_environment": {"const": false},
+        "unrestricted": {"const": true},
+        "explicit_model_selector": {"type": "boolean"},
+        "vector_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "lifecycle_observation": {"type": "object"},
+    "model_observation": {
+      "type": "object",
+      "required": ["selection", "model", "effort"],
+      "properties": {
+        "selection": {"enum": ["current_default", "explicit"]},
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["worktree"],
+      "properties": {"worktree": {"type": "string", "pattern": "^/"}},
+      "additionalProperties": false
+    },
+    "raw_output_retained": {"const": false}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"harness": {"const": "agy"}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "model_observation": {
+            "const": {
+              "selection": "explicit",
+              "model": "gemini-3.7-flash-high",
+              "effort": "high"
+            }
+          },
+          "regular_launch": {
+            "properties": {
+              "explicit_model_selector": {"const": true},
+              "argv": {
+                "type": "array",
+                "prefixItems": [
+                  {"type": "string", "pattern": "^/"},
+                  {"const": "--model"},
+                  {"const": "gemini-3.7-flash-high"},
+                  {"const": "--dangerously-skip-permissions"},
+                  {"const": "--sandbox=false"},
+                  {"const": "--new-project"},
+                  {"const": "--log-file"},
+                  {"const": "/dev/null"}
+                ],
+                "items": false,
+                "minItems": 8,
+                "maxItems": 8
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "model_observation": {
+            "properties": {"selection": {"const": "current_default"}}
+          },
+          "regular_launch": {
+            "properties": {"explicit_model_selector": {"const": false}}
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

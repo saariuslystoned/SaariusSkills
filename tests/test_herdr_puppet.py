@@ -30,9 +30,11 @@ from herdr_puppet_lib.core import (  # noqa: E402
     create_qualification_tab,
     doctor,
     maintenance_checkpoint,
+    load_destination_catalog,
     migrate_legacy_lease,
     migrate_legacy_lease_file,
     plan,
+    plan_selection_receipt,
     preserve_lease,
     qualification_beacon_wait,
     qualification_claude_lifecycle_observe,
@@ -51,6 +53,7 @@ from herdr_puppet_lib.core import (  # noqa: E402
     structural_status,
     validate_legacy_lease,
     validate_lease,
+    validate_destination_catalog,
 )
 from herdr_puppet_lib import cli as herdr_cli  # noqa: E402
 from herdr_puppet_lib.cli import _read_prompt, build_parser  # noqa: E402
@@ -77,6 +80,7 @@ from herdr_puppet_lib.herdr_client import (  # noqa: E402
     load_json,
 )
 from herdr_puppet_lib.harness_binding import (  # noqa: E402
+    AGY_REQUIRED_MODEL,
     build_harness_binding,
     compile_instruction_wrapper,
     binding_fingerprint,
@@ -195,12 +199,22 @@ class FakeClient:
                 "terminal_id": "term_one",
             }
         )
+        workspace_label = next(
+            row["label"]
+            for row in self.workspace_rows
+            if row["workspace_id"] == workspace_id
+        )
+        ssh_target = (
+            f"worker@{workspace_label}.example"
+            if workspace_label.startswith("aiworker-")
+            else "worker@worker-02.example"
+        )
         self.process_rows[pane_id] = {
             "pane_id": pane_id,
             "foreground_processes": [
                 {
                     "pid": 4242,
-                    "argv": ["ssh", "worker@worker-02.example"],
+                    "argv": ["ssh", ssh_target],
                 }
             ],
         }
@@ -391,6 +405,8 @@ def sample_binding(
         "agy": (
             "agy",
             [
+                "--model",
+                AGY_REQUIRED_MODEL,
                 "--dangerously-skip-permissions",
                 "--sandbox=false",
                 "--new-project",
@@ -472,7 +488,7 @@ def sample_binding(
         "inherit_environment": False,
     }
     census = {
-        "schema": "herdr-puppet.remote-harness-census.v2",
+        "schema": "herdr-puppet.remote-harness-census.v3",
         "harness": harness,
         "host": "worker-02.example",
         "recorded_at": "2026-07-30T12:00:00Z",
@@ -488,15 +504,23 @@ def sample_binding(
         "regular_launch": {
             **vector,
             "unrestricted": True,
-            "explicit_model_selector": False,
+            "explicit_model_selector": harness == "agy",
             "vector_sha256": _digest(vector),
         },
         "lifecycle_observation": lifecycle_observation,
-        "model_observation": {
-            "selection": "current_default",
-            "model": "unavailable",
-            "effort": "unavailable",
-        },
+        "model_observation": (
+            {
+                "selection": "explicit",
+                "model": AGY_REQUIRED_MODEL,
+                "effort": "high",
+            }
+            if harness == "agy"
+            else {
+                "selection": "current_default",
+                "model": "unavailable",
+                "effort": "unavailable",
+            }
+        ),
         "source": {"worktree": worktree},
         "raw_output_retained": False,
     }
@@ -507,7 +531,7 @@ def sample_census_from_binding(
     binding: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "schema": "herdr-puppet.remote-harness-census.v2",
+        "schema": "herdr-puppet.remote-harness-census.v3",
         "harness": binding["harness"],
         "host": binding["remote"]["host"],
         "recorded_at": binding["attestation"]["census_recorded_at"],
@@ -1383,6 +1407,379 @@ class DoctorAndPlanTests(unittest.TestCase):
         self.assertFalse(result["safety"]["parent_session_mutation"])
         self.assertFalse(result["safety"]["live_mutation_authorized"])
         self.assertFalse(result["session"]["incarnation_proven"])
+        self.assertEqual(
+            result["destination_selection"]["tab"],
+            {"request": "fresh", "ordinal": 1},
+        )
+
+    def test_named_catalog_resolves_both_aiworker_profiles_and_sanitizes_receipt(
+        self,
+    ) -> None:
+        catalog = load_destination_catalog(
+            FIXTURES / "destination-catalog-ok.json"
+        )
+        for ordinal, machine in enumerate(
+            ("aiworker-01", "aiworker-02"),
+            start=1,
+        ):
+            with self.subTest(machine=machine):
+                facts = fixture("plan-ok.json")
+                facts["workspaces"] = [
+                    {
+                        "workspace_id": f"w{ordinal}",
+                        "label": machine,
+                        "tab_count": 0,
+                        "pane_count": 0,
+                    }
+                ]
+                result = plan(
+                    FakeClient(),
+                    session="operator-session",
+                    machine=machine,
+                    destination_catalog=catalog,
+                    run_id=f"run-{machine}",
+                    harness="agy",
+                    repo="example/SaariusSkills",
+                    worktree="/redacted/worktree",
+                    proof_root="/redacted/proof",
+                    harness_binding=sample_binding(),
+                    tab_ordinal=ordinal,
+                    facts=facts,
+                )
+                profile = catalog["profiles"][ordinal - 1]
+                self.assertEqual(result["workspace"]["label"], machine)
+                self.assertEqual(
+                    result["expected_ssh_target"],
+                    profile["ssh_target"],
+                )
+                receipt = plan_selection_receipt(result)
+                serialized = json.dumps(receipt, sort_keys=True)
+                self.assertEqual(
+                    receipt["destination_selection"]["machine"],
+                    machine,
+                )
+                self.assertEqual(
+                    receipt["destination_selection"]["tab"],
+                    {"request": "fresh", "ordinal": ordinal},
+                )
+                self.assertNotIn(profile["ssh_target"], serialized)
+                self.assertNotIn("destination-catalog-ok.json", serialized)
+                self.assertFalse(
+                    receipt["destination_selection"]["ssh_target_retained"]
+                )
+
+    def test_destination_catalog_rejects_extra_duplicate_and_missing_profiles(
+        self,
+    ) -> None:
+        base = fixture("destination-catalog-ok.json")
+        invalid_catalogs = []
+        extra = copy.deepcopy(base)
+        extra["profiles"][0]["tab_id"] = "forbidden"
+        invalid_catalogs.append(extra)
+        duplicate = copy.deepcopy(base)
+        duplicate["profiles"][1]["name"] = "aiworker-01"
+        invalid_catalogs.append(duplicate)
+        missing = copy.deepcopy(base)
+        del missing["profiles"][0]["ssh_target"]
+        invalid_catalogs.append(missing)
+        oversized_target = copy.deepcopy(base)
+        oversized_target["profiles"][0]["ssh_target"] = "a" * 321
+        invalid_catalogs.append(oversized_target)
+        for catalog in invalid_catalogs:
+            with self.subTest(catalog=catalog):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    validate_destination_catalog(catalog)
+                self.assertEqual(
+                    caught.exception.code,
+                    "invalid_destination_catalog",
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            duplicate_json = Path(directory) / "catalog.json"
+            duplicate_json.write_text(
+                '{"schema":"herdr-puppet.destination-catalog.v1",'
+                '"schema":"herdr-puppet.destination-catalog.v1",'
+                '"profiles":[]}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(HerdrPuppetError) as caught:
+                load_destination_catalog(duplicate_json)
+            self.assertEqual(
+                caught.exception.code,
+                "invalid_destination_catalog",
+            )
+            symlink = Path(directory) / "catalog-link.json"
+            symlink.symlink_to(FIXTURES / "destination-catalog-ok.json")
+            with self.assertRaises(HerdrPuppetError) as unsafe:
+                load_destination_catalog(symlink)
+            self.assertEqual(
+                unsafe.exception.code,
+                "invalid_destination_catalog",
+            )
+
+    def test_named_destination_rejects_wrong_workspace_and_legacy_mix(self) -> None:
+        catalog = fixture("destination-catalog-ok.json")
+        for machine in ("aiworker-01", "aiworker-02"):
+            with self.subTest(machine=machine):
+                with self.assertRaises(HerdrPuppetError) as wrong_workspace:
+                    plan(
+                        FakeClient(),
+                        session="operator-session",
+                        machine=machine,
+                        destination_catalog=catalog,
+                        run_id=f"run-wrong-{machine}",
+                        harness="agy",
+                        repo="example/SaariusSkills",
+                        worktree="/redacted/worktree",
+                        proof_root="/redacted/proof",
+                        harness_binding=sample_binding(),
+                        facts=fixture("plan-ok.json"),
+                    )
+                self.assertEqual(
+                    wrong_workspace.exception.code,
+                    "workspace_capability_mismatch",
+                )
+        with self.assertRaises(HerdrPuppetError) as mixed:
+            plan(
+                FakeClient(),
+                session="operator-session",
+                machine="aiworker-02",
+                destination_catalog=catalog,
+                workspace_id="w2",
+                workspace_label="worker-02",
+                expected_ssh_target="worker@worker-02.example",
+                run_id="run-mixed-destination",
+                harness="agy",
+                repo="example/SaariusSkills",
+                worktree="/redacted/worktree",
+                proof_root="/redacted/proof",
+                harness_binding=sample_binding(),
+            )
+        self.assertEqual(mixed.exception.code, "destination_route_conflict")
+
+    def test_destination_receipt_rejects_non_fresh_tab_and_unsafe_machine(
+        self,
+    ) -> None:
+        facts = fixture("plan-ok.json")
+        facts["workspaces"] = [
+            {
+                "workspace_id": "w-ai2",
+                "label": "aiworker-02",
+                "tab_count": 0,
+                "pane_count": 0,
+            }
+        ]
+        valid = plan(
+            FakeClient(),
+            session="operator-session",
+            machine="aiworker-02",
+            destination_catalog=fixture("destination-catalog-ok.json"),
+            run_id="run-receipt-negative",
+            harness="agy",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root="/redacted/proof",
+            harness_binding=sample_binding(),
+            facts=facts,
+        )
+        non_fresh = copy.deepcopy(valid)
+        non_fresh["destination_selection"]["tab"]["request"] = "existing"
+        unsafe_machine = copy.deepcopy(valid)
+        unsafe_machine["destination_selection"]["machine"] = "aiworker-02\nraw"
+        for payload in (non_fresh, unsafe_machine):
+            with self.subTest(payload=payload["destination_selection"]):
+                with self.assertRaises(HerdrPuppetError) as caught:
+                    plan_selection_receipt(payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    "invalid_destination_selection",
+                )
+
+    def test_tab_ordinal_alias_is_deprecated_and_mutually_exclusive(self) -> None:
+        aliased = plan(
+            FakeClient(),
+            session="operator-session",
+            workspace_id="w2",
+            workspace_label="worker-02",
+            expected_ssh_target="worker@worker-02.example",
+            run_id="run-alias",
+            harness="agy",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root="/redacted/proof",
+            harness_binding=sample_binding(),
+            ordinal=2,
+        )
+        self.assertTrue(
+            aliased["destination_selection"]["legacy_ordinal_alias"]
+        )
+        self.assertEqual(
+            aliased["destination_selection"]["tab"]["ordinal"],
+            2,
+        )
+        with self.assertRaises(HerdrPuppetError) as conflict:
+            plan(
+                FakeClient(),
+                session="operator-session",
+                workspace_id="w2",
+                workspace_label="worker-02",
+                expected_ssh_target="worker@worker-02.example",
+                run_id="run-alias-conflict",
+                harness="agy",
+                repo="example/SaariusSkills",
+                worktree="/redacted/worktree",
+                proof_root="/redacted/proof",
+                harness_binding=sample_binding(),
+                tab_ordinal=2,
+                ordinal=2,
+            )
+        self.assertEqual(
+            conflict.exception.code,
+            "destination_ordinal_conflict",
+        )
+
+    def test_plan_cli_exposes_named_route_and_deprecated_ordinal_alias(self) -> None:
+        parser = build_parser()
+        common = [
+            "--session",
+            "operator-session",
+            "--run-id",
+            "run-cli-destination",
+            "--harness",
+            "agy",
+            "--repo",
+            "example/SaariusSkills",
+            "--worktree",
+            "/worktree",
+            "--proof-root",
+            "/proof",
+            "--harness-binding-json",
+            "binding.json",
+            "--output",
+            "plan.json",
+        ]
+        named = parser.parse_args(
+            [
+                "plan",
+                "--machine",
+                "aiworker-02",
+                "--destination-catalog-json",
+                "catalog.json",
+                "--tab-ordinal",
+                "2",
+                *common,
+            ]
+        )
+        self.assertEqual(named.machine, "aiworker-02")
+        self.assertEqual(named.tab_ordinal, 2)
+        legacy = parser.parse_args(
+            [
+                "plan",
+                "--workspace-id",
+                "w2",
+                "--workspace-label",
+                "worker-02",
+                "--expected-ssh-target",
+                "worker@worker-02.example",
+                "--ordinal",
+                "3",
+                *common,
+            ]
+        )
+        self.assertEqual(legacy.ordinal, 3)
+        for invalid in (
+            [
+                "plan",
+                "--machine",
+                "aiworker-02",
+                "--workspace-id",
+                "w2",
+                *common,
+            ],
+            [
+                "plan",
+                "--machine",
+                "aiworker-02",
+                "--tab-ordinal",
+                "2",
+                "--ordinal",
+                "2",
+                *common,
+            ],
+        ):
+            with self.subTest(argv=invalid):
+                with mock.patch("sys.stderr", new=io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        parser.parse_args(invalid)
+
+    def test_plan_cli_writes_private_plan_and_returns_sanitized_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binding_path = root / "binding.json"
+            facts_path = root / "facts.json"
+            output_path = root / "plan.json"
+            binding_path.write_text(
+                json.dumps(sample_binding()),
+                encoding="utf-8",
+            )
+            facts = fixture("plan-ok.json")
+            facts["workspaces"] = [
+                {
+                    "workspace_id": "w-ai2",
+                    "label": "aiworker-02",
+                    "tab_count": 0,
+                    "pane_count": 0,
+                }
+            ]
+            facts_path.write_text(json.dumps(facts), encoding="utf-8")
+            args = build_parser().parse_args(
+                [
+                    "plan",
+                    "--session",
+                    "operator-session",
+                    "--machine",
+                    "aiworker-02",
+                    "--destination-catalog-json",
+                    str(FIXTURES / "destination-catalog-ok.json"),
+                    "--tab-ordinal",
+                    "2",
+                    "--run-id",
+                    "run-cli-private-plan",
+                    "--harness",
+                    "agy",
+                    "--repo",
+                    "example/SaariusSkills",
+                    "--worktree",
+                    "/redacted/worktree",
+                    "--proof-root",
+                    "/redacted/proof",
+                    "--harness-binding-json",
+                    str(binding_path),
+                    "--facts-json",
+                    str(facts_path),
+                    "--output",
+                    str(output_path),
+                ]
+            )
+            receipt = herdr_cli.run(args)
+            original_plan_bytes = output_path.read_bytes()
+            private_plan = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(stat.S_IMODE(output_path.stat().st_mode), 0o600)
+            self.assertEqual(
+                private_plan["expected_ssh_target"],
+                "worker@aiworker-02.example",
+            )
+            serialized = json.dumps(receipt, sort_keys=True)
+            self.assertNotIn("worker@aiworker-02.example", serialized)
+            self.assertNotIn("destination-catalog-ok.json", serialized)
+            self.assertEqual(
+                receipt["destination_selection"]["machine"],
+                "aiworker-02",
+            )
+            self.assertTrue(receipt["fresh_tab_required"])
+            with self.assertRaises(HerdrPuppetError) as replay:
+                herdr_cli.run(args)
+            self.assertEqual(replay.exception.code, "plan_output_exists")
+            self.assertEqual(output_path.read_bytes(), original_plan_bytes)
 
     def test_plan_rejects_workspace_label_mismatch(self) -> None:
         binding = sample_binding()
@@ -1727,11 +2124,11 @@ class HerdrClientTests(unittest.TestCase):
             executable_body = """#!/bin/sh
 case "$1" in
   --version) echo "fake 1.0.0" ;;
-  --help) echo "fake help --settings" ;;
+  --help) echo "fake help --settings --model" ;;
   login) echo "Logged in using ChatGPT" ;;
   auth) echo '{"loggedIn":true}' ;;
   status) echo '{"loggedIn":true}' ;;
-  models) echo "subscription models available" ;;
+  models) printf '%s\t%s\n' 'gemini-3.7-flash-high' 'private inventory description' ;;
   *) exit 2 ;;
 esac
 """
@@ -1787,6 +2184,10 @@ esac
                                 str(hook_parent / "run-census-claude"),
                             ]
                         )
+                    if harness == "agy":
+                        census_command.extend(
+                            ["--model", AGY_REQUIRED_MODEL]
+                        )
                     completed = subprocess.run(
                         census_command,
                         check=False,
@@ -1810,7 +2211,10 @@ esac
                         None if harness == "cursor" else 0,
                     )
                     self.assertFalse(payload["raw_output_retained"])
-                    self.assertNotIn("subscription models", completed.stdout)
+                    self.assertNotIn(
+                        "private inventory description",
+                        completed.stdout,
+                    )
             self.assertFalse(cursor_status_marker.exists())
             row_census = root / "row-census.json"
             row_nonce = "CENSUS-STATUS-0730-A1"
@@ -1921,6 +2325,169 @@ esac
                 ],
                 "codex",
             )
+
+    def test_agy_census_requires_exact_model_help_and_first_tsv_cell(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_root = root / "bin"
+            profile_root = root / "profile"
+            worktree = root / "worktree"
+            binary_root.mkdir()
+            profile_root.mkdir()
+            worktree.mkdir()
+            executable = binary_root / "agy"
+            environment = dict(os.environ)
+            environment["PATH"] = (
+                str(binary_root)
+                + os.pathsep
+                + environment.get("PATH", "")
+            )
+            census_script = str(
+                ROOT
+                / "skills"
+                / "herdr-puppet"
+                / "scripts"
+                / "harness_census.py"
+            )
+
+            def run_case(
+                *,
+                help_text: str,
+                models_body: str,
+                model: str | None = AGY_REQUIRED_MODEL,
+            ) -> subprocess.CompletedProcess[str]:
+                executable.write_text(
+                    "#!/bin/sh\n"
+                    "case \"$1\" in\n"
+                    "  --version) echo 'agy test 1.0' ;;\n"
+                    f"  --help) printf '%s\\n' {help_text!r} ;;\n"
+                    f"  models) {models_body} ;;\n"
+                    "  *) exit 2 ;;\n"
+                    "esac\n",
+                    encoding="utf-8",
+                )
+                executable.chmod(0o755)
+                command = [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "agy",
+                    "--host",
+                    "worker.example",
+                    "--profile-root",
+                    str(profile_root),
+                    "--worktree",
+                    str(worktree),
+                ]
+                if model is not None:
+                    command.extend(["--model", model])
+                return subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+
+            success = run_case(
+                help_text="usage: agy --model MODEL",
+                models_body=(
+                    "printf '%s\\t%s\\n' "
+                    "'gemini-3.7-flash-high' 'private listing body'"
+                ),
+            )
+            self.assertEqual(success.returncode, 0, success.stderr)
+            payload = json.loads(success.stdout)
+            self.assertEqual(
+                payload["regular_launch"]["argv"],
+                [
+                    str(executable.resolve()),
+                    "--model",
+                    "gemini-3.7-flash-high",
+                    "--dangerously-skip-permissions",
+                    "--sandbox=false",
+                    "--new-project",
+                    "--log-file",
+                    "/dev/null",
+                ],
+            )
+            self.assertEqual(
+                payload["model_observation"],
+                {
+                    "selection": "explicit",
+                    "model": "gemini-3.7-flash-high",
+                    "effort": "high",
+                },
+            )
+            self.assertNotIn("private listing body", success.stdout)
+
+            failures = {
+                "missing": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body="printf '%s\\t%s\\n' 'gemini-3.7-flash-high' 'private'",
+                    model=None,
+                ),
+                "default": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body="printf '%s\\t%s\\n' 'gemini-3.7-flash-high' 'private'",
+                    model="default",
+                ),
+                "help-token": run_case(
+                    help_text="usage: agy --models MODEL",
+                    models_body="printf '%s\\t%s\\n' 'gemini-3.7-flash-high' 'private'",
+                ),
+                "wrong-cell": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body="printf '%s\\t%s\\n' 'alias' 'gemini-3.7-flash-high private'",
+                ),
+                "non-exact-cell": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body="printf ' gemini-3.7-flash-high\\tprivate\\n'",
+                ),
+                "ambiguous": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body=(
+                        "printf '%s\\t%s\\n%s\\t%s\\n' "
+                        "'gemini-3.7-flash-high' 'private one' "
+                        "'gemini-3.7-flash-high' 'private two'"
+                    ),
+                ),
+                "unavailable": run_case(
+                    help_text="usage: agy --model MODEL",
+                    models_body="exit 7",
+                ),
+            }
+            for label, completed in failures.items():
+                with self.subTest(label=label):
+                    self.assertNotEqual(completed.returncode, 0)
+                    combined = completed.stdout + completed.stderr
+                    self.assertNotIn("private", combined)
+                    self.assertNotIn("private one", combined)
+                    self.assertNotIn("private two", combined)
+            non_agy = subprocess.run(
+                [
+                    sys.executable,
+                    census_script,
+                    "--harness",
+                    "codex",
+                    "--host",
+                    "worker.example",
+                    "--profile-root",
+                    str(profile_root),
+                    "--worktree",
+                    str(worktree),
+                    "--model",
+                    AGY_REQUIRED_MODEL,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(non_agy.returncode, 0)
+            self.assertIn("valid only for the AGY harness", non_agy.stderr)
 
     def test_remote_census_enforces_claude_lifecycle_arguments_and_settings(
         self,
@@ -2498,6 +3065,90 @@ class QualificationTests(unittest.TestCase):
         self.assertIn('"shell_transport_only":true', events)
         self.assertIn('"harness_started":false', events)
 
+    def test_named_destination_and_agy_model_freeze_into_plan_lease_and_journal(
+        self,
+    ) -> None:
+        client = FakeClient()
+        client.workspace_rows = [
+            {"workspace_id": "w-ai2", "label": "aiworker-02"}
+        ]
+        run_root = self.root / "named-run"
+        plan_payload = plan(
+            client,
+            session="operator-session",
+            machine="aiworker-02",
+            destination_catalog=fixture("destination-catalog-ok.json"),
+            run_id="run-named-aiworker-02",
+            harness="agy",
+            repo="example/SaariusSkills",
+            worktree="/redacted/worktree",
+            proof_root=str(run_root.resolve()),
+            harness_binding=sample_binding(),
+            tab_ordinal=2,
+            live_mutation_authorized=True,
+        )
+        initialize_journal(run_root, plan_payload)
+        lease_path = self.root / "named-lease.json"
+        lease = create_qualification_tab(
+            client,
+            plan_payload=plan_payload,
+            lease_path=lease_path,
+            allow_live=True,
+            settle_seconds=0.1,
+            run_root=run_root,
+        )
+        expected_selection = {
+            "schema": "herdr-puppet.destination-selection-receipt.v1",
+            "mode": "named_catalog",
+            "machine": "aiworker-02",
+            "workspace_label": "aiworker-02",
+            "tab": {"request": "fresh", "ordinal": 2},
+            "legacy_ordinal_alias": False,
+            "catalog_path_retained": False,
+            "ssh_target_retained": False,
+            "existing_tab_adoption": False,
+        }
+        expected_model = {
+            "selection": "explicit",
+            "model": "gemini-3.7-flash-high",
+            "effort": "high",
+        }
+        self.assertEqual(plan_payload["destination_selection"], expected_selection)
+        self.assertEqual(lease["destination_selection"], expected_selection)
+        self.assertEqual(
+            plan_payload["harness_binding"]["model_observation"],
+            expected_model,
+        )
+        self.assertEqual(
+            lease["harness_binding"]["model_observation"],
+            expected_model,
+        )
+        events = read_events(run_root)
+        for event in events:
+            data = event.get("data") or {}
+            if "destination_selection" in data:
+                self.assertEqual(
+                    data["destination_selection"],
+                    expected_selection,
+                )
+            if "model_selection" in data:
+                self.assertEqual(data["model_selection"], expected_model)
+        serialized_events = json.dumps(events, sort_keys=True)
+        self.assertNotIn("worker@aiworker-02.example", serialized_events)
+        self.assertNotIn("destination-catalog-ok.json", serialized_events)
+        state = (run_root / "STATE.md").read_text(encoding="utf-8")
+        self.assertIn("machine: `aiworker-02`", state)
+        self.assertIn("workspace_label: `aiworker-02`", state)
+        self.assertIn("tab_ordinal: `2`", state)
+        self.assertIn("model: `gemini-3.7-flash-high`", state)
+        self.assertNotIn("worker@aiworker-02.example", state)
+        tab_event = next(
+            event
+            for event in events
+            if event["kind"] == "qualification.tab-created"
+        )
+        self.assertTrue(tab_event["data"]["fresh_tab_created"])
+
     def test_create_tab_rolls_back_exact_unqualified_candidate(self) -> None:
         run_root = self.root / "run"
         wrong_target = copy.deepcopy(self.plan)
@@ -2587,6 +3238,34 @@ class QualificationTests(unittest.TestCase):
         historical_binding = lease["harness_binding"]
         historical_binding["schema"] = "herdr-puppet.harness-binding.v1"
         historical_binding.pop("lifecycle_observation")
+        historical_binding["regular_launch"]["argv"] = [
+            historical_binding["remote"]["executable"]["path"],
+            "--dangerously-skip-permissions",
+            "--sandbox=false",
+            "--new-project",
+            "--log-file",
+            "/dev/null",
+        ]
+        historical_binding["regular_launch"][
+            "explicit_model_selector"
+        ] = False
+        historical_binding["regular_launch"]["vector_sha256"] = _digest(
+            {
+                "argv": historical_binding["regular_launch"]["argv"],
+                "environment": historical_binding["regular_launch"][
+                    "environment"
+                ],
+                "inherit_environment": False,
+            }
+        )
+        historical_binding["model_observation"] = {
+            "selection": "current_default",
+            "model": "unavailable",
+            "effort": "unavailable",
+        }
+        historical_binding["instructions"]["layers"][2] = (
+            "model/default-unresolved"
+        )
         historical_binding["fingerprint"] = binding_fingerprint(
             historical_binding
         )
@@ -3841,6 +4520,7 @@ class QualificationTests(unittest.TestCase):
         self.lease_path.write_text(json.dumps(lease), encoding="utf-8")
         command = (
             "/private/harness_census.py --harness agy "
+            "--model gemini-3.7-flash-high "
             "--output /private/census.json"
         )
 
@@ -6428,6 +7108,59 @@ class QualificationTests(unittest.TestCase):
             },
         )
 
+    def test_agy_binding_freezes_exact_gemini_37_launch_vector(self) -> None:
+        binding = validate_harness_binding(sample_binding())
+        self.assertEqual(
+            binding["model_observation"],
+            {
+                "selection": "explicit",
+                "model": "gemini-3.7-flash-high",
+                "effort": "high",
+            },
+        )
+        self.assertEqual(
+            binding["regular_launch"]["argv"],
+            [
+                "/usr/local/bin/agy",
+                "--model",
+                "gemini-3.7-flash-high",
+                "--dangerously-skip-permissions",
+                "--sandbox=false",
+                "--new-project",
+                "--log-file",
+                "/dev/null",
+            ],
+        )
+        self.assertTrue(
+            binding["regular_launch"]["explicit_model_selector"]
+        )
+        self.assertEqual(
+            binding["instructions"]["layers"][2],
+            "model/agy-gemini-3.7-flash-high",
+        )
+        for mutation in ("model", "selector", "order"):
+            drifted = copy.deepcopy(binding)
+            if mutation == "model":
+                drifted["model_observation"]["model"] = "default"
+            elif mutation == "selector":
+                drifted["regular_launch"]["explicit_model_selector"] = False
+            else:
+                argv = drifted["regular_launch"]["argv"]
+                argv[1:3] = argv[2:0:-1]
+                drifted["regular_launch"]["vector_sha256"] = _digest(
+                    {
+                        "argv": argv,
+                        "environment": drifted["regular_launch"][
+                            "environment"
+                        ],
+                        "inherit_environment": False,
+                    }
+                )
+            drifted["fingerprint"] = binding_fingerprint(drifted)
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(HerdrPuppetError):
+                    validate_harness_binding(drifted)
+
     def test_cursor_binding_profiles_allow_interactive_pending(self) -> None:
         binding = sample_binding(harness="cursor")
         binding["profile"]["enrollment_state"] = "interactive_pending"
@@ -6443,32 +7176,55 @@ class QualificationTests(unittest.TestCase):
     def test_frozen_historical_binding_validator_covers_all_harnesses(
         self,
     ) -> None:
-        for harness in ("agy", "codex", "claude", "cursor", "grok"):
-            binding = sample_binding(harness=harness)
-            binding["schema"] = "herdr-puppet.harness-binding.v1"
-            binding.pop("lifecycle_observation")
-            if harness == "claude":
-                binding["regular_launch"]["argv"] = [
-                    binding["remote"]["executable"]["path"],
-                    "--dangerously-skip-permissions",
-                ]
-                vector = {
-                    "argv": binding["regular_launch"]["argv"],
-                    "environment": binding["regular_launch"]["environment"],
-                    "inherit_environment": False,
-                }
-                binding["regular_launch"]["vector_sha256"] = _digest(vector)
-            binding["fingerprint"] = binding_fingerprint(binding)
-            with self.subTest(harness=harness):
-                checked = validate_harness_binding(
-                    binding,
-                    allow_historical=True,
-                    verify_current_adapters=False,
-                )
-                self.assertEqual(
-                    checked["schema"],
-                    "herdr-puppet.harness-binding.v1",
-                )
+        for schema in (
+            "herdr-puppet.harness-binding.v1",
+            "herdr-puppet.harness-binding.v2",
+        ):
+            for harness in ("agy", "codex", "claude", "cursor", "grok"):
+                binding = sample_binding(harness=harness)
+                binding["schema"] = schema
+                if schema.endswith(".v1"):
+                    binding.pop("lifecycle_observation")
+                if harness == "agy":
+                    binding["regular_launch"]["argv"] = [
+                        binding["remote"]["executable"]["path"],
+                        "--dangerously-skip-permissions",
+                        "--sandbox=false",
+                        "--new-project",
+                        "--log-file",
+                        "/dev/null",
+                    ]
+                    binding["regular_launch"][
+                        "explicit_model_selector"
+                    ] = False
+                    binding["model_observation"] = {
+                        "selection": "current_default",
+                        "model": "unavailable",
+                        "effort": "unavailable",
+                    }
+                    binding["instructions"]["layers"][2] = (
+                        "model/default-unresolved"
+                    )
+                if harness == "claude" and schema.endswith(".v1"):
+                    binding["regular_launch"]["argv"] = [
+                        binding["remote"]["executable"]["path"],
+                        "--dangerously-skip-permissions",
+                    ]
+                if harness in {"agy", "claude"}:
+                    vector = {
+                        "argv": binding["regular_launch"]["argv"],
+                        "environment": binding["regular_launch"]["environment"],
+                        "inherit_environment": False,
+                    }
+                    binding["regular_launch"]["vector_sha256"] = _digest(vector)
+                binding["fingerprint"] = binding_fingerprint(binding)
+                with self.subTest(schema=schema, harness=harness):
+                    checked = validate_harness_binding(
+                        binding,
+                        allow_historical=True,
+                        verify_current_adapters=False,
+                    )
+                    self.assertEqual(checked["schema"], schema)
 
     def test_non_cursor_binding_profiles_reject_interactive_pending(self) -> None:
         for harness in ("agy", "codex", "claude", "grok"):
@@ -6484,7 +7240,7 @@ class QualificationTests(unittest.TestCase):
     def test_in_row_recensus_must_match_bound_remote_facts(self) -> None:
         binding = sample_binding(harness="claude")
         census = {
-            "schema": "herdr-puppet.remote-harness-census.v2",
+            "schema": "herdr-puppet.remote-harness-census.v3",
             "harness": binding["harness"],
             "host": binding["remote"]["host"],
             "recorded_at": binding["attestation"]["census_recorded_at"],
@@ -6568,7 +7324,7 @@ class QualificationTests(unittest.TestCase):
         binding["profile"]["status_exit"] = None
         binding["fingerprint"] = binding_fingerprint(binding)
         census = {
-            "schema": "herdr-puppet.remote-harness-census.v2",
+            "schema": "herdr-puppet.remote-harness-census.v3",
             "harness": binding["harness"],
             "host": binding["remote"]["host"],
             "recorded_at": binding["attestation"]["census_recorded_at"],
@@ -6785,12 +7541,13 @@ class QualificationTests(unittest.TestCase):
         )
 
         self.assertEqual(result["next_seq"], 3)
-        self.assertFalse(result["explicit_model_selector"])
+        self.assertTrue(result["explicit_model_selector"])
         self.assertEqual(result["remote_harness_pid"], "unavailable")
         self.assertEqual(result["targeted_halt"], "unsupported")
         self.assertEqual(len(self.client.ran), 1)
         command = self.client.ran[0][2]
         self.assertIn("agy", command)
+        self.assertIn("--model gemini-3.7-flash-high", command)
         self.assertIn("/usr/bin/env -i", command)
         self.assertNotRegex(command, r"(?:^|&&)\s*exec\s+")
         updated = load_json(self.lease_path)

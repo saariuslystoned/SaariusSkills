@@ -7,6 +7,7 @@ import os
 import posixpath
 import re
 import shlex
+import stat
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -53,6 +54,9 @@ MAX_BEACON_TIMEOUT_MS = 3_600_000
 MAX_BEACON_WAIT_ATTEMPTS = 2
 MAX_SHELL_STATUS_SUBMISSIONS = 2
 MAX_RECONCILIATION_EVIDENCE_BYTES = 1024
+MAX_DESTINATION_CATALOG_BYTES = 256 * 1024
+DESTINATION_CATALOG_SCHEMA = "herdr-puppet.destination-catalog.v1"
+DESTINATION_RECEIPT_SCHEMA = "herdr-puppet.destination-selection-receipt.v1"
 BEACON_RESERVATION_KIND = "qualification.beacon-wait-reserved"
 REMOTE_FILE_REGISTERED = "registered"
 REMOTE_FILE_REMOVED = "removal_verified"
@@ -132,6 +136,7 @@ LEASE_IDENTITY_FIELDS = (
     "harness",
     "session",
     "workspace",
+    "destination_selection",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -149,6 +154,7 @@ LEASE_FIELDS = {
     "harness",
     "session",
     "workspace",
+    "destination_selection",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -184,6 +190,7 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
     "harness",
     "session",
     "workspace",
+    "destination_selection",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -204,6 +211,7 @@ CANONICAL_LEASE_REQUIRED_FIELDS = {
     "pending_sequence_operation",
 }
 LEGACY_OPTIONAL_CANONICAL_FIELDS = {
+    "destination_selection",
     "shell_readiness",
     "harness_readiness",
     "caller_text_files",
@@ -926,7 +934,7 @@ def _validate_record_binding(payload: dict[str, Any]) -> dict[str, Any]:
         expected_repo=source.get("repo"),
         expected_worktree=source.get("worktree"),
         verify_current_adapters=(
-            binding.get("schema") != "herdr-puppet.harness-binding.v1"
+            binding.get("schema") == "herdr-puppet.harness-binding.v3"
         ),
         allow_historical=True,
     )
@@ -936,12 +944,12 @@ def _require_current_record_binding(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     binding = _validate_record_binding(payload)
-    if binding.get("schema") == "herdr-puppet.harness-binding.v1":
+    if binding.get("schema") != "herdr-puppet.harness-binding.v3":
         raise HerdrPuppetError(
             "legacy_harness_binding_requires_recensus",
-            "Harness-binding v1 remains available for status, preservation, "
+            "Harness-binding v1/v2 remains available for status, preservation, "
             "maintenance, and exact cleanup only; fresh qualification requires "
-            "a new census and v2 plan.",
+            "a new census and v3 plan.",
         )
     return binding
 
@@ -1058,6 +1066,30 @@ def _validate_startup_gate_operations(
 
 
 def validate_plan(payload: dict[str, Any]) -> None:
+    required_fields = {
+        "schema",
+        "state",
+        "run_id",
+        "harness",
+        "session",
+        "workspace",
+        "destination_selection",
+        "expected_ssh_target",
+        "owned_label",
+        "source",
+        "harness_binding",
+        "proof_root",
+        "safety",
+    }
+    if set(payload) != required_fields:
+        raise HerdrPuppetError(
+            "invalid_plan",
+            "The plan must contain exactly the normative fields.",
+            details={
+                "missing_fields": sorted(required_fields - set(payload)),
+                "unexpected_fields": sorted(set(payload) - required_fields),
+            },
+        )
     if payload.get("schema") != "herdr-puppet.plan.v1":
         raise HerdrPuppetError("invalid_plan_schema", "Unsupported plan schema.")
     if payload.get("state") != "planned":
@@ -1081,6 +1113,14 @@ def validate_plan(payload: dict[str, Any]) -> None:
                 "invalid_plan",
                 f"Required object field is missing: {key}",
             )
+    selection = _validate_destination_selection(
+        payload["destination_selection"]
+    )
+    if selection["workspace_label"] != payload["workspace"].get("label"):
+        raise HerdrPuppetError(
+            "invalid_destination_selection",
+            "The destination selection workspace does not match the plan.",
+        )
     safety = payload["safety"]
     if safety.get("parent_session_mutation") is not False:
         raise HerdrPuppetError(
@@ -1205,6 +1245,15 @@ def _validate_lease(
     )
     for key in ("id", "label"):
         _require_string(workspace, key)
+    if "destination_selection" in payload:
+        selection = _validate_destination_selection(
+            payload["destination_selection"]
+        )
+        if selection["workspace_label"] != workspace["label"]:
+            raise HerdrPuppetError(
+                "invalid_destination_selection",
+                "The leased destination workspace does not match its receipt.",
+            )
     ssh = _require_exact_object_fields(
         payload,
         "ssh",
@@ -1415,6 +1464,20 @@ def migrate_legacy_lease(payload: dict[str, Any]) -> dict[str, Any]:
     migrated.setdefault("pending_interactive_send", None)
     migrated.setdefault("pending_sequence_operation", None)
     migrated.setdefault("startup_gate_operations", [])
+    if "destination_selection" not in migrated:
+        ordinal_match = re.search(r"-(\d+)$", migrated["owned_label"])
+        if ordinal_match is None:
+            raise HerdrPuppetError(
+                "legacy_destination_selection_unavailable",
+                "The historical lease tab ordinal cannot be derived safely.",
+            )
+        migrated["destination_selection"] = _destination_selection_receipt(
+            mode="legacy_explicit",
+            machine=None,
+            workspace_label=migrated["workspace"]["label"],
+            tab_ordinal=int(ordinal_match.group(1)),
+            legacy_ordinal_alias=True,
+        )
     validate_lease(migrated)
     return migrated
 
@@ -1517,6 +1580,212 @@ def doctor(
     }
 
 
+def _reject_duplicate_json_fields(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON field")
+        value[key] = item
+    return value
+
+
+def validate_destination_catalog(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"schema", "profiles"}:
+        raise HerdrPuppetError(
+            "invalid_destination_catalog",
+            "The destination catalog must contain exactly schema and profiles.",
+        )
+    if value["schema"] != DESTINATION_CATALOG_SCHEMA:
+        raise HerdrPuppetError(
+            "invalid_destination_catalog",
+            "The destination catalog schema is unsupported.",
+        )
+    profiles = value["profiles"]
+    if not isinstance(profiles, list) or not profiles or len(profiles) > 64:
+        raise HerdrPuppetError(
+            "invalid_destination_catalog",
+            "The destination catalog profiles are missing or unbounded.",
+        )
+    normalized: list[dict[str, str]] = []
+    names: set[str] = set()
+    labels: set[str] = set()
+    for profile in profiles:
+        if not isinstance(profile, dict) or set(profile) != {
+            "name",
+            "workspace_label",
+            "ssh_target",
+        }:
+            raise HerdrPuppetError(
+                "invalid_destination_catalog",
+                "Each destination profile must contain exactly name, "
+                "workspace_label, and ssh_target.",
+            )
+        name = profile["name"]
+        workspace_label = profile["workspace_label"]
+        ssh_target = profile["ssh_target"]
+        if (
+            not isinstance(name, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name)
+            is None
+            or not isinstance(workspace_label, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,127}", workspace_label)
+            is None
+            or not isinstance(ssh_target, str)
+            or len(ssh_target) > 320
+            or re.fullmatch(
+                r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9._-]{0,254}",
+                ssh_target,
+            )
+            is None
+        ):
+            raise HerdrPuppetError(
+                "invalid_destination_catalog",
+                "A destination profile contains an invalid bounded value.",
+            )
+        if name in names or workspace_label in labels:
+            raise HerdrPuppetError(
+                "invalid_destination_catalog",
+                "Destination names and workspace labels must be unique.",
+            )
+        names.add(name)
+        labels.add(workspace_label)
+        normalized.append(
+            {
+                "name": name,
+                "workspace_label": workspace_label,
+                "ssh_target": ssh_target,
+            }
+        )
+    return {"schema": DESTINATION_CATALOG_SCHEMA, "profiles": normalized}
+
+
+def load_destination_catalog(path: str | Path) -> dict[str, Any]:
+    catalog_path = Path(path)
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(catalog_path, flags)
+        identity = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or identity.st_size > MAX_DESTINATION_CATALOG_BYTES
+        ):
+            raise OSError("catalog is not a caller-owned bounded regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            encoded = stream.read(MAX_DESTINATION_CATALOG_BYTES + 1)
+        if len(encoded) > MAX_DESTINATION_CATALOG_BYTES:
+            raise OSError("catalog is oversized")
+        value = json.loads(
+            encoded.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_fields,
+        )
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise HerdrPuppetError(
+            "invalid_destination_catalog",
+            "The destination catalog is unavailable or malformed.",
+        ) from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return validate_destination_catalog(value)
+
+
+def _validate_destination_selection(value: Any) -> dict[str, Any]:
+    fields = {
+        "schema",
+        "mode",
+        "machine",
+        "workspace_label",
+        "tab",
+        "legacy_ordinal_alias",
+        "catalog_path_retained",
+        "ssh_target_retained",
+        "existing_tab_adoption",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise HerdrPuppetError(
+            "invalid_destination_selection",
+            "The destination selection receipt shape is invalid.",
+        )
+    mode = value["mode"]
+    machine = value["machine"]
+    if mode not in {"named_catalog", "legacy_explicit"}:
+        raise HerdrPuppetError(
+            "invalid_destination_selection",
+            "The destination selection mode is invalid.",
+        )
+    if (
+        value["schema"] != DESTINATION_RECEIPT_SCHEMA
+        or not isinstance(value["workspace_label"], str)
+        or not value["workspace_label"]
+        or len(value["workspace_label"]) > 128
+        or any(
+            character in value["workspace_label"]
+            for character in "\x00\r\n"
+        )
+        or value["catalog_path_retained"] is not False
+        or value["ssh_target_retained"] is not False
+        or value["existing_tab_adoption"] is not False
+        or not isinstance(value["legacy_ordinal_alias"], bool)
+        or (
+            mode == "named_catalog"
+            and (
+                not isinstance(machine, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", machine)
+                is None
+            )
+        )
+        or (mode == "legacy_explicit" and machine is not None)
+    ):
+        raise HerdrPuppetError(
+            "invalid_destination_selection",
+            "The destination selection receipt is not sanitized and bounded.",
+        )
+    tab = value["tab"]
+    if (
+        not isinstance(tab, dict)
+        or set(tab) != {"request", "ordinal"}
+        or tab["request"] != "fresh"
+        or isinstance(tab["ordinal"], bool)
+        or not isinstance(tab["ordinal"], int)
+        or tab["ordinal"] < 1
+        or tab["ordinal"] > 999
+    ):
+        raise HerdrPuppetError(
+            "invalid_destination_selection",
+            "Every destination selection must request one fresh bounded tab.",
+        )
+    return value
+
+
+def _destination_selection_receipt(
+    *,
+    mode: str,
+    machine: str | None,
+    workspace_label: str,
+    tab_ordinal: int,
+    legacy_ordinal_alias: bool,
+) -> dict[str, Any]:
+    receipt = {
+        "schema": DESTINATION_RECEIPT_SCHEMA,
+        "mode": mode,
+        "machine": machine,
+        "workspace_label": workspace_label,
+        "tab": {"request": "fresh", "ordinal": tab_ordinal},
+        "legacy_ordinal_alias": legacy_ordinal_alias,
+        "catalog_path_retained": False,
+        "ssh_target_retained": False,
+        "existing_tab_adoption": False,
+    }
+    _validate_destination_selection(receipt)
+    return receipt
+
+
 def _find_workspace(
     workspaces: list[dict[str, Any]],
     workspace_id: str,
@@ -1537,6 +1806,26 @@ def _find_workspace(
     return matches[0]
 
 
+def _find_workspace_by_label(
+    workspaces: list[dict[str, Any]],
+    workspace_label: str,
+) -> dict[str, Any]:
+    matches = [
+        item for item in workspaces if item.get("label") == workspace_label
+    ]
+    if (
+        len(matches) != 1
+        or not isinstance(matches[0].get("workspace_id"), str)
+        or not matches[0]["workspace_id"]
+    ):
+        raise HerdrPuppetError(
+            "workspace_capability_mismatch",
+            "The named destination workspace label did not resolve once.",
+            details={"workspace_label": workspace_label},
+        )
+    return matches[0]
+
+
 def _label(run_id: str, harness: str, ordinal: int) -> str:
     safe_harness = re.sub(r"[^a-z0-9]+", "-", harness.lower()).strip("-")
     safe_run = re.sub(r"[^a-z0-9]+", "", run_id.lower())
@@ -1553,19 +1842,82 @@ def plan(
     client: HerdrClient,
     *,
     session: str,
-    workspace_id: str,
-    workspace_label: str,
-    expected_ssh_target: str,
+    workspace_id: str | None = None,
+    workspace_label: str | None = None,
+    expected_ssh_target: str | None = None,
+    machine: str | None = None,
+    destination_catalog: dict[str, Any] | None = None,
     run_id: str,
     harness: str,
     repo: str,
     worktree: str,
     proof_root: str,
     harness_binding: dict[str, Any],
-    ordinal: int = 1,
+    tab_ordinal: int | None = None,
+    ordinal: int | None = None,
     live_mutation_authorized: bool = False,
     facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if tab_ordinal is not None and ordinal is not None:
+        raise HerdrPuppetError(
+            "destination_ordinal_conflict",
+            "Use --tab-ordinal or the deprecated --ordinal alias, not both.",
+        )
+    selected_ordinal = (
+        tab_ordinal if tab_ordinal is not None else ordinal
+    )
+    if selected_ordinal is None:
+        selected_ordinal = 1
+    if (
+        isinstance(selected_ordinal, bool)
+        or not isinstance(selected_ordinal, int)
+        or selected_ordinal < 1
+        or selected_ordinal > 999
+    ):
+        raise HerdrPuppetError(
+            "invalid_tab_ordinal",
+            "Tab ordinal must be an integer from 1 through 999.",
+        )
+    legacy_values = (workspace_id, workspace_label, expected_ssh_target)
+    named_requested = machine is not None or destination_catalog is not None
+    if named_requested:
+        if (
+            machine is None
+            or destination_catalog is None
+            or any(value is not None for value in legacy_values)
+        ):
+            raise HerdrPuppetError(
+                "destination_route_conflict",
+                "Named destination selection and the legacy destination triple "
+                "are mutually exclusive and complete routes.",
+            )
+        catalog = validate_destination_catalog(destination_catalog)
+        profile_matches = [
+            profile
+            for profile in catalog["profiles"]
+            if profile["name"] == machine
+        ]
+        if len(profile_matches) != 1:
+            raise HerdrPuppetError(
+                "destination_machine_not_found",
+                "The named destination did not resolve exactly once.",
+            )
+        selected_profile = profile_matches[0]
+        selected_workspace_label = selected_profile["workspace_label"]
+        selected_ssh_target = selected_profile["ssh_target"]
+        destination_mode = "named_catalog"
+    else:
+        if any(value is None for value in legacy_values):
+            raise HerdrPuppetError(
+                "destination_route_incomplete",
+                "Supply --machine with a catalog or the complete legacy "
+                "workspace/SSH destination triple.",
+            )
+        assert workspace_label is not None
+        assert expected_ssh_target is not None
+        selected_workspace_label = workspace_label
+        selected_ssh_target = expected_ssh_target
+        destination_mode = "legacy_explicit"
     if harness not in CANONICAL_HARNESSES:
         raise HerdrPuppetError(
             "noncanonical_harness",
@@ -1602,7 +1954,23 @@ def plan(
                 "invalid_plan_facts",
                 "Plan fixture is missing workspaces.",
             )
-    _find_workspace(workspaces, workspace_id, workspace_label)
+    if named_requested:
+        workspace = _find_workspace_by_label(
+            workspaces,
+            selected_workspace_label,
+        )
+        selected_workspace_id = workspace["workspace_id"]
+    else:
+        assert workspace_id is not None
+        _find_workspace(workspaces, workspace_id, selected_workspace_label)
+        selected_workspace_id = workspace_id
+    destination_selection = _destination_selection_receipt(
+        mode=destination_mode,
+        machine=machine,
+        workspace_label=selected_workspace_label,
+        tab_ordinal=selected_ordinal,
+        legacy_ordinal_alias=ordinal is not None,
+    )
     payload = {
         "schema": "herdr-puppet.plan.v1",
         "state": "planned",
@@ -1615,9 +1983,13 @@ def plan(
             "socket": doctor_result["socket"],
             "incarnation_proven": False,
         },
-        "workspace": {"id": workspace_id, "label": workspace_label},
-        "expected_ssh_target": expected_ssh_target,
-        "owned_label": _label(run_id, harness, ordinal),
+        "workspace": {
+            "id": selected_workspace_id,
+            "label": selected_workspace_label,
+        },
+        "destination_selection": destination_selection,
+        "expected_ssh_target": selected_ssh_target,
+        "owned_label": _label(run_id, harness, selected_ordinal),
         "source": {"repo": repo, "worktree": worktree},
         "harness_binding": checked_binding,
         "proof_root": proof_root,
@@ -1630,6 +2002,25 @@ def plan(
     }
     validate_plan(payload)
     return payload
+
+
+def plan_selection_receipt(payload: dict[str, Any]) -> dict[str, Any]:
+    validate_plan(payload)
+    return {
+        "schema": "herdr-puppet.plan-selection-receipt.v1",
+        "result": "ok",
+        "run_id": payload["run_id"],
+        "harness": payload["harness"],
+        "owned_label": payload["owned_label"],
+        "destination_selection": dict(payload["destination_selection"]),
+        "workspace_id_retained": False,
+        "ssh_target_retained": False,
+        "catalog_path_retained": False,
+        "fresh_tab_required": True,
+        "harness_binding_fingerprint": payload["harness_binding"][
+            "fingerprint"
+        ],
+    }
 
 
 def _expected_ssh_process(
@@ -2640,6 +3031,7 @@ def _create_qualification_tab_locked(
         "harness": plan_payload["harness"],
         "session": plan_payload["session"],
         "workspace": plan_payload["workspace"],
+        "destination_selection": plan_payload["destination_selection"],
         "owned_label": plan_payload["owned_label"],
         "tab_id": new_tab["tab_id"],
         "pane_id": new_pane["pane_id"],
@@ -2677,12 +3069,19 @@ def _create_qualification_tab_locked(
                     "pane_id": lease["pane_id"],
                     "terminal_id": lease["terminal_id"],
                     "ssh_pid": lease["ssh"]["pid"],
+                    "destination_selection": lease[
+                        "destination_selection"
+                    ],
+                    "fresh_tab_created": True,
                     "shell_transport_only": True,
                     "harness_started": False,
                     "shell_readiness": "unverified",
                     "harness_readiness": "unverified",
                     "harness_binding_fingerprint": lease["harness_binding"][
                         "fingerprint"
+                    ],
+                    "model_selection": lease["harness_binding"][
+                        "model_observation"
                     ],
                     "remote_harness_pid": "unavailable",
                     "targeted_halt": "unsupported",
@@ -3070,13 +3469,15 @@ def qualification_harness_launch(
                 "A lease permits exactly one controller-attested harness launch.",
             )
         binding = _require_current_record_binding(current)
+        expected_model_selector = binding["harness"] == "agy"
         if (
-            binding["regular_launch"]["explicit_model_selector"] is not False
+            binding["regular_launch"]["explicit_model_selector"]
+            is not expected_model_selector
             or binding["regular_launch"]["unrestricted"] is not True
         ):
             raise HerdrPuppetError(
                 "invalid_regular_launch",
-                "The bound launch must be unrestricted and omit model selection.",
+                "The bound launch model-selection posture is invalid.",
             )
         _require_in_row_census_verification(
             run_root,
@@ -3135,7 +3536,8 @@ def qualification_harness_launch(
                     "launch_vector_sha256": binding["regular_launch"][
                         "vector_sha256"
                     ],
-                    "explicit_model_selector": False,
+                    "explicit_model_selector": expected_model_selector,
+                    "model_selection": binding["model_observation"],
                     "unrestricted": True,
                     "remote_harness_pid": "unavailable",
                     "targeted_halt": "unsupported",
@@ -3158,7 +3560,7 @@ def qualification_harness_launch(
         "binding_fingerprint": binding["fingerprint"],
         "launch_vector_sha256": binding["regular_launch"]["vector_sha256"],
         "command_sha256": command_digest,
-        "explicit_model_selector": False,
+        "explicit_model_selector": expected_model_selector,
         "unrestricted": True,
         "remote_harness_pid": "unavailable",
         "targeted_halt": "unsupported",

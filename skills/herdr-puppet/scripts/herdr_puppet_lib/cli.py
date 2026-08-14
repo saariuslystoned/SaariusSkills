@@ -14,9 +14,11 @@ from .core import (
     cleanup_preserved_tab,
     create_qualification_tab,
     doctor,
+    load_destination_catalog,
     maintenance_checkpoint,
     migrate_legacy_lease_file,
     plan,
+    plan_selection_receipt,
     preserve_lease,
     qualification_beacon_wait,
     qualification_claude_lifecycle_observe,
@@ -44,7 +46,6 @@ from .harness_binding import (
 from .herdr_client import MAX_PROMPT_BYTES, HerdrClient, load_json
 from .journal import (
     append_event,
-    atomic_json,
     initialize_journal,
     make_event,
     refresh_state,
@@ -207,9 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_parser = subparsers.add_parser("plan")
     plan_parser.add_argument("--session", required=True)
-    plan_parser.add_argument("--workspace-id", required=True)
-    plan_parser.add_argument("--workspace-label", required=True)
-    plan_parser.add_argument("--expected-ssh-target", required=True)
+    destination = plan_parser.add_mutually_exclusive_group(required=True)
+    destination.add_argument("--machine")
+    destination.add_argument("--workspace-id")
+    plan_parser.add_argument("--destination-catalog-json")
+    plan_parser.add_argument("--workspace-label")
+    plan_parser.add_argument("--expected-ssh-target")
     plan_parser.add_argument("--run-id", required=True)
     plan_parser.add_argument(
         "--harness",
@@ -220,10 +224,20 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--worktree", required=True)
     plan_parser.add_argument("--proof-root", required=True)
     plan_parser.add_argument("--harness-binding-json", required=True)
-    plan_parser.add_argument("--ordinal", type=int, default=1)
+    ordinal = plan_parser.add_mutually_exclusive_group()
+    ordinal.add_argument(
+        "--tab-ordinal",
+        type=int,
+        help="ordinal for one new tab; never selects an existing tab",
+    )
+    ordinal.add_argument(
+        "--ordinal",
+        type=int,
+        help="deprecated alias for --tab-ordinal",
+    )
     plan_parser.add_argument("--live-mutation-authorized", action="store_true")
     plan_parser.add_argument("--facts-json")
-    plan_parser.add_argument("--output")
+    plan_parser.add_argument("--output", required=True)
     _common_live(plan_parser)
 
     binding = subparsers.add_parser("harness-binding-create")
@@ -504,26 +518,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             workspace_id=args.workspace_id,
             workspace_label=args.workspace_label,
             expected_ssh_target=args.expected_ssh_target,
+            machine=args.machine,
+            destination_catalog=(
+                load_destination_catalog(args.destination_catalog_json)
+                if args.destination_catalog_json
+                else None
+            ),
             run_id=args.run_id,
             harness=args.harness,
             repo=args.repo,
             worktree=args.worktree,
             proof_root=args.proof_root,
             harness_binding=load_json(args.harness_binding_json),
+            tab_ordinal=args.tab_ordinal,
             ordinal=args.ordinal,
             live_mutation_authorized=args.live_mutation_authorized,
             facts=facts,
         )
-        if args.output:
-            output = Path(args.output)
-            if output.exists():
-                raise HerdrPuppetError(
-                    "plan_output_exists",
-                    "Refusing to overwrite an existing plan output.",
-                    details={"output": str(output)},
-                )
-            atomic_json(output, payload)
-        return payload
+        output = Path(args.output)
+        if output.exists():
+            raise HerdrPuppetError(
+                "plan_output_exists",
+                "Refusing to overwrite an existing plan output.",
+                details={"output": str(output)},
+            )
+        write_create_only(
+            output,
+            (
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8"),
+        )
+        return plan_selection_receipt(payload)
     if args.command == "harness-binding-create":
         binding = build_harness_binding(
             load_json(args.census_json),
@@ -548,7 +573,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "fingerprint": binding["fingerprint"],
             "profile_route": binding["profile"]["route"],
             "profile_enrollment": binding["profile"]["enrollment_state"],
-            "explicit_model_selector": False,
+            "explicit_model_selector": binding["regular_launch"][
+                "explicit_model_selector"
+            ],
             "observed_model": binding["model_observation"]["model"],
             "observed_effort": binding["model_observation"]["effort"],
             "launch_vector_sha256": binding["regular_launch"][

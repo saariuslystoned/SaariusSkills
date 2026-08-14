@@ -10,6 +10,7 @@
     "harness",
     "session",
     "workspace",
+    "destination_selection",
     "owned_label",
     "tab_id",
     "pane_id",
@@ -44,6 +45,7 @@
       },
       "additionalProperties": false
     },
+    "destination_selection": {"$ref": "#/$defs/destinationSelection"},
     "owned_label": {"type": "string", "pattern": "^puppet-[a-z0-9-]+$"},
     "tab_id": {"type": "string", "minLength": 1},
     "pane_id": {"type": "string", "minLength": 1},
@@ -89,6 +91,7 @@
     "harness_binding": {
       "oneOf": [
         {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v2.schema.json"},
         {"$ref": "harness-binding-v1.schema.json"}
       ]
     },
@@ -290,6 +293,64 @@
     ]
   },
   "$defs": {
+    "destinationSelection": {
+      "type": "object",
+      "required": [
+        "schema",
+        "mode",
+        "machine",
+        "workspace_label",
+        "tab",
+        "legacy_ordinal_alias",
+        "catalog_path_retained",
+        "ssh_target_retained",
+        "existing_tab_adoption"
+      ],
+      "properties": {
+        "schema": {"const": "herdr-puppet.destination-selection-receipt.v1"},
+        "mode": {"enum": ["named_catalog", "legacy_explicit"]},
+        "machine": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "workspace_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "tab": {
+          "type": "object",
+          "required": ["request", "ordinal"],
+          "properties": {
+            "request": {"const": "fresh"},
+            "ordinal": {"type": "integer", "minimum": 1, "maximum": 999}
+          },
+          "additionalProperties": false
+        },
+        "legacy_ordinal_alias": {"type": "boolean"},
+        "catalog_path_retained": {"const": false},
+        "ssh_target_retained": {"const": false},
+        "existing_tab_adoption": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "named_catalog"}}},
+          "then": {
+            "properties": {
+              "machine": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              }
+            }
+          },
+          "else": {"properties": {"machine": {"type": "null"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"

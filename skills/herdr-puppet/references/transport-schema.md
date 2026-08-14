@@ -1,10 +1,11 @@
 # Transport schema
 
-Herdr-Puppet uses five primary versioned JSON records:
+Herdr-Puppet uses six primary versioned JSON records:
 
-- `herdr-puppet.remote-harness-census.v2`: body-free remote executable,
+- `herdr-puppet.destination-catalog.v1`: exact named machine profiles.
+- `herdr-puppet.remote-harness-census.v3`: body-free remote executable,
   profile, launch, source, and lifecycle attestation.
-- `herdr-puppet.harness-binding.v2`: controller-attested remote harness,
+- `herdr-puppet.harness-binding.v3`: controller-attested remote harness,
   profile, launch, adapter, source, and instruction-plane identity.
 - `herdr-puppet.plan.v1`: source-only intent plus the explicit parent
   capability.
@@ -17,17 +18,25 @@ The JSON Schemas in this directory are normative for their public fields:
 - [plan.schema.json](plan.schema.json)
 - [lease.schema.json](lease.schema.json)
 - [event.schema.json](event.schema.json)
+- [destination-catalog.schema.json](destination-catalog.schema.json)
+- [remote-harness-census.schema.json](remote-harness-census.schema.json)
 - [harness-binding.schema.json](harness-binding.schema.json)
-- [harness-binding-v1.schema.json](harness-binding-v1.schema.json), frozen
+- [remote-harness-census-v2.schema.json](remote-harness-census-v2.schema.json),
+  [harness-binding-v2.schema.json](harness-binding-v2.schema.json), and
+  [harness-binding-v1.schema.json](harness-binding-v1.schema.json), frozen
   only for historical status, preservation, maintenance, and exact cleanup.
 
-`herdr-puppet.remote-harness-census.v1` and
-`herdr-puppet.harness-binding.v1` are historical evidence only and cannot be
-upgraded into native lifecycle evidence; rows use census/binding `v2`
+Earlier census v1/v2 and binding v1/v2 records are historical evidence only
+and cannot be upgraded into current model/lifecycle evidence; rows use v3
 end-to-end for fresh lineage. A canonical lease carrying a valid historical
 binding remains inspectable and cleanable through the bounded maintenance
 surfaces, but every fresh qualification transition rejects it and requires a
-new census and v2 plan.
+new census and v3 plan.
+
+AGY v3 census requires `--model gemini-3.7-flash-high`, an exact `--model`
+help token, and exactly one model-list row whose first TSV cell equals that
+name. Missing, default, ambiguous, or unavailable selection fails without
+emitting the help or model inventory. Other harnesses reject `--model`.
 
 For live Claude rows, harness census binds both source and run identity:
 the census must use `--run-id`, the marker root must be absent before
@@ -39,20 +48,32 @@ SSH target supplies operational provenance, not cryptographic remote-origin
 proof.
 
 `herdr-puppet.lease.v1` has one strict canonical shape. Current controller
-operations reject historical lease-v1 files that omit the readiness/file
+operations reject historical lease-v1 files that omit destination-selection,
+readiness, or file
 fields or use the former `harness_readiness: status_verified` value. Upgrade
 such a file explicitly with `lease-migrate-v1`; ordinary status, probe,
 preservation, cleanup, and journal-refresh paths never perform an implicit
 compatibility migration. Runtime validation enforces the canonical nested
 authority objects, integer fields, safe label, unique arrays, and RFC 3339
 evidence times before migration may write. Migration never invents a harness
-binding; an unbound historical lease remains non-qualifying evidence.
+binding; it derives only the controller-created legacy fresh-tab ordinal and
+never invents a named machine. An unbound historical lease remains
+non-qualifying evidence.
 
 ## Plan lifecycle
 
-`plan` is non-mutating. A plan is usable only when its doctor and workspace
-observations match live Herdr state. Creating a tab changes `state` from
+`plan` is non-mutating. Its preferred route resolves `--machine` from one
+bounded catalog whose profiles contain exactly `name`, `workspace_label`, and
+`ssh_target`; the catalog must be one caller-owned, regular, bounded,
+non-symlink file and the label must resolve to one live workspace. The complete old
+workspace-ID/label/SSH triple remains a mutually exclusive compatibility
+route, and `--ordinal` is only a deprecated alias for `--tab-ordinal`.
+Every plan requests a fresh tab. Creating it changes `state` from
 `planned` to an independently stored lease with `state: active`.
+
+The CLI writes the private plan only to create-only `--output` and emits a
+sanitized selection receipt containing machine, workspace label, fresh-tab
+request, and ordinal. It retains neither SSH target nor catalog path.
 
 When `qualification-create-tab` is invoked through the public controller, the
 matching controller journal is a mutation precondition. Its `plan.json`,
@@ -76,6 +97,10 @@ A lease binds:
 
 ```text
 session
+destination_selection.machine
+destination_selection.workspace_label
+destination_selection.tab.request=fresh
+destination_selection.tab.ordinal
 workspace_id
 tab_id
 pane_id
@@ -179,7 +204,10 @@ plan/lease binding through `harness-census-verify`. Its journal fingerprint
 covers stable census facts and deliberately excludes only `recorded_at`, so a
 newer observation of identical facts is idempotent. Recorded time may advance;
 executable/version/help fingerprints, enrolled dedicated-user profile,
-default-model observation, launch vector, host, and source worktree may not.
+model selection, launch vector, host, and source worktree may not. AGY binds
+the exact argv `[<absolute-agy>, --model, gemini-3.7-flash-high,
+--dangerously-skip-permissions, --sandbox=false, --new-project, --log-file,
+/dev/null]`; other harnesses retain their current-default observation.
 The generic shell-command surface rejects every harness launch after shell
 readiness. Only `qualification-harness-launch` may submit the bound regular
 launch vector, once, at the exact next sequence. It deliberately records
@@ -231,6 +259,8 @@ The first ordinary prompt must carry a
 rendered body hash and verifies the binding, run ID, universal/harness/model/
 lifecycle layers, and `initial_message_wrapper` plane before dispatch.
 Wrapper manifests and events retain hashes and sizes, never the task body.
+AGY uses the explicit Gemini 3.7 model layer; other rows retain the
+default-unresolved layer.
 
 The explicit legacy adapter preserves that split. A historical
 `harness_readiness: status_verified` value migrates to

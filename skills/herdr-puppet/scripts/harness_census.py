@@ -24,6 +24,8 @@ from herdr_puppet_lib.claude_hooks import (
     claude_launch_flags,
 )
 from herdr_puppet_lib.harness_binding import (
+    AGY_REQUIRED_MODEL,
+    CENSUS_SCHEMA,
     HARNESS_LAUNCH_SPECS,
     ISOLATED_LAUNCH_PATH,
 )
@@ -40,6 +42,10 @@ HARNESSES["grok"]["status"] = ["models"]
 MAX_OUTPUT = 64 * 1024
 TIMEOUT_SECONDS = 20
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+AGY_MODEL_HELP_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_-])--model(?![A-Za-z0-9_-])"
+)
+DEFAULT_MODEL_ALIASES = {"default", "current", "current-default", "auto"}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -181,6 +187,36 @@ def enrolled(harness: str, returncode: int, output: bytes) -> bool:
     return bool(text.strip())
 
 
+def validate_agy_model(
+    *,
+    requested_model: str | None,
+    help_output: bytes,
+    models_returncode: int,
+    models_output: bytes,
+) -> None:
+    if requested_model is None:
+        raise RuntimeError("AGY census requires one explicit model")
+    if requested_model.lower() in DEFAULT_MODEL_ALIASES:
+        raise RuntimeError("AGY census rejects default model aliases")
+    if requested_model != AGY_REQUIRED_MODEL:
+        raise RuntimeError("AGY census model is unsupported")
+    if AGY_MODEL_HELP_TOKEN.search(clean_text(help_output)) is None:
+        raise RuntimeError("AGY executable does not advertise the exact model flag")
+    if models_returncode != 0:
+        raise RuntimeError("AGY model inventory is unavailable")
+    matching_rows = 0
+    for line in clean_text(models_output).splitlines():
+        if "\t" not in line:
+            continue
+        first_cell = line.split("\t", 1)[0]
+        if first_cell == requested_model:
+            matching_rows += 1
+    if matching_rows == 0:
+        raise RuntimeError("AGY required model is unavailable")
+    if matching_rows != 1:
+        raise RuntimeError("AGY required model is ambiguous")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--harness", choices=sorted(HARNESSES), required=True)
@@ -191,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checkpoint-nonce")
     parser.add_argument("--run-id")
     parser.add_argument("--claude-hook-root")
+    parser.add_argument("--model")
     args = parser.parse_args(argv)
     if bool(args.output) != bool(args.checkpoint_nonce):
         raise RuntimeError(
@@ -201,6 +238,11 @@ def main(argv: list[str] | None = None) -> int:
         args.checkpoint_nonce,
     ) is None:
         raise RuntimeError("checkpoint nonce is invalid")
+    if args.harness == "agy":
+        if not args.model:
+            raise RuntimeError("AGY census requires --model")
+    elif args.model:
+        raise RuntimeError("--model is valid only for the AGY harness")
     if args.harness == "claude":
         if not args.run_id or not args.claude_hook_root:
             raise RuntimeError(
@@ -300,6 +342,13 @@ def main(argv: list[str] | None = None) -> int:
             [str(executable), *mapping["status"]],
             environment,
         )
+        if args.harness == "agy":
+            validate_agy_model(
+                requested_model=args.model,
+                help_output=help_output,
+                models_returncode=status_rc,
+                models_output=status_output,
+            )
         enrollment_state = (
             "enrolled"
             if enrolled(args.harness, status_rc, status_output)
@@ -338,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         "inherit_environment": False,
     }
     payload = {
-        "schema": "herdr-puppet.remote-harness-census.v2",
+        "schema": CENSUS_SCHEMA,
         "harness": args.harness,
         "host": args.host,
         "recorded_at": now(),
@@ -354,15 +403,23 @@ def main(argv: list[str] | None = None) -> int:
         "regular_launch": {
             **vector,
             "unrestricted": True,
-            "explicit_model_selector": False,
+            "explicit_model_selector": args.harness == "agy",
             "vector_sha256": sha256_bytes(canonical_bytes(vector)),
         },
         "lifecycle_observation": lifecycle_observation,
-        "model_observation": {
-            "selection": "current_default",
-            "model": "unavailable",
-            "effort": "unavailable",
-        },
+        "model_observation": (
+            {
+                "selection": "explicit",
+                "model": AGY_REQUIRED_MODEL,
+                "effort": "high",
+            }
+            if args.harness == "agy"
+            else {
+                "selection": "current_default",
+                "model": "unavailable",
+                "effort": "unavailable",
+            }
+        ),
         "source": {"worktree": str(worktree)},
         "raw_output_retained": False,
     }

@@ -192,8 +192,12 @@ class PackagingTests(unittest.TestCase):
             "plan.schema.json",
             "lease.schema.json",
             "event.schema.json",
+            "destination-catalog.schema.json",
             "harness-binding.schema.json",
+            "harness-binding-v2.schema.json",
             "harness-binding-v1.schema.json",
+            "remote-harness-census.schema.json",
+            "remote-harness-census-v2.schema.json",
         ):
             schema = json.loads((references / name).read_text(encoding="utf-8"))
             self.assertEqual(
@@ -218,6 +222,69 @@ class PackagingTests(unittest.TestCase):
             ["enrolled", "interactive_pending"],
         )
         self.assertIn("allOf", binding_schema)
+        self.assertEqual(
+            binding_schema["properties"]["schema"]["const"],
+            "herdr-puppet.harness-binding.v3",
+        )
+        required_agy_argv = [
+            "--model",
+            "gemini-3.7-flash-high",
+            "--dangerously-skip-permissions",
+            "--sandbox=false",
+            "--new-project",
+            "--log-file",
+            "/dev/null",
+        ]
+        binding_agy_argv = binding_schema["allOf"][2]["then"][
+            "properties"
+        ]["regular_launch"]["properties"]["argv"]["prefixItems"]
+        self.assertEqual(
+            [item["const"] for item in binding_agy_argv[1:]],
+            required_agy_argv,
+        )
+        frozen_binding = json.loads(
+            (references / "harness-binding-v2.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            frozen_binding["properties"]["schema"]["const"],
+            "herdr-puppet.harness-binding.v2",
+        )
+        census_schema = json.loads(
+            (references / "remote-harness-census.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            census_schema["properties"]["schema"]["const"],
+            "herdr-puppet.remote-harness-census.v3",
+        )
+        census_agy_argv = census_schema["allOf"][0]["then"][
+            "properties"
+        ]["regular_launch"]["properties"]["argv"]["prefixItems"]
+        self.assertEqual(
+            [item["const"] for item in census_agy_argv[1:]],
+            required_agy_argv,
+        )
+        destination_schema = json.loads(
+            (references / "destination-catalog.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            set(
+                destination_schema["properties"]["profiles"]["items"][
+                    "required"
+                ]
+            ),
+            {"name", "workspace_label", "ssh_target"},
+        )
+        self.assertFalse(
+            destination_schema["properties"]["profiles"]["items"][
+                "additionalProperties"
+            ]
+        )
         lease_cross_fields = json.dumps(
             lease_schema["allOf"],
             sort_keys=True,
@@ -244,6 +311,7 @@ class PackagingTests(unittest.TestCase):
                 "harness",
                 "session",
                 "workspace",
+                "destination_selection",
                 "owned_label",
                 "tab_id",
                 "pane_id",
