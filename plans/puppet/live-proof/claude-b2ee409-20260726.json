@@ -1,0 +1,68 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "claude",
+  "source_head": "b2ee409b767a4d8fd169238f3ff4cb4e8a7b309e",
+  "observed_at": "2026-07-26T11:00:10Z",
+  "scope": "behavioral_checkpoint_pending_final_source_stable_rerun",
+  "runtime": {
+    "name": "Claude Code",
+    "version": "2.1.215",
+    "executable_sha256": "90608b5c5ab504e96e77365cea6203d046e291d59b2bb42cf28dcb2ccdf9dd58",
+    "authentication": "subscription_backed_private_profile",
+    "model_selection": "current_provider_default",
+    "observed_model": "unavailable",
+    "session_profile": "regular",
+    "permission_mode": "dangerously_skip_permissions"
+  },
+  "input_readiness": {
+    "strategy": "bounded_claude_startup_gate_reducer",
+    "operator_input_required": false,
+    "live_claim": "both sessions reached ready through the reducer",
+    "gate_sequence_retained": false,
+    "deterministic_coverage": [
+      "security_notice_enter",
+      "exact_workspace_trust_choice_1",
+      "bypass_warning_choice_1_to_choice_2_then_enter",
+      "unknown_or_account_gate_fails_closed",
+      "process_and_worktree_revalidation_before_delivery"
+    ]
+  },
+  "activation": {
+    "run_id": "claude-autogates-activation-b2ee409-r2-20260726",
+    "target_pid": 37505,
+    "receipt_sha256": "206e9708af3a2b973b05989d6b047fa0a4d5f50c56aabc65f42b7a784d93915f",
+    "native_view_sha256": "7fa86802552dfa997bcbe9c928f505ea60dd09921882ea583a20442c01d342cb",
+    "halt_sha256": "1baea3512d4dfa8dd54fbbc22694513ac4b052e3dff90213ac175361c3233c44",
+    "instruction_rollback": "rolled_back",
+    "post_halt_population": []
+  },
+  "ordinary_control": {
+    "run_id": "claude-autogates-control-b2ee409-20260726",
+    "target_pid": 45396,
+    "receipt_sha256": "9c7bf6ebaa59f2b86a53c49b87fa1a46cfa9f448d7b6f6a2ef1a1245a9c12b3a",
+    "native_view_sha256": "774dfb1eb6f4b6e982e27d0d530f7652e5f09fcacec67789c4f2b6b3901ff4cf",
+    "halt_sha256": "131baf67692667f63c7aa865def3e280085d83b1bb9ce239d412b8cbfc8178a4",
+    "post_halt_population": []
+  },
+  "pair": {
+    "result": "paired_accepted",
+    "no_bleed_verified": true,
+    "body_capture_performed": false,
+    "paired_receipt_sha256": "6a4d4f8ff45ea887dd65873ecc0f6c1faf7ce847391cdc6e4ca387035aba3e02",
+    "qualified_manifest_sha256": "9a6c9775d44494009267e6112acc88afba4504d6a7fdeb15b40975d3deb91a8c"
+  },
+  "controller_verification": {
+    "pair_reverified": true,
+    "distinct_process_tmux_workspace_identities": true,
+    "native_read_only_views": 2,
+    "sequenced_steering": true,
+    "exact_owned_halts": true,
+    "zero_residual_target_population": true,
+    "transcript_or_body_retained": false
+  },
+  "non_claims": [
+    "The specific optional startup-gate sequence was not retained.",
+    "The provider-selected model identity remains unavailable.",
+    "A final rerun is required after qualifying source changes."
+  ]
+}

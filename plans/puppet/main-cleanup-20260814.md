@@ -10,7 +10,8 @@ without merging #5 as-is.
 
 | ref | commit |
 | --- | --- |
-| `origin/main` (successor base) | `255f95e4305180d88fcf9a7eebf35592ddca9fed` |
+| `origin/main` at preparation | `255f95e4305180d88fcf9a7eebf35592ddca9fed` |
+| `origin/main` after #18 merge | `1b8dfd9439daa0ed3cb014b92e41f10d9012c21e` |
 | successor branch | `codex/puppet-v01-main-cleanup-20260814` |
 | PR #5 campaign head | `410fcf5b17c2e69903a3f8ca40ee06ad230c87fd` |
 | campaign implementation head | `544a347` (five-harness closeout binding) |
@@ -121,9 +122,18 @@ five-way live campaign is not a merge tax.
    Transport extraction (`--transport herdr`) stays out of scope (issue #11
    Phases 4–6). Merge remains Bobby's gate.
 
-## Stop reason
+## Replay result — 2026-08-14 after #18 merge
 
-Replay blocked on #18 merge. #18 was OPEN when this lane ran; the campaign
-replay happens once, on top of a main that already contains it. No live
-harness was launched, no qualification re-run, and no existing PR branch was
-mutated.
+- Rebased this branch onto `origin/main` `1b8dfd94` with no conflicts.
+- Merged `origin/codex/puppet-v01-campaign-20260721` (`410fcf5`) `--no-ff`.
+- Kept successor `skills/puppet/SKILL.md` (247 lines) and hermetic
+  `.github/workflows/tests.yml`.
+- Auto-unioned `README.md` and `tests/test_packaging.py`.
+- `skills/puppet/references/` has the six campaign files plus the three
+  cleanup extracts. No `skills/puppet/README.md`.
+- PR #5 campaign branch was not rewritten.
+
+## Stop reason (preparation)
+
+Replay was blocked on #18 merge during the first pass. #18 is now merged;
+this document records the completed replay.

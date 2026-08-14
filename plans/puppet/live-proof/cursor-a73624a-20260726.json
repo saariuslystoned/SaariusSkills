@@ -1,0 +1,96 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "cursor",
+  "source_head": "a73624abbcb3b022bca19b8a1f58c3282d0e3914",
+  "observed_at": "2026-07-26T13:04:26Z",
+  "scope": "terminal_pair_qualified_pending_public_session_and_final_source_stable_rerun",
+  "runtime": {
+    "name": "Cursor Agent",
+    "installed_build": "2026.07.17-3e2a980",
+    "executable_sha256": "eed61c5224668c9236334c4c68936a16aecc37374b592f59e31eb50433817831",
+    "authentication": "subscription_backed_private_profile",
+    "model_selection": "current_provider_default",
+    "observed_model": "unavailable",
+    "session_profile": "regular",
+    "permission_mode": "yolo",
+    "sandbox_mode": "disabled"
+  },
+  "input_readiness": {
+    "strategy": "bounded_cursor_startup_gate_reducer",
+    "operator_input_required": false,
+    "live_claim": "both accepted sessions reached ready through the reducer",
+    "gate_sequence_retained": false,
+    "deterministic_coverage": [
+      "exact_two_option_workspace_trust",
+      "lowercase_a_trust_selection",
+      "mcp_expanded_or_unknown_gate_fails_closed",
+      "ready_footer_must_follow_newer_trust_gate",
+      "process_pane_executable_cwd_revalidation_before_delivery"
+    ]
+  },
+  "activation": {
+    "run_id": "cursor-activation-a73624a-r2-20260726",
+    "target_pid": 78500,
+    "receipt_sha256": "fc2ec6a389261c71aa0ed645ba621c44ecd6fb9bc9306173a892cbf86afc9d42",
+    "native_view_sha256": "8157ba9e436b0a68cafd5870dcbe7fe25e47c148e91ab8cf3fb284a0ed88279c",
+    "halt_sha256": "9fba62c3d6c42a2748291117812c53c0d582aa723705c94cd47d745c5aab4010",
+    "instruction_rollback": "rolled_back",
+    "protected_population_before": 5,
+    "protected_population_after": 5,
+    "protected_baseline_equal": true
+  },
+  "ordinary_control": {
+    "run_id": "cursor-ordinary-a73624a-20260726",
+    "target_pid": 81586,
+    "receipt_sha256": "ed3bce27a0d52a3fc997f5da9c39f75adc83e4ab2be829ecc184e1bf0594f028",
+    "halt_sha256": "47b5b6e789ad5a9f453aadd81ed2dea674c903fe004a6e731b56a93fe78e0964",
+    "ordinary_instruction_absent": true,
+    "protected_population_before": 5,
+    "protected_population_after": 5,
+    "protected_baseline_equal": true
+  },
+  "native_view": {
+    "viewer_pid": 80933,
+    "tty": "/dev/ttys017",
+    "read_only": true,
+    "attached": true,
+    "detached": true,
+    "pane_body_captured": false
+  },
+  "pair": {
+    "result": "paired_control_verified_after_exact_halt_and_rollback",
+    "no_bleed_verified": true,
+    "workspaces_distinct": true,
+    "private_profile_identical": true,
+    "body_capture_performed": false,
+    "paired_receipt_sha256": "507caf790cd6c383644f09882cb72c347fb1fc2f4077b8964075a53ff0ab29bb",
+    "controller_attestation_receipt_digest": "eb4f56314763620bfa1632b3af6a69d74d366138a89fb89ffe0df654f60da412",
+    "qualified_manifest_fingerprint": "bbc84369e271f3acab85519188676bff6d4317ae1007c3f7ac21e3fef46d46d3",
+    "qualified_manifest_file_sha256": "f0b53b1fd00cef437c15257be8cf99a322b79dcf216f855d5c4b8771bca03d81",
+    "qualification_authorized": true
+  },
+  "controller_verification": {
+    "pair_reverified": true,
+    "real_v5_ledger_attestation": true,
+    "distinct_process_tmux_workspace_and_viewer_identities": true,
+    "native_read_only_views": 1,
+    "sequenced_steering": true,
+    "exact_owned_halts": true,
+    "protected_operator_population_unchanged": true,
+    "transcript_or_body_retained": false
+  },
+  "rejected_attempts": [
+    {
+      "run_id": "cursor-activation-a73624a-20260726",
+      "reason": "Darwin process inventory row remained unavailable",
+      "target_pid": 77605,
+      "exact_registered_pid_halted": true,
+      "used_as_qualification_evidence": false
+    }
+  ],
+  "non_claims": [
+    "The public regular-session launcher has not yet been exercised from the qualified manifest.",
+    "The provider-selected model identity remains unavailable.",
+    "A final rerun is required after later qualifying source changes."
+  ]
+}
