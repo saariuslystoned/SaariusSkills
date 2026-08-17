@@ -3,6 +3,21 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
+## Browser Automation (`/browser`)
+
+The [`browser` skill](skills/browser/SKILL.md) provides autonomous browser control, visual inspection, and interactive testing inside Google Antigravity and the `agy` CLI using the Chrome DevTools MCP server.
+
+When invoked (via `/browser <task>`), the skill automatically dispatches the dedicated `browser` subagent in an isolated context to interact with elements using unique accessibility `uid`s, execute complex UI workflows, draw on canvas surfaces, and capture verified visual proof artifacts.
+
+### Verified Capabilities
+
+- **Typing & Inputs**: Text fields, email inputs, and multiline directives.
+- **Checkboxes & Radios**: Multi-select capability toggles, theme radios, and dropdowns.
+- **Buttons & Clicks**: Dynamic HUD state synchronization and brush selector triggers.
+- **Drag & Drop**: Token drag-and-drop authorization.
+- **Canvas Drawing**: High-precision vector starbursts, Archimedean spirals, and neural resonance waves.
+- **Proof Capture**: High-resolution full-page screenshot generation and event telemetry logs.
+
 ## Puppet
 
 The repository carries the historical [Puppet design packet](plans/puppet/README.md)
@@ -150,18 +165,25 @@ agy plugin install /path/to/SaariusSkills
 AGY loads the pack from the provided path and reads the root `plugin.json`
 manifest.
 
-Then start a track naturally:
+Then start a browser automation session or product decision track:
+
+```text
+/browser Inspect https://github.com/trending and report the top repositories
+```
 
 ```text
 Help me decide and implement the next high-leverage product slice with GrillTrack.
 ```
 
-Natural requests such as “continue to the next grill” or “reopen the layout
-decision” work too. `$grilltrack` remains available as a concise explicit
-invocation, but it is never required when the user's intent is already clear.
-
 ## What ships
 
+- [`skills/browser/SKILL.md`](skills/browser/SKILL.md): the browser subagent
+  dispatch and Chrome DevTools automation workflow.
+- `skills/browser/scripts/verify_browser.py`: deterministic verification runner
+  for typing, form controls, clicks, drag-and-drop, canvas drawing, and screenshot proof.
+- `skills/browser/fixtures/verification_studio.html`: the interactive Autonomous
+  Browser Control Studio fixture.
+- `skills/browser/references/`: DevTools MCP protocol and verification matrix specifications.
 - [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
   transcript-blind cross-harness operating workflow.
 - `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
@@ -191,17 +213,13 @@ invocation, but it is never required when the user's intent is already clear.
 - `skills/herdr-puppet/references/`: authority, transport, qualification,
   desktop-observation fallback, and versioned JSON-schema contracts.
 
-GrillTrack never treats a decision lock as permission to commit, push, open or
-merge a pull request, deploy, spend, or change an account. Those actions require
-their own explicit authorization and remain subject to the active repository’s
-rules.
-
 ## Development
 
 Run the complete local verification:
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 skills/browser/scripts/verify_browser.py
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 python3 skills/puppet/scripts/puppet.py --help

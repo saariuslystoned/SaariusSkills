@@ -11,6 +11,9 @@
   "license": "MIT",
   "keywords": [
     "agent-skills",
+    "browser",
+    "browser-automation",
+    "chrome-devtools",
     "grilltrack",
     "puppet",
     "agent-orchestration",
@@ -21,8 +24,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Saarius Skills",
-    "shortDescription": "Agent supervision, Herdr transport, and product decisions.",
-    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, bounded implementation, verification, and honest closeout.",
+    "shortDescription": "Agent supervision, Herdr transport, product decisions, and browser automation.",
+    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, autonomous browser control, bounded implementation, verification, and honest closeout.",
     "developerName": "Saariusly Stoned",
     "category": "Productivity",
     "capabilities": [
@@ -31,6 +34,7 @@
     ],
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
+      "Use /browser to automate web actions, inspect pages, and capture visual proof.",
       "Help me decide and build the next product slice with GrillTrack.",
       "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
       "Use Herdr-Puppet to plan and journal one explicitly owned remote-agent pane."
