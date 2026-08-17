@@ -1,12 +1,16 @@
 ---
 name: phone-proof
-description: Build, install, visually inspect, drive, and re-verify phone or emulator UI changes with device screenshots and compact proof. Use for Android, iOS Simulator, foldable, emulator, APK, app-layout, Vysor, scrcpy, ADB screenshot, black-frame, wrong-display, unreachable-control, or rendered-regression work where build logs alone cannot prove the human-visible result.
+description: Build, install, visually inspect, drive, and re-verify phone or emulator UI changes with device screenshots and compact proof. Use for Android, iOS Simulator, foldable, emulator, APK, app-layout, Vysor, scrcpy, Android Studio, Running Devices, AVD, ADB screenshot, black-frame, wrong-display, unreachable-control, or rendered-regression work where build logs alone cannot prove the human-visible result.
 ---
 
 # PhoneProof
 
 Treat pixels as part of the acceptance test. A successful build or install is
-not a visual verdict.
+not a visual verdict. The loop verifies device UI with or without a build: a
+registered physical test phone and a route-approved Android Studio emulator
+(AVD) are both first-class proof targets. The install step applies only when
+there is an artifact to install; a running emulator or phone can be
+inspected on its own.
 
 ## Load the contracts
 
@@ -81,8 +85,9 @@ Do not hand-compose a display capture when the helper owns it.
    real-size legibility, reachable controls, empty or black regions, clipping,
    stale content, and expected state. File size and a PNG signature are only
    anti-corruption checks.
-8. Use Vysor or scrcpy for the human's live view when useful, while retaining
-   the ADB screenshot as the agent's headless artifact. If human and agent
+8. Vysor and Android Studio's Running Devices (Device Mirroring) window are
+   both acceptable human-view routes; scrcpy remains a fallback. The helper's
+   ADB capture stays the canonical agent proof either way. If human and agent
    disagree, align the mirrored screen, physical capture ID, logical input
    display ID, posture, and foreground package before debugging the app.
 9. Drive only the explicitly selected plugged-in test device and only
@@ -105,6 +110,24 @@ Do not hand-compose a display capture when the helper owns it.
 11. Close only when the final image has been inspected, anti-cheat probes pass,
     the requested state persists or resets as specified, and the device is
     restored.
+
+## Android Studio route
+
+Proof is executable inside Android Studio for both an emulator and a
+USB/wireless real phone.
+
+- Use the same `adb` binary Android Studio uses (SDK platform-tools) so
+  device inventories match and the workflow does not fight a dueling `adb`
+  server started from a different install.
+- Emulators appear as `emulator-<port>` serials; the helper reports
+  `device_class` (`"emulator"` or `"physical"`) so proof manifests
+  self-describe the target without ever recording the serial.
+- Android Studio's own screenshot button is a human convenience, never the
+  agent's proof artifact. Captures still go through
+  `scripts/phone_proof.py capture`.
+- An emulator needs the same route approval as a physical device. The
+  multiple-device guard still requires `--serial` when an emulator and a
+  phone are both attached.
 
 ## Preserve the boundary
 

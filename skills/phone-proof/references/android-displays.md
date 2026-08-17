@@ -33,8 +33,9 @@ closed when multiple physical displays exist and no explicit selection exists.
 
 ## Align human and agent views
 
-Vysor and scrcpy are useful human mirrors. ADB screenshots remain suitable for
-headless agent proof. When the views differ, compare:
+Vysor, scrcpy, and Android Studio's Running Devices (Device Mirroring) window
+are useful human mirrors. ADB screenshots remain suitable for headless agent
+proof. When the views differ, compare:
 
 - physical capture ID and display name;
 - logical input display ID;

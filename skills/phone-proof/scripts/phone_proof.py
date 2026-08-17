@@ -144,6 +144,11 @@ def parse_logical_viewports(output: str) -> dict[str, dict[str, Any]]:
     return mappings
 
 
+def classify_device_serial(serial: str) -> str:
+    """Classify a device serial as "emulator" or "physical" without echoing it."""
+    return "emulator" if serial.startswith("emulator-") else "physical"
+
+
 def _select_device(adb: str, serial: str | None) -> tuple[list[str], dict[str, Any]]:
     devices_process = _run([adb, "devices", "-l"])
     devices_output = _require_ok(devices_process, operation="device inventory")
@@ -170,6 +175,7 @@ def _select_device(adb: str, serial: str | None) -> tuple[list[str], dict[str, A
     return _adb_prefix(adb, serial), {
         "authorized_device_count": len(devices),
         "target_kind": target_kind,
+        "device_class": classify_device_serial(serial),
     }
 
 

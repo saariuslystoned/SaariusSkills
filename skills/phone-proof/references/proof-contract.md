@@ -8,7 +8,8 @@ Keep one compact record per build-install-look iteration:
   "source_revision": "<commit>",
   "artifact_sha256": "<digest>",
   "target": {
-    "kind": "registered_test_device",
+    "kind": "<registered_test_device|android_emulator>",
+    "device_class": "<physical|emulator>",
     "model": "<model-without-serial>",
     "package": "<test-package>",
     "posture": "<flat|folded|unfolded|unknown>"
@@ -21,7 +22,7 @@ Keep one compact record per build-install-look iteration:
     "height": 2400,
     "bytes": 123456,
     "sha256": "<digest>",
-    "human_mirror": "Vysor"
+    "human_mirror": "<Vysor|Android Studio|scrcpy|null>"
   },
   "visible_contract": {
     "legible": "pass",

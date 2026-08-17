@@ -81,6 +81,35 @@ class PhoneProofTests(unittest.TestCase):
         )
         self.assertTrue(mappings["4619827000000000000"]["active"])
 
+    def test_classify_device_serial_distinguishes_emulator_and_physical(
+        self,
+    ) -> None:
+        self.assertEqual(
+            phone_proof.classify_device_serial("emulator-5554"),
+            "emulator",
+        )
+        self.assertEqual(
+            phone_proof.classify_device_serial("R58N90ABCDE"),
+            "physical",
+        )
+
+    def test_parse_authorized_devices_reports_emulator_row(self) -> None:
+        output = "\n".join(
+            [
+                "List of devices attached",
+                "emulator-5554   device product:sdk_gphone64_x86_64 "
+                "model:sdk_gphone64_x86_64 device:emu64x transport_id:1",
+            ]
+        )
+        devices = phone_proof.parse_authorized_devices(output)
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["serial"], "emulator-5554")
+        self.assertEqual(devices[0]["model"], "sdk_gphone64_x86_64")
+        self.assertEqual(
+            phone_proof.classify_device_serial(devices[0]["serial"]),
+            "emulator",
+        )
+
     def test_warning_prefixed_png_is_rejected(self) -> None:
         polluted = b"Multiple displays were found\n" + valid_png()
         with self.assertRaises(phone_proof.PhoneProofError) as raised:
@@ -150,6 +179,44 @@ else:
             self.assertEqual(payload["result"], "ok")
             self.assertNotIn("PRIVATE-SERIAL", result.stdout)
             self.assertTrue(output.is_file())
+
+    def test_inventory_reports_device_class_for_single_emulator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            fake_adb = temp / "adb"
+            fake_adb.write_text(
+                """#!/usr/bin/env python3
+import sys
+
+args = sys.argv[1:]
+if args[:2] == ["-s", "emulator-5554"]:
+    args = args[2:]
+if args == ["devices", "-l"]:
+    print("List of devices attached")
+    print("emulator-5554 device product:sdk_gphone64_x86_64 model:sdk_gphone64_x86_64 device:emu64x transport_id:1")
+elif args == ["shell", "getprop", "ro.product.model"]:
+    print("sdk_gphone64_x86_64")
+elif args == ["shell", "dumpsys", "SurfaceFlinger", "--display-id"]:
+    print('Display 4619827000000000000 (HWC display 0): port=0 displayName="test"')
+elif args == ["shell", "dumpsys", "display"]:
+    print("DisplayViewport{type=INTERNAL, valid=true, isActive=true, displayId=0, uniqueId='local:4619827000000000000'}")
+else:
+    print(f"unexpected args: {args}", file=sys.stderr)
+    raise SystemExit(9)
+""",
+                encoding="utf-8",
+            )
+            fake_adb.chmod(fake_adb.stat().st_mode | stat.S_IXUSR)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--adb", str(fake_adb), "inventory"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["target"]["device_class"], "emulator")
+            self.assertNotIn("emulator-5554", result.stdout)
 
     def test_adb_failure_does_not_echo_stderr(self) -> None:
         process = subprocess.CompletedProcess(
