@@ -13,11 +13,11 @@ import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills" / "phone-dogfood" / "scripts" / "phone_dogfood.py"
-SPEC = importlib.util.spec_from_file_location("phone_dogfood", SCRIPT)
+SCRIPT = ROOT / "skills" / "phone-proof" / "scripts" / "phone_proof.py"
+SPEC = importlib.util.spec_from_file_location("phone_proof", SCRIPT)
 assert SPEC and SPEC.loader
-phone_dogfood = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(phone_dogfood)
+phone_proof = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(phone_proof)
 
 
 def png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -36,14 +36,14 @@ def valid_png(width: int = 1080, height: int = 2400) -> bytes:
     compressed = zlib.compress(raw * height)
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     return (
-        phone_dogfood.PNG_SIGNATURE
+        phone_proof.PNG_SIGNATURE
         + png_chunk(b"IHDR", ihdr)
         + png_chunk(b"IDAT", compressed)
         + png_chunk(b"IEND", b"")
     )
 
 
-class PhoneDogfoodTests(unittest.TestCase):
+class PhoneProofTests(unittest.TestCase):
     def test_inventory_excludes_virtual_stdout_display(self) -> None:
         output = "\n".join(
             [
@@ -51,7 +51,7 @@ class PhoneDogfoodTests(unittest.TestCase):
                 'Display 11529215000000000000 (Virtual display): displayName="stdout" uniqueId="virtual:shell"',
             ]
         )
-        displays = phone_dogfood.parse_surfaceflinger_displays(output)
+        displays = phone_proof.parse_surfaceflinger_displays(output)
         physical = [display for display in displays if not display["virtual"]]
         self.assertEqual(
             [display["physical_display_id"] for display in physical],
@@ -64,8 +64,8 @@ class PhoneDogfoodTests(unittest.TestCase):
             {"physical_display_id": "4619827000000000000"},
             {"physical_display_id": "4619827000000000001"},
         ]
-        with self.assertRaises(phone_dogfood.PhoneDogfoodError) as raised:
-            phone_dogfood.select_physical_display(displays, None)
+        with self.assertRaises(phone_proof.PhoneProofError) as raised:
+            phone_proof.select_physical_display(displays, None)
         self.assertEqual(raised.exception.code, "DISPLAY_SELECTION_REQUIRED")
 
     def test_physical_and_logical_ids_remain_distinct(self) -> None:
@@ -74,7 +74,7 @@ class PhoneDogfoodTests(unittest.TestCase):
             "isActive=true, displayId=0, "
             "uniqueId='local:4619827000000000000'}]"
         )
-        mappings = phone_dogfood.parse_logical_viewports(output)
+        mappings = phone_proof.parse_logical_viewports(output)
         self.assertEqual(
             mappings["4619827000000000000"]["logical_display_id"],
             0,
@@ -83,13 +83,13 @@ class PhoneDogfoodTests(unittest.TestCase):
 
     def test_warning_prefixed_png_is_rejected(self) -> None:
         polluted = b"Multiple displays were found\n" + valid_png()
-        with self.assertRaises(phone_dogfood.PhoneDogfoodError) as raised:
-            phone_dogfood.inspect_png(polluted)
+        with self.assertRaises(phone_proof.PhoneProofError) as raised:
+            phone_proof.inspect_png(polluted)
         self.assertEqual(raised.exception.code, "CAPTURE_NOT_PNG")
 
     def test_valid_png_reports_dimensions_and_digest(self) -> None:
         data = valid_png(12, 34)
-        report = phone_dogfood.inspect_png(data)
+        report = phone_proof.inspect_png(data)
         self.assertEqual(report["width"], 12)
         self.assertEqual(report["height"], 34)
         self.assertEqual(len(report["sha256"]), 64)
@@ -158,8 +158,8 @@ else:
             stdout="",
             stderr="failure for PRIVATE-SERIAL",
         )
-        with self.assertRaises(phone_dogfood.PhoneDogfoodError) as raised:
-            phone_dogfood._require_ok(process, operation="test")
+        with self.assertRaises(phone_proof.PhoneProofError) as raised:
+            phone_proof._require_ok(process, operation="test")
         self.assertNotIn("PRIVATE-SERIAL", json.dumps(raised.exception.details))
         self.assertTrue(raised.exception.details["stderr_present"])
 

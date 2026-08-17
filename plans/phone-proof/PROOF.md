@@ -2,6 +2,9 @@
 
 Issue: [#12](https://github.com/saariuslystoned/SaariusSkills/issues/12)
 
+> Note: the skill described below was renamed `phone-dogfood` -> `PhoneProof`
+> during PR #13. This record is historical and left as originally written.
+
 ## Verdict
 
 The first `phone-dogfood` capture loop is dogfoodable on a registered Android

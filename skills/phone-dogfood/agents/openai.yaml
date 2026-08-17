@@ -1,6 +1,0 @@
-interface:
-  display_name: "Phone Dogfood"
-  short_description: "Build, install, inspect, and re-prove phone UIs."
-  default_prompt: "Use $phone-dogfood to build, install, capture, inspect, and re-verify this app on the registered test phone."
-policy:
-  allow_implicit_invocation: true

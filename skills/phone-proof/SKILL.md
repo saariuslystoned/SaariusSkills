@@ -1,9 +1,9 @@
 ---
-name: phone-dogfood
+name: phone-proof
 description: Build, install, visually inspect, drive, and re-verify phone or emulator UI changes with device screenshots and compact proof. Use for Android, iOS Simulator, foldable, emulator, APK, app-layout, Vysor, scrcpy, ADB screenshot, black-frame, wrong-display, unreachable-control, or rendered-regression work where build logs alone cannot prove the human-visible result.
 ---
 
-# Phone Dogfood
+# PhoneProof
 
 Treat pixels as part of the acceptance test. A successful build or install is
 not a visual verdict.
@@ -27,7 +27,7 @@ Use AGY Pixel Use as the phone-control backend for interoperability slices.
   2) app-semantic controls,
   3) general controls.
 
-Use `scripts/phone_dogfood.py` and Vysor for display alignment, capture, and
+Use `scripts/phone_proof.py` and Vysor for display alignment, capture, and
 troubleshooting only; do not let them replace Pixel Use as the control backend.
 
 Transient-overlay rubric:
@@ -38,10 +38,10 @@ Transient-overlay rubric:
 4. Re-verify full target, content, and consequence against both snapshots.
 5. If stability or content proof fails, stop and report unsent.
 
-Keep this control-plane guidance separate from the Phone Dogfood visual/proof
+Keep this control-plane guidance separate from the PhoneProof visual/proof
 doctrine. Do not add a device admission gate.
 
-Use `scripts/phone_dogfood.py` for Android device inventory and screenshots.
+Use `scripts/phone_proof.py` for Android device inventory and screenshots.
 Do not hand-compose a display capture when the helper owns it.
 
 ## Run the loop
@@ -57,7 +57,7 @@ Do not hand-compose a display capture when the helper owns it.
 4. Inventory Android displays:
 
    ```bash
-   python3 scripts/phone_dogfood.py inventory
+   python3 scripts/phone_proof.py inventory
    ```
 
    With more than one authorized device, supply `--serial` before the
@@ -68,7 +68,7 @@ Do not hand-compose a display capture when the helper owns it.
 6. Capture the physical display:
 
    ```bash
-   python3 scripts/phone_dogfood.py capture \
+   python3 scripts/phone_proof.py capture \
      --physical-display-id <id-from-inventory> \
      --output <proof-root>/after-install.png \
      --manifest <proof-root>/after-install.json

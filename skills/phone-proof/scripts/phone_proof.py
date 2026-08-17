@@ -18,10 +18,10 @@ from typing import Any, Sequence
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-CAPTURE_SCHEMA = "phone-dogfood.capture.v1"
+CAPTURE_SCHEMA = "phone-proof.capture.v1"
 
 
-class PhoneDogfoodError(Exception):
+class PhoneProofError(Exception):
     def __init__(
         self,
         code: str,
@@ -57,7 +57,7 @@ def _run(
             text=not binary,
         )
     except OSError as exc:
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "COMMAND_START_FAILED",
             "Could not start the configured ADB command.",
             details={"reason": str(exc)},
@@ -75,7 +75,7 @@ def _require_ok(
     stderr = process.stderr
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", "replace")
-    raise PhoneDogfoodError(
+    raise PhoneProofError(
         "ADB_COMMAND_FAILED",
         f"ADB failed during {operation}.",
         details={
@@ -150,7 +150,7 @@ def _select_device(adb: str, serial: str | None) -> tuple[list[str], dict[str, A
     devices = parse_authorized_devices(devices_output)
     if serial:
         if not any(device["serial"] == serial for device in devices):
-            raise PhoneDogfoodError(
+            raise PhoneProofError(
                 "TARGET_DEVICE_UNAVAILABLE",
                 "The requested device is not present and authorized.",
                 details={"authorized_device_count": len(devices)},
@@ -159,7 +159,7 @@ def _select_device(adb: str, serial: str | None) -> tuple[list[str], dict[str, A
         target_kind = "explicit-serial"
     else:
         if len(devices) != 1:
-            raise PhoneDogfoodError(
+            raise PhoneProofError(
                 "DEVICE_SELECTION_REQUIRED",
                 "Exactly one authorized device is required unless --serial is supplied.",
                 details={"authorized_device_count": len(devices)},
@@ -175,7 +175,7 @@ def _select_device(adb: str, serial: str | None) -> tuple[list[str], dict[str, A
 
 def inventory(adb: str, serial: str | None) -> dict[str, Any]:
     if not shutil.which(adb) and not Path(adb).is_file():
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "ADB_NOT_FOUND",
             "The configured ADB executable was not found.",
             exit_code=3,
@@ -210,7 +210,7 @@ def inventory(adb: str, serial: str | None) -> dict[str, Any]:
             )
         )
     return {
-        "schema": "phone-dogfood.inventory.v1",
+        "schema": "phone-proof.inventory.v1",
         "result": "ok",
         "target": {**target, "model": model},
         "physical_displays": physical,
@@ -226,7 +226,7 @@ def select_physical_display(
         for display in displays:
             if display["physical_display_id"] == requested:
                 return display
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "UNKNOWN_PHYSICAL_DISPLAY",
             "The requested physical display ID is not in the current inventory.",
             details={
@@ -237,7 +237,7 @@ def select_physical_display(
             exit_code=3,
         )
     if len(displays) != 1:
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "DISPLAY_SELECTION_REQUIRED",
             "Exactly one physical display is required unless --physical-display-id is supplied.",
             details={
@@ -252,20 +252,20 @@ def select_physical_display(
 
 def inspect_png(data: bytes) -> dict[str, Any]:
     if not data.startswith(PNG_SIGNATURE):
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "CAPTURE_NOT_PNG",
             "Capture bytes do not begin with a PNG signature; a display warning may have polluted stdout.",
             exit_code=3,
         )
     if len(data) < 33 or data[12:16] != b"IHDR":
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "CAPTURE_MALFORMED_PNG",
             "Capture is missing a valid PNG IHDR chunk.",
             exit_code=3,
         )
     width, height = struct.unpack(">II", data[16:24])
     if width <= 0 or height <= 0 or b"IEND" not in data[-32:]:
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "CAPTURE_MALFORMED_PNG",
             "Capture has invalid dimensions or no terminal IEND chunk.",
             exit_code=3,
@@ -356,7 +356,7 @@ def verify(args: argparse.Namespace) -> int:
     try:
         data = path.read_bytes()
     except OSError as exc:
-        raise PhoneDogfoodError(
+        raise PhoneProofError(
             "IMAGE_READ_FAILED",
             "Could not read the requested image.",
             details={"reason": str(exc)},
@@ -365,7 +365,7 @@ def verify(args: argparse.Namespace) -> int:
     inspected = inspect_png(data)
     suspicious = inspected["bytes"] < args.min_bytes
     payload = {
-        "schema": "phone-dogfood.verify.v1",
+        "schema": "phone-proof.verify.v1",
         "result": "suspicious" if suspicious else "ok",
         "image": {
             **inspected,
@@ -426,9 +426,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "verify":
             return verify(args)
         parser.error("unknown command")
-    except PhoneDogfoodError as exc:
+    except PhoneProofError as exc:
         error = {
-            "schema": "phone-dogfood.error.v1",
+            "schema": "phone-proof.error.v1",
             "result": "blocked",
             "error": {
                 "code": exc.code,
