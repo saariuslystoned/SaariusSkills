@@ -110,6 +110,82 @@ class PhoneProofTests(unittest.TestCase):
             "emulator",
         )
 
+    def test_strip_zero_width_removes_zero_width_space(self) -> None:
+        polluted = "line2" + chr(0x200B) + "tail"
+        self.assertEqual(phone_proof.strip_zero_width(polluted), "line2tail")
+
+    def test_parse_a11y_tree_extracts_double_quote_delimited_text(self) -> None:
+        xml_text = (
+            '<hierarchy rotation="0">'
+            '<node index="0" text="Hello" class="android.widget.TextView" '
+            'bounds="[0,0][10,10]"/>'
+            "</hierarchy>"
+        )
+        result = phone_proof.parse_a11y_tree(xml_text)
+        self.assertEqual(result["parser"], "xml")
+        self.assertEqual(result["node_count"], 1)
+        self.assertEqual(result["texts"], ["Hello"])
+
+    def test_parse_a11y_tree_preserves_inner_double_quotes_in_single_quote_delimiter(
+        self,
+    ) -> None:
+        # uiautomator switches the text delimiter from " to ' when the
+        # value itself contains a double quote (the Gemini "Worker 1"
+        # shape); a real XML parser handles both delimiters natively.
+        xml_text = (
+            "<hierarchy rotation=\"0\">"
+            "<node index=\"0\" text='He said \"Worker 1\"' "
+            'class="android.widget.TextView" bounds="[0,0][10,10]"/>'
+            "</hierarchy>"
+        )
+        result = phone_proof.parse_a11y_tree(xml_text)
+        self.assertEqual(result["parser"], "xml")
+        self.assertIn('He said "Worker 1"', result["texts"])
+
+    def test_parse_a11y_tree_collects_content_desc(self) -> None:
+        xml_text = (
+            '<hierarchy rotation="0">'
+            '<node index="0" text="" content-desc="Send message" '
+            'class="android.widget.ImageButton" bounds="[0,0][10,10]"/>'
+            "</hierarchy>"
+        )
+        result = phone_proof.parse_a11y_tree(xml_text)
+        self.assertEqual(result["texts"], ["Send message"])
+
+    def test_parse_a11y_tree_strips_zero_width_and_counts_nodes(self) -> None:
+        polluted = "Worker 1" + chr(0x200B) + " ready"
+        xml_text = (
+            '<hierarchy rotation="0">'
+            f'<node index="0" text="{polluted}" bounds="[0,0][10,10]">'
+            '<node index="1" text="child" bounds="[0,0][5,5]"/>'
+            "</node>"
+            "</hierarchy>"
+        )
+        result = phone_proof.parse_a11y_tree(xml_text)
+        self.assertEqual(result["node_count"], 2)
+        self.assertIn("Worker 1 ready", result["texts"])
+        self.assertNotIn(chr(0x200B), "".join(result["texts"]))
+
+    def test_parse_a11y_tree_empty_hierarchy_reports_zero_nodes(self) -> None:
+        result = phone_proof.parse_a11y_tree('<hierarchy rotation="0"/>')
+        self.assertEqual(result["parser"], "xml")
+        self.assertEqual(result["node_count"], 0)
+        self.assertEqual(result["texts"], [])
+
+    def test_parse_a11y_tree_malformed_xml_falls_back_to_regex(self) -> None:
+        # Stray "<" inside an unclosed tag breaks well-formedness, forcing
+        # the regex fallback. It must still extract both delimiter forms
+        # and unescape "&#10;", which is common in chat UIs.
+        xml_text = (
+            '<hierarchy><node text="line1&#10;line2" bounds="[0,0][1,1]" '
+            "<node text='single delim' bounds=\"[0,0][1,1]\"/></hierarchy>"
+        )
+        result = phone_proof.parse_a11y_tree(xml_text)
+        self.assertEqual(result["parser"], "regex-fallback")
+        self.assertEqual(result["node_count"], 2)
+        self.assertIn("line1\nline2", result["texts"])
+        self.assertIn("single delim", result["texts"])
+
     def test_warning_prefixed_png_is_rejected(self) -> None:
         polluted = b"Multiple displays were found\n" + valid_png()
         with self.assertRaises(phone_proof.PhoneProofError) as raised:
@@ -217,6 +293,126 @@ else:
             payload = json.loads(result.stdout)
             self.assertEqual(payload["target"]["device_class"], "emulator")
             self.assertNotIn("emulator-5554", result.stdout)
+
+    def test_tree_cli_extracts_delimiter_safe_text_and_omits_serial(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            fake_adb = temp / "adb"
+            fake_adb.write_text(
+                """#!/usr/bin/env python3
+import sys
+
+DUMP_XML = '''<hierarchy rotation="0"><node index="0" text='He said "Worker 1" is ready' class="android.widget.TextView" bounds="[0,0][10,10]"/></hierarchy>'''
+
+args = sys.argv[1:]
+if args[:2] == ["-s", "PRIVATE-SERIAL"]:
+    args = args[2:]
+if args == ["devices", "-l"]:
+    print("List of devices attached")
+    print("PRIVATE-SERIAL device product:test model:Pixel_Test device:test")
+elif args == ["shell", "getprop", "ro.product.model"]:
+    print("Pixel Test")
+elif args == ["shell", "dumpsys", "SurfaceFlinger", "--display-id"]:
+    print('Display 4619827000000000000 (HWC display 0): port=0 displayName="test"')
+elif args == ["shell", "dumpsys", "display"]:
+    print("DisplayViewport{type=INTERNAL, valid=true, isActive=true, displayId=0, uniqueId='local:4619827000000000000'}")
+elif args == ["shell", "uiautomator", "dump", "/data/local/tmp/phone_proof_a11y.xml"]:
+    print("UI hierarchy dumped to: /data/local/tmp/phone_proof_a11y.xml")
+elif args == ["exec-out", "cat", "/data/local/tmp/phone_proof_a11y.xml"]:
+    sys.stdout.buffer.write(DUMP_XML.encode("utf-8"))
+elif args == ["shell", "rm", "-f", "/data/local/tmp/phone_proof_a11y.xml"]:
+    pass
+else:
+    print(f"unexpected args: {args}", file=sys.stderr)
+    raise SystemExit(9)
+""",
+                encoding="utf-8",
+            )
+            fake_adb.chmod(fake_adb.stat().st_mode | stat.S_IXUSR)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--adb",
+                    str(fake_adb),
+                    "--serial",
+                    "PRIVATE-SERIAL",
+                    "tree",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["schema"], "phone-proof.tree.v1")
+            self.assertEqual(payload["result"], "ok")
+            self.assertEqual(payload["tree"]["parser"], "xml")
+            self.assertEqual(payload["tree"]["node_count"], 1)
+            self.assertIn('He said "Worker 1" is ready', payload["tree"]["texts"])
+            self.assertTrue(payload["tree"]["device_temp_removed"])
+            self.assertNotIn("PRIVATE-SERIAL", result.stdout)
+
+    def test_tree_cli_empty_hierarchy_fails_closed_without_allow_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            fake_adb = temp / "adb"
+            fake_adb.write_text(
+                """#!/usr/bin/env python3
+import sys
+
+DUMP_XML = '<hierarchy rotation="0"/>'
+
+args = sys.argv[1:]
+if args[:2] == ["-s", "PRIVATE-SERIAL"]:
+    args = args[2:]
+if args == ["devices", "-l"]:
+    print("List of devices attached")
+    print("PRIVATE-SERIAL device product:test model:Pixel_Test device:test")
+elif args == ["shell", "getprop", "ro.product.model"]:
+    print("Pixel Test")
+elif args == ["shell", "dumpsys", "SurfaceFlinger", "--display-id"]:
+    print('Display 4619827000000000000 (HWC display 0): port=0 displayName="test"')
+elif args == ["shell", "dumpsys", "display"]:
+    print("DisplayViewport{type=INTERNAL, valid=true, isActive=true, displayId=0, uniqueId='local:4619827000000000000'}")
+elif args == ["shell", "uiautomator", "dump", "/data/local/tmp/phone_proof_a11y.xml"]:
+    print("UI hierarchy dumped to: /data/local/tmp/phone_proof_a11y.xml")
+elif args == ["exec-out", "cat", "/data/local/tmp/phone_proof_a11y.xml"]:
+    sys.stdout.buffer.write(DUMP_XML.encode("utf-8"))
+elif args == ["shell", "rm", "-f", "/data/local/tmp/phone_proof_a11y.xml"]:
+    pass
+else:
+    print(f"unexpected args: {args}", file=sys.stderr)
+    raise SystemExit(9)
+""",
+                encoding="utf-8",
+            )
+            fake_adb.chmod(fake_adb.stat().st_mode | stat.S_IXUSR)
+            base_argv = [
+                sys.executable,
+                str(SCRIPT),
+                "--adb",
+                str(fake_adb),
+                "--serial",
+                "PRIVATE-SERIAL",
+                "tree",
+            ]
+            blocked = subprocess.run(
+                base_argv, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(blocked.returncode, 4, blocked.stderr)
+            payload = json.loads(blocked.stdout)
+            self.assertEqual(payload["result"], "empty")
+            self.assertEqual(payload["tree"]["node_count"], 0)
+
+            allowed = subprocess.run(
+                [*base_argv, "--allow-empty"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(allowed.returncode, 0, allowed.stderr)
+            self.assertEqual(json.loads(allowed.stdout)["result"], "empty")
 
     def test_adb_failure_does_not_echo_stderr(self) -> None:
         process = subprocess.CompletedProcess(

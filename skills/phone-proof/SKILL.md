@@ -129,6 +129,28 @@ USB/wireless real phone.
   multiple-device guard still requires `--serial` when an emulator and a
   phone are both attached.
 
+## Accessibility tree
+
+Use `tree` when proof needs text-level evidence of what is rendered, not just
+pixels:
+
+```bash
+python3 scripts/phone_proof.py tree --manifest <proof-root>/tree.json
+```
+
+Never hand-roll `uiautomator` regex extraction. The dump switches an
+attribute's delimiter from `"` to `'` whenever the value itself contains a
+double quote, so a naive `text="[^"]*"` regex returns a confident false
+negative on exactly the node that matters. The subcommand parses with a real
+XML parser (falling back to a delimiter-safe regex only on malformed XML),
+unescapes entities, strips zero-width characters, and reports a node count so
+an empty result is visibly empty rather than silently so. `result: "empty"`
+fails closed and exits non-zero without `--allow-empty`.
+
+Extracted text is on-screen content and follows the same proof-boundary rules
+as screenshots: never publish serials, account identity, or unrelated
+content pulled into a capture.
+
 ## Preserve the boundary
 
 - Customer or non-test sends, accounts, purchases, credentials, permissions,

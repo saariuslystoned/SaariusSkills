@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -15,10 +16,18 @@ import subprocess
 import sys
 import tempfile
 from typing import Any, Sequence
+import xml.etree.ElementTree as ET
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 CAPTURE_SCHEMA = "phone-proof.capture.v1"
+TREE_SCHEMA = "phone-proof.tree.v1"
+A11Y_DUMP_DEVICE_PATH = "/data/local/tmp/phone_proof_a11y.xml"
+# Zero-width space (U+200B), zero-width non-joiner (U+200C), zero-width
+# joiner (U+200D), and BOM / zero-width no-break space (U+FEFF). Gemini and
+# other chat UIs emit these between list items and inside answer text.
+ZERO_WIDTH_CODEPOINTS = (0x200B, 0x200C, 0x200D, 0xFEFF)
+ZERO_WIDTH_CHARS = "".join(chr(codepoint) for codepoint in ZERO_WIDTH_CODEPOINTS)
 
 
 class PhoneProofError(Exception):
@@ -142,6 +151,69 @@ def parse_logical_viewports(output: str) -> dict[str, dict[str, Any]]:
             "active": None if not active else active.group(1) == "true",
         }
     return mappings
+
+
+def strip_zero_width(text: str) -> str:
+    """Remove zero-width space/joiner/non-joiner and BOM characters."""
+    for codepoint in ZERO_WIDTH_CODEPOINTS:
+        text = text.replace(chr(codepoint), "")
+    return text
+
+
+_TEXT_ATTR_PATTERN = re.compile(r"""\btext=("[^"]*"|'[^']*')""")
+_CONTENT_DESC_ATTR_PATTERN = re.compile(r"""\bcontent-desc=("[^"]*"|'[^']*')""")
+_NODE_TAG_PATTERN = re.compile(r"<node\b")
+
+
+def _parse_a11y_tree_xml(xml_text: str) -> dict[str, Any]:
+    root = ET.fromstring(xml_text)
+    node_count = 0
+    texts: list[str] = []
+    for node in root.iter():
+        if node.tag == "node":
+            node_count += 1
+        for attr in ("text", "content-desc"):
+            value = node.get(attr)
+            if not value:
+                continue
+            value = strip_zero_width(value)
+            if value:
+                texts.append(value)
+    return {"parser": "xml", "node_count": node_count, "texts": texts}
+
+
+def _parse_a11y_tree_regex(xml_text: str) -> dict[str, Any]:
+    matches: list[tuple[int, str]] = []
+    for pattern in (_TEXT_ATTR_PATTERN, _CONTENT_DESC_ATTR_PATTERN):
+        for match in pattern.finditer(xml_text):
+            matches.append((match.start(), match.group(1)))
+    matches.sort(key=lambda item: item[0])
+    texts: list[str] = []
+    for _, quoted in matches:
+        value = html.unescape(quoted[1:-1])
+        value = strip_zero_width(value)
+        if value:
+            texts.append(value)
+    node_count = len(_NODE_TAG_PATTERN.findall(xml_text))
+    return {"parser": "regex-fallback", "node_count": node_count, "texts": texts}
+
+
+def parse_a11y_tree(xml_text: str) -> dict[str, Any]:
+    """Parse a uiautomator dump into node count and extracted text evidence.
+
+    Primary parsing uses ``xml.etree.ElementTree``, a real XML parser that
+    inherently handles both attribute-quote delimiters and entity
+    unescaping. ``uiautomator`` switches a ``text`` attribute's delimiter
+    from ``"`` to ``'`` whenever the value itself contains a double quote
+    (for example a rendered answer containing an embedded quoted phrase), so
+    a naive ``text="[^"]*"`` regex silently returns nothing for that node.
+    Malformed XML falls back to a regex pass that explicitly accepts both
+    delimiter forms.
+    """
+    try:
+        return _parse_a11y_tree_xml(xml_text)
+    except ET.ParseError:
+        return _parse_a11y_tree_regex(xml_text)
 
 
 def classify_device_serial(serial: str) -> str:
@@ -384,6 +456,59 @@ def verify(args: argparse.Namespace) -> int:
     return 0 if not suspicious or args.allow_suspicious else 4
 
 
+def tree(args: argparse.Namespace) -> int:
+    current = inventory(args.adb, args.serial)
+    prefix, _ = _select_device(args.adb, args.serial)
+    _require_ok(
+        _run([*prefix, "shell", "uiautomator", "dump", A11Y_DUMP_DEVICE_PATH]),
+        operation="accessibility tree dump",
+    )
+    cat_process = _run(
+        [*prefix, "exec-out", "cat", A11Y_DUMP_DEVICE_PATH],
+        binary=True,
+    )
+    raw = bytes(_require_ok(cat_process, operation="accessibility tree read"))
+    rm_process = _run([*prefix, "shell", "rm", "-f", A11Y_DUMP_DEVICE_PATH])
+    device_temp_removed = rm_process.returncode == 0
+    xml_text = raw.decode("utf-8", "replace")
+    if not raw or ("<?xml" not in xml_text and "<hierarchy" not in xml_text):
+        raise PhoneProofError(
+            "A11Y_DUMP_EMPTY",
+            "The accessibility tree dump was empty or missing expected XML content.",
+            details={"bytes": len(raw), "device_temp_removed": device_temp_removed},
+            exit_code=3,
+        )
+    parsed = parse_a11y_tree(xml_text)
+    empty = parsed["node_count"] == 0
+    output_path: Path | None = None
+    if args.output:
+        output_path = Path(args.output).expanduser().resolve()
+        _atomic_write(output_path, raw)
+    payload = {
+        "schema": TREE_SCHEMA,
+        "result": "empty" if empty else "ok",
+        "target": current["target"],
+        "tree": {
+            "node_count": parsed["node_count"],
+            "text_node_count": len(parsed["texts"]),
+            "texts": parsed["texts"],
+            "parser": parsed["parser"],
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "output": str(output_path) if output_path else None,
+            "device_temp_removed": device_temp_removed,
+        },
+    }
+    if args.manifest:
+        manifest = Path(args.manifest).expanduser().resolve()
+        _atomic_write(
+            manifest,
+            (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+    _emit(payload, pretty=args.pretty)
+    return 0 if not empty or args.allow_empty else 4
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Inventory Android displays and capture structurally valid screenshot proof."
@@ -415,6 +540,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--image", required=True)
     verify_parser.add_argument("--min-bytes", type=int, default=20_000)
     verify_parser.add_argument("--allow-suspicious", action="store_true")
+
+    tree_parser = subparsers.add_parser(
+        "tree",
+        help="Dump the accessibility tree and extract delimiter-safe text evidence.",
+    )
+    tree_parser.add_argument("--output")
+    tree_parser.add_argument("--manifest")
+    tree_parser.add_argument("--allow-empty", action="store_true")
     return parser
 
 
@@ -431,6 +564,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return capture(args)
         if args.command == "verify":
             return verify(args)
+        if args.command == "tree":
+            return tree(args)
         parser.error("unknown command")
     except PhoneProofError as exc:
         error = {

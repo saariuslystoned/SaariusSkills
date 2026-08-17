@@ -75,7 +75,9 @@ PhoneProof closes the gap between a green mobile build and the UI a human
 actually sees. It runs a build-install-capture-inspect-fix-capture loop,
 distinguishes physical screenshot IDs from logical input display IDs, rejects
 warning-corrupted PNG streams, flags suspiciously small black-screen captures,
-and keeps Vysor or scrcpy aligned with headless ADB proof. It is intentionally
+keeps Vysor or scrcpy aligned with headless ADB proof, and extracts
+accessibility-tree text with a delimiter-safe parser instead of a hand-rolled
+regex that silently misses quote-containing values. It is intentionally
 bounded to registered test devices and reversible, route-approved actions.
 The [initial Pixel 10 Pro XL proof](plans/phone-proof/PROOF.md) exercises the
 capture and human-mirror alignment slice.

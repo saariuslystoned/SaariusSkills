@@ -523,6 +523,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("Android Studio", skill)
         self.assertIn("Running Devices", skill)
         self.assertIn("device_class", helper)
+        self.assertIn("Accessibility tree", skill)
+        self.assertIn("phone-proof.tree.v1", helper)
         self.assertNotIn("shell=True", helper)
         self.assertNotIn("os.system", helper)
         self.assertNotIn('"serial": serial', helper)
