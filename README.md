@@ -97,6 +97,19 @@ delivery path, responsive fit, and motion behavior before promoting it into
 > rehearsals and public case-study proof remain planned. The repository does
 > not claim stable cross-host support or a completed production proof ladder.
 
+## Trailblaze
+
+The [`trailblaze` skill](skills/trailblaze/SKILL.md) is a thin, runtime-synced
+bridge for natural-language device control and replayable Android, iOS, and web
+journeys. It requires the installed Trailblaze CLI to supply its version-matched
+command contract through `trailblaze skill show`; SaariusSkills does not vendor
+a second copy of Trailblaze's evolving manual.
+
+The companion phone-stack reference keeps responsibilities separate:
+PhoneProof judges evidence, Pixel Use performs semantic physical-phone work,
+and Trailblaze records and replays behavior. This scaffold has structural and
+packaging coverage. It does not claim a live Trailblaze run on this host.
+
 ## Origins
 
 GrillTrack began when an ordinary grilling session worked exactly as intended:
@@ -190,6 +203,12 @@ invocation, but it is never required when the user's intent is already clear.
   for doctor, plan, status, journals, and gated qualification operations.
 - `skills/herdr-puppet/references/`: authority, transport, qualification,
   desktop-observation fallback, and versioned JSON-schema contracts.
+- [`skills/trailblaze/SKILL.md`](skills/trailblaze/SKILL.md): the runtime-synced
+  Trailblaze router for device control, saved trails, replay, reports, and
+  custom agent surfaces.
+- `skills/trailblaze/references/phone-stack.md`: the single-controller
+  composition contract for Trailblaze, Pixel Use, PhoneProof, Android Studio,
+  and human mirrors.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

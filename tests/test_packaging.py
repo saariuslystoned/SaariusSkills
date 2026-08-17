@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
+TRAILBLAZE_SKILL = ROOT / "skills" / "trailblaze"
 
 
 class PackagingTests(unittest.TestCase):
@@ -505,6 +506,32 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("infer an authentication gate", fallback)
         self.assertIn("Use Pixel Use MCP for phone semantics", fallback)
         self.assertIn("Never enter or retrieve a password", fallback)
+
+    def test_trailblaze_skill_is_packaged_and_runtime_synced(self) -> None:
+        skill = (TRAILBLAZE_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (TRAILBLAZE_SKILL / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        phone_stack = (
+            TRAILBLAZE_SKILL / "references" / "phone-stack.md"
+        ).read_text(encoding="utf-8")
+        notices = (
+            TRAILBLAZE_SKILL / "THIRD_PARTY_NOTICES.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("trailblaze skill show", skill)
+        self.assertIn("TRAILBLAZE_SETUP_REQUIRED", skill)
+        self.assertIn("references/phone-stack.md", skill)
+        self.assertIn("Do not install or upgrade Trailblaze", skill)
+        self.assertIn("$trailblaze", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("trailblaze-native", phone_stack)
+        self.assertIn("trailblaze-via-pixel-use", phone_stack)
+        self.assertIn("Never let two controllers race", phone_stack)
+        self.assertIn("not automatically independent", phone_stack)
+        self.assertIn("https://github.com/block/trailblaze", notices)
+        self.assertIn("Apache License 2.0", notices)
 
 
 if __name__ == "__main__":

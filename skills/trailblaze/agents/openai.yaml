@@ -1,0 +1,7 @@
+interface:
+  display_name: "Trailblaze"
+  short_description: "Record and replay cross-platform UI journeys"
+  default_prompt: "Use $trailblaze to drive this device flow, save it as a replayable trail, and produce an inspectable report."
+
+policy:
+  allow_implicit_invocation: true
