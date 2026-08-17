@@ -136,6 +136,7 @@ PRESERVE_REASONS = {
     "operator_stop",
     "route_superseded",
 }
+RESUMABLE_PRESERVE_REASONS = {"human_gate", "operator_stop"}
 CLAUDE_LIFECYCLE_EVENT = "qualification.claude-lifecycle"
 RFC3339_TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
@@ -199,6 +200,8 @@ LEASE_FIELDS = {
     "startup_gate_operations",
     "preserved_reason",
     "preserved_at",
+    "resumed_at",
+    "resumed_from_reason",
     "cleanup_state",
     "cleanup_verified_at",
     "cleanup_reconciled_absence",
@@ -251,6 +254,8 @@ LEGACY_LEASE_REQUIRED_FIELDS = (
 PREVIOUS_LEASE_FIELDS = LEASE_FIELDS - {
     "harness_readiness_submission_seq",
     "harness_readiness_nonce_sha256",
+    "resumed_at",
+    "resumed_from_reason",
 }
 HISTORICAL_LEASE_FIELDS = PREVIOUS_LEASE_FIELDS - {
     "destination_selection",
@@ -1734,6 +1739,22 @@ def _validate_lease(
         raise HerdrPuppetError(
             "invalid_lease",
             "Lease preservation time must be RFC 3339.",
+        )
+    if (
+        "resumed_from_reason" in payload
+        and payload["resumed_from_reason"] not in PRESERVE_REASONS
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease resume-from reason is unsupported.",
+        )
+    if (
+        "resumed_at" in payload
+        and not _is_rfc3339_timestamp(payload["resumed_at"])
+    ):
+        raise HerdrPuppetError(
+            "invalid_lease",
+            "Lease resume time must be RFC 3339.",
         )
     cleanup_fields = {
         "cleanup_state",
@@ -6282,5 +6303,85 @@ def preserve_lease(
         "state": "preserved",
         "reason": reason,
         "already_preserved": False,
+        "herdr_mutated": False,
+    }
+
+
+def resume_lease(
+    *,
+    lease_payload: dict[str, Any],
+    lease_path: Path,
+    client: HerdrClient,
+    allow_live: bool,
+    run_root: Path | None = None,
+) -> dict[str, Any]:
+    _validate_maintainable_lease(lease_payload, allow_historical=False)
+    if not allow_live:
+        raise HerdrPuppetError(
+            "live_qualification_not_authorized",
+            "The command flag must authorize the lease resume.",
+        )
+    with _lease_lock(lease_path) as locked_lease_path:
+        current = _reload_locked_lease(lease_payload, locked_lease_path)
+        _require_current_record_binding(current)
+        if current["state"] == "active":
+            return {
+                "schema": "herdr-puppet.lease-resume.v1",
+                "result": "ok",
+                "run_id": current["run_id"],
+                "state": "active",
+                "resumed_from_reason": current.get("resumed_from_reason"),
+                "already_active": True,
+                "herdr_mutated": False,
+            }
+        if current["state"] != "preserved":
+            raise HerdrPuppetError(
+                "lease_not_resumable",
+                "Only a preserved lease can be resumed.",
+                details={"state": current["state"]},
+            )
+        preserved_reason = current.get("preserved_reason")
+        if preserved_reason not in RESUMABLE_PRESERVE_REASONS:
+            raise HerdrPuppetError(
+                "lease_not_resumable",
+                "This preserved lease's reason is terminal and cannot be "
+                "resumed.",
+                details={
+                    "preserved_reason": preserved_reason,
+                    "resumable": sorted(RESUMABLE_PRESERVE_REASONS),
+                },
+            )
+        status = structural_status(client, lease_payload=current)
+        if status["result"] != "ok":
+            raise HerdrPuppetError(
+                "resume_structural_blocked",
+                "Structural status blocked the lease resume.",
+                details={"blockers": status.get("blockers")},
+            )
+        updated = json.loads(json.dumps(current))
+        updated["state"] = "active"
+        updated["resumed_at"] = now()
+        updated["resumed_from_reason"] = preserved_reason
+        atomic_json(locked_lease_path, updated)
+        if run_root is not None:
+            append_event(
+                run_root,
+                make_event(
+                    updated["run_id"],
+                    "lease.resumed",
+                    "observed",
+                    data={
+                        "resumed_from_reason": preserved_reason,
+                        "herdr_mutated": False,
+                    },
+                ),
+            )
+    return {
+        "schema": "herdr-puppet.lease-resume.v1",
+        "result": "ok",
+        "run_id": updated["run_id"],
+        "state": "active",
+        "resumed_from_reason": preserved_reason,
+        "already_active": False,
         "herdr_mutated": False,
     }
