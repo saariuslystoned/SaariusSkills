@@ -1,0 +1,109 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "codex",
+  "source_head": "cdaf38877ed61d607de03129fc6036b728958fbf",
+  "integrated_head": "f8bd2b8f2c55500ec4e32bd96104214bc70fe1ba",
+  "recorded_date": "2026-07-27",
+  "scope": "exact_head_qualification_and_accepted_public_mutating_lifecycle_pending_read_only_cross_review_and_final_integrated_head_rerun",
+  "runtime": {
+    "name": "Codex CLI",
+    "version": "0.145.0",
+    "executable_sha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+    "authentication": "same_exact_logged_in_private_profile",
+    "session_profile": "regular",
+    "model_selection": "current_provider_default",
+    "model_selector_used": false,
+    "observed_model": "unavailable",
+    "effort_selection": "current_provider_default",
+    "effort_selector_used": false,
+    "observed_effort": "unavailable",
+    "permission_mode": "dangerously_bypass_approvals",
+    "sandbox_mode": "disabled"
+  },
+  "accepted_receipts": {
+    "positive_sha256": "782612a61018d3a0f9912a6339cf9aa006a61d1a324c0a7a80976bbbc1d41317",
+    "ordinary_control_sha256": "a106f36eac912a9e5a6dfcbdccbbf9a9eb7ab6e08954023b3c5addb7083c2b3d",
+    "terminal_pair_file_sha256": "2182779c4b9a49623fa653c6d7b70a735f01111ab7cc00986068c46fadee4a5b",
+    "native_view_sha256": "0161a0b52f4bad8c851c5824ff4505e33a9f44410690b45e4a99cf2390e1f6b5"
+  },
+  "qualified_manifest": {
+    "fingerprint": "442042bed81a3739dc5d8cc2f27c6b6ca1bec87c8033bf2cb0efed85c5e76a85",
+    "file_sha256": "2b19ec379f7da0b2a14fe2484f573ab4865e2a02f9da30a5861e3fbbb9fbc779"
+  },
+  "qualification_checkpoint": {
+    "same_exact_private_profile": true,
+    "distinct_clean_linked_worktrees": true,
+    "distinct_target_processes": true,
+    "distinct_tmux_and_controller_leases": true,
+    "sequenced_checkpoints": true,
+    "actual_read_only_native_view": true,
+    "exact_terminal_halts": true,
+    "prompt_or_reply_body_retained": false,
+    "authentication_or_configuration_content_retained": false
+  },
+  "public_mutating_session": {
+    "session": "puppet-codex-public-cdaf388-20260727",
+    "run_id": "codex-public-mutating-cdaf388-20260727",
+    "entry_mode": "cockpit_explicit",
+    "starting_head": "cdaf38877ed61d607de03129fc6036b728958fbf",
+    "candidate_commit": "4cd62586f9057f89fdc5e204d2b25c3a436cb52a",
+    "integrated_commit": "f8bd2b8f2c55500ec4e32bd96104214bc70fe1ba",
+    "checkpoint_id": "580ac01b2ddfdfbe2f5cc960fb5e75c43d8477332ab98bc63f9842f05c705e05",
+    "handoff_sha256": "3e5747b0caa23e32cc889a3ad373c5c3ce86a4e394f33be725993c832ef6b82a",
+    "controller_verdict_sha256": "a31b6931b34704d47f95a8eb337b5475731f18605c883fabc551c117ef2afad8",
+    "terminal_state_sha256": "5bf9f2d186038130d021569238dafc76ecf8f0bd5c0f84930a8a839a39e25d7b",
+    "process_identity_sha256": "9e5d9e367ec2bf8e36dc3c7166fac575f01139aa0424cfaf536b4b30e486552d",
+    "tmux_identity_sha256": "7b536f1ddd57a74551ac360bfbb3f39163cfd059e767ad9e08384d7f0f90e9b6",
+    "viewer_ticket_sha256": "f123a2df0b7b69cb26929314f7b686a1cfa6e46967aa808eefee682375fc8ded",
+    "viewer_claim_sha256": "f16f678bb565c97a5808f66a4ef5b1ef15a2650a59733fbe185f7e8c2f77966d",
+    "viewer_revoke_sha256": "f957159df3747de458712de5f22cbdb585d7e3c6b980d5d5d241d957499e8922",
+    "journal_sha256": "2e632e8917a85c70267e76b80d41274649e6a92e71c904b2019ecd38b9b30da7",
+    "native_read_only_view": true,
+    "controller_attached": false,
+    "steering_messages_submitted": 4,
+    "checkpoint_schema_rejection_repaired_by_target": true,
+    "focused_tests": 134,
+    "full_test_discovery": "pass",
+    "controller_verdict": "source_accept",
+    "exact_owned_halt": true,
+    "target_pid_gone": true,
+    "lease_state": "halted",
+    "raw_retained": false
+  },
+  "accepted_repairs": [
+    {
+      "head": "3d184b4",
+      "finding": "fresh census observation time changed the current manifest fingerprint",
+      "repair": "exclude generated census time from exact receipt identity while retaining executable, adapter, protocol, and mapping drift checks"
+    },
+    {
+      "head": "c259450",
+      "finding": "qualification read the obsolete top-level workspace-isolation field",
+      "repair": "consume terminal workspace isolation from the current nested positive pair schema"
+    },
+    {
+      "head": "cdaf388",
+      "finding": "qualified mapping closure assumed an obsolete fixed executable path",
+      "repair": "bind mapping closure to the exact current manifest executable"
+    }
+  ],
+  "acceptance": {
+    "exact_head_qualification_recorded": true,
+    "public_mutating_lifecycle_controller_accepted": true,
+    "read_only_cross_review_controller_accepted": false,
+    "final_integrated_head_rerun_complete": false,
+    "controller_exact_commit_review_complete": true
+  },
+  "deferred": [
+    "goal_mode",
+    "loop_mode",
+    "resume",
+    "explicit_model_selection",
+    "native_instruction_plane_activation_precedence_cleanup_and_no_bleed"
+  ],
+  "non_claims": [
+    "This record does not claim completion of the distinct cockpit read-only cross-review.",
+    "The provider-selected model and effort identities remain unavailable because the qualification used no selectors.",
+    "A final integrated-head rerun remains required."
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/plan.schema.json",
-  "title": "Herdr-Puppet plan v1",
+  "title": "Herdr-Puppet plan v2",
   "type": "object",
   "required": [
     "schema",
@@ -10,17 +10,20 @@
     "harness",
     "session",
     "workspace",
+    "destination_selection",
+    "selected_authority_sha256",
     "expected_ssh_target",
     "owned_label",
     "source",
+    "harness_binding",
     "proof_root",
     "safety"
   ],
   "properties": {
-    "schema": {"const": "herdr-puppet.plan.v1"},
+    "schema": {"const": "herdr-puppet.plan.v2"},
     "state": {"const": "planned"},
     "run_id": {"type": "string", "minLength": 1},
-    "harness": {"type": "string", "minLength": 1},
+    "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
     "session": {
       "type": "object",
       "required": ["name", "version", "protocol", "socket", "incarnation_proven"],
@@ -42,6 +45,8 @@
       },
       "additionalProperties": false
     },
+    "destination_selection": {"$ref": "#/$defs/destinationSelection"},
+    "selected_authority_sha256": {"$ref": "#/$defs/sha256"},
     "expected_ssh_target": {"type": "string", "minLength": 1},
     "owned_label": {"type": "string", "pattern": "^puppet-[a-z0-9-]+$"},
     "source": {
@@ -52,6 +57,13 @@
         "worktree": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
+    },
+    "harness_binding": {
+      "oneOf": [
+        {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v2.schema.json"},
+        {"$ref": "harness-binding-v1.schema.json"}
+      ]
     },
     "proof_root": {"type": "string", "minLength": 1},
     "safety": {
@@ -68,6 +80,70 @@
         "ordinary_transcript_read": {"const": false},
         "live_mutation_authorized": {"type": "boolean"}
       },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "destinationSelection": {
+      "type": "object",
+      "required": [
+        "schema",
+        "mode",
+        "machine",
+        "workspace_label",
+        "tab",
+        "legacy_ordinal_alias",
+        "catalog_path_retained",
+        "ssh_target_retained",
+        "existing_tab_adoption"
+      ],
+      "properties": {
+        "schema": {"const": "herdr-puppet.destination-selection-receipt.v1"},
+        "mode": {"enum": ["named_catalog", "legacy_explicit"]},
+        "machine": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "workspace_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "tab": {
+          "type": "object",
+          "required": ["request", "ordinal"],
+          "properties": {
+            "request": {"const": "fresh"},
+            "ordinal": {"type": "integer", "minimum": 1, "maximum": 999}
+          },
+          "additionalProperties": false
+        },
+        "legacy_ordinal_alias": {"type": "boolean"},
+        "catalog_path_retained": {"const": false},
+        "ssh_target_retained": {"const": false},
+        "existing_tab_adoption": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "named_catalog"}}},
+          "then": {
+            "properties": {
+              "machine": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              }
+            }
+          },
+          "else": {"properties": {"machine": {"type": "null"}}}
+        }
+      ],
       "additionalProperties": false
     }
   },

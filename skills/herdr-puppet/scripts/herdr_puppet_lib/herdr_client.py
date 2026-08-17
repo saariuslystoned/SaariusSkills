@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import stat
 import subprocess
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .errors import HerdrPuppetError
+
+
+MAX_PROMPT_BYTES = 256 * 1024
+MAX_SOCKET_RESPONSE_BYTES = 1024 * 1024
 
 
 class HerdrClient:
@@ -174,24 +183,306 @@ class HerdrClient:
                 workspace_id,
                 "--label",
                 label,
-                "--no-focus",
+                "--focus",
             ],
             json_output=False,
         )
 
-    def run_input(self, session: str, pane_id: str, text: str) -> Any:
+    def close_tab(self, session: str, tab_id: str) -> Any:
         return self._run(
-            ["--session", session, "pane", "run", pane_id, text],
-            json_output=False,
-            safe_command=[
+            [
                 "--session",
                 session,
-                "pane",
-                "run",
-                pane_id,
-                "<redacted-input>",
-            ],
+                "tab",
+                "close",
+                tab_id,
+            ]
         )
+
+    def wait_pid_absence(self, pid: int, timeout_seconds: float = 5.0) -> bool:
+        """Return true only when no process occupies the exact leased PID.
+
+        A reused PID remains present and therefore blocks cleanup verification.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    def run_command(self, session: str, pane_id: str, command: str) -> Any:
+        if not isinstance(command, str):
+            raise HerdrPuppetError(
+                "invalid_command",
+                "The shell command must be text.",
+            )
+        if not command.strip():
+            raise HerdrPuppetError(
+                "command_empty",
+                "The shell command must contain non-whitespace text.",
+            )
+        try:
+            command_bytes = command.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise HerdrPuppetError(
+                "invalid_command_encoding",
+                "The shell command must be valid UTF-8.",
+            ) from exc
+        if len(command_bytes) > MAX_PROMPT_BYTES:
+            raise HerdrPuppetError(
+                "command_too_large",
+                "The shell command exceeds the bounded input size.",
+                details={"max_prompt_bytes": MAX_PROMPT_BYTES},
+            )
+        if "\x00" in command:
+            raise HerdrPuppetError(
+                "invalid_command",
+                "The shell command contains an unsupported null byte.",
+            )
+        args = [
+            "--session",
+            session,
+            "pane",
+            "run",
+            pane_id,
+            command,
+        ]
+        safe_command = [
+            "--session",
+            session,
+            "pane",
+            "run",
+            pane_id,
+            "<redacted-command>",
+        ]
+        try:
+            return self._run(
+                args,
+                json_output=False,
+                safe_command=safe_command,
+            )
+        except HerdrPuppetError as exc:
+            if exc.code != "herdr_command_failed":
+                raise
+            details: dict[str, Any] = {"command": safe_command}
+            if isinstance(exc.details.get("returncode"), int):
+                details["returncode"] = exc.details["returncode"]
+            raise HerdrPuppetError(
+                exc.code,
+                exc.message,
+                details=details,
+                exit_code=exc.exit_code,
+            ) from exc
+        except OSError as exc:
+            raise HerdrPuppetError(
+                "herdr_launch_failed",
+                "The Herdr process could not be launched.",
+                details={"command": safe_command},
+            ) from exc
+
+    def run_input(
+        self,
+        socket_path: str,
+        pane_id: str,
+        text: str,
+        *,
+        keys: list[str] | None = None,
+    ) -> Any:
+        selected_keys = ["enter"] if keys is None else list(keys)
+        has_non_whitespace_text = bool(text.strip())
+        if not has_non_whitespace_text and text != "":
+            raise HerdrPuppetError(
+                "prompt_empty",
+                "The prompt must contain non-whitespace text.",
+            )
+        if keys is None and not has_non_whitespace_text:
+            raise HerdrPuppetError(
+                "prompt_empty",
+                "The prompt must contain non-whitespace text.",
+            )
+        if keys is not None and has_non_whitespace_text:
+            if (
+                not selected_keys
+                or len(selected_keys) > 2
+                or any(key != "enter" for key in selected_keys)
+            ):
+                raise HerdrPuppetError(
+                    "submit_key_vector_invalid",
+                    "The submit key vector is outside the bounded allowlist.",
+                )
+        elif keys is not None and (
+            not selected_keys
+            or len(selected_keys) > 4
+            or any(
+                key not in {"a", "enter", "up", "down"}
+                for key in selected_keys
+            )
+        ):
+            raise HerdrPuppetError(
+                "startup_gate_key_vector_invalid",
+                "The startup-gate key vector is outside the bounded allowlist.",
+            )
+        text_bytes = text.encode("utf-8")
+        if len(text_bytes) > MAX_PROMPT_BYTES:
+            raise HerdrPuppetError(
+                "prompt_too_large",
+                "The prompt exceeds the bounded input size.",
+                details={"max_prompt_bytes": MAX_PROMPT_BYTES},
+            )
+        request_id = f"herdr_puppet_{uuid.uuid4().hex}"
+        request = {
+            "id": request_id,
+            "method": "pane.send_input",
+            "params": {
+                "pane_id": pane_id,
+                "text": text,
+                "keys": selected_keys,
+            },
+        }
+        encoded = json.dumps(
+            request,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if b"\n" in encoded:
+            raise HerdrPuppetError(
+                "invalid_socket_request",
+                "The encoded Herdr request is not one newline-delimited frame.",
+            )
+
+        path = Path(socket_path)
+        if not path.is_absolute():
+            raise HerdrPuppetError(
+                "invalid_herdr_socket",
+                "The leased Herdr socket path must be absolute.",
+            )
+        try:
+            socket_stat = os.lstat(path)
+        except OSError as exc:
+            raise HerdrPuppetError(
+                "herdr_socket_unavailable",
+                "The leased Herdr socket is unavailable.",
+            ) from exc
+        if not stat.S_ISSOCK(socket_stat.st_mode):
+            raise HerdrPuppetError(
+                "invalid_herdr_socket",
+                "The leased Herdr socket path is not a Unix socket.",
+            )
+        if socket_stat.st_uid != os.geteuid():
+            raise HerdrPuppetError(
+                "herdr_socket_owner_mismatch",
+                "The leased Herdr socket is not owned by the current user.",
+            )
+
+        dispatch_started = False
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(self.timeout_seconds)
+                connection.connect(socket_path)
+                connected_stat = os.lstat(path)
+                if (
+                    connected_stat.st_dev != socket_stat.st_dev
+                    or connected_stat.st_ino != socket_stat.st_ino
+                    or not stat.S_ISSOCK(connected_stat.st_mode)
+                    or connected_stat.st_uid != socket_stat.st_uid
+                ):
+                    raise HerdrPuppetError(
+                        "herdr_socket_replaced",
+                        "The leased Herdr socket changed during connection.",
+                    )
+                dispatch_started = True
+                connection.sendall(encoded + b"\n")
+                response_line = self._read_socket_line(connection)
+        except HerdrPuppetError:
+            raise
+        except (OSError, socket.timeout) as exc:
+            if dispatch_started:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "The Herdr input request may have been applied; reconcile "
+                    "the sequence before another send.",
+                ) from exc
+            raise HerdrPuppetError(
+                "herdr_socket_connection_failed",
+                "The leased Herdr socket could not be reached.",
+            ) from exc
+
+        try:
+            response = json.loads(response_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned an invalid input response; reconcile the "
+                "sequence before another send.",
+            ) from exc
+        if not isinstance(response, dict) or response.get("id") != request_id:
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned a mismatched input response; reconcile the "
+                "sequence before another send.",
+            )
+        error = response.get("error")
+        if isinstance(error, dict):
+            error_code = error.get("code")
+            raise HerdrPuppetError(
+                "herdr_input_rejected",
+                "Herdr rejected the input request.",
+                details={
+                    "api_error_code": (
+                        error_code if isinstance(error_code, str) else None
+                    )
+                },
+            )
+        result = response.get("result")
+        if not isinstance(result, dict) or result.get("type") != "ok":
+            raise HerdrPuppetError(
+                "herdr_input_outcome_unknown",
+                "Herdr returned an unexpected input response; reconcile the "
+                "sequence before another send.",
+            )
+        return result
+
+    def run_keys(
+        self,
+        socket_path: str,
+        pane_id: str,
+        keys: list[str],
+    ) -> Any:
+        return self.run_input(socket_path, pane_id, "", keys=keys)
+
+    @staticmethod
+    def _read_socket_line(connection: socket.socket) -> bytes:
+        response = bytearray()
+        while True:
+            chunk = connection.recv(64 * 1024)
+            if not chunk:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "Herdr closed the socket before acknowledging input; "
+                    "reconcile the sequence before another send.",
+                )
+            response.extend(chunk)
+            newline = response.find(b"\n")
+            if newline >= 0:
+                if newline > MAX_SOCKET_RESPONSE_BYTES:
+                    raise HerdrPuppetError(
+                        "herdr_input_outcome_unknown",
+                        "Herdr returned an oversized input response; reconcile "
+                        "the sequence before another send.",
+                    )
+                return bytes(response[:newline])
+            if len(response) > MAX_SOCKET_RESPONSE_BYTES:
+                raise HerdrPuppetError(
+                    "herdr_input_outcome_unknown",
+                    "Herdr returned an oversized input response; reconcile the "
+                    "sequence before another send.",
+                )
 
     def wait_output(
         self,
@@ -223,7 +514,7 @@ class HerdrClient:
         try:
             payload = self._run(
                 args,
-                timeout_seconds=max(self.timeout_seconds, timeout_ms / 1000 + 2.0),
+                timeout_seconds=self.timeout_seconds,
                 safe_command=[
                     "--session",
                     session,
@@ -236,7 +527,15 @@ class HerdrClient:
             )
         except HerdrPuppetError as exc:
             if exc.details.get("api_error_code") == "timeout":
-                return None
+                return {
+                    "type": "output_timeout",
+                    "timeout_source": "herdr",
+                }
+            if exc.code == "herdr_timeout":
+                return {
+                    "type": "output_timeout",
+                    "timeout_source": "controller",
+                }
             raise
         result = payload.get("result")
         if not isinstance(result, dict) or result.get("type") != "output_matched":

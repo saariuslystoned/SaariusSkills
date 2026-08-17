@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/destination-catalog.schema.json",
+  "title": "Herdr-Puppet named destination catalog v1",
+  "type": "object",
+  "required": ["schema", "profiles"],
+  "properties": {
+    "schema": {"const": "herdr-puppet.destination-catalog.v1"},
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["name", "workspace_label", "ssh_target"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "workspace_label": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$"
+          },
+          "ssh_target": {
+            "type": "string",
+            "maxLength": 320,
+            "pattern": "^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

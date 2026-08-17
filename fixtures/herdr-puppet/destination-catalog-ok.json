@@ -1,0 +1,15 @@
+{
+  "schema": "herdr-puppet.destination-catalog.v1",
+  "profiles": [
+    {
+      "name": "aiworker-01",
+      "workspace_label": "aiworker-01",
+      "ssh_target": "worker@aiworker-01.example"
+    },
+    {
+      "name": "aiworker-02",
+      "workspace_label": "aiworker-02",
+      "ssh_target": "worker@aiworker-02.example"
+    }
+  ]
+}

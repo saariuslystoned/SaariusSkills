@@ -1,0 +1,16 @@
+{
+  "schema": "herdr-puppet.instruction-catalog.v2",
+  "universal": "universal.md",
+  "models": {
+    "default_unresolved": "model/default-unresolved.md",
+    "agy_gemini_3_7_flash_high": "model/agy-gemini-3.7-flash-high.md"
+  },
+  "lifecycle": "lifecycle/regular.md",
+  "harnesses": {
+    "agy": "harness/agy.md",
+    "codex": "harness/codex.md",
+    "claude": "harness/claude.md",
+    "cursor": "harness/cursor.md",
+    "grok": "harness/grok.md"
+  }
+}

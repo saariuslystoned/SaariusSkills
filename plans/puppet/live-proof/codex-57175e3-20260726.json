@@ -1,0 +1,92 @@
+{
+  "schema": "puppet.curated-live-proof/v1",
+  "target": "codex",
+  "source_head": "57175e31212eaefdbb8564cbcf4d0ade09c6423c",
+  "observed_at": "2026-07-26T14:17:38Z",
+  "scope": "independently_verified_paired_evidence_pending_public_authority_and_final_integrated_rerun",
+  "runtime": {
+    "name": "Codex CLI",
+    "version": "0.145.0",
+    "executable_sha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+    "authentication": "subscription_backed_private_profile",
+    "model_selection": "current_provider_default",
+    "observed_model": "unavailable",
+    "effort_selection": "current_provider_default",
+    "session_profile": "regular",
+    "permission_mode": "dangerously_bypass_approvals",
+    "sandbox_mode": "disabled"
+  },
+  "positive": {
+    "run_id": "codex-positive-57175e3-20260726",
+    "target_pid": 75272,
+    "receipt_sha256": "a205298415f33b59398b086cc3227f29cad6c862e58b8213dca62d216b3e160e",
+    "native_view_sha256": "70456b20d3677b45b477d077ccef35b07f714298b8e4e47a4d6b9db7f61c9003",
+    "halt_sha256": "58ce5a0fcaec7b32e6cf28a97e67904ff95d03e8450865f2dd7446130e62809d",
+    "worktree_descriptor_sha256": "47abab175a28daf31385dd5759b233026bd7cbf048a5dbb3a896f52644cf8be5",
+    "entry_plan_sha256": "9a3431ff99268fb8cbb086d052b7a6e92f5d35661945e1ab2668ba2352579aaf",
+    "post_halt_population": []
+  },
+  "ordinary_control": {
+    "run_id": "codex-ordinary-57175e3-20260726",
+    "target_pid": 84320,
+    "receipt_sha256": "b406395c5678bcd3e3af0e51e0c8ddc597199e1c21471faa6786b172657197a4",
+    "halt_sha256": "c16a5131b15a9a4a0eb2e841a19a8fde822f0852ce246d0a47559991219d4677",
+    "worktree_descriptor_sha256": "2f36e993007823761efa61849ab4f6b49f075569194fe846fdcc845d5f11363c",
+    "instruction_artifact_absent": true,
+    "post_halt_population": []
+  },
+  "native_view": {
+    "viewer_pid": 81017,
+    "tty": "/dev/ttys023",
+    "read_only": true,
+    "attached": true,
+    "detached": true,
+    "target_alive_after_detach": true,
+    "pane_body_captured": false
+  },
+  "pair": {
+    "result": "paired_evidence_only",
+    "no_bleed_verified": true,
+    "same_git_common_repository_and_exact_head": true,
+    "distinct_non_overlapping_worktrees": true,
+    "same_closed_profile_context": true,
+    "same_no_selector_launch_vector": true,
+    "body_capture_performed": false,
+    "paired_receipt_sha256": "e67adce0a728fc8fe42f3cd55f8782d89398f8880e1f0737bfbc2889eaa4e718",
+    "controller_attestation_receipt_digest": "8f02d9d0517a8164c91bcaec46871af0aeedd91800df3ec85a344257a53c8373",
+    "independently_verified": true,
+    "public_launch_authorized": false,
+    "promotion_authorized": false
+  },
+  "controller_verification": {
+    "pair_reverified": true,
+    "distinct_process_tmux_worktree_lease_and_viewer_identities": true,
+    "native_read_only_views": 1,
+    "sequenced_steering": true,
+    "exact_owned_tree_halts": true,
+    "zero_residual_target_population": true,
+    "transcript_or_body_retained": false
+  },
+  "live_forced_repairs": [
+    {
+      "head": "a89d982",
+      "finding": "a synthetic non-Git ordinary fixture exited before the first checkpoint",
+      "repair": "require a Git-bound ordinary control"
+    },
+    {
+      "head": "1759f50",
+      "finding": "a seeded standalone Git repository still exited before the first checkpoint",
+      "repair": "use a second clean linked worktree from the same repository and exact head"
+    },
+    {
+      "head": "25582a5",
+      "finding": "both live members accepted but the pair joiner expected an obsolete reduced environment-name set",
+      "repair": "bind the actual closed Codex environment vector"
+    }
+  ],
+  "non_claims": [
+    "This evidence-only pair intentionally does not authorize a public regular-session launcher or manifest promotion.",
+    "The provider-selected model and effort identities remain unavailable because the launch uses no selectors.",
+    "A final integrated five-harness concurrency and source-stable rerun is still required."
+  ]
+}

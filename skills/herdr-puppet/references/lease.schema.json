@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://saariuslystoned.github.io/SaariusSkills/herdr-puppet/lease.schema.json",
-  "title": "Herdr-Puppet lease v1",
+  "title": "Herdr-Puppet lease v3",
   "type": "object",
   "required": [
     "schema",
@@ -10,20 +10,32 @@
     "harness",
     "session",
     "workspace",
+    "destination_selection",
+    "selected_authority_sha256",
     "owned_label",
     "tab_id",
     "pane_id",
     "terminal_id",
     "ssh",
     "next_seq",
+    "shell_readiness",
+    "harness_readiness",
     "source",
-    "proof_root"
+    "harness_binding",
+    "startup_gate_operations",
+    "proof_root",
+    "caller_text_files",
+    "caller_text_files_removed",
+    "remote_task_files",
+    "interactive_sends",
+    "pending_interactive_send",
+    "pending_sequence_operation"
   ],
   "properties": {
-    "schema": {"const": "herdr-puppet.lease.v1"},
+    "schema": {"const": "herdr-puppet.lease.v3"},
     "state": {"enum": ["active", "preserved"]},
     "run_id": {"type": "string", "minLength": 1},
-    "harness": {"type": "string", "minLength": 1},
+    "harness": {"enum": ["agy", "codex", "claude", "cursor", "grok"]},
     "session": {"$ref": "#/$defs/session"},
     "workspace": {
       "type": "object",
@@ -34,6 +46,8 @@
       },
       "additionalProperties": false
     },
+    "destination_selection": {"$ref": "#/$defs/destinationSelection"},
+    "selected_authority_sha256": {"$ref": "#/$defs/sha256"},
     "owned_label": {"type": "string", "pattern": "^puppet-[a-z0-9-]+$"},
     "tab_id": {"type": "string", "minLength": 1},
     "pane_id": {"type": "string", "minLength": 1},
@@ -53,6 +67,33 @@
       "additionalProperties": false
     },
     "next_seq": {"type": "integer", "minimum": 1},
+    "shell_readiness": {
+      "enum": ["unverified", "status_verified"]
+    },
+    "harness_readiness": {
+      "enum": [
+        "unverified",
+        "operator_verified",
+        "checkpoint_pending",
+        "checkpoint_verified"
+      ]
+    },
+    "harness_readiness_evidence": {
+      "enum": [
+        "operator_observed_ready_input",
+        "strict_initial_status_checkpoint"
+      ]
+    },
+    "harness_readiness_operator": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@:-]{1,128}$"
+    },
+    "harness_readiness_verified_at": {"type": "string", "format": "date-time"},
+    "harness_readiness_submission_seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "harness_readiness_nonce_sha256": {"$ref": "#/$defs/sha256"},
     "source": {
       "type": "object",
       "required": ["repo", "worktree"],
@@ -62,7 +103,170 @@
       },
       "additionalProperties": false
     },
+    "harness_binding": {
+      "oneOf": [
+        {"$ref": "harness-binding.schema.json"},
+        {"$ref": "harness-binding-v2.schema.json"},
+        {"$ref": "harness-binding-v1.schema.json"}
+      ]
+    },
+    "harness_launch": {
+      "type": "object",
+      "required": [
+        "seq",
+        "launched_at",
+        "command_sha256",
+        "binding_fingerprint",
+        "launch_vector_sha256",
+        "remote_harness_pid"
+      ],
+      "properties": {
+        "seq": {"type": "integer", "minimum": 2},
+        "launched_at": {"type": "string", "format": "date-time"},
+        "command_sha256": {"$ref": "#/$defs/sha256"},
+        "binding_fingerprint": {"$ref": "#/$defs/sha256"},
+        "launch_vector_sha256": {"$ref": "#/$defs/sha256"},
+        "remote_harness_pid": {"const": "unavailable"}
+      },
+      "additionalProperties": false
+    },
+    "startup_gate_operations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/startupGateOperation"}
+    },
     "proof_root": {"type": "string", "minLength": 1},
+    "caller_text_files": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "caller_text_files_removed": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "remote_task_files": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/remoteTaskFile"}
+    },
+    "interactive_sends": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "initial"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": true}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "steering"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"enum": ["direct", "reconciled"]},
+            "instruction_wrapper_verified": {"const": false}
+          },
+          "additionalProperties": false
+        }
+      ],
+      "items": false,
+      "maxItems": 2,
+      "minItems": 0
+    },
+    "pending_interactive_send": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "initial"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": true},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "seq",
+            "phase",
+            "prompt_sha256",
+            "transport",
+            "instruction_wrapper_verified",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "seq": {"type": "integer", "minimum": 1},
+            "phase": {"const": "steering"},
+            "prompt_sha256": {"$ref": "#/$defs/sha256"},
+            "transport": {"const": "direct"},
+            "instruction_wrapper_verified": {"const": false},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pending_sequence_operation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "operation",
+            "seq",
+            "payload_sha256",
+            "delivery_state",
+            "reserved_at"
+          ],
+          "properties": {
+            "operation": {
+              "enum": ["run", "harness_launch", "startup_gate"]
+            },
+            "seq": {"type": "integer", "minimum": 1},
+            "payload_sha256": {"$ref": "#/$defs/sha256"},
+            "delivery_state": {"const": "pending_or_unknown"},
+            "reserved_at": {"type": "string", "format": "date-time"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "preserved_reason": {
       "enum": [
         "checkpoint_failed",
@@ -72,9 +276,185 @@
         "route_superseded"
       ]
     },
-    "preserved_at": {"type": "string", "format": "date-time"}
+    "preserved_at": {"type": "string", "format": "date-time"},
+    "cleanup_state": {"const": "closed"},
+    "cleanup_verified_at": {"type": "string", "format": "date-time"},
+    "cleanup_reconciled_absence": {"type": "boolean"}
+  },
+  "dependentRequired": {
+    "cleanup_state": [
+      "cleanup_verified_at",
+      "cleanup_reconciled_absence"
+    ],
+    "cleanup_verified_at": [
+      "cleanup_state",
+      "cleanup_reconciled_absence"
+    ],
+    "cleanup_reconciled_absence": [
+      "cleanup_state",
+      "cleanup_verified_at"
+    ]
   },
   "$defs": {
+    "destinationSelection": {
+      "type": "object",
+      "required": [
+        "schema",
+        "mode",
+        "machine",
+        "workspace_label",
+        "tab",
+        "legacy_ordinal_alias",
+        "catalog_path_retained",
+        "ssh_target_retained",
+        "existing_tab_adoption"
+      ],
+      "properties": {
+        "schema": {"const": "herdr-puppet.destination-selection-receipt.v1"},
+        "mode": {"enum": ["named_catalog", "legacy_explicit"]},
+        "machine": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "workspace_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "tab": {
+          "type": "object",
+          "required": ["request", "ordinal"],
+          "properties": {
+            "request": {"const": "fresh"},
+            "ordinal": {"type": "integer", "minimum": 1, "maximum": 999}
+          },
+          "additionalProperties": false
+        },
+        "legacy_ordinal_alias": {"type": "boolean"},
+        "catalog_path_retained": {"const": false},
+        "ssh_target_retained": {"const": false},
+        "existing_tab_adoption": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "named_catalog"}}},
+          "then": {
+            "properties": {
+              "machine": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              }
+            }
+          },
+          "else": {"properties": {"machine": {"type": "null"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "startupGateOperation": {
+      "type": "object",
+      "required": [
+        "gate",
+        "action",
+        "seq",
+        "observed_at",
+        "operator_sha256",
+        "worktree_sha256",
+        "key_vector_sha256",
+        "pane_input_mutated"
+      ],
+      "properties": {
+        "gate": {
+          "enum": [
+            "workspace_trust",
+            "security_acknowledgement",
+            "permission_bypass_confirmation"
+          ]
+        },
+        "action": {
+          "enum": [
+            "accept",
+            "accept_selected",
+            "select_accept",
+            "acknowledge",
+            "not_present"
+          ]
+        },
+        "seq": {"type": "integer", "minimum": 1},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "operator_sha256": {"$ref": "#/$defs/sha256"},
+        "worktree_sha256": {"$ref": "#/$defs/sha256"},
+        "key_vector_sha256": {"$ref": "#/$defs/sha256"},
+        "pane_input_mutated": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"action": {"const": "not_present"}},
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {"pane_input_mutated": {"const": false}}
+          },
+          "else": {
+            "properties": {"pane_input_mutated": {"const": true}}
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "remoteTaskFile": {
+      "type": "object",
+      "required": ["path", "ssh_target", "state", "registered_at"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/[^\\u0000]*$"},
+        "ssh_target": {"type": "string", "minLength": 1},
+        "state": {"enum": ["registered", "removal_verified"]},
+        "registered_at": {"type": "string", "format": "date-time"},
+        "removal_verified_at": {"type": "string", "format": "date-time"},
+        "removal_evidence": {
+          "enum": [
+            "operator_verified_remote_absence",
+            "source_bound_terminal_artifact"
+          ]
+        }
+      },
+      "dependentRequired": {
+        "removal_verified_at": ["removal_evidence"],
+        "removal_evidence": ["removal_verified_at"]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "removal_verified"}}
+          },
+          "then": {
+            "required": ["removal_verified_at", "removal_evidence"]
+          }
+        },
+        {
+          "if": {
+            "properties": {"state": {"const": "registered"}}
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["removal_verified_at"]},
+                {"required": ["removal_evidence"]}
+              ]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
     "session": {
       "type": "object",
       "required": ["name", "version", "protocol", "socket", "incarnation_proven"],
@@ -88,5 +468,254 @@
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "harness_readiness": {"const": "operator_verified"}
+        }
+      },
+      "then": {
+        "required": [
+          "harness_launch",
+          "harness_readiness_evidence",
+          "harness_readiness_operator",
+          "harness_readiness_verified_at"
+        ],
+        "properties": {
+          "harness": {
+            "enum": ["codex", "claude", "cursor", "grok"]
+          },
+          "shell_readiness": {"const": "status_verified"},
+          "harness_readiness_evidence": {
+            "const": "operator_observed_ready_input"
+          }
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["harness_readiness_submission_seq"]},
+            {"required": ["harness_readiness_nonce_sha256"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "harness_readiness": {"const": "checkpoint_pending"}
+        }
+      },
+      "then": {
+        "required": [
+          "harness_launch",
+          "harness_readiness_submission_seq",
+          "harness_readiness_nonce_sha256"
+        ],
+        "properties": {
+          "harness": {"const": "agy"},
+          "shell_readiness": {"const": "status_verified"},
+          "interactive_sends": {
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "pending_interactive_send": {"type": "null"},
+          "pending_sequence_operation": {"type": "null"},
+          "startup_gate_operations": {"maxItems": 0}
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["harness_readiness_evidence"]},
+            {"required": ["harness_readiness_operator"]},
+            {"required": ["harness_readiness_verified_at"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "harness_readiness": {"const": "checkpoint_verified"}
+        }
+      },
+      "then": {
+        "required": [
+          "harness_launch",
+          "harness_readiness_evidence",
+          "harness_readiness_verified_at",
+          "harness_readiness_submission_seq",
+          "harness_readiness_nonce_sha256"
+        ],
+        "properties": {
+          "harness": {"const": "agy"},
+          "shell_readiness": {"const": "status_verified"},
+          "harness_readiness_evidence": {
+            "const": "strict_initial_status_checkpoint"
+          },
+          "interactive_sends": {"minItems": 1, "maxItems": 2},
+          "pending_sequence_operation": {"type": "null"},
+          "startup_gate_operations": {"maxItems": 0}
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "pending_interactive_send": {"type": "object"}
+              },
+              "required": ["pending_interactive_send"]
+            },
+            "then": {
+              "properties": {
+                "interactive_sends": {"minItems": 1, "maxItems": 1},
+                "pending_interactive_send": {
+                  "type": "object",
+                  "properties": {"phase": {"const": "steering"}}
+                }
+              }
+            }
+          }
+        ],
+        "not": {
+          "required": ["harness_readiness_operator"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"enum": ["agy", "grok"]}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "startup_gate_operations": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"const": "cursor"}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "startup_gate_operations": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/startupGateOperation"},
+                {
+                  "properties": {
+                    "gate": {"const": "workspace_trust"},
+                    "action": {"enum": ["accept", "not_present"]}
+                  },
+                  "required": ["gate", "action"]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"harness": {"enum": ["codex", "claude"]}},
+        "required": ["harness"]
+      },
+      "then": {
+        "properties": {
+          "startup_gate_operations": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/startupGateOperation"},
+                {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "gate": {"const": "workspace_trust"},
+                        "action": {
+                          "enum": ["accept_selected", "select_accept", "not_present"]
+                        }
+                      },
+                      "required": ["gate", "action"]
+                    },
+                    {
+                      "properties": {
+                        "gate": {"const": "security_acknowledgement"},
+                        "action": {"enum": ["acknowledge", "not_present"]}
+                      },
+                      "required": ["gate", "action"]
+                    },
+                    {
+                      "properties": {
+                        "gate": {"const": "permission_bypass_confirmation"},
+                        "action": {
+                          "enum": ["accept_selected", "select_accept", "not_present"]
+                        }
+                      },
+                      "required": ["gate", "action"]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "harness_readiness": {"const": "unverified"}
+        }
+      },
+      "then": {
+        "properties": {
+          "interactive_sends": {"maxItems": 0}
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["harness_readiness_evidence"]},
+            {"required": ["harness_readiness_operator"]},
+            {"required": ["harness_readiness_verified_at"]},
+            {"required": ["harness_readiness_submission_seq"]},
+            {"required": ["harness_readiness_nonce_sha256"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "harness": {"const": "cursor"},
+          "harness_readiness": {"const": "operator_verified"}
+        },
+        "required": ["harness", "harness_readiness"]
+      },
+      "then": {
+        "properties": {
+          "startup_gate_operations": {
+            "contains": {
+              "type": "object",
+              "properties": {
+                "gate": {"const": "workspace_trust"}
+              },
+              "required": ["gate"]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "not": {
+        "properties": {
+          "pending_interactive_send": {"type": "object"},
+          "pending_sequence_operation": {"type": "object"}
+        },
+        "required": [
+          "pending_interactive_send",
+          "pending_sequence_operation"
+        ]
+      }
+    }
+  ],
   "additionalProperties": false
 }
