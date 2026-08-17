@@ -7,13 +7,14 @@ Public, experimental Agent Skills maintained by
 
 The [`browser` skill](skills/browser/SKILL.md) adds a browser workflow for
 Antigravity CLI builds where the built-in `/browser` command is unavailable. The
-plugin packages a `browser-cli` subagent and an isolated Chrome DevTools MCP server
-alongside the slash-command skill.
+plugin packages the slash-command skill and an isolated Chrome DevTools MCP server.
 
 This is not a replacement for Antigravity 2.0's built-in browser. In `agy`, the
-skill delegates to `browser-cli`, which starts a visible temporary Chrome profile,
-targets elements from fresh accessibility snapshots, verifies post-action state,
-and captures screenshots when visual proof is requested.
+current agent drives a visible temporary Chrome profile through the plugin's MCP
+server, targets elements from fresh accessibility snapshots, verifies post-action
+state, and captures screenshots when visual proof is requested. The skill does not
+delegate to a custom subagent because current AGY CLI lazy-MCP tools are not
+executable in that subagent environment.
 
 ### Acceptance Coverage
 
@@ -166,10 +167,9 @@ Install this skillpack with the AGY CLI:
 agy plugin install /path/to/SaariusSkills
 ```
 
-AGY loads the pack from the provided path and reads the root `plugin.json`
-manifest, `mcp_config.json`, `skills/`, and `agents/`. Restart `agy` after install
-so it discovers the new components. The default Chrome session is isolated and
-not signed in.
+AGY loads the pack from the provided path and reads the root `plugin.json`,
+`mcp_config.json`, and `skills/`. Restart `agy` after install so it discovers the
+new components. The default Chrome session is isolated and not signed in.
 
 Then start a browser automation session or product decision track:
 
@@ -183,9 +183,8 @@ Help me decide and implement the next high-leverage product slice with GrillTrac
 
 ## What ships
 
-- [`skills/browser/SKILL.md`](skills/browser/SKILL.md): the browser subagent
-  dispatch and Chrome DevTools automation workflow.
-- `agents/browser-cli/agent.md`: the packaged AGY CLI browser subagent.
+- [`skills/browser/SKILL.md`](skills/browser/SKILL.md): the Chrome DevTools
+  automation workflow for the current AGY agent.
 - `mcp_config.json`: an isolated Chrome DevTools MCP server definition.
 - `skills/browser/scripts/verify_browser.py`: static integrity checker for the
   live acceptance fixture; it does not drive Chrome.

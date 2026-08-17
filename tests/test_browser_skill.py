@@ -15,20 +15,20 @@ class BrowserSkillTests(unittest.TestCase):
         self.assertIn("name: browser", frontmatter)
         self.assertIn("description:", frontmatter)
         self.assertNotIn("license:", frontmatter)
-        self.assertIn('"Subagents": [', content)
-        self.assertIn('"TypeName": "browser-cli"', content)
-        self.assertIn('"Workspace": "inherit"', content)
+        self.assertIn('"ServerName": "chrome-devtools"', content)
+        self.assertIn('"ToolName": "list_pages"', content)
+        self.assertIn('"Arguments": {}', content)
+        self.assertIn("Run the browser objective directly", content)
+        self.assertNotIn("invoke_subagent", content)
         self.assertIn("chrome-devtools", content)
 
-    def test_antigravity_agent_is_packaged(self) -> None:
-        agent_path = ROOT / "agents" / "browser-cli" / "agent.md"
-        content = agent_path.read_text(encoding="utf-8")
-        self.assertIn("name: browser-cli", content)
-        self.assertIn("mainAgent: false", content)
-        self.assertIn("subagent: true", content)
-        self.assertIn("commandExecutionPolicy: sandbox", content)
-        self.assertIn("- skills/browser", content)
-        self.assertIn("untrusted data", content)
+    def test_browser_does_not_package_broken_custom_subagent(self) -> None:
+        self.assertFalse((ROOT / "agents" / "browser-cli" / "agent.md").exists())
+        protocol = (SKILL / "references" / "protocol.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("AGY CLI 1.1.12", protocol)
+        self.assertIn("cannot construct its MCP tool converter", protocol)
 
     def test_chrome_devtools_mcp_is_packaged_and_isolated(self) -> None:
         config = json.loads((ROOT / "mcp_config.json").read_text(encoding="utf-8"))
@@ -80,6 +80,7 @@ class BrowserSkillTests(unittest.TestCase):
         self.assertNotIn('"strokes_logged": 161', script)
         self.assertIn("manual agent-driven acceptance run", suite)
         self.assertIn("not a capability pass", suite)
+        self.assertIn("Do not use `--dangerously-skip-permissions`", suite)
 
     def test_browser_skill_relies_on_repository_license(self) -> None:
         self.assertTrue((ROOT / "LICENSE").is_file())

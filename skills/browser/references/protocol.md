@@ -3,11 +3,15 @@
 ## Packaged setup
 
 Antigravity CLI plugins can package skills, subagents, and MCP servers. This
-repository therefore ships all three pieces:
+repository ships the two pieces needed for the CLI path:
 
 - `skills/browser/SKILL.md` registers `/browser`.
-- `agents/browser-cli/agent.md` defines the delegated subagent.
 - `mcp_config.json` registers the `chrome-devtools` MCP server.
+
+Run MCP tools in the current agent through `call_mcp_tool` with `ServerName` set
+to `chrome-devtools`, the exact `ToolName`, and an `Arguments` object. Do not route
+through a custom subagent: AGY CLI 1.1.12 can inherit the lazy tool catalog there
+but cannot construct its MCP tool converter.
 
 The server starts visible Chrome with a temporary isolated profile. The profile is
 removed when the browser closes, so it is intentionally not signed in and does not
@@ -64,10 +68,9 @@ These names and parameters follow the current `chrome-devtools-mcp` tool referen
 `select_page`. UIDs expire when the page changes, so take a new snapshot after
 navigation, submission, dialogs, or dynamic re-rendering.
 
-## Dispatch and result contract
+## Execution and result contract
 
-The parent sends one `invoke_subagent` request whose `Subagents` array contains a
-`browser-cli` spec and `Workspace: "inherit"`. The subagent returns:
+The current agent executes the MCP calls and returns:
 
 - final URL and page identity;
 - relevant actions, without secrets or private form values;

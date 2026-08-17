@@ -26,6 +26,11 @@ not something the bundled Python checker performs.
    /browser Open http://127.0.0.1:8765/fixtures/verification_studio.html and run the live acceptance suite described in the browser skill. Save a full-page screenshot.
    ```
 
+   Run this in the interactive TUI. The operator must make the normal workspace
+   trust decision and approve the scoped `mcp(chrome-devtools/...)` request when
+   prompted. Do not use `--dangerously-skip-permissions` to turn an unapproved
+   headless run into a pass.
+
 ## Live checks
 
 Use a fresh snapshot before each group and verify state after each mutation.
