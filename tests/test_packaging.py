@@ -21,7 +21,7 @@ class PackagingTests(unittest.TestCase):
         )
         expected_root = {
             "name": "saarius-skills",
-            "description": "Experimental agent supervision, Herdr transport, and progressive product-decision workflows.",
+            "description": "Experimental agent supervision, Herdr transport, browser automation, and progressive product-decision workflows.",
         }
         market = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(

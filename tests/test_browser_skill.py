@@ -10,55 +10,81 @@ SKILL = ROOT / "skills" / "browser"
 
 class BrowserSkillTests(unittest.TestCase):
     def test_skill_structure_and_frontmatter(self) -> None:
-        self.assertTrue(SKILL.exists())
-        self.assertTrue((SKILL / "SKILL.md").exists())
         content = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("name: browser", content)
-        self.assertIn("license: MIT", content)
-        self.assertIn("invoke_subagent", content)
-        self.assertIn("chrome_devtools", content)
+        frontmatter = content.split("---", 2)[1]
+        self.assertIn("name: browser", frontmatter)
+        self.assertIn("description:", frontmatter)
+        self.assertNotIn("license:", frontmatter)
+        self.assertIn('"Subagents": [', content)
+        self.assertIn('"TypeName": "browser-cli"', content)
+        self.assertIn('"Workspace": "inherit"', content)
+        self.assertIn("chrome-devtools", content)
 
-    def test_agents_metadata(self) -> None:
-        yaml_path = SKILL / "agents" / "openai.yaml"
-        self.assertTrue(yaml_path.exists())
-        content = yaml_path.read_text(encoding="utf-8")
+    def test_antigravity_agent_is_packaged(self) -> None:
+        agent_path = ROOT / "agents" / "browser-cli" / "agent.md"
+        content = agent_path.read_text(encoding="utf-8")
+        self.assertIn("name: browser-cli", content)
+        self.assertIn("mainAgent: false", content)
+        self.assertIn("subagent: true", content)
+        self.assertIn("commandExecutionPolicy: sandbox", content)
+        self.assertIn("- skills/browser", content)
+        self.assertIn("untrusted data", content)
+
+    def test_chrome_devtools_mcp_is_packaged_and_isolated(self) -> None:
+        config = json.loads((ROOT / "mcp_config.json").read_text(encoding="utf-8"))
+        server = config["mcpServers"]["chrome-devtools"]
+        self.assertEqual(server["command"], "npx")
+        self.assertEqual(server["args"][:2], ["-y", "chrome-devtools-mcp@latest"])
+        self.assertIn("--isolated", server["args"])
+        self.assertIn("--no-usage-statistics", server["args"])
+        self.assertNotIn("--autoConnect", server["args"])
+        self.assertFalse(any("browser-url" in item for item in server["args"]))
+
+    def test_openai_metadata_uses_explicit_skill_name(self) -> None:
+        content = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("Browser Automation", content)
         self.assertIn("allow_implicit_invocation: true", content)
+        self.assertIn("$browser", content)
 
     def test_fixture_integrity(self) -> None:
-        fixture_path = SKILL / "fixtures" / "verification_studio.html"
-        self.assertTrue(fixture_path.exists())
-        html = fixture_path.read_text(encoding="utf-8")
-        self.assertIn('id="agent-codename"', html)
-        self.assertIn('id="agent-email"', html)
-        self.assertIn('id="canvas-studio"', html)
-        self.assertIn('id="drop-zone"', html)
-        self.assertIn('id="telemetry-log"', html)
+        from skills.browser.scripts.verify_browser import inspect_fixture
 
-    def test_verification_script(self) -> None:
-        sys_path = SKILL / "scripts" / "verify_browser.py"
-        self.assertTrue(sys_path.exists())
-        from skills.browser.scripts.verify_browser import simulate_interaction_suite
+        report = inspect_fixture(SKILL / "fixtures" / "verification_studio.html")
+        self.assertEqual(report["schema"], "browser.fixture-check/v1")
+        self.assertEqual(report["scope"], "static_fixture_only")
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["missing_ids"], [])
+        self.assertEqual(report["missing_hooks"], [])
+        self.assertFalse(report["live_browser_verified"])
+        self.assertNotIn("actions", report)
+        self.assertNotIn("all_passed", report)
 
-        report = simulate_interaction_suite(SKILL / "fixtures" / "verification_studio.html")
-        self.assertTrue(report["all_passed"])
-        self.assertEqual(len(report["actions"]), 6)
-        self.assertEqual(report["actions"]["typing"]["status"], "PASS")
-        self.assertEqual(report["actions"]["checkboxes_and_radios"]["status"], "PASS")
-        self.assertEqual(report["actions"]["clicks"]["status"], "PASS")
-        self.assertEqual(report["actions"]["drag_and_drop"]["status"], "PASS")
-        self.assertEqual(report["actions"]["canvas_drawing"]["status"], "PASS")
-        self.assertEqual(report["actions"]["proof_capture"]["status"], "PASS")
-
-    def test_legal_copies_match(self) -> None:
-        self.assertEqual(
-            (ROOT / "LICENSE").read_text(encoding="utf-8"),
-            (SKILL / "LICENSE").read_text(encoding="utf-8"),
+    def test_protocol_uses_current_tool_arguments(self) -> None:
+        protocol = (SKILL / "references" / "protocol.md").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(
-            (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8"),
-            (SKILL / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8"),
+        self.assertIn('`{"pageId":1,"bringToFront":true}`', protocol)
+        self.assertIn('`{"uid":"...","value":"..."}`', protocol)
+        self.assertIn('`{"text":"...","submitKey":"Enter"}`', protocol)
+        self.assertNotIn("select_page` | `{\"pageIdx\"", protocol)
+        self.assertNotIn("type_text` | `{\"uid\"", protocol)
+
+    def test_static_check_is_not_described_as_live_proof(self) -> None:
+        script = (SKILL / "scripts" / "verify_browser.py").read_text(
+            encoding="utf-8"
         )
+        suite = (SKILL / "references" / "verification_suite.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"live_browser_verified": False', script)
+        self.assertNotIn('"strokes_logged": 161', script)
+        self.assertIn("manual agent-driven acceptance run", suite)
+        self.assertIn("not a capability pass", suite)
+
+    def test_browser_skill_relies_on_repository_license(self) -> None:
+        self.assertTrue((ROOT / "LICENSE").is_file())
+        self.assertFalse((SKILL / "LICENSE").exists())
+        self.assertFalse((SKILL / "THIRD_PARTY_NOTICES.md").exists())
 
 
 if __name__ == "__main__":

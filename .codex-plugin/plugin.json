@@ -34,7 +34,7 @@
     ],
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
-      "Use /browser to automate web actions, inspect pages, and capture visual proof.",
+      "Use $browser to automate web actions, inspect pages, and capture visual proof.",
       "Help me decide and build the next product slice with GrillTrack.",
       "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
       "Use Herdr-Puppet to plan and journal one explicitly owned remote-agent pane."

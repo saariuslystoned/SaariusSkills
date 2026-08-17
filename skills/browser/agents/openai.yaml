@@ -1,6 +1,6 @@
 interface:
   display_name: "Browser Automation"
   short_description: "Autonomous browser control, testing, and inspection."
-  default_prompt: "Use /browser to automate web actions, inspect pages, and capture visual proof."
+  default_prompt: "Use $browser to automate web actions, inspect pages, and capture visual proof."
 policy:
   allow_implicit_invocation: true
