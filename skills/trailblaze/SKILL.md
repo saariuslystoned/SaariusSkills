@@ -17,9 +17,19 @@ CLI's evolving command manual here.
    without approval.
 3. Record `trailblaze --version`.
 4. Run `trailblaze skill show`, read its complete output, and follow it as the
-   command-level source of truth for the installed version.
-5. Prefer the installed skill over remembered syntax or a copied web example.
-   If the binary and its skill disagree, stop and report the exact mismatch.
+   workflow source of truth for the installed version. When it links a
+   reference needed for the selected rung, check `trailblaze skill install
+   --help`, install the bundled skill into a task-owned temporary directory,
+   and read only that reference. Do not install the bundled copy into a source
+   repo or global skill shelf unless the user requested it.
+5. Check `trailblaze <command> --help` before relying on exact flags. Treat
+   that installed parser surface as syntax authority; never prefer a helper
+   suggestion printed by another command, remembered syntax, or a copied web
+   example over command-specific help.
+6. If a printed suggestion or bundled reference disagrees with
+   command-specific help, preserve and report the exact mismatch. Continue
+   only when help leaves the target, action, recording behavior, gates, and
+   restore semantics unambiguous. Otherwise stop before further mutation.
 
 Use official Block documentation only when the installed skill does not answer
 a setup question. Do not silently fall back to an older Trailblaze surface.
