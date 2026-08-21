@@ -73,6 +73,10 @@ conversation.
   proving Herdr as a human-visible, transcript-blind remote-agent transport
   before proposing it as an optional Puppet backend. Its redacted discovery
   evidence is in [`herdr-puppet-proof.md`](herdr-puppet-proof.md).
+- [`herdr-puppet-beside-crabbox-20260821.md`](herdr-puppet-beside-crabbox-20260821.md)
+  records the later composition decision: Herdr-Puppet stays exact-identity
+  transport, Crabbox stays upstream execute, and they sit beside each other
+  instead of competing.
 
 The raw local ledger/event stream and private-repository identifiers are not
 published. Their material decisions, supersessions, deferments, limitations,
