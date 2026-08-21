@@ -69,6 +69,20 @@ implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
 The run remains experimental, and these outcomes are not a universal PASS claim
 for all harnesses.
 
+Herdr-Puppet is not a Crabbox replacement. In a swarmherdr session the fleet
+spaces are machines, so a repaired and qualified version of this skill can
+open tabs and launch harnesses across those boxes; Crabbox can reach the same
+names without making a Herdr tab. Crabbox
+([openclaw/crabbox](https://github.com/openclaw/crabbox)) is the upstream
+execute plane: run a command, keep a receipt, release. Herdr-Puppet is
+exact-identity Herdr transport: a newly owned pane on a machine-space, a
+lease, and a transcript-blind journal the human can watch. A native
+`herdr agent` doorbell usually starts in a worktree space, then that agent
+may use either tool. They do not substitute for each other. The current
+doctor still binds Herdr 0.7.3 while live Herdr is 0.8.2 — that is a repair
+for this skill, not a reason to abandon it. Path
+forward: [`plans/puppet/herdr-puppet-beside-crabbox-20260821.md`](plans/puppet/herdr-puppet-beside-crabbox-20260821.md).
+
 ## GrillTrack
 
 GrillTrack helps a user and an agent build a complicated thing without

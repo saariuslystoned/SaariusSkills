@@ -1,6 +1,6 @@
 ---
 name: herdr-puppet
-description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, recover bounded Screen Sharing or VNC observation when Computer Use cannot resolve a visible window, or inspect and improve a Herdr-Puppet dogfood run. Do not use it to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
+description: Plan, launch, drive, observe, and journal explicitly owned remote coding-agent panes in a persistent Herdr session. Use when a user asks Codex to puppet AGY or another harness through Herdr, keep a remote TUI visible across client detach/reattach, run a bounded Herdr transport qualification, recover bounded Screen Sharing or VNC observation when Computer Use cannot resolve a visible window, or inspect and improve a Herdr-Puppet dogfood run. Do not use it as a Crabbox replacement, to run remote test suites, to adopt arbitrary tabs, read ordinary terminal transcripts, or control a parent Herdr session without an explicit capability.
 ---
 
 # Herdr-Puppet
