@@ -13,6 +13,9 @@ For each implemented decision, record:
 - commands or interactions used to verify it;
 - the renderer and its fidelity limits;
 - the verification reference;
+- the immutable source identity reviewed;
+- the standards and source-intent review result, finding classifications, and
+  review reference when the project changed;
 - whether earlier locks remained represented;
 - failures, deferrals, and remaining risk.
 
@@ -42,10 +45,11 @@ platform is required.
 
 ## Pause
 
-Pause when the user stops, the current session ends, or a gate blocks progress.
-Record the current focus, unresolved decisions, next safe action, and blocker.
-A future session must receive a new explicit `$grilltrack` invocation before
-resuming.
+Pause when the user stops, the current session ends, context pressure threatens
+decision fidelity, another owner/harness must resume, or a gate blocks progress.
+Record the current focus, unresolved decisions, next safe action, blocker, and
+source-linked artifact refs needed to continue. A future clear natural request
+to continue, or an explicit `$grilltrack`, may resume from that durable state.
 
 ## Closeout
 
@@ -53,12 +57,14 @@ Before closure:
 
 1. Validate the ledger.
 2. Reconcile implemented decisions with verification evidence.
-3. Resolve every `needs_reverification` decision by verifying, superseding, or
+3. Reconcile any required review with the exact current source identity and
+   classify every finding before acting on it.
+4. Resolve every `needs_reverification` decision by verifying, superseding, or
    explicitly deferring it with risk.
-4. Summarize accepted and superseded choices.
-5. Record unresolved or uncertain items.
-6. Record delivery references only for separately authorized actions.
-7. Ask the user to confirm closure.
+5. Summarize accepted and superseded choices.
+6. Record unresolved or uncertain items.
+7. Record delivery references only for separately authorized actions.
+8. Ask the user to confirm closure.
 
 Close only after confirmation. The durable closeout must state:
 
@@ -67,6 +73,7 @@ Close only after confirmation. The durable closeout must state:
 - superseded choices;
 - deferrals and unresolved risk;
 - proof references;
+- review references and exact source identities when review was required;
 - delivery references, if any.
 
 Never rewrite history or claim a run that did not occur.

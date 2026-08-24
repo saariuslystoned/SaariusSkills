@@ -33,6 +33,13 @@ DECISION_STATES = {
 }
 TRACK_STATES = {"active", "paused", "closed"}
 CADENCES = {"sequential", "frontier-batch"}
+REVIEW_RESULTS = {"clean", "findings"}
+REVIEW_CLASSIFICATIONS = {
+    "required_fix",
+    "reject_false_positive",
+    "defer",
+    "human_gate",
+}
 BLOCKING_CLOSE_STATES = {
     "proposed",
     "locked",
@@ -41,6 +48,8 @@ BLOCKING_CLOSE_STATES = {
     "needs_reverification",
 }
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+GIT_SOURCE_IDENTITY_PATTERN = re.compile(r"^git:[0-9a-f]{40}$")
+SHA256_SOURCE_IDENTITY_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 NEW_TRACK_FAILPOINTS = {"after_archive", "after_ledger", "after_rollover_stage"}
 
 
@@ -72,6 +81,19 @@ def validate_id(value: str, label: str) -> str:
     if not ID_PATTERN.fullmatch(value):
         raise LedgerError(
             f"{label} must match {ID_PATTERN.pattern} (lower-case, max 64 chars)"
+        )
+    return value
+
+
+def validate_source_identity(value: str) -> str:
+    value = require_text(value, "review source identity")
+    if not (
+        GIT_SOURCE_IDENTITY_PATTERN.fullmatch(value)
+        or SHA256_SOURCE_IDENTITY_PATTERN.fullmatch(value)
+    ):
+        raise LedgerError(
+            "review source identity must be git:<40-lowercase-hex> or "
+            "sha256:<64-lowercase-hex>"
         )
     return value
 
@@ -278,6 +300,11 @@ def transition(
         "choice": decision.get("choice"),
         "implementation_ref": decision.get("implementation_ref"),
         "verification_ref": decision.get("verification_ref"),
+        "review_ref": decision.get("review_ref"),
+        "review_source_identity": decision.get("review_source_identity"),
+        "review_result": decision.get("review_result"),
+        "review_classifications": decision.get("review_classifications"),
+        "repair_required": decision.get("repair_required", False),
     }
     decision.setdefault("history", []).append(snapshot)
     if changes:
@@ -317,6 +344,13 @@ def mark_dependents_for_reverification(
             dependent,
             "needs_reverification",
             f"dependency {root_id} changed: {reason}",
+            {
+                "review_ref": None,
+                "review_source_identity": None,
+                "review_result": None,
+                "review_classifications": [],
+                "repair_required": False,
+            },
         )
         affected_ids.append(dependent["id"])
     return affected_ids
@@ -338,6 +372,29 @@ def validate_ledger(ledger: Any) -> None:
         raise LedgerError(f"track status must be one of {sorted(TRACK_STATES)}")
     require_text(ledger.get("created_at"), "created_at")
     require_text(ledger.get("updated_at"), "updated_at")
+
+    def validate_pause_record(record: Any, label: str) -> None:
+        if record is None:
+            return
+        if not isinstance(record, dict):
+            raise LedgerError(f"{label} must be an object or null")
+        require_text(record.get("reason"), f"{label}.reason")
+        require_text(record.get("next_safe_action"), f"{label}.next_safe_action")
+        require_text(record.get("paused_at"), f"{label}.paused_at")
+        artifact_refs = record.get("artifact_refs")
+        if not isinstance(artifact_refs, list) or not all(
+            isinstance(item, str) and item.strip() for item in artifact_refs
+        ):
+            raise LedgerError(f"{label}.artifact_refs must be strings")
+
+    pause = ledger.get("pause")
+    last_pause = ledger.get("last_pause")
+    validate_pause_record(pause, "pause")
+    validate_pause_record(last_pause, "last_pause")
+    if ledger["status"] == "paused" and "pause" in ledger and pause is None:
+        raise LedgerError("paused track requires an active pause record")
+    if ledger["status"] != "paused" and pause is not None:
+        raise LedgerError("only a paused track may have an active pause record")
 
     focus = ledger.get("current_focus")
     if focus is not None:
@@ -380,6 +437,10 @@ def validate_ledger(ledger: Any) -> None:
             raise LedgerError(f"{decision_id} cannot depend on itself")
         if not isinstance(decision.get("history"), list):
             raise LedgerError(f"{decision_id}.history must be an array")
+        if not isinstance(decision.get("review_history", []), list):
+            raise LedgerError(f"{decision_id}.review_history must be an array")
+        if not isinstance(decision.get("repair_required", False), bool):
+            raise LedgerError(f"{decision_id}.repair_required must be boolean")
         if decision["status"] in {"implemented", "verified"}:
             require_text(
                 decision.get("implementation_ref"),
@@ -389,6 +450,43 @@ def validate_ledger(ledger: Any) -> None:
             require_text(
                 decision.get("verification_ref"),
                 f"{decision_id}.verification_ref",
+            )
+
+        review_ref = decision.get("review_ref")
+        review_source_identity = decision.get("review_source_identity")
+        review_result = decision.get("review_result")
+        review_classifications = decision.get("review_classifications", [])
+        review_values = (review_ref, review_source_identity, review_result)
+        if any(item is not None for item in review_values):
+            require_text(review_ref, f"{decision_id}.review_ref")
+            validate_source_identity(review_source_identity)
+            if review_result not in REVIEW_RESULTS:
+                raise LedgerError(
+                    f"{decision_id}.review_result must be one of "
+                    f"{sorted(REVIEW_RESULTS)}"
+                )
+            if not isinstance(review_classifications, list) or not all(
+                item in REVIEW_CLASSIFICATIONS for item in review_classifications
+            ):
+                raise LedgerError(
+                    f"{decision_id}.review_classifications must use "
+                    f"{sorted(REVIEW_CLASSIFICATIONS)}"
+                )
+            if len(review_classifications) != len(set(review_classifications)):
+                raise LedgerError(
+                    f"{decision_id}.review_classifications contains duplicates"
+                )
+            if review_result == "clean" and review_classifications:
+                raise LedgerError(
+                    f"{decision_id} clean review cannot have classifications"
+                )
+            if review_result == "findings" and not review_classifications:
+                raise LedgerError(
+                    f"{decision_id} findings review requires classifications"
+                )
+        elif review_classifications:
+            raise LedgerError(
+                f"{decision_id}.review_classifications requires a review"
             )
 
     for decision_id, decision in by_id.items():
@@ -473,6 +571,14 @@ def require_active(ledger: dict[str, Any]) -> None:
         raise LedgerError("track must be active")
 
 
+def complete_active_pause(ledger: dict[str, Any]) -> None:
+    if ledger.get("pause") is not None:
+        completed_pause = copy.deepcopy(ledger["pause"])
+        completed_pause["resumed_at"] = utc_now()
+        ledger["last_pause"] = completed_pause
+    ledger["pause"] = None
+
+
 def get_decision(ledger: dict[str, Any], decision_id: str) -> dict[str, Any]:
     decision_id = validate_id(decision_id, "decision id")
     try:
@@ -555,6 +661,8 @@ def new_ledger(
         "decisions": [],
         "recommendation": None,
         "closeout": None,
+        "pause": None,
+        "last_pause": None,
         "last_activation": {"mechanism": mechanism, "at": now},
     }
     if predecessor_track_id:
@@ -755,6 +863,11 @@ def command_propose(store: Store, args: argparse.Namespace) -> None:
             "implementation_ref": None,
             "verification_ref": None,
             "review_ref": None,
+            "review_source_identity": None,
+            "review_result": None,
+            "review_classifications": [],
+            "review_history": [],
+            "repair_required": False,
             "delivery_ref": None,
             "superseded_by": None,
             "deferred_reason": None,
@@ -799,7 +912,14 @@ def command_implement(store: Store, args: argparse.Namespace) -> None:
         decision,
         "implemented",
         "bounded implementation recorded",
-        {"implementation_ref": require_text(args.ref, "implementation ref")},
+        {
+            "implementation_ref": require_text(args.ref, "implementation ref"),
+            "review_ref": None,
+            "review_source_identity": None,
+            "review_result": None,
+            "review_classifications": [],
+            "repair_required": False,
+        },
     )
     store.persist(ledger, "decision_implemented", {"decision_id": decision["id"]})
     output(ledger)
@@ -809,6 +929,10 @@ def command_verify(store: Store, args: argparse.Namespace) -> None:
     ledger = store.load()
     require_active(ledger)
     decision = get_decision(ledger, args.id)
+    if decision.get("repair_required", False):
+        raise LedgerError(
+            "accepted review fix must be implemented before re-verification"
+        )
     if decision["status"] not in {"implemented", "needs_reverification"}:
         raise LedgerError(
             "verification requires an implemented or re-verification-needed decision"
@@ -823,11 +947,62 @@ def command_verify(store: Store, args: argparse.Namespace) -> None:
     output(ledger)
 
 
+def command_review(store: Store, args: argparse.Namespace) -> None:
+    ledger = store.load()
+    require_active(ledger)
+    decision = get_decision(ledger, args.id)
+    if decision["status"] != "verified":
+        raise LedgerError("review requires a verified decision")
+
+    classifications = list(args.classification)
+    if len(classifications) != len(set(classifications)):
+        raise LedgerError("review classifications must be unique")
+    if args.result == "clean" and classifications:
+        raise LedgerError("clean review cannot have classifications")
+    if args.result == "findings" and not classifications:
+        raise LedgerError("findings review requires at least one classification")
+
+    review_record = {
+        "reviewed_at": utc_now(),
+        "source_identity": validate_source_identity(args.source_identity),
+        "ref": require_text(args.ref, "review ref"),
+        "result": args.result,
+        "classifications": classifications,
+    }
+    decision.setdefault("review_history", []).append(review_record)
+    changes = {
+        "review_ref": review_record["ref"],
+        "review_source_identity": review_record["source_identity"],
+        "review_result": review_record["result"],
+        "review_classifications": classifications,
+    }
+    if "required_fix" in classifications:
+        changes["repair_required"] = True
+        transition(
+            decision,
+            "needs_reverification",
+            "adjudicated review requires a fix",
+            changes,
+        )
+    else:
+        changes["repair_required"] = False
+        decision.update(changes)
+        decision["updated_at"] = utc_now()
+
+    store.persist(
+        ledger,
+        "decision_reviewed",
+        {"decision_id": decision["id"], **copy.deepcopy(review_record)},
+    )
+    output(ledger)
+
+
 def command_reopen(store: Store, args: argparse.Namespace) -> None:
     mechanism = normalize_activation(args.activation)
     ledger = store.load()
     require_mutable(ledger)
     if ledger["status"] == "paused":
+        complete_active_pause(ledger)
         ledger["status"] = "active"
     decision = get_decision(ledger, args.id)
     if decision["status"] in {"reopened", "superseded"}:
@@ -920,17 +1095,19 @@ def command_recommend(store: Store, args: argparse.Namespace) -> None:
 def command_pause(store: Store, args: argparse.Namespace) -> None:
     ledger = store.load()
     require_active(ledger)
+    pause_record = {
+        "reason": require_text(args.reason, "reason"),
+        "next_safe_action": require_text(
+            args.next_safe_action, "next safe action"
+        ),
+        "artifact_refs": [
+            require_text(item, "artifact ref") for item in args.artifact_ref
+        ],
+        "paused_at": utc_now(),
+    }
     ledger["status"] = "paused"
-    store.persist(
-        ledger,
-        "track_paused",
-        {
-            "reason": require_text(args.reason, "reason"),
-            "next_safe_action": require_text(
-                args.next_safe_action, "next safe action"
-            ),
-        },
-    )
+    ledger["pause"] = pause_record
+    store.persist(ledger, "track_paused", copy.deepcopy(pause_record))
     output(ledger)
 
 
@@ -940,6 +1117,7 @@ def command_resume(store: Store, args: argparse.Namespace) -> None:
     require_mutable(ledger)
     if ledger["status"] != "paused":
         raise LedgerError("only a paused track can be resumed")
+    complete_active_pause(ledger)
     ledger["status"] = "active"
     ledger["last_activation"] = {"mechanism": mechanism, "at": utc_now()}
     store.persist(ledger, "track_resumed", {"activation": mechanism})
@@ -970,6 +1148,17 @@ def command_close(store: Store, args: argparse.Namespace) -> None:
         "reason": require_text(args.reason, "reason"),
         "summary": require_text(args.summary, "summary"),
         "proof_refs": args.proof_ref,
+        "reviews": [
+            {
+                "decision_id": item["id"],
+                "ref": item["review_ref"],
+                "source_identity": item["review_source_identity"],
+                "result": item["review_result"],
+                "classifications": item.get("review_classifications", []),
+            }
+            for item in ledger["decisions"]
+            if item.get("review_ref") is not None
+        ],
         "verified_decisions": [
             item["id"] for item in ledger["decisions"] if item["status"] == "verified"
         ],
@@ -1061,6 +1250,21 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--ref", required=True)
     verify.set_defaults(handler=command_verify)
 
+    review = subparsers.add_parser(
+        "review", help="record exact-source review and adjudication"
+    )
+    review.add_argument("--id", required=True)
+    review.add_argument("--source-identity", required=True)
+    review.add_argument("--ref", required=True)
+    review.add_argument("--result", choices=sorted(REVIEW_RESULTS), required=True)
+    review.add_argument(
+        "--classification",
+        choices=sorted(REVIEW_CLASSIFICATIONS),
+        action="append",
+        default=[],
+    )
+    review.set_defaults(handler=command_review)
+
     reopen = subparsers.add_parser("reopen", help="reopen a prior decision")
     reopen.add_argument("--activation", default="implicit")
     reopen.add_argument("--id", required=True)
@@ -1091,6 +1295,7 @@ def build_parser() -> argparse.ArgumentParser:
     pause = subparsers.add_parser("pause", help="pause a track")
     pause.add_argument("--reason", required=True)
     pause.add_argument("--next-safe-action", required=True)
+    pause.add_argument("--artifact-ref", action="append", default=[])
     pause.set_defaults(handler=command_pause)
 
     resume = subparsers.add_parser("resume", help="resume a paused track")

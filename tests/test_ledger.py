@@ -158,6 +158,120 @@ class LedgerCliTests(unittest.TestCase):
             "work/\n",
         )
 
+    def test_review_is_exact_source_adjudicated_and_repairable(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        self.add_verified("output-001")
+
+        self.run_cli(
+            "review",
+            "--id",
+            "output-001",
+            "--source-identity",
+            "git:" + ("a" * 40),
+            "--ref",
+            ".grilltrack/proof/review-clean/PROOF.md",
+            "--result",
+            "clean",
+        )
+        decision = self.read_ledger()["decisions"][0]
+        self.assertEqual(decision["status"], "verified")
+        self.assertEqual(decision["review_result"], "clean")
+        self.assertEqual(decision["review_source_identity"], "git:" + ("a" * 40))
+        self.assertEqual(decision["review_classifications"], [])
+
+        self.run_cli(
+            "review",
+            "--id",
+            "output-001",
+            "--source-identity",
+            "git:" + ("a" * 40),
+            "--ref",
+            ".grilltrack/proof/review-findings/PROOF.md",
+            "--result",
+            "findings",
+            "--classification",
+            "required_fix",
+        )
+        decision = self.read_ledger()["decisions"][0]
+        self.assertEqual(decision["status"], "needs_reverification")
+        self.assertTrue(decision["repair_required"])
+        blocked = self.run_cli(
+            "verify",
+            "--id",
+            "output-001",
+            "--ref",
+            "test:cannot-bypass-fix",
+            ok=False,
+        )
+        self.assertIn("must be implemented", blocked.stderr)
+
+        self.run_cli(
+            "implement",
+            "--id",
+            "output-001",
+            "--ref",
+            "file:repaired-output",
+        )
+        decision = self.read_ledger()["decisions"][0]
+        self.assertIsNone(decision["review_ref"])
+        self.assertFalse(decision["repair_required"])
+        self.run_cli(
+            "verify",
+            "--id",
+            "output-001",
+            "--ref",
+            "test:repaired-output",
+        )
+        self.run_cli(
+            "review",
+            "--id",
+            "output-001",
+            "--source-identity",
+            "sha256:" + ("b" * 64),
+            "--ref",
+            ".grilltrack/proof/review-repair/PROOF.md",
+            "--result",
+            "clean",
+        )
+        decision = self.read_ledger()["decisions"][0]
+        self.assertEqual(decision["status"], "verified")
+        self.assertEqual(len(decision["review_history"]), 3)
+
+        self.run_cli(
+            "close",
+            "--confirmed-by",
+            "user",
+            "--reason",
+            "Cycle complete",
+            "--summary",
+            "Repaired output is verified and reviewed.",
+        )
+        closeout = self.read_ledger()["closeout"]
+        self.assertEqual(closeout["reviews"][0]["decision_id"], "output-001")
+        self.assertEqual(
+            closeout["reviews"][0]["source_identity"],
+            "sha256:" + ("b" * 64),
+        )
+
+    def test_review_rejects_mutable_source_identity(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        self.add_verified("output-001")
+        result = self.run_cli(
+            "review",
+            "--id",
+            "output-001",
+            "--source-identity",
+            "git:origin/main",
+            "--ref",
+            ".grilltrack/proof/review/PROOF.md",
+            "--result",
+            "clean",
+            ok=False,
+        )
+        self.assertIn("git:<40-lowercase-hex>", result.stderr)
+
     def test_implementation_requires_confirmation(self) -> None:
         self.init()
         self.run_cli(
@@ -234,18 +348,82 @@ class LedgerCliTests(unittest.TestCase):
         decisions = {item["id"]: item for item in self.read_ledger()["decisions"]}
         self.assertEqual(decisions["draft-001"]["status"], "proposed")
 
+    def test_reopen_resumes_a_paused_projection(self) -> None:
+        self.init()
+        self.focus_and_confirm()
+        self.add_verified("output-001")
+        self.run_cli(
+            "pause",
+            "--reason",
+            "Context boundary",
+            "--next-safe-action",
+            "Reopen output choice",
+            "--artifact-ref",
+            ".grilltrack/work/context.md",
+        )
+        self.run_cli(
+            "reopen",
+            "--id",
+            "output-001",
+            "--reason",
+            "New evidence",
+        )
+        ledger = self.read_ledger()
+        self.assertEqual(ledger["status"], "active")
+        self.assertIsNone(ledger["pause"])
+        self.assertEqual(
+            ledger["last_pause"]["artifact_refs"],
+            [".grilltrack/work/context.md"],
+        )
+
     def test_resume_accepts_natural_activation(self) -> None:
         self.init()
         self.run_cli(
             "pause",
             "--reason",
             "Session boundary",
-            "--next-safe-action", "Resume naturally",
+            "--next-safe-action",
+            "Resume naturally",
+            "--artifact-ref",
+            ".grilltrack/work/gates/setup.md",
+        )
+        paused = self.read_ledger()
+        self.assertEqual(paused["status"], "paused")
+        self.assertEqual(paused["pause"]["reason"], "Session boundary")
+        self.assertEqual(
+            paused["pause"]["artifact_refs"],
+            [".grilltrack/work/gates/setup.md"],
         )
         self.run_cli("resume")
         ledger = self.read_ledger()
         self.assertEqual(ledger["status"], "active")
         self.assertEqual(ledger["last_activation"]["mechanism"], "implicit")
+        self.assertIsNone(ledger["pause"])
+        self.assertEqual(
+            ledger["last_pause"]["artifact_refs"],
+            [".grilltrack/work/gates/setup.md"],
+        )
+        self.assertIn("resumed_at", ledger["last_pause"])
+
+    def test_resume_accepts_a_legacy_paused_projection(self) -> None:
+        self.init()
+        self.run_cli(
+            "pause",
+            "--reason",
+            "Legacy boundary",
+            "--next-safe-action",
+            "Resume",
+        )
+        ledger = self.read_ledger()
+        ledger.pop("pause")
+        ledger.pop("last_pause")
+        (self.project / ".grilltrack" / "ledger.json").write_text(
+            json.dumps(ledger), encoding="utf-8"
+        )
+        self.run_cli("resume")
+        resumed = self.read_ledger()
+        self.assertEqual(resumed["status"], "active")
+        self.assertIsNone(resumed["pause"])
 
     def test_close_rejects_unresolved_then_accepts_deferred(self) -> None:
         self.init()

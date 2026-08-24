@@ -1,7 +1,6 @@
 ---
 name: grilltrack
-description: Progressive product development through focused decision, implementation, verification, and inspection cycles with durable state. Use when a user naturally asks to grill, decide and build a product slice, continue to the next grill, resume or reopen a prior decision, or explicitly invokes $grilltrack. Do not require a canned invocation when the user's intent is already clear.
-license: MIT
+description: Progressive product development through focused decision, implementation, verification, exact-source review, and inspection cycles with durable state. Use when a user naturally asks to grill, decide and build a product slice, continue to the next grill, resume or reopen a prior decision, or explicitly invokes $grilltrack. Do not require a canned invocation when the user's intent is already clear.
 ---
 
 # GrillTrack
@@ -26,11 +25,16 @@ on external actions.
 
 Read:
 
+- [references/workflow-contract.md](references/workflow-contract.md) for every
+  activated cycle.
 - [references/protocol.md](references/protocol.md) for every activated cycle.
 - [references/ledger.md](references/ledger.md) before creating or changing
   durable track state.
 - [references/proof-and-closeout.md](references/proof-and-closeout.md) before
   verification, pause, delivery handoff, or closeout.
+- [references/human-gates.md](references/human-gates.md) when a decision depends
+  on credentials, accounts, an attended UI, a physical action, or another step
+  only a human may perform.
 - [references/grill-frontend/README.md](references/grill-frontend/README.md)
   only when the focused grill is visual or frontend-specific.
 
@@ -56,9 +60,13 @@ for CLI, API, document, device, or other non-frontend cycles.
 8. Verify behavior and fit beside earlier accepted decisions. Disclose a
    fidelity gap and improve the renderer or stop; do not present a misleading
    mock as proof.
-9. Inspect the new state. Recommend one next grill and up to two real
+9. When the cycle changed the project, review the verified result separately
+   against repository standards and the confirmed source intent. Bind the
+   review to an immutable source identity, classify its findings, and route
+   required fixes back through implementation and verification.
+10. Inspect the new state. Recommend one next grill and up to two real
    alternatives, or recommend closeout when no meaningful grill remains.
-10. Ask the user to confirm closure before closing the ledger.
+11. Ask the user to confirm closure before closing the ledger.
 
 Treat the complete cycle—not an answer—as the atomic unit of progress.
 
@@ -96,6 +104,17 @@ Use the narrow subcommand that matches the real transition. Let the tool reject
 invalid lifecycle changes; do not hand-edit around validation. The ledger is the
 single current projection and `events.jsonl` is its append-only history.
 
+Record an adjudicated review after verification:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project <project-root> review \
+  --id <decision-id> --source-identity git:<full-commit-sha> \
+  --ref <review-proof-ref> --result clean
+```
+
+For a non-Git artifact, use another immutable identity such as a content hash.
+Never record a mutable branch name as clean review identity.
+
 Working candidates belong under `.grilltrack/work/`, which the initializer
 ignores locally. Keep curated proof under `.grilltrack/proof/`. Never
 auto-delete working artifacts.
@@ -131,6 +150,8 @@ A lock or shared-understanding confirmation authorizes only the bounded local
 implementation contained in the activated cycle. It never authorizes a commit,
 push, pull request, merge, deployment, purchase, send, account change, or
 security-affecting action.
+
+A clean review is advisory evidence, not delivery or promotion authority.
 
 Perform delivery only when the user separately requests it and the active
 repository permits it. Record generic `implementation_ref`, `verification_ref`,

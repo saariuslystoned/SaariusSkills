@@ -14,6 +14,7 @@ project-local, human-readable JSON, and machine-validatable.
   archive/           # immutable closed ledger and event-log snapshots
   proof/             # curated evidence suitable for retention
   work/              # ignored candidates and renderer artifacts
+    gates/           # human-guided checklists when needed
 ```
 
 Do not auto-delete `work/`. If a referenced working artifact is unavailable,
@@ -28,7 +29,12 @@ The ledger records:
 - current focus, cadence, confirmation, and summary;
 - stable decision identifiers and dependency links;
 - accepted value, rationale, context, baseline, and candidate references;
-- implementation, verification, review, and delivery references;
+- implementation and verification references;
+- review reference, immutable source identity, result, classifications, and
+  review history;
+- active pause reason, context-boundary artifact references, next safe action,
+  and last completed pause;
+- delivery references recorded only after separate authorization;
 - lifecycle status and immutable transition history;
 - next-grill recommendation and alternatives;
 - closeout facts.
@@ -64,9 +70,38 @@ python3 scripts/grilltrack_ledger.py --project "$ROOT" implement \
   --id direction-001 --ref "file:src/product.ts"
 python3 scripts/grilltrack_ledger.py --project "$ROOT" verify \
   --id direction-001 --ref "test:product-flow"
+python3 scripts/grilltrack_ledger.py --project "$ROOT" review \
+  --id direction-001 --source-identity "git:<full-commit-sha>" \
+  --ref ".grilltrack/proof/review/PROOF.md" --result clean
 ```
 
-Use `pause` at a session boundary and `resume` when work naturally continues.
+For a review with findings, pass one or more adjudicated classifications:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project "$ROOT" review \
+  --id direction-001 --source-identity "git:<full-commit-sha>" \
+  --ref ".grilltrack/proof/review/PROOF.md" --result findings \
+  --classification required_fix
+```
+
+Allowed classifications are `required_fix`, `reject_false_positive`, `defer`,
+and `human_gate`. Recording `required_fix` marks the decision
+`needs_reverification`; repair it through `implement`, `verify`, and a fresh
+review bound to the new source identity.
+
+Use `pause` at a session boundary and attach each source-linked artifact needed
+to resume:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project "$ROOT" pause \
+  --reason "Waiting for attended setup" \
+  --next-safe-action "Resume verification after the sanitized receipt exists" \
+  --artifact-ref ".grilltrack/work/gates/setup.md"
+```
+
+Use `resume` when work naturally continues. It moves the active pause record to
+`last_pause` and records the new activation mechanism.
+
 Use `reopen` to revisit a prior decision; the tool marks transitive dependents
 for re-verification. The optional `--activation '$grilltrack'` records an
 explicit invocation; omission records natural implicit activation.
@@ -89,6 +124,11 @@ active ledger. Existing archives are never overwritten.
 - Dependencies must reference existing decisions and may not form cycles.
 - Implementation requires confirmed shared understanding.
 - Verification requires an implemented or re-verification-needed decision.
+- Review requires a verified decision, an immutable source identity, and an
+  adjudicated clean result or finding classifications.
+- A review classified `required_fix` returns the decision to
+  `needs_reverification`.
+- A paused projection records its reason, next safe action, and artifact refs.
 - Closed tracks are immutable.
 - Clean closeout rejects decisions still proposed, locked, implemented,
   reopened, or needing re-verification.

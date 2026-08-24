@@ -1,6 +1,6 @@
 interface:
   display_name: "GrillTrack"
   short_description: "Progressive product decisions in verified cycles."
-  default_prompt: "Use $grilltrack to run the next focused decision, implementation, and verification cycle in this project."
+  default_prompt: "Use $grilltrack to run the next focused decision, implementation, verification, and exact-source review cycle in this project."
 policy:
   allow_implicit_invocation: true
