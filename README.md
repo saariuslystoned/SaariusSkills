@@ -76,11 +76,22 @@ pretending every important decision is visible at the beginning. It runs one
 focused decision cycle at a time:
 
 ```text
-grill -> confirm shared understanding -> implement -> verify -> inspect -> repeat or close
+grill -> confirm -> implement -> verify -> exact-source review -> inspect -> repeat or close
 ```
 
 Accepted choices stay present while later choices are judged, so the product
 converges as a whole rather than becoming a pile of disconnected preferences.
+Each phase now crosses a typed artifact edge in the durable ledger. Large or
+foggy destinations route through a source-linked decision map instead of being
+flattened into one oversized grill, and context switches carry explicit
+artifact refs plus a next safe action instead of relying on chat memory.
+
+Project-changing cycles review two axes separately: repository standards and
+confirmed source intent. Review is bound to a full commit SHA or content hash;
+accepted fixes return to implementation and re-verification. Human-only setup
+steps use resumable, secret-safe guided gates without turning attended work into
+delivery authority.
+
 The first domain pack supports frontend work with exactly five live variants
 inside the accepted layout. For greenfield whole-product frontend builds,
 verified design choices also accumulate in a canonical `design.md` contract so
@@ -110,9 +121,9 @@ grill.
 Matt Pocock’s grilling skill supplied the interview foundation. Will Ness’s
 frontend-prototyping variant introduced five live visual alternatives.
 GrillTrack adds the durable, cumulative loop across focused grills: grill,
-implement, verify, inspect, and repeat.
+implement, verify, review, inspect, and repeat.
 
-The pinned upstream influences are:
+The original foundation pins are:
 
 - [Matt Pocock’s grilling skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/productivity/grilling/SKILL.md)
 - [Matt Pocock’s batch-grill-me skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/in-progress/batch-grill-me/SKILL.md)
@@ -120,6 +131,13 @@ The pinned upstream influences are:
 - [Matt Pocock’s domain-modeling skill](https://github.com/mattpocock/skills/blob/9603c1cc8118d08bc1b3bf34cf714f62178dea3b/skills/engineering/domain-modeling/SKILL.md)
 - [Will Ness’s grilling-frontend-prototyping skill](https://github.com/will-ness-ai/skills/blob/131c397a7731b6b0ce398a5b3bb8db8768136bc5/skills/engineering/grilling-frontend-prototyping/SKILL.md)
 - [Agent Skills specification](https://agentskills.io/specification)
+
+The 2026 workflow refresh also compared GrillTrack against Matt's current
+engineering graph at commit
+[`5b15a47f2d7150f545fbcacbfe381787fc0230dc`](https://github.com/mattpocock/skills/tree/5b15a47f2d7150f545fbcacbfe381787fc0230dc/skills/engineering),
+especially `grill-with-docs`, `implement`, `tdd`, `code-review`, `to-spec`,
+`to-tickets`, `wayfinder`, and `wizard`. GrillTrack remains a clean-room,
+domain-neutral implementation rather than a bundled copy of that suite.
 
 These projects and their authors do not endorse GrillTrack. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for provenance and license
@@ -177,11 +195,13 @@ invocation, but it is never required when the user's intent is already clear.
 - [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,
   intent-aware core workflow.
 - `skills/grilltrack/scripts/grilltrack_ledger.py`: a standard-library CLI for
-  validated, resumable, non-destructive project ledgers.
+  validated, resumable, non-destructive project ledgers, exact-source review
+  adjudication, and context-boundary pause records.
 - `skills/grilltrack/scripts/validate_picker.py`: a validator for the
   exactly-five frontend picker contract.
-- `skills/grilltrack/references/`: progressively loaded protocol, ledger,
-  proof, closeout, and frontend guidance.
+- `skills/grilltrack/references/`: progressively loaded workflow authority,
+  artifact-graph, human-gate, protocol, ledger, proof, closeout, and frontend
+  guidance.
 - `fixtures/`: small public evaluation inputs.
 - `tests/`: protocol, state, packaging, and safety regression tests.
 - [`skills/herdr-puppet/SKILL.md`](skills/herdr-puppet/SKILL.md): the

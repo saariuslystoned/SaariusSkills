@@ -47,6 +47,28 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("casual mention", skill)
         self.assertLessEqual(len(skill.splitlines()), 500)
 
+    def test_typed_artifact_graph_review_and_human_gate_are_packaged(self) -> None:
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        workflow = (SKILL / "references" / "workflow-contract.md").read_text(
+            encoding="utf-8"
+        )
+        human_gates = (SKILL / "references" / "human-gates.md").read_text(
+            encoding="utf-8"
+        )
+        protocol = (SKILL / "references" / "protocol.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("[references/workflow-contract.md]", skill)
+        self.assertIn("review the verified result separately", skill)
+        self.assertIn("## Artifact graph", workflow)
+        self.assertIn("**Allowed mode:**", workflow)
+        self.assertIn("Cross it with durable artifacts", workflow)
+        self.assertIn("# Human-guided gates", human_gates)
+        self.assertIn("Never ask the user to paste a secret", human_gates)
+        self.assertIn("**Standards:**", protocol)
+        self.assertIn("**Source intent:**", protocol)
+
     def test_greenfield_design_contract_is_packaged(self) -> None:
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         frontend = (

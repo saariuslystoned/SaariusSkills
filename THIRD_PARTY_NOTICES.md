@@ -21,6 +21,26 @@ batch questioning, recommendations, fact-finding, user-owned decisions,
 shared-understanding gate, durable vocabulary, and selective decision
 documentation as behavioral influences.
 
+Workflow refresh comparison pin:
+<https://github.com/mattpocock/skills/tree/5b15a47f2d7150f545fbcacbfe381787fc0230dc>
+
+Relevant current engineering skills:
+
+- `skills/engineering/grill-with-docs`
+- `skills/engineering/implement`
+- `skills/engineering/tdd`
+- `skills/engineering/code-review`
+- `skills/engineering/to-spec`
+- `skills/engineering/to-tickets`
+- `skills/engineering/wayfinder`
+- `skills/engineering/wizard`
+
+The refresh credits typed workflow transitions, source-linked context-boundary
+artifacts, separate standards/source-intent review axes, exact-source review
+identity, multi-session decision maps, and human-guided setup gates as
+behavioral comparisons. GrillTrack does not bundle or invoke these upstream
+skills.
+
 ## Will Ness frontend prototyping skill
 
 Pinned source: <https://github.com/will-ness-ai/skills/tree/131c397a7731b6b0ce398a5b3bb8db8768136bc5>
