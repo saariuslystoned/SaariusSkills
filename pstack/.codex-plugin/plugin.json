@@ -1,0 +1,41 @@
+{
+  "name": "pstack-saarius",
+  "version": "0.1.0",
+  "description": "Rigorous engineering workflows, anti-slop, TDD, architectural planning, and operator profiling for ChatGPT/Codex.",
+  "author": {
+    "name": "Bobby Bones",
+    "url": "https://github.com/saariuslystoned"
+  },
+  "homepage": "https://github.com/saariuslystoned/SaariusSkills",
+  "repository": "https://github.com/saariuslystoned/SaariusSkills",
+  "license": "MIT",
+  "keywords": [
+    "pstack",
+    "agent-skills",
+    "engineering-workflows",
+    "tdd",
+    "unslop",
+    "blast-radius",
+    "architect",
+    "bobby-mode"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "pstack (Saarius)",
+    "shortDescription": "Rigorous engineering workflows, anti-slop, TDD, and operator profiling.",
+    "longDescription": "Port of Lauren Tan's pstack engineering workflows with Saarius operator profiling (bobby-mode) and multi-harness history mining for ChatGPT/Codex app on macOS and SmOmarchy.",
+    "developerName": "Saariusly Stoned",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
+    "defaultPrompt": [
+      "Apply /unslop to eliminate robotic filler and keep diffs surgical.",
+      "Run /blast-radius to prove downstream impact before editing.",
+      "Use /architect to define interface contracts and types before coding.",
+      "Follow /tdd to write a failing test first and prove red-green-refactor."
+    ]
+  }
+}
