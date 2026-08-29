@@ -69,6 +69,19 @@ implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
 The run remains experimental, and these outcomes are not a universal PASS claim
 for all harnesses.
 
+## PhoneProof
+
+PhoneProof closes the gap between a green mobile build and the UI a human
+actually sees. It runs a build-install-capture-inspect-fix-capture loop,
+distinguishes physical screenshot IDs from logical input display IDs, rejects
+warning-corrupted PNG streams, flags suspiciously small black-screen captures,
+keeps Vysor or scrcpy aligned with headless ADB proof, and extracts
+accessibility-tree text with a delimiter-safe parser instead of a hand-rolled
+regex that silently misses quote-containing values. It is intentionally
+bounded to registered test devices and reversible, route-approved actions.
+The [initial Pixel 10 Pro XL proof](plans/phone-proof/PROOF.md) exercises the
+capture and human-mirror alignment slice.
+
 ## GrillTrack
 
 GrillTrack helps a user and an agent build a complicated thing without
@@ -210,6 +223,11 @@ invocation, but it is never required when the user's intent is already clear.
   for doctor, plan, status, journals, and gated qualification operations.
 - `skills/herdr-puppet/references/`: authority, transport, qualification,
   desktop-observation fallback, and versioned JSON-schema contracts.
+- [`skills/phone-proof/SKILL.md`](skills/phone-proof/SKILL.md): the
+  build-install-look-fix-look mobile UI workflow.
+- `skills/phone-proof/scripts/phone_proof.py`: a standard-library Android
+  display inventory and structurally validated screenshot helper.
+- `skills/phone-proof/references/`: display-ID and visual-proof contracts.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
@@ -229,6 +247,7 @@ python3 skills/puppet/scripts/puppet_launch.py --help
 python3 skills/puppet/scripts/puppet_fanout.py --help
 python3 skills/puppet/scripts/adapter_lab.py --help
 python3 skills/herdr-puppet/scripts/herdr_puppet.py --help
+python3 skills/phone-proof/scripts/phone_proof.py --help
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.

@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
+PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
 
 
 class PackagingTests(unittest.TestCase):
@@ -527,6 +528,28 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("infer an authentication gate", fallback)
         self.assertIn("Use Pixel Use MCP for phone semantics", fallback)
         self.assertIn("Never enter or retrieve a password", fallback)
+
+    def test_phone_proof_skill_is_packaged_and_bounded(self) -> None:
+        skill = (PHONE_PROOF_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            PHONE_PROOF_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        helper = (
+            PHONE_PROOF_SKILL / "scripts" / "phone_proof.py"
+        ).read_text(encoding="utf-8")
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("$phone-proof", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("Actually inspect the image", skill)
+        self.assertIn("physical screenshot ID", skill)
+        self.assertIn("Android Studio", skill)
+        self.assertIn("Running Devices", skill)
+        self.assertIn("device_class", helper)
+        self.assertIn("Accessibility tree", skill)
+        self.assertIn("phone-proof.tree.v1", helper)
+        self.assertNotIn("shell=True", helper)
+        self.assertNotIn("os.system", helper)
+        self.assertNotIn('"serial": serial', helper)
 
 
 if __name__ == "__main__":

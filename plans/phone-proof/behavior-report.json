@@ -1,0 +1,98 @@
+{
+  "overall_behavior": "satisfies_contract",
+  "overall_confidence": 0.94,
+  "target": {
+    "type": "device",
+    "access": "registered Pixel 10 Pro XL test device; serial omitted"
+  },
+  "contract": {
+    "path": "skills/phone-dogfood/SKILL.md",
+    "version": "2026-07-25"
+  },
+  "checks": [
+    {
+      "contract_clause": "Inventory physical and logical displays",
+      "status": "pass",
+      "severity": null,
+      "evidence": "One active physical display mapped to logical display 0; one Vysor/stdout virtual display was ignored.",
+      "reproduction_steps": [
+        "Run phone_dogfood.py inventory",
+        "Compare physical display inventory with logical viewport mapping"
+      ],
+      "confidence": 0.97
+    },
+    {
+      "contract_clause": "Capture structurally valid agent-view proof",
+      "status": "pass",
+      "severity": null,
+      "evidence": "ADB capture is a valid 1080x2404 PNG, 152521 bytes, with the recorded SHA-256.",
+      "reproduction_steps": [
+        "Launch the safe Calculator surface",
+        "Run phone_dogfood.py capture",
+        "Inspect pixel-calculator-adb.png"
+      ],
+      "confidence": 0.98
+    },
+    {
+      "contract_clause": "Actually inspect the rendered result",
+      "status": "pass",
+      "severity": null,
+      "evidence": "Calculator digits and controls are legible and reachable; no unintended black or empty rendering region is present.",
+      "reproduction_steps": [
+        "Open pixel-calculator-adb.png at full resolution",
+        "Check controls, text, content, and empty regions"
+      ],
+      "confidence": 0.96
+    },
+    {
+      "contract_clause": "Align human mirror and agent capture",
+      "status": "pass",
+      "severity": null,
+      "evidence": "The window-scoped Vysor image shows the same Calculator screen as the ADB image; the accessibility tree reports only com.google.android.calculator.",
+      "reproduction_steps": [
+        "Capture the Vysor device window",
+        "Compare it with the ADB image",
+        "Query the ADB accessibility package and visible controls"
+      ],
+      "confidence": 0.95
+    },
+    {
+      "contract_clause": "Build and reinstall a changed APK",
+      "status": "out_of_scope",
+      "severity": null,
+      "evidence": "This initial proof validates the generic capture and mirror-alignment helper; no Android product app was changed in the issue-12 repository slice.",
+      "reproduction_steps": [],
+      "confidence": 1.0
+    },
+    {
+      "contract_clause": "Restore the device",
+      "status": "pass",
+      "severity": null,
+      "evidence": "HOME was dispatched and the final accessibility packages were the standard Pixel launcher surfaces.",
+      "reproduction_steps": [
+        "Dispatch KEYCODE_HOME",
+        "Re-query the accessibility package set"
+      ],
+      "confidence": 0.96
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "Warning-prefixed PNG fixture",
+      "result": "Rejected as CAPTURE_NOT_PNG before write"
+    },
+    {
+      "probe": "Two physical displays without selection",
+      "result": "Rejected as DISPLAY_SELECTION_REQUIRED"
+    },
+    {
+      "probe": "Explicit private serial fixture",
+      "result": "Used for targeting but absent from success and error output"
+    },
+    {
+      "probe": "ADB package versus Vysor pixels",
+      "result": "Both identify the Calculator surface"
+    }
+  ],
+  "blockers": []
+}
