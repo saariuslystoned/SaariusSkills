@@ -228,6 +228,9 @@ invocation, but it is never required when the user's intent is already clear.
 - `skills/phone-proof/scripts/phone_proof.py`: a standard-library Android
   display inventory and structurally validated screenshot helper.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
+- [`skills/openclaw-vs-hermes-bakeoff/SKILL.md`](skills/openclaw-vs-hermes-bakeoff/SKILL.md):
+  side-by-side OpenClaw and Hermes Agent UI bakeoff on Grok Bot's computer
+  before the evaluator installs either stack locally.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
