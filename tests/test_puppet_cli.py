@@ -225,6 +225,23 @@ class PuppetCLITests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
                 self.parser.parse_args([*common, "--manifest", invalid])
 
+    def test_onboard_rejects_duplicate_manifest_target_as_conflict(self):
+        result = self._run_cli(
+            [
+                "onboard",
+                "--profile-shelf",
+                "/tmp/profiles",
+                "--manifest",
+                "grok=/tmp/grok-a.json",
+                "--manifest",
+                "grok=/tmp/grok-b.json",
+            ]
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('"error": "conflict"', result.stderr)
+        self.assertIn("duplicate onboarding target", result.stderr)
+        self.assertNotIn("NameError", result.stderr)
+
     def test_message_and_evidence_bodies_are_not_command_argv(self):
         with self.assertRaises(SystemExit):
             self.parser.parse_args(

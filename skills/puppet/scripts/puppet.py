@@ -10,7 +10,12 @@ from pathlib import Path
 
 from puppet_lib.agy_launch import reject_agy_private_profile_root
 from puppet_lib.contracts import Contract
-from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
+from puppet_lib.errors import (
+    ConflictError,
+    PuppetError,
+    UnsupportedError,
+    ValidationError,
+)
 from puppet_lib.operator_plan import compile_operator_plan
 from puppet_lib.promotions import close_bootstrap, promote_bootstrap
 from puppet_lib.session import (
