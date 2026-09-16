@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import datetime as dt
 import errno
 import math
 import os
@@ -62,7 +63,10 @@ REQUIRED_FIELDS = {
     "protocol",
     "created_at",
     "last_checkpoint",
+    "last_validated_at",
     "last_beacon",
+    "repair_count",
+    "deadline_at",
     "blocker",
 }
 
@@ -107,6 +111,21 @@ TMUX_BINARY_FIELDS = {
 }
 SESSION_REGISTRY_SCHEMA_VERSION = 2
 LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS = frozenset({1})
+# SKILL.md: review stays required after two repairs. The registry cannot
+# represent a third repair verdict, so the count is a persisted invariant.
+MAX_REPAIR_VERDICTS = 2
+
+
+def _validate_utc_timestamp(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 40:
+        raise ValidationError("%s timestamp is invalid" % label)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationError("%s timestamp is invalid" % label) from exc
+    if parsed.tzinfo is None:
+        raise ValidationError("%s timestamp requires a timezone" % label)
+    return value
 
 
 def validate_process_identity_shape(
@@ -1550,10 +1569,24 @@ class SessionRegistry:
                 and assignment_present
             ):
                 raise ValidationError("source proof assignment identity is incomplete")
+        repair_count = value.get("repair_count")
+        if (
+            isinstance(repair_count, bool)
+            or not isinstance(repair_count, int)
+            or not 0 <= repair_count <= MAX_REPAIR_VERDICTS
+        ):
+            raise ValidationError(
+                "session repair count must be an integer from zero to %d"
+                % MAX_REPAIR_VERDICTS
+            )
+        for name in ("last_validated_at", "deadline_at"):
+            if value.get(name) is not None:
+                _validate_utc_timestamp(value[name], name.replace("_", " "))
         beacon = value.get("last_beacon")
         if beacon is not None:
             if not isinstance(beacon, dict) or set(beacon) != {
                 "received_at",
+                "sequence",
                 "prefix",
                 "kind",
                 "authority",
@@ -1562,6 +1595,12 @@ class SessionRegistry:
                 raise ValidationError("invalid last beacon projection")
             if not isinstance(beacon["received_at"], str) or not beacon["received_at"]:
                 raise ValidationError("last beacon timestamp is missing")
+            if (
+                isinstance(beacon["sequence"], bool)
+                or not isinstance(beacon["sequence"], int)
+                or beacon["sequence"] < 1
+            ):
+                raise ValidationError("last beacon sequence is invalid")
             if beacon["authority"] != "target_claim":
                 raise ValidationError("last beacon authority is invalid")
             if PREFIXES.get(beacon["prefix"]) != beacon["kind"]:

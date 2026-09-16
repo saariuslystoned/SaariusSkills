@@ -232,6 +232,15 @@ next actions. Never inspect a pane or transcript to learn status. Keep
 advisories, provider errors, process state, protocol state, and terminal
 verdicts separate.
 
+Status also exposes the persisted per-session repair count, the seconds since
+the last controller-validated checkpoint, and any launch deadline. Wait
+timeouts must be finite and bounded. `wait --after` names the checkpoint id or
+beacon sequence already handled so a wait cannot re-match stale progress. The
+registry cannot represent more than two repair verdicts; a third `repair` is
+refused and the controller must adjudicate. Past an optional launch deadline,
+`wait` stops polling and `send` and `repair` are refused while halt and
+adjudication remain available.
+
 State projections are atomic. Events and promotions are append-only and
 hash-chained. Preserve stopped sessions by default. `halt` affects only the
 registered target; `close` is unsupported by bootstrap Puppet.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import subprocess
 import sys
 import unittest
@@ -124,8 +126,60 @@ class PuppetCLITests(unittest.TestCase):
             ]
         )
 
-    def test_wait_accepts_beacon_condition(self):
-        args = self.parser.parse_args(
+    def test_wait_accepts_beacon_condition_and_optional_after_marker(self):
+        base = [
+            "wait",
+            "--state-root",
+            "state",
+            "--session",
+            "session",
+            "--until",
+            "beacon",
+            "--timeout",
+            "1.0",
+        ]
+        args = self.parser.parse_args(base)
+        self.assertEqual(args.until, "beacon")
+        self.assertEqual(args.timeout, 1.0)
+        self.assertIsNone(args.after)
+        args = self.parser.parse_args([*base, "--after", "3"])
+        self.assertEqual(args.after, "3")
+
+    def test_wait_and_halt_reject_non_finite_timeouts_at_parse_time(self):
+        # Issue #28: float("nan") passes every range comparison, so the parser
+        # must refuse it before wait_for's bounds are ever consulted.
+        for command, extra in (("wait", ["--until", "checkpoint"]), ("halt", [])):
+            # A bare "-inf" is parsed as an option flag; the "=" form reaches
+            # the type check like every other value.
+            for timeout in (
+                ["--timeout", "nan"],
+                ["--timeout", "NaN"],
+                ["--timeout", "inf"],
+                ["--timeout", "Infinity"],
+                ["--timeout=-inf"],
+                ["--timeout", "abc"],
+            ):
+                with self.subTest(command=command, timeout=timeout):
+                    with (
+                        contextlib.redirect_stderr(io.StringIO()) as stderr,
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        self.parser.parse_args(
+                            [
+                                command,
+                                "--state-root",
+                                "state",
+                                "--session",
+                                "session",
+                                *extra,
+                                *timeout,
+                            ]
+                        )
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn(
+                        "must be a finite number of seconds", stderr.getvalue()
+                    )
+        result = self._run_cli(
             [
                 "wait",
                 "--state-root",
@@ -133,13 +187,45 @@ class PuppetCLITests(unittest.TestCase):
                 "--session",
                 "session",
                 "--until",
-                "beacon",
+                "checkpoint",
                 "--timeout",
-                "1.0",
+                "nan",
             ]
         )
-        self.assertEqual(args.until, "beacon")
-        self.assertEqual(args.timeout, 1.0)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must be a finite number of seconds", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_launch_accepts_optional_finite_deadline(self):
+        base = [
+            "launch",
+            "--session",
+            "session",
+            "--contract",
+            "contract.json",
+            "--manifest",
+            "manifest.json",
+            "--authorization",
+            "authorization.json",
+            "--proof-root",
+            "proof",
+            "--state-root",
+            "state",
+            "--prompt-file",
+            "prompt.txt",
+        ]
+        self.assertIsNone(self.parser.parse_args(base).deadline_seconds)
+        self.assertEqual(
+            self.parser.parse_args(
+                [*base, "--deadline-seconds", "3600"]
+            ).deadline_seconds,
+            3600.0,
+        )
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            self.parser.parse_args([*base, "--deadline-seconds", "nan"])
 
     def test_review_and_accept_require_explicit_checkpoint(self):
         review_base = [
