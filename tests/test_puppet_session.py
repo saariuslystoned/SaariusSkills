@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import hashlib
 import json
 import stat
@@ -411,6 +412,123 @@ class SessionPopulationSelectorTests(unittest.TestCase):
                 [],
             )
         active.assert_called_once_with("cursor", execution_files=[runtime])
+
+
+class WaitAndRepairLimitTests(unittest.TestCase):
+    def test_wait_rejects_non_finite_timeouts_before_touching_the_registry(self):
+        # Issue #28: nan compares false against both bounds, so the old range
+        # check admitted it and monotonic() + nan never reached a deadline.
+        with tempfile.TemporaryDirectory() as temporary:
+            state_root = Path(temporary) / "state"
+            for value in (float("nan"), float("inf"), float("-inf"), True, "5"):
+                with (
+                    self.subTest(value=value),
+                    self.assertRaisesRegex(
+                        ValidationError, "wait timeout must be a finite number"
+                    ),
+                ):
+                    wait_for(
+                        state_root=state_root,
+                        session="missing-session",
+                        condition="checkpoint",
+                        timeout=value,
+                    )
+            for value in (-1, 300.5, 301):
+                with (
+                    self.subTest(value=value),
+                    self.assertRaisesRegex(
+                        ValidationError, "between zero and 300 seconds"
+                    ),
+                ):
+                    wait_for(
+                        state_root=state_root,
+                        session="missing-session",
+                        condition="checkpoint",
+                        timeout=value,
+                    )
+            self.assertFalse(state_root.exists())
+
+    def test_halt_rejects_non_finite_timeouts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state_root = Path(temporary) / "state"
+            for value in (float("nan"), float("inf")):
+                with (
+                    self.subTest(value=value),
+                    self.assertRaisesRegex(
+                        ValidationError, "halt timeout must be a finite number"
+                    ),
+                ):
+                    halt(state_root=state_root, session="missing-session", timeout=value)
+            with self.assertRaisesRegex(ValidationError, "between zero and 60 seconds"):
+                halt(state_root=state_root, session="missing-session", timeout=61)
+            self.assertFalse(state_root.exists())
+
+    def test_wait_after_marker_is_validated_per_condition(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state_root = Path(temporary) / "state"
+
+            def attempt(condition: str, after):
+                return wait_for(
+                    state_root=state_root,
+                    session="missing-session",
+                    condition=condition,
+                    timeout=0,
+                    after=after,
+                )
+
+            for after in ("abc", "A" * 64, 7, ""):
+                with (
+                    self.subTest(condition="checkpoint", after=after),
+                    self.assertRaisesRegex(
+                        ValidationError, "wait checkpoint id must be a lowercase SHA-256"
+                    ),
+                ):
+                    attempt("checkpoint", after)
+            for after in ("-1", "x", "", True, 1.5, "9" * 19, -1):
+                with (
+                    self.subTest(condition="beacon", after=after),
+                    self.assertRaisesRegex(
+                        ValidationError,
+                        "wait beacon sequence must be a non-negative integer",
+                    ),
+                ):
+                    attempt("beacon", after)
+            for condition in ("action-required", "target-stopped", "done"):
+                with (
+                    self.subTest(condition=condition),
+                    self.assertRaisesRegex(
+                        ValidationError, "applies only to checkpoint and beacon"
+                    ),
+                ):
+                    attempt(condition, "1")
+            self.assertFalse(state_root.exists())
+            with self.assertRaisesRegex(ValidationError, "unknown session"):
+                attempt("checkpoint", "a" * 64)
+            with self.assertRaisesRegex(ValidationError, "unknown session"):
+                attempt("beacon", "0")
+
+    def test_repair_budget_is_refused_after_two_repairs_or_past_deadline(self):
+        past = "2026-01-01T00:00:00Z"
+        future = "2999-01-01T00:00:00Z"
+        for count in (0, 1):
+            for deadline_at in (None, future):
+                puppet_session._require_repair_budget(
+                    {"repair_count": count, "deadline_at": deadline_at}
+                )
+        with self.assertRaisesRegex(
+            ValidationError,
+            "repair limit reached: 2 repair verdicts were already recorded.*"
+            "adjudication .* is required",
+        ):
+            puppet_session._require_repair_budget(
+                {"repair_count": 2, "deadline_at": None}
+            )
+        with self.assertRaisesRegex(
+            ValidationError, "session deadline has passed: a repair verdict is refused"
+        ):
+            puppet_session._require_repair_budget(
+                {"repair_count": 0, "deadline_at": past}
+            )
 
 
 class SessionIntegrationTests(unittest.TestCase):
@@ -1334,6 +1452,47 @@ class SessionIntegrationTests(unittest.TestCase):
                 )
                 self.assertTrue(beacon_wait["matched"])
                 self.assertEqual(beacon_wait["last_beacon"]["kind"], "status_claim")
+                self.assertEqual(beacon_wait["last_beacon"]["sequence"], 1)
+                self.assertIsNone(beacon_wait["after"])
+                # Issue #29: a wait after the beacon already handled must not
+                # re-match the same record.
+                self.assertFalse(
+                    wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="beacon",
+                        timeout=0,
+                        after=1,
+                    )["matched"]
+                )
+                second_beacon = record_beacon(
+                    state_root=files["state"],
+                    session=session,
+                    line='PUPPET_ACTION_REQUIRED {"reason":"decision"}',
+                )
+                self.assertEqual(second_beacon["beacon"]["sequence"], 2)
+                newer_beacon_wait = wait_for(
+                    state_root=files["state"],
+                    session=session,
+                    condition="beacon",
+                    timeout=0,
+                    after="1",
+                )
+                self.assertTrue(newer_beacon_wait["matched"])
+                self.assertEqual(newer_beacon_wait["after"], 1)
+                self.assertEqual(newer_beacon_wait["last_beacon"]["sequence"], 2)
+                self.assertEqual(
+                    newer_beacon_wait["last_beacon"]["kind"], "action_claim"
+                )
+                self.assertFalse(
+                    wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="beacon",
+                        timeout=0,
+                        after=2,
+                    )["matched"]
+                )
                 record = SessionRegistry(files["state"]).load(session)
                 socket = record["tmux"]["socket"]
                 instruction_path = Path(record["instructions"]["manifest_path"])
@@ -2554,6 +2713,241 @@ class SessionIntegrationTests(unittest.TestCase):
                     status(state_root=files["state"], session=session)["state"],
                     "ACCEPTED",
                 )
+                self.assertEqual(
+                    halt(state_root=files["state"], session=session, timeout=5)[
+                        "state"
+                    ],
+                    "HALTED",
+                )
+            finally:
+                kill_test_server(socket)
+
+    def test_source_repairs_are_bounded_and_wait_after_tracks_new_checkpoints(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate = initialize_repo(
+                root / "candidate", "codex/repair-fixture", "candidate"
+            )
+            session = "codex-repair-test"
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/repair-fixture",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launched = launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Create bounded source commits and wait.",
+                    deadline_seconds=3600,
+                )
+                registry = SessionRegistry(files["state"])
+                record = registry.load(session)
+                socket = record["tmux"]["socket"]
+                self.assertEqual(record["repair_count"], 0)
+                self.assertIsNone(record["last_validated_at"])
+                self.assertEqual(record["deadline_at"], launched["deadline_at"])
+                self.assertEqual(
+                    puppet_session._parse_utc(record["deadline_at"], "deadline")
+                    - puppet_session._parse_utc(record["created_at"], "created"),
+                    dt.timedelta(seconds=3600),
+                )
+                initial = status(state_root=files["state"], session=session)
+                self.assertEqual(initial["repair_count"], 0)
+                self.assertEqual(initial["repairs_remaining"], 2)
+                self.assertIsNone(initial["last_validated_at"])
+                self.assertIsNone(initial["seconds_since_last_validated_progress"])
+                self.assertEqual(initial["deadline_at"], launched["deadline_at"])
+                self.assertFalse(initial["deadline_exceeded"])
+                self.assertEqual(
+                    wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="checkpoint",
+                        timeout=0,
+                    ),
+                    {
+                        "ok": True,
+                        "session": session,
+                        "condition": "checkpoint",
+                        "after": None,
+                        "matched": False,
+                        "deadline_exceeded": False,
+                    },
+                )
+
+                def write_source_handoff(path: Path, commit: str, summary: str):
+                    write_json(
+                        path,
+                        {
+                            "schema_version": HANDOFF_SCHEMA_VERSION,
+                            "checkpoint_kind": "source",
+                            "session": session,
+                            "run_id": "source-run",
+                            "nonce": "source-nonce",
+                            "candidate_commit": commit,
+                            "executable_fingerprint": record["adapter"][
+                                "executable_fingerprint"
+                            ],
+                            "execution_fingerprint": record["adapter"][
+                                "execution_fingerprint"
+                            ],
+                            "adapter_fingerprint": record["adapter"][
+                                "adapter_fingerprint"
+                            ],
+                            "protocol_fingerprint": record["adapter"][
+                                "protocol_fingerprint"
+                            ],
+                            "timestamp": "2026-07-22T03:10:00Z",
+                            "summary": summary,
+                            "claims": [],
+                            "evidence_refs": [],
+                            "decisions_requested": [],
+                            "limitations": [],
+                            "suggested_next_assignment": "Controller review",
+                        },
+                    )
+
+                def checkpoint(name: str) -> str:
+                    (candidate / (name + ".txt")).write_text(
+                        name + "\n", encoding="utf-8"
+                    )
+                    commit = commit_all(candidate, name)
+                    handoff_path = files["proof"] / (name + "-handoff.json")
+                    write_source_handoff(handoff_path, commit, "Bounded " + name)
+                    return import_checkpoint(
+                        state_root=files["state"],
+                        session=session,
+                        handoff_path=handoff_path,
+                    )["checkpoint_id"]
+
+                def review(checkpoint_id: str, verdict: str):
+                    evidence = files["proof"] / (
+                        verdict + "-" + checkpoint_id[:8] + ".json"
+                    )
+                    write_json(evidence, {"findings": [], "classification": verdict})
+                    return review_checkpoint(
+                        state_root=files["state"],
+                        session=session,
+                        checkpoint_id=checkpoint_id,
+                        actor="tester",
+                        verdict=verdict,
+                        evidence_path=evidence,
+                    )
+
+                def wait_checkpoint(after=None):
+                    return wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="checkpoint",
+                        timeout=0,
+                        after=after,
+                    )
+
+                first = checkpoint("first")
+                first_wait = wait_checkpoint()
+                self.assertTrue(first_wait["matched"])
+                self.assertEqual(first_wait["last_checkpoint"]["checkpoint_id"], first)
+                self.assertIsNotNone(first_wait["last_validated_at"])
+                self.assertGreaterEqual(
+                    first_wait["seconds_since_last_validated_progress"], 0
+                )
+                # Issue #29: any checkpoint satisfies an unqualified wait, but a
+                # wait after the checkpoint already handled must keep waiting.
+                self.assertFalse(wait_checkpoint(after=first)["matched"])
+                review(first, "repair")
+                after_first_repair = status(state_root=files["state"], session=session)
+                self.assertEqual(after_first_repair["state"], "ACTIVE")
+                self.assertEqual(after_first_repair["repair_count"], 1)
+                self.assertEqual(after_first_repair["repairs_remaining"], 1)
+                self.assertEqual(registry.load(session)["repair_count"], 1)
+                self.assertFalse(wait_checkpoint(after=first)["matched"])
+                second = checkpoint("second")
+                self.assertNotEqual(second, first)
+                second_wait = wait_checkpoint(after=first)
+                self.assertTrue(second_wait["matched"])
+                self.assertEqual(second_wait["after"], first)
+                self.assertEqual(second_wait["last_checkpoint"]["checkpoint_id"], second)
+                review(second, "repair")
+                after_second_repair = status(state_root=files["state"], session=session)
+                self.assertEqual(after_second_repair["repair_count"], 2)
+                self.assertEqual(after_second_repair["repairs_remaining"], 0)
+                third = checkpoint("third")
+                self.assertTrue(wait_checkpoint(after=second)["matched"])
+                # Issue #30 item 1: the third repair is refused and leaves the
+                # checkpoint reviewable so the controller must adjudicate.
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "repair limit reached: 2 repair verdicts were already "
+                    "recorded.*adjudication.*is required",
+                ):
+                    review(third, "repair")
+                refused = registry.load(session)
+                self.assertEqual(refused["state"], "SOURCE_CHECKPOINT_READY")
+                self.assertEqual(refused["repair_count"], 2)
+                self.assertFalse(
+                    (files["proof"] / "verdicts" / (third + ".json")).exists()
+                )
+                with self.assertRaisesRegex(
+                    ValidationError, "repair count must be an integer from zero to 2"
+                ):
+                    registry.validate(dict(refused, repair_count=3))
+                review(third, "source_accept")
+                self.assertEqual(
+                    status(state_root=files["state"], session=session)["state"],
+                    "SOURCE_ACCEPTED",
+                )
+                deadline = puppet_session._parse_utc(launched["deadline_at"], "deadline")
+                with patch.object(
+                    puppet_session,
+                    "_now_utc",
+                    return_value=deadline + dt.timedelta(seconds=1),
+                ):
+                    expired = status(state_root=files["state"], session=session)
+                    self.assertTrue(expired["deadline_exceeded"])
+                    self.assertEqual(expired["deadline_at"], launched["deadline_at"])
+                    started = time.monotonic()
+                    expired_wait = wait_for(
+                        state_root=files["state"],
+                        session=session,
+                        condition="done",
+                        timeout=5,
+                    )
+                    self.assertLess(time.monotonic() - started, 2.0)
+                    self.assertEqual(
+                        expired_wait,
+                        {
+                            "ok": True,
+                            "session": session,
+                            "condition": "done",
+                            "after": None,
+                            "matched": False,
+                            "deadline_exceeded": True,
+                        },
+                    )
+                    with self.assertRaisesRegex(
+                        ValidationError,
+                        "session deadline has passed: steering messages are refused",
+                    ):
+                        send_message(
+                            state_root=files["state"],
+                            session=session,
+                            message="Create the proof-only child commit.",
+                            request_id="proof-assignment-after-deadline",
+                        )
+                    self.assertEqual(
+                        registry.load(session)["protocol"]["phase"],
+                        "source_accepted",
+                    )
                 self.assertEqual(
                     halt(state_root=files["state"], session=session, timeout=5)[
                         "state"

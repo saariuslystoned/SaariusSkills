@@ -44,6 +44,7 @@ from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, validate_handoff  # noqa
 from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
+    MAX_REPAIR_VERDICTS,
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     process_alive,
@@ -3325,7 +3326,10 @@ class AuthorityTests(unittest.TestCase):
                 },
                 "created_at": "2026-07-22T02:00:00Z",
                 "last_checkpoint": None,
+                "last_validated_at": None,
                 "last_beacon": None,
+                "repair_count": 0,
+                "deadline_at": None,
                 "blocker": None,
             }
             with self.assertRaisesRegex(UnsupportedError, "legacy session registry"):
@@ -3340,6 +3344,57 @@ class AuthorityTests(unittest.TestCase):
             mixed_adapter.pop("execution_fingerprint")
             with self.assertRaisesRegex(ValidationError, "adapter identity"):
                 registry.validate(dict(record, adapter=mixed_adapter))
+            pre_accounting = dict(record)
+            for name in ("repair_count", "last_validated_at", "deadline_at"):
+                pre_accounting.pop(name)
+            with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
+                registry.validate(pre_accounting)
+            for invalid_count in (MAX_REPAIR_VERDICTS + 1, -1, True, "1", None):
+                with (
+                    self.subTest(repair_count=invalid_count),
+                    self.assertRaisesRegex(
+                        ValidationError, "repair count must be an integer"
+                    ),
+                ):
+                    registry.validate(dict(record, repair_count=invalid_count))
+            for name in ("last_validated_at", "deadline_at"):
+                for invalid_stamp in ("soon", "", "2026-07-22T02:00:00", 5):
+                    with (
+                        self.subTest(name=name, value=invalid_stamp),
+                        self.assertRaisesRegex(ValidationError, "timestamp"),
+                    ):
+                        registry.validate(dict(record, **{name: invalid_stamp}))
+            registry.validate(
+                dict(
+                    record,
+                    repair_count=MAX_REPAIR_VERDICTS,
+                    last_validated_at="2026-07-22T02:05:00Z",
+                    deadline_at="2026-07-22T12:00:00+00:00",
+                )
+            )
+            unsequenced_beacon = {
+                "received_at": "2026-07-22T02:01:00Z",
+                "prefix": "PUPPET_STATUS",
+                "kind": "status_claim",
+                "authority": "target_claim",
+                "data": {"phase": "ready"},
+            }
+            with self.assertRaisesRegex(ValidationError, "invalid last beacon projection"):
+                registry.validate(dict(record, last_beacon=unsequenced_beacon))
+            for invalid_sequence in (0, -1, True, "1"):
+                with (
+                    self.subTest(sequence=invalid_sequence),
+                    self.assertRaisesRegex(ValidationError, "last beacon sequence"),
+                ):
+                    registry.validate(
+                        dict(
+                            record,
+                            last_beacon=dict(unsequenced_beacon, sequence=invalid_sequence),
+                        )
+                    )
+            registry.validate(
+                dict(record, last_beacon=dict(unsequenced_beacon, sequence=1))
+            )
             for name, invalid in {
                 "identity_version": 1,
                 "kernel_birth_id": "",

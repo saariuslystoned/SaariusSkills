@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -39,6 +40,24 @@ from puppet_lib.subscription_onboarding import (
 
 def _path(value: str) -> Path:
     return Path(value)
+
+
+def _finite_seconds(value: str) -> float:
+    """Parse a seconds argument, rejecting nan/inf before any range check.
+
+    ``float("nan")`` passes every ``<``/``>`` comparison, so a plain
+    ``type=float`` lets ``--timeout nan`` reach a wait loop whose deadline is
+    never met.
+    """
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a finite number of seconds"
+        ) from exc
+    if not math.isfinite(seconds):
+        raise argparse.ArgumentTypeError("must be a finite number of seconds")
+    return seconds
 
 
 def _target_and_profile_requirement(
@@ -100,6 +119,7 @@ def _launch(args):
         requested_effort=args.effort,
         profile_root=args.profile_root,
         require_subscription_profile=target != "agy",
+        deadline_seconds=args.deadline_seconds,
     )
 
 
@@ -128,6 +148,7 @@ def _wait(args):
         session=args.session,
         condition=args.until,
         timeout=args.timeout,
+        after=args.after,
     )
 
 
@@ -297,6 +318,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     launch_parser.add_argument("--model")
     launch_parser.add_argument("--effort")
+    launch_parser.add_argument(
+        "--deadline-seconds",
+        type=_finite_seconds,
+        help=(
+            "optional overall session deadline measured from launch; once it "
+            "passes, wait stops polling, send and repair are refused, and "
+            "status reports deadline_exceeded (halt and adjudication stay open)"
+        ),
+    )
     launch_parser.set_defaults(handler=_launch)
 
     send_parser = commands.add_parser("send", help="send one literal bounded message")
@@ -325,7 +355,20 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["checkpoint", "beacon", "action-required", "target-stopped", "done"],
     )
-    wait_parser.add_argument("--timeout", required=True, type=float)
+    wait_parser.add_argument(
+        "--timeout",
+        required=True,
+        type=_finite_seconds,
+        help="finite seconds from zero to 300",
+    )
+    wait_parser.add_argument(
+        "--after",
+        help=(
+            "match only progress newer than this marker: for --until checkpoint "
+            "the checkpoint_id already handled; for --until beacon the beacon "
+            "sequence already handled"
+        ),
+    )
     wait_parser.set_defaults(handler=_wait)
 
     checkpoint_parser = commands.add_parser("checkpoint", help="validate one handoff")
@@ -423,7 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     halt_parser.add_argument("--state-root", required=True, type=_path)
     halt_parser.add_argument("--session", required=True)
-    halt_parser.add_argument("--timeout", type=float, default=10.0)
+    halt_parser.add_argument("--timeout", type=_finite_seconds, default=10.0)
     halt_parser.set_defaults(handler=_halt)
 
     reconcile_grok_help = (

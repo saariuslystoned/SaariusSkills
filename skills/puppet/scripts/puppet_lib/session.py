@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import os
 import stat
 import subprocess
@@ -61,6 +62,7 @@ from .profiles import (
     startup_settle_seconds_for,
 )
 from .registry import (
+    MAX_REPAIR_VERDICTS,
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     bind_runtime_process,
@@ -113,13 +115,92 @@ YOLO_WARNING = (
 )
 
 
-def _utc_now() -> str:
+MAX_WAIT_TIMEOUT_SECONDS = 300.0
+MAX_HALT_TIMEOUT_SECONDS = 60.0
+MAX_SESSION_DEADLINE_SECONDS = 7 * 24 * 3600.0
+WAIT_CONDITIONS = frozenset(
+    {"beacon", "checkpoint", "action-required", "target-stopped", "done"}
+)
+
+
+def _now_utc() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def _format_utc(value: dt.datetime) -> str:
     return (
-        dt.datetime.now(dt.timezone.utc)
+        value.astimezone(dt.timezone.utc)
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+
+def _utc_now() -> str:
+    return _format_utc(_now_utc())
+
+
+def _parse_utc(value: Any, label: str) -> dt.datetime:
+    if not isinstance(value, str) or not value or len(value) > 40:
+        raise ValidationError("%s timestamp is invalid" % label)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationError("%s timestamp is invalid" % label) from exc
+    if parsed.tzinfo is None:
+        raise ValidationError("%s timestamp requires a timezone" % label)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _bounded_seconds(
+    value: Any, label: str, *, maximum: float, minimum: float = 0.0
+) -> float:
+    """Return ``value`` as finite seconds inside [minimum, maximum].
+
+    ``float("nan")`` compares false against every bound, so a plain range
+    check lets it through and ``monotonic() + nan`` never reaches a deadline;
+    non-finite values are rejected explicitly before the range check.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValidationError("%s must be a finite number of seconds" % label)
+    seconds = float(value)
+    if not math.isfinite(seconds):
+        raise ValidationError("%s must be a finite number of seconds" % label)
+    if seconds < minimum or seconds > maximum:
+        raise ValidationError(
+            "%s must be between %s and %s seconds"
+            % (label, "zero" if minimum == 0 else "%g" % minimum, "%g" % maximum)
+        )
+    return seconds
+
+
+def _seconds_since(timestamp: Optional[str], label: str) -> Optional[int]:
+    if timestamp is None:
+        return None
+    elapsed = (_now_utc() - _parse_utc(timestamp, label)).total_seconds()
+    return max(0, int(elapsed))
+
+
+def _deadline_state(record: Dict[str, Any]) -> Tuple[Optional[str], bool]:
+    deadline_at = record.get("deadline_at")
+    if deadline_at is None:
+        return None, False
+    return deadline_at, _now_utc() >= _parse_utc(deadline_at, "session deadline")
+
+
+def _require_repair_budget(record: Dict[str, Any]) -> None:
+    if _deadline_state(record)[1]:
+        raise ValidationError(
+            "session deadline has passed: a repair verdict is refused; "
+            "controller adjudication (source_accept, block, or fail) is required"
+        )
+    repair_count = record["repair_count"]
+    if repair_count >= MAX_REPAIR_VERDICTS:
+        raise ValidationError(
+            "repair limit reached: %d repair verdicts were already recorded "
+            "for this session; controller adjudication (source_accept, block, "
+            "or fail) is required" % repair_count
+        )
 
 
 def _git(repo: Path, arguments: List[str], *, identity_error: bool = False) -> str:
@@ -1179,6 +1260,7 @@ def launch(
     requested_effort: Optional[str] = None,
     profile_root: Optional[Path] = None,
     require_subscription_profile: bool = True,
+    deadline_seconds: Optional[float] = None,
     _sleep_fn: Any = time.sleep,
     _execution_sleep_fn: Any = time.sleep,
     _execution_monotonic_fn: Any = time.monotonic,
@@ -1186,6 +1268,13 @@ def launch(
     _allow_test_profile_bypass: bool = False,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
+    if deadline_seconds is not None:
+        deadline_seconds = _bounded_seconds(
+            deadline_seconds,
+            "session deadline",
+            minimum=1.0,
+            maximum=MAX_SESSION_DEADLINE_SECONDS,
+        )
     initial_contract = Contract.from_path(contract_path)
     if initial_contract.target == "agy":
         require_agy_regular_launch_authority(initial_contract.session_profile)
@@ -1630,6 +1719,12 @@ def launch(
             process=process,
         )
         lease_active = True
+        launched_at = _now_utc()
+        deadline_at = (
+            None
+            if deadline_seconds is None
+            else _format_utc(launched_at + dt.timedelta(seconds=deadline_seconds))
+        )
         record = {
             "schema_version": SESSION_REGISTRY_SCHEMA_VERSION,
             "session": session,
@@ -1680,9 +1775,12 @@ def launch(
                 "session_profile": compiled.manifest["session_profile"],
             },
             "protocol": protocol,
-            "created_at": _utc_now(),
+            "created_at": _format_utc(launched_at),
             "last_checkpoint": None,
+            "last_validated_at": None,
             "last_beacon": None,
+            "repair_count": 0,
+            "deadline_at": deadline_at,
             "blocker": None,
         }
         registry.activate(record)
@@ -1751,6 +1849,7 @@ def launch(
             "ok": True,
             "session": session,
             "state": "ACTIVE",
+            "deadline_at": deadline_at,
             "instruction_policy_fingerprint": compiled.manifest[
                 "instruction_policy_fingerprint"
             ],
@@ -1847,6 +1946,11 @@ def send_message(
         record = registry.load(session)
         contract = _bound_contract(record)
         tmux, _ = _runtime(registry, record, "send", require_process=True)
+        if _deadline_state(record)[1]:
+            raise ValidationError(
+                "session deadline has passed: steering messages are refused; "
+                "halt or adjudicate the session"
+            )
         adapter = adapter_for(record["target"])
         protocol = dict(record["protocol"])
         proof_assignment = False
@@ -1960,6 +2064,7 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
     contract = _bound_contract(record)
     _, metadata = _runtime(registry, record, "status", require_process=False)
     alive = process_alive(record["process"])
+    deadline_at, deadline_exceeded = _deadline_state(record)
     return {
         "ok": True,
         "session": session,
@@ -1974,7 +2079,15 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
         "tmux_alive": not metadata["pane_dead"],
         "protocol": record["protocol"],
         "last_checkpoint": record["last_checkpoint"],
+        "last_validated_at": record["last_validated_at"],
+        "seconds_since_last_validated_progress": _seconds_since(
+            record["last_validated_at"], "last validated progress"
+        ),
         "last_beacon": record["last_beacon"],
+        "repair_count": record["repair_count"],
+        "repairs_remaining": MAX_REPAIR_VERDICTS - record["repair_count"],
+        "deadline_at": deadline_at,
+        "deadline_exceeded": deadline_exceeded,
         "blocker": record["blocker"],
     }
 
@@ -2155,12 +2268,41 @@ def reconcile_grok_dead_lease(
 def record_beacon(*, state_root: Path, session: str, line: str) -> Dict[str, Any]:
     """Ingest one line from an adapter-owned sanitized event hook."""
     registry = SessionRegistry(Path(state_root))
-    record = registry.load(session)
-    _bound_contract(record)
-    _runtime(registry, record, "status", require_process=True)
-    beacon = dict(parse_beacon(line), received_at=_utc_now())
-    registry.update(session, {"last_beacon": beacon})
+    with exclusive_lock(registry.operation_lock(session)):
+        record = registry.load(session)
+        _bound_contract(record)
+        _runtime(registry, record, "status", require_process=True)
+        previous = record["last_beacon"]
+        sequence = 1 if previous is None else previous["sequence"] + 1
+        beacon = dict(parse_beacon(line), received_at=_utc_now(), sequence=sequence)
+        registry.update(session, {"last_beacon": beacon})
     return {"ok": True, "session": session, "beacon": beacon}
+
+
+def _wait_after(condition: str, after: Any) -> Any:
+    """Validate the ``after`` marker for one wait condition.
+
+    ``checkpoint`` waits name the ``checkpoint_id`` already handled; the
+    registry only ever replaces ``last_checkpoint`` with a newly validated
+    handoff, so any other id is newer. ``beacon`` waits name the
+    controller-assigned ``sequence`` already handled; ``received_at`` has
+    one-second resolution and cannot order same-second beacons.
+    """
+    if after is None:
+        return None
+    if condition == "checkpoint":
+        return validate_sha256(after, "wait checkpoint id")
+    if condition == "beacon":
+        if isinstance(after, str) and after.isascii() and after.isdigit():
+            after = int(after) if len(after) <= 18 else -1
+        if isinstance(after, bool) or not isinstance(after, int) or after < 0:
+            raise ValidationError(
+                "wait beacon sequence must be a non-negative integer"
+            )
+        return after
+    raise ValidationError(
+        "wait --after applies only to checkpoint and beacon conditions"
+    )
 
 
 def wait_for(
@@ -2169,25 +2311,28 @@ def wait_for(
     session: str,
     condition: str,
     timeout: float,
+    after: Any = None,
     interval: float = 0.25,
 ) -> Dict[str, Any]:
-    if condition not in {
-        "beacon",
-        "checkpoint",
-        "action-required",
-        "target-stopped",
-        "done",
-    }:
+    if condition not in WAIT_CONDITIONS:
         raise ValidationError("unsupported wait condition")
-    if timeout < 0 or timeout > 300:
-        raise ValidationError("wait timeout must be between zero and 300 seconds")
+    timeout = _bounded_seconds(
+        timeout, "wait timeout", maximum=MAX_WAIT_TIMEOUT_SECONDS
+    )
+    after = _wait_after(condition, after)
     deadline = time.monotonic() + timeout
     while True:
         report = status(state_root=state_root, session=session)
         if condition == "beacon":
-            matched = report["last_beacon"] is not None
+            beacon = report["last_beacon"]
+            matched = beacon is not None and (
+                after is None or beacon["sequence"] > after
+            )
         elif condition == "checkpoint":
-            matched = report["last_checkpoint"] is not None
+            checkpoint = report["last_checkpoint"]
+            matched = checkpoint is not None and (
+                after is None or checkpoint["checkpoint_id"] != after
+            )
         elif condition == "action-required":
             matched = report["blocker"] is not None
         elif condition == "target-stopped":
@@ -2195,14 +2340,16 @@ def wait_for(
         else:
             matched = is_terminal(report["state"])
         if matched:
-            report.update(condition=condition, matched=True)
+            report.update(condition=condition, after=after, matched=True)
             return report
-        if time.monotonic() >= deadline:
+        if report["deadline_exceeded"] or time.monotonic() >= deadline:
             return {
                 "ok": True,
                 "session": session,
                 "condition": condition,
+                "after": after,
                 "matched": False,
+                "deadline_exceeded": report["deadline_exceeded"],
             }
         time.sleep(interval)
 
@@ -2306,7 +2453,12 @@ def import_checkpoint(
     reference = handoff.reference()
     registry.update(
         session,
-        {"state": next_state, "last_checkpoint": reference, "protocol": protocol},
+        {
+            "state": next_state,
+            "last_checkpoint": reference,
+            "last_validated_at": _utc_now(),
+            "protocol": protocol,
+        },
     )
     _journal(Path(record["proof_root"])).append(
         request_id=handoff.checkpoint_id,
@@ -2376,6 +2528,8 @@ def review_checkpoint(
             )
     elif record["state"] == "SOURCE_CHECKPOINT_READY":
         transition(record["state"], "AWAITING_SOURCE_REVIEW")
+        if verdict == "repair":
+            _require_repair_budget(record)
         destination = {
             "repair": "ACTIVE",
             "source_accept": "SOURCE_ACCEPTED",
@@ -2408,6 +2562,7 @@ def review_checkpoint(
         evidence_path=evidence_path,
         verdict_root=Path(record["proof_root"]) / "verdicts",
     )
+    changes: Dict[str, Any] = {"protocol": protocol}
     if handoff.checkpoint_kind == "conformance":
         states = ["AWAITING_CONFORMANCE_REVIEW"]
         if verdict == "block":
@@ -2422,6 +2577,7 @@ def review_checkpoint(
             protocol.update(
                 phase="awaiting_source", source_commit=None, proof_commit=None
             )
+            changes["repair_count"] = record["repair_count"] + 1
         elif verdict == "source_accept":
             states.append("SOURCE_ACCEPTED")
             protocol["phase"] = "source_accepted"
@@ -2437,7 +2593,7 @@ def review_checkpoint(
             states.append("FAILED")
         else:
             protocol["phase"] = "final_reviewed"
-    registry.transition_path(session, states, {"protocol": protocol})
+    registry.transition_path(session, states, changes)
     return {"ok": True, "review": review}
 
 
@@ -2741,8 +2897,9 @@ def attach_viewer(*, state_root: Path, session: str, ticket_path: Path) -> None:
 
 
 def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, Any]:
-    if timeout < 0 or timeout > 60:
-        raise ValidationError("halt timeout must be between zero and 60 seconds")
+    timeout = _bounded_seconds(
+        timeout, "halt timeout", maximum=MAX_HALT_TIMEOUT_SECONDS
+    )
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)

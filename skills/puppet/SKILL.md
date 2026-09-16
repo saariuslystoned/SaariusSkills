@@ -75,8 +75,11 @@ plan -> doctor -> launch -> send -> status -> halt
    startup races; only a validated handoff proves the harness consumed the
    prompt. `launch` requires the selected profile explicitly, passes only that
    profile's closed home/config environment to the exact target, and never
-   falls back to an operator-global harness home. Claude and Cursor each have
-   one narrow, bounded pre-prompt startup-screen gate — the only
+   falls back to an operator-global harness home. An optional
+   `--deadline-seconds` bounds the whole session from launch: once it passes,
+   `wait` stops polling, `send` and `repair` are refused, and `status` reports
+   `deadline_exceeded`; halt and adjudication stay open. Claude and Cursor
+   each have one narrow, bounded pre-prompt startup-screen gate — the only
    ordinary-operation terminal reads Puppet performs; their exact reducer
    contracts live in
    [qualification-contract.md](references/qualification-contract.md).
@@ -85,9 +88,13 @@ plan -> doctor -> launch -> send -> status -> halt
    message; later `send` calls are ordinary steering messages. For AGY,
    Puppet also rejects `/btw`, `/side`, and caller-supplied profile prefixes.
 6. **Status.** Use `status` and bounded `wait` calls for structural state and
-   validated checkpoints. Do not use `capture-pane`, `pipe-pane`, or terminal
-   text; after the ready handoff, never capture or read pane text for any
-   target.
+   validated checkpoints. `status` also reports the persisted repair count,
+   the seconds since the last controller-validated checkpoint, and any launch
+   deadline. After handling a checkpoint or beacon, pass
+   `wait --after <checkpoint_id>` (or the beacon `sequence`) so the wait
+   matches only newer progress rather than the record already handled. Do not
+   use `capture-pane`, `pipe-pane`, or terminal text; after the ready handoff,
+   never capture or read pane text for any target.
 7. **Checkpoint.** Import handoffs with `checkpoint`, inspect the bounded
    referenced artifact, and record controller findings with `review`. Use
    `accept` only after independently verifying the exact checkpoint and
@@ -171,9 +178,11 @@ invalidates the corresponding verdict.
 
 Targets publish claims and evidence references. The controller alone records
 `repair`, `conformance_accept`, `source_accept`, `block`, or `fail`, and alone
-performs terminal acceptance. A target cannot review or accept itself. Learn
-only from exact commits, validated bounded handoffs, controller-run tests, and
-independent reviews.
+performs terminal acceptance. Puppet persists the repair count per session and
+refuses a third `repair` verdict: after two repairs the controller must
+adjudicate with `source_accept`, `block`, or `fail`.
+A target cannot review or accept itself. Learn only from exact commits,
+validated bounded handoffs, controller-run tests, and independent reviews.
 
 After `source_accept`, the controller may send one proof-only assignment.
 Puppet records its ID and phase; only replay is allowed, and proof waits for
