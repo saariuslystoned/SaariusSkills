@@ -1,3 +1,3 @@
 # State
 
-Implemented with regression proof; independent Cursor review and live memory-store proof pending. All old supervisor activity stopped before adoption.
+Implemented and independently reviewed at code head c67a203. Real exact-model workspace/refusal/completion/no-runtime-store proof passed. Final proof-only commit awaits exact-head CI and parent merge. Immutable reviewed supervisor remains separate from candidate.
