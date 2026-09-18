@@ -76,7 +76,7 @@ skill](skills/cursor-acp-delegation/SKILL.md) and stdio MCP bridge. It routes
 one bounded implementation slice through pinned `acpx@0.16.0` to Bobby's
 explicit local `/Users/bobbybones/.local/bin/cursor-agent acp` executable,
 resolves the requested Cursor Grok 4.6 selector against the live ACP model
-catalog, and exposes readiness, delegation, status/result, steering, and
+catalog, and exposes readiness, delegation, status/result, and
 cancellation tools. Job state and compact proof live outside the mutating
 workspace.
 
