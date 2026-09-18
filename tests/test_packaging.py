@@ -120,6 +120,7 @@ class PackagingTests(unittest.TestCase):
                 ".git",
                 ".ruff_cache",
                 "__pycache__",
+                "node_modules",
             }.intersection(path.parts):
                 continue
             if path.suffix not in {".md", ".json", ".yaml", ".py", ""}:

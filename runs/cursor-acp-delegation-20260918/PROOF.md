@@ -48,3 +48,9 @@ The regression failed before the repair (`failed` instead of `running`) and
 passes after it. `npm run check` passes all 10 bridge tests. This is deterministic
 lifecycle proof, not a new live Cursor qualification claim. Local dependency
 installation is ignored by Git.
+
+The full Python run executed 1,112 tests, with one packaging scanner error:
+it tried decoding an installed native dependency under `node_modules` as UTF-8.
+The scanner now excludes that generated dependency directory, consistent with
+its other cache exclusions. The packaging suite passes with dependencies
+installed; the other 1,111 tests passed in the full run.
