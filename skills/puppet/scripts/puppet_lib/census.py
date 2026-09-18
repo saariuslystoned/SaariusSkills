@@ -31,6 +31,7 @@ from .agy_launch import (
 )
 from .errors import ValidationError
 from .handoffs import PROTOCOL_FINGERPRINT
+from .instructions import instruction_policy_fingerprint
 from .profiles import (
     PROMPT_TRANSPORT,
     SESSION_PROFILE_COMMANDS,
@@ -38,6 +39,7 @@ from .profiles import (
     startup_settle_seconds_for,
     session_profiles_for,
 )
+from .qualification_scope import build_compatibility_scope
 from .safety import canonical_json_bytes, sha256_bytes, sha256_file
 
 
@@ -408,6 +410,7 @@ def _census_command_prefix(
 def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
     if target not in COMMANDS:
         raise ValidationError("target is not on the census allowlist")
+    skill_root = Path(__file__).resolve(strict=True).parents[2]
     requested = COMMANDS[target][0]
     discovered = shutil.which(requested)
     if not discovered:
@@ -540,6 +543,13 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
         "doctor_only": True,
         "qualification": None,
     }
+    raw["qualification_scope"] = build_compatibility_scope(
+        raw,
+        requested_model=None,
+        requested_effort=None,
+        instruction_policy_fingerprint=instruction_policy_fingerprint(target=target),
+        source_root=skill_root,
+    )
     return AdapterManifest.from_dict(raw)
 
 

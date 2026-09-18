@@ -120,6 +120,7 @@ from .errors import (
     ValidationError,
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
+from .qualification_scope import build_compatibility_scope
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .instruction_planes import (
@@ -3224,6 +3225,16 @@ def run_probe(
             "codex_entry_source": codex_entry_source,
             "codex_control_source": codex_control_source,
             "proof_refs": proof_refs,
+            "compatibility_scope": build_compatibility_scope(
+                manifest.raw,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=compiled.manifest[
+                    "instruction_policy_fingerprint"
+                ],
+            ),
+            "requested_model": None,
+            "requested_effort": None,
         }
         if target == "grok":
             receipt_core["grok_pairing"] = grok_pairing

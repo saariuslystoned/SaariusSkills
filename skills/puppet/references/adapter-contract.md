@@ -14,7 +14,10 @@ or halt.
 
 Pass B runs the shared contract against the exact real CLI. Bind the result to
 the executable, adapter implementation, platform, and probe-protocol
-fingerprints. An enabled manifest must reference a bounded accepted
+fingerprints. Current receipts also carry a versioned compatibility scope
+that later tasks may reuse without inheriting campaign or goal authority;
+see [qualification-contract.md](qualification-contract.md). An enabled
+manifest must reference a bounded accepted
 real-harness receipt whose hash, exact verified-capability list, exact YOLO
 mapping, instruction-policy fingerprint, sanitized effective-instruction
 manifest, controller verdict, acceptance, halt receipt, and proof references

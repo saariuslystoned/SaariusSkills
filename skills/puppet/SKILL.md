@@ -241,8 +241,8 @@ fake harness for real conformance.
 - [fast-launch-contract.md](references/fast-launch-contract.md) — mixed-target
   concurrent operation.
 - [qualification-contract.md](references/qualification-contract.md) — census,
-  Pass B probes, per-harness pairing and activation transactions, startup
-  gates, and promotion.
+  Pass B probes, compatibility reuse versus task authority, per-harness
+  pairing and activation transactions, startup gates, and promotion.
 - [subscription-profiles.md](references/subscription-profiles.md) — durable
   private profiles, onboarding, and login handoffs.
 - [campaign-recovery.md](references/campaign-recovery.md) — interrupted-run

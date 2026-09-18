@@ -4062,14 +4062,16 @@ class ProbeTests(unittest.TestCase):
             result = execute(files, fake, run_id="probe-current-drift")
             drifted = json.loads(json.dumps(files["raw"]))
             drifted["adapter_fingerprint"] = "f" * 64
-            with self.assertRaisesRegex(IdentityError, "current controller"):
-                verify_qualification_receipt(
-                    Path(result["receipt"]),
-                    _authority_root=files["authority"],
-                    _current_manifest=AdapterManifest.from_dict(drifted),
-                    _server_process_fn=lambda pid: fake.server_process,
-                    _tmux_factory=lambda selected: fake,
-                )
+            # Aggregate adapter hashes are not compatibility evidence. An
+            # unrelated controller-wide fingerprint change must not stale a
+            # scoped receipt when harness/transport/runtime identity hold.
+            verify_qualification_receipt(
+                Path(result["receipt"]),
+                _authority_root=files["authority"],
+                _current_manifest=AdapterManifest.from_dict(drifted),
+                _server_process_fn=lambda pid: fake.server_process,
+                _tmux_factory=lambda selected: fake,
+            )
 
     def test_current_execution_identity_drift_invalidates_qualification(self):
         with tempfile.TemporaryDirectory() as temporary:
