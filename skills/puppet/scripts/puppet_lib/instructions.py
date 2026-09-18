@@ -520,10 +520,9 @@ def validate_instruction_manifest(
             or any(char in value for char in "\x00\n\r")
         ):
             raise ValidationError("runtime_binding is invalid")
-    if target != "agy" and binding != {
-        "model": _POLICY_NONE_VALUE,
-        "effort": _POLICY_NONE_VALUE,
-    } and binding != {"model": "default", "effort": "default"}:
+    if target != "agy" and any(
+        value not in {_POLICY_NONE_VALUE, "default"} for value in binding.values()
+    ):
         raise ValidationError("runtime_binding is invalid for this target")
     model_observation = normalized.get("model_observation")
     if (
@@ -634,6 +633,11 @@ def compile_instruction_wrapper(
             or any(char in value for char in "\x00\n\r")
         ):
             raise ValidationError("%s is invalid" % label)
+    if target != "agy" and any(
+        value not in {_POLICY_NONE_VALUE, "default"}
+        for value in (model_binding, effort_binding)
+    ):
+        raise ValidationError("runtime binding is only selectable for agy")
 
     normalized_task = _validate_text(
         task, label="task packet", max_bytes=_MAX_TEXT_BYTES

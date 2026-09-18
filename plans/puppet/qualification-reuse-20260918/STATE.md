@@ -10,5 +10,6 @@
 
 ## Current phase
 
-Implementation complete. Full hermetic test discovery passed; no live harness,
-account, external-send, or push action was performed.
+Implementation complete. Full hermetic test discovery passed after a PR-check
+regression fix; no live harness, account, or external-send action was
+performed.
