@@ -29,6 +29,7 @@ from .adapter_manifest import (
 )
 from .adapters import adapter_for
 from .agy_launch import (
+    agy_regular_launch_argv,
     agy_shared_source_environment,
     build_agy_shared_auth_launch_binding,
     revalidate_agy_shared_auth_before_start,
@@ -36,6 +37,7 @@ from .agy_launch import (
     require_agy_regular_launch_authority,
     run_agy_status_preflight,
     validate_agy_shared_auth_launch_binding,
+    validate_agy_regular_launch_params,
 )
 from .authority import (
     acquire_real_harness_lock,
@@ -121,7 +123,12 @@ from .errors import (
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
 from .halt_control import deliver_halt_actions
-from .instructions import compile_instruction_wrapper, validate_instruction_manifest
+from .instructions import (
+    compile_instruction_wrapper,
+    instruction_policy_fingerprint,
+    validate_instruction_manifest,
+)
+from .qualification_scope import build_compatibility_scope
 from .instruction_planes import (
     descriptor_fingerprint,
     parse_instruction_plane_descriptor,
@@ -506,6 +513,8 @@ def _controller_contract(
     target: str,
     profile: str,
     session_profile: str,
+    requested_model: Optional[str],
+    requested_effort: Optional[str],
 ) -> Contract:
     raw = {
         "schema_version": 1,
@@ -514,8 +523,8 @@ def _controller_contract(
         "controller": controller,
         "target": target,
         "session_profile": session_profile,
-        "requested_model": None,
-        "requested_effort": None,
+        "requested_model": requested_model,
+        "requested_effort": requested_effort,
         "task_profile": profile,
         "harness_trust": "unrestricted_required",
         "mutation_owner": "none",
@@ -981,6 +990,8 @@ def run_probe(
     target: str,
     profile: str,
     session_profile: str,
+    requested_model: Optional[str] = None,
+    requested_effort: Optional[str] = None,
     proof_root: Path,
     manifest_path: Path,
     mapping_path: Path,
@@ -1169,6 +1180,33 @@ def run_probe(
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+    )
+    if target == "agy":
+        argv = agy_regular_launch_argv(
+            manifest.raw["executable"]["resolved_path"],
+            requested_model=requested_model,
+            requested_effort=requested_effort,
+            model_flag=mapping.get("model_flag"),
+            effort_flag=mapping.get("effort_flag"),
+        )
+        validate_agy_regular_launch_params(
+            session_profile=session_profile,
+            argv=argv,
+            requested_model=requested_model,
+            requested_effort=requested_effort,
+            executable_path=manifest.raw["executable"]["resolved_path"],
+            model_flag=mapping.get("model_flag"),
+            effort_flag=mapping.get("effort_flag"),
+        )
+    elif requested_model is not None or requested_effort is not None:
+        raise UnsupportedError(
+            "selected model/effort qualification is currently implemented only for AGY"
+        )
+    compatibility_scope = build_compatibility_scope(
+        manifest.raw,
+        requested_model=requested_model,
+        requested_effort=requested_effort,
+        instruction_policy_fingerprint=instruction_policy_fingerprint(target=target),
     )
     claude_control_source = (
         build_claude_control_source(
@@ -1571,6 +1609,8 @@ def run_probe(
             target=target,
             profile=profile,
             session_profile=session_profile,
+            requested_model=requested_model,
+            requested_effort=requested_effort,
         )
         atomic_write_json(controller_contract_path, controller_contract.raw)
         ready_value = _handoff_value(
@@ -1615,8 +1655,8 @@ def run_probe(
                 workspace_identity=workspace_identity,
                 run_identity=run_identity,
                 session_profile=session_profile,
-                model_binding="default",
-                effort_binding="default",
+                model_binding=requested_model or "default",
+                effort_binding=requested_effort or "default",
                 runtime_contract_layer={
                     "mutation_owner": controller_contract.mutation_owner,
                     "allowed_modes": sorted(controller_contract.allowed_modes),
@@ -3224,6 +3264,9 @@ def run_probe(
             "codex_entry_source": codex_entry_source,
             "codex_control_source": codex_control_source,
             "proof_refs": proof_refs,
+            "compatibility_scope": compatibility_scope,
+            "requested_model": requested_model,
+            "requested_effort": requested_effort,
         }
         if target == "grok":
             receipt_core["grok_pairing"] = grok_pairing
@@ -3492,6 +3535,8 @@ def run_probe(
 def recover_probe(
     *,
     target: str,
+    requested_model: Optional[str] = None,
+    requested_effort: Optional[str] = None,
     proof_root: Path,
     manifest_path: Path,
     mapping_path: Path,
@@ -3999,6 +4044,24 @@ def recover_probe(
     session = _session_id(target, run_id)
     instruction_contract = instruction_manifest["contract_identity"]
     instruction_run = instruction_manifest["run_identity"]
+    persisted_requested_model = instruction_manifest["runtime_binding"].get(
+        "model"
+    )
+    persisted_requested_effort = instruction_manifest["runtime_binding"].get(
+        "effort"
+    )
+    persisted_requested_model = (
+        None if persisted_requested_model == "default" else persisted_requested_model
+    )
+    persisted_requested_effort = (
+        None if persisted_requested_effort == "default" else persisted_requested_effort
+    )
+    if requested_model is not None and requested_model != persisted_requested_model:
+        raise IdentityError("recovery model selection differs from the persisted probe")
+    if requested_effort is not None and requested_effort != persisted_requested_effort:
+        raise IdentityError("recovery effort selection differs from the persisted probe")
+    requested_model = persisted_requested_model
+    requested_effort = persisted_requested_effort
     probe_lease_owner = build_lease_owner(
         activity="probe",
         run_id=run_id,

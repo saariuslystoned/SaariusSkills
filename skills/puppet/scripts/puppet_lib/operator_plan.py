@@ -772,7 +772,13 @@ def compile_operator_plan(
     if manifest.raw["adapter_fingerprint"] != adapter_sha256:
         blockers.append("adapter_manifest_source_fingerprint_is_stale")
     if contract.requested_model is not None or contract.requested_effort is not None:
-        blockers.append("explicit_model_or_effort_requires_separate_qualification")
+        scope = manifest.raw.get("qualification_scope")
+        selected = scope.get("model_effort") if isinstance(scope, dict) else None
+        if contract.target != "agy" or not isinstance(selected, dict) or (
+            selected.get("requested_model") != contract.requested_model
+            or selected.get("requested_effort") != contract.requested_effort
+        ):
+            blockers.append("explicit_model_or_effort_requires_separate_qualification")
 
     result: Dict[str, Any] = {
         "schema": OPERATOR_PLAN_SCHEMA,

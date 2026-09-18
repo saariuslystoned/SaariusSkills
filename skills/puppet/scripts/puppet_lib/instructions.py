@@ -508,10 +508,23 @@ def validate_instruction_manifest(
     if (
         not isinstance(binding, dict)
         or set(binding.keys()) != {"model", "effort"}
-        or binding["model"] not in {_POLICY_NONE_VALUE, "default"}
-        or binding["effort"] not in {_POLICY_NONE_VALUE, "default"}
     ):
         raise ValidationError("runtime_binding is invalid")
+    for name, maximum in (("model", 200), ("effort", 80)):
+        value = binding[name]
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > maximum
+            or value.startswith("-")
+            or any(char in value for char in "\x00\n\r")
+        ):
+            raise ValidationError("runtime_binding is invalid")
+    if target != "agy" and binding != {
+        "model": _POLICY_NONE_VALUE,
+        "effort": _POLICY_NONE_VALUE,
+    } and binding != {"model": "default", "effort": "default"}:
+        raise ValidationError("runtime_binding is invalid for this target")
     model_observation = normalized.get("model_observation")
     if (
         not isinstance(model_observation, dict)
@@ -609,10 +622,18 @@ def compile_instruction_wrapper(
         raise ValidationError("unsupported target")
     if session_profile != "regular":
         raise ValidationError("only regular session profile is permitted")
-    if model_binding not in {_POLICY_NONE_VALUE, "default"}:
-        raise ValidationError("model binding must be default or unavailable")
-    if effort_binding not in {_POLICY_NONE_VALUE, "default"}:
-        raise ValidationError("effort binding must be default or unavailable")
+    for value, label, maximum in (
+        (model_binding, "model binding", 200),
+        (effort_binding, "effort binding", 80),
+    ):
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > maximum
+            or value.startswith("-")
+            or any(char in value for char in "\x00\n\r")
+        ):
+            raise ValidationError("%s is invalid" % label)
 
     normalized_task = _validate_text(
         task, label="task packet", max_bytes=_MAX_TEXT_BYTES

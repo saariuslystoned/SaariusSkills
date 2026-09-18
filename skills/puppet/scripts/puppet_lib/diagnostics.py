@@ -1,8 +1,8 @@
-"""Version-scoped advisory and terminal-evidence separation."""
+"""Bounded, non-secret diagnostics for operator-visible preflight blockers."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 from .errors import ValidationError
 from .safety import validate_sha256
@@ -42,3 +42,37 @@ def terminal_verdict(facts: Iterable[Dict[str, Any]]) -> str:
     if "blocked" in outcomes:
         return "blocked"
     return "stopped"
+
+
+def identity_blocker(
+    *,
+    check: str,
+    remedy: str,
+    pid: Optional[int] = None,
+    birth_identity: Optional[str] = None,
+    terminal_association: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return safe diagnostic fields without serializing an exception or argv."""
+
+    for value, label in ((check, "check"), (remedy, "remedy")):
+        if not isinstance(value, str) or not value or len(value) > 200:
+            raise ValidationError("diagnostic %s is invalid" % label)
+    if pid is not None and (
+        isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0
+    ):
+        raise ValidationError("diagnostic pid is invalid")
+    for value, label in (
+        (birth_identity, "birth identity"),
+        (terminal_association, "terminal association"),
+    ):
+        if value is not None and (
+            not isinstance(value, str) or not value or len(value) > 200
+        ):
+            raise ValidationError("diagnostic %s is invalid" % label)
+    return {
+        "check": check,
+        "remedy": remedy,
+        "pid": pid,
+        "birth_identity": birth_identity,
+        "terminal_association": terminal_association,
+    }

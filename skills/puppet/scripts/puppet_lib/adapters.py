@@ -95,13 +95,15 @@ class AdapterSpec:
                 raise UnsupportedError("requested effort selection is not proved")
             argv.extend([effort_flag, requested_effort])
         if self.name == "agy":
-            if requested_model is not None or "--model" in argv:
-                raise ValidationError("AGY regular launch forbids explicit model selection; model selector must be absent")
-            if requested_effort is not None or "--effort" in argv:
-                raise ValidationError("AGY regular launch forbids explicit effort selection; effort selector must be absent")
             from .agy_launch import agy_regular_launch_argv
 
-            return agy_regular_launch_argv(manifest.raw["executable"]["resolved_path"])
+            return agy_regular_launch_argv(
+                manifest.raw["executable"]["resolved_path"],
+                requested_model,
+                requested_effort,
+                model_flag=mapping.get("model_flag"),
+                effort_flag=mapping.get("effort_flag"),
+            )
         if self.name == "grok":
             if requested_model is not None or "--model" in argv:
                 raise ValidationError(

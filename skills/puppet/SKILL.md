@@ -35,7 +35,7 @@ plan -> doctor -> launch -> send -> status -> halt
      --contract <contract.json> \
      --manifest <manifest.json> \
      --authorization <authorization.json> \
-     --profile-root <private-profile> \
+     [--profile-root <private-profile>] \
      --prompt-file <launch-prompt.txt> \
      --session <session-id> \
      --run-root <private-run-root> \
@@ -52,7 +52,9 @@ plan -> doctor -> launch -> send -> status -> halt
    it. Resolve the reported blockers and make a separate human choice before
    any live launch. An unqualified target's plan is doctor-only and carries a
    human gate; see
-   [qualification-contract.md](references/qualification-contract.md).
+   [qualification-contract.md](references/qualification-contract.md). For AGY,
+   omit `--profile-root`; AGY uses its shared runtime-auth route. Other
+   targets require the exact enrolled private profile.
 2. **Onboard only when the plan admits it.** A previously completed onboard
    for a warm, ready, qualified profile is a prerequisite, not this step: reuse
    that profile and skip to `doctor`. Run `onboard` (or single-target
@@ -187,6 +189,49 @@ validated bounded handoffs, controller-run tests, and independent reviews.
 After `source_accept`, the controller may send one proof-only assignment.
 Puppet records its ID and phase; only replay is allowed, and proof waits for
 delivery.
+
+## Reusing qualification safely
+
+Qualification has two separate authorities: a versioned compatibility scope
+for one selected target/runtime/policy/model-effort pair, and a per-task
+campaign receipt for the current controller, goal, worktree, and lease. A
+compatibility scope never authorizes a task or launch. Reuse is valid only when
+the scope is current and the new task supplies its own authorization and
+contract; legacy receipts cannot mint a scope.
+
+Plan selected-target reuse without launching anything:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py requalify \
+  --target agy \
+  --manifest <doctor-or-qualified-manifest> \
+  --mapping <current-mapping>
+```
+
+The result is read-only and reports `current`, `stale`, or `legacy` scope
+state plus bounded invalidation reasons. If live proof is authorized, the
+operator must explicitly add `--execute --ack-live-qualification` and supply
+the campaign, goal, proof, and output arguments required by `probe` and
+`qualify`, using a fresh doctor-only manifest for execution. The command
+performs one selected-target probe only; it does not batch-requalify or alter
+account state.
+
+The invalidation boundary is explicit:
+
+| Change | Reuse result |
+| --- | --- |
+| Shared controller/authority/launch/probe/instruction source | stale; requalify |
+| Selected target adapter, workspace, or harness instruction source | stale; requalify that target only |
+| Executable, runtime execution, version, platform, or protocol identity | stale; requalify |
+| Selected model or effort, including selector flags | stale; requalify the new pair |
+| Instruction-policy fingerprint | stale; requalify |
+| Controller, campaign, goal, branch, task, or lease | compatibility may remain current; obtain fresh task authority |
+
+For AGY model selection, pass the exact installed provider identifier and
+effort exposed by the selected AGY installation. Puppet propagates the bound
+pair into exact argv and instruction runtime binding; it does not guess or
+claim an alias such as `gemini-3.8` without operator evidence from the local
+installation. The default AGY route remains selector-free.
 
 ## Recovery
 
