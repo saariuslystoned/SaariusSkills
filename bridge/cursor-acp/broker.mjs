@@ -319,13 +319,22 @@ export class CursorAcpBroker {
           }));
     this.active = new Map();
     this.changeWaiters = new Map();
+    this.initPromise = null;
   }
 
   async init() {
-    await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
-    await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
-    await this.recoverStaleJobs();
-    return this;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
+        await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
+        await this.recoverStaleJobs();
+        return this;
+      })().catch((error) => {
+        this.initPromise = null;
+        throw error;
+      });
+    }
+    return this.initPromise;
   }
 
   async recoverStaleJobs() {

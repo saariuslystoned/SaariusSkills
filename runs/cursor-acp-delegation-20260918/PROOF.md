@@ -38,3 +38,13 @@ credentials, raw transcripts, thought streams, or authentication logs.
   The app currently reports the prior `saarius-skills` snapshot enabled from
   `/Users/bobbybones/.codex/.tmp/marketplaces/saarius-skills`; setup for this
   worktree is documented in `docs/cursor-acp-delegation.md`.
+# Merge-readiness hardening
+
+The readiness-during-work regression reproduced a false `BRIDGE_RESTARTED`
+failure: `discover()` called `init()` again and recovered the current process's
+live job as stale. Initialization now shares one promise per broker instance,
+including concurrent callers; a genuinely new instance still performs recovery.
+The regression failed before the repair (`failed` instead of `running`) and
+passes after it. `npm run check` passes all 10 bridge tests. This is deterministic
+lifecycle proof, not a new live Cursor qualification claim. Local dependency
+installation is ignored by Git.

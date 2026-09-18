@@ -256,3 +256,18 @@ test("a bridge restart fails a persisted in-flight job closed", async () => {
   await first.broker.close();
   await second.close();
 });
+
+test("readiness during a live job does not recover it as a restarted job", async () => {
+  const { broker, workspace } = await makeBroker({ runtimeOptions: { delayMs: 200 } });
+  try {
+    const submitted = await broker.delegate({ workspace, prompt: "Keep working while readiness is checked." });
+    await waitUntil(() => broker.active.get(submitted.jobId)?.turn);
+    await broker.discover({ workspace });
+    const status = await broker.status({ jobId: submitted.jobId });
+    assert.equal(status.status, "running");
+    assert.equal(status.error, undefined);
+    assert.equal((await broker.result({ jobId: submitted.jobId, waitMs: 1000 })).status, "completed");
+  } finally {
+    await broker.close();
+  }
+});
