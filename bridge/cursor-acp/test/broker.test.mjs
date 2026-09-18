@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import {
   BridgeError,
   CursorAcpBroker,
+  createDefaultRuntime,
   DEFAULT_CURSOR_MODEL,
   redactSensitive,
   resolveRequestedCursorModel,
@@ -272,4 +273,22 @@ test("readiness during a live job does not recover it as a restarted job", async
   } finally {
     await broker.close();
   }
+});
+
+
+test("default runtime session store never writes conversation records to disk", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cursor-store-policy-"));
+  const runtime = createDefaultRuntime({ stateRoot: root, cursorExecutable: "/fixture/cursor-agent", timeoutMs: 1000 });
+  const record = { acpxRecordId: "synthetic-session", title: "synthetic prompt", messages: [] };
+  await runtime.options.sessionStore.save(record);
+  assert.deepEqual(await readdir(root), []);
+  const loaded = await runtime.options.sessionStore.load(record.acpxRecordId);
+  assert.deepEqual(loaded, record);
+  loaded.title = "changed copy";
+  assert.equal((await runtime.options.sessionStore.load(record.acpxRecordId)).title, "synthetic prompt");
+  const restarted = createDefaultRuntime({ stateRoot: root, cursorExecutable: "/fixture/cursor-agent", timeoutMs: 1000 });
+  assert.equal(await restarted.options.sessionStore.load(record.acpxRecordId), undefined);
+  await runtime.shutdown();
+  assert.equal(await runtime.options.sessionStore.load(record.acpxRecordId), undefined);
+  await restarted.shutdown();
 });

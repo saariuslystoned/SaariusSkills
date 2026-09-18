@@ -8,7 +8,6 @@ import { execFile as execFileCallback } from "node:child_process";
 import {
   createAcpRuntime,
   createAgentRegistry,
-  createFileSessionStore,
 } from "acpx/runtime";
 
 const execFile = promisify(execFileCallback);
@@ -277,14 +276,32 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
   const registry = createAgentRegistry({
     overrides: { cursor: [cursorExecutable, "acp"] },
   });
-  return createAcpRuntime({
+  // acpx session records contain full conversation messages. Keep those
+  // internal records ephemeral; only the broker's bounded control proof is
+  // durable. A bridge restart deliberately fails in-flight jobs closed.
+  const sessions = new Map();
+  const runtime = createAcpRuntime({
     cwd: stateRoot,
-    sessionStore: createFileSessionStore({ stateDir: path.join(stateRoot, "acpx") }),
+    sessionStore: {
+      async load(id) {
+        const record = sessions.get(id);
+        return record === undefined ? undefined : structuredClone(record);
+      },
+      async save(record) {
+        sessions.set(record.acpxRecordId, structuredClone(record));
+      },
+    },
     agentRegistry: registry,
     permissionMode: "approve-all",
     nonInteractivePermissions: "fail",
     timeoutMs,
   });
+  const shutdown = runtime.shutdown.bind(runtime);
+  runtime.shutdown = async () => {
+    try { await shutdown(); }
+    finally { sessions.clear(); }
+  };
+  return runtime;
 }
 
 export class CursorAcpBroker {
