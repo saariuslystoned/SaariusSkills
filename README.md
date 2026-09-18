@@ -165,10 +165,14 @@ Add this repository as a Codex plugin marketplace, then install its plugin:
 ```bash
 codex plugin marketplace add saariuslystoned/SaariusSkills
 codex plugin add saarius-skills@saarius-skills
+codex plugin add pstack-saarius@saarius-skills
 ```
 
-Restart Codex if the newly installed skill does not appear. The commands follow
-the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
+`saarius-skills` provides GrillTrack, Herdr-Puppet, PhoneProof, and Puppet.
+`pstack-saarius` separately provides the pstack engineering workflows so its
+real skill directories are packaged without relying on symlinks. Install either
+or both plugins. Restart Codex if a newly installed skill does not appear. The
+commands follow the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
 
 ### Google Antigravity (AGY)
 
@@ -228,6 +232,8 @@ invocation, but it is never required when the user's intent is already clear.
 - `skills/phone-proof/scripts/phone_proof.py`: a standard-library Android
   display inventory and structurally validated screenshot helper.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
+- [`pstack/skills/`](pstack/skills/): the separately installable pstack
+  engineering workflow collection published as `pstack-saarius`.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

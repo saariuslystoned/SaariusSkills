@@ -21,6 +21,19 @@ Structured engineering workflows, verification loops, anti-slop rules, and opera
 
 ## Installation on SmOmarchy / ChatGPT App
 
-1. In ChatGPT / Codex desktop app on SmOmarchy:
-   - Point your plugin directory to `/path/to/SaariusSkills/pstack` (or install via `.codex-plugin/plugin.json`).
-2. Skills will be automatically registered and namespaced for your sessions.
+Add the repository marketplace, then install the pstack plugin:
+
+```bash
+codex plugin marketplace add saariuslystoned/SaariusSkills
+codex plugin add pstack-saarius@saarius-skills
+```
+
+Start a new ChatGPT or Codex task after installation so the namespaced skills
+are loaded into the session.
+
+For Antigravity, install the repository root. Its compatibility aliases expose
+the same pstack skills while Codex uses the standalone physical package:
+
+```bash
+agy plugin install /path/to/SaariusSkills
+```

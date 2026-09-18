@@ -34,8 +34,7 @@
     "defaultPrompt": [
       "Apply /unslop to eliminate robotic filler and keep diffs surgical.",
       "Run /blast-radius to prove downstream impact before editing.",
-      "Use /architect to define interface contracts and types before coding.",
-      "Follow /tdd to write a failing test first and prove red-green-refactor."
+      "Use /architect to define contracts, then /tdd to prove red-green-refactor."
     ]
   }
 }

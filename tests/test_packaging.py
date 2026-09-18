@@ -10,6 +10,30 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
+PSTACK = ROOT / "pstack"
+EXPECTED_PLUGIN_SKILLS = {
+    "saarius-skills": {
+        "grilltrack",
+        "herdr-puppet",
+        "phone-proof",
+        "puppet",
+    },
+    "pstack-saarius": {
+        "architect",
+        "automate-me",
+        "blast-radius",
+        "bobby-mode",
+        "create-verification-skill",
+        "how",
+        "maintain-verification-skill",
+        "pstack-playbooks",
+        "reflect",
+        "tdd",
+        "unslop",
+        "why",
+    },
+}
+EXPECTED_AGY_PSTACK_ALIASES = EXPECTED_PLUGIN_SKILLS["pstack-saarius"]
 
 
 class PackagingTests(unittest.TestCase):
@@ -29,6 +53,11 @@ class PackagingTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        pstack_plugin = json.loads(
+            (PSTACK / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
         self.assertEqual(plugin["version"], "0.2.0")
@@ -36,8 +65,66 @@ class PackagingTests(unittest.TestCase):
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
         self.assertEqual(market["name"], "saarius-skills")
-        self.assertEqual(market["plugins"][0]["name"], plugin["name"])
-        self.assertEqual(market["plugins"][0]["source"]["path"], "./")
+        self.assertEqual(
+            [entry["name"] for entry in market["plugins"]],
+            ["saarius-skills", "pstack-saarius"],
+        )
+        self.assertEqual(pstack_plugin["name"], "pstack-saarius")
+        self.assertEqual(pstack_plugin["skills"], "./skills/")
+        self.assertLessEqual(len(pstack_plugin["interface"]["defaultPrompt"]), 3)
+
+        plugin_roots = {
+            "saarius-skills": ROOT,
+            "pstack-saarius": PSTACK,
+        }
+        expected_paths = {
+            "saarius-skills": "./",
+            "pstack-saarius": "./pstack",
+        }
+        for entry in market["plugins"]:
+            with self.subTest(plugin=entry["name"]):
+                self.assertEqual(entry["source"]["source"], "local")
+                self.assertEqual(
+                    entry["source"]["path"], expected_paths[entry["name"]]
+                )
+                self.assertEqual(entry["policy"]["installation"], "AVAILABLE")
+                self.assertEqual(
+                    entry["policy"]["authentication"], "ON_INSTALL"
+                )
+                self.assertEqual(entry["category"], "Productivity")
+
+                skill_root = plugin_roots[entry["name"]] / "skills"
+                skill_entries = list(skill_root.iterdir())
+                packaged_skills = [
+                    path
+                    for path in skill_entries
+                    if path.is_dir() and not path.is_symlink()
+                ]
+                self.assertEqual(
+                    {path.name for path in packaged_skills},
+                    EXPECTED_PLUGIN_SKILLS[entry["name"]],
+                )
+                for path in packaged_skills:
+                    self.assertTrue(path.joinpath("SKILL.md").is_file(), path)
+
+                symlinks = [path for path in skill_entries if path.is_symlink()]
+                if entry["name"] == "saarius-skills":
+                    self.assertEqual(
+                        {path.name for path in symlinks},
+                        EXPECTED_AGY_PSTACK_ALIASES,
+                        "root compatibility aliases must mirror every pstack skill",
+                    )
+                    for path in symlinks:
+                        self.assertEqual(
+                            path.resolve(),
+                            (PSTACK / "skills" / path.name).resolve(),
+                        )
+                        self.assertTrue(path.joinpath("SKILL.md").is_file(), path)
+                else:
+                    self.assertFalse(
+                        symlinks,
+                        "the standalone pstack plugin must package real directories",
+                    )
 
     def test_intent_aware_activation_metadata(self) -> None:
         metadata = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
