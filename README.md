@@ -69,6 +69,21 @@ implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
 The run remains experimental, and these outcomes are not a universal PASS claim
 for all harnesses.
 
+## Local Cursor ACP
+
+The repository also carries an additive, experimental [Cursor ACP delegation
+skill](skills/cursor-acp-delegation/SKILL.md) and stdio MCP bridge. It routes
+one bounded implementation slice through pinned `acpx@0.16.0` to Bobby's
+explicit local `/Users/bobbybones/.local/bin/cursor-agent acp` executable,
+resolves the requested Cursor Grok 4.6 selector against the live ACP model
+catalog, and exposes readiness, delegation, status/result, steering, and
+cancellation tools. Job state and compact proof live outside the mutating
+workspace.
+
+This local experiment does not claim Puppet's transport-neutral controller,
+OpenClaw gateway, remote-host support, or issues #35/#37 complete. See the
+[local setup and rollback guide](docs/cursor-acp-delegation.md).
+
 ## PhoneProof
 
 PhoneProof closes the gap between a green mobile build and the UI a human

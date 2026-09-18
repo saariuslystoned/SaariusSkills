@@ -1,0 +1,220 @@
+#!/usr/bin/env node
+
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { CursorAcpBroker, redactSensitive } from "../broker.mjs";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "../../..");
+const proofRoot = path.resolve(
+  process.env.CURSOR_ACP_PROOF_ROOT ??
+    path.join(repoRoot, "runs", "cursor-acp-delegation-20260918", "live"),
+);
+const liveEvents = path.join(proofRoot, "events.jsonl");
+const liveState = path.join(proofRoot, "STATE.md");
+const liveProof = path.join(proofRoot, "PROOF.md");
+const heartbeat = path.join(proofRoot, "heartbeat");
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+class StopSmoke extends Error {}
+
+function safe(value, max = 800) {
+  const text = redactSensitive(value).replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+async function event(event, details = {}) {
+  const timestamp = new Date().toISOString();
+  await appendFile(liveEvents, `${JSON.stringify({ timestamp, event, details })}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await writeFile(heartbeat, `${timestamp}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+async function waitForActive(broker, jobId, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (broker.active.get(jobId)?.turn) return true;
+    await sleep(100);
+  }
+  return false;
+}
+
+async function main() {
+  await mkdir(proofRoot, { recursive: true, mode: 0o700 });
+  await writeFile(liveEvents, "", { encoding: "utf8", mode: 0o600 });
+  await writeFile(
+    liveState,
+    [
+      "# Live Cursor ACP smoke",
+      "",
+      "Status: running",
+      "Route: /Users/bobbybones/.local/bin/cursor-agent acp",
+      "Model: cursor-grok-4.6-high",
+      `Proof root: ${proofRoot}`,
+      "",
+    ].join("\n"),
+    { encoding: "utf8", mode: 0o600 },
+  );
+  await event("smoke_started", { proofRoot });
+
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-live-"));
+  const broker = new CursorAcpBroker({
+    stateRoot: path.join(proofRoot, "state"),
+    defaultWorkspace: workspace,
+  });
+  const evidence = { workspace, route: broker.cursorExecutable, model: broker.model };
+  let outcome = "passed";
+  let failure = null;
+  try {
+    const readiness = await broker.discover({ workspace });
+    evidence.readiness = {
+      ready: readiness.ready,
+      model: readiness.model,
+      version: readiness.executable?.version,
+      sessionOpened: Boolean(readiness.session),
+    };
+    await event("readiness", evidence.readiness);
+    if (!readiness.ready) {
+      outcome = "blocked";
+      failure = readiness.error;
+      throw new StopSmoke();
+    }
+
+    const completionJob = await broker.delegate({
+      workspace,
+      timeoutMs: 180_000,
+      prompt: [
+        "Perform a read-only binding check in the supplied workspace.",
+        "Run pwd once, do not modify files, do not access secrets or the network,",
+        "and finish with the absolute workspace path, selected model if known,",
+        "and a one-line bounded handoff.",
+      ].join(" "),
+    });
+    const completion = await broker.result({ jobId: completionJob.jobId, waitMs: 180_000 });
+    evidence.completion = {
+      jobId: completion.jobId,
+      status: completion.status,
+      model: completion.model,
+      handoff: completion.handoff,
+      proof: completion.proof,
+    };
+    await event("completion", evidence.completion);
+    if (completion.status !== "completed") {
+      outcome = "blocked";
+      failure = completion.error ?? { code: completion.status, message: "completion did not finish" };
+      throw new StopSmoke();
+    }
+
+    const steeringJob = await broker.delegate({
+      workspace,
+      timeoutMs: 180_000,
+      prompt: [
+        "Run the local command sleep 12 in the supplied workspace.",
+        "Do not edit files or access secrets/network. Wait for a steering message",
+        "after the command, then report only the bounded handoff.",
+      ].join(" "),
+    });
+    if (!(await waitForActive(broker, steeringJob.jobId))) {
+      outcome = "blocked";
+      failure = { code: "STEER_NOT_ACTIVE", message: "live job did not expose an active ACP turn" };
+      throw new StopSmoke();
+    }
+    const steering = await broker.steer({
+      jobId: steeringJob.jobId,
+      message: "The parent has confirmed scope. Finish now with the bounded handoff.",
+    });
+    const steeringResult = await broker.result({ jobId: steeringJob.jobId, waitMs: 180_000 });
+    evidence.steering = {
+      accepted: steering.status === "accepted",
+      requestId: steering.requestId,
+      finalStatus: steeringResult.status,
+      proof: steeringResult.proof,
+    };
+    await event("steering_completion", evidence.steering);
+    if (steering.status !== "accepted" || steeringResult.status !== "completed") {
+      outcome = "blocked";
+      failure = steeringResult.error ?? { code: "STEER_FAILED", message: "steering/completion proof failed" };
+      throw new StopSmoke();
+    }
+
+    const cancellationJob = await broker.delegate({
+      workspace,
+      timeoutMs: 180_000,
+      prompt: [
+        "Run the local command sleep 30 in the supplied workspace.",
+        "Do not edit files or access secrets/network, and report only after the command.",
+      ].join(" "),
+    });
+    if (!(await waitForActive(broker, cancellationJob.jobId))) {
+      outcome = "blocked";
+      failure = { code: "CANCEL_NOT_ACTIVE", message: "live job did not expose an active ACP turn" };
+      throw new StopSmoke();
+    }
+    const cancellation = await broker.cancel({
+      jobId: cancellationJob.jobId,
+      reason: "bounded cancellation proof",
+    });
+    const cancellationResult = await broker.result({ jobId: cancellationJob.jobId, waitMs: 60_000 });
+    evidence.cancellation = {
+      requested: cancellation.status === "cancellation-requested",
+      finalStatus: cancellationResult.status,
+      proof: cancellationResult.proof,
+    };
+    await event("cancellation", evidence.cancellation);
+    if (cancellationResult.status !== "cancelled") {
+      outcome = "blocked";
+      failure = cancellationResult.error ?? { code: "CANCEL_FAILED", message: "cancellation proof failed" };
+    }
+  } catch (error) {
+    if (!(error instanceof StopSmoke)) {
+      outcome = "blocked";
+      failure = { code: error?.code ?? "LIVE_SMOKE_FAILED", message: safe(error?.message ?? error) };
+      await event("smoke_error", failure);
+    }
+  } finally {
+    await broker.close();
+    await rm(workspace, { recursive: true, force: true });
+  }
+
+  const proof = [
+    "# Live Cursor ACP smoke proof",
+    "",
+    `Outcome: ${outcome}`,
+    `Route: ${evidence.route} acp`,
+    `Model: ${evidence.model}`,
+    `Disposable workspace: ${evidence.workspace}`,
+    "",
+    "## Evidence",
+    "",
+    "```json",
+    JSON.stringify(evidence, null, 2),
+    "```",
+    "",
+    failure ? `## Bounded blocker\n\n${JSON.stringify(failure, null, 2)}` : "",
+    "",
+    "Raw ACP transcripts, thought streams, credentials, and auth logs are intentionally not recorded.",
+  ].join("\n");
+  await writeFile(liveProof, `${proof}\n`, { encoding: "utf8", mode: 0o600 });
+  await writeFile(
+    liveState,
+    [
+      "# Live Cursor ACP smoke",
+      "",
+      `Status: ${outcome}`,
+      `Route: ${evidence.route} acp`,
+      `Model: ${evidence.model}`,
+      `Proof: ${liveProof}`,
+    ].join("\n") + "\n",
+    { encoding: "utf8", mode: 0o600 },
+  );
+  await event("smoke_finished", { outcome, proof: liveProof });
+  process.stdout.write(`${JSON.stringify({ outcome, proof: liveProof, evidence })}\n`);
+  if (outcome !== "passed") process.exitCode = 2;
+}
+
+await main();

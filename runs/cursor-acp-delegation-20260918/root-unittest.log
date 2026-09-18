@@ -1,0 +1,245 @@
+...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................usage: puppet send [-h] --state-root STATE_ROOT --session SESSION --request-id
+                   REQUEST_ID (--message-file MESSAGE_FILE | --stdin)
+puppet send: error: argument --message-file: not allowed with argument --stdin
+usage: puppet [-h] [--json | --no-json] [--version]
+              {plan,doctor,launch,send,status,wait,checkpoint,review,accept,attach-command,open-view,profile-init,profile-status,onboard,halt,reconcile-grok-dead-lease,promote,close}
+              ...
+puppet: error: unrecognized arguments: --evidence-text oops
+..usage: puppet onboard [-h] --profile-shelf PROFILE_SHELF --manifest
+                      TARGET=/ABSOLUTE/PATH
+puppet onboard: error: argument --manifest: manifest must be one allowlisted TARGET=/absolute/path
+usage: puppet onboard [-h] --profile-shelf PROFILE_SHELF --manifest
+                      TARGET=/ABSOLUTE/PATH
+puppet onboard: error: argument --manifest: onboarding manifest path must be absolute
+usage: puppet onboard [-h] --profile-shelf PROFILE_SHELF --manifest
+                      TARGET=/ABSOLUTE/PATH
+puppet onboard: error: argument --manifest: manifest must be one allowlisted TARGET=/absolute/path
+.usage: puppet profile-init [-h] --target {codex,claude,cursor,grok}
+                           --profile-root PROFILE_ROOT --executable EXECUTABLE
+puppet profile-init: error: argument --target: invalid choice: 'agy' (choose from codex, claude, cursor, grok)
+..usage: puppet review [-h] --state-root STATE_ROOT --session SESSION --actor
+                     ACTOR --checkpoint CHECKPOINT --verdict
+                     {repair,conformance_accept,source_accept,block,fail}
+                     --evidence EVIDENCE
+puppet review: error: the following arguments are required: --checkpoint
+usage: puppet accept [-h] --state-root STATE_ROOT --session SESSION --actor
+                     ACTOR --checkpoint CHECKPOINT --evidence EVIDENCE
+puppet accept: error: the following arguments are required: --checkpoint
+.usage: puppet send [-h] --state-root STATE_ROOT --session SESSION --request-id
+                   REQUEST_ID (--message-file MESSAGE_FILE | --stdin)
+puppet send: error: one of the arguments --message-file --stdin is required
+usage: puppet send [-h] --state-root STATE_ROOT --session SESSION --request-id
+                   REQUEST_ID (--message-file MESSAGE_FILE | --stdin)
+puppet send: error: argument --stdin: not allowed with argument --message-file
+................................................................................................................................................................................................................................................................................................................{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpflcmh0bn/campaigns/launch-one/campaign.json", "elapsed_ms": 825, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy", "codex", "claude", "cursor", "grok"], "version": "0.2.0"}
+{"action": "status", "campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpflcmh0bn/campaigns/launch-one/campaign.json", "launch_id": "launch-one", "phase": "fanout_exec", "schema": "puppet.launch-progress/v1", "targets": ["agy", "codex", "claude", "cursor", "grok"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpdpro55mb/campaigns/launch-one/campaign.json", "elapsed_ms": 324, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["grok"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpk105lnbv/campaigns/launch-one/campaign.json", "elapsed_ms": 465, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy", "codex"], "version": "0.2.0"}
+.{"launch_id": "campaign-a", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "campaign-a", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "campaign-a", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpqom4h_4g/campaigns/campaign-a/campaign.json", "elapsed_ms": 335, "launch_id": "campaign-a", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "campaign-b", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "campaign-b", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "campaign-b", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpqom4h_4g/campaigns/campaign-b/campaign.json", "elapsed_ms": 337, "launch_id": "campaign-b", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"detail": "agy campaign artifact binding changed", "error": "identity_mismatch", "ok": false}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpocu59n6r/campaigns/launch-one/campaign.json", "elapsed_ms": 342, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp7rt3yhne/campaigns/launch-one/campaign.json", "elapsed_ms": 340, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmplbw2cvfn/campaigns/launch-one/campaign.json", "elapsed_ms": 358, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp1y9nnr15/campaigns/launch-one/campaign.json", "elapsed_ms": 336, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpgk1vyqg_/campaigns/launch-one/campaign.json", "elapsed_ms": 317, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+....{"launch_id": "real-campaign", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "real-campaign", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "real-campaign", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpx2sfrfvs/campaigns/real-campaign/campaign.json", "elapsed_ms": 312, "launch_id": "real-campaign", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"detail": "launch campaign must not traverse a symlink", "error": "identity_mismatch", "ok": false}
+..{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpef21wlxm/campaigns/launch-one/campaign.json", "elapsed_ms": 311, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["cursor"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "target": "cursor", "version": "0.2.0"}
+{"error": "checkpoint_artifact_changed", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "target": "cursor", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp9dlg3qlt/campaigns/launch-one/campaign.json", "elapsed_ms": 316, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+{"error": "checkpoint_delivery_receipt_missing", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpg8ug3hvo/campaigns/launch-one/campaign.json", "elapsed_ms": 318, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["grok"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp4k3d3e5o/campaigns/launch-one/campaign.json", "elapsed_ms": 317, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["grok"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpintvfn6_/campaigns/launch-one/campaign.json", "elapsed_ms": 441, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["codex", "claude"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "status": "submitted", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "target": "codex", "version": "0.2.0", "wait_timeout_seconds": 0.5}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "status": "submitted", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0", "wait_timeout_seconds": 0.5}
+{"launch_id": "launch-one", "phase": "checkpoint_complete", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "status": "SOURCE_CHECKPOINT_READY", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_complete", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "status": "SOURCE_CHECKPOINT_READY", "target": "claude", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpqagwc_ym/campaigns/launch-one/campaign.json", "elapsed_ms": 306, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["codex"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_complete", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-codex", "status": "already_imported", "target": "codex", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpgy9ulkwj/campaigns/launch-one/campaign.json", "elapsed_ms": 315, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["claude"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "status": "submitted", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0", "wait_timeout_seconds": 0.02}
+{"error": "checkpoint_timeout", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "status": "already_submitted", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "target": "claude", "version": "0.2.0", "wait_timeout_seconds": 0.1}
+{"launch_id": "launch-one", "phase": "checkpoint_complete", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-claude", "status": "SOURCE_CHECKPOINT_READY", "target": "claude", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpma8f4hff/campaigns/launch-one/campaign.json", "elapsed_ms": 320, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+{"error": "stale_checkpoint_path", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+{"error": "stale_checkpoint_path", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-agy", "target": "agy", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpw7qzcycx/campaigns/launch-one/campaign.json", "elapsed_ms": 434, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["cursor", "grok"], "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_start", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-grok", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-grok", "status": "submitted", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-grok", "target": "grok", "version": "0.2.0", "wait_timeout_seconds": 0.03}
+{"launch_id": "launch-one", "phase": "checkpoint_assignment_submitted", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "status": "submitted", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "checkpoint_waiting", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "target": "cursor", "version": "0.2.0", "wait_timeout_seconds": 0.03}
+{"launch_id": "launch-one", "phase": "checkpoint_complete", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-cursor", "status": "SOURCE_CHECKPOINT_READY", "target": "cursor", "version": "0.2.0"}
+{"error": "checkpoint_timeout", "launch_id": "launch-one", "phase": "checkpoint_failed", "schema": "puppet.launch-progress/v1", "session": "puppet-launch-one-grok", "target": "grok", "version": "0.2.0"}
+.{"detail": "target selection is invalid or duplicated", "error": "validation_error", "ok": false}
+{"detail": "target selection is invalid or duplicated", "error": "validation_error", "ok": false}
+{"detail": "all cannot be combined with another target", "error": "validation_error", "ok": false}
+{"detail": "target selection is invalid or duplicated", "error": "validation_error", "ok": false}
+...........{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp88wy7unq/campaigns/launch-one/campaign.json", "elapsed_ms": 456, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["cursor", "grok"], "version": "0.2.0"}
+{"action": "halt", "campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp88wy7unq/campaigns/launch-one/campaign.json", "launch_id": "launch-one", "phase": "fanout_exec", "schema": "puppet.launch-progress/v1", "targets": ["cursor", "grok"], "version": "0.2.0"}
+..{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"attempted_targets": ["agy", "codex"], "automatic_cleanup": false, "created_targets": ["agy"], "error": "validation_error", "launch_id": "launch-one", "phase": "campaign_blocked", "schema": "puppet.launch-progress/v1", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"attempted_targets": ["agy"], "automatic_cleanup": false, "created_targets": ["agy"], "error": "validation_error", "launch_id": "launch-one", "phase": "campaign_blocked", "schema": "puppet.launch-progress/v1", "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "grok", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp3jm_54ad/campaigns/launch-one/campaign.json", "elapsed_ms": 851, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy", "codex", "claude", "cursor", "grok"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp3xikirgr/campaigns/launch-one/campaign.json", "elapsed_ms": 707, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["codex", "claude", "cursor"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmptc6f4pu0/campaigns/launch-one/campaign.json", "elapsed_ms": 420, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["codex"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "codex", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpz42o4nrs/campaigns/launch-one/campaign.json", "elapsed_ms": 455, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy", "codex"], "version": "0.2.0"}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "cursor", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "claude", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmpo2cnj3z0/campaigns/launch-one/campaign.json", "elapsed_ms": 466, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["claude", "cursor"], "version": "0.2.0"}
+..{"detail": "live launch requires --allow-live-launch", "error": "validation_error", "ok": false}
+.{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "worktree_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"launch_id": "launch-one", "phase": "plan_ready", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"campaign": "/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp4umlcn8_/campaigns/launch-one/campaign.json", "elapsed_ms": 319, "launch_id": "launch-one", "phase": "campaign_ready", "schema": "puppet.launch-progress/v1", "targets": ["agy"], "version": "0.2.0"}
+..{"launch_id": "launch-one", "phase": "worktree_start", "schema": "puppet.launch-progress/v1", "target": "agy", "version": "0.2.0"}
+{"attempted_targets": ["agy"], "automatic_cleanup": false, "created_targets": [], "error": "operator_interrupted", "launch_id": "launch-one", "phase": "campaign_blocked", "schema": "puppet.launch-progress/v1", "version": "0.2.0"}
+............................................................................................................................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 1112 tests in 173.186s
+
+OK

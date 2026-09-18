@@ -1,0 +1,12 @@
+{
+  "currentModelId": "cursor-grok-4.6-high",
+  "availableModelIds": [
+    "cursor-grok-4.6-low",
+    "cursor-grok-4.6-medium",
+    "cursor-grok-4.6-high",
+    "cursor-grok-4.6-fast"
+  ],
+  "availableModels": [
+    { "modelId": "cursor-grok-4.6-high", "name": "Cursor Grok 4.6" }
+  ]
+}

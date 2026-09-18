@@ -1,0 +1,21 @@
+{
+  "name": "@saarius-skills/cursor-acp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental local stdio MCP bridge from Codex to Cursor ACP through acpx.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check broker.mjs && node --check server.mjs && npm test",
+    "smoke": "node scripts/live-smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "acpx": "0.16.0",
+    "zod": "4.6.5"
+  }
+}
