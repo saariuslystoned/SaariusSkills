@@ -41,6 +41,57 @@ private subscription-profile binding.
 the submitted authorization; they are independent expected values, not
 inferred from the authorization file.
 
+## Versioned compatibility scope and selected requalification
+
+Current qualification receipts may carry
+`puppet.qualification-scope/v1`. The scope is reusable compatibility evidence,
+not task authority. It binds exactly one target to its explicit shared-source
+and target-source fingerprint, executable/runtime/version/platform/protocol
+identity, instruction-policy fingerprint, and model/effort selector pair. The
+current controller still requires a fresh task contract, campaign
+authorization, goal tuple, worktree, lease, and receipt binding for every
+launch.
+
+Use the read-only planner before deciding whether to spend another live probe:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py requalify \
+  --target <target> \
+  --manifest <doctor-or-qualified-manifest> \
+  --mapping <current-mapping>
+```
+
+The planner never launches, logs in, mutates a profile, or writes a qualified
+manifest. It reports `current`, `stale`, or `legacy` and returns only bounded
+invalidation reasons. A legacy receipt or manifest without a versioned scope
+cannot be promoted into one by copying fields. Requalification is selected
+target only; unrelated harness-specific source changes do not stale a target's
+scope, while shared controller/authority/launch/probe/instruction changes do.
+
+| Scope input | Invalidates reuse when it changes |
+| --- | --- |
+| Shared source set | Any shared source or shipped policy layer changes |
+| Target source set | The selected target's adapter/workspace/qualification source changes |
+| Runtime identity | Executable, execution bundle, version, platform, or protocol changes |
+| Model/effort | The requested model, requested effort, or manifest selector flags change |
+| Instruction policy | The selected target's compiled policy fingerprint changes |
+| Task authority | Controller, campaign, goal, branch, task, or lease changes; obtain fresh task authority even when compatibility stays current |
+
+For AGY, selectors are supported only when the manifest proves the exact
+selector flags. The operator must provide the exact provider identifier and
+effort shown by the installed AGY runtime (for example, an operator-verified
+identifier may be `gemini-3.8`); Puppet does not infer that alias, and this
+repository contains no live proof for any provider identifier. A selected pair
+is propagated into exact launch argv, controller contract, instruction runtime
+binding, receipt, and compatibility scope. A selector-free AGY qualification
+remains the default path.
+
+When live requalification is authorized, add both
+`--execute --ack-live-qualification` and provide the full campaign/goal/proof
+and output arguments required by `probe` and `qualify`, using a fresh
+doctor-only manifest for execution. This explicit gate is operator-only;
+ordinary plans and default commands remain read-only.
+
 ## Unqualified plans are doctor-only
 
 A doctor-only, unqualified Codex manifest yields a

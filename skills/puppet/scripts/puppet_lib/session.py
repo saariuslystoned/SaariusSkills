@@ -45,6 +45,7 @@ from .campaign import (
 )
 from .conformance import tree_fingerprint, validate_fixture_contract
 from .contracts import Contract
+from .diagnostics import identity_blocker
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .grok_launch import GROK_LAUNCH_AUTHORITY_BLOCKER
 from .handoffs import ValidatedHandoff, validate_handoff
@@ -1081,6 +1082,7 @@ def doctor(
     proof_root = absolute_root(str(proof_root), "proof root")
     state_root = absolute_root(str(state_root), "state root")
     blockers = []
+    diagnostics: List[Dict[str, Any]] = []
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
@@ -1129,35 +1131,85 @@ def doctor(
     mapping = manifest.raw["yolo_mapping"]
     if contract.session_profile != "regular":
         blockers.append("only the regular session profile is enabled")
-    if contract.requested_model is not None or contract.requested_effort is not None:
+    if contract.target != "agy" and (
+        contract.requested_model is not None or contract.requested_effort is not None
+    ):
         blockers.append("explicit model and effort selection remain deferred")
+    elif contract.target == "agy" and (
+        contract.requested_model is not None or contract.requested_effort is not None
+    ):
+        scope = manifest.raw.get("qualification_scope")
+        selected = scope.get("model_effort") if isinstance(scope, dict) else None
+        if not isinstance(selected, dict) or (
+            selected.get("requested_model") != contract.requested_model
+            or selected.get("requested_effort") != contract.requested_effort
+        ):
+            blockers.append(
+                "selected AGY model and effort require matching scoped qualification"
+            )
     if not mapping.get("complete"):
         blockers.append(
             "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete"
         )
     candidate_processes: List[Dict[str, Any]]
     if contract.target == "agy":
-        agy_population = _agy_population(manifest)
-        active, parallel_override, population_blockers = _assess_agy_population(
-            authorization, agy_population
-        )
-        candidate_processes = agy_population["candidates"]
-        blockers.extend(population_blockers)
+        try:
+            agy_population = _agy_population(manifest)
+            active, parallel_override, population_blockers = _assess_agy_population(
+                authorization, agy_population
+            )
+            candidate_processes = agy_population["candidates"]
+            blockers.extend(population_blockers)
+        except IdentityError:
+            active = []
+            parallel_override = False
+            candidate_processes = []
+            blockers.append("AGY process identity could not be established")
+            diagnostics.append(
+                identity_blocker(
+                    check="same-target AGY process birth identity",
+                    remedy="re-run doctor after the process inventory is stable; do not launch while identity is unavailable",
+                )
+            )
     elif contract.target == "grok":
-        grok_population = _grok_population(manifest)
-        active, parallel_override, population_blockers = _assess_grok_population(
-            authorization, grok_population
-        )
-        candidate_processes = grok_population["candidates"]
-        blockers.extend(population_blockers)
+        try:
+            grok_population = _grok_population(manifest)
+            active, parallel_override, population_blockers = _assess_grok_population(
+                authorization, grok_population
+            )
+            candidate_processes = grok_population["candidates"]
+            blockers.extend(population_blockers)
+        except IdentityError:
+            active = []
+            parallel_override = False
+            candidate_processes = []
+            blockers.append("Grok process identity could not be established")
+            diagnostics.append(
+                identity_blocker(
+                    check="same-target Grok process birth identity",
+                    remedy="re-run doctor after the process inventory is stable; do not launch while identity is unavailable",
+                )
+            )
         if manifest.raw["doctor_only"]:
             blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
-        active = _active_processes(contract.target, manifest)
-        candidate_processes = active
-        parallel_override = _parallel_target_override(
-            authorization, contract.target, active
-        )
+        try:
+            active = _active_processes(contract.target, manifest)
+            candidate_processes = active
+            parallel_override = _parallel_target_override(
+                authorization, contract.target, active
+            )
+        except IdentityError:
+            active = []
+            candidate_processes = []
+            parallel_override = False
+            blockers.append("target process identity could not be established")
+            diagnostics.append(
+                identity_blocker(
+                    check="same-target process birth identity",
+                    remedy="re-run doctor after the process inventory is stable; do not launch while identity is unavailable",
+                )
+            )
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()
@@ -1176,6 +1228,8 @@ def doctor(
                 expected_campaign_id=authority["campaign_id"],
                 expected_goal_fingerprint=authority["goal_fingerprint"],
                 expected_session_profile=contract.session_profile,
+                expected_requested_model=getattr(contract, "requested_model", None),
+                expected_requested_effort=getattr(contract, "requested_effort", None),
             )
             if qualification.get(
                 "instruction_policy_fingerprint"
@@ -1214,6 +1268,12 @@ def doctor(
                     )
         except (UnsupportedError, ValidationError, IdentityError):
             blockers.append("real-harness qualification receipt is missing or invalid")
+            diagnostics.append(
+                identity_blocker(
+                    check="qualification receipt and selected compatibility scope",
+                    remedy="re-qualify the selected target scope before launch",
+                )
+            )
     return {
         "ok": True,
         "warning": YOLO_WARNING,
@@ -1240,6 +1300,7 @@ def doctor(
         "unverified_capabilities": unverified,
         "unsupported_capabilities": unsupported,
         "blockers": blockers,
+        "diagnostics": diagnostics,
         "launch_ready": not blockers
         and not unverified
         and not manifest.raw["doctor_only"],
@@ -1304,6 +1365,8 @@ def launch(
         expected_campaign_id=qualification_authority["campaign_id"],
         expected_goal_fingerprint=qualification_authority["goal_fingerprint"],
         expected_session_profile=contract.session_profile,
+        expected_requested_model=getattr(contract, "requested_model", None),
+        expected_requested_effort=getattr(contract, "requested_effort", None),
     )
     test_profile_bypass = _test_profile_bypass_allowed(
         requested=_allow_test_profile_bypass,

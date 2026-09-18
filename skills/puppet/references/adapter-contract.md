@@ -65,17 +65,37 @@ The operational sequence is:
 ```text
 adapter_lab.py probe --profile source-free-pass-b-v2 \
   --target TARGET --session-profile SESSION_PROFILE \
+  [--requested-model EXACT_INSTALLED_MODEL] [--requested-effort EFFORT] \
   --proof-root ROOT --manifest MANIFEST --mapping MAPPING \
   --authorization AUTH --controller CONTROLLER --campaign-id CAMPAIGN \
   --goal-repo GIT_ROOT --goal-repository REPOSITORY --goal-commit COMMIT \
   --goal-path PATH --goal-sha256 SHA256 \
-  --subscription-profile-root PRIVATE_PROFILE \
+  [--subscription-profile-root PRIVATE_PROFILE] \
   [--plane-descriptor DESCRIPTOR] [--codex-entry-plan PLAN] \
   [--codex-ordinary-worktree-descriptor DESCRIPTOR] [--run-id RUN]
 adapter_lab.py verify --run ROOT/probes/RUN/receipt.json
 adapter_lab.py qualify --manifest MANIFEST --mapping MAPPING \
   --receipt ROOT/probes/RUN/receipt.json --out QUALIFIED_MANIFEST
 ```
+
+For AGY, omit `--subscription-profile-root` and use the shared runtime-auth
+route. For other targets, the exact enrolled private profile remains required.
+AGY `--requested-model` and `--requested-effort` are accepted only when the
+fresh manifest proves the exact selector flags. Supply the provider identifier
+and effort exactly as shown by the installed AGY runtime; Puppet does not
+invent provider aliases. The selected pair is bound into launch argv,
+controller contract, instruction runtime binding, receipt, and the versioned
+compatibility scope. The no-selector path remains the default.
+
+Before a live probe, selected-target reuse is read-only:
+
+```text
+adapter_lab.py requalify --target TARGET --manifest MANIFEST --mapping MAPPING
+```
+
+Use `--execute --ack-live-qualification` only with the full probe/qualify
+inputs and explicit operator authorization. This route performs one target
+only and never changes account state.
 
 Claude's incomplete census tuple requires a controller-owned pair. After the
 activation probe, run the ordinary control with

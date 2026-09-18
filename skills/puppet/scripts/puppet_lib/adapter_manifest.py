@@ -26,6 +26,7 @@ from .contracts import (
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
 from .launch import validate_admitted_launch_plan, validate_public_launch_identity
+from .qualification_scope import validate_compatibility_scope
 from .profiles import (
     OBSERVED_INPUT_TRANSPORT,
     PROMPT_TRANSPORT,
@@ -432,6 +433,16 @@ _GROK_PAIR_RECEIPT_FIELDS = _RECEIPT_FIELDS | {
     "grok_pairing",
     "grok_control_source",
 }
+_SCOPED_RECEIPT_FIELDS = _RECEIPT_FIELDS | {
+    "compatibility_scope",
+    "requested_model",
+    "requested_effort",
+}
+_SCOPED_PAIRED_RECEIPT_FIELDS = _SCOPED_RECEIPT_FIELDS | {"claude_pairing"}
+_SCOPED_GROK_PAIR_RECEIPT_FIELDS = _SCOPED_RECEIPT_FIELDS | {
+    "grok_pairing",
+    "grok_control_source",
+}
 
 _ACCEPTED_EVIDENCE_FIELDS = {
     "schema_version",
@@ -697,7 +708,10 @@ def _verify_qualification_instruction_authority(
             "allowed_modes": ["read", "test"],
             "hard_gates": sorted(MANDATORY_HARD_GATES),
         },
-        "runtime_binding": {"model": "default", "effort": "default"},
+        "runtime_binding": {
+            "model": receipt.get("requested_model") or "default",
+            "effort": receipt.get("requested_effort") or "default",
+        },
     }
     if any(instruction_manifest.get(name) != value for name, value in expected.items()):
         raise ValidationError("qualification instruction authority is incomplete")
@@ -963,8 +977,23 @@ def verify_qualification_receipt(
         _RECEIPT_FIELDS,
         _PAIRED_RECEIPT_FIELDS,
         _GROK_PAIR_RECEIPT_FIELDS,
+        _SCOPED_RECEIPT_FIELDS,
+        _SCOPED_PAIRED_RECEIPT_FIELDS,
+        _SCOPED_GROK_PAIR_RECEIPT_FIELDS,
     ):
         raise ValidationError("qualification receipt fields do not match schema")
+    scoped = receipt.get("compatibility_scope")
+    if scoped is not None:
+        validate_compatibility_scope(scoped)
+        for name in ("requested_model", "requested_effort"):
+            if name not in receipt:
+                raise ValidationError("scoped qualification receipt lacks %s" % name)
+        model_effort = scoped["model_effort"]
+        if (
+            model_effort.get("requested_model") != receipt.get("requested_model")
+            or model_effort.get("requested_effort") != receipt.get("requested_effort")
+        ):
+            raise IdentityError("qualification model/effort scope is unbound")
     claude_pairing = receipt.get("claude_pairing")
     if claude_pairing is not None:
         from .claude_paired_qualification import validate_pairing_shape
@@ -1149,11 +1178,23 @@ def verify_qualification_receipt(
             canonical_json_bytes(current_mapping)
         ),
     }
+    scoped_current = None
+    if scoped is not None:
+        from .qualification_scope import build_compatibility_scope
+
+        scoped_current = build_compatibility_scope(
+            current,
+            requested_model=receipt.get("requested_model"),
+            requested_effort=receipt.get("requested_effort"),
+            instruction_policy_fingerprint=scoped["instruction_policy_fingerprint"],
+        )
     for name, observed in current_identities.items():
         if receipt.get(name) != observed:
             raise IdentityError(
                 "qualification is stale for the current controller identity: %s" % name
             )
+    if scoped is not None and scoped_current != scoped:
+        raise IdentityError("qualification compatibility scope is stale")
     if codex_control_source is not None:
         from .codex_qualification import build_codex_control_source
 
@@ -2376,7 +2417,7 @@ class AdapterManifest:
             "doctor_only",
             "qualification",
         }
-        if set(value) != required:
+        if set(value) not in (required, required | {"qualification_scope"}):
             raise ValidationError("adapter manifest fields do not match schema")
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
             raise ValidationError("unsupported adapter target")
@@ -2517,6 +2558,10 @@ class AdapterManifest:
                 raise ValidationError("invalid capability state for %s" % name)
         if not isinstance(value.get("doctor_only"), bool):
             raise ValidationError("doctor_only must be boolean")
+        if value.get("qualification_scope") is not None:
+            scope = validate_compatibility_scope(value["qualification_scope"])
+            if scope["target"] != value["target"]:
+                raise ValidationError("qualification scope target does not match manifest")
         qualification = value.get("qualification")
         if value["doctor_only"]:
             if qualification is not None:
@@ -2896,6 +2941,8 @@ class AdapterManifest:
         expected_campaign_id: Optional[str] = None,
         expected_goal_fingerprint: Optional[str] = None,
         expected_session_profile: Optional[str] = None,
+        expected_requested_model: Optional[str] = None,
+        expected_requested_effort: Optional[str] = None,
         _authority_root: Optional[Path] = None,
         _current_manifest: Optional["AdapterManifest"] = None,
         _server_process_fn: Optional[Any] = None,
@@ -3194,6 +3241,27 @@ class AdapterManifest:
             )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
+        if self.target == "agy":
+            scoped = receipt.get("compatibility_scope")
+            if scoped is not None:
+                if self.raw.get("qualification_scope") != scoped:
+                    raise IdentityError(
+                        "qualified manifest compatibility scope differs from its receipt"
+                    )
+                if (
+                    receipt.get("requested_model") != expected_requested_model
+                    or receipt.get("requested_effort") != expected_requested_effort
+                ):
+                    raise IdentityError(
+                        "qualification model/effort selection does not match the active contract"
+                    )
+            elif (
+                expected_requested_model is not None
+                or expected_requested_effort is not None
+            ):
+                raise UnsupportedError(
+                    "selected AGY model/effort requires scoped qualification evidence"
+                )
         if receipt.get("session_profile") != qualification["session_profile"]:
             raise ValidationError("qualification session profile mismatch")
         if expected_session_profile is not None:

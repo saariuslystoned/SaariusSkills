@@ -1,0 +1,6 @@
+{"event":"started","repository":"<isolated-worktree>/SaariusSkills","branch":"codex/puppet-qualified-requalification-agy-model-20260918","base":"a7befa01559d66428b63eb6cd71326ef9a49ee79","scope":"qualification-reuse-and-agy-model-effort","live_qualification":false}
+{"event":"implemented","phase":"qualification-scope-and-agy-selectors","live_qualification":false,"external_writes":false}
+{"event":"verified","focused_tests":81,"full_tests":1121,"py_compile":true,"git_diff_check":true,"packaging_paths_clean":true}
+{"event":"hardened","changes":["selector-binding validation","portable requalification CLI","bounded identity diagnostics"],"final_focused_tests":52}
+{"event":"final_regression","instruction_and_scope_tests":18,"py_compile":true,"git_diff_check":true}
+{"event":"pr_check_fix","failed_check":"GrokWorkspacePlaneBindingTests.test_binding_rejects_manifest_bytes_hash_adapter_and_model_drift","fix":"preserve non-AGY per-field default/unavailable runtime bindings","focused_tests":54,"full_tests":1122,"live_qualification":false}

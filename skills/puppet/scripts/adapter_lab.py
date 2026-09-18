@@ -37,6 +37,11 @@ from puppet_lib.grok_qualification import (
 )
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
 from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
+from puppet_lib.qualification_scope import (
+    build_compatibility_scope,
+    validate_compatibility_scope,
+)
+from puppet_lib.instructions import instruction_policy_fingerprint
 from puppet_lib.claude_paired_qualification import (
     claude_qualified_mapping,
     create_claude_pair,
@@ -107,6 +112,8 @@ def _probe(args):
         target=args.target,
         profile=args.profile,
         session_profile=args.session_profile,
+        requested_model=args.requested_model,
+        requested_effort=args.requested_effort,
         proof_root=args.proof_root,
         manifest_path=args.manifest,
         mapping_path=args.mapping,
@@ -147,6 +154,8 @@ def _recover(args):
         goal_repo=args.goal_repo,
         expected_campaign_id=args.campaign_id,
         expected_goal=expected_goal,
+        requested_model=args.requested_model,
+        requested_effort=args.requested_effort,
         run_id=args.run_id,
         plane_descriptor=args.plane_descriptor,
         paired_activation_receipt=args.paired_activation_receipt,
@@ -158,6 +167,119 @@ def _recover(args):
         codex_entry_plan=args.codex_entry_plan,
         halt_timeout=args.halt_timeout,
     )
+
+
+def _scope_invalidations(stored, observed):
+    if stored is None:
+        return [
+            {
+                "reason": "legacy_or_unscoped_qualification",
+                "detail": "stored qualification has no versioned compatibility scope",
+            }
+        ]
+    invalidations = []
+    if stored.get("target") != observed.get("target"):
+        invalidations.append({"reason": "target_changed"})
+    if stored.get("source_fingerprint") != observed.get("source_fingerprint"):
+        invalidations.append({"reason": "selected_target_source_changed"})
+    for name in (
+        "executable_fingerprint",
+        "execution_fingerprint",
+        "version_fingerprint",
+        "platform_fingerprint",
+        "adapter_fingerprint",
+        "protocol_fingerprint",
+    ):
+        if stored.get("identity", {}).get(name) != observed.get("identity", {}).get(name):
+            invalidations.append({"reason": "runtime_identity_changed", "field": name})
+    if stored.get("model_effort") != observed.get("model_effort"):
+        invalidations.append({"reason": "model_or_effort_selection_changed"})
+    if stored.get("instruction_policy_fingerprint") != observed.get(
+        "instruction_policy_fingerprint"
+    ):
+        invalidations.append({"reason": "instruction_policy_changed"})
+    if stored.get("fingerprint") != observed.get("fingerprint"):
+        invalidations.append({"reason": "compatibility_scope_fingerprint_changed"})
+    return invalidations
+
+
+def _requalify(args):
+    manifest = AdapterManifest.from_path(args.manifest)
+    if manifest.target != args.target:
+        raise ValidationError("requalification target and manifest target mismatch")
+    current = census_target(args.target, adapter_implementation_fingerprint())
+    stored = manifest.raw.get("qualification_scope")
+    requested_model = None
+    requested_effort = None
+    if stored is not None:
+        stored = validate_compatibility_scope(stored)
+        requested_model = stored["model_effort"]["requested_model"]
+        requested_effort = stored["model_effort"]["requested_effort"]
+    observed = build_compatibility_scope(
+        current.raw,
+        requested_model=requested_model if args.requested_model is None else args.requested_model,
+        requested_effort=requested_effort if args.requested_effort is None else args.requested_effort,
+        instruction_policy_fingerprint=instruction_policy_fingerprint(target=args.target),
+    )
+    invalidations = _scope_invalidations(stored, observed)
+    result = {
+        "ok": True,
+        "mode": "plan",
+        "target": args.target,
+        "live_authorized": False,
+        "qualification_state": (
+            "doctor_only" if manifest.raw["doctor_only"] else "qualified"
+        ),
+        "scope_state": "current" if stored is not None and not invalidations else (
+            "legacy" if stored is None else "stale"
+        ),
+        "invalidations": invalidations,
+        "next_steps": [
+            "review the invalidation reasons and confirm the exact installed target identity",
+            "run the same command with --execute --ack-live-qualification only when live proof is authorized",
+        ],
+    }
+    if not args.execute:
+        return result
+    if not args.ack_live_qualification:
+        raise ValidationError(
+            "requalification execution requires the explicit --ack-live-qualification gate"
+        )
+    required = (
+        "profile",
+        "session_profile",
+        "proof_root",
+        "authorization",
+        "controller",
+        "campaign_id",
+        "goal_repo",
+        "goal_repository",
+        "goal_commit",
+        "goal_path",
+        "goal_sha256",
+        "out",
+    )
+    missing = [name for name in required if getattr(args, name, None) is None]
+    if missing:
+        raise ValidationError(
+            "requalification execution requires: %s" % ", ".join(missing)
+        )
+    args.requested_model = (
+        requested_model if args.requested_model is None else args.requested_model
+    )
+    args.requested_effort = (
+        requested_effort if args.requested_effort is None else args.requested_effort
+    )
+    probe = _probe(args)
+    args.receipt = Path(probe["receipt"])
+    qualification = _qualify(args)
+    return {
+        **result,
+        "mode": "execute",
+        "live_authorized": True,
+        "probe": probe,
+        "qualification": qualification,
+    }
 
 
 def _verified_receipt(path: Path):
@@ -309,6 +431,8 @@ def _qualify(args):
         mapping = grok_qualified_mapping(mapping)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
+    if receipt.get("compatibility_scope") is not None:
+        raw["qualification_scope"] = receipt["compatibility_scope"]
     raw["capabilities"] = {
         name: (
             "controller_verified" if name in receipt["capabilities"] else "unsupported"
@@ -322,9 +446,15 @@ def _qualify(args):
         "session_profile": receipt["session_profile"],
     }
     qualified = AdapterManifest.from_dict(raw)
-    qualified.verify_qualification(
-        expected_session_profile=receipt["session_profile"]
-    )
+    qualification_kwargs = {
+        "expected_session_profile": receipt["session_profile"],
+    }
+    if receipt.get("requested_model") is not None or receipt.get("requested_effort") is not None:
+        qualification_kwargs.update(
+            expected_requested_model=receipt.get("requested_model"),
+            expected_requested_effort=receipt.get("requested_effort"),
+        )
+    qualified.verify_qualification(**qualification_kwargs)
     qualified.save(args.out)
     return {
         "ok": True,
@@ -561,6 +691,8 @@ def build_parser():
     probe_parser.add_argument("--target", required=True)
     probe_parser.add_argument("--profile", required=True, choices=[PROBE_PROFILE])
     probe_parser.add_argument("--session-profile", required=True)
+    probe_parser.add_argument("--requested-model")
+    probe_parser.add_argument("--requested-effort")
     probe_parser.add_argument("--proof-root", required=True, type=Path)
     probe_parser.add_argument("--manifest", required=True, type=Path)
     probe_parser.add_argument("--mapping", required=True, type=Path)
@@ -620,6 +752,8 @@ def build_parser():
         help="reconcile one persisted probe by exact identity without relaunch",
     )
     recover_parser.add_argument("--target", required=True)
+    recover_parser.add_argument("--requested-model")
+    recover_parser.add_argument("--requested-effort")
     recover_parser.add_argument("--proof-root", required=True, type=Path)
     recover_parser.add_argument("--manifest", required=True, type=Path)
     recover_parser.add_argument("--mapping", required=True, type=Path)
@@ -646,6 +780,40 @@ def build_parser():
     recover_parser.add_argument("--paired-grok-positive-receipt", type=Path)
     recover_parser.add_argument("--codex-entry-plan", type=Path)
     recover_parser.set_defaults(handler=_recover)
+    requalify_parser = commands.add_parser(
+        "requalify",
+        help="plan selected-target qualification reuse, or execute it behind an explicit live gate",
+    )
+    requalify_parser.add_argument("--target", required=True)
+    requalify_parser.add_argument("--manifest", required=True, type=Path)
+    requalify_parser.add_argument("--mapping", required=True, type=Path)
+    requalify_parser.add_argument("--requested-model")
+    requalify_parser.add_argument("--requested-effort")
+    requalify_parser.add_argument("--execute", action="store_true")
+    requalify_parser.add_argument("--ack-live-qualification", action="store_true")
+    requalify_parser.add_argument("--profile", choices=[PROBE_PROFILE])
+    requalify_parser.add_argument("--session-profile")
+    requalify_parser.add_argument("--proof-root", type=Path)
+    requalify_parser.add_argument("--authorization", type=Path)
+    requalify_parser.add_argument("--controller")
+    requalify_parser.add_argument("--campaign-id")
+    requalify_parser.add_argument("--goal-repo", type=Path)
+    requalify_parser.add_argument("--goal-repository")
+    requalify_parser.add_argument("--goal-commit")
+    requalify_parser.add_argument("--goal-path")
+    requalify_parser.add_argument("--goal-sha256")
+    requalify_parser.add_argument("--timeout", type=float, default=300.0)
+    requalify_parser.add_argument("--halt-timeout", type=float, default=10.0)
+    requalify_parser.add_argument("--run-id")
+    requalify_parser.add_argument("--subscription-profile-root", type=Path)
+    requalify_parser.add_argument("--plane-descriptor", type=Path)
+    requalify_parser.add_argument("--paired-activation-receipt", type=Path)
+    requalify_parser.add_argument("--paired-codex-positive-receipt", type=Path)
+    requalify_parser.add_argument("--codex-ordinary-worktree-descriptor", type=Path)
+    requalify_parser.add_argument("--paired-grok-positive-receipt", type=Path)
+    requalify_parser.add_argument("--codex-entry-plan", type=Path)
+    requalify_parser.add_argument("--out", type=Path)
+    requalify_parser.set_defaults(handler=_requalify)
     observe_parser = commands.add_parser(
         "observe-claude-view",
         help="record one live read-only Claude tmux client without pane capture",

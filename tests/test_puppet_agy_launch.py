@@ -902,6 +902,33 @@ class AgyRegularLaunchValidationTests(unittest.TestCase):
                 argv=["agy", "--dangerously-skip-permissions", "--new-project", "--log-file", "/dev/null"],
                 requested_model="gemini-3.6-flash",
             )
+
+    def test_manifest_declared_model_and_effort_are_bound_in_exact_argv(self):
+        argv = agy_regular_launch_argv(
+            "/usr/bin/agy",
+            requested_model="gemini-3.8",
+            requested_effort="high",
+        )
+        self.assertEqual(argv[-4:], ["--model", "gemini-3.8", "--effort", "high"])
+        self.assertIsNone(
+            agy_launch_module.validate_agy_regular_launch_params(
+                session_profile="regular",
+                argv=argv,
+                requested_model="gemini-3.8",
+                requested_effort="high",
+                executable_path="/usr/bin/agy",
+                model_flag="--model",
+                effort_flag="--effort",
+            )
+        )
+
+    def test_selector_without_manifest_declaration_is_rejected(self):
+        with self.assertRaisesRegex(UnsupportedError, "not qualified"):
+            agy_regular_launch_argv(
+                "/usr/bin/agy",
+                requested_model="gemini-3.8",
+                model_flag=None,
+            )
         with self.assertRaises(ValidationError):
             agy_launch_module.validate_agy_regular_launch_params(
                 session_profile="regular",

@@ -89,10 +89,26 @@ AGY_REGULAR_LAUNCH_ARGV_TAIL: Tuple[str, ...] = (
 )
 
 
-def agy_regular_launch_argv(executable_path: str | Path) -> list[str]:
-    """Return the exact live-proved AGY regular launch argv for one executable."""
+def agy_regular_launch_argv(
+    executable_path: str | Path,
+    requested_model: Optional[str] = None,
+    requested_effort: Optional[str] = None,
+    *,
+    model_flag: Optional[str] = "--model",
+    effort_flag: Optional[str] = "--effort",
+) -> list[str]:
+    """Return the exact regular argv, including only manifest-declared selectors."""
 
-    return [str(executable_path), *AGY_REGULAR_LAUNCH_ARGV_TAIL]
+    argv = [str(executable_path), *AGY_REGULAR_LAUNCH_ARGV_TAIL]
+    if requested_model is not None:
+        if model_flag != "--model":
+            raise UnsupportedError("requested AGY model selector is not qualified")
+        argv.extend([model_flag, requested_model])
+    if requested_effort is not None:
+        if effort_flag != "--effort":
+            raise UnsupportedError("requested AGY effort selector is not qualified")
+        argv.extend([effort_flag, requested_effort])
+    return argv
 
 
 def agy_regular_verdict() -> Dict[str, Any]:
@@ -514,6 +530,8 @@ def validate_agy_regular_launch_params(
     log_destination: Optional[str] = None,
     profile_root: Optional[Any] = None,
     executable_path: Optional[str] = None,
+    model_flag: Optional[str] = "--model",
+    effort_flag: Optional[str] = "--effort",
 ) -> None:
     """Validate that AGY launch parameters strictly conform to the exact live-proved regular-session argv grammar."""
 
@@ -522,24 +540,36 @@ def validate_agy_regular_launch_params(
 
     reject_agy_private_profile_root(profile_root)
 
-    if requested_model is not None or "--model" in argv:
-        raise ValidationError(
-            "AGY regular launch forbids explicit model selection; model selector must be absent"
-        )
+    if requested_model is not None:
+        if model_flag != "--model":
+            raise UnsupportedError("requested AGY model selector is not qualified")
+        if argv.count(model_flag) != 1:
+            raise ValidationError("AGY model selector must appear exactly once")
+        model_index = list(argv).index(model_flag)
+        if model_index + 1 >= len(argv) or argv[model_index + 1] != requested_model:
+            raise ValidationError("AGY model selector does not match the contract")
+    elif "--model" in argv:
+        raise ValidationError("AGY model selector is present without a requested model")
 
-    if requested_effort is not None or "--effort" in argv:
-        raise ValidationError(
-            "AGY regular launch forbids explicit effort selection; effort selector must be absent"
-        )
+    if requested_effort is not None:
+        if effort_flag != "--effort":
+            raise UnsupportedError("requested AGY effort selector is not qualified")
+        if argv.count(effort_flag) != 1:
+            raise ValidationError("AGY effort selector must appear exactly once")
+        effort_index = list(argv).index(effort_flag)
+        if effort_index + 1 >= len(argv) or argv[effort_index + 1] != requested_effort:
+            raise ValidationError("AGY effort selector does not match the contract")
+    elif "--effort" in argv:
+        raise ValidationError("AGY effort selector is present without a requested effort")
 
     if log_destination is not None and log_destination != "/dev/null":
         raise ValidationError(
             "AGY launch log destination must be /dev/null"
         )
 
-    if not isinstance(argv, (list, tuple)) or len(argv) != 6:
+    if not isinstance(argv, (list, tuple)) or len(argv) not in {6, 8, 10}:
         raise ValidationError(
-            "AGY regular launch argv must be exactly 6 tokens: [executable, --dangerously-skip-permissions, --sandbox=false, --new-project, --log-file, /dev/null]"
+            "AGY regular launch argv has an invalid token count"
         )
 
     if executable_path is not None and argv[0] != executable_path:
@@ -548,9 +578,13 @@ def validate_agy_regular_launch_params(
         )
 
     expected = agy_regular_launch_argv(
-        executable_path if executable_path is not None else argv[0]
+        executable_path if executable_path is not None else argv[0],
+        requested_model,
+        requested_effort,
+        model_flag=model_flag,
+        effort_flag=effort_flag,
     )
     if list(argv) != expected:
         raise ValidationError(
-            "AGY regular launch argv must match the exact sequence: [executable, --dangerously-skip-permissions, --sandbox=false, --new-project, --log-file, /dev/null]"
+            "AGY regular launch argv must match the exact sequence bound by the manifest and contract"
         )
