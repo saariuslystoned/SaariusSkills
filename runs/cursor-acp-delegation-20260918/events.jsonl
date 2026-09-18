@@ -1,0 +1,11 @@
+{"event":"run_started","timestamp":"2026-09-18T14:13:49Z","scope":"cursor-acp-delegation","baseline":"a7befa01559d66428b63eb6cd71326ef9a49ee79","worktree":"/Users/bobbybones/.codex/worktrees/328f/SaariusSkills","branch":"codex/cursor-acp-delegation-20260918"}
+{"event":"deterministic_tests_passed","timestamp":"2026-09-18T14:13:49Z","command":"cd bridge/cursor-acp && npm run check","proof":"bridge/cursor-acp/test/"}
+{"event":"packaging_validation_passed","timestamp":"2026-09-18T14:13:49Z","commands":["plugin validate","skill quick_validate","git diff --check"],"proof":".codex-plugin/plugin.json"}
+{"event":"live_smoke_passed","timestamp":"2026-09-18T14:13:49Z","proof":"runs/cursor-acp-delegation-20260918/live/PROOF.md","selectedModelId":"grok-4.6[effort=high,fast=true]","outcomes":["readiness","workspace-binding/completion","steering/completion","cancellation"]}
+{"event":"root_tests_passed","timestamp":"2026-09-18T14:26:25Z","command":"python3 -m unittest discover -s tests","count":1112,"proof":"runs/cursor-acp-delegation-20260918/root-unittest.log"}
+{"event":"bridge_check_passed","timestamp":"2026-09-18T14:26:25Z","command":"cd bridge/cursor-acp && npm run check","count":8,"proof":"bridge/cursor-acp/test/"}
+{"event":"live_smoke_final_passed","timestamp":"2026-09-18T14:26:25Z","proof":"runs/cursor-acp-delegation-20260918/live/PROOF.md","selectedModelId":"grok-4.6[effort=high,fast=true]","outcomes":["readiness","workspace-binding/completion","steering/completion","cancellation"]}
+{"event":"closeout","timestamp":"2026-09-18T14:26:25Z","status":"implementation_complete_app_connection_pending","node_modules":"not retained in worktree","plugin_version":"0.2.0"}
+{"event":"hardening_tests_passed","timestamp":"2026-09-18T14:28:02Z","command":"cd bridge/cursor-acp && npm run check","count":9,"proof":"bridge/cursor-acp/test/"}
+{"event":"final_validation_passed","timestamp":"2026-09-18T14:28:02Z","commands":["python3 -m unittest tests.test_packaging -v","plugin validate","skill quick_validate","git diff --check"],"plugin_version":"0.2.0"}
+{"event":"final_closeout","timestamp":"2026-09-18T14:29:00Z","status":"ready_to_connect_not_installed","details":"Updated worktree bridge is packaged and proven; Codex app still has only the prior saarius-skills snapshot enabled"}

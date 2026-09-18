@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cursor-acp": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/bridge/cursor-acp/server.mjs"],
+      "env": {
+        "CURSOR_AGENT_EXECUTABLE": "/Users/bobbybones/.local/bin/cursor-agent"
+      }
+    }
+  }
+}
