@@ -25,7 +25,9 @@ external action.
 - Save the returned job ID. Use `cursor_acp_status` for progress and
   `cursor_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, or progress event is not task success.
-- Use `cursor_acp_steer` only while that exact job is active. Use
+- `cursor_acp_steer` fails closed with `STEERING_UNSUPPORTED`: the pinned
+  runtime queues a second turn rather than steering the active turn. Wait for
+  the canonical terminal result, then explicitly delegate a bounded follow-up. Use
   `cursor_acp_cancel` when the parent decision changes or the bounded budget is
   no longer justified. A missing active session is a fail-closed result, not a
   reason to create a replacement session.

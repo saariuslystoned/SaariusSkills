@@ -176,18 +176,20 @@ test("delegation binds one workspace and exact model, then returns a bounded han
   await broker.close();
 });
 
-test("steering uses the active ACP session and preserves the parent job identity", async () => {
+test("steering fails closed before starting an unowned queued turn", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: { delayMs: 100 },
   });
   const submitted = await broker.delegate({ workspace, prompt: "Hold the bounded turn briefly." });
   await waitUntil(() => broker.active.get(submitted.jobId)?.turn);
-  const steering = await broker.steer({ jobId: submitted.jobId, message: "Continue and finish the requested handoff." });
-  assert.equal(steering.status, "accepted");
-  assert.equal(steering.jobId, submitted.jobId);
-  assert.equal(runtime.turns[1].input.mode, "steer");
-  assert.equal(runtime.turns[1].input.handle.sessionKey, runtime.turns[0].input.handle.sessionKey);
-  await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  await assert.rejects(
+    () => broker.steer({ jobId: submitted.jobId, message: "Continue the work." }),
+    (error) => error instanceof BridgeError && error.code === "STEERING_UNSUPPORTED",
+  );
+  assert.equal(runtime.turns.length, 1);
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(runtime.turns.length, 1);
   await broker.close();
 });
 
