@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autonomous Browser Control Studio · DevTools MCP Verification</title>
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --panel-bg: rgba(17, 24, 39, 0.85);
+      --border-color: rgba(75, 85, 99, 0.4);
+      --accent-cyan: #06b6d4;
+      --accent-magenta: #ec4899;
+      --accent-green: #10b981;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      padding: 24px;
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 24px;
+    }
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .header h1 { font-size: 22px; font-weight: 700; }
+    .header p { font-size: 13px; color: var(--text-muted); }
+    .status-pill {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+    .studio-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+    }
+    .card {
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .tag {
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--accent-cyan);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="email"], select, textarea {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, input[type="email"]:focus, select:focus, textarea:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 1px var(--accent-cyan);
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    .radio-group, .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-main);
+    }
+    .control-item input { cursor: pointer; }
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+      flex: 2;
+    }
+    .btn-secondary {
+      background: rgba(75, 85, 99, 0.3);
+      color: var(--text-muted);
+      flex: 1;
+    }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    /* Passport HUD */
+    .hud-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .hud-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-cyan), #3b82f6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+    .hud-details { flex: 1; }
+    .hud-name { font-size: 15px; font-weight: 700; color: var(--accent-cyan); }
+    .hud-sub { font-size: 11px; color: var(--text-muted); margin: 2px 0 6px 0; }
+    .hud-desc { font-size: 12px; font-style: italic; color: #cbd5e1; }
+    .hud-badges { display: flex; gap: 8px; margin-top: 8px; }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    /* Canvas Area */
+    .canvas-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .canvas-actions { display: flex; gap: 8px; }
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      background: rgba(55, 65, 81, 0.5);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+    }
+    .btn-sm.active {
+      background: var(--accent-cyan);
+      color: #0b0f19;
+      font-weight: 700;
+    }
+    #canvas-studio {
+      background: #060911;
+      border: 1px dashed var(--border-color);
+      border-radius: 8px;
+      display: block;
+      width: 100%;
+      height: 280px;
+      cursor: crosshair;
+    }
+    /* Drag & Drop */
+    .drag-drop-container {
+      display: flex;
+      gap: 16px;
+      margin-top: 16px;
+      align-items: center;
+    }
+    .draggable-item {
+      background: linear-gradient(135deg, #ec4899, #a855f7);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: grab;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.25);
+    }
+    .drop-zone {
+      flex: 1;
+      border: 2px dashed rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.05);
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 12px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .drop-zone.authorized {
+      border-color: var(--accent-green);
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+    /* Telemetry */
+    .telemetry-feed {
+      background: #030712;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+      height: 140px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      color: #38bdf8;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .log-line { display: flex; gap: 8px; }
+    .log-time { color: var(--text-muted); }
+    .log-op { color: #f472b6; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-title">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <h1>Autonomous Browser Control Studio</h1>
+        <p>Chrome DevTools MCP Interactive Verification Suite</p>
+      </div>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      DEVTOOLS SESSION ACTIVE
+    </div>
+  </div>
+
+  <div class="studio-grid">
+    <!-- Left Column: Directives & Form Controls -->
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Agent Directives & Controls</div>
+          <div class="tag">LIVE HUD</div>
+        </div>
+
+        <form id="agent-form" onsubmit="event.preventDefault(); applyDirectives();">
+          <div class="form-group">
+            <label for="agent-codename">Agent Codename</label>
+            <input type="text" id="agent-codename" value="Nexus-9 Cyber Sentinel" placeholder="Enter agent identifier">
+          </div>
+
+          <div class="form-group">
+            <label for="agent-email">Direct Comm Channel</label>
+            <input type="email" id="agent-email" value="nexus9@autonomous.mesh" placeholder="agent@mesh.net">
+          </div>
+
+          <div class="form-group">
+            <label for="agent-paradigm">Operational Paradigm</label>
+            <select id="agent-paradigm" onchange="logEvent('SELECT_MODE', 'Mode changed to: ' + this.value)">
+              <option value="Autonomous Agent">Autonomous Agent</option>
+              <option value="Generative Artificer" selected>Generative Artificer</option>
+              <option value="Security Orchestrator">Security Orchestrator</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="agent-directives">Tactical Objective & Directives</label>
+            <textarea id="agent-directives">Execute multi-stage autonomous browser verification protocols, render vector constellation art, and authorize cryptographic security matrix.</textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Spectral Theme Matrix</label>
+            <div class="radio-group">
+              <label class="control-item">
+                <input type="radio" name="spectral-theme" value="neon" checked onchange="logEvent('THEME_TOGGLE', 'Theme: Cyberpunk Neon')">
+                CYBERPUNK NEON (ULTRA CYAN / MAGENTA)
+              </label>
+              <label class="control-item">
+                <input type="radio" name="spectral-theme" value="dark" onchange="logEvent('THEME_TOGGLE', 'Theme: Deep Stellar Dark')">
+                DEEP STELLAR DARK (OBSIDIAN / INDIGO)
+              </label>
+              <label class="control-item">
+                <input type="radio" name="spectral-theme" value="emerald" onchange="logEvent('THEME_TOGGLE', 'Theme: Quantum Emerald')">
+                QUANTUM EMERALD (LASER GREEN / GOLD)
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Subsystem Capabilities</label>
+            <div class="checkbox-group">
+              <label class="control-item">
+                <input type="checkbox" id="cap-sync" checked onchange="logEvent('CAPABILITY_TOGGLE', 'Neural Sync: ' + this.checked)">
+                NEURAL CO-PROCESSOR SYNC
+              </label>
+              <label class="control-item">
+                <input type="checkbox" id="cap-vector" checked onchange="logEvent('CAPABILITY_TOGGLE', 'Vector Accel: ' + this.checked)">
+                2D CANVAS VECTOR ACCELERATION
+              </label>
+              <label class="control-item">
+                <input type="checkbox" id="cap-telemetry" checked onchange="logEvent('CAPABILITY_TOGGLE', 'Telemetry: ' + this.checked)">
+                REAL-TIME BI-DIRECTIONAL TELEMETRY
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="precision-slider">Vector Precision Index (<span id="slider-val">43%</span>)</label>
+            <input type="range" id="precision-slider" min="1" max="100" value="43" style="width:100%" oninput="document.getElementById('slider-val').innerText = this.value + '%'; logEvent('SLIDER_UPDATE', 'Precision: ' + this.value + '%')">
+          </div>
+
+          <div class="btn-row">
+            <button type="button" id="btn-apply" class="btn btn-primary" onclick="applyDirectives()">⚡ Apply Directives</button>
+            <button type="button" id="btn-reset" class="btn btn-secondary" onclick="resetForm()">↺ Reset</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Right Column: HUD, Canvas & Drag Drop & Telemetry -->
+    <div>
+      <!-- Live Agent Passport HUD -->
+      <div class="hud-card" id="passport-hud">
+        <div class="hud-avatar">🤖</div>
+        <div class="hud-details">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="hud-name" id="hud-name">Agent: Nexus-9 Cyber Sentinel</div>
+            <span class="badge" id="hud-paradigm">GENERATIVE ARTIFICER</span>
+          </div>
+          <div class="hud-sub" id="hud-channel">CHANNEL: nexus9@autonomous.mesh | THEME: Cyberpunk Neon</div>
+          <div class="hud-desc" id="hud-directives">"Execute multi-stage autonomous browser verification protocols, render vector constellation art, and authorize cryptographic security matrix."</div>
+          <div class="hud-badges">
+            <span class="badge" id="badge-sync">NEURAL-SYNC: ACTIVE</span>
+            <span class="badge" id="badge-telemetry">TELEMETRY: BROADCASTING</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive HTML5 Canvas Studio -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Interactive HTML5 Canvas Studio</div>
+          <div class="canvas-actions">
+            <button class="btn-sm" onclick="drawStarburstPreset()">⭐ Draw Starburst</button>
+            <button class="btn-sm" onclick="drawSpiralPreset()">🌀 Cyber Spiral</button>
+            <button class="btn-sm" style="background:rgba(239, 68, 68, 0.2); color:#f87171" onclick="clearCanvas()">🧹 Clear</button>
+          </div>
+        </div>
+
+        <div class="canvas-toolbar">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span style="font-size:11px; color:var(--text-muted); font-weight:600">BRUSH:</span>
+            <button class="btn-sm" id="brush-cyan" onclick="setBrush('cyan')">Cyan Glow</button>
+            <button class="btn-sm" id="brush-pink" onclick="setBrush('pink')">Neon Pink</button>
+            <button class="btn-sm active" id="brush-rainbow" onclick="setBrush('rainbow')">Rainbow Trail</button>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); font-weight:600">
+            STROKES: <span id="stroke-count" style="color:var(--accent-cyan)">0</span>
+            <span style="margin-left:12px">X: <span id="mouse-x">--</span>, Y: <span id="mouse-y">--</span></span>
+          </div>
+        </div>
+
+        <canvas id="canvas-studio" width="680" height="280"></canvas>
+
+        <!-- Drag and Drop Authorization Matrix -->
+        <div class="drag-drop-container">
+          <div id="drag-key" class="draggable-item" draggable="true" ondragstart="handleDragStart(event)">
+            🔐 Cryptographic Security Key
+          </div>
+          <div id="drop-zone" class="drop-zone" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+            ⬇ Drop Security Key Here to Authorize Matrix
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Telemetry Log -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-header" style="margin-bottom:8px">
+          <div class="card-title" style="font-size:12px">Telemetry & Event Dispatch Log</div>
+          <span style="font-size:11px; color:var(--text-muted)" id="log-count">0 events logged</span>
+        </div>
+        <div class="telemetry-feed" id="telemetry-log">
+          <div class="log-line">
+            <span class="log-time">[00:00.00]</span>
+            <span class="log-op">SYSTEM_INIT</span>
+            <span>Autonomous Browser Control Studio Initialized</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    let strokeCount = 0;
+    let eventCount = 1;
+    let activeBrush = 'rainbow';
+    const canvas = document.getElementById('canvas-studio');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    let hue = 0;
+
+    function logEvent(op, details) {
+      const now = new Date();
+      const timeStr = `[${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(Math.floor(now.getMilliseconds()/10)).padStart(2, '0')}]`;
+      const logContainer = document.getElementById('telemetry-log');
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.innerHTML = `<span class="log-time">${timeStr}</span><span class="log-op">${op}</span><span>${details}</span>`;
+      logContainer.appendChild(line);
+      logContainer.scrollTop = logContainer.scrollHeight;
+      eventCount++;
+      document.getElementById('log-count').innerText = `${eventCount} events logged`;
+    }
+
+    function applyDirectives() {
+      const name = document.getElementById('agent-codename').value;
+      const email = document.getElementById('agent-email').value;
+      const paradigm = document.getElementById('agent-paradigm').value;
+      const directives = document.getElementById('agent-directives').value;
+      const selectedTheme = document.querySelector('input[name="spectral-theme"]:checked')?.value || 'neon';
+
+      document.getElementById('hud-name').innerText = `Agent: ${name}`;
+      document.getElementById('hud-channel').innerText = `CHANNEL: ${email} | THEME: ${selectedTheme === 'neon' ? 'Cyberpunk Neon' : selectedTheme === 'dark' ? 'Deep Stellar Dark' : 'Quantum Emerald'}`;
+      document.getElementById('hud-paradigm').innerText = paradigm.toUpperCase();
+      document.getElementById('hud-directives').innerText = `"${directives}"`;
+
+      logEvent('APPLY_DIRECTIVES', `HUD Synchronized with Agent "${name}"`);
+    }
+
+    function resetForm() {
+      document.getElementById('agent-form').reset();
+      logEvent('FORM_RESET', 'All directive controls reset to baseline defaults');
+    }
+
+    function setBrush(b) {
+      activeBrush = b;
+      document.querySelectorAll('.canvas-toolbar .btn-sm').forEach(el => el.classList.remove('active'));
+      document.getElementById(`brush-${b}`)?.classList.add('active');
+      logEvent('SET_BRUSH', `Active brush switched to: ${b}`);
+    }
+
+    function drawLine(x1, y1, x2, y2, color, width=4) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = color;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      strokeCount++;
+      document.getElementById('stroke-count').innerText = strokeCount;
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDrawing = true;
+      const rect = canvas.getBoundingClientRect();
+      lastX = e.clientX - rect.left;
+      lastY = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor(e.clientX - rect.left);
+      const y = Math.floor(e.clientY - rect.top);
+      document.getElementById('mouse-x').innerText = x;
+      document.getElementById('mouse-y').innerText = y;
+
+      if (!isDrawing) return;
+      let color = '#06b6d4';
+      if (activeBrush === 'pink') color = '#ec4899';
+      else if (activeBrush === 'rainbow') {
+        color = `hsl(${hue}, 100%, 65%)`;
+        hue = (hue + 5) % 360;
+      }
+      drawLine(lastX, lastY, x, y, color, 6);
+      lastX = x;
+      lastY = y;
+    });
+
+    window.addEventListener('mouseup', () => { isDrawing = false; });
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      strokeCount = 0;
+      document.getElementById('stroke-count').innerText = 0;
+      logEvent('CLEAR_CANVAS', 'Canvas buffer purged');
+    }
+
+    function drawStarburstPreset() {
+      const cx = 160;
+      const cy = 140;
+      const points = 8;
+      const rOuter = 70;
+      const rInner = 28;
+      for (let i = 0; i < points * 2; i++) {
+        const r = (i % 2 === 0) ? rOuter : rInner;
+        const angle = (i * Math.PI) / points;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        drawLine(cx, cy, x, y, `hsl(${(i * 25) % 360}, 100%, 60%)`, 3);
+      }
+      logEvent('VECTOR_PRESET', 'Rendered 8-Point Radiant Starburst on Canvas');
+    }
+
+    function drawSpiralPreset() {
+      const cx = 460;
+      const cy = 140;
+      let px = cx;
+      let py = cy;
+      for (let i = 0; i < 40; i++) {
+        const angle = 0.25 * i;
+        const r = 2.4 * i;
+        const x = cx + (r * Math.cos(angle));
+        const y = cy + (r * Math.sin(angle));
+        drawLine(px, py, x, y, `hsl(${(i * 8 + 180) % 360}, 100%, 65%)`, 4);
+        px = x;
+        py = y;
+      }
+      logEvent('VECTOR_PRESET', 'Rendered 40-Node Cybernetic Archimedean Spiral');
+    }
+
+    function renderFullNeuralVectorArt() {
+      clearCanvas();
+      drawStarburstPreset();
+      drawSpiralPreset();
+      // Render bridging neural resonance wave
+      let px = 160;
+      let py = 140;
+      for (let x = 160; x <= 460; x += 15) {
+        const y = 140 + Math.sin((x - 160) * 0.05) * 26;
+        drawLine(px, py, x, y, '#38bdf8', 3);
+        px = x;
+        py = y;
+      }
+      logEvent('VECTOR_ART', 'Neural resonance wave bridge rendered');
+    }
+
+    // Drag & Drop
+    function handleDragStart(e) {
+      e.dataTransfer.setData('text/plain', 'TOKEN_779_AUTHORIZED');
+      logEvent('DRAG_START', 'Cryptographic Security Key picked up');
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      const token = e.dataTransfer.getData('text/plain');
+      const dropZone = document.getElementById('drop-zone');
+      dropZone.classList.add('authorized');
+      dropZone.innerHTML = `✅ MATRIX AUTHORIZATION VERIFIED [TOKEN_779 ACCEPTED]`;
+      logEvent('DROP_VERIFIED', `Matrix security authorization accepted: ${token}`);
+    }
+
+    // Auto-render default vector art for immediate visual verification
+    window.addEventListener('load', () => {
+      renderFullNeuralVectorArt();
+      logEvent('INITIAL_RENDER', 'Autonomous verification studio ready for testing');
+    });
+  </script>
+</body>
+</html>

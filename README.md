@@ -3,6 +3,26 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
+## Browser Automation (`/browser`)
+
+The [`browser` skill](skills/browser/SKILL.md) adds a browser workflow for
+Antigravity CLI builds where the built-in `/browser` command is unavailable. The
+plugin packages the slash-command skill and an isolated Chrome DevTools MCP server.
+
+This is not a replacement for Antigravity 2.0's built-in browser. In `agy`, the
+current agent drives a visible temporary Chrome profile through the plugin's MCP
+server, targets elements from fresh accessibility snapshots, verifies post-action
+state, and captures screenshots when visual proof is requested. The skill does not
+delegate to a custom subagent because current AGY CLI lazy-MCP tools are not
+executable in that subagent environment.
+
+### Acceptance Coverage
+
+The bundled fixture exercises text inputs, form controls, clicks, drag and drop,
+canvas controls, and full-page screenshots. The Python checker verifies only the
+fixture's static structure. A capability claim requires the separate
+[live-browser acceptance run](skills/browser/references/verification_suite.md).
+
 ## Puppet
 
 The repository carries the historical [Puppet design packet](plans/puppet/README.md)
@@ -178,21 +198,31 @@ Install this skillpack with the AGY CLI:
 agy plugin install /path/to/SaariusSkills
 ```
 
-AGY loads the pack from the provided path and reads the root `plugin.json`
-manifest.
+AGY loads the pack from the provided path and reads the root `plugin.json`,
+`mcp_config.json`, and `skills/`. Restart `agy` after install so it discovers the
+new components. The default Chrome session is isolated and not signed in.
 
-Then start a track naturally:
+Then start a browser automation session or product decision track:
+
+```text
+/browser Inspect https://github.com/trending and report the top repositories
+```
 
 ```text
 Help me decide and implement the next high-leverage product slice with GrillTrack.
 ```
 
-Natural requests such as “continue to the next grill” or “reopen the layout
-decision” work too. `$grilltrack` remains available as a concise explicit
-invocation, but it is never required when the user's intent is already clear.
-
 ## What ships
 
+- [`skills/browser/SKILL.md`](skills/browser/SKILL.md): the Chrome DevTools
+  automation workflow for the current AGY agent.
+- `mcp_config.json`: an isolated Chrome DevTools MCP server definition.
+- `skills/browser/scripts/verify_browser.py`: static integrity checker for the
+  live acceptance fixture; it does not drive Chrome.
+- `skills/browser/fixtures/verification_studio.html`: the interactive Autonomous
+  Browser Control Studio fixture.
+- `skills/browser/references/`: exact DevTools MCP protocol and live acceptance
+  procedure.
 - [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
   transcript-blind cross-harness operating workflow.
 - `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
@@ -240,6 +270,7 @@ Run the complete local verification:
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 skills/browser/scripts/verify_browser.py --json
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
 python3 skills/puppet/scripts/puppet.py --help
