@@ -8,6 +8,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs --install",
+    "doctor": "node scripts/setup.mjs --check",
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "node --check broker.mjs && node --check server.mjs && npm test",

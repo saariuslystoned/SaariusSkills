@@ -22,7 +22,7 @@ From the repository worktree:
 
 ```bash
 cd bridge/cursor-acp
-npm ci
+npm run setup
 npm test
 ```
 
@@ -45,27 +45,38 @@ an API-key fallback.
 ## MCP connection
 
 The root `.codex-plugin/plugin.json` declares `.mcp.json`, whose stdio server
-command resolves the bridge through `${PLUGIN_ROOT}`. The plugin's MCP server
+command uses `cwd: "."`, which Codex resolves against the installed plugin
+root, with a relative server argument. This legacy `.codex-plugin` format does
+not expand `${PLUGIN_ROOT}` in arguments. The plugin's MCP server
 does not accept arbitrary shell commands or credentials in tool arguments.
 
-The local repository marketplace is:
-
-```text
-/Users/bobbybones/.codex/worktrees/328f/SaariusSkills/.agents/plugins/marketplace.json
-```
-
-After reviewing the package, connect it to the local Codex app with the
-repository's marketplace flow:
+After reviewing the package, connect it to Codex from the repository worktree:
 
 ```bash
-codex plugin marketplace add /Users/bobbybones/.codex/worktrees/328f/SaariusSkills/.agents/plugins
+codex plugin marketplace add "$PWD/.agents/plugins"
 codex plugin add saarius-skills@saarius-skills
 ```
 
-Start a new Codex task after reinstalling so the skill and MCP inventory are
-loaded together. This implementation run does not install or activate the
-plugin in the app; the concrete connection status is therefore **not yet
-installed/activated**.
+Installing/updating the plugin copies source; it does not install this bridge's
+Node dependencies. After each install/update, resolve the active plugin root
+from the installed skill location and run:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/cursor-acp/scripts/setup.mjs" --install
+```
+
+Set `SAARIUS_PLUGIN_ROOT` to that absolute installed plugin directory, not a
+development checkout. `--install` runs locked `npm ci` with lifecycle scripts
+disabled, then initializes the MCP server and verifies all six tools. `--check`
+does only the health check. Neither opens Cursor nor sends a model turn.
+`DEPENDENCIES_MISSING` prints an exact repair command; `MCP_READY` establishes
+server health, not that an existing Codex task has refreshed its tool inventory.
+
+Reload Codex or start a fresh task after repair. Verify the native
+`cursor_acp_readiness` call before delegating. The Codex orchestrator model
+(including GPT-5.6 Luna High) is independent of the Cursor worker model. If
+native tools remain absent, diagnose registration/loading; changing models or
+switching to Puppet does not repair the MCP installation.
 
 ## State, proof, and rollback
 
