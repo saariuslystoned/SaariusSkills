@@ -8,3 +8,4 @@
 {"event":"stage1_complete","at":"2026-09-18T23:50:00-04:00","commit":null,"tests":{"focused":"tests.test_puppet_qualification_reuse 9 OK","broader":"190 OK adapters/agy_launch/cli/contracts/probe","session_subset":"83 OK"}}
 {"event":"stage1_verified","at":"2026-09-18T23:34:57Z","commit":null,"tests":{"focused":"tests.test_puppet_qualification_reuse 9 OK","adapters_agy_plane_plan":"145 OK","harness_qualification":"42 OK","probe_session":"110 OK","launch_onboarding_workspace_instructions":"67 OK"}}
 {"event":"parent_review","at":"2026-09-18T23:40:00-04:00","status":"accepted","diff_check":"pass","compileall":"pass","tests":{"focused":"9 OK","core":"145 OK","harness_qualification":"42 OK","probe_session":"110 OK","launch_workspace_instruction":"67 OK","full_suite":"1121 OK"}}
+{"event":"stage1_commit","at":"2026-09-18T23:42:00-04:00","commit":"1a3e439b6ffe0a898b19b499968bf21410e6469a","status":"accepted"}

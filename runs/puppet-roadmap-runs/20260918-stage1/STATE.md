@@ -8,7 +8,7 @@
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: repair #42 qualification reuse with explicit harness, transport, shared-authority, and task scopes
 - external actions: none authorized
-- commit: none; parent owns commit/push/PR
+- commit: 1a3e439b6ffe0a898b19b499968bf21410e6469a
 - job_id: bef7dc26-94e1-4b70-a460-3b8408607c1d
 - first_job_result: failed / BRIDGE_RESTARTED before terminal worker result
 - active_job_id: bc3016c5-0244-4b78-8255-b632ab4d2462
