@@ -1,6 +1,6 @@
 ---
 name: cursor-acp-delegation
-description: Delegate one bounded implementation or verification slice to Bobby's local Cursor ACP session running the explicitly selected Cursor Grok 4.6 model, then inspect the result independently. Use only when the task is authorized for local implementation work and has one clear workspace owner.
+description: Use Cursor ACP MCP to delegate bounded implementation or verification to local Cursor Grok 4.6, or diagnose missing Cursor ACP tools. Applies with any Codex orchestrator model, including Luna. Developing Puppet does not make Puppet the worker transport.
 ---
 
 # Cursor ACP delegation
@@ -10,6 +10,36 @@ substantial, bounded implementation or verification work. Cursor/Grok 4.6 is
 Bobby's preferred route for that kind of slice when the local route is ready;
 the parent agent still owns decisions, scope, review, and any separately gated
 external action.
+
+## Discovery and setup
+
+The orchestrator model does not select the transport: Luna High and other Codex
+models use the same installed MCP tools. Tool names may have a plugin/server
+prefix. Search the available/deferred tool catalog for `cursor_acp_readiness`
+before concluding it is unavailable; a short initial tool list is not proof.
+
+If no callable Cursor ACP tool is found, read the handoff and diagnose setup;
+do not stop before gathering the cause. From this installed skill's directory,
+the package check is:
+
+```bash
+node ../../bridge/cursor-acp/scripts/setup.mjs --check
+```
+
+Resolve that relative path against this SKILL.md, not the task's workspace.
+`DEPENDENCIES_MISSING` includes an exact repair command. When local setup is
+authorized, run that command with `--install`; it installs locked dependencies
+with lifecycle scripts disabled and verifies MCP initialization and all six
+tools, without opening Cursor or sending a model turn. Run it after every plugin
+install/update: copying the plugin does not install its Node dependencies.
+
+After repair, reload the Codex app or start a fresh task so its native tool
+inventory is rebuilt. `MCP_READY` proves server startup, not that the current
+task has reloaded it; verify a native readiness tool call in the fresh task.
+If still unavailable, report `MCP_UNAVAILABLE` with the setup result and the
+specific reload/registration action needed. Do not replace this route with
+Puppet, Herdr, tmux, a different model, or a task-local client unless the user
+explicitly authorizes that alternative. Setup diagnosis is not worker execution.
 
 ## Operating contract
 
