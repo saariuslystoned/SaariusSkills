@@ -682,7 +682,7 @@ export class CursorAcpBroker {
   }
 
   async steer({ jobId, message } = {}) {
-    const taskMessage = assertBoundedText(message, "message", MAX_STEER_CHARS);
+    assertBoundedText(message, "message", MAX_STEER_CHARS);
     const job = await this.getJob(jobId);
     if (job.status !== "running") {
       throw new BridgeError("JOB_NOT_RUNNING", `Job ${jobId} is ${job.status}; steering is unavailable`);
@@ -694,37 +694,13 @@ export class CursorAcpBroker {
         "The bridge has no active ACP turn for this job; resubmit explicitly instead of replacing the session",
       );
     }
-    const requestId = `${jobId}:steer:${this.idFactory()}`;
-    const steerTurn = this.runtime.startTurn({
-      handle: active.handle,
-      text: taskMessage,
-      mode: "steer",
-      requestId,
-      timeoutMs: Math.min(job.timeoutMs, 120_000),
-      onPermissionRequest: async () => ({ outcome: "allow_once" }),
-      onElicitation: async () => ({ action: "cancel" }),
-    });
-    const steerResult = this.consumeEvents(steerTurn.events, async () => undefined)
-      .then(() => steerTurn.result)
-      .catch((error) => ({ status: "failed", error: safeError(error) }));
-    await steerTurn.promptStarted;
-    void steerResult.then(async (completed) => {
-      await this.recordEvent(job, "steer_finished", {
-        requestId,
-        status: completed?.status ?? "unknown",
-      });
-    });
-    await this.recordEvent(job, "steer_submitted", {
-      requestId,
-      messageSha256: hashText(taskMessage),
-    });
-    return {
-      jobId,
-      status: "accepted",
-      requestId,
-      route: job.route,
-      model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
-    };
+    // acpx 0.16.0 serializes startTurn calls for a session. Its mode: "steer"
+    // therefore queues a new model turn rather than steering the active one.
+    // Launching it here would outlive the original job's result/cancel owner.
+    throw new BridgeError(
+      "STEERING_UNSUPPORTED",
+      "The pinned ACP runtime cannot steer an active turn. Wait for the job's terminal result, then explicitly delegate a bounded follow-up.",
+    );
   }
 
   async cancel({ jobId, reason } = {}) {

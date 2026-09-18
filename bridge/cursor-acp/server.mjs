@@ -87,7 +87,7 @@ server.registerTool(
 server.registerTool(
   "cursor_acp_steer",
   {
-    description: "Send a bounded steering message to the active Cursor ACP turn for an existing job.",
+    description: "Report unsupported active-turn steering for the pinned ACP runtime; never enqueue an unowned follow-up turn.",
     inputSchema: { jobId: z.string(), message: z.string() },
   },
   (args) => call((input) => broker.steer(input), args),

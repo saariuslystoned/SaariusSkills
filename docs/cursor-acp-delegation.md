@@ -38,7 +38,7 @@ npm run smoke
 
 It uses the installed Cursor login, the exact executable and model above, a
 disposable workspace, and a run directory outside that workspace. It proves
-readiness/model selection, workspace binding, steering/completion, and
+readiness/model selection, workspace binding, completion, steering refusal, and
 cancellation. It does not push, deploy, send messages, change accounts, or use
 an API-key fallback.
 
@@ -89,3 +89,12 @@ the bridge never deletes it automatically.
 This slice is distinct from Puppet issues #35 and #37. It does not claim a
 transport-neutral controller, remote swarm route, OpenClaw gateway, or formal
 ACP qualification.
+
+## Active-turn steering
+
+The pinned acpx 0.16.0 runtime serializes turns within a session. Its `steer`
+mode does not interrupt the current turn. The bridge refuses steering with
+`STEERING_UNSUPPORTED` before starting another turn, so completion and
+cancellation cannot lose ownership of queued work. After the canonical job
+result, the parent can explicitly delegate a bounded follow-up. Historical
+steering smoke evidence does not establish active-turn steering support.

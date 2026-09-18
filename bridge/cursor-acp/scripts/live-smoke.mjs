@@ -115,8 +115,8 @@ async function main() {
       timeoutMs: 180_000,
       prompt: [
         "Run the local command sleep 12 in the supplied workspace.",
-        "Do not edit files or access secrets/network. Wait for a steering message",
-        "after the command, then report only the bounded handoff.",
+        "Do not edit files or access secrets/network.",
+        "After the command, report only the bounded handoff.",
       ].join(" "),
     });
     if (!(await waitForActive(broker, steeringJob.jobId))) {
@@ -124,21 +124,26 @@ async function main() {
       failure = { code: "STEER_NOT_ACTIVE", message: "live job did not expose an active ACP turn" };
       throw new StopSmoke();
     }
-    const steering = await broker.steer({
-      jobId: steeringJob.jobId,
-      message: "The parent has confirmed scope. Finish now with the bounded handoff.",
-    });
+    let steeringCode;
+    try {
+      await broker.steer({
+        jobId: steeringJob.jobId,
+        message: "This request must refuse without enqueueing another turn.",
+      });
+    } catch (error) {
+      steeringCode = error.code;
+    }
     const steeringResult = await broker.result({ jobId: steeringJob.jobId, waitMs: 180_000 });
     evidence.steering = {
-      accepted: steering.status === "accepted",
-      requestId: steering.requestId,
+      refused: steeringCode === "STEERING_UNSUPPORTED",
+      code: steeringCode,
       finalStatus: steeringResult.status,
       proof: steeringResult.proof,
     };
-    await event("steering_completion", evidence.steering);
-    if (steering.status !== "accepted" || steeringResult.status !== "completed") {
+    await event("steering_refusal", evidence.steering);
+    if (!evidence.steering.refused || steeringResult.status !== "completed") {
       outcome = "blocked";
-      failure = steeringResult.error ?? { code: "STEER_FAILED", message: "steering/completion proof failed" };
+      failure = steeringResult.error ?? { code: "STEER_REFUSAL_FAILED", message: "steering refusal/completion proof failed" };
       throw new StopSmoke();
     }
 
