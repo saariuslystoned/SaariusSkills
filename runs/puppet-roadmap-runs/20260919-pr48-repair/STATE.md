@@ -1,6 +1,6 @@
 # PR #48 repair pass
 
-- status: pushed_pending_github_checks
+- status: committed_pending_push
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/48
 - reviewed_head: 9d95cc057a0c7e07f8e83fe121548f731c362a9e
 - second_reviewed_head: db527dedf3bb0a519c53f7d5c4f2f103f4bd3445
@@ -37,13 +37,15 @@
 - repair2_reviewed_head: 74ec7bf582807d1b053d0951e6685af10fc979ee
 - repair2_review_path: /Users/bobbybones/Developer/SaariusSkills/runs/puppet-roadmap-runs/20260919-pr48-repair2-review/REVIEW.md
 - repair2_instruction_planes_job: ccf8a3b4-4cda-4b61-a172-36bc2474090b (submitted; exact workspace; cursor-grok-4.6-high)
-- repair2_instruction_planes_status: parent_verified
+- repair2_instruction_planes_status: committed
 - repair2_instruction_planes_focused_tests: 58_ok
 - repair2_instruction_planes_full_discover: 947_ok
 - repair2_instruction_planes_full_discover_seconds: 244.102
 - repair2_instruction_planes_compileall: ok
 - repair2_instruction_planes_diff_check: ok
 - repair2_source_verified: true
+- repair2_commit: 091712e
+- repair2_source_committed: true
 - repair2_live_e2e_claimed: false
 - live_cursor_claimed: false
 - parent_focused_cursor_tests: 29_ok

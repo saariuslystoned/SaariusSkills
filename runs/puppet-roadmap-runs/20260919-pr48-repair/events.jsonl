@@ -41,3 +41,4 @@
 {"event":"p2_catalog_evidence_verified","at":"2026-09-18T23:20:42-04:00","job_id":"c120b10c-0867-41ed-94fe-acaa7083168c","unittest":"33_ok","unittest_seconds":6.119,"preservation":"3_ok","compileall":"ok","diff_check":"ok","post_fix":"catalog_unverified_identity_error","source_committed":false}
 {"event":"repair2_instruction_planes_delegated","job_id":"ccf8a3b4-4cda-4b61-a172-36bc2474090b","workspace":"/Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills","review":"/Users/bobbybones/Developer/SaariusSkills/runs/puppet-roadmap-runs/20260919-pr48-repair2-review/REVIEW.md","status":"submitted","live_e2e":false}
 {"event":"repair2_instruction_planes_verified","job_id":"ccf8a3b4-4cda-4b61-a172-36bc2474090b","focused_tests":"58_ok","full_discover":"947_ok","full_seconds":244.102,"compileall":"ok","diff_check":"ok","source_committed":false,"live_e2e":false}
+{"event":"repair2_instruction_planes_committed","commit":"091712e","source_committed":true,"live_e2e":false}
