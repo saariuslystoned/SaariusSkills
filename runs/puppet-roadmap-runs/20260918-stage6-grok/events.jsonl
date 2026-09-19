@@ -1,0 +1,5 @@
+{"event":"run_initialized","at":"2026-09-18T20:50:44-04:00","base":"3743d4aac863e9a5c200a8b4c90f04ba284fd3f2","accepted_stage5_code":"fa12809","stage":"grok_builder_admission"}
+{"event":"cursor_acp_readiness","at":"2026-09-18T20:50:44-04:00","ready":true,"requested":"cursor-grok-4.6-high","selected":"grok-4.6[effort=high,fast=true]","current":"grok-4.6[effort=high,fast=true]","matching_model_ids":1}
+{"event":"cursor_acp_delegate","at":"2026-09-18T20:51:06-04:00","job_id":"f0a9cdd6-ae5c-4f2d-9f1f-2b9f5d14ec79","stage":"grok_builder_admission","timeout_ms":1200000}
+{"event":"worker_complete","at":"2026-09-18T20:58:20-04:00","stage":"grok_builder_admission","focused":12,"preservation":105,"caller_path":223,"live_grok_claimed":false}
+{"event":"parent_verification","at":"2026-09-18T21:10:00-04:00","preservation_ok":105,"full_discover_ok":906,"full_discover_seconds":191.421,"compileall":"ok","diff_check":"ok","forbidden_bridge_or_package_paths":"none"}

@@ -97,6 +97,7 @@ _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
         "templates/instructions/harness/codex.md",
     ),
     "grok": (
+        "scripts/puppet_lib/grok_admission.py",
         "scripts/puppet_lib/grok_evidence.py",
         "scripts/puppet_lib/grok_halt.py",
         "scripts/puppet_lib/grok_launch.py",

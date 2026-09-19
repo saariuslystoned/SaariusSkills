@@ -148,6 +148,12 @@ class QualificationReuseTests(TestCase):
         self.assertIn("scripts/puppet_lib/cursor_acp.py", cursor_sources)
         self.assertNotIn("scripts/puppet_lib/cursor_acp.py", shared)
         self.assertNotIn("scripts/puppet_lib/cursor_acp.py", agy_sources)
+        grok_sources = set(scope_source_paths("grok"))
+        self.assertIn("scripts/puppet_lib/grok_admission.py", grok_sources)
+        self.assertNotIn("scripts/puppet_lib/grok_admission.py", shared)
+        self.assertNotIn("scripts/puppet_lib/grok_admission.py", cursor_sources)
+        self.assertNotIn("scripts/puppet_lib/grok_admission.py", agy_sources)
+        self.assertNotIn("scripts/puppet_lib/cursor_acp.py", grok_sources)
         self.assertEqual(agy_sources - shared, set(target_source_paths("agy")))
 
     def test_scope_binds_requested_selectors_without_observed_model_claim(self):
