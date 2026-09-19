@@ -83,6 +83,7 @@ _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
         "templates/instructions/harness/cursor.md",
     ),
     "claude": (
+        "scripts/puppet_lib/claude_admission.py",
         "scripts/puppet_lib/claude_paired_qualification.py",
         "scripts/puppet_lib/claude_startup_gates.py",
         "scripts/puppet_lib/matched_control.py",
