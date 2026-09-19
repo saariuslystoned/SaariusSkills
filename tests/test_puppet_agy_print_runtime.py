@@ -436,6 +436,94 @@ class AgyPrintRuntimeTests(unittest.TestCase):
         self.assertFalse(sent["live_agy_claimed"])
         self.assertEqual(sent["request_id"], "req-2")
 
+    def test_public_send_refusal_does_not_poison_delivery_ledger(self):
+        env = {**os.environ, "PUPPET_AGY_TEST_HOLD": "1"}
+        held = AgyPrintController(self.root, executable=self.executable)
+        self._held.append(held)
+        held.start(
+            session="agy-print-session",
+            prompt="first turn",
+            expected_workspace=_workspace(self.workspace),
+            requested_model="gemini-3.7-flash-high",
+            environment=env,
+        )
+        process = held.runtime.process
+        process.terminate()
+        process.wait(timeout=2)
+        with self.assertRaisesRegex(UnsupportedError, "explicit halt"):
+            send_message(
+                state_root=self.root,
+                session="agy-print-session",
+                message="refused before delivery",
+                request_id="refused-1",
+            )
+        stored = held.require_session("agy-print-session")
+        self.assertNotIn("refused-1", stored.get("send_requests", {}))
+
+    def test_public_send_history_is_not_silently_evicted(self):
+        self.controller.start(
+            session="agy-print-session",
+            prompt="first turn",
+            expected_workspace=_workspace(self.workspace),
+            requested_model="gemini-3.7-flash-high",
+        )
+        process = self.controller.runtime.process
+        process.terminate()
+        process.wait(timeout=2)
+        stored = self.controller.require_session("agy-print-session")
+        stored["held"] = False
+        stored["send_requests"] = {
+            "historical-%02d" % index: {
+                "message_sha256": "%064d" % index,
+                "phase": "submitted",
+                "result": {"ok": True},
+            }
+            for index in range(64)
+        }
+        persist_agy_print_session(self.root, stored)
+        with self.assertRaisesRegex(Exception, "ledger is full"):
+            send_message(
+                state_root=self.root,
+                session="agy-print-session",
+                message="new request",
+                request_id="new-request",
+            )
+        current = self.controller.require_session("agy-print-session")
+        self.assertEqual(len(current["send_requests"]), 64)
+        self.assertIn("historical-00", current["send_requests"])
+
+    def test_resume_failure_hook_runs_after_lease_admission(self):
+        self.controller.start(
+            session="agy-print-session",
+            prompt="first turn",
+            expected_workspace=_workspace(self.workspace),
+            requested_model="gemini-3.7-flash-high",
+        )
+        process = self.controller.runtime.process
+        process.terminate()
+        process.wait(timeout=2)
+        stored = self.controller.require_session("agy-print-session")
+        stored["held"] = False
+        persist_agy_print_session(self.root, stored)
+        events = []
+        with mock.patch.object(
+            self.controller, "start", side_effect=RuntimeError("launch failed")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "launch failed"):
+                self.controller.send(
+                    session="agy-print-session",
+                    message="resume turn",
+                    expected_workspace=_workspace(self.workspace),
+                    request_id="resume-failure",
+                    before_resume=lambda: events.append("admitted"),
+                    on_resume_failure=lambda: events.append("reconciled"),
+                )
+        self.assertEqual(events, ["admitted", "reconciled"])
+        current = self.controller.require_session("agy-print-session")
+        self.assertEqual(
+            current["send_requests"]["resume-failure"]["phase"], "intent"
+        )
+
     def test_reused_process_identity_fails_closed(self):
         env = {**os.environ, "PUPPET_AGY_TEST_HOLD": "1"}
         held = AgyPrintController(self.root, executable=self.executable)

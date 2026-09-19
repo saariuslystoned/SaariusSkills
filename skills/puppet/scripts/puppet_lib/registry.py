@@ -833,6 +833,10 @@ def _linux_kernel_process_record(pid: int) -> Dict[str, Any]:
         if len(raw) > 65536:
             raise IdentityError("kernel process identity exceeds its bound")
         value = raw.decode("utf-8")
+    except FileNotFoundError as exc:
+        raise ProcessVanished(
+            "Linux process vanished before /proc identity sampling"
+        ) from exc
     except (OSError, UnicodeError) as exc:
         raise IdentityError("kernel process identity is unavailable") from exc
     closing = value.rfind(")")

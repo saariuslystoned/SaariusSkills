@@ -70,6 +70,7 @@ from .profiles import (
 )
 from .registry import (
     MAX_REPAIR_VERDICTS,
+    ProcessVanished,
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     bind_runtime_process,
@@ -1282,6 +1283,41 @@ def _workspace_snapshot(contract: Contract) -> Dict[str, Any]:
     }
 
 
+def _validate_agy_resume_identity(
+    stored: Mapping[str, Any], contract: Contract
+) -> None:
+    """Refresh the executable and checkout identity before admitting resume."""
+
+    manifest = stored.get("manifest")
+    if not isinstance(manifest, Mapping):
+        raise IdentityError("agy-print resume manifest identity is unavailable")
+    executable_raw = manifest.get("executable")
+    if not isinstance(executable_raw, Mapping):
+        raise IdentityError("agy-print resume executable identity is unavailable")
+    expected_sha = executable_raw.get("sha256")
+    executable_path = stored.get("executable") or executable_raw.get("resolved_path")
+    if not isinstance(expected_sha, str) or not isinstance(executable_path, str):
+        raise IdentityError("agy-print resume executable identity is unavailable")
+    executable = Path(executable_path)
+    if executable.is_symlink() or not executable.is_file():
+        raise IdentityError("agy-print resume executable identity changed")
+    if sha256_file(executable) != expected_sha:
+        raise IdentityError("agy-print resume executable identity changed")
+    observed = stored.get("observation")
+    expected_workspace = (
+        observed.get("workspace") if isinstance(observed, Mapping) else None
+    )
+    if not isinstance(expected_workspace, Mapping):
+        raise IdentityError("agy-print resume workspace identity is unavailable")
+    current = _workspace_snapshot(contract)
+    current["path"] = str(contract.repo)
+    for field in ("path", "branch", "head", "tree"):
+        if expected_workspace.get(field) != current.get(field):
+            raise IdentityError(
+                "agy-print resume workspace identity changed: %s" % field
+            )
+
+
 def _profile_doctor_state(
     *,
     profile_root: Optional[Path],
@@ -1420,7 +1456,8 @@ def doctor(
         require_subscription_profile=require_subscription_profile,
     )
     blockers.extend(profile_blockers)
-    if not transport_is_available(transport["id"]):
+    transport_available = transport_is_available(transport["id"])
+    if not transport_available:
         blockers.append(transport_unavailable_detail(transport["id"]))
     workspace = _workspace_snapshot(contract)
     branch = workspace["branch"]
@@ -1483,11 +1520,21 @@ def doctor(
         if manifest.raw["doctor_only"]:
             blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
-        active = _active_processes(contract.target, manifest)
-        candidate_processes = active
-        parallel_override = _parallel_target_override(
-            authorization, contract.target, active
-        )
+        # A blocked transport cannot launch or steer a target, so avoid an
+        # unrelated live PID census.  This keeps doctor diagnostic and
+        # deterministic when macOS proc rows disappear during sampling.
+        if not transport_available or (
+            transport["id"] == "cursor-acp" and contract.target != "cursor"
+        ):
+            active = []
+            candidate_processes = []
+            parallel_override = False
+        else:
+            active = _active_processes(contract.target, manifest)
+            candidate_processes = active
+            parallel_override = _parallel_target_override(
+                authorization, contract.target, active
+            )
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()
@@ -2405,6 +2452,11 @@ def send_message(
                     raise IdentityError(
                         "agy-print resume requires the exact halted lease state"
                     )
+                _validate_agy_resume_identity(stored, contract)
+
+            def admit_resume() -> None:
+                if not production_lease or stored.get("held"):
+                    return
                 admit_session_lease(
                     session=session,
                     target=contract.target,
@@ -2412,6 +2464,22 @@ def send_message(
                     owner=dict(stored["lease_owner"]),
                     instruction_manifest_sha256=stored["instruction_manifest_sha256"],
                 )
+
+            def fail_resume() -> None:
+                if not production_lease or stored.get("held"):
+                    return
+                try:
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(stored["lease_owner"]),
+                        instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                        state="failed",
+                        process=None,
+                    )
+                except Exception:
+                    pass
             enveloped = adapter_for("agy").envelope(
                 message, "regular", initial=False
             )
@@ -2420,21 +2488,27 @@ def send_message(
                 message=enveloped,
                 expected_workspace=observation["workspace"],
                 request_id=request_id,
+                before_resume=admit_resume,
+                on_resume_failure=fail_resume,
             )
             if production_lease and not stored.get("held"):
-                resumed = agy_controller.require_session(session)
-                process = process_birth_identity(resumed["observation"]["process"]["pid"])
-                if process["kernel_birth_id"] != resumed["observation"]["process"]["kernel_birth_id"]:
-                    raise IdentityError("agy-print resumed process identity changed")
-                transition_session_lease(
-                    session=session,
-                    target=contract.target,
-                    controller=contract.controller,
-                    owner=dict(resumed["lease_owner"]),
-                    instruction_manifest_sha256=resumed["instruction_manifest_sha256"],
-                    state="active",
-                    process=process,
-                )
+                try:
+                    resumed = agy_controller.require_session(session)
+                    process = process_birth_identity(resumed["observation"]["process"]["pid"])
+                    if process["kernel_birth_id"] != resumed["observation"]["process"]["kernel_birth_id"]:
+                        raise IdentityError("agy-print resumed process identity changed")
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(resumed["lease_owner"]),
+                        instruction_manifest_sha256=resumed["instruction_manifest_sha256"],
+                        state="active",
+                        process=process,
+                    )
+                except Exception:
+                    fail_resume()
+                    raise
             return result
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
@@ -2897,6 +2971,119 @@ def _checkpoint_expected(record: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     raise ValidationError("source checkpoint is out of sequence")
 
 
+def agy_session_admission_record(
+    stored: Mapping[str, Any], contract: Contract
+) -> Dict[str, Any]:
+    """Build the shared checkpoint-admission record from an AGY session store."""
+
+    session = stored.get("session")
+    observation = stored.get("observation")
+    if not isinstance(session, str) or not isinstance(observation, Mapping):
+        raise IdentityError("agy-print session admission identity is unavailable")
+    protocol = stored.get("protocol")
+    adapter = stored.get("adapter")
+    if not isinstance(protocol, Mapping) or not isinstance(adapter, Mapping):
+        manifest_raw = stored.get("manifest")
+        if not isinstance(manifest_raw, Mapping) or not manifest_raw:
+            raise IdentityError("agy-print session is missing runtime and protocol binding")
+        manifest = AdapterManifest.from_dict(dict(manifest_raw))
+        if not isinstance(protocol, Mapping):
+            protocol = _protocol_state(contract, manifest, session)
+        if not isinstance(adapter, Mapping):
+            adapter = {
+                "executable_fingerprint": manifest.raw["executable"]["sha256"],
+                "execution_fingerprint": manifest.execution_fingerprint,
+                "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
+                "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
+            }
+    return {
+        "session": session,
+        "state": observation.get("record_state") or "ACTIVE",
+        "protocol": dict(protocol),
+        "adapter": dict(adapter),
+        "repo": str(contract.repo),
+        "proof_root": stored.get("proof_root"),
+    }
+
+
+def admit_checkpoint_handoff(
+    *,
+    record: Mapping[str, Any],
+    contract: Contract,
+    handoff_path: Path,
+    allowed_roots: List[Path],
+) -> Tuple[ValidatedHandoff, Dict[str, Any], str]:
+    """Admit one checkpoint for both registry and AGY public controllers."""
+
+    expected, phase = _checkpoint_expected(dict(record))
+    handoff = validate_handoff(
+        Path(handoff_path),
+        allowed_roots=allowed_roots,
+        expected=expected,
+    )
+    protocol = dict(record["protocol"])
+    if protocol["kind"] == "conformance":
+        if handoff.checkpoint_kind != "conformance":
+            raise ValidationError("conformance session requires conformance handoffs")
+        if tree_fingerprint(contract.repo) != protocol["fixture_fingerprint"]:
+            raise IdentityError("protected conformance fixture content drifted")
+        if phase == "ready":
+            protocol.update(
+                phase="ready_validated",
+                ready_checkpoint_id=handoff.checkpoint_id,
+                ready_artifact_sha256=handoff.artifact_sha256,
+            )
+            return handoff, protocol, "CONFORMANCE_READY"
+        protocol.update(
+            phase="followup_validated",
+            followup_checkpoint_id=handoff.checkpoint_id,
+        )
+        return handoff, protocol, "CONFORMANCE_CHECKPOINT_READY"
+    if handoff.checkpoint_kind != "source":
+        raise ValidationError("source session requires source handoffs")
+    current_head = handoff.identity["candidate_commit"]
+    _verify_source_identity(contract, current_head)
+    if phase == "source":
+        protocol.update(phase="source_checkpoint", source_commit=current_head)
+        return handoff, protocol, "SOURCE_CHECKPOINT_READY"
+    parent = _git(contract.repo, ["rev-parse", "HEAD^"], identity_error=True)
+    if parent != protocol["source_commit"]:
+        raise IdentityError("proof checkpoint is not a child of accepted source")
+    changed = _git(
+        contract.repo,
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+        identity_error=True,
+    ).splitlines()
+    if not changed or any(
+        not any(path.startswith(prefix) for prefix in contract.proof_path_prefixes)
+        for path in changed
+    ):
+        raise IdentityError("proof checkpoint changed files outside proof-only paths")
+    protocol.update(phase="proof_checkpoint", proof_commit=current_head)
+    return handoff, protocol, "PROOF_CHECKPOINT_READY"
+
+
+def require_conformance_reviewable(state: str) -> None:
+    if state != "CONFORMANCE_CHECKPOINT_READY":
+        raise ValidationError("conformance checkpoint is not reviewable")
+
+
+def require_conformance_acceptable(state: str, review: Mapping[str, Any]) -> None:
+    if (
+        state != "AWAITING_CONFORMANCE_REVIEW"
+        or review.get("verdict") != "conformance_accept"
+    ):
+        raise ValidationError("conformance checkpoint lacks an accept review")
+
+
+def require_source_acceptable(state: str, review: Mapping[str, Any]) -> None:
+    if (
+        state != "AWAITING_CONTROLLER_REVIEW"
+        or review.get("verdict") != "source_accept"
+    ):
+        raise ValidationError("source proof checkpoint lacks a final accept review")
+
+
 def import_checkpoint(
     *, state_root: Path, session: str, handoff_path: Path
 ) -> Dict[str, Any]:
@@ -2931,61 +3118,12 @@ def import_checkpoint(
     record = registry.load(session)
     contract = _bound_contract(record)
     _runtime(registry, record, "checkpoint", require_process=True)
-    expected, phase = _checkpoint_expected(record)
-    handoff = validate_handoff(
-        Path(handoff_path),
+    handoff, protocol, next_state = admit_checkpoint_handoff(
+        record=record,
+        contract=contract,
+        handoff_path=Path(handoff_path),
         allowed_roots=[Path(record["proof_root"]), Path(record["repo"])],
-        expected=expected,
     )
-    protocol = dict(record["protocol"])
-    if protocol["kind"] == "conformance":
-        if handoff.checkpoint_kind != "conformance":
-            raise ValidationError("conformance session requires conformance handoffs")
-        if tree_fingerprint(contract.repo) != protocol["fixture_fingerprint"]:
-            raise IdentityError("protected conformance fixture content drifted")
-        if phase == "ready":
-            protocol.update(
-                phase="ready_validated",
-                ready_checkpoint_id=handoff.checkpoint_id,
-                ready_artifact_sha256=handoff.artifact_sha256,
-            )
-            next_state = "CONFORMANCE_READY"
-        else:
-            protocol.update(
-                phase="followup_validated",
-                followup_checkpoint_id=handoff.checkpoint_id,
-            )
-            next_state = "CONFORMANCE_CHECKPOINT_READY"
-    else:
-        if handoff.checkpoint_kind != "source":
-            raise ValidationError("source session requires source handoffs")
-        current_head = handoff.identity["candidate_commit"]
-        _verify_source_identity(contract, current_head)
-        if phase == "source":
-            protocol.update(phase="source_checkpoint", source_commit=current_head)
-            next_state = "SOURCE_CHECKPOINT_READY"
-        else:
-            parent = _git(contract.repo, ["rev-parse", "HEAD^"], identity_error=True)
-            if parent != protocol["source_commit"]:
-                raise IdentityError(
-                    "proof checkpoint is not a child of accepted source"
-                )
-            changed = _git(
-                contract.repo,
-                ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
-                identity_error=True,
-            ).splitlines()
-            if not changed or any(
-                not any(
-                    path.startswith(prefix) for prefix in contract.proof_path_prefixes
-                )
-                for path in changed
-            ):
-                raise IdentityError(
-                    "proof checkpoint changed files outside proof-only paths"
-                )
-            protocol.update(phase="proof_checkpoint", proof_commit=current_head)
-            next_state = "PROOF_CHECKPOINT_READY"
     reference = handoff.reference()
     registry.update(
         session,
@@ -3086,8 +3224,7 @@ def review_checkpoint(
     if handoff.checkpoint_kind == "source":
         _verify_source_identity(contract, handoff.identity["candidate_commit"])
     if handoff.checkpoint_kind == "conformance":
-        if record["state"] != "CONFORMANCE_CHECKPOINT_READY":
-            raise ValidationError("conformance checkpoint is not reviewable")
+        require_conformance_reviewable(record["state"])
         transition(record["state"], "AWAITING_CONFORMANCE_REVIEW")
         if verdict in {"block", "fail"}:
             transition(
@@ -3223,17 +3360,9 @@ def accept_checkpoint(
         candidate_commit=handoff.identity.get("candidate_commit"),
     )
     if handoff.checkpoint_kind == "conformance":
-        if (
-            record["state"] != "AWAITING_CONFORMANCE_REVIEW"
-            or review.get("verdict") != "conformance_accept"
-        ):
-            raise ValidationError("conformance checkpoint lacks an accept review")
+        require_conformance_acceptable(record["state"], review)
     else:
-        if (
-            record["state"] != "AWAITING_CONTROLLER_REVIEW"
-            or review.get("verdict") != "source_accept"
-        ):
-            raise ValidationError("source proof checkpoint lacks a final accept review")
+        require_source_acceptable(record["state"], review)
         _verify_source_identity(contract, handoff.identity["candidate_commit"])
     acceptance = record_acceptance(
         contract=contract,
@@ -3551,7 +3680,21 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                     record_state="HALTED",
                     require_halt=True,
                 )
-            process = process_birth_identity(observation["process"]["pid"])
+            try:
+                process = process_birth_identity(observation["process"]["pid"])
+            except ProcessVanished:
+                bound_process = lease.get("process")
+                if not isinstance(bound_process, Mapping):
+                    raise IdentityError(
+                        "agy-print halt lease process identity is unavailable"
+                    )
+                if (
+                    bound_process.get("pid") != observation["process"].get("pid")
+                    or bound_process.get("kernel_birth_id")
+                    != observation["process"].get("kernel_birth_id")
+                ):
+                    raise IdentityError("agy-print halt lease process identity changed")
+                process = dict(bound_process)
             if process["kernel_birth_id"] != observation["process"]["kernel_birth_id"]:
                 raise IdentityError("agy-print halt process identity changed")
             if lease["state"] not in {"active", "halting"}:

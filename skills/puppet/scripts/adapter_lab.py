@@ -137,6 +137,7 @@ def _probe(args):
         timeout=args.timeout,
         halt_timeout=args.halt_timeout,
         run_id=args.run_id,
+        transport=args.transport,
     )
 
 
@@ -167,6 +168,7 @@ def _recover(args):
         paired_grok_positive_receipt=args.paired_grok_positive_receipt,
         codex_entry_plan=args.codex_entry_plan,
         halt_timeout=args.halt_timeout,
+        transport=args.transport,
     )
 
 
@@ -586,6 +588,7 @@ def _requalify(args):
         instruction_policy_fingerprint=instruction_policy_fingerprint(
             target=args.target
         ),
+        transport=args.transport or (stored.get("transport") if stored else None),
     )
     invalidations = compatibility_invalidations(stored, observed)
     task_authority_reusable = False
@@ -661,6 +664,12 @@ def build_parser():
     probe_parser.add_argument("--halt-timeout", type=float, default=10.0)
     probe_parser.add_argument("--run-id")
     probe_parser.add_argument(
+        "--transport",
+        choices=("tmux", "agy-print", "cursor-acp"),
+        default="tmux",
+        help="transport whose runtime authority is being qualified",
+    )
+    probe_parser.add_argument(
         "--subscription-profile-root",
         type=Path,
         help=(
@@ -717,6 +726,12 @@ def build_parser():
     recover_parser.add_argument("--goal-path", required=True)
     recover_parser.add_argument("--goal-sha256", required=True)
     recover_parser.add_argument("--run-id", required=True)
+    recover_parser.add_argument(
+        "--transport",
+        choices=("tmux", "agy-print", "cursor-acp"),
+        default="tmux",
+        help="transport whose runtime authority is being recovered",
+    )
     recover_parser.add_argument("--halt-timeout", type=float, default=10.0)
     recover_parser.add_argument("--plane-descriptor", type=Path)
     recover_parser.add_argument("--paired-activation-receipt", type=Path)
@@ -849,6 +864,9 @@ def build_parser():
     requalify_parser.add_argument("--target", required=True)
     requalify_parser.add_argument("--manifest", required=True, type=Path)
     requalify_parser.add_argument("--mapping", required=True, type=Path)
+    requalify_parser.add_argument(
+        "--transport", choices=("tmux", "agy-print", "cursor-acp")
+    )
     requalify_parser.add_argument("--requested-model")
     requalify_parser.add_argument("--requested-effort")
     requalify_parser.add_argument("--execute", action="store_true")

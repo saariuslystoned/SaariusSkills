@@ -2531,27 +2531,26 @@ class AgyPrintController:
             raise IdentityError("agy-print checkpoint requires a live session")
         _revalidate_live_identity(observation["process"])
         contract_raw = stored.get("contract")
-        if not isinstance(contract_raw, Mapping):
+        if not isinstance(contract_raw, Mapping) or not contract_raw:
             raise IdentityError("agy-print session is missing its bound contract")
         contract = Contract.from_dict(dict(contract_raw))
         proof_root = stored.get("proof_root")
         if not isinstance(proof_root, str) or not proof_root:
             raise IdentityError("agy-print session is missing its proof root")
-        expected = {"session": session}
-        if contract.run_id is not None:
-            expected["run_id"] = contract.run_id
-        if contract.nonce is not None:
-            expected["nonce"] = contract.nonce
-        handoff = validate_handoff(
-            Path(handoff_path),
+        from .session import admit_checkpoint_handoff, agy_session_admission_record
+
+        admission = agy_session_admission_record(stored, contract)
+        handoff, protocol, next_state = admit_checkpoint_handoff(
+            record=admission,
+            contract=contract,
+            handoff_path=Path(handoff_path),
             allowed_roots=[Path(proof_root), Path(contract.repo)],
-            expected=expected,
         )
         observation = dict(
             observation,
             last_checkpoint={"checkpoint_id": handoff.checkpoint_id},
             last_validated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            record_state="CHECKPOINT_READY",
+            record_state=next_state,
         )
         reference = handoff.reference()
         persist_agy_print_session(
@@ -2559,6 +2558,8 @@ class AgyPrintController:
             dict(
                 stored,
                 observation=observation,
+                protocol=protocol,
+                adapter=admission["adapter"],
                 handoff=reference,
                 handoff_path=str(handoff.path),
             ),
@@ -2589,6 +2590,7 @@ class AgyPrintController:
         proof_root = Path(stored["proof_root"])
         review_path = proof_root / "verdicts" / (checkpoint_id + ".json")
         review = read_json(review_path, max_bytes=131072)
+        from .session import require_conformance_acceptable, require_source_acceptable
         from .verdicts import record_acceptance, verify_current_identity
 
         verify_current_identity(
@@ -2597,13 +2599,6 @@ class AgyPrintController:
             artifact_sha256=handoff.artifact_sha256,
             candidate_commit=handoff.identity.get("candidate_commit"),
         )
-        acceptance = record_acceptance(
-            contract=contract,
-            actor=actor,
-            review=review,
-            evidence_path=Path(evidence_path),
-            acceptance_root=proof_root / "acceptance",
-        )
         observation = validate_agy_print_observation(stored["observation"])
         checkpoint = observation.get("last_checkpoint") or {}
         if checkpoint.get("checkpoint_id") != checkpoint_id:
@@ -2611,12 +2606,33 @@ class AgyPrintController:
                 "identity_mismatch",
                 "agy-print accept requires the current checkpoint identity",
             )
+        state = observation.get("record_state") or "ACTIVE"
+        if handoff.checkpoint_kind == "conformance":
+            require_conformance_acceptable(state, review)
+        else:
+            require_source_acceptable(state, review)
+            from .session import _verify_source_identity
+
+            _verify_source_identity(contract, handoff.identity["candidate_commit"])
+        acceptance = record_acceptance(
+            contract=contract,
+            actor=actor,
+            review=review,
+            evidence_path=Path(evidence_path),
+            acceptance_root=proof_root / "acceptance",
+        )
+        protocol = dict(stored.get("protocol") or {})
+        protocol["phase"] = "accepted"
         observation = dict(observation, record_state="ACCEPTED")
         self.observer = observation
         persist_agy_print_session(
             self.registry_root,
-            dict(stored, observation=observation,
-                 acceptance=acceptance),
+            dict(
+                stored,
+                observation=observation,
+                protocol=protocol,
+                acceptance=acceptance,
+            ),
         )
         return self.caller_result(
             expected_session=session,
@@ -2667,8 +2683,35 @@ class AgyPrintController:
             raise IdentityError("agy-print session is missing its bound contract")
         contract = Contract.from_dict(dict(contract_raw))
         handoff = self._stored_handoff(stored, checkpoint_id, contract)
+        from .session import require_conformance_reviewable
         from .verdicts import record_review
 
+        observation = validate_agy_print_observation(stored["observation"])
+        state = observation.get("record_state") or "ACTIVE"
+        if handoff.checkpoint_kind == "conformance":
+            require_conformance_reviewable(state)
+            next_state = {
+                "block": "BLOCKED",
+                "fail": "FAILED",
+            }.get(verdict, "AWAITING_CONFORMANCE_REVIEW")
+        elif state == "SOURCE_CHECKPOINT_READY":
+            next_state = {
+                "repair": "ACTIVE",
+                "source_accept": "SOURCE_ACCEPTED",
+                "block": "BLOCKED",
+                "fail": "FAILED",
+            }.get(verdict, "AWAITING_SOURCE_REVIEW")
+        elif state == "PROOF_CHECKPOINT_READY":
+            if verdict == "repair":
+                raise ValidationError(
+                    "final proof repair requires a fresh source-review session"
+                )
+            next_state = {
+                "block": "BLOCKED",
+                "fail": "FAILED",
+            }.get(verdict, "AWAITING_CONTROLLER_REVIEW")
+        else:
+            raise ValidationError("source checkpoint is not reviewable")
         record = record_review(
             contract=contract,
             actor=actor,
@@ -2677,8 +2720,21 @@ class AgyPrintController:
             evidence_path=Path(evidence_path),
             verdict_root=Path(stored["proof_root"]) / "verdicts",
         )
-        persist_agy_print_session(self.registry_root, dict(stored, review=record))
+        protocol = dict(stored.get("protocol") or {})
+        protocol["phase"] = "reviewed"
+        observation = dict(observation, record_state=next_state)
+        persist_agy_print_session(
+            self.registry_root,
+            dict(
+                stored,
+                observation=observation,
+                protocol=protocol,
+                review=record,
+            ),
+        )
+        self.observer = observation
         return {"ok": True, "review": record}
+
     def halt(
         self,
         *,
@@ -2849,6 +2905,16 @@ class AgyPrintController:
             "live_agy_claimed": False,
             "held": alive if held is None else held,
         }
+        for key in (
+            "protocol",
+            "adapter",
+            "handoff",
+            "handoff_path",
+            "review",
+            "acceptance",
+        ):
+            if existing.get(key) is not None:
+                record[key] = existing[key]
         persist_agy_print_session(self.registry_root, record)
         return record
 
@@ -2869,6 +2935,22 @@ class AgyPrintController:
         if not isinstance(request_id, str) or not request_id.strip():
             raise ValidationError("agy-print request id is required")
         stored = self.require_session(session)
+        protocol = stored.get("protocol")
+        if isinstance(protocol, Mapping) and protocol.get("kind") == "conformance":
+            state = (stored.get("observation") or {}).get("record_state") or "ACTIVE"
+            first_submission = (
+                state == "CONFORMANCE_READY"
+                and protocol.get("phase") == "ready_validated"
+            )
+            replay = (
+                state == "ACTIVE"
+                and protocol.get("phase") == "followup_sent"
+                and protocol.get("message_id") == request_id
+            )
+            if not first_submission and not replay:
+                raise ValidationError(
+                    "conformance follow-up is not currently authorized"
+                )
         message_sha256 = sha256_bytes(message.encode("utf-8"))
         requests = stored.get("send_requests")
         if requests is None:
@@ -2912,28 +2994,47 @@ class AgyPrintController:
                     "agy-print resume refuses --continue; exact --conversation identity is required",
                 ),
             )
-        request_ledger = dict(requests)
-        request_ledger[request_id] = {
-            "message_sha256": message_sha256,
-            "phase": "intent",
-        }
-        submitted_entries = [
-            key
-            for key, value in request_ledger.items()
-            if isinstance(value, Mapping) and value.get("phase") == "submitted"
-        ]
-        while len(request_ledger) > 64 and submitted_entries:
-            evicted = submitted_entries.pop(0)
-            request_ledger.pop(evicted, None)
-        persist_agy_print_session(
-            self.registry_root,
-            dict(stored, send_requests=request_ledger),
-        )
         live = (
             self.runtime is not None
             and self.runtime.process is not None
             and self.runtime.process.poll() is None
         )
+        if not live and stored.get("held"):
+            raise UnsupportedError(
+                "agy-print public send requires explicit halt before validated resume",
+                blocker=_blocker(
+                    "session_resume_requires_halt",
+                    "agy-print public send requires explicit halt before validated resume",
+                ),
+            )
+        before_resume = _ignored.get("before_resume")
+        on_resume_failure = _ignored.get("on_resume_failure")
+        if before_resume is not None and not callable(before_resume):
+            raise ValidationError("agy-print resume preflight hook is invalid")
+        if on_resume_failure is not None and not callable(on_resume_failure):
+            raise ValidationError("agy-print resume failure hook is invalid")
+        if len(requests) >= 64:
+            raise ConflictError(
+                "agy-print send request ledger is full; adjudicate historical requests before retry"
+            )
+        admitted_resume = False
+        if not live and before_resume is not None:
+            before_resume()
+            admitted_resume = True
+        request_ledger = dict(requests)
+        request_ledger[request_id] = {
+            "message_sha256": message_sha256,
+            "phase": "intent",
+        }
+        try:
+            persist_agy_print_session(
+                self.registry_root,
+                dict(stored, send_requests=request_ledger),
+            )
+        except Exception:
+            if admitted_resume and on_resume_failure is not None:
+                on_resume_failure()
+            raise
         if live:
             self.runtime.send(message)
             observation = self.runtime.read_result()
@@ -2953,21 +3054,21 @@ class AgyPrintController:
             )
             result["request_id"] = request_id
             return result
-        if stored.get("held"):
-            raise UnsupportedError(
-                "agy-print public send requires explicit halt before validated resume",
-                blocker=_blocker("session_resume_requires_halt", "agy-print public send requires explicit halt before validated resume"),
+        try:
+            result = self.start(
+                session=session,
+                prompt=message,
+                expected_workspace=expected_workspace,
+                requested_model=stored.get("requested_model") or requested_model,
+                requested_effort=stored.get("requested_effort"),
+                conversation_id=conversation_id,
+                qualification_scope=stored.get("qualification_scope") or qualification_scope,
+                current_qualification_scope=current_qualification_scope,
             )
-        result = self.start(
-            session=session,
-            prompt=message,
-            expected_workspace=expected_workspace,
-            requested_model=stored.get("requested_model") or requested_model,
-            requested_effort=stored.get("requested_effort"),
-            conversation_id=conversation_id,
-            qualification_scope=stored.get("qualification_scope") or qualification_scope,
-            current_qualification_scope=current_qualification_scope,
-        )
+        except Exception:
+            if admitted_resume and on_resume_failure is not None:
+                on_resume_failure()
+            raise
         self._persist_send_result(
             session=session,
             request_id=request_id,
@@ -2997,15 +3098,28 @@ class AgyPrintController:
             "phase": "submitted",
             "result": dict(result),
         }
+        updates: Dict[str, Any] = {
+            "send_requests": updated_requests,
+            "last_send_request_id": request_id,
+            "last_send_message_sha256": message_sha256,
+            "last_send_result": dict(result),
+        }
+        protocol = current.get("protocol")
+        observation = current.get("observation")
+        if (
+            isinstance(protocol, Mapping)
+            and protocol.get("kind") == "conformance"
+            and protocol.get("phase") == "ready_validated"
+            and isinstance(observation, Mapping)
+            and observation.get("record_state") == "CONFORMANCE_READY"
+        ):
+            updates["protocol"] = dict(
+                protocol, phase="followup_sent", message_id=request_id
+            )
+            updates["observation"] = dict(observation, record_state="ACTIVE")
         persist_agy_print_session(
             self.registry_root,
-            dict(
-                current,
-                send_requests=updated_requests,
-                last_send_request_id=request_id,
-                last_send_message_sha256=message_sha256,
-                last_send_result=dict(result),
-            ),
+            dict(current, **updates),
         )
 
     def prove(

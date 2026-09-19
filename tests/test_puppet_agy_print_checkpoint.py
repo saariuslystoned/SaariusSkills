@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from puppet_lib.agy_print import (
+    SESSION_STORE_SCHEMA,
+    AgyPrintController,
+    fixture_observation,
+    persist_agy_print_session,
+)
+from puppet_lib.conformance import create_fixture, tree_fingerprint
+from puppet_lib.contracts import MANDATORY_HARD_GATES
+from puppet_lib.errors import IdentityError, ValidationError
+from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, PROTOCOL_FINGERPRINT
+from puppet_lib.session import (
+    accept_checkpoint,
+    halt as session_halt,
+    import_checkpoint,
+    review_checkpoint,
+)
+from puppet_lib.registry import ProcessVanished
+
+
+SESSION = "agy-print-session"
+PROCESS = {"pid": 4242, "kernel_birth_id": "darwin:100:00004242"}
+EXECUTABLE_FINGERPRINT = "11" * 32
+EXECUTION_FINGERPRINT = "22" * 32
+ADAPTER_FINGERPRINT = "33" * 32
+
+
+def write_json(path: Path, value) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+class AgyPrintPublicCheckpointTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.proof = self.root / "proof"
+        self.state = self.root / "state"
+        self.proof.mkdir(mode=0o700)
+        self.state.mkdir(mode=0o700)
+        self.fixture_contract = create_fixture(
+            self.root / "fixture",
+            run_id="agy-run",
+            session=SESSION,
+            target="agy",
+        )
+        self.repo = self.root / "fixture"
+        self.fingerprints = {
+            "executable_fingerprint": EXECUTABLE_FINGERPRINT,
+            "execution_fingerprint": EXECUTION_FINGERPRINT,
+            "adapter_fingerprint": ADAPTER_FINGERPRINT,
+            "protocol_fingerprint": PROTOCOL_FINGERPRINT,
+        }
+        persist_agy_print_session(self.state, self._session_record())
+        self.patches = mock.patch.multiple(
+            "puppet_lib.session",
+            process_birth_identity=mock.DEFAULT,
+            require_session_lease=mock.DEFAULT,
+        )
+        self.identity_patch = mock.patch(
+            "puppet_lib.agy_print._revalidate_live_identity",
+            return_value=dict(PROCESS),
+        )
+        self.gone_patch = mock.patch(
+            "puppet_lib.agy_print._pid_gone",
+            return_value=False,
+        )
+        started = self.patches.start()
+        started["process_birth_identity"].return_value = dict(PROCESS)
+        started["require_session_lease"].return_value = {"state": "active"}
+        self.identity_patch.start()
+        self.gone_patch.start()
+        self.addCleanup(self.temporary.cleanup)
+        self.addCleanup(self.patches.stop)
+        self.addCleanup(self.identity_patch.stop)
+        self.addCleanup(self.gone_patch.stop)
+
+    def _session_record(self, **overrides):
+        observation = fixture_observation(
+            session=SESSION,
+            workspace_path=str(self.repo),
+            record_state="ACTIVE",
+        )
+        record = {
+            "schema": SESSION_STORE_SCHEMA,
+            "transport": "agy-print",
+            "session": SESSION,
+            "conversation_id": "conv-agy-print-1",
+            "contract": {
+                "schema_version": 1,
+                "objective": "Bounded AGY public checkpoint admission",
+                "campaign_authorization_id": "campaign-test",
+                "controller": "tester",
+                "target": "agy",
+                "task_profile": "conformance",
+                "harness_trust": "unrestricted_required",
+                "mutation_owner": "none",
+                "repo": str(self.repo),
+                "branch": "codex/agy-checkpoint",
+                "allowed_modes": ["read", "test"],
+                "terminal_criteria": [
+                    {"id": "conformance_green", "evidence": "validated_handoff"}
+                ],
+                "hard_gates": sorted(MANDATORY_HARD_GATES),
+            },
+            "proof_root": str(self.proof),
+            "lease_owner": {
+                "activity": "session",
+                "run_id": "agy-run",
+                "campaign_id": "campaign-test",
+                "goal_fingerprint": "aa" * 32,
+                "proof_root": str(self.proof),
+                "state_root": str(self.state),
+            },
+            "instruction_manifest_sha256": "bb" * 32,
+            "observation": observation,
+            "protocol": {
+                "kind": "conformance",
+                "run_id": self.fixture_contract["run_id"],
+                "nonce": self.fixture_contract["nonce"],
+                "phase": "awaiting_ready",
+                "fixture_fingerprint": tree_fingerprint(self.repo),
+                "ready_checkpoint_id": None,
+                "ready_artifact_sha256": None,
+                "message_id": None,
+                "followup_checkpoint_id": None,
+            },
+            "adapter": dict(self.fingerprints),
+            "send_requests": {},
+            "held": True,
+            "process_backed": True,
+            "live_agy_claimed": False,
+        }
+        record.update(overrides)
+        return record
+
+    def _handoff(self, name: str, **overrides):
+        payload = {
+            "schema_version": HANDOFF_SCHEMA_VERSION,
+            "checkpoint_kind": "conformance",
+            "session": SESSION,
+            "run_id": self.fixture_contract["run_id"],
+            "nonce": self.fixture_contract["nonce"],
+            "phase": "ready",
+            "sequence": 0,
+            "timestamp": "2026-09-19T03:01:00Z",
+            "claims": [],
+            "evidence_refs": [],
+            "decisions_requested": [],
+            "limitations": [],
+            **self.fingerprints,
+        }
+        payload.update(overrides)
+        return write_json(self.repo / "handoffs" / name, payload)
+
+    def _import(self, path: Path):
+        return import_checkpoint(
+            state_root=self.state, session=SESSION, handoff_path=path
+        )
+
+    def _authorize_followup(self, request_id: str = "message-1"):
+        AgyPrintController(self.state)._persist_send_result(
+            session=SESSION,
+            request_id=request_id,
+            message_sha256="cc" * 32,
+            result={"ok": True, "request_id": request_id},
+        )
+
+    def test_public_import_rejects_first_followup(self):
+        followup = self._handoff(
+            "followup.json",
+            phase="followup",
+            sequence=1,
+            message_id="message-1",
+            prior_checkpoint_sha256="ff" * 32,
+            timestamp="2026-09-19T03:02:00Z",
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "handoff identity mismatch: phase"
+        ):
+            self._import(followup)
+
+    def test_public_import_rejects_runtime_protocol_fingerprint_mismatch(self):
+        ready = self._handoff(
+            "ready.json",
+            protocol_fingerprint="44" * 32,
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "handoff identity mismatch: protocol_fingerprint"
+        ):
+            self._import(ready)
+        executable = self._handoff(
+            "ready-executable.json",
+            executable_fingerprint="55" * 32,
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "handoff identity mismatch: executable_fingerprint"
+        ):
+            self._import(executable)
+
+    def test_public_import_rejects_nonexistent_prior_checkpoint(self):
+        ready = self._import(self._handoff("ready.json"))
+        self._authorize_followup()
+        followup = self._handoff(
+            "followup.json",
+            phase="followup",
+            sequence=1,
+            message_id="message-1",
+            prior_checkpoint_sha256="ff" * 32,
+            timestamp="2026-09-19T03:02:00Z",
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "handoff identity mismatch: prior_checkpoint_sha256"
+        ):
+            self._import(followup)
+        self.assertEqual(ready["checkpoint_kind"], "conformance")
+
+    def test_public_ready_followup_review_accept_sequence(self):
+        ready = self._import(self._handoff("ready.json"))
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "CONFORMANCE_READY",
+        )
+        review_evidence = write_json(
+            self.proof / "review.json",
+            {"findings": [], "classification": "clean"},
+        )
+        with self.assertRaisesRegex(ValidationError, "not reviewable"):
+            review_checkpoint(
+                state_root=self.state,
+                session=SESSION,
+                checkpoint_id=ready["checkpoint_id"],
+                actor="tester",
+                verdict="conformance_accept",
+                evidence_path=review_evidence,
+            )
+        self._authorize_followup()
+        followup = self._import(
+            self._handoff(
+                "followup.json",
+                phase="followup",
+                sequence=1,
+                message_id="message-1",
+                prior_checkpoint_sha256=ready["artifact_sha256"],
+                timestamp="2026-09-19T03:02:00Z",
+            )
+        )
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "CONFORMANCE_CHECKPOINT_READY",
+        )
+        review_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=followup["checkpoint_id"],
+            actor="tester",
+            verdict="conformance_accept",
+            evidence_path=review_evidence,
+        )
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "AWAITING_CONFORMANCE_REVIEW",
+        )
+        accepted = accept_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=followup["checkpoint_id"],
+            actor="tester",
+            evidence_path=write_json(
+                self.proof / "acceptance.json",
+                {"terminal_criteria": ["conformance_green"]},
+            ),
+        )
+        self.assertEqual(accepted["state"], "ACCEPTED")
+        self.assertEqual(
+            accepted["caller_outcome"]["controller_acceptance"], "accepted"
+        )
+
+    def test_public_halt_uses_lease_identity_after_parent_vanishes(self):
+        stored = self._session_record()
+        persist_agy_print_session(self.state, stored)
+        controller = AgyPrintController(self.state)
+        with (
+            mock.patch("puppet_lib.session._agy_print_bound_session", return_value=controller),
+            mock.patch(
+                "puppet_lib.session.process_birth_identity",
+                side_effect=ProcessVanished(
+                    "Linux process vanished before /proc identity sampling"
+                ),
+            ),
+            mock.patch(
+                "puppet_lib.session.require_session_lease",
+                return_value={"state": "active", "process": dict(PROCESS)},
+            ),
+            mock.patch("puppet_lib.session.transition_session_lease") as transition,
+            mock.patch.object(controller, "halt", return_value={"ok": True}) as halt_mock,
+        ):
+            result = session_halt(state_root=self.state, session=SESSION)
+        self.assertEqual(result, {"ok": True})
+        halt_mock.assert_called_once_with(session=SESSION, timeout=10.0)
+        self.assertEqual(
+            [item.kwargs["state"] for item in transition.call_args_list],
+            ["halting", "halted"],
+        )
+
+    def test_public_resume_rejects_current_executable_drift_before_admission(self):
+        stored = self._session_record(
+            held=False,
+            executable=sys.executable,
+            manifest={
+                "executable": {
+                    "resolved_path": sys.executable,
+                    "sha256": "00" * 32,
+                }
+            },
+        )
+        persist_agy_print_session(self.state, stored)
+        with mock.patch(
+            "puppet_lib.session.require_session_lease",
+            return_value={"state": "halted", "process": dict(PROCESS)},
+        ):
+            with self.assertRaisesRegex(IdentityError, "executable identity changed"):
+                from puppet_lib.session import send_message
+
+                send_message(
+                    state_root=self.state,
+                    session=SESSION,
+                    message="resume after drift",
+                    request_id="resume-drift",
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import inspect
 import json
 import secrets
 import time
@@ -121,6 +122,7 @@ from .errors import (
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
 from .qualification_scope import build_compatibility_scope
+from .transport import bind_run_transport
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .instruction_planes import (
@@ -266,7 +268,8 @@ def _validated_mapping(
     allow_grok_workspace_probe: bool = False,
     allow_codex_ordinary_control: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
-    census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
+    census_target_fn: Callable[..., AdapterManifest] = census_target,
+    transport: str = "tmux",
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
     manifest = AdapterManifest.from_path(manifest_path)
     if manifest.target != target:
@@ -282,7 +285,16 @@ def _validated_mapping(
         raise IdentityError(
             "doctor manifest does not bind the current adapter implementation"
         )
-    observed = census_target_fn(target, implementation_fingerprint)
+    parameters = inspect.signature(census_target_fn).parameters
+    accepts_transport = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL
+        for parameter in parameters.values()
+    ) or len(parameters) >= 3
+    observed = (
+        census_target_fn(target, implementation_fingerprint, transport)
+        if accepts_transport
+        else census_target_fn(target, implementation_fingerprint)
+    )
     for name in (
         "platform",
         "executable",
@@ -1000,6 +1012,7 @@ def run_probe(
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
+    transport: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _server_process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -1027,6 +1040,7 @@ def run_probe(
     always uses the real structural process and private-socket tmux surfaces.
     """
 
+    selected_transport = bind_run_transport(transport)["id"]
     if target not in TARGETS:
         raise ValidationError("unsupported probe target")
     if target == "agy":
@@ -1170,6 +1184,7 @@ def run_probe(
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+        transport=selected_transport,
     )
     claude_control_source = (
         build_claude_control_source(
@@ -3232,6 +3247,7 @@ def run_probe(
                 instruction_policy_fingerprint=compiled.manifest[
                     "instruction_policy_fingerprint"
                 ],
+                transport=selected_transport,
             ),
             "requested_model": None,
             "requested_effort": None,
@@ -3519,6 +3535,7 @@ def recover_probe(
     paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     halt_timeout: float = 10.0,
+    transport: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
@@ -3533,6 +3550,7 @@ def recover_probe(
     _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Reconcile one persisted probe by exact identity without relaunching it."""
+    selected_transport = bind_run_transport(transport)["id"]
     if target not in TARGETS:
         raise ValidationError("unsupported recovery target")
     validate_identifier(controller, "controller")
@@ -3739,6 +3757,7 @@ def recover_probe(
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+        transport=selected_transport,
     )
     claude_control_source = (
         build_claude_control_source(
