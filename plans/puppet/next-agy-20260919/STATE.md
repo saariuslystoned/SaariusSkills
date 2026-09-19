@@ -65,7 +65,7 @@ PR #49 is open at
 ## Repair pass 5 closeout (2026-09-19)
 
 - authoritative review packet `<audit-packet>/20260919-pr49-repair5-review/` reproduced two remaining source-flow defects: reviewed source HEAD was not rebound for resume, and exact source proof-assignment replay reconstructed a different envelope
-- Cursor ACP readiness passed on the exact worktree using `/Users/bobbybones/.local/bin/cursor-agent acp`; selector `cursor-grok-4.6-high` resolved to `grok-4.6[effort=high,fast=true]`
+- Cursor ACP readiness passed on the exact worktree using the native `<cursor-agent> acp` route; selector `cursor-grok-4.6-high` resolved to `grok-4.6[effort=high,fast=true]`
 - source-identity worker job `5732d1e4-2a28-404c-9e01-e8d5beafab05` completed; reviewed `source_accept` now binds the current clean source workspace while preserving exact path/branch and ancestry checks; real commit-A → commit-B resume regression added
 - replay worker job `5ad545b4-6b42-4668-ae21-9345f1785b04` failed closed with `BRIDGE_RESTARTED` before canonical handoff; its bounded partial replay diff was independently inspected and verified in the parent lane, with no replacement worker dispatched
 - focused verification: 125 passed; `py_compile` and `git diff --check` passed
