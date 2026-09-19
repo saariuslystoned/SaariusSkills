@@ -10,7 +10,7 @@
 - worker: Cursor ACP / Grok 4.6 High
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: Grok-specific builder admission proof; exact model/workspace/session/result binding; no generic ACP or live external claim
-- commit: pending parent commit
+- commit: b75569e (parent implementation and proof commit)
 - job_id: f0a9cdd6-ae5c-4f2d-9f1f-2b9f5d14ec79
 - live_grok_claimed: false
 - external actions: none

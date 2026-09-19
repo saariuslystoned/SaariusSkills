@@ -3,3 +3,4 @@
 {"event":"cursor_acp_delegate","at":"2026-09-18T20:51:06-04:00","job_id":"f0a9cdd6-ae5c-4f2d-9f1f-2b9f5d14ec79","stage":"grok_builder_admission","timeout_ms":1200000}
 {"event":"worker_complete","at":"2026-09-18T20:58:20-04:00","stage":"grok_builder_admission","focused":12,"preservation":105,"caller_path":223,"live_grok_claimed":false}
 {"event":"parent_verification","at":"2026-09-18T21:10:00-04:00","preservation_ok":105,"full_discover_ok":906,"full_discover_seconds":191.421,"compileall":"ok","diff_check":"ok","forbidden_bridge_or_package_paths":"none"}
+{"event":"accepted","at":"2026-09-18T21:11:00-04:00","commit":"b75569e","status":"accepted","live_grok_claimed":false}
