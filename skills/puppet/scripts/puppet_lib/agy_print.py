@@ -2267,6 +2267,7 @@ class AgyPrintController:
         self.observer = observer if observer is not None else _observer
         self.executable = executable if executable is not None else _executable
         self.runtime = runtime
+        self.last_public_send_outcome: Optional[str] = None
 
     @staticmethod
     def available(executable: Optional[Path | str] = None) -> bool:
@@ -2683,7 +2684,11 @@ class AgyPrintController:
             raise IdentityError("agy-print session is missing its bound contract")
         contract = Contract.from_dict(dict(contract_raw))
         handoff = self._stored_handoff(stored, checkpoint_id, contract)
-        from .session import require_conformance_reviewable
+        from .session import (
+            _require_repair_budget,
+            _verify_source_identity,
+            require_conformance_reviewable,
+        )
         from .verdicts import record_review
 
         observation = validate_agy_print_observation(stored["observation"])
@@ -2695,6 +2700,7 @@ class AgyPrintController:
                 "fail": "FAILED",
             }.get(verdict, "AWAITING_CONFORMANCE_REVIEW")
         elif state == "SOURCE_CHECKPOINT_READY":
+            _verify_source_identity(contract, handoff.identity["candidate_commit"])
             next_state = {
                 "repair": "ACTIVE",
                 "source_accept": "SOURCE_ACCEPTED",
@@ -2712,6 +2718,10 @@ class AgyPrintController:
             }.get(verdict, "AWAITING_CONTROLLER_REVIEW")
         else:
             raise ValidationError("source checkpoint is not reviewable")
+        if state == "SOURCE_CHECKPOINT_READY" and verdict == "repair":
+            _require_repair_budget(
+                dict(stored, repair_count=stored.get("repair_count", 0))
+            )
         record = record_review(
             contract=contract,
             actor=actor,
@@ -2721,7 +2731,21 @@ class AgyPrintController:
             verdict_root=Path(stored["proof_root"]) / "verdicts",
         )
         protocol = dict(stored.get("protocol") or {})
-        protocol["phase"] = "reviewed"
+        updates: Dict[str, Any] = {}
+        if state == "SOURCE_CHECKPOINT_READY":
+            if verdict == "repair":
+                protocol.update(
+                    phase="awaiting_source", source_commit=None, proof_commit=None
+                )
+                updates["repair_count"] = int(stored.get("repair_count", 0)) + 1
+            elif verdict == "source_accept":
+                protocol["phase"] = "source_accepted"
+            else:
+                protocol["phase"] = "reviewed"
+        elif state == "PROOF_CHECKPOINT_READY" and verdict not in {"block", "fail"}:
+            protocol["phase"] = "final_reviewed"
+        else:
+            protocol["phase"] = "reviewed"
         observation = dict(observation, record_state=next_state)
         persist_agy_print_session(
             self.registry_root,
@@ -2730,6 +2754,7 @@ class AgyPrintController:
                 observation=observation,
                 protocol=protocol,
                 review=record,
+                **updates,
             ),
         )
         self.observer = observation
@@ -2904,6 +2929,7 @@ class AgyPrintController:
             "process_backed": True,
             "live_agy_claimed": False,
             "held": alive if held is None else held,
+            "repair_count": existing.get("repair_count", 0),
         }
         for key in (
             "protocol",
@@ -2939,7 +2965,7 @@ class AgyPrintController:
         if isinstance(protocol, Mapping) and protocol.get("kind") == "conformance":
             state = (stored.get("observation") or {}).get("record_state") or "ACTIVE"
             first_submission = (
-                state == "CONFORMANCE_READY"
+                state in {"CONFORMANCE_READY", "HALTED"}
                 and protocol.get("phase") == "ready_validated"
             )
             replay = (
@@ -2951,6 +2977,20 @@ class AgyPrintController:
                 raise ValidationError(
                     "conformance follow-up is not currently authorized"
                 )
+        elif isinstance(protocol, Mapping) and protocol.get("kind") == "source":
+            state = (stored.get("observation") or {}).get("record_state") or "ACTIVE"
+            first_submission = (
+                state == "SOURCE_ACCEPTED"
+                and protocol.get("phase") == "source_accepted"
+                and "proof_assignment_id" not in protocol
+            )
+            replay = (
+                state == "SOURCE_ACCEPTED"
+                and protocol.get("phase") == "proof_assignment_sent"
+                and protocol.get("proof_assignment_id") == request_id
+            )
+            if not (state in {"ACTIVE", "WAITING_EXTERNAL"} or first_submission or replay):
+                raise ValidationError("source session is not accepting messages")
         message_sha256 = sha256_bytes(message.encode("utf-8"))
         requests = stored.get("send_requests")
         if requests is None:
@@ -2967,6 +3007,7 @@ class AgyPrintController:
             if prior.get("phase") == "submitted" and isinstance(
                 prior.get("result"), Mapping
             ):
+                self.last_public_send_outcome = "replay"
                 return dict(prior["result"], request_id=request_id)
             if prior.get("phase") == "intent":
                 raise ConflictError(
@@ -3036,6 +3077,7 @@ class AgyPrintController:
                 on_resume_failure()
             raise
         if live:
+            self.last_public_send_outcome = "live"
             self.runtime.send(message)
             observation = self.runtime.read_result()
             self.observer = observation
@@ -3075,6 +3117,7 @@ class AgyPrintController:
             message_sha256=message_sha256,
             result=result,
         )
+        self.last_public_send_outcome = "new_launch"
         result["request_id"] = request_id
         return result
 
@@ -3111,12 +3154,22 @@ class AgyPrintController:
             and protocol.get("kind") == "conformance"
             and protocol.get("phase") == "ready_validated"
             and isinstance(observation, Mapping)
-            and observation.get("record_state") == "CONFORMANCE_READY"
+            and observation.get("record_state") in {"CONFORMANCE_READY", "HALTED"}
         ):
             updates["protocol"] = dict(
                 protocol, phase="followup_sent", message_id=request_id
             )
             updates["observation"] = dict(observation, record_state="ACTIVE")
+        elif (
+            isinstance(protocol, Mapping)
+            and protocol.get("kind") == "source"
+            and protocol.get("phase") == "source_accepted"
+            and isinstance(observation, Mapping)
+            and observation.get("record_state") == "SOURCE_ACCEPTED"
+        ):
+            updates["protocol"] = dict(
+                protocol, phase="proof_assignment_sent", proof_assignment_id=request_id
+            )
         persist_agy_print_session(
             self.registry_root,
             dict(current, **updates),

@@ -19,13 +19,14 @@ from puppet_lib.agy_print import (
 )
 from puppet_lib.conformance import create_fixture, tree_fingerprint
 from puppet_lib.contracts import MANDATORY_HARD_GATES
-from puppet_lib.errors import IdentityError, ValidationError
+from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError
 from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, PROTOCOL_FINGERPRINT
 from puppet_lib.session import (
     accept_checkpoint,
     halt as session_halt,
     import_checkpoint,
     review_checkpoint,
+    send_message,
 )
 from puppet_lib.registry import ProcessVanished
 
@@ -341,6 +342,120 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
                     message="resume after drift",
                     request_id="resume-drift",
                 )
+
+    def test_public_halt_then_resume_and_replay_do_not_reactivate_history(self):
+        base = self._session_record()
+        base["held"] = True
+        base["observation"] = fixture_observation(
+            session=SESSION, workspace_path=str(self.repo), record_state="CONFORMANCE_READY"
+        )
+        base["protocol"].update(
+            phase="ready_validated",
+            ready_checkpoint_id="ready-1",
+            ready_artifact_sha256="aa" * 32,
+        )
+        persist_agy_print_session(self.state, base)
+        controller = AgyPrintController(self.state)
+        with self.assertRaisesRegex(UnsupportedError, "requires explicit halt"):
+            send_message(
+                state_root=self.state, session=SESSION,
+                message="follow up", request_id="followup-1"
+            )
+
+        def fake_halt(*, session, timeout):
+            current = controller.require_session(session)
+            persist_agy_print_session(
+                self.state,
+                dict(
+                    current,
+                    held=False,
+                    observation=dict(current["observation"], record_state="HALTED"),
+                ),
+            )
+            return {"ok": True, "session": session, "state": "HALTED"}
+
+        with (
+            mock.patch("puppet_lib.session._agy_print_bound_session", return_value=controller),
+            mock.patch("puppet_lib.session.require_session_lease", return_value={"state": "active", "process": dict(PROCESS)}),
+            mock.patch("puppet_lib.session.transition_session_lease"),
+            mock.patch.object(controller, "halt", side_effect=fake_halt),
+        ):
+            self.assertEqual(session_halt(state_root=self.state, session=SESSION)["state"], "HALTED")
+
+        with (
+            mock.patch("puppet_lib.session._agy_print_bound_session", return_value=controller),
+            mock.patch("puppet_lib.session.require_session_lease", return_value={"state": "halted", "process": dict(PROCESS)}),
+            mock.patch("puppet_lib.session._validate_agy_resume_identity"),
+            mock.patch("puppet_lib.session.admit_session_lease") as admit,
+            mock.patch("puppet_lib.session.transition_session_lease") as transition,
+            mock.patch.object(controller, "start", return_value={"ok": True, "state": "ACTIVE"}) as start,
+        ):
+            result = send_message(
+                state_root=self.state, session=SESSION,
+                message="follow up", request_id="followup-1"
+            )
+        self.assertEqual(result["state"], "ACTIVE")
+        admit.assert_called_once()
+        self.assertEqual(transition.call_args.kwargs["state"], "active")
+        self.assertIn("PUPPET_FOLLOWUP_V2", start.call_args.kwargs["prompt"])
+        current = controller.require_session(SESSION)
+        self.assertEqual(current["protocol"]["phase"], "followup_sent")
+        self.assertEqual(current["observation"]["record_state"], "ACTIVE")
+
+        with (
+            mock.patch("puppet_lib.session._agy_print_bound_session", return_value=controller),
+            mock.patch("puppet_lib.session.require_session_lease", return_value={"state": "halted", "process": dict(PROCESS)}),
+            mock.patch("puppet_lib.session.process_birth_identity") as identity,
+        ):
+            replay = send_message(
+                state_root=self.state, session=SESSION,
+                message="follow up", request_id="followup-1"
+            )
+        self.assertEqual(replay["request_id"], "followup-1")
+        identity.assert_not_called()
+
+    def test_post_start_identity_failure_halts_before_releasing_lease(self):
+        base = self._session_record(
+            held=False,
+            observation=fixture_observation(
+                session=SESSION, workspace_path=str(self.repo), record_state="HALTED"
+            ),
+        )
+        base["protocol"].update(phase="ready_validated", ready_artifact_sha256="aa" * 32)
+        persist_agy_print_session(self.state, base)
+        controller = AgyPrintController(self.state)
+        halt_calls = []
+
+        def fake_halt(*, session, timeout=5.0):
+            halt_calls.append(session)
+            current = controller.require_session(session)
+            persist_agy_print_session(
+                self.state,
+                dict(
+                    current,
+                    held=False,
+                    observation=dict(current["observation"], record_state="HALTED"),
+                ),
+            )
+            return {"ok": True, "session": session, "state": "HALTED"}
+
+        with (
+            mock.patch("puppet_lib.session._agy_print_bound_session", return_value=controller),
+            mock.patch("puppet_lib.session.require_session_lease", return_value={"state": "halted", "process": dict(PROCESS)}),
+            mock.patch("puppet_lib.session._validate_agy_resume_identity"),
+            mock.patch("puppet_lib.session.admit_session_lease"),
+            mock.patch("puppet_lib.session.transition_session_lease") as transition,
+            mock.patch("puppet_lib.session.process_birth_identity", side_effect=IdentityError("transient identity unavailable")),
+            mock.patch.object(controller, "start", return_value={"ok": True, "state": "ACTIVE"}),
+            mock.patch.object(controller, "halt", side_effect=fake_halt),
+        ):
+            with self.assertRaisesRegex(IdentityError, "transient identity unavailable"):
+                send_message(
+                    state_root=self.state, session=SESSION,
+                    message="follow up", request_id="followup-cleanup"
+                )
+        self.assertEqual(halt_calls, [SESSION])
+        self.assertEqual(transition.call_args.kwargs["state"], "failed")
 
 
 if __name__ == "__main__":

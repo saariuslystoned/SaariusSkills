@@ -2430,13 +2430,18 @@ def send_message(
                     controller=contract.controller,
                     owner=dict(stored["lease_owner"]),
                     instruction_manifest_sha256=stored["instruction_manifest_sha256"],
-                    states={"active", "launching", "halting", "halted"},
+                    states={"active", "launching", "halting", "halted", "failed"},
                 )
             if stored.get("deadline_at") is not None and _deadline_state(stored)[1]:
                 raise ValidationError(
                     "session deadline has passed: steering messages are refused; halt or adjudicate the session"
                 )
             observation = stored["observation"]
+            prior_request = (stored.get("send_requests") or {}).get(request_id)
+            historical_replay = (
+                isinstance(prior_request, Mapping)
+                and prior_request.get("phase") == "submitted"
+            )
             if production_lease and stored.get("held"):
                 if lease["state"] == "launching":
                     raise IdentityError(
@@ -2452,7 +2457,8 @@ def send_message(
                     raise IdentityError(
                         "agy-print resume requires the exact halted lease state"
                     )
-                _validate_agy_resume_identity(stored, contract)
+                if not historical_replay:
+                    _validate_agy_resume_identity(stored, contract)
 
             def admit_resume() -> None:
                 if not production_lease or stored.get("held"):
@@ -2468,6 +2474,23 @@ def send_message(
             def fail_resume() -> None:
                 if not production_lease or stored.get("held"):
                     return
+                current = agy_controller.require_session(session)
+                launched = (
+                    getattr(agy_controller, "last_public_send_outcome", None)
+                    == "new_launch"
+                    or current.get("held") is True
+                )
+                if launched:
+                    try:
+                        halted = agy_controller.halt(session=session)
+                    except Exception as exc:
+                        raise IdentityError(
+                            "agy-print resume cleanup was not proven"
+                        ) from exc
+                    if halted.get("state") != "HALTED":
+                        raise IdentityError(
+                            "agy-print resume cleanup did not produce a halted result"
+                        )
                 try:
                     transition_session_lease(
                         session=session,
@@ -2479,10 +2502,28 @@ def send_message(
                         process=None,
                     )
                 except Exception:
-                    pass
-            enveloped = adapter_for("agy").envelope(
-                message, "regular", initial=False
-            )
+                    raise
+            protocol = dict(stored.get("protocol") or {})
+            record_state = (stored.get("observation") or {}).get("record_state")
+            if protocol.get("kind") == "conformance":
+                enveloped = adapter_for("agy").envelope(
+                    _followup_envelope(protocol, request_id, message),
+                    "regular", initial=False
+                )
+            elif (
+                protocol.get("kind") == "source"
+                and record_state == "SOURCE_ACCEPTED"
+                and protocol.get("phase") == "source_accepted"
+                and "proof_assignment_id" not in protocol
+            ):
+                enveloped = adapter_for("agy").envelope(
+                    _proof_assignment_envelope(contract, protocol, request_id, message),
+                    "regular", initial=False
+                )
+            else:
+                enveloped = adapter_for("agy").envelope(
+                    message, "regular", initial=False
+                )
             result = agy_controller.send(
                 session=session,
                 message=enveloped,
@@ -2491,6 +2532,13 @@ def send_message(
                 before_resume=admit_resume,
                 on_resume_failure=fail_resume,
             )
+            if (
+                production_lease
+                and not stored.get("held")
+                and getattr(agy_controller, "last_public_send_outcome", None)
+                == "replay"
+            ):
+                return result
             if production_lease and not stored.get("held"):
                 try:
                     resumed = agy_controller.require_session(session)
@@ -3668,10 +3716,10 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 controller=contract.controller,
                 owner=dict(stored["lease_owner"]),
                 instruction_manifest_sha256=stored["instruction_manifest_sha256"],
-                states={"active", "halting", "halted"},
+                states={"active", "halting", "halted", "failed"},
             )
             observation = stored["observation"]
-            if lease["state"] == "halted" and observation.get("record_state") == "HALTED":
+            if lease["state"] in {"halted", "failed"} and observation.get("record_state") == "HALTED":
                 return agy_controller.caller_result(
                     expected_session=session,
                     expected_conversation_id=observation["session"]["conversation_id"],
@@ -3679,6 +3727,10 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                     expected_process=observation["process"],
                     record_state="HALTED",
                     require_halt=True,
+                )
+            if lease["state"] == "failed":
+                raise IdentityError(
+                    "agy-print failed lease does not have a proven halted observation"
                 )
             try:
                 process = process_birth_identity(observation["process"]["pid"])

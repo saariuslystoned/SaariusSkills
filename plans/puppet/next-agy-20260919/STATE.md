@@ -38,3 +38,13 @@ PR #49 is open at
 - focused repair tests: 72 passed; probe/qualification batch: 164 passed; full discovery: 1,247 passed in 349.622s
 - exact-head CI run `35426959846` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
 - exact public CLI qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
+
+## Repair pass 3 closeout (2026-09-19)
+
+- Cursor ACP worker job `54d7aa3c-f71a-4ed7-a336-e89985625f51` completed on the exact worktree with selected `grok-4.6[effort=high,fast=true]`; selected-transport qualification slice was independently inspected
+- qualification probe now fails closed before execution for unsupported selected transports; no AGY-print receipt is stamped from tmux execution
+- public AGY continuation now uses the shared follow-up/proof-assignment envelopes, preserves source review protocol phases, and replays submitted receipts without reactivating old process identity
+- resume cleanup now proves owned-tree halt before releasing a post-start lease; failed terminal leases are haltable only with a HALTED observation
+- focused repair suite: 110 passed; worker qualification batch: 144 passed
+- full discovery: 1,258 tests; 1 unrelated timing-sensitive Codex doctor-child assertion failed in the aggregate run and passed on exact isolated rerun
+- exact public CLI AGY qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
