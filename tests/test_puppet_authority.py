@@ -3240,6 +3240,10 @@ class AuthorityTests(unittest.TestCase):
                 "branch": "codex/example",
                 "mutation_owner": "none",
                 "proof_root": str(proof),
+                "transport": {
+                    "schema": "puppet.transport-binding/v1",
+                    "id": "tmux",
+                },
                 "tmux": {
                     "socket": str(tmux_socket_path),
                     "socket_identity": {

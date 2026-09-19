@@ -36,6 +36,11 @@ from .authority import (
     transition_session_lease,
 )
 from .beacons import parse_beacon
+from .caller import (
+    blocker_from_error,
+    caller_projection,
+    doctor_blocker,
+)
 from .campaign import (
     active_target_processes,
     agy_process_population,
@@ -91,6 +96,14 @@ from .subscription_profiles import (
     subscription_profile_preflight,
 )
 from .tmux import TargetLaunch, TmuxController
+from .transport import (
+    bind_run_transport,
+    open_bound_transport,
+    open_run_transport,
+    record_transport_id,
+    transport_capability_table,
+    transport_is_available,
+)
 from .verdicts import (
     record_acceptance,
     record_review,
@@ -121,6 +134,86 @@ MAX_SESSION_DEADLINE_SECONDS = 7 * 24 * 3600.0
 WAIT_CONDITIONS = frozenset(
     {"beacon", "checkpoint", "action-required", "target-stopped", "done"}
 )
+_DOCTOR_BLOCKER_CODES = {
+    "resolved executable is unavailable or a symlink": "executable_unavailable",
+    "executable fingerprint drifted": "executable_fingerprint_drifted",
+    "an explicit private subscription profile is required": (
+        "subscription_profile_required"
+    ),
+    "AGY does not support private profile isolation; any claim of private config isolation fails closed": (
+        "agy_private_profile_unsupported"
+    ),
+    "private subscription profile is invalid or unavailable": (
+        "subscription_profile_invalid"
+    ),
+    "private subscription profile is not authenticated": (
+        "subscription_profile_unauthenticated"
+    ),
+    "tmux is unavailable": "tmux_unavailable",
+    "contract branch does not match checkout": "branch_mismatch",
+    "candidate worktree is not clean": "worktree_dirty",
+    "proof root is not writable": "proof_root_unwritable",
+    "state root is not writable": "state_root_unwritable",
+    "state root is not current-UID mode 0700": "state_root_not_private",
+    "viewer root is not a regular directory": "viewer_root_invalid",
+    "viewer root is not current-UID mode 0700": "viewer_root_not_private",
+    "only the regular session profile is enabled": "regular_session_required",
+    "explicit model and effort selection remain deferred": "model_effort_deferred",
+    "exact YOLO, sandbox-off, and argv-free prompt mapping is incomplete": (
+        "yolo_mapping_incomplete"
+    ),
+    "real-harness qualification receipt is missing or invalid": (
+        "qualification_receipt_invalid"
+    ),
+    "a live AGY candidate has a different executable identity and blocks launch": (
+        "mismatched_target_population"
+    ),
+    "active AGY processes may hold the exclusive store lock and require the exact parallel isolation override": (
+        "active_target_population"
+    ),
+    "a live Grok candidate has a different executable identity and blocks launch": (
+        "mismatched_target_population"
+    ),
+    "active Grok processes require the exact parallel isolation override": (
+        "active_target_population"
+    ),
+}
+
+
+def _caller_blockers_from_details(details: List[str]) -> List[Dict[str, Any]]:
+    caller_blockers = []
+    for detail in details:
+        code = _DOCTOR_BLOCKER_CODES.get(detail)
+        if code is None:
+            if "parallel isolation override" in detail:
+                code = "active_target_population"
+            elif "different executable identity" in detail:
+                code = "mismatched_target_population"
+            elif "Grok" in detail and "qualification" in detail.lower():
+                code = "grok_launch_authority"
+            else:
+                code = "doctor_blocker"
+        caller_blockers.append(doctor_blocker(code, detail))
+    return caller_blockers
+
+
+def _session_caller_fields(
+    record: Dict[str, Any],
+    *,
+    halt_confirmed: Optional[bool] = None,
+) -> Dict[str, Any]:
+    return caller_projection(
+        record,
+        transport_id=record_transport_id(record),
+        halt_confirmed=halt_confirmed,
+    )
+
+
+def _contract_requested_transport(contract: Any) -> Any:
+    raw = getattr(contract, "raw", None)
+    if isinstance(raw, dict):
+        return raw.get("transport")
+    return getattr(contract, "transport", None)
 
 
 def _now_utc() -> dt.datetime:
@@ -809,7 +902,7 @@ def _runtime(
     registry.verify_supervisor(record)
     registry.verify_instructions(record)
     registry.verify_adapter(record, capability)
-    tmux = TmuxController(registry.root)
+    tmux = open_bound_transport(record, registry.root)
     tmux.assert_tmux_binary_identity(record["tmux"]["tmux_binary_identity"])
     tmux.bind_server_identity(
         Path(record["tmux"]["socket"]), record["tmux"]["server_identity"]
@@ -1069,6 +1162,7 @@ def doctor(
     state_root: Path,
     profile_root: Optional[Path] = None,
     require_subscription_profile: bool = True,
+    requested_transport: Optional[str] = None,
     _allow_test_profile_bypass: bool = False,
 ) -> Dict[str, Any]:
     contract = Contract.from_path(contract_path)
@@ -1080,6 +1174,10 @@ def doctor(
     authorization = _authorization(authorization_path, contract)
     proof_root = absolute_root(str(proof_root), "proof root")
     state_root = absolute_root(str(state_root), "state root")
+    transport = bind_run_transport(
+        requested_transport,
+        contract_transport=_contract_requested_transport(contract),
+    )
     blockers = []
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
@@ -1093,7 +1191,7 @@ def doctor(
         require_subscription_profile=require_subscription_profile,
     )
     blockers.extend(profile_blockers)
-    if not TmuxController.available():
+    if not transport_is_available(transport["id"]):
         blockers.append("tmux is unavailable")
     workspace = _workspace_snapshot(contract)
     branch = workspace["branch"]
@@ -1168,6 +1266,7 @@ def doctor(
         for name, status in manifest.raw["capabilities"].items()
         if status == "unsupported"
     )
+    qualification_blocker = None
     if not manifest.raw["doctor_only"]:
         try:
             authority = _qualification_authority(contract, authorization)
@@ -1212,13 +1311,29 @@ def doctor(
                         "%s qualified profile/status binding changed"
                         % contract.target.capitalize()
                     )
-        except (UnsupportedError, ValidationError, IdentityError):
+        except (UnsupportedError, ValidationError, IdentityError) as exc:
             blockers.append("real-harness qualification receipt is missing or invalid")
+            caught = blocker_from_error(exc)
+            qualification_blocker = doctor_blocker(
+                "qualification_receipt_invalid",
+                "real-harness qualification receipt is missing or invalid",
+                pid=caught.get("pid"),
+                kernel_birth_id=caught.get("kernel_birth_id"),
+                pane=caught.get("pane"),
+            )
+    caller_blockers = _caller_blockers_from_details(blockers)
+    if qualification_blocker is not None:
+        for index, item in enumerate(caller_blockers):
+            if item["code"] == "qualification_receipt_invalid":
+                caller_blockers[index] = qualification_blocker
+                break
     return {
         "ok": True,
         "warning": YOLO_WARNING,
         "target": contract.target,
         "session_profile": contract.session_profile,
+        "transport": transport,
+        "transport_capabilities": transport_capability_table(),
         "contract_fingerprint": contract.fingerprint,
         "manifest_fingerprint": manifest.fingerprint,
         "subscription_profile": (
@@ -1240,6 +1355,7 @@ def doctor(
         "unverified_capabilities": unverified,
         "unsupported_capabilities": unsupported,
         "blockers": blockers,
+        "caller_blockers": caller_blockers,
         "launch_ready": not blockers
         and not unverified
         and not manifest.raw["doctor_only"],
@@ -1260,6 +1376,7 @@ def launch(
     requested_effort: Optional[str] = None,
     profile_root: Optional[Path] = None,
     require_subscription_profile: bool = True,
+    requested_transport: Optional[str] = None,
     deadline_seconds: Optional[float] = None,
     _sleep_fn: Any = time.sleep,
     _execution_sleep_fn: Any = time.sleep,
@@ -1286,6 +1403,7 @@ def launch(
         state_root=state_root,
         profile_root=profile_root,
         require_subscription_profile=require_subscription_profile,
+        requested_transport=requested_transport,
         _allow_test_profile_bypass=_allow_test_profile_bypass,
     )
     if not report["launch_ready"]:
@@ -1537,8 +1655,12 @@ def launch(
         "effective instruction manifest",
     )
     instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
+    transport = bind_run_transport(
+        requested_transport,
+        contract_transport=_contract_requested_transport(contract),
+    )
     registry = SessionRegistry(state_root)
-    tmux = TmuxController(state_root)
+    tmux = open_run_transport(transport, state_root)
     socket = tmux.socket_path(session)
     reservation = {
         "schema_version": 1,
@@ -1738,6 +1860,7 @@ def launch(
             "branch": contract.branch,
             "mutation_owner": contract.mutation_owner,
             "proof_root": str(proof_root),
+            "transport": transport,
             "tmux": {
                 "socket": metadata["socket"],
                 "socket_identity": metadata["socket_identity"],
@@ -1845,6 +1968,7 @@ def launch(
             event={"kind": "launch", "phase": "active", **delivery},
         )
         viewer = attach_command(state_root=state_root, session=session)
+        launched_record = registry.load(session)
         return {
             "ok": True,
             "session": session,
@@ -1858,6 +1982,7 @@ def launch(
             ],
             "attach_command": viewer["attach_command"],
             "attach_ticket_ttl_seconds": viewer["ticket_ttl_seconds"],
+            **_session_caller_fields(launched_record),
         }
     except BaseException:
         cleanup_stopped = False
@@ -2089,6 +2214,7 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
         "deadline_at": deadline_at,
         "deadline_exceeded": deadline_exceeded,
         "blocker": record["blocker"],
+        **_session_caller_fields(record),
     }
 
 
@@ -2158,7 +2284,8 @@ def _dead_grok_lease_preflight(
 
     tmux_identity = record["tmux"]
     socket = Path(tmux_identity["socket"])
-    tmux = TmuxController(
+    tmux = open_bound_transport(
+        record,
         registry.root,
         _tmux_binary=Path(tmux_identity["tmux_binary_identity"]["path"]),
     )
@@ -2641,7 +2768,13 @@ def accept_checkpoint(
     protocol = dict(record["protocol"])
     protocol["phase"] = "accepted"
     registry.transition_path(session, ["ACCEPTED"], {"protocol": protocol})
-    return {"ok": True, "acceptance": acceptance, "state": "ACCEPTED"}
+    accepted_record = registry.load(session)
+    return {
+        "ok": True,
+        "acceptance": acceptance,
+        "state": "ACCEPTED",
+        **_session_caller_fields(accepted_record),
+    }
 
 
 def attach_command(*, state_root: Path, session: str) -> Dict[str, Any]:
@@ -2915,15 +3048,16 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 process=record["process"],
             )
             terminal = _halt_terminal_result(journal, session)
-            if terminal is not None:
-                return terminal
-            return {
-                "ok": True,
-                "session": session,
-                "state": "HALTED",
-                "signal_sent": False,
-                "tmux_preserved": True,
-            }
+            if terminal is None:
+                terminal = {
+                    "ok": True,
+                    "session": session,
+                    "state": "HALTED",
+                    "signal_sent": False,
+                    "tmux_preserved": True,
+                }
+            terminal.update(_session_caller_fields(record, halt_confirmed=True))
+            return terminal
 
         transition(record["state"], "HALTED")
         tmux, metadata = _runtime(registry, record, "halt", require_process=False)
@@ -3025,10 +3159,12 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
             state="halted",
             process=record["process"],
         )
-        return {
+        halted = {
             "ok": True,
             "session": session,
             "state": "HALTED",
             "signal_sent": bool(submitted_actions),
             "tmux_preserved": True,
         }
+        halted.update(_session_caller_fields(record, halt_confirmed=True))
+        return halted

@@ -391,6 +391,28 @@ intent is ambiguous and must never be resent. A provisional target that cannot
 be fully bound before input must remain fenced and non-qualifying without any
 halt action.
 
+## Transport capability and proof
+
+A run binds exactly one named transport before launch and never falls back.
+Checkpoints, review, controller acceptance, and human gates stay
+transport-independent. Puppet owns fresh process birth identity and
+stop/escalation; a caller cannot substitute another transport or a stale
+PID. The current implemented transport is `tmux`. `herdr`, `acp`, and
+`agy-print` are named and explicitly unsupported.
+
+| Transport | Implementation | `status` proves | Halt proves | Resume proves |
+| --- | --- | --- | --- | --- |
+| `tmux` | implemented | pane and registered process identity, not a harness turn result | registered PID gone and pane dead | unsupported |
+| `herdr` | unsupported | unsupported | unsupported | unsupported |
+| `acp` | unsupported | unsupported | unsupported | unsupported |
+| `agy-print` | unsupported | unsupported | unsupported | unsupported |
+
+Tmux settle, startup-screen, and paste sequencing remain shared
+transport/authority evidence while tmux is the only implemented run
+transport. A later implemented structured transport must carry its own
+source list so tmux settle edits do not invalidate it. See
+[transport-contract.md](transport-contract.md).
+
 ## Transcript blindness
 
 Never implement status with `capture-pane`, `pipe-pane`, scrollback, raw logs,

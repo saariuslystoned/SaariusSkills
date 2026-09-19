@@ -56,9 +56,13 @@ The contract distinguishes three scopes:
    proved by the manifest flags. A requested selector is preserved as a
    request only; it is never treated as observed model proof.
 2. **Transport and shared-controller/authority.** Shared census, launch,
-   probe, session, tmux/transport, authority, registry, and shipped
-   universal/lifecycle policy sources plus protocol and instruction-policy
-   fingerprints.
+   probe, session, explicit run-transport binding, tmux/transport,
+   authority, registry, and shipped universal/lifecycle policy sources plus
+   protocol and instruction-policy fingerprints. The caller names one
+   transport per run (`tmux` implemented; `herdr`, `acp`, and `agy-print`
+   unsupported). Tmux-only settle evidence stays in this shared fingerprint
+   until a second implemented transport exists; `agy-print` isolation from
+   tmux settle is therefore explicitly unsupported.
 3. **Task scope/authorization.** Controller, campaign ID, and goal
    fingerprint. A new task may reuse current compatibility evidence but
    must supply its own authorization. Task authority is never reusable.

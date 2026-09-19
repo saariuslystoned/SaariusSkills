@@ -40,6 +40,7 @@ from .safety import (
     validate_sha256,
 )
 from .state import transition, validate_state
+from .transport import validate_transport_binding
 
 
 REQUIRED_FIELDS = {
@@ -55,6 +56,7 @@ REQUIRED_FIELDS = {
     "branch",
     "mutation_owner",
     "proof_root",
+    "transport",
     "tmux",
     "process",
     "supervisor",
@@ -319,6 +321,18 @@ class ExecTransitionSamplingError(IdentityError):
 
 class ProcessExecutableUnavailable(IdentityError):
     """A census entry cannot expose a bindable executable identity."""
+
+    def __init__(self, message, *, pid=None, blocker=None):
+        if blocker is None:
+            from .caller import make_blocker
+
+            blocker = make_blocker(
+                code="process_identity_unavailable",
+                detail=str(message),
+                pid=pid,
+            )
+        super().__init__(message, blocker=blocker)
+        self.pid = pid
 
 
 class ProcessVanished(IdentityError):
@@ -1072,34 +1086,45 @@ def process_tree_identity(pid: int) -> Dict[str, Any]:
 
 
 def process_birth_identity(pid: int) -> Dict[str, Any]:
-    process, _, _ = _sample_process_binding(pid)
+    try:
+        process, _, _ = _sample_process_binding(pid)
+    except IdentityError as exc:
+        if getattr(exc, "pid", None) is None:
+            exc.pid = pid
+        raise
     return process
 
 
 def process_executable_identity(pid: int) -> Dict[str, Any]:
     """Bind a lightweight executable selector to one stable kernel birth."""
 
-    kernel_before = _kernel_process_record(pid)
-    executable_before = _process_executable_record(pid)
-    executable_after = _process_executable_record(pid)
-    kernel_after = _kernel_process_record(pid)
-    if any(
-        kernel_after[name] != kernel_before[name] for name in ("pid", "kernel_birth_id")
-    ):
-        raise IdentityError("process identity changed during executable census")
-    if executable_after != executable_before:
-        raise ExecTransitionSamplingError(
-            "process crossed an exec transition during executable census",
-            pid=pid,
-            kernel_birth_id=kernel_before["kernel_birth_id"],
-            executable_before=executable_before,
-            executable_after=executable_after,
-        )
-    return {
-        "pid": pid,
-        "kernel_birth_id": kernel_before["kernel_birth_id"],
-        **executable_before,
-    }
+    try:
+        kernel_before = _kernel_process_record(pid)
+        executable_before = _process_executable_record(pid)
+        executable_after = _process_executable_record(pid)
+        kernel_after = _kernel_process_record(pid)
+        if any(
+            kernel_after[name] != kernel_before[name]
+            for name in ("pid", "kernel_birth_id")
+        ):
+            raise IdentityError("process identity changed during executable census")
+        if executable_after != executable_before:
+            raise ExecTransitionSamplingError(
+                "process crossed an exec transition during executable census",
+                pid=pid,
+                kernel_birth_id=kernel_before["kernel_birth_id"],
+                executable_before=executable_before,
+                executable_after=executable_after,
+            )
+        return {
+            "pid": pid,
+            "kernel_birth_id": kernel_before["kernel_birth_id"],
+            **executable_before,
+        }
+    except ProcessExecutableUnavailable as exc:
+        if exc.pid is None:
+            raise ProcessExecutableUnavailable(str(exc), pid=pid) from exc
+        raise
 
 
 def bind_runtime_process(
@@ -1385,6 +1410,7 @@ class SessionRegistry:
             raise ValidationError("unsupported bound instruction plane")
         if instructions.get("session_profile") != "regular":
             raise ValidationError("unsupported bound instruction session profile")
+        validate_transport_binding(value.get("transport"))
         tmux = value.get("tmux")
         if not isinstance(tmux, dict) or set(tmux) != {
             "socket",

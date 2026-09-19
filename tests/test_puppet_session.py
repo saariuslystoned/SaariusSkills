@@ -573,6 +573,82 @@ class SessionIntegrationTests(unittest.TestCase):
             [], 0, stdout=b"Logged in using ChatGPT\n", stderr=None
         )
 
+    def test_caller_contract_binds_tmux_and_keeps_outcomes_distinct(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-caller-contract"
+            candidate = initialize_repo(
+                root / "candidate", "codex/caller-contract", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/caller-contract",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            report = puppet_session.doctor(
+                contract_path=files["contract"],
+                manifest_path=files["manifest"],
+                authorization_path=files["authorization"],
+                proof_root=files["proof"],
+                state_root=files["state"],
+                require_subscription_profile=False,
+            )
+            self.assertEqual(report["transport"]["id"], "tmux")
+            self.assertEqual(
+                report["transport_capabilities"]["herdr"]["implementation"],
+                "unsupported",
+            )
+            self.assertTrue(all("remedy" in item for item in report["caller_blockers"]))
+            with self.assertRaisesRegex(UnsupportedError, "not implemented"):
+                puppet_session.doctor(
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    requested_transport="herdr",
+                )
+            socket = None
+            try:
+                launched = launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for the caller contract.",
+                )
+                socket = SessionRegistry(files["state"]).load(session)["tmux"]["socket"]
+                self.assertEqual(launched["transport"]["id"], "tmux")
+                self.assertEqual(
+                    launched["caller_outcome"],
+                    {
+                        "schema": "puppet.caller-outcome/v1",
+                        "worker_completion": "none",
+                        "controller_acceptance": "none",
+                        "halt": "none",
+                    },
+                )
+                self.assertIsNone(launched["final_outcome"])
+                current = status(state_root=files["state"], session=session)
+                self.assertEqual(current["progress_cursor"]["beacon_sequence"], 0)
+                self.assertIsNone(current["progress_cursor"]["checkpoint_id"])
+                halted = halt(state_root=files["state"], session=session, timeout=5)
+                self.assertEqual(halted["state"], "HALTED")
+                self.assertEqual(halted["caller_outcome"]["halt"], "confirmed")
+                self.assertEqual(
+                    halted["caller_outcome"]["controller_acceptance"], "none"
+                )
+                self.assertEqual(halted["final_outcome"]["halt"], "confirmed")
+                self.assertIn("worker none", halted["final_outcome"]["summary"])
+            finally:
+                kill_test_server(socket)
+
     def test_production_profile_is_required_authenticated_and_proof_bound(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

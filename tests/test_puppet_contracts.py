@@ -11,7 +11,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.contracts import Contract  # noqa: E402
-from puppet_lib.errors import ValidationError  # noqa: E402
+from puppet_lib.errors import UnsupportedError, ValidationError  # noqa: E402
 from puppet_lib.safety import (  # noqa: E402
     atomic_write_json,
     paths_overlap,
@@ -61,6 +61,7 @@ class ContractTests(unittest.TestCase):
             second = Contract.from_dict(dict(reversed(list(raw.items()))))
             self.assertEqual(first.fingerprint, second.fingerprint)
             self.assertEqual(first.target, "agy")
+            self.assertEqual(first.transport, "tmux")
 
     def test_agy_default_session_profile_is_regular_and_canonical(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -92,6 +93,16 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(contract.target, "codex")
             self.assertEqual(contract.session_profile, "regular")
             self.assertEqual(contract.raw["session_profile"], "regular")
+
+    def test_named_unimplemented_transport_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = valid_contract(Path(temporary))
+            raw["transport"] = "herdr"
+            with self.assertRaisesRegex(UnsupportedError, "not implemented"):
+                Contract.from_dict(raw)
+            raw["transport"] = "not-a-transport"
+            with self.assertRaisesRegex(ValidationError, "unsupported transport"):
+                Contract.from_dict(raw)
 
     def test_invalid_session_profile_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

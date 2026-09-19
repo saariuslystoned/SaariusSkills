@@ -138,6 +138,8 @@ class QualificationReuseTests(TestCase):
 
         self.assertTrue(shared <= agy_sources)
         self.assertTrue(shared <= cursor_sources)
+        self.assertIn("scripts/puppet_lib/caller.py", shared)
+        self.assertIn("scripts/puppet_lib/transport.py", shared)
         self.assertIn("scripts/puppet_lib/agy_launch.py", agy_sources)
         self.assertNotIn("scripts/puppet_lib/cursor_qualification.py", agy_sources)
         self.assertIn("scripts/puppet_lib/cursor_qualification.py", cursor_sources)
