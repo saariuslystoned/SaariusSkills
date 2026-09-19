@@ -13,9 +13,8 @@
 Source slice implemented and independently repaired in this worktree. Native
 runtime tests, nested AGY protocol parsing, transport-specific qualification
 invalidation tests, and installed native process proof passed. Full discovery
-ran 1,237 tests; the AGY-focused and packaging reruns passed. The three Darwin
-process-inventory cases pass after bounded race classification; one unrelated
-Codex launch fixture still fails before its expected child artifact appears.
+now passes all 1,247 tests on this host after the bounded Darwin doctor census
+guard. The existing PR remains open and unmerged.
 PR #49 is open at
 `https://github.com/saariuslystoned/SaariusSkills/pull/49`; it is not merged.
 
@@ -27,3 +26,14 @@ PR #49 is open at
 - owned-child halt preserves recorded birth-bound descendants across reparenting and treats ambiguous identity as non-gone
 - selected transport is carried through census and checked against qualification scope at doctor/launch
 - public CLI qualification receipt/live proof remains pending; no such receipt was available for this pass
+
+## Repair pass 2 closeout (2026-09-19)
+
+- repair commit: `4da746d`
+- delegated checkpoint-admission slice: Cursor ACP job `e7692e33-c502-4e8e-bbc2-204b8b23957c`, selected `grok-4.6[effort=high,fast=true]`; focused worker tests passed and the diff was independently inspected
+- public AGY checkpoint import/review/accept now share runtime, protocol, conformance-fixture, source-identity, and state-admission gates
+- parent-gone halt uses the lease-bound identity and preserves retryable owned-child cleanup; resume refreshes executable/worktree identity before lease admission and reconciles failed admissions
+- refused sends do not create delivery intent; historical request IDs are retained without silent eviction
+- Linux `/proc` disappearance is typed as `ProcessVanished`; blocked doctor transports skip unrelated live PID census
+- focused repair tests: 72 passed; probe/qualification batch: 164 passed; full discovery: 1,247 passed in 349.622s
+- exact public CLI qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed

@@ -44,3 +44,13 @@ runtime/controller gap rather than merging its historical branch wholesale.
 - `python3 -m compileall -q skills/puppet/scripts` and `git diff --check`: passed
 - full discovery reached 1,237 tests; the prior run had three Darwin/Cursor errors and one unrelated Codex doctor-child timing failure. The three Darwin/Cursor cases pass after the final bounded repair; the Codex timing-sensitive fixture remains unresolved.
 - PR body was updated with the same evidence and explicitly preserves the public CLI receipt limitation.
+
+## PR #49 repair pass 2 (2026-09-19)
+
+- exact repair commit: `4da746d`
+- Cursor ACP worker job `e7692e33-c502-4e8e-bbc2-204b8b23957c` completed on the exact worktree with selected model `grok-4.6[effort=high,fast=true]`; the public checkpoint-admission slice and four bounded regressions were independently inspected
+- targeted repair verification: `python3 -m unittest tests.test_puppet_agy_print_checkpoint tests.test_puppet_agy_print_runtime tests.test_puppet_authority -q` → 72 passed
+- transport/probe/qualification verification: 164 passed
+- full verification: `python3 -m compileall -q skills/puppet/scripts` and `git diff --check` passed; `python3 -m unittest discover -s tests -p 'test_*.py' -q` → 1,247 passed in 349.622s
+- reproduced public failures covered by regressions: first-followup/runtime-fingerprint/prior-checkpoint admission, parent-gone halt, refused-send intent poisoning, silent ledger eviction, failed resume admission, executable drift, and typed Linux process disappearance
+- exact public CLI qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
