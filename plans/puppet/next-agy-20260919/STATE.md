@@ -72,5 +72,5 @@ PR #49 is open at
 - full discovery: 1,264 passed in 270.995s
 - adapted review probe now passes the source identity boundary and reaches the expected unsupported native transport; its mocked lease fixture lacks a real authority root for cleanup after that boundary
 - packaging guard initially caught one literal home-directory path in this state file; the path was redacted in `d7a5306`, and the rerun passed
-- source repair head `d7a5306398c2c49fb64d223d06544de5d6330bb9`; final proof closeout head `f4fca20b4fb88ee19c29f9c1590190d45297f599`; hosted CI run `35456758615` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
+- source repair head `d7a5306398c2c49fb64d223d06544de5d6330bb9`; final proof closeout head `bae47d450bbd79a4d6dba9fe35608fd647b21d1e`; hosted CI run `35456997885` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
 - public AGY qualification receipt/live proof remains pending; PR remains open and unmerged
