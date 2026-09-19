@@ -2481,6 +2481,29 @@ def send_message(
                     or current.get("held") is True
                 )
                 if launched:
+                    runtime = getattr(agy_controller, "runtime", None)
+                    launched_process = getattr(runtime, "identity", None)
+                    if isinstance(launched_process, Mapping):
+                        if (
+                            launched_process.get("pid")
+                            != current["observation"]["process"].get("pid")
+                            or launched_process.get("kernel_birth_id")
+                            != current["observation"]["process"].get("kernel_birth_id")
+                        ):
+                            raise IdentityError(
+                                "agy-print resumed process identity changed"
+                            )
+                        transition_session_lease(
+                            session=session,
+                            target=contract.target,
+                            controller=contract.controller,
+                            owner=dict(stored["lease_owner"]),
+                            instruction_manifest_sha256=stored[
+                                "instruction_manifest_sha256"
+                            ],
+                            state="active",
+                            process=dict(launched_process),
+                        )
                     try:
                         halted = agy_controller.halt(session=session)
                     except Exception as exc:
@@ -2512,7 +2535,7 @@ def send_message(
                 )
             elif (
                 protocol.get("kind") == "source"
-                and record_state == "SOURCE_ACCEPTED"
+                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
                 and protocol.get("phase") == "source_accepted"
                 and "proof_assignment_id" not in protocol
             ):
@@ -3716,7 +3739,7 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 controller=contract.controller,
                 owner=dict(stored["lease_owner"]),
                 instruction_manifest_sha256=stored["instruction_manifest_sha256"],
-                states={"active", "halting", "halted", "failed"},
+                states={"active", "launching", "halting", "halted", "failed"},
             )
             observation = stored["observation"]
             if lease["state"] in {"halted", "failed"} and observation.get("record_state") == "HALTED":
@@ -3749,6 +3772,17 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
                 process = dict(bound_process)
             if process["kernel_birth_id"] != observation["process"]["kernel_birth_id"]:
                 raise IdentityError("agy-print halt process identity changed")
+            if lease["state"] == "launching":
+                transition_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    state="active",
+                    process=process,
+                )
+                lease = dict(lease, state="active", process=process)
             if lease["state"] not in {"active", "halting"}:
                 raise IdentityError("agy-print halt requires an active or halting lease")
             if lease["state"] == "active":

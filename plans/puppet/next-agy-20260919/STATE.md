@@ -49,3 +49,12 @@ PR #49 is open at
 - full discovery: 1,258 tests; 1 unrelated timing-sensitive Codex doctor-child assertion failed in the aggregate run and passed on exact isolated rerun
 - exact public CLI AGY qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
 - corrected exact-head CI run `35445828955` passed on Ubuntu 24.04 and macOS 26 after redacting machine-local proof paths
+
+## Repair pass 4 closeout (2026-09-19)
+
+- authoritative packet `/audit-packet/20260919-pr49-repair4-review/` reproduced the real-start persistence, source admission, cleanup recovery, and proof-path defects before edits
+- Cursor ACP job `99d9be46-cd4d-4dd7-9aa0-7c22fe7c5ca4` completed on the exact worktree with selected `grok-4.6[effort=high,fast=true]`; protocol-state slice independently inspected
+- real AGY start/persistence now commits the admitted continuation transition; HALTED source sessions can resume proof assignment and restore SOURCE_ACCEPTED after start
+- failed resumed cleanup binds the runtime's exact process identity before cleanup and public halt can recover an active/launching fenced generation; ambiguous identity remains unreleased
+- focused repair suite: 113 passed; public recovery regression exercises first cleanup failure followed by successful public halt
+- proof note no longer contains machine-local home-directory literals; full discovery and final-head CI remain to be recorded

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import copy
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 from puppet_lib.agy_print import (
     SESSION_STORE_SCHEMA,
     AgyPrintController,
+    AgyPrintRuntime,
     fixture_observation,
     persist_agy_print_session,
 )
@@ -178,6 +182,165 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
             request_id=request_id,
             message_sha256="cc" * 32,
             result={"ok": True, "request_id": request_id},
+        )
+
+    def _bind_executable(self):
+        current = AgyPrintController(self.state).require_session(SESSION)
+        current["executable"] = sys.executable
+        persist_agy_print_session(self.state, current)
+
+    def _public_halt(self):
+        with (
+            mock.patch(
+                "puppet_lib.session.require_session_lease",
+                return_value={"state": "active", "process": dict(PROCESS)},
+            ),
+            mock.patch("puppet_lib.session.transition_session_lease"),
+            mock.patch("puppet_lib.agy_print._pid_gone", return_value=True),
+        ):
+            result = session_halt(state_root=self.state, session=SESSION)
+        self.assertEqual(result["state"], "HALTED")
+        return result
+
+    def _resumed_runtime(self, stored):
+        observation = copy.deepcopy(stored["observation"])
+        observation.update(
+            record_state="ACTIVE",
+            terminal_result={"state": "completed", "exit_code": 0},
+            halt=None,
+        )
+        return SimpleNamespace(
+            observation=observation,
+            conversation_id=stored.get("conversation_id") or "conv-agy-print-1",
+            require_observation=lambda: observation,
+        )
+
+    def _public_resume_send(self, message, request_id):
+        stored = AgyPrintController(self.state).require_session(SESSION)
+        runtime = self._resumed_runtime(stored)
+        start_kwargs = {}
+
+        def start(**kwargs):
+            start_kwargs.update(kwargs)
+            return runtime
+
+        with (
+            mock.patch(
+                "puppet_lib.session.require_session_lease",
+                return_value={"state": "halted", "process": dict(PROCESS)},
+            ),
+            mock.patch("puppet_lib.session._validate_agy_resume_identity"),
+            mock.patch("puppet_lib.session.admit_session_lease"),
+            mock.patch("puppet_lib.session.transition_session_lease"),
+            mock.patch(
+                "puppet_lib.agy_print.agy_print_runtime_available",
+                return_value=True,
+            ),
+            mock.patch.object(AgyPrintRuntime, "start", side_effect=start),
+        ):
+            result = send_message(
+                state_root=self.state,
+                session=SESSION,
+                message=message,
+                request_id=request_id,
+            )
+        return result, start_kwargs
+
+    def _git_output(self, repo, *arguments):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *arguments],
+            text=True,
+        ).strip()
+
+    def _git_commit(self, repo, message):
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Puppet Test",
+                "-c",
+                "user.email=puppet@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                message,
+            ],
+            check=True,
+        )
+        return {
+            "head": self._git_output(repo, "rev-parse", "HEAD"),
+            "tree": self._git_output(repo, "rev-parse", "HEAD^{tree}"),
+            "branch": self._git_output(repo, "branch", "--show-current"),
+        }
+
+    def _init_source_repo(self):
+        repo = self.root / "source-repo"
+        repo.mkdir()
+        subprocess.run(
+            ["git", "init", "-q", "-b", "codex/agy-source", str(repo)],
+            check=True,
+        )
+        (repo / "feature.txt").write_text("bounded source\n", encoding="utf-8")
+        return repo, self._git_commit(repo, "source")
+
+    def _source_session_record(self, repo, identity):
+        record = self._session_record()
+        record["contract"].update(
+            {
+                "objective": "Bounded AGY public source continuation",
+                "task_profile": "implementation",
+                "mutation_owner": "target",
+                "repo": str(repo),
+                "branch": identity["branch"],
+                "allowed_modes": ["read", "test", "mutate", "local_commit"],
+                "run_id": "source-run",
+                "nonce": "source-nonce",
+                "proof_path_prefixes": ["proof/"],
+                "terminal_criteria": [
+                    {"id": "source_green", "evidence": "validated_handoff"}
+                ],
+            }
+        )
+        record["observation"] = fixture_observation(
+            session=SESSION,
+            workspace_path=str(repo),
+            branch=identity["branch"],
+            head=identity["head"],
+            tree=identity["tree"],
+            record_state="ACTIVE",
+        )
+        record["protocol"] = {
+            "kind": "source",
+            "run_id": "source-run",
+            "nonce": "source-nonce",
+            "phase": "awaiting_source",
+            "source_commit": None,
+            "proof_commit": None,
+        }
+        return record
+
+    def _source_handoff(self, name, commit, summary):
+        return write_json(
+            self.proof / name,
+            {
+                "schema_version": HANDOFF_SCHEMA_VERSION,
+                "checkpoint_kind": "source",
+                "session": SESSION,
+                "run_id": "source-run",
+                "nonce": "source-nonce",
+                "candidate_commit": commit,
+                "timestamp": "2026-09-19T03:10:00Z",
+                "summary": summary,
+                "claims": [],
+                "evidence_refs": [],
+                "decisions_requested": [],
+                "limitations": [],
+                "suggested_next_assignment": "Controller review",
+                **self.fingerprints,
+            },
         )
 
     def test_public_import_rejects_first_followup(self):
@@ -456,6 +619,202 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
                 )
         self.assertEqual(halt_calls, [SESSION])
         self.assertEqual(transition.call_args.kwargs["state"], "failed")
+
+    def test_public_ready_halt_send_persists_followup_for_import(self):
+        ready = self._import(self._handoff("ready.json"))
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "CONFORMANCE_READY",
+        )
+        self._bind_executable()
+        self._public_halt()
+        result, start_kwargs = self._public_resume_send("follow up", "followup-1")
+        self.assertEqual(result["state"], "ACTIVE")
+        self.assertIn("PUPPET_FOLLOWUP_V2", start_kwargs["prompt"])
+        current = AgyPrintController(self.state).require_session(SESSION)
+        self.assertIsNone(current["observation"]["halt"])
+        self.assertEqual(
+            current["observation"]["terminal_result"]["state"], "completed"
+        )
+        self.assertEqual(current["observation"]["record_state"], "ACTIVE")
+        self.assertEqual(current["protocol"]["phase"], "followup_sent")
+        self.assertEqual(current["protocol"]["message_id"], "followup-1")
+        self.assertEqual(
+            current["send_requests"]["followup-1"]["phase"], "submitted"
+        )
+        followup = self._import(
+            self._handoff(
+                "followup.json",
+                phase="followup",
+                sequence=1,
+                message_id="followup-1",
+                prior_checkpoint_sha256=ready["artifact_sha256"],
+                timestamp="2026-09-19T03:02:00Z",
+            )
+        )
+        self.assertEqual(followup["checkpoint_kind"], "conformance")
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "CONFORMANCE_CHECKPOINT_READY",
+        )
+
+    def test_public_source_accept_halt_assigns_proof_for_checkpoint(self):
+        repo, identity = self._init_source_repo()
+        persist_agy_print_session(
+            self.state, self._source_session_record(repo, identity)
+        )
+        source = self._import(
+            self._source_handoff(
+                "source.json", identity["head"], "Bounded source checkpoint"
+            )
+        )
+        review_evidence = write_json(
+            self.proof / "source-review.json",
+            {"findings": [], "classification": "clean"},
+        )
+        review_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=source["checkpoint_id"],
+            actor="tester",
+            verdict="source_accept",
+            evidence_path=review_evidence,
+        )
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "SOURCE_ACCEPTED",
+        )
+        self._bind_executable()
+        self._public_halt()
+        result, start_kwargs = self._public_resume_send(
+            "Create one proof-only child of the accepted source.",
+            "proof-1",
+        )
+        self.assertEqual(result["state"], "ACTIVE")
+        self.assertIn("PUPPET_SOURCE_PROOF_ASSIGNMENT_V2", start_kwargs["prompt"])
+        current = AgyPrintController(self.state).require_session(SESSION)
+        self.assertIsNone(current["observation"]["halt"])
+        self.assertEqual(
+            current["observation"]["terminal_result"]["state"], "completed"
+        )
+        self.assertEqual(current["observation"]["record_state"], "SOURCE_ACCEPTED")
+        self.assertEqual(current["protocol"]["phase"], "proof_assignment_sent")
+        self.assertEqual(current["protocol"]["proof_assignment_id"], "proof-1")
+        (repo / "proof").mkdir()
+        write_json(repo / "proof" / "receipt.json", {"source_commit": identity["head"]})
+        proof_identity = self._git_commit(repo, "proof")
+        proof = self._import(
+            self._source_handoff(
+                "proof.json",
+                proof_identity["head"],
+                "Proof-only child checkpoint",
+            )
+        )
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "PROOF_CHECKPOINT_READY",
+        )
+        review_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=proof["checkpoint_id"],
+            actor="tester",
+            verdict="source_accept",
+            evidence_path=review_evidence,
+        )
+        self.assertEqual(
+            AgyPrintController(self.state).status(session=SESSION)["state"],
+            "AWAITING_CONTROLLER_REVIEW",
+        )
+
+    def test_failed_resume_cleanup_recovers_through_later_public_halt(self):
+        full_process = {
+            "identity_version": 2,
+            "pid": PROCESS["pid"],
+            "kernel_birth_id": PROCESS["kernel_birth_id"],
+            "start": "2026-09-19T15:00:00Z",
+            "command": "agy --print",
+            "executable_path": sys.executable,
+            "device": 1,
+            "inode": 2,
+        }
+        base = self._session_record(
+            held=False,
+            observation=fixture_observation(
+                session=SESSION, workspace_path=str(self.repo), record_state="HALTED"
+            ),
+        )
+        base["protocol"].update(
+            phase="ready_validated", ready_artifact_sha256="aa" * 32
+        )
+        persist_agy_print_session(self.state, base)
+        self._bind_executable()
+        lease = {"state": "halted", "process": None}
+
+        def require_lease(**kwargs):
+            if lease["state"] not in kwargs["states"]:
+                raise IdentityError("lease state refused: %s" % lease["state"])
+            return dict(lease)
+
+        def admit_lease(**kwargs):
+            lease.update(state="launching", process=None)
+            return dict(lease)
+
+        def transition_lease(*, state, process, **kwargs):
+            lease.update(state=state, process=process or lease.get("process"))
+            return dict(lease)
+
+        observation = copy.deepcopy(base["observation"])
+        observation.update(
+            record_state="ACTIVE",
+            terminal_result={"state": "completed", "exit_code": 0},
+            halt=None,
+        )
+        runtime = SimpleNamespace(
+            observation=observation,
+            identity=full_process,
+            conversation_id=base["conversation_id"],
+            require_observation=lambda: observation,
+        )
+        process_samples = [
+            IdentityError("identity sampling unavailable"),
+            dict(full_process),
+        ]
+        real_halt = AgyPrintController.halt
+        halt_calls = []
+
+        def fail_once_then_real(controller, **kwargs):
+            halt_calls.append(kwargs.get("session"))
+            if len(halt_calls) == 1:
+                raise IdentityError("cleanup not proven")
+            return real_halt(controller, **kwargs)
+
+        with (
+            mock.patch("puppet_lib.session.require_session_lease", side_effect=require_lease),
+            mock.patch("puppet_lib.session.admit_session_lease", side_effect=admit_lease),
+            mock.patch("puppet_lib.session.transition_session_lease", side_effect=transition_lease),
+            mock.patch("puppet_lib.session._validate_agy_resume_identity"),
+            mock.patch("puppet_lib.session.process_birth_identity", side_effect=process_samples),
+            mock.patch("puppet_lib.agy_print.agy_print_runtime_available", return_value=True),
+            mock.patch.object(AgyPrintRuntime, "start", return_value=runtime),
+            mock.patch.object(AgyPrintController, "halt", autospec=True, side_effect=fail_once_then_real),
+            mock.patch("puppet_lib.agy_print._pid_gone", return_value=True),
+        ):
+            with self.assertRaisesRegex(IdentityError, "resume cleanup was not proven"):
+                send_message(
+                    state_root=self.state,
+                    session=SESSION,
+                    message="follow up",
+                    request_id="cleanup-recovery-1",
+                )
+            self.assertEqual(lease["state"], "active")
+            self.assertEqual(lease["process"], full_process)
+            result = session_halt(state_root=self.state, session=SESSION)
+
+        self.assertEqual(result["state"], "HALTED")
+        self.assertEqual(halt_calls, [SESSION, SESSION])
+        self.assertEqual(lease["state"], "halted")
+        self.assertFalse(AgyPrintController(self.state).require_session(SESSION)["held"])
 
 
 if __name__ == "__main__":

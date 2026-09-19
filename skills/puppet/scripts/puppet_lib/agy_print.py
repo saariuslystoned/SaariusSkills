@@ -2962,6 +2962,7 @@ class AgyPrintController:
             raise ValidationError("agy-print request id is required")
         stored = self.require_session(session)
         protocol = stored.get("protocol")
+        admitted_transition: Optional[str] = None
         if isinstance(protocol, Mapping) and protocol.get("kind") == "conformance":
             state = (stored.get("observation") or {}).get("record_state") or "ACTIVE"
             first_submission = (
@@ -2977,20 +2978,29 @@ class AgyPrintController:
                 raise ValidationError(
                     "conformance follow-up is not currently authorized"
                 )
+            if first_submission:
+                admitted_transition = "conformance_followup"
         elif isinstance(protocol, Mapping) and protocol.get("kind") == "source":
             state = (stored.get("observation") or {}).get("record_state") or "ACTIVE"
             first_submission = (
-                state == "SOURCE_ACCEPTED"
+                state in {"SOURCE_ACCEPTED", "HALTED"}
                 and protocol.get("phase") == "source_accepted"
                 and "proof_assignment_id" not in protocol
             )
             replay = (
-                state == "SOURCE_ACCEPTED"
+                state in {"SOURCE_ACCEPTED", "HALTED"}
                 and protocol.get("phase") == "proof_assignment_sent"
                 and protocol.get("proof_assignment_id") == request_id
             )
-            if not (state in {"ACTIVE", "WAITING_EXTERNAL"} or first_submission or replay):
+            ordinary_source = state in {"ACTIVE", "WAITING_EXTERNAL"} or (
+                state == "HALTED"
+                and protocol.get("phase")
+                not in {"source_accepted", "proof_assignment_sent"}
+            )
+            if not (ordinary_source or first_submission or replay):
                 raise ValidationError("source session is not accepting messages")
+            if first_submission:
+                admitted_transition = "source_proof_assignment"
         message_sha256 = sha256_bytes(message.encode("utf-8"))
         requests = stored.get("send_requests")
         if requests is None:
@@ -3093,6 +3103,7 @@ class AgyPrintController:
                 request_id=request_id,
                 message_sha256=message_sha256,
                 result=result,
+                admitted_transition=admitted_transition,
             )
             result["request_id"] = request_id
             return result
@@ -3116,6 +3127,7 @@ class AgyPrintController:
             request_id=request_id,
             message_sha256=message_sha256,
             result=result,
+            admitted_transition=admitted_transition,
         )
         self.last_public_send_outcome = "new_launch"
         result["request_id"] = request_id
@@ -3128,6 +3140,7 @@ class AgyPrintController:
         request_id: str,
         message_sha256: str,
         result: Mapping[str, Any],
+        admitted_transition: Optional[str] = None,
     ) -> None:
         current = self.load_session(session)
         if current is None:
@@ -3149,27 +3162,33 @@ class AgyPrintController:
         }
         protocol = current.get("protocol")
         observation = current.get("observation")
-        if (
-            isinstance(protocol, Mapping)
+        conformance_followup = admitted_transition == "conformance_followup" or (
+            admitted_transition is None
+            and isinstance(protocol, Mapping)
             and protocol.get("kind") == "conformance"
             and protocol.get("phase") == "ready_validated"
-            and isinstance(observation, Mapping)
-            and observation.get("record_state") in {"CONFORMANCE_READY", "HALTED"}
-        ):
+        )
+        source_proof_assignment = admitted_transition == "source_proof_assignment" or (
+            admitted_transition is None
+            and isinstance(protocol, Mapping)
+            and protocol.get("kind") == "source"
+            and protocol.get("phase") == "source_accepted"
+            and "proof_assignment_id" not in protocol
+        )
+        if conformance_followup and isinstance(protocol, Mapping):
             updates["protocol"] = dict(
                 protocol, phase="followup_sent", message_id=request_id
             )
-            updates["observation"] = dict(observation, record_state="ACTIVE")
-        elif (
-            isinstance(protocol, Mapping)
-            and protocol.get("kind") == "source"
-            and protocol.get("phase") == "source_accepted"
-            and isinstance(observation, Mapping)
-            and observation.get("record_state") == "SOURCE_ACCEPTED"
-        ):
+            if isinstance(observation, Mapping):
+                updates["observation"] = dict(observation, record_state="ACTIVE")
+        elif source_proof_assignment and isinstance(protocol, Mapping):
             updates["protocol"] = dict(
                 protocol, phase="proof_assignment_sent", proof_assignment_id=request_id
             )
+            if isinstance(observation, Mapping):
+                updates["observation"] = dict(
+                    observation, record_state="SOURCE_ACCEPTED"
+                )
         persist_agy_print_session(
             self.registry_root,
             dict(current, **updates),
