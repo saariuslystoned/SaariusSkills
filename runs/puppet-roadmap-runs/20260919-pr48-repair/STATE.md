@@ -1,6 +1,6 @@
 # PR #48 repair pass
 
-- status: committed_pending_push
+- status: pushed_pending_github_checks
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/48
 - reviewed_head: 9d95cc057a0c7e07f8e83fe121548f731c362a9e
 - second_reviewed_head: db527dedf3bb0a519c53f7d5c4f2f103f4bd3445
@@ -47,6 +47,9 @@
 - repair2_commit: 091712e
 - repair2_source_committed: true
 - repair2_live_e2e_claimed: false
+- repair2_proof_close_commit: ea27a00
+- repair2_pushed_head: ea27a00e4c57ed2b48eabde934b1424afe3554d2
+- repair2_github_checks: pending
 - live_cursor_claimed: false
 - parent_focused_cursor_tests: 29_ok
 - parent_transport_regression_tests: 48_ok
