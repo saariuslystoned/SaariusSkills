@@ -3,3 +3,4 @@
 {"event":"cursor_acp_delegate","at":"2026-09-18T20:37:10-04:00","job_id":"fb3a7520-dac1-4f52-8233-801b51d32db0","stage":"cursor_acp_under_puppet_ownership","timeout_ms":1200000}
 {"event":"worker_complete","at":"2026-09-18T20:44:01-04:00","focused_ok":16,"focused_plus_contracts_ok":93,"relevant_ok":211,"live_cursor_acp_claimed":false,"head":"01165c76cfd44125cfba420813ff8e5b946d6acb"}
 {"event":"parent_verification","at":"2026-09-18T20:55:00-04:00","focused_plus_contracts_ok":93,"relevant_ok":211,"full_discover_ok":894,"full_discover_seconds":164.287,"compileall":"ok","diff_check":"ok","forbidden_bridge_or_package_paths":"none"}
+{"event":"accepted","at":"2026-09-18T20:56:00-04:00","commit":"fa12809","status":"accepted","live_cursor_acp_claimed":false}

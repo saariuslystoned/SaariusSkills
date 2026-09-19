@@ -10,7 +10,7 @@
 - worker: Cursor ACP / Grok 4.6 High
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: Puppet-owned Cursor ACP adapter boundary; exact workspace/model/session/result proof; no fallback; deterministic fixtures unless safe local runtime proof already exists
-- commit: pending parent commit
+- commit: fa12809 (parent implementation and proof commit)
 - job_id: fb3a7520-dac1-4f52-8233-801b51d32db0
 - live_cursor_acp_claimed: false
 - external actions: none
