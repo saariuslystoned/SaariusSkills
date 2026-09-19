@@ -57,4 +57,7 @@ PR #49 is open at
 - real AGY start/persistence now commits the admitted continuation transition; HALTED source sessions can resume proof assignment and restore SOURCE_ACCEPTED after start
 - failed resumed cleanup binds the runtime's exact process identity before cleanup and public halt can recover an active/launching fenced generation; ambiguous identity remains unreleased
 - focused repair suite: 113 passed; public recovery regression exercises first cleanup failure followed by successful public halt
-- proof note no longer contains machine-local home-directory literals; full discovery and final-head CI remain to be recorded
+- proof note no longer contains machine-local home-directory literals
+- full discovery: `python3 -m unittest discover -s tests -q` → 1,261 passed in 227.191s
+- exact-head CI run `35452109013` for `ff197b71bd6e546728175011aa9cd1cf7ae137d5` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
+- PR #49 remains open and unmerged; public AGY qualification receipt/live proof remains pending

@@ -69,10 +69,14 @@ runtime/controller gap rather than merging its historical branch wholesale.
 
 ## PR #49 repair pass 4 (2026-09-19)
 
+- exact repair commit/head: `ff197b71bd6e546728175011aa9cd1cf7ae137d5`
+- existing PR: `https://github.com/saariuslystoned/SaariusSkills/pull/49`; state is OPEN and `mergedAt` is null
 - authoritative packet `/audit-packet/20260919-pr49-repair4-review/`; supplied review probes reproduced the real-start persistence defect, halted source admission defect, cleanup recovery gap, and proof-path packaging failure
 - Cursor ACP job `99d9be46-cd4d-4dd7-9aa0-7c22fe7c5ca4` used the required native route and selected `grok-4.6[effort=high,fast=true]`; canonical proof is under `<proof-root>/99d9be46-cd4d-4dd7-9aa0-7c22fe7c5ca4/`
 - worker verification: real controller start/persistence conformance and source public regressions; focused worker suite → 112 passed
 - parent verification: `python3 -m unittest tests.test_puppet_agy_print_checkpoint tests.test_puppet_agy_print_runtime tests.test_puppet_probe_transport tests.test_puppet_probe -q` → 113 passed; `py_compile` and `git diff --check` passed
 - current-worktree reproduction of the authoritative continuation probe now reports `phase=followup_sent`, `message_id=followup-1`, and successful matching follow-up import; unsupported AGY qualification remains fail-closed
 - new recovery regression proves a first cleanup failure preserves the exact active process fence, then a later public halt positively stops the owned generation and reaches HALTED
+- full discovery: `python3 -m unittest discover -s tests -q` → 1,261 passed in 227.191s
+- exact-head CI run `35452109013` for `ff197b71bd6e546728175011aa9cd1cf7ae137d5` passed on Ubuntu 24.04 and macOS 26, including test suite, compile, and smoke command surfaces
 - exact public CLI AGY qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
