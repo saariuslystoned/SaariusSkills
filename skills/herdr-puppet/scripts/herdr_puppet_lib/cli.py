@@ -34,6 +34,7 @@ from .core import (
     qualification_view_begin,
     qualification_view_complete,
     register_remote_task_file,
+    resume_lease,
     structural_status,
 )
 from .errors import HerdrPuppetError
@@ -506,6 +507,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     preserve.add_argument("--run-root")
 
+    resume = subparsers.add_parser("lease-resume")
+    resume.add_argument("--lease-json", required=True)
+    resume.add_argument("--run-root", required=True)
+    resume.add_argument("--allow-live-qualification", action="store_true")
+    _common_live(resume, default_timeout_seconds=60.0)
+
     return parser
 
 
@@ -899,6 +906,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             lease_path=Path(args.lease_json),
             reason=args.reason,
             run_root=Path(args.run_root) if args.run_root else None,
+        )
+    if args.command == "lease-resume":
+        return resume_lease(
+            lease_payload=load_json(args.lease_json),
+            lease_path=Path(args.lease_json),
+            client=_client(args),
+            allow_live=args.allow_live_qualification,
+            run_root=Path(args.run_root),
         )
     raise HerdrPuppetError("unknown_command", "Unknown command.")
 

@@ -277,6 +277,16 @@
       ]
     },
     "preserved_at": {"type": "string", "format": "date-time"},
+    "resumed_from_reason": {
+      "enum": [
+        "checkpoint_failed",
+        "human_gate",
+        "milestone_complete",
+        "operator_stop",
+        "route_superseded"
+      ]
+    },
+    "resumed_at": {"type": "string", "format": "date-time"},
     "cleanup_state": {"const": "closed"},
     "cleanup_verified_at": {"type": "string", "format": "date-time"},
     "cleanup_reconciled_absence": {"type": "boolean"}
