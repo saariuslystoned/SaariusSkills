@@ -58,8 +58,8 @@ runtime/controller gap rather than merging its historical branch wholesale.
 
 ## PR #49 repair pass 3 (2026-09-19)
 
-- authoritative audit packet: `/Users/bobbybones/Developer/SaariusSkills/runs/puppet-roadmap-runs/20260919-pr49-repair3-review/`; supplied probes reproduced all three P1 blockers before edits
-- Cursor ACP job `54d7aa3c-f71a-4ed7-a336-e89985625f51` used executable `/Users/bobbybones/.local/bin/cursor-agent acp`, requested `cursor-grok-4.6-high`, selected `grok-4.6[effort=high,fast=true]`, exact worktree; canonical result and proof paths are under `/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/54d7aa3c-f71a-4ed7-a336-e89985625f51/`
+- authoritative audit packet: `<audit-packet>/20260919-pr49-repair3-review/`; supplied probes reproduced all three P1 blockers before edits
+- Cursor ACP job `54d7aa3c-f71a-4ed7-a336-e89985625f51` used executable `<cursor-agent> acp`, requested `cursor-grok-4.6-high`, selected `grok-4.6[effort=high,fast=true]`, exact worktree; canonical result and proof paths are under `<proof-root>/54d7aa3c-f71a-4ed7-a336-e89985625f51/`
 - worker proof: selected `agy-print` qualification now rejects before fake tmux execution; `python3 -m unittest tests.test_puppet_probe_transport tests.test_puppet_probe tests.test_puppet_qualification_reuse tests.test_puppet_codex_qualification tests.test_puppet_cursor_qualification tests.test_puppet_grok_qualification tests.test_puppet_claude_paired_qualification -q` → 144 passed
 - parent focused proof: `python3 -m unittest tests.test_puppet_agy_print_checkpoint tests.test_puppet_agy_print_runtime tests.test_puppet_probe_transport tests.test_puppet_probe -q` → 110 passed; `python3 -m py_compile` for changed Python modules and `git diff --check` passed
 - new public regressions cover halt → follow-up envelope → submitted replay without reactivation, post-start identity failure cleanup before lease release, selected transport fail-closed behavior, and source protocol review transitions
