@@ -92,5 +92,5 @@ runtime/controller gap rather than merging its historical branch wholesale.
 - full verification: `python3 -m unittest discover -s tests -q` → 1,264 passed in 270.995s; `python3 -m py_compile` and `git diff --check` passed
 - post-edit adapted probe no longer rejects the reviewed source HEAD; matching proof replay succeeds without new admission/delivery, changed payload remains refused; unsupported native transport remains fail-closed, while the probe's mocked lease fixture cannot complete authority cleanup after transport refusal
 - final proof-path packaging correction: the first final-head run caught a literal home-directory path in `STATE.md`; `d7a5306` redacted it, and rerun `35456301281` passed on Ubuntu 24.04 and macOS 26 with test, compile, and smoke steps
-- source repair head: `d7a5306398c2c49fb64d223d06544de5d6330bb9`; final proof closeout head: `bae47d450bbd79a4d6dba9fe35608fd647b21d1e`; final-head CI run `35456997885` passed on Ubuntu 24.04 and macOS 26
+- source repair head: `d7a5306398c2c49fb64d223d06544de5d6330bb9`; final verified source head: `daf90e1c46dd36081ef546c36bddff525e6a417b`; source-head CI run `35457273403` passed on Ubuntu 24.04 and macOS 26
 - public AGY qualification receipt/live proof remains pending; no live AGY launch, external sends, deploys, merges, comments, issue edits, or account changes were performed
