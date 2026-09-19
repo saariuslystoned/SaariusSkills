@@ -18,6 +18,7 @@
 {"event":"cursor_model_parent_verified","at":"2026-09-18T22:26:20-04:00","unittest":"29_ok","compileall":"ok","diff_check":"ok"}
 {"event":"full_suite_regression","at":"2026-09-18T22:31:00-04:00","unittest":"940_pass_1_error","error":"schema_less_in_memory_transport_record_rejected","fixed":"session_runtime_validates_schema_less_transport_only"}
 {"event":"full_suite_verified","at":"2026-09-18T22:42:00-04:00","unittest":"941_ok","seconds":197.989,"compileall":"ok","diff_check":"ok"}
+{"event":"implementation_committed","at":"2026-09-18T22:45:00-04:00","commit":"af41be6","message":"puppet: repair PR48 qualification and identity boundaries"}
 {"event":"cursor_model_reproduced","at":"2026-09-18T22:23:20-04:00","requested":"cursor-grok-4.6-high","observed":"arbitrary-unverified-model","result":"unexpected_success"}
 {"event":"cursor_model_repaired","at":"2026-09-18T22:24:48-04:00","bound":"grok-4.6[effort=high,fast=true]","source_committed":false,"caller_uses_observation":false}
 {"event":"cursor_model_verified","at":"2026-09-18T22:24:48-04:00","unittest":"29_ok","unittest_seconds":4.877,"compileall":"ok","diff_check":"ok","post_fix":"unverified_identity_error","live_cursor_claimed":false}

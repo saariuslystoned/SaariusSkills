@@ -125,4 +125,4 @@ Commands/results:
 - Parent reran `python3 -m unittest discover -s tests -p 'test_puppet_*.py' -q` → 941 tests OK in 197.989s.
 - Parent compileall for all touched Puppet scripts/tests → `COMPILEALL_OK`.
 - Parent `git diff --check` → `DIFF_CHECK_OK`.
-- Source and proof remain uncommitted pending the final parent commit.
+- Parent commit: `af41be6` (`puppet: repair PR48 qualification and identity boundaries`).
