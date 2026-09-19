@@ -1,0 +1,25 @@
+# Puppet roadmap stage 6 — Codex
+
+- status: implementation_committed
+- stage: Codex builder admission
+- branch: codex/puppet-roadmap-stage1-20260918
+- base: d66bd666a2def1a92ba3bbfbecbdadfaa6cbfee6
+- accepted_stage6_grok_code: b75569e
+- stage6_grok_proof_closeout: d66bd66
+- origin_main: a8de5b9245cd457cc35ca2e223a11040d0772f47
+- worker: Cursor ACP / Grok 4.6 High
+- workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
+- scope: Codex-specific builder admission proof; exact model/workspace/UUIDv4 session/result binding; no generic ACP or live external claim
+- commit: f51138e7e89f0d49ef5c8575fa0f3fc6e95ca24d
+- job_id: faa7bb68-7bf1-4568-8af3-50bb9305b930 (resubmission of 7b55bfc8-5bf8-41c3-ad1b-4899a7bad351)
+- live_codex_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_codex_qualification_pending
+- external actions: none
+- focused_tests: 13
+- codex_plus_reuse_tests: 83
+- preservation_tests: 106
+- caller_path_tests: 224
+- full_discover_ok: 919
+- full_discover_seconds: 213.615 (parent rerun)
+- parent_compileall: ok
+- parent_diff_check: ok

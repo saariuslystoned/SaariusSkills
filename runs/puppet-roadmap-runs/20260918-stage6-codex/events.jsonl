@@ -1,0 +1,13 @@
+{"event":"run_initialized","at":"2026-09-18T21:03:22-04:00","base":"d66bd666a2def1a92ba3bbfbecbdadfaa6cbfee6","accepted_stage6_grok_code":"b75569e","stage":"codex_builder_admission"}
+{"event":"cursor_acp_readiness","at":"2026-09-18T21:03:22-04:00","ready":true,"requested":"cursor-grok-4.6-high","selected":"grok-4.6[effort=high,fast=true]","current":"grok-4.6[effort=high,fast=true]","matching_model_ids":1}
+{"event":"cursor_acp_delegate","at":"2026-09-18T21:03:45-04:00","job_id":"7b55bfc8-5bf8-41c3-ad1b-4899a7bad351","stage":"codex_builder_admission","timeout_ms":1200000}
+{"event":"cursor_acp_result","at":"2026-09-18T21:06:11-04:00","job_id":"7b55bfc8-5bf8-41c3-ad1b-4899a7bad351","status":"failed","error_code":"BRIDGE_RESTARTED","resubmission_required":true}
+{"event":"cursor_acp_delegate","at":"2026-09-18T21:06:48-04:00","job_id":"faa7bb68-7bf1-4568-8af3-50bb9305b930","stage":"codex_builder_admission","timeout_ms":1200000,"resubmission_of":"7b55bfc8-5bf8-41c3-ad1b-4899a7bad351"}
+{"event":"worker_implemented","at":"2026-09-18T21:09:45-04:00","job_id":"faa7bb68-7bf1-4568-8af3-50bb9305b930","module":"codex_admission.py","live_codex_claimed":false}
+{"event":"worker_tests","at":"2026-09-18T21:09:45-04:00","focused":12,"codex_plus_reuse":94,"contracts":117,"caller_path":235,"compileall":"ok","diff_check":"ok"}
+{"event":"worker_complete","at":"2026-09-18T21:09:45-04:00","head":"d66bd666a2def1a92ba3bbfbecbdadfaa6cbfee6","commit":"none","live_codex_claimed":false}
+{"event":"worker_uuidv4_session","at":"2026-09-18T21:14:21-04:00","job_id":"faa7bb68-7bf1-4568-8af3-50bb9305b930","session_field":"codex_session_id","identity":"canonical_uuidv4"}
+{"event":"worker_tests","at":"2026-09-18T21:14:21-04:00","focused":13,"codex_plus_reuse":83,"preservation":106,"caller_path":224,"full_discover":919,"full_discover_seconds":176.591,"compileall":"ok","diff_check":"ok"}
+{"event":"worker_complete","at":"2026-09-18T21:14:21-04:00","head":"d66bd666a2def1a92ba3bbfbecbdadfaa6cbfee6","commit":"none","live_codex_claimed":false}
+{"event":"parent_verification","at":"2026-09-18T21:18:00-04:00","full_discover":919,"full_discover_seconds":213.615,"compileall":"ok","diff_check":"ok","source_review":"ok","commit":"pending"}
+{"event":"implementation_commit","at":"2026-09-18T21:20:00-04:00","commit":"f51138e7e89f0d49ef5c8575fa0f3fc6e95ca24d","message":"puppet: admit Codex builder after qualification","live_codex_claimed":false}

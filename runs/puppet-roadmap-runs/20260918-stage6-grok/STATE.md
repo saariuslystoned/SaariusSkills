@@ -1,0 +1,23 @@
+# Puppet roadmap stage 6 — Grok
+
+- status: accepted
+- stage: Grok builder admission
+- branch: codex/puppet-roadmap-stage1-20260918
+- base: 3743d4aac863e9a5c200a8b4c90f04ba284fd3f2
+- accepted_stage5_code: fa12809
+- stage5_proof_closeout: 3743d4a
+- origin_main: a8de5b9245cd457cc35ca2e223a11040d0772f47
+- worker: Cursor ACP / Grok 4.6 High
+- workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
+- scope: Grok-specific builder admission proof; exact model/workspace/session/result binding; no generic ACP or live external claim
+- commit: b75569e (parent implementation and proof commit)
+- job_id: f0a9cdd6-ae5c-4f2d-9f1f-2b9f5d14ec79
+- live_grok_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_grok_qualification_pending
+- external actions: none
+- focused_tests: 12
+- grok_plus_reuse_tests: 85
+- preservation_tests: 105
+- caller_path_tests: 223
+- full_discover_ok: 906
+- full_discover_seconds: 191.421

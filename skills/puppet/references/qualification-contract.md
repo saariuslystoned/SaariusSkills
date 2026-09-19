@@ -41,6 +41,59 @@ private subscription-profile binding.
 the submitted authorization; they are independent expected values, not
 inferred from the authorization file.
 
+## Compatibility reuse is not task authority
+
+Qualification now records `puppet.qualification-scope/v1` as reusable
+compatibility evidence. The scope is produced by census, written onto an
+accepted receipt, and rechecked by receipt verification. It is not a
+launch authorization and never transfers campaign, goal, controller, or
+lease authority.
+
+The contract distinguishes three scopes:
+
+1. **Selected harness/target.** Target-owned adapter, workspace, and
+   harness-instruction sources plus the requested model/effort selectors
+   proved by the manifest flags. A requested selector is preserved as a
+   request only; it is never treated as observed model proof.
+2. **Transport and shared-controller/authority.** Shared census, launch,
+   probe, session, explicit run-transport binding, tmux/transport,
+   authority, registry, and shipped universal/lifecycle policy sources plus
+   protocol and instruction-policy fingerprints. The caller names one
+   transport per run (`tmux`, `agy-print`, and `cursor-acp` implemented;
+   `herdr` and generic `acp` unsupported). Tmux settle remains in the shared
+   v1 fingerprint so AGY-on-tmux still tracks it. `agy-print` carries its
+   own AGY target source (`agy_print.py`) so structured-transport edits do
+   not invalidate other targets. `cursor-acp` carries its own Cursor target
+   source (`cursor_acp.py`) and is invalid for every non-Cursor target.
+   Per-transport isolation of tmux settle out of that shared fingerprint
+   waits for a later scope schema.
+3. **Task scope/authorization.** Controller, campaign ID, and goal
+   fingerprint. A new task may reuse current compatibility evidence but
+   must supply its own authorization. Task authority is never reusable.
+
+Unrelated harness-only source edits do not invalidate another target's
+compatibility. Relevant shared transport, controller, or authority edits
+do. Runtime executable/execution/version/platform drift also invalidates
+the affected target. Legacy unscoped receipts keep the previous aggregate
+adapter-fingerprint comparison and cannot be promoted into a versioned
+scope by copying fields. Tampered scope fingerprints fail closed.
+
+Use the read-only planner before spending another live probe:
+
+```bash
+python3 <skill-root>/scripts/adapter_lab.py requalify \
+  --target <target> \
+  --manifest <doctor-or-qualified-manifest> \
+  --mapping <current-mapping>
+```
+
+The planner never launches, logs in, mutates a profile, or writes a
+qualified manifest. It reports `current`, `stale`, or `legacy` and
+returns only bounded invalidation reasons. Live requalification remains
+`adapter_lab.py probe` plus `qualify` behind an explicit operator gate;
+`--execute --ack-live-qualification` without that separate authorization
+is refused.
+
 ## Unqualified plans are doctor-only
 
 A doctor-only, unqualified Codex manifest yields a

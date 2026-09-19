@@ -33,6 +33,7 @@ class PuppetPackagingTests(unittest.TestCase):
             "scripts/adapter_lab.py",
             "references/operating-contract.md",
             "references/adapter-contract.md",
+            "references/transport-contract.md",
             "references/fast-launch-contract.md",
             "references/prompt-patterns.md",
             "references/proof-provenance.md",

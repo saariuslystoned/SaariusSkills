@@ -89,11 +89,18 @@ def _doctor(args):
         state_root=args.state_root,
         profile_root=args.profile_root,
         require_subscription_profile=target != "agy",
+        requested_transport=args.transport,
     )
 
 
 def _plan(args):
+    from puppet_lib.transport import bind_run_transport
+
     _target_and_profile_requirement(args.contract, args.profile_root)
+    bind_run_transport(
+        args.transport,
+        contract_transport=Contract.from_path(args.contract).raw.get("transport"),
+    )
     return compile_operator_plan(
         contract_path=args.contract,
         manifest_path=args.manifest,
@@ -124,6 +131,7 @@ def _launch(args):
         requested_effort=args.effort,
         profile_root=args.profile_root,
         require_subscription_profile=target != "agy",
+        requested_transport=args.transport,
         deadline_seconds=args.deadline_seconds,
     )
 
@@ -293,6 +301,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=_path,
         help="explicit target Git root for cockpit mode (default: current Git root)",
     )
+    plan_parser.add_argument(
+        "--transport",
+        help="explicit run transport (default tmux; agy-print and cursor-acp implemented; herdr and generic acp refuse)",
+    )
     plan_parser.set_defaults(handler=_plan)
 
     doctor_parser = commands.add_parser("doctor", help="run read-only preflight")
@@ -305,6 +317,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile-root",
         type=_path,
         help="exact Puppet-owned private subscription profile (for non-AGY targets)",
+    )
+    doctor_parser.add_argument(
+        "--transport",
+        help="explicit run transport (default tmux; agy-print and cursor-acp implemented; herdr and generic acp refuse)",
     )
     doctor_parser.set_defaults(handler=_doctor)
 
@@ -331,6 +347,10 @@ def build_parser() -> argparse.ArgumentParser:
             "passes, wait stops polling, send and repair are refused, and "
             "status reports deadline_exceeded (halt and adjudication stay open)"
         ),
+    )
+    launch_parser.add_argument(
+        "--transport",
+        help="explicit run transport (default tmux; agy-print and cursor-acp implemented; herdr and generic acp refuse)",
     )
     launch_parser.set_defaults(handler=_launch)
 

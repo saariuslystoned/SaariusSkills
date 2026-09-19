@@ -36,7 +36,13 @@ from puppet_lib.grok_qualification import (
     verify_grok_terminal_qualification,
 )
 from puppet_lib.errors import PuppetError, UnsupportedError, ValidationError
+from puppet_lib.instructions import instruction_policy_fingerprint
 from puppet_lib.probe import PROBE_PROFILE, recover_probe, run_probe
+from puppet_lib.qualification_scope import (
+    build_compatibility_scope,
+    compatibility_invalidations,
+    validate_compatibility_scope,
+)
 from puppet_lib.claude_paired_qualification import (
     claude_qualified_mapping,
     create_claude_pair,
@@ -309,6 +315,8 @@ def _qualify(args):
         mapping = grok_qualified_mapping(mapping)
     raw = copy.deepcopy(base.raw)
     raw["yolo_mapping"] = mapping
+    if receipt.get("compatibility_scope") is not None:
+        raw["qualification_scope"] = receipt["compatibility_scope"]
     raw["capabilities"] = {
         name: (
             "controller_verified" if name in receipt["capabilities"] else "unsupported"
@@ -544,6 +552,73 @@ def _verify_grok_pair(args):
     }
 
 
+def _requalify(args):
+    manifest = AdapterManifest.from_path(args.manifest)
+    if manifest.target != args.target:
+        raise ValidationError("requalification target and manifest target mismatch")
+    stored = manifest.raw.get("qualification_scope")
+    if stored is not None:
+        stored = validate_compatibility_scope(stored)
+    requested_model = (
+        None
+        if stored is None
+        else stored["harness_scope"]["model_effort"]["requested_model"]
+    )
+    requested_effort = (
+        None
+        if stored is None
+        else stored["harness_scope"]["model_effort"]["requested_effort"]
+    )
+    if args.requested_model is not None:
+        requested_model = args.requested_model
+    if args.requested_effort is not None:
+        requested_effort = args.requested_effort
+    current_raw = copy.deepcopy(manifest.raw)
+    current_raw["yolo_mapping"] = read_json(args.mapping, max_bytes=65536)
+    observed = build_compatibility_scope(
+        current_raw,
+        requested_model=requested_model,
+        requested_effort=requested_effort,
+        instruction_policy_fingerprint=instruction_policy_fingerprint(
+            target=args.target
+        ),
+    )
+    invalidations = compatibility_invalidations(stored, observed)
+    task_authority_reusable = False
+    observed_model_claimed = False
+    result = {
+        "ok": True,
+        "mode": "plan",
+        "target": args.target,
+        "live_authorized": False,
+        "qualification_state": (
+            "doctor_only" if manifest.raw["doctor_only"] else "qualified"
+        ),
+        "scope_state": (
+            "current"
+            if stored is not None and not invalidations
+            else ("legacy" if stored is None else "stale")
+        ),
+        "invalidations": invalidations,
+        "compatibility_reusable": stored is not None and not invalidations,
+        "task_authority_reusable": task_authority_reusable,
+        "observed_model_claimed": observed_model_claimed,
+        "next_steps": [
+            "review the invalidation reasons and confirm the exact installed target identity",
+            "run adapter_lab probe and qualify with a fresh doctor-only manifest when live proof is authorized",
+        ],
+    }
+    if args.execute or args.ack_live_qualification:
+        if not (args.execute and args.ack_live_qualification):
+            raise ValidationError(
+                "live requalification requires --execute and --ack-live-qualification"
+            )
+        raise UnsupportedError(
+            "live requalification uses adapter_lab probe and qualify with a fresh doctor-only manifest"
+        )
+    return result
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Build fingerprinted doctor-only Puppet adapter manifests without launching agents."
@@ -757,6 +832,18 @@ def build_parser():
     qualify_parser.add_argument("--receipt", required=True, type=Path)
     qualify_parser.add_argument("--out", required=True, type=Path)
     qualify_parser.set_defaults(handler=_qualify)
+    requalify_parser = commands.add_parser(
+        "requalify",
+        help="plan selected-target qualification reuse; live proof stays on probe and qualify",
+    )
+    requalify_parser.add_argument("--target", required=True)
+    requalify_parser.add_argument("--manifest", required=True, type=Path)
+    requalify_parser.add_argument("--mapping", required=True, type=Path)
+    requalify_parser.add_argument("--requested-model")
+    requalify_parser.add_argument("--requested-effort")
+    requalify_parser.add_argument("--execute", action="store_true")
+    requalify_parser.add_argument("--ack-live-qualification", action="store_true")
+    requalify_parser.set_defaults(handler=_requalify)
     pair_parser = commands.add_parser(
         "cursor-pair",
         help="join activated/control Pass B and native-view proof into one terminal Cursor receipt",

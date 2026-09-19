@@ -1,0 +1,23 @@
+# Puppet roadmap stage 5
+
+- status: accepted
+- stage: Cursor ACP under Puppet ownership
+- branch: codex/puppet-roadmap-stage1-20260918
+- base: 01165c76cfd44125cfba420813ff8e5b946d6acb
+- accepted_stage4_code: 23300af
+- stage4_proof_closeout: 01165c7
+- origin_main: a8de5b9245cd457cc35ca2e223a11040d0772f47
+- worker: Cursor ACP / Grok 4.6 High
+- workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
+- scope: Puppet-owned Cursor ACP adapter boundary; exact workspace/model/session/result proof; no fallback; deterministic fixtures unless safe local runtime proof already exists
+- commit: fa12809 (parent implementation and proof commit)
+- job_id: fb3a7520-dac1-4f52-8233-801b51d32db0
+- live_cursor_acp_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_cursor_acp_qualification_pending
+- external actions: none
+- focused_ok: 16
+- focused_plus_contracts_ok: 93
+- relevant_ok: 211
+- relevant_seconds: 106.937
+- full_discover_ok: 894
+- full_discover_seconds: 164.287

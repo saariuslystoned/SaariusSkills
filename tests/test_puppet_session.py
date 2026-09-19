@@ -49,7 +49,11 @@ from puppet_lib.errors import (  # noqa: E402
     ValidationError,
 )
 from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION  # noqa: E402
-from puppet_lib.registry import SessionRegistry, send_exact_sigint  # noqa: E402
+from puppet_lib.registry import (  # noqa: E402
+    SESSION_REGISTRY_SCHEMA_VERSION,
+    SessionRegistry,
+    send_exact_sigint,
+)
 from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
     _deliver,
@@ -572,6 +576,175 @@ class SessionIntegrationTests(unittest.TestCase):
         return subprocess.CompletedProcess(
             [], 0, stdout=b"Logged in using ChatGPT\n", stderr=None
         )
+
+    def test_caller_contract_binds_tmux_and_keeps_outcomes_distinct(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-caller-contract"
+            candidate = initialize_repo(
+                root / "candidate", "codex/caller-contract", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/caller-contract",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            report = puppet_session.doctor(
+                contract_path=files["contract"],
+                manifest_path=files["manifest"],
+                authorization_path=files["authorization"],
+                proof_root=files["proof"],
+                state_root=files["state"],
+                require_subscription_profile=False,
+            )
+            self.assertEqual(report["transport"]["id"], "tmux")
+            self.assertEqual(
+                report["transport_capabilities"]["herdr"]["implementation"],
+                "unsupported",
+            )
+            self.assertTrue(all("remedy" in item for item in report["caller_blockers"]))
+            with self.assertRaisesRegex(UnsupportedError, "not implemented"):
+                puppet_session.doctor(
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    requested_transport="herdr",
+                )
+            socket = None
+            try:
+                launched = launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for the caller contract.",
+                )
+                socket = SessionRegistry(files["state"]).load(session)["tmux"]["socket"]
+                self.assertEqual(launched["transport"]["id"], "tmux")
+                self.assertEqual(
+                    launched["caller_outcome"],
+                    {
+                        "schema": "puppet.caller-outcome/v1",
+                        "worker_completion": "none",
+                        "controller_acceptance": "none",
+                        "halt": "none",
+                    },
+                )
+                self.assertIsNone(launched["final_outcome"])
+                current = status(state_root=files["state"], session=session)
+                self.assertEqual(current["progress_cursor"]["beacon_sequence"], 0)
+                self.assertIsNone(current["progress_cursor"]["checkpoint_id"])
+                halted = halt(state_root=files["state"], session=session, timeout=5)
+                self.assertEqual(halted["state"], "HALTED")
+                self.assertEqual(halted["caller_outcome"]["halt"], "confirmed")
+                self.assertEqual(
+                    halted["caller_outcome"]["controller_acceptance"], "none"
+                )
+                self.assertEqual(halted["final_outcome"]["halt"], "confirmed")
+                self.assertIn("worker none", halted["final_outcome"]["summary"])
+            finally:
+                kill_test_server(socket)
+
+    def test_pre_transport_v2_status_and_halt_preserve_exact_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            session = "codex-pre-transport-v2"
+            candidate = initialize_repo(
+                root / "candidate", "codex/pre-transport-v2", "candidate"
+            )
+            files = controller_files(
+                root,
+                candidate=candidate,
+                branch="codex/pre-transport-v2",
+                session=session,
+                task_profile="implementation",
+                protocol_fingerprint="e" * 64,
+            )
+            socket = None
+            try:
+                launch(
+                    session=session,
+                    contract_path=files["contract"],
+                    manifest_path=files["manifest"],
+                    authorization_path=files["authorization"],
+                    proof_root=files["proof"],
+                    state_root=files["state"],
+                    supervisor_executable=files["supervisor_executable"],
+                    prompt="Remain available for pre-transport compatibility.",
+                )
+                registry = SessionRegistry(files["state"])
+                record = registry.load(session)
+                socket = record["tmux"]["socket"]
+                self.assertEqual(
+                    record["schema_version"], SESSION_REGISTRY_SCHEMA_VERSION
+                )
+                self.assertEqual(record["transport"]["id"], "tmux")
+                identity = {
+                    "process": dict(record["process"]),
+                    "tmux": copy.deepcopy(record["tmux"]),
+                }
+                baseline = status(state_root=files["state"], session=session)
+                live = TmuxController(files["state"]).metadata(
+                    socket=Path(socket),
+                    session=session,
+                    pane=identity["tmux"]["pane"],
+                )
+                self.assertEqual(live["pane_pid"], identity["process"]["pid"])
+                self.assertFalse(live["pane_dead"])
+                stripped = dict(record)
+                stripped.pop("transport")
+                registry._path(session).write_text(
+                    json.dumps(stripped, sort_keys=True) + "\n", encoding="utf-8"
+                )
+                loaded = registry.load(session)
+                self.assertNotIn("transport", loaded)
+                self.assertEqual(
+                    loaded["schema_version"], SESSION_REGISTRY_SCHEMA_VERSION
+                )
+                self.assertEqual(loaded["process"], identity["process"])
+                self.assertEqual(loaded["tmux"], identity["tmux"])
+                current = status(state_root=files["state"], session=session)
+                self.assertEqual(current["state"], baseline["state"])
+                self.assertEqual(
+                    current["target_process_alive"], baseline["target_process_alive"]
+                )
+                self.assertEqual(current["tmux_alive"], baseline["tmux_alive"])
+                self.assertEqual(current["transport"]["id"], "tmux")
+                self.assertTrue(current["target_process_alive"])
+                self.assertTrue(current["tmux_alive"])
+                halted = halt(state_root=files["state"], session=session, timeout=5)
+                self.assertEqual(halted["state"], "HALTED")
+                self.assertTrue(halted["tmux_preserved"])
+                self.assertEqual(halted["transport"]["id"], "tmux")
+                sealed = registry.load(session)
+                self.assertNotIn("transport", sealed)
+                self.assertEqual(
+                    sealed["schema_version"], SESSION_REGISTRY_SCHEMA_VERSION
+                )
+                self.assertEqual(sealed["process"], identity["process"])
+                self.assertEqual(sealed["tmux"], identity["tmux"])
+                self.assertEqual(sealed["state"], "HALTED")
+                halted_live = TmuxController(files["state"]).metadata(
+                    socket=Path(socket),
+                    session=session,
+                    pane=identity["tmux"]["pane"],
+                )
+                self.assertEqual(halted_live["pane_pid"], identity["process"]["pid"])
+                self.assertTrue(halted_live["pane_dead"])
+                replay = halt(state_root=files["state"], session=session, timeout=5)
+                self.assertEqual(replay["state"], "HALTED")
+                self.assertTrue(replay["tmux_preserved"])
+                self.assertEqual(replay["transport"]["id"], "tmux")
+            finally:
+                kill_test_server(socket)
 
     def test_production_profile_is_required_authenticated_and_proof_bound(self):
         with tempfile.TemporaryDirectory() as temporary:

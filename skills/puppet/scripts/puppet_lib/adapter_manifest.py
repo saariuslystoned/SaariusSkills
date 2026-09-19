@@ -26,6 +26,13 @@ from .contracts import (
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .instructions import validate_instruction_manifest
 from .launch import validate_admitted_launch_plan, validate_public_launch_identity
+from .qualification_scope import (
+    build_task_scope,
+    compare_qualification_compatibility,
+    evaluate_qualification_reuse,
+    task_authority_from_receipt,
+    validate_compatibility_scope,
+)
 from .profiles import (
     OBSERVED_INPUT_TRANSPORT,
     PROMPT_TRANSPORT,
@@ -427,11 +434,35 @@ _RECEIPT_FIELDS = {
     "proof_refs",
     "controller_attestation",
 }
+_OPTIONAL_RECEIPT_FIELDS = frozenset({"compatibility_scope"})
 _PAIRED_RECEIPT_FIELDS = _RECEIPT_FIELDS | {"claude_pairing"}
 _GROK_PAIR_RECEIPT_FIELDS = _RECEIPT_FIELDS | {
     "grok_pairing",
     "grok_control_source",
 }
+_SCOPED_RECEIPT_FIELDS = _RECEIPT_FIELDS | {
+    "compatibility_scope",
+    "requested_model",
+    "requested_effort",
+}
+_SCOPED_PAIRED_RECEIPT_FIELDS = _SCOPED_RECEIPT_FIELDS | {"claude_pairing"}
+_SCOPED_GROK_PAIR_RECEIPT_FIELDS = _SCOPED_RECEIPT_FIELDS | {
+    "grok_pairing",
+    "grok_control_source",
+}
+_ALLOWED_RECEIPT_FIELD_SETS = frozenset(
+    frozenset(fields) | extra
+    for fields in (
+        _RECEIPT_FIELDS,
+        _PAIRED_RECEIPT_FIELDS,
+        _GROK_PAIR_RECEIPT_FIELDS,
+    )
+    for extra in (
+        frozenset(),
+        _OPTIONAL_RECEIPT_FIELDS,
+        frozenset({"compatibility_scope", "requested_model", "requested_effort"}),
+    )
+)
 
 _ACCEPTED_EVIDENCE_FIELDS = {
     "schema_version",
@@ -936,6 +967,62 @@ def _validate_qualification_subscription_authority(
     )
 
 
+def _bind_expected_qualification_authority(
+    receipt: Dict[str, Any],
+    *,
+    expected_controller: Optional[str],
+    expected_campaign_id: Optional[str],
+    expected_goal_fingerprint: Optional[str],
+) -> None:
+    """Bind controller identity; reuse compatibility without transferring task authority."""
+
+    scoped = receipt.get("compatibility_scope")
+    if scoped is None:
+        expected_authority = {
+            "controller": expected_controller,
+            "campaign_id": expected_campaign_id,
+            "goal_fingerprint": expected_goal_fingerprint,
+        }
+        for name, expected in expected_authority.items():
+            if expected is None:
+                continue
+            if name == "goal_fingerprint":
+                validate_sha256(expected, "expected goal fingerprint")
+            else:
+                validate_identifier(expected, "expected qualification %s" % name)
+            if receipt.get(name) != expected:
+                raise IdentityError(
+                    "qualification %s does not match the active campaign" % name
+                )
+        return
+    if expected_controller is not None:
+        validate_identifier(expected_controller, "expected qualification controller")
+        if receipt.get("controller") != expected_controller:
+            raise IdentityError(
+                "qualification controller does not match the active campaign"
+            )
+    if expected_campaign_id is None and expected_goal_fingerprint is None:
+        return
+    if expected_campaign_id is None or expected_goal_fingerprint is None:
+        raise ValidationError("qualification task authority comparison is incomplete")
+    validate_identifier(expected_campaign_id, "expected qualification campaign_id")
+    validate_sha256(expected_goal_fingerprint, "expected goal fingerprint")
+    reuse = evaluate_qualification_reuse(
+        stored_compatibility=scoped,
+        stored_task=task_authority_from_receipt(receipt),
+        current_compatibility=scoped,
+        new_task=build_task_scope(
+            controller=expected_controller or receipt["controller"],
+            campaign_id=expected_campaign_id,
+            goal_fingerprint=expected_goal_fingerprint,
+        ),
+    )
+    if reuse["task_authority_reusable"]:
+        raise IdentityError("qualification reuse cannot transfer task authority")
+    if reuse["observed_model_claimed"]:
+        raise IdentityError("requested selector is not observed model proof")
+
+
 def verify_qualification_receipt(
     path: Path,
     *,
@@ -943,6 +1030,7 @@ def verify_qualification_receipt(
     _current_manifest: Optional["AdapterManifest"] = None,
     _server_process_fn: Optional[Any] = None,
     _tmux_factory: Optional[Any] = None,
+    _source_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Verify an accepted receipt and every immutable proof artifact it binds."""
 
@@ -959,11 +1047,7 @@ def verify_qualification_receipt(
         )
     if receipt_schema != QUALIFICATION_RECEIPT_SCHEMA_VERSION:
         raise ValidationError("unsupported qualification receipt schema")
-    if set(receipt) not in (
-        _RECEIPT_FIELDS,
-        _PAIRED_RECEIPT_FIELDS,
-        _GROK_PAIR_RECEIPT_FIELDS,
-    ):
+    if frozenset(receipt) not in _ALLOWED_RECEIPT_FIELD_SETS:
         raise ValidationError("qualification receipt fields do not match schema")
     claude_pairing = receipt.get("claude_pairing")
     if claude_pairing is not None:
@@ -997,6 +1081,25 @@ def verify_qualification_receipt(
         )
     if receipt.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
         raise ValidationError("qualification receipt target is invalid")
+    scoped = receipt.get("compatibility_scope")
+    if scoped is not None:
+        scoped = validate_compatibility_scope(scoped)
+        if scoped["target"] != receipt["target"]:
+            raise ValidationError("qualification compatibility scope target mismatch")
+        model_effort = scoped["harness_scope"]["model_effort"]
+        if "requested_model" in receipt or "requested_effort" in receipt:
+            if (
+                receipt.get("requested_model") != model_effort["requested_model"]
+                or receipt.get("requested_effort") != model_effort["requested_effort"]
+            ):
+                raise IdentityError("qualification model/effort scope is unbound")
+        if (
+            model_effort.get("observed_model") is not None
+            or model_effort.get("observed_effort") is not None
+        ):
+            raise ValidationError(
+                "qualification scope cannot claim observed model proof from a requested selector"
+            )
     plane_activation = validate_probe_plane_activation(receipt.get("plane_activation"))
     workspace_isolation = validate_terminal_workspace_isolation(
         receipt.get("workspace_isolation")
@@ -1143,12 +1246,43 @@ def verify_qualification_receipt(
         "execution_fingerprint": current["execution"]["execution_fingerprint"],
         "version_fingerprint": current["executable"]["version_sha256"],
         "platform_fingerprint": sha256_bytes(canonical_json_bytes(current["platform"])),
-        "adapter_fingerprint": current["adapter_fingerprint"],
         "protocol_fingerprint": current["protocol_fingerprint"],
         "yolo_mapping_sha256": sha256_bytes(
             canonical_json_bytes(current_mapping)
         ),
     }
+    if scoped is None:
+        current_identities["adapter_fingerprint"] = current["adapter_fingerprint"]
+    else:
+        from .instructions import instruction_policy_fingerprint
+
+        comparison = compare_qualification_compatibility(
+            stored_scope=scoped,
+            current_manifest=current,
+            instruction_policy_fingerprint=instruction_policy_fingerprint(
+                target=receipt["target"]
+            ),
+            source_root=_source_root,
+        )
+        reuse = evaluate_qualification_reuse(
+            stored_compatibility=scoped,
+            stored_task=task_authority_from_receipt(receipt),
+            current_compatibility=comparison["current_scope"],
+            new_task=task_authority_from_receipt(receipt),
+        )
+        if reuse["task_authority_reusable"]:
+            raise IdentityError("qualification reuse cannot transfer task authority")
+        if not reuse["compatibility_reusable"]:
+            reasons = ",".join(
+                item["reason"]
+                + (":" + item["field"] if item.get("field") else "")
+                for item in reuse["invalidations"]
+            )
+            raise IdentityError(
+                "qualification compatibility scope is stale: %s" % reasons
+            )
+        if reuse["observed_model_claimed"]:
+            raise IdentityError("requested selector is not observed model proof")
     for name, observed in current_identities.items():
         if receipt.get(name) != observed:
             raise IdentityError(
@@ -2376,10 +2510,14 @@ class AdapterManifest:
             "doctor_only",
             "qualification",
         }
-        if set(value) != required:
+        if set(value) not in (required, required | {"qualification_scope"}):
             raise ValidationError("adapter manifest fields do not match schema")
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
             raise ValidationError("unsupported adapter target")
+        if value.get("qualification_scope") is not None:
+            scope = validate_compatibility_scope(value["qualification_scope"])
+            if scope["target"] != value["target"]:
+                raise ValidationError("qualification scope target does not match manifest")
         executable = value.get("executable")
         executable_fields = {
             "requested_path",
@@ -2962,24 +3100,12 @@ class AdapterManifest:
                     raise IdentityError(
                         "qualification session profile does not match the active contract"
                     )
-            expected_authority = {
-                "controller": expected_controller,
-                "campaign_id": expected_campaign_id,
-                "goal_fingerprint": expected_goal_fingerprint,
-            }
-            for name, expected in expected_authority.items():
-                if expected is None:
-                    continue
-                if name == "goal_fingerprint":
-                    validate_sha256(expected, "expected goal fingerprint")
-                else:
-                    validate_identifier(
-                        expected, "expected qualification %s" % name
-                    )
-                if receipt.get(name) != expected:
-                    raise IdentityError(
-                        "qualification %s does not match the active campaign" % name
-                    )
+            _bind_expected_qualification_authority(
+                receipt,
+                expected_controller=expected_controller,
+                expected_campaign_id=expected_campaign_id,
+                expected_goal_fingerprint=expected_goal_fingerprint,
+            )
             if not self.identity_matches(
                 executable=receipt.get("executable_fingerprint"),
                 execution=receipt.get("execution_fingerprint"),
@@ -3049,22 +3175,12 @@ class AdapterManifest:
                     raise IdentityError(
                         "qualification session profile does not match the active contract"
                     )
-            expected_authority = {
-                "controller": expected_controller,
-                "campaign_id": expected_campaign_id,
-                "goal_fingerprint": expected_goal_fingerprint,
-            }
-            for name, expected in expected_authority.items():
-                if expected is None:
-                    continue
-                if name == "goal_fingerprint":
-                    validate_sha256(expected, "expected goal fingerprint")
-                else:
-                    validate_identifier(expected, "expected qualification %s" % name)
-                if receipt.get(name) != expected:
-                    raise IdentityError(
-                        "qualification %s does not match the active campaign" % name
-                    )
+            _bind_expected_qualification_authority(
+                receipt,
+                expected_controller=expected_controller,
+                expected_campaign_id=expected_campaign_id,
+                expected_goal_fingerprint=expected_goal_fingerprint,
+            )
             if not self.identity_matches(
                 executable=receipt.get("executable_fingerprint"),
                 execution=receipt.get("execution_fingerprint"),
@@ -3123,22 +3239,12 @@ class AdapterManifest:
                     raise IdentityError(
                         "qualification session profile does not match the active contract"
                     )
-            expected_authority = {
-                "controller": expected_controller,
-                "campaign_id": expected_campaign_id,
-                "goal_fingerprint": expected_goal_fingerprint,
-            }
-            for name, expected in expected_authority.items():
-                if expected is None:
-                    continue
-                if name == "goal_fingerprint":
-                    validate_sha256(expected, "expected goal fingerprint")
-                else:
-                    validate_identifier(expected, "expected qualification %s" % name)
-                if receipt.get(name) != expected:
-                    raise IdentityError(
-                        "qualification %s does not match the active campaign" % name
-                    )
+            _bind_expected_qualification_authority(
+                receipt,
+                expected_controller=expected_controller,
+                expected_campaign_id=expected_campaign_id,
+                expected_goal_fingerprint=expected_goal_fingerprint,
+            )
             if not self.identity_matches(
                 executable=receipt.get("executable_fingerprint"),
                 execution=receipt.get("execution_fingerprint"),
@@ -3194,6 +3300,12 @@ class AdapterManifest:
             )
         if receipt.get("target") != self.target:
             raise ValidationError("qualification target mismatch")
+        scoped = receipt.get("compatibility_scope")
+        if scoped is not None:
+            if self.raw.get("qualification_scope") != scoped:
+                raise ValidationError(
+                    "qualified manifest compatibility scope differs from its receipt"
+                )
         if receipt.get("session_profile") != qualification["session_profile"]:
             raise ValidationError("qualification session profile mismatch")
         if expected_session_profile is not None:
@@ -3204,22 +3316,12 @@ class AdapterManifest:
                 raise IdentityError(
                     "qualification session profile does not match the active contract"
                 )
-        expected_authority = {
-            "controller": expected_controller,
-            "campaign_id": expected_campaign_id,
-            "goal_fingerprint": expected_goal_fingerprint,
-        }
-        for name, expected in expected_authority.items():
-            if expected is None:
-                continue
-            if name == "goal_fingerprint":
-                validate_sha256(expected, "expected goal fingerprint")
-            else:
-                validate_identifier(expected, "expected qualification %s" % name)
-            if receipt.get(name) != expected:
-                raise IdentityError(
-                    "qualification %s does not match the active campaign" % name
-                )
+        _bind_expected_qualification_authority(
+            receipt,
+            expected_controller=expected_controller,
+            expected_campaign_id=expected_campaign_id,
+            expected_goal_fingerprint=expected_goal_fingerprint,
+        )
         if not self.identity_matches(
             executable=receipt.get("executable_fingerprint"),
             execution=receipt.get("execution_fingerprint"),

@@ -102,6 +102,16 @@ plan -> doctor -> launch -> send -> status -> halt
 8. **Halt.** Use `halt` only for the exact registered target. Preserve tmux
    and proof.
 
+A run binds exactly one transport before launch (`tmux`, `agy-print`, or
+`cursor-acp`; `herdr` and generic `acp` refuse with no fallback).
+`agy-print` never falls back to tmux. A `cursor-acp` request never falls
+back to tmux or `agy-print` and is valid only for the Cursor target.
+`status` exposes a monotonic progress cursor and keeps worker
+completion, controller acceptance, and confirmed halt distinct. See the
+capability/proof table in
+[adapter-contract.md](references/adapter-contract.md) and
+[transport-contract.md](references/transport-contract.md).
+
 Run at most one live lane per harness target and one mutation owner per
 source slice. Different harness targets may proceed independently only with
 their own leases, isolated worktrees, state, sessions, and proof roots.
@@ -241,14 +251,16 @@ fake harness for real conformance.
 - [fast-launch-contract.md](references/fast-launch-contract.md) — mixed-target
   concurrent operation.
 - [qualification-contract.md](references/qualification-contract.md) — census,
-  Pass B probes, per-harness pairing and activation transactions, startup
-  gates, and promotion.
+  Pass B probes, compatibility reuse versus task authority, per-harness
+  pairing and activation transactions, startup gates, and promotion.
 - [subscription-profiles.md](references/subscription-profiles.md) — durable
   private profiles, onboarding, and login handoffs.
 - [campaign-recovery.md](references/campaign-recovery.md) — interrupted-run
   recovery and dead-lease reconciliation.
-- [adapter-contract.md](references/adapter-contract.md) — read before changing
-  adapters.
+- [adapter-contract.md](references/adapter-contract.md) — adapters and the
+  per-transport capability/proof table.
+- [transport-contract.md](references/transport-contract.md) — one transport
+  per run, caller outcomes, and actionable blockers.
 - [prompt-patterns.md](references/prompt-patterns.md) — contract and handoff
   authoring.
 - [proof-provenance.md](references/proof-provenance.md) — evidence reuse

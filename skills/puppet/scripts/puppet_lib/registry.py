@@ -40,6 +40,7 @@ from .safety import (
     validate_sha256,
 )
 from .state import transition, validate_state
+from .transport import TRANSPORT_BINDING_SCHEMA, validate_transport_binding
 
 
 REQUIRED_FIELDS = {
@@ -55,6 +56,7 @@ REQUIRED_FIELDS = {
     "branch",
     "mutation_owner",
     "proof_root",
+    "transport",
     "tmux",
     "process",
     "supervisor",
@@ -111,9 +113,58 @@ TMUX_BINARY_FIELDS = {
 }
 SESSION_REGISTRY_SCHEMA_VERSION = 2
 LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS = frozenset({1})
+# schema_version stays 2. Current writes require a top-level transport
+# binding. Existing v2 records persisted before that field remain a
+# distinct compatibility class: exact prior fields, implicit tmux, no
+# invented stored binding, and no weakened current validation.
+SESSION_REGISTRY_COMPAT_CURRENT = "current_v2"
+SESSION_REGISTRY_COMPAT_PRE_TRANSPORT = "pre_transport_v2"
+COMPATIBLE_PRE_TRANSPORT_V2_FIELDS = frozenset(REQUIRED_FIELDS - {"transport"})
+PRE_TRANSPORT_V2_IMPLICIT_BINDING = {
+    "schema": TRANSPORT_BINDING_SCHEMA,
+    "id": "tmux",
+}
 # SKILL.md: review stays required after two repairs. The registry cannot
 # represent a third repair verdict, so the count is a persisted invariant.
 MAX_REPAIR_VERDICTS = 2
+
+
+def session_registry_compatibility(value: Any) -> str:
+    """Classify a session registry record without rewriting it.
+
+    current_v2 keeps the current field set, including transport.
+    pre_transport_v2 is the exact prior v2 field set and is implicit tmux.
+    Legacy, future, and mixed or malformed field sets fail closed.
+    """
+
+    if not isinstance(value, dict):
+        raise ValidationError("session registry root must be an object")
+    schema_version = value.get("schema_version")
+    if schema_version in LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS:
+        raise UnsupportedError(
+            "legacy session registry lacks authoritative runtime execution identity"
+        )
+    if schema_version != SESSION_REGISTRY_SCHEMA_VERSION:
+        raise ValidationError("unsupported session registry schema")
+    fields = set(value)
+    if fields == REQUIRED_FIELDS:
+        return SESSION_REGISTRY_COMPAT_CURRENT
+    if fields == COMPATIBLE_PRE_TRANSPORT_V2_FIELDS:
+        return SESSION_REGISTRY_COMPAT_PRE_TRANSPORT
+    raise ValidationError("session registry fields do not match schema")
+
+
+def compatible_session_transport_binding(value: Any) -> Dict[str, str]:
+    """Return the transport binding for a classifiable registry record.
+
+    Current v2 validates the stored binding. Compatible pre-transport v2
+    is implicit tmux and does not persist a binding.
+    """
+
+    compatibility = session_registry_compatibility(value)
+    if compatibility == SESSION_REGISTRY_COMPAT_CURRENT:
+        return validate_transport_binding(value.get("transport"))
+    return dict(PRE_TRANSPORT_V2_IMPLICIT_BINDING)
 
 
 def _validate_utc_timestamp(value: Any, label: str) -> str:
@@ -319,6 +370,18 @@ class ExecTransitionSamplingError(IdentityError):
 
 class ProcessExecutableUnavailable(IdentityError):
     """A census entry cannot expose a bindable executable identity."""
+
+    def __init__(self, message, *, pid=None, blocker=None):
+        if blocker is None:
+            from .caller import make_blocker
+
+            blocker = make_blocker(
+                code="process_identity_unavailable",
+                detail=str(message),
+                pid=pid,
+            )
+        super().__init__(message, blocker=blocker)
+        self.pid = pid
 
 
 class ProcessVanished(IdentityError):
@@ -1072,34 +1135,45 @@ def process_tree_identity(pid: int) -> Dict[str, Any]:
 
 
 def process_birth_identity(pid: int) -> Dict[str, Any]:
-    process, _, _ = _sample_process_binding(pid)
+    try:
+        process, _, _ = _sample_process_binding(pid)
+    except IdentityError as exc:
+        if getattr(exc, "pid", None) is None:
+            exc.pid = pid
+        raise
     return process
 
 
 def process_executable_identity(pid: int) -> Dict[str, Any]:
     """Bind a lightweight executable selector to one stable kernel birth."""
 
-    kernel_before = _kernel_process_record(pid)
-    executable_before = _process_executable_record(pid)
-    executable_after = _process_executable_record(pid)
-    kernel_after = _kernel_process_record(pid)
-    if any(
-        kernel_after[name] != kernel_before[name] for name in ("pid", "kernel_birth_id")
-    ):
-        raise IdentityError("process identity changed during executable census")
-    if executable_after != executable_before:
-        raise ExecTransitionSamplingError(
-            "process crossed an exec transition during executable census",
-            pid=pid,
-            kernel_birth_id=kernel_before["kernel_birth_id"],
-            executable_before=executable_before,
-            executable_after=executable_after,
-        )
-    return {
-        "pid": pid,
-        "kernel_birth_id": kernel_before["kernel_birth_id"],
-        **executable_before,
-    }
+    try:
+        kernel_before = _kernel_process_record(pid)
+        executable_before = _process_executable_record(pid)
+        executable_after = _process_executable_record(pid)
+        kernel_after = _kernel_process_record(pid)
+        if any(
+            kernel_after[name] != kernel_before[name]
+            for name in ("pid", "kernel_birth_id")
+        ):
+            raise IdentityError("process identity changed during executable census")
+        if executable_after != executable_before:
+            raise ExecTransitionSamplingError(
+                "process crossed an exec transition during executable census",
+                pid=pid,
+                kernel_birth_id=kernel_before["kernel_birth_id"],
+                executable_before=executable_before,
+                executable_after=executable_after,
+            )
+        return {
+            "pid": pid,
+            "kernel_birth_id": kernel_before["kernel_birth_id"],
+            **executable_before,
+        }
+    except ProcessExecutableUnavailable as exc:
+        if exc.pid is None:
+            raise ProcessExecutableUnavailable(str(exc), pid=pid) from exc
+        raise
 
 
 def bind_runtime_process(
@@ -1294,18 +1368,14 @@ class SessionRegistry:
         validate_identifier(session, "session")
         return self.reservations / (session + ".json")
 
-    def validate(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(value, dict):
-            raise ValidationError("session registry root must be an object")
-        schema_version = value.get("schema_version")
-        if schema_version in LEGACY_SESSION_REGISTRY_SCHEMA_VERSIONS:
-            raise UnsupportedError(
-                "legacy session registry lacks authoritative runtime execution identity"
+    def validate(
+        self, value: Dict[str, Any], *, require_current: bool = False
+    ) -> Dict[str, Any]:
+        compatibility = session_registry_compatibility(value)
+        if require_current and compatibility != SESSION_REGISTRY_COMPAT_CURRENT:
+            raise ValidationError(
+                "new session registry records require a transport binding"
             )
-        if schema_version != SESSION_REGISTRY_SCHEMA_VERSION:
-            raise ValidationError("unsupported session registry schema")
-        if set(value) != REQUIRED_FIELDS:
-            raise ValidationError("session registry fields do not match schema")
         validate_identifier(value.get("session"), "session")
         validate_identifier(value.get("controller"), "controller")
         if value.get("target") not in {"agy", "cursor", "claude", "codex", "grok"}:
@@ -1385,6 +1455,8 @@ class SessionRegistry:
             raise ValidationError("unsupported bound instruction plane")
         if instructions.get("session_profile") != "regular":
             raise ValidationError("unsupported bound instruction session profile")
+        if compatibility == SESSION_REGISTRY_COMPAT_CURRENT:
+            validate_transport_binding(value.get("transport"))
         tmux = value.get("tmux")
         if not isinstance(tmux, dict) or set(tmux) != {
             "socket",
@@ -1654,7 +1726,7 @@ class SessionRegistry:
         return value
 
     def activate(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        self.validate(value)
+        self.validate(value, require_current=True)
         session = value["session"]
         with exclusive_lock(self._lock(session)):
             reservation_path = self._reservation_path(session)
@@ -1689,7 +1761,7 @@ class SessionRegistry:
             path.unlink()
 
     def create(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        self.validate(value)
+        self.validate(value, require_current=True)
         session = value["session"]
         with exclusive_lock(self._lock(session)):
             destination = self._path(session)

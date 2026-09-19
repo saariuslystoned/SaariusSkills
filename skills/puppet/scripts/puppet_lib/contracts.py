@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
+from .cursor_acp import require_cursor_acp_target
 from .errors import ValidationError
 from .profiles import default_session_profile, validate_session_profile
+from .transport import bind_run_transport
 from .safety import (
     absolute_root,
     canonical_json_bytes,
@@ -74,6 +76,7 @@ class Contract:
     hard_gates: FrozenSet[str]
     supervisor_root: Optional[Path]
     candidate_root: Optional[Path]
+    transport: str
     raw: Dict[str, Any]
 
     @classmethod
@@ -101,6 +104,7 @@ class Contract:
             "run_id",
             "nonce",
             "proof_path_prefixes",
+            "transport",
         }
         unknown = set(value) - allowed
         if unknown:
@@ -123,8 +127,13 @@ class Contract:
             target,
             value.get("session_profile", default_session_profile(target)),
         )
+        transport = bind_run_transport(value.get("transport"))["id"]
+        if transport == "cursor-acp":
+            require_cursor_acp_target(target)
         normalized_raw = dict(value)
         normalized_raw["session_profile"] = session_profile
+        if "transport" in value:
+            normalized_raw["transport"] = transport
         requested_model = value.get("requested_model")
         if requested_model is not None and (
             not isinstance(requested_model, str)
@@ -244,6 +253,7 @@ class Contract:
             hard_gates=gates,
             supervisor_root=supervisor_root,
             candidate_root=candidate_root,
+            transport=transport,
             raw=normalized_raw,
         )
 

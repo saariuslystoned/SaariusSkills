@@ -14,7 +14,10 @@ or halt.
 
 Pass B runs the shared contract against the exact real CLI. Bind the result to
 the executable, adapter implementation, platform, and probe-protocol
-fingerprints. An enabled manifest must reference a bounded accepted
+fingerprints. Current receipts also carry a versioned compatibility scope
+that later tasks may reuse without inheriting campaign or goal authority;
+see [qualification-contract.md](qualification-contract.md). An enabled
+manifest must reference a bounded accepted
 real-harness receipt whose hash, exact verified-capability list, exact YOLO
 mapping, instruction-policy fingerprint, sanitized effective-instruction
 manifest, controller verdict, acceptance, halt receipt, and proof references
@@ -387,6 +390,32 @@ v2 identity digest, index, action, intent, and submitted state. An interrupted
 intent is ambiguous and must never be resent. A provisional target that cannot
 be fully bound before input must remain fenced and non-qualifying without any
 halt action.
+
+## Transport capability and proof
+
+A run binds exactly one named transport before launch and never falls back.
+Checkpoints, review, controller acceptance, and human gates stay
+transport-independent. Puppet owns fresh process birth identity and
+stop/escalation; a caller cannot substitute another transport or a stale
+PID. The implemented transports are `tmux`, `agy-print`, and `cursor-acp`.
+`herdr` and generic `acp` are named and explicitly unsupported.
+Requesting `agy-print` never falls back to tmux. Requesting `cursor-acp`
+never falls back to tmux or `agy-print` and is valid only for Cursor.
+
+| Transport | Implementation | `status` proves | Halt proves | Resume proves |
+| --- | --- | --- | --- | --- |
+| `tmux` | implemented | pane and registered process identity, not a harness turn result | registered PID gone and pane dead | unsupported |
+| `herdr` | unsupported | unsupported | unsupported | unsupported |
+| `acp` | unsupported | unsupported | unsupported | unsupported |
+| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from runtime metadata; deterministic lifecycle is fixture-qualified, not a live AGY process | owned PID/birth gone and confined process tree; PID reuse and stale/ambiguous identity fail closed | matching session and conversation identity; not a selector or path |
+| `cursor-acp` | implemented | observed runtime model, exact workspace path/branch/head/tree, ACP session/conversation identity, and terminal/result state from structured metadata; deterministic lifecycle is fixture-qualified, not a live Cursor ACP process | matching ACP session and conversation halted; generic `acp`, selector-only, unbound, or mismatched observations fail closed | matching session and conversation identity; not a selector or path |
+
+Tmux settle, startup-screen, and paste sequencing remain shared
+transport/authority evidence for AGY-on-tmux. `agy-print` carries its own
+AGY target source so structured-transport edits do not invalidate other
+targets. `cursor-acp` carries its own Cursor target source
+(`cursor_acp.py`) so Cursor ACP edits do not invalidate other targets.
+See [transport-contract.md](transport-contract.md).
 
 ## Transcript blindness
 

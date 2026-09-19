@@ -1,0 +1,40 @@
+2026-09-18T22:07:10-04:00 repair_pass_started head=9d95cc0 live_e2e_claimed=false
+2026-09-18T22:10:02-04:00 qualification_scope_worker_submitted job=5fa7874e-c8ff-4907-92b4-2d429c857952
+2026-09-18T22:10:45-04:00 qualification_scope_reproduced invalidations=[] subscription_profiles_unowned
+2026-09-18T22:11:45-04:00 qualification_scope_repaired_uncommitted unittest=10_ok compileall=ok diff_check=ok
+2026-09-18T22:12:30-04:00 qualification_scope_parent_verified
+2026-09-18T22:12:33-04:00 registry_worker_submitted job=d2db2728-6a15-4ed8-a0b9-625f1c063f3b
+2026-09-18T22:14:20-04:00 registry_compatibility_reproduced status_and_halt=ValidationError
+2026-09-18T22:16:36-04:00 registry_compatibility_repaired_uncommitted unittest=35_ok compileall=ok diff_check=ok
+2026-09-18T22:17:10-04:00 registry_compatibility_parent_verified unittest=86_ok compileall=ok diff_check=ok old_v2_identity=preserved
+2026-09-18T22:20:41-04:00 cursor_model_worker_submitted job=e95b5cc0-3a96-4b29-96c8-07f70b331580 requested=cursor-grok-4.6-high selected=grok-4.6[effort=high,fast=true]
+2026-09-18T22:21:46-04:00 cursor_model_worker_failed job=e95b5cc0-3a96-4b29-96c8-07f70b331580 error=BRIDGE_RESTARTED
+2026-09-18T22:22:04-04:00 cursor_model_worker_resubmitted job=a940c5e9-6e7c-4e1d-a4b4-0f3530306766 requested=cursor-grok-4.6-high selected=grok-4.6[effort=high,fast=true]
+2026-09-18T22:26:03-04:00 cursor_model_worker_completed job=a940c5e9-6e7c-4e1d-a4b4-0f3530306766 unittest=29_ok compileall=ok diff_check=ok
+2026-09-18T22:26:20-04:00 cursor_model_parent_verified unittest=29_ok
+2026-09-18T22:31:00-04:00 full_suite_first_passed=940_failed=1 regression=schema_less_in_memory_transport_record
+2026-09-18T22:42:00-04:00 full_suite_verified unittest=941_ok seconds=197.989
+2026-09-18T22:45:00-04:00 implementation_committed commit=af41be6
+2026-09-18T23:12:20-04:00 second_review_reproduced beacons_invalidations=[] signal_exec_invalidations=[] cursor_without_catalog=unexpected_success
+2026-09-18T23:12:34-04:00 p1_worker_submitted job=f6191991-d221-40c7-8fae-c8a862f44bfa requested=cursor-grok-4.6-high selected=grok-4.6[effort=high,fast=true]
+2026-09-18T23:17:01-04:00 p1_worker_completed job=f6191991-d221-40c7-8fae-c8a862f44bfa unittest=57_ok compileall=ok diff_check=ok
+2026-09-18T23:17:46-04:00 p2_worker_submitted job=c120b10c-0867-41ed-94fe-acaa7083168c requested=cursor-grok-4.6-high selected=grok-4.6[effort=high,fast=true]
+2026-09-18T23:20:00-04:00 p1_parent_verified unittest=57_ok compileall=ok diff_check=ok
+2026-09-18T23:21:30-04:00 p2_worker_completed job=c120b10c-0867-41ed-94fe-acaa7083168c unittest=33_ok compileall=ok diff_check=ok
+2026-09-18T23:22:00-04:00 p2_parent_verified unittest=33_ok
+2026-09-18T23:30:00-04:00 second_review_full_suite_verified unittest=946_ok seconds=310.390 compileall=ok diff_check=ok
+2026-09-18T23:32:00-04:00 second_review_repairs_committed commit=3afcdbe
+2026-09-18T23:34:00-04:00 branch_pushed head=20acffe68f7aefa4fe7e26a3efe1b2be1d8462be github_checks=pending
+2026-09-19T03:39:30-04:00 repair2_instruction_planes_delegated job=ccf8a3b4-4cda-4b61-a172-36bc2474090b status=submitted
+2026-09-19T03:46:20-04:00 repair2_instruction_planes_verified job=ccf8a3b4-4cda-4b61-a172-36bc2474090b focused=58_ok full=947_ok compileall=ok diff_check=ok
+2026-09-19T03:47:10-04:00 repair2_instruction_planes_committed commit=091712e source_committed=true
+2026-09-19T03:49:00-04:00 repair2_branch_pushed head=ea27a00e4c57ed2b48eabde934b1424afe3554d2 github_checks=pending
+2026-09-18T22:23:20-04:00 cursor_model_reproduced arbitrary_unverified=unexpected_success
+2026-09-18T22:24:48-04:00 cursor_model_repaired_uncommitted unittest=29_ok compileall=ok diff_check=ok bound=grok-4.6[effort=high,fast=true] live_cursor_claimed=false
+2026-09-18T22:25:30-04:00 cursor_model_resubmit_verified job=a940c5e9-6e7c-4e1d-a4b4-0f3530306766 unittest=29_ok compileall=ok diff_check=ok source_committed=false
+2026-09-18T23:15:10-04:00 p1_qualification_scope_reproduced beacons_invalidations=[] signal_exec_invalidations=[]
+2026-09-18T23:16:40-04:00 p1_qualification_scope_repaired_uncommitted added=beacons.py,signal_exec.py schema=v1 cursor_acp_untouched
+2026-09-18T23:17:20-04:00 p1_qualification_scope_verified unittest=57_ok seconds=1.582 compileall=ok diff_check=ok compare_and_receipt_invalidated
+2026-09-18T23:18:20-04:00 p2_catalog_evidence_reproduced complete_proof_without_catalog=unexpected_success
+2026-09-18T23:20:20-04:00 p2_catalog_evidence_repaired_uncommitted implicit_default_removed=true p1_source_untouched live_cursor_claimed=false
+2026-09-18T23:20:42-04:00 p2_catalog_evidence_verified job=c120b10c-0867-41ed-94fe-acaa7083168c unittest=33_ok seconds=6.119 preservation=3_ok compileall=ok diff_check=ok
