@@ -91,6 +91,7 @@ _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
         "templates/instructions/harness/claude.md",
     ),
     "codex": (
+        "scripts/puppet_lib/codex_admission.py",
         "scripts/puppet_lib/codex_launch.py",
         "scripts/puppet_lib/codex_qualification.py",
         "scripts/puppet_lib/codex_workspace_plane.py",
