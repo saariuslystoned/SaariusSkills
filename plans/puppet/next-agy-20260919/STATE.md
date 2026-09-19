@@ -29,11 +29,12 @@ PR #49 is open at
 
 ## Repair pass 2 closeout (2026-09-19)
 
-- repair commit: `4da746d`
+- repair commits: `4da746d`, `ecff5fc`
 - delegated checkpoint-admission slice: Cursor ACP job `e7692e33-c502-4e8e-bbc2-204b8b23957c`, selected `grok-4.6[effort=high,fast=true]`; focused worker tests passed and the diff was independently inspected
 - public AGY checkpoint import/review/accept now share runtime, protocol, conformance-fixture, source-identity, and state-admission gates
 - parent-gone halt uses the lease-bound identity and preserves retryable owned-child cleanup; resume refreshes executable/worktree identity before lease admission and reconciles failed admissions
 - refused sends do not create delivery intent; historical request IDs are retained without silent eviction
 - Linux `/proc` disappearance is typed as `ProcessVanished`; blocked doctor transports skip unrelated live PID census
 - focused repair tests: 72 passed; probe/qualification batch: 164 passed; full discovery: 1,247 passed in 349.622s
+- exact-head CI run `35426959846` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
 - exact public CLI qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
