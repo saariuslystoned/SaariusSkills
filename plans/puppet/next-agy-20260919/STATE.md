@@ -71,4 +71,6 @@ PR #49 is open at
 - focused verification: 125 passed; `py_compile` and `git diff --check` passed
 - full discovery: 1,264 passed in 270.995s
 - adapted review probe now passes the source identity boundary and reaches the expected unsupported native transport; its mocked lease fixture lacks a real authority root for cleanup after that boundary
+- packaging guard initially caught one literal home-directory path in this state file; the path was redacted in `d7a5306`, and the rerun passed
+- final head `d7a5306398c2c49fb64d223d06544de5d6330bb9`; hosted CI run `35456301281` passed on Ubuntu 24.04 and macOS 26, including test, compile, and smoke steps
 - public AGY qualification receipt/live proof remains pending; PR remains open and unmerged
