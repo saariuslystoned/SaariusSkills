@@ -145,6 +145,23 @@ Commands/results:
 - Parent `git diff --check` → `DIFF_CHECK_OK`.
 - Parent commit: `af41be6` (`puppet: repair PR48 qualification and identity boundaries`).
 
+## Repair 2: instruction-plane dependency closure
+
+- Authoritative review: `/Users/bobbybones/Developer/SaariusSkills/runs/puppet-roadmap-runs/20260919-pr48-repair2-review/REVIEW.md` against head `74ec7bf582807d1b053d0951e6685af10fc979ee`.
+- Negative probe before repair: a copied `instruction_planes.py` with an early return in `_validate_qualification_launch_grammar` produced `invalidations=[]` from `compare_qualification_compatibility`; the partial receipt reached the same later terminal-lifecycle error before mutation.
+- Added only `scripts/puppet_lib/instruction_planes.py` to `_SHARED_SOURCE_PATHS`. The validator is imported by `probe.py` and the AGY/Cursor/Grok workspace/admission paths, so its behavior is shared qualification authority rather than target-local code.
+- `viewer.py` remains excluded: it is a human-only TUI ticket/dispatch doorway; the executed attach helper `scripts/puppet_lib/viewer_attach.py` is already shared. `run_observations.py` remains excluded: it supplies planning/Claude target-local observation labels; receipt verification and compatibility comparison do not import or execute it. These exclusions are asserted by `test_target_scope_excludes_unrelated_harness_sources` and documented in the behavior test.
+- New behavior test: `test_instruction_plane_launch_grammar_drift_invalidates_comparison_and_receipt` mutates the copied validator to return early, requires `transport_or_shared_authority_changed`, proves the scoped receipt path raises stale-scope `IdentityError` before the later fixture limitation, and preserves unrelated target reuse for AGY.
+- Cursor ACP job `ccf8a3b4-4cda-4b61-a172-36bc2474090b` completed in the exact worktree with `cursor-grok-4.6-high`; parent independently inspected the diff and reran the proof.
+
+Commands/results:
+
+- Focused qualification/adapters/target-preservation suite → 58 tests OK in 1.802s.
+- `python3 -m compileall -q skills/puppet/scripts/puppet_lib/qualification_scope.py tests/test_puppet_qualification_reuse.py` → `COMPILEALL_OK`.
+- `git diff --check` → `DIFF_CHECK_OK`.
+- `python3 -m unittest discover -s tests -p 'test_puppet_*.py' -q` → 947 tests OK in 244.102s.
+- No live qualification, account/device traffic, merge, or other external action was taken during this repair; `live_e2e_claimed=false` remains true.
+
 ## Second review pass
 
 - Review checkout: `/Users/bobbybones/Developer/worktrees/saariusskills-pr48-review-20260919`.

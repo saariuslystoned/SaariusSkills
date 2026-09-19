@@ -210,7 +210,10 @@ class QualificationReuseTests(TestCase):
         self.assertIn("scripts/puppet_lib/subscription_profiles.py", shared)
         self.assertIn("scripts/puppet_lib/beacons.py", shared)
         self.assertIn("scripts/puppet_lib/signal_exec.py", shared)
+        self.assertIn("scripts/puppet_lib/instruction_planes.py", shared)
         self.assertNotIn("scripts/puppet_lib/subscription_onboarding.py", shared)
+        self.assertNotIn("scripts/puppet_lib/viewer.py", shared)
+        self.assertNotIn("scripts/puppet_lib/run_observations.py", shared)
         self.assertNotIn(
             "scripts/puppet_lib/beacons.py",
             set(target_source_paths("agy"))
@@ -221,6 +224,14 @@ class QualificationReuseTests(TestCase):
         )
         self.assertNotIn(
             "scripts/puppet_lib/signal_exec.py",
+            set(target_source_paths("agy"))
+            | set(target_source_paths("cursor"))
+            | set(target_source_paths("claude"))
+            | set(target_source_paths("codex"))
+            | set(target_source_paths("grok")),
+        )
+        self.assertNotIn(
+            "scripts/puppet_lib/instruction_planes.py",
             set(target_source_paths("agy"))
             | set(target_source_paths("cursor"))
             | set(target_source_paths("claude"))
@@ -689,6 +700,142 @@ class QualificationReuseTests(TestCase):
                             _current_manifest=current,
                             _source_root=copied,
                         )
+
+    def test_instruction_plane_launch_grammar_drift_invalidates_comparison_and_receipt(
+        self,
+    ):
+        """Disable a real shared launch-grammar branch and require invalidation.
+
+        instruction_policy_fingerprint hashes wrapper templates/catalog and
+        compiler metadata, not instruction_planes.py. probe.py plus AGY/Cursor/
+        Grok workspace-plane code import those validators, so an early return
+        in ``_validate_qualification_launch_grammar`` must change the shared
+        fingerprint.
+
+        The attested scoped fixture is incomplete. Before the mutation,
+        verify_qualification_receipt reaches the later terminal-lifecycle-
+        commit error; that is not an accepted receipt. After the mutation the
+        scoped compare must fail first.
+
+        Remaining candidates stay excluded from shared ownership:
+        viewer.py is the human-only TUI ticket/dispatch doorway used by
+        session attach, not receipt or compatibility authority. The executed
+        attach helper is already scoped as viewer_attach.py and is not
+        changed here. run_observations.py records body-free zero-agent/doctor
+        observations and supplies Claude planning blocker labels to
+        operator_plan and target-local claude_admission;
+        verify_qualification_receipt and compare_qualification_compatibility
+        do not import or execute it.
+        """
+
+        manifest = _manifest()
+        policy = instruction_policy_fingerprint(target="agy")
+        current = AdapterManifest.from_dict(manifest)
+        first_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-one",
+            goal_fingerprint="7" * 64,
+        )
+        second_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-two",
+            goal_fingerprint="8" * 64,
+        )
+        validator = (
+            "def _validate_qualification_launch_grammar(\n"
+            "    *,\n"
+            "    target: Mapping[str, Any],\n"
+            "    plane: str,\n"
+            "    materialize: Sequence[Mapping[str, Any]],\n"
+            "    launch_delta: Mapping[str, Any],\n"
+            ") -> None:\n"
+            '    """Keep v1 activation authority to exact, closed native tuples."""\n'
+        )
+        disabled = validator + "    return\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "puppet"
+            shutil.copytree(SKILL_ROOT, copied)
+            authority_root = Path(temporary) / "authority"
+            receipt_path = Path(temporary) / "receipt.json"
+            baseline = build_compatibility_scope(
+                manifest,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            cursor_source = (
+                copied / "scripts" / "puppet_lib" / "cursor_qualification.py"
+            )
+            cursor_source.write_text(
+                cursor_source.read_text(encoding="utf-8")
+                + "\n# cursor-only drift\n",
+                encoding="utf-8",
+            )
+            grok_source = copied / "scripts" / "puppet_lib" / "grok_admission.py"
+            grok_source.write_text(
+                grok_source.read_text(encoding="utf-8") + "\n# grok-only drift\n",
+                encoding="utf-8",
+            )
+            after_unrelated = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            self.assertEqual(after_unrelated["invalidations"], [])
+            unrelated_reuse = evaluate_qualification_reuse(
+                stored_compatibility=baseline,
+                stored_task=first_task,
+                current_compatibility=after_unrelated["current_scope"],
+                new_task=second_task,
+            )
+            self.assertTrue(unrelated_reuse["compatibility_reusable"])
+            self.assertFalse(unrelated_reuse["task_authority_reusable"])
+            _write_attested_scoped_receipt(
+                receipt_path,
+                manifest=manifest,
+                scope=baseline,
+                authority_root=authority_root,
+            )
+            with self.assertRaisesRegex(
+                ValidationError, "terminal lifecycle commit"
+            ):
+                verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=authority_root,
+                    _current_manifest=current,
+                    _source_root=copied,
+                )
+            plane_source = (
+                copied / "scripts" / "puppet_lib" / "instruction_planes.py"
+            )
+            original = plane_source.read_text(encoding="utf-8")
+            self.assertIn(validator, original)
+            plane_source.write_text(
+                original.replace(validator, disabled, 1),
+                encoding="utf-8",
+            )
+            after_planes = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            plane_reasons = {item["reason"] for item in after_planes["invalidations"]}
+            self.assertIn("transport_or_shared_authority_changed", plane_reasons)
+            self.assertNotIn("selected_target_source_changed", plane_reasons)
+            self.assertNotIn("instruction_policy_changed", plane_reasons)
+            with self.assertRaisesRegex(
+                IdentityError,
+                "compatibility scope is stale: .*transport_or_shared_authority_changed",
+            ):
+                verify_qualification_receipt(
+                    receipt_path,
+                    _authority_root=authority_root,
+                    _current_manifest=current,
+                    _source_root=copied,
+                )
 
     def test_verify_qualification_receipt_uses_scope_instead_of_aggregate_adapter_hash(
         self,
