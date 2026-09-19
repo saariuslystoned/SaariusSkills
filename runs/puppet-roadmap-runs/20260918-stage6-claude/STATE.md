@@ -1,0 +1,23 @@
+# Puppet roadmap stage 6 — Claude
+
+- status: implementation_committed
+- stage: Claude builder admission
+- branch: codex/puppet-roadmap-stage1-20260918
+- base: 4dda99f206b256c44b4adf2a23b1484640839488
+- accepted_stage6_grok_code: b75569e
+- accepted_stage6_codex_code: f51138e
+- stage6_codex_proof_closeout: 4dda99f
+- origin_main: a8de5b9245cd457cc35ca2e223a11040d0772f47
+- worker: Cursor ACP / Grok 4.6 High
+- workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
+- scope: Claude-specific builder admission proof; exact model/workspace/session/result binding; no generic ACP or live external claim
+- commit: c0616a7b68ad4b72cd3fa68cf265b0b49fcf50a9
+- job_id: e00b3bd4-add5-4d42-8fef-e8da13d7cc7d
+- live_claude_claimed: false
+- external actions: none
+- focused_tests: 13
+- focused_preservation_tests: 123
+- full_discover_ok: 932
+- full_discover_seconds: 200.443 (parent rerun)
+- parent_compileall: ok
+- parent_diff_check: ok
