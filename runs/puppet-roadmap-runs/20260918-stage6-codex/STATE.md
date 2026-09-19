@@ -13,6 +13,7 @@
 - commit: f51138e7e89f0d49ef5c8575fa0f3fc6e95ca24d
 - job_id: faa7bb68-7bf1-4568-8af3-50bb9305b930 (resubmission of 7b55bfc8-5bf8-41c3-ad1b-4899a7bad351)
 - live_codex_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_codex_qualification_pending
 - external actions: none
 - focused_tests: 13
 - codex_plus_reuse_tests: 83

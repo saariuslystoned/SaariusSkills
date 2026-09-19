@@ -18,6 +18,8 @@
 - Matching model IDs: exactly one.
 - Live Codex: not claimed. All builder-admission proof is a deterministic observation/receipt fixture.
 
+Acceptance scope: code and deterministic fixture proof only. Live Codex qualification remains pending; no live E2E completion is claimed.
+
 ## What landed
 
 Stage 6 added the narrow Codex-only builder admission contract after the existing paired-qualification and source-only authority gates:

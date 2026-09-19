@@ -17,9 +17,11 @@
 - Selected/current model: `grok-4.6[effort=high,fast=true]`
 - Live AGY: not claimed. All lifecycle and process-identity proof is a deterministic fixture.
 
+Acceptance scope: code and deterministic fixture proof only. The in-memory process fixture does not resolve Linux issue #21; live AGY lifecycle and real-process identity qualification remain pending.
+
 ## What landed
 
-Stage 4 completed the deterministic lifecycle around the stage-3 AGY structured boundary and closed roadmap #21 for that path:
+Stage 4 completed the deterministic lifecycle around the stage-3 AGY structured boundary and exercised the fixture-side process-identity path. It does not close Linux issue #21 or claim live qualification:
 
 - `qualify_agy_print_lifecycle` proves start/bind, matching conversation resume, terminal/result, distinct worker completion, controller acceptance, confirmed halt, and a bounded final outcome
 - Worker completion, controller acceptance, and halt stay distinct; `SOURCE_ACCEPTED` still does not emit `final_outcome`
@@ -86,7 +88,7 @@ Parent also reran `compileall` and `git diff --check`; both passed.
 ## Remaining blockers
 
 - Live AGY process is still not claimed; `AgyPrintController.available()` stays fail-closed
-- Shared `registry.send_exact_sigint` Linux/Darwin kernel TOCTOU path was not changed (shared fingerprint); #21 is closed on the AGY structured fixture path
+- Shared `registry.send_exact_sigint` Linux/Darwin kernel TOCTOU path was not changed (shared fingerprint); #21 remains pending for real Linux process identity and halt qualification
 - Cursor ACP under Puppet ownership — later stage
 - Later builder admission (Grok ACP, Codex, Claude) — later stage
 - Herdr as a Puppet run transport — explicitly unsupported

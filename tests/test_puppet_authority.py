@@ -45,11 +45,15 @@ from puppet_lib.instructions import compile_instruction_wrapper  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
 from puppet_lib.registry import (  # noqa: E402
     MAX_REPAIR_VERDICTS,
+    SESSION_REGISTRY_COMPAT_CURRENT,
+    SESSION_REGISTRY_COMPAT_PRE_TRANSPORT,
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
+    compatible_session_transport_binding,
     process_alive,
     process_birth_identity,
     send_exact_sigint,
+    session_registry_compatibility,
 )
 from puppet_lib.safety import (  # noqa: E402
     atomic_write_json,
@@ -3343,6 +3347,57 @@ class AuthorityTests(unittest.TestCase):
             ):
                 registry.validate(
                     dict(record, schema_version=SESSION_REGISTRY_SCHEMA_VERSION + 1)
+                )
+            self.assertEqual(
+                session_registry_compatibility(record),
+                SESSION_REGISTRY_COMPAT_CURRENT,
+            )
+            pre_transport = dict(record)
+            pre_transport.pop("transport")
+            self.assertEqual(
+                session_registry_compatibility(pre_transport),
+                SESSION_REGISTRY_COMPAT_PRE_TRANSPORT,
+            )
+            loaded_pre = registry.validate(pre_transport)
+            self.assertNotIn("transport", loaded_pre)
+            self.assertEqual(loaded_pre["schema_version"], SESSION_REGISTRY_SCHEMA_VERSION)
+            self.assertEqual(
+                compatible_session_transport_binding(pre_transport),
+                {"schema": "puppet.transport-binding/v1", "id": "tmux"},
+            )
+            with self.assertRaisesRegex(
+                ValidationError, "require a transport binding"
+            ):
+                registry.validate(pre_transport, require_current=True)
+            with self.assertRaisesRegex(
+                ValidationError, "require a transport binding"
+            ):
+                registry.create(pre_transport)
+            extra = dict(record)
+            extra["unexpected"] = True
+            with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
+                registry.validate(extra)
+            missing_state = dict(pre_transport)
+            missing_state.pop("state")
+            with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
+                registry.validate(missing_state)
+            current_missing_state = dict(record)
+            current_missing_state.pop("state")
+            with self.assertRaisesRegex(ValidationError, "fields do not match schema"):
+                registry.validate(current_missing_state)
+            with self.assertRaisesRegex(
+                ValidationError, "transport binding fields do not match schema"
+            ):
+                registry.validate(dict(record, transport={"id": "tmux"}))
+            with self.assertRaisesRegex(UnsupportedError, "not implemented"):
+                registry.validate(
+                    dict(
+                        record,
+                        transport={
+                            "schema": "puppet.transport-binding/v1",
+                            "id": "herdr",
+                        },
+                    )
                 )
             mixed_adapter = dict(record["adapter"])
             mixed_adapter.pop("execution_fingerprint")

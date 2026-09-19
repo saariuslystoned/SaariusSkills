@@ -13,6 +13,7 @@
 - commit: fa12809 (parent implementation and proof commit)
 - job_id: fb3a7520-dac1-4f52-8233-801b51d32db0
 - live_cursor_acp_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_cursor_acp_qualification_pending
 - external actions: none
 - focused_ok: 16
 - focused_plus_contracts_ok: 93

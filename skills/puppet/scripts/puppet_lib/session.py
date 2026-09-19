@@ -71,6 +71,7 @@ from .registry import (
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     bind_runtime_process,
+    compatible_session_transport_binding,
     process_alive,
     process_birth_identity,
     send_exact_sigint,
@@ -98,9 +99,8 @@ from .subscription_profiles import (
 from .tmux import TargetLaunch, TmuxController
 from .transport import (
     bind_run_transport,
-    open_bound_transport,
     open_run_transport,
-    record_transport_id,
+    validate_transport_binding,
     transport_capability_table,
     transport_is_available,
     transport_unavailable_detail,
@@ -210,7 +210,7 @@ def _session_caller_fields(
 ) -> Dict[str, Any]:
     return caller_projection(
         record,
-        transport_id=record_transport_id(record),
+        transport_id=compatible_session_transport_binding(record)["id"],
         halt_confirmed=halt_confirmed,
     )
 
@@ -911,7 +911,11 @@ def _cursor_acp_structured_launch(
     """Complete a cursor-acp launch from structured observation. Never open tmux."""
 
     from .agy_print import AgyPrintController
-    from .cursor_acp import CursorAcpController, require_cursor_acp_target
+    from .cursor_acp import (
+        CursorAcpController,
+        bind_expected_runtime_model,
+        require_cursor_acp_target,
+    )
     from .tmux import TmuxController
 
     require_cursor_acp_target(contract.target)
@@ -933,12 +937,15 @@ def _cursor_acp_structured_launch(
         raise IdentityError("cursor-acp did not open the structured Cursor ACP transport")
     observation = controller.require_observation()
     conversation_id = observation["session"]["conversation_id"]
+    requested = requested_model or contract.requested_model
     return controller.caller_result(
         expected_session=session,
         expected_conversation_id=conversation_id,
         expected_workspace=expected_workspace,
-        requested_model=requested_model or contract.requested_model,
-        expected_observed_model=observation["runtime"]["model_id"],
+        requested_model=requested,
+        expected_observed_model=bind_expected_runtime_model(requested)
+        if requested is not None
+        else None,
     )
 
 
@@ -988,8 +995,15 @@ def _runtime(
     *,
     require_process: bool,
 ) -> Tuple[TmuxController, Dict[str, Any]]:
-    bound = record_transport_id(record)
-    if bound != "tmux":
+    # Persisted session records must pass the explicit v2 compatibility
+    # classifier. A few transport-only in-memory callers predate the registry
+    # envelope; validate their binding directly without treating them as a
+    # persisted registry record.
+    if "schema_version" in record:
+        bound = compatible_session_transport_binding(record)
+    else:
+        bound = validate_transport_binding(record.get("transport"))
+    if bound["id"] != "tmux":
         raise IdentityError(
             "registered session transport is not tmux",
             blocker=doctor_blocker(
@@ -1000,7 +1014,7 @@ def _runtime(
     registry.verify_supervisor(record)
     registry.verify_instructions(record)
     registry.verify_adapter(record, capability)
-    tmux = open_bound_transport(record, registry.root)
+    tmux = open_run_transport(bound, registry.root)
     tmux.assert_tmux_binary_identity(record["tmux"]["tmux_binary_identity"])
     tmux.bind_server_identity(
         Path(record["tmux"]["socket"]), record["tmux"]["server_identity"]
@@ -2406,8 +2420,8 @@ def _dead_grok_lease_preflight(
 
     tmux_identity = record["tmux"]
     socket = Path(tmux_identity["socket"])
-    tmux = open_bound_transport(
-        record,
+    tmux = open_run_transport(
+        compatible_session_transport_binding(record),
         registry.root,
         _tmux_binary=Path(tmux_identity["tmux_binary_identity"]["path"]),
     )

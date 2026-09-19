@@ -15,4 +15,6 @@
 - prior_job_id: 5f2e0dbc-ec13-4488-a8d9-c28e26e9de16
 - prior_job_status: BRIDGE_RESTARTED; resubmitted and completed on the same checkout
 - live_agy_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_agy_qualification_pending
+- linux_issue_21: pending_real_process_lifecycle_proof
 - external actions: none

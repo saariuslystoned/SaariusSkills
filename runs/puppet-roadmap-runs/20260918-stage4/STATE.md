@@ -1,7 +1,7 @@
 # Puppet roadmap stage 4
 
 - status: accepted
-- stage: live AGY lifecycle qualification and process identity race
+- stage: deterministic AGY lifecycle fixture proof; live qualification pending
 - branch: codex/puppet-roadmap-stage1-20260918
 - base: 263decd95d9c72bff188df94cb223b58a93197eb
 - accepted_stage3_code: bbbb704
@@ -9,10 +9,12 @@
 - origin_main: a8de5b9245cd457cc35ca2e223a11040d0772f47
 - worker: Cursor ACP / Grok 4.6 High
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
-- scope: complete lifecycle qualification around AGY structured boundary, including #21 process identity race; start/resume/result/halt distinctions; safe fail-closed live-runtime gate
+- scope: deterministic lifecycle proof around the AGY structured boundary, including an in-memory process-identity fixture; start/resume/result/halt distinctions; safe fail-closed live-runtime gate
 - commit: 23300af (parent implementation and proof commit)
 - job_id: 8c60649c-e555-40be-abd3-9fb270ef5bcd
 - live_agy_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_agy_qualification_pending
+- linux_issue_21: pending_real_linux_process_identity_proof; not resolved by the in-memory fixture
 - external actions: none
 - focused_ok: 77
 - lifecycle_ok: 14

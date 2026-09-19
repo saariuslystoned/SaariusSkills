@@ -140,6 +140,17 @@ class QualificationReuseTests(TestCase):
         self.assertTrue(shared <= cursor_sources)
         self.assertIn("scripts/puppet_lib/caller.py", shared)
         self.assertIn("scripts/puppet_lib/transport.py", shared)
+        self.assertIn("scripts/puppet_lib/authority.py", shared)
+        self.assertIn("scripts/puppet_lib/subscription_profiles.py", shared)
+        self.assertNotIn("scripts/puppet_lib/subscription_onboarding.py", shared)
+        self.assertNotIn(
+            "scripts/puppet_lib/subscription_profiles.py",
+            set(target_source_paths("agy"))
+            | set(target_source_paths("cursor"))
+            | set(target_source_paths("claude"))
+            | set(target_source_paths("codex"))
+            | set(target_source_paths("grok")),
+        )
         self.assertIn("scripts/puppet_lib/agy_launch.py", agy_sources)
         self.assertIn("scripts/puppet_lib/agy_print.py", agy_sources)
         self.assertNotIn("scripts/puppet_lib/agy_print.py", shared)
@@ -383,6 +394,111 @@ class QualificationReuseTests(TestCase):
             reasons = {item["reason"] for item in after_agy["invalidations"]}
             self.assertIn("selected_target_source_changed", reasons)
             self.assertIn("transport_or_shared_authority_changed", reasons)
+
+    def test_subscription_profile_authority_drift_invalidates_while_unrelated_harness_stays_reusable(
+        self,
+    ):
+        manifest = _manifest()
+        policy = instruction_policy_fingerprint(target="agy")
+        first_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-one",
+            goal_fingerprint="7" * 64,
+        )
+        second_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-two",
+            goal_fingerprint="8" * 64,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "puppet"
+            shutil.copytree(SKILL_ROOT, copied)
+            baseline = build_compatibility_scope(
+                manifest,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            cursor_source = (
+                copied / "scripts" / "puppet_lib" / "cursor_qualification.py"
+            )
+            cursor_source.write_text(
+                cursor_source.read_text(encoding="utf-8") + "\n# cursor-only drift\n",
+                encoding="utf-8",
+            )
+            after_unrelated = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            self.assertEqual(after_unrelated["invalidations"], [])
+            unrelated_reuse = evaluate_qualification_reuse(
+                stored_compatibility=baseline,
+                stored_task=first_task,
+                current_compatibility=after_unrelated["current_scope"],
+                new_task=second_task,
+            )
+            self.assertTrue(unrelated_reuse["compatibility_reusable"])
+            self.assertFalse(unrelated_reuse["task_authority_reusable"])
+            self.assertEqual(unrelated_reuse["task_authority"], "fresh_required")
+            subscription_source = (
+                copied / "scripts" / "puppet_lib" / "subscription_profiles.py"
+            )
+            subscription_source.write_text(
+                subscription_source.read_text(encoding="utf-8")
+                + "\n# subscription authority drift\n",
+                encoding="utf-8",
+            )
+            after_subscription = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            subscription_reasons = {
+                item["reason"] for item in after_subscription["invalidations"]
+            }
+            self.assertIn("transport_or_shared_authority_changed", subscription_reasons)
+            self.assertNotIn("selected_target_source_changed", subscription_reasons)
+            subscription_reuse = evaluate_qualification_reuse(
+                stored_compatibility=baseline,
+                stored_task=first_task,
+                current_compatibility=after_subscription["current_scope"],
+                new_task=second_task,
+            )
+            self.assertFalse(subscription_reuse["compatibility_reusable"])
+            self.assertFalse(subscription_reuse["task_authority_reusable"])
+            authority_source = copied / "scripts" / "puppet_lib" / "authority.py"
+            authority_source.write_text(
+                authority_source.read_text(encoding="utf-8") + "\n# shared authority drift\n",
+                encoding="utf-8",
+            )
+            after_shared = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            self.assertIn(
+                "transport_or_shared_authority_changed",
+                {item["reason"] for item in after_shared["invalidations"]},
+            )
+            grok_source = copied / "scripts" / "puppet_lib" / "grok_admission.py"
+            grok_source.write_text(
+                grok_source.read_text(encoding="utf-8") + "\n# grok-only drift\n",
+                encoding="utf-8",
+            )
+            after_grok = compare_qualification_compatibility(
+                stored_scope=baseline,
+                current_manifest=manifest,
+                instruction_policy_fingerprint=policy,
+                source_root=copied,
+            )
+            grok_reasons = {item["reason"] for item in after_grok["invalidations"]}
+            self.assertIn("transport_or_shared_authority_changed", grok_reasons)
+            self.assertNotIn("selected_target_source_changed", grok_reasons)
 
     def test_verify_qualification_receipt_uses_scope_instead_of_aggregate_adapter_hash(
         self,

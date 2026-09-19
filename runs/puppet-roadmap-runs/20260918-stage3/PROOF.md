@@ -17,6 +17,8 @@
 - Selected/current model: `grok-4.6[effort=high,fast=true]`
 - Live AGY: not claimed. All AGY proof is a deterministic observation fixture.
 
+Acceptance scope: code and deterministic fixture proof only. Live AGY qualification remains pending, including real-process Linux identity proof.
+
 ## What landed
 
 Stage 3 named `agy-print` structured transport on the stage-2 caller/transport boundary:

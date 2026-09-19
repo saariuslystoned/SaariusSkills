@@ -11,8 +11,9 @@ not claimed; tests inject a deterministic observation/runner fixture.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Sequence
 
 from .caller import caller_projection, make_blocker
 from .errors import IdentityError, UnsupportedError, ValidationError
@@ -41,6 +42,22 @@ RUNTIME_MODEL_SOURCES = frozenset(
     {"runtime_metadata", "session_metadata", "acp_runtime_metadata"}
 )
 TERMINAL_STATES = frozenset({"active", "completed", "failed", "halted"})
+MODEL_CATALOG_SCHEMA = "puppet.cursor-acp-model-catalog/v1"
+_CURSOR_SELECTOR_RE = re.compile(r"^cursor-grok-4\.6-(low|medium|high|xhigh)$")
+_PARAMETERIZED_RUNTIME_RE = re.compile(r"^(?:cursor-)?grok-4\.6\[(.+)\]$")
+FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
+    {"default", "fallback", "auto", "unavailable", "current_default"}
+)
+VERIFIED_CURSOR_ACP_CATALOG = {
+    "schema": MODEL_CATALOG_SCHEMA,
+    "verified": True,
+    "advertised_model_ids": (
+        "grok-4.6[effort=low,fast=true]",
+        "grok-4.6[effort=medium,fast=true]",
+        "grok-4.6[effort=high,fast=true]",
+        "grok-4.6[effort=xhigh,fast=true]",
+    ),
+}
 _OBSERVATION_KEYS = frozenset(
     {
         "schema",
@@ -251,17 +268,136 @@ def validate_cursor_acp_observation(value: Any) -> Dict[str, Any]:
     }
 
 
+def _verified_advertised_model_ids(
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Sequence[str]:
+    raw = VERIFIED_CURSOR_ACP_CATALOG if catalog is None else catalog
+    if (
+        not isinstance(raw, Mapping)
+        or raw.get("schema") != MODEL_CATALOG_SCHEMA
+        or raw.get("verified") is not True
+    ):
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP model catalog is unverified",
+        )
+    advertised = raw.get("advertised_model_ids")
+    if not isinstance(advertised, (tuple, list)) or not advertised:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    model_ids = []
+    for model_id in advertised:
+        if not isinstance(model_id, str) or not model_id.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP model catalog is unverified",
+            )
+        model_ids.append(model_id)
+    return tuple(model_ids)
+
+
+def _runtime_parameters(model_id: str) -> Optional[Dict[str, str]]:
+    match = _PARAMETERIZED_RUNTIME_RE.fullmatch(model_id)
+    if match is None:
+        return None
+    values: Dict[str, str] = {}
+    for parameter in match.group(1).split(","):
+        if "=" not in parameter:
+            return None
+        key, value = parameter.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            return None
+        values[key] = value
+    return values
+
+
+def _is_cursor_selector(model_id: str) -> bool:
+    return _CURSOR_SELECTOR_RE.fullmatch(model_id) is not None
+
+
+def resolve_requested_cursor_model(
+    requested_model: Optional[str],
+    *,
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """Resolve one requested selector through the local verified catalog."""
+
+    if not isinstance(requested_model, str) or not requested_model.strip():
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    requested = requested_model.strip()
+    if requested in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP fallback or default model is not bound requested-model proof",
+        )
+    advertised = _verified_advertised_model_ids(catalog)
+    if requested in advertised:
+        return requested
+    match = _CURSOR_SELECTOR_RE.fullmatch(requested)
+    if match is None:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    effort = match.group(1)
+    candidates = []
+    for model_id in advertised:
+        parameters = _runtime_parameters(model_id)
+        if (
+            parameters is not None
+            and parameters.get("effort") == effort
+            and parameters.get("fast") == "true"
+        ):
+            candidates.append(model_id)
+    if len(candidates) != 1:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    return candidates[0]
+
+
+def bind_expected_runtime_model(
+    requested_model: Optional[str],
+    *,
+    catalog: Optional[Mapping[str, Any]] = None,
+    expected_observed_model: Optional[str] = None,
+) -> str:
+    """Bind the catalog-resolved runtime model independently of observation."""
+
+    bound = resolve_requested_cursor_model(requested_model, catalog=catalog)
+    if expected_observed_model is not None and expected_observed_model != bound:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Cursor ACP runtime",
+        )
+    return bound
+
+
 def prove_observed_model(
     observation: Mapping[str, Any],
     *,
     requested_model: Optional[str] = None,
     expected_observed_model: Optional[str] = None,
+    catalog: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Prove the executed ACP model from runtime metadata, not the selector."""
+    """Prove the executed ACP model against a catalog-bound runtime identity."""
 
     observation = validate_cursor_acp_observation(observation)
     observed = observation.get("observed_model")
     requested = requested_model or observation.get("requested_model")
+    expected = bind_expected_runtime_model(
+        requested,
+        catalog=catalog,
+        expected_observed_model=expected_observed_model,
+    )
     if observed is None or observed.get("source") not in RUNTIME_MODEL_SOURCES:
         _raise_identity(
             "model_observation_selector_only",
@@ -273,12 +409,23 @@ def prove_observed_model(
             "model_observation_selector_only",
             "observed model is missing from runtime ACP metadata",
         )
-    if requested is not None and model_id == requested:
+    if _is_cursor_selector(model_id) and model_id != expected:
         _raise_identity(
             "model_observation_selector_only",
             "requested selector is not observed model proof",
         )
-    if expected_observed_model is not None and expected_observed_model != model_id:
+    if model_id in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP fallback or default model is not bound requested-model proof",
+        )
+    advertised = _verified_advertised_model_ids(catalog)
+    if model_id not in advertised:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Cursor ACP model is unverified",
+        )
+    if model_id != expected:
         _raise_identity(
             "model_observation_mismatch",
             "observed model does not match the bound Cursor ACP runtime",
@@ -429,10 +576,18 @@ def prove_cursor_acp_observation(
     """Prove the full structured Cursor ACP identity set from one observation."""
 
     observation = validate_cursor_acp_observation(observation)
+    requested = (
+        requested_model
+        if requested_model is not None
+        else observation.get("requested_model")
+    )
+    expected = bind_expected_runtime_model(
+        requested, expected_observed_model=expected_observed_model
+    )
     model = prove_observed_model(
         observation,
-        requested_model=requested_model,
-        expected_observed_model=expected_observed_model,
+        requested_model=requested,
+        expected_observed_model=expected,
     )
     workspace = prove_workspace_binding(
         observation, expected_workspace=expected_workspace
@@ -525,11 +680,19 @@ def qualify_cursor_acp_lifecycle(
     """Qualify the deterministic Cursor ACP lifecycle. Never claims a live run."""
 
     observation = validate_cursor_acp_observation(observation)
+    requested = (
+        requested_model
+        if requested_model is not None
+        else observation.get("requested_model")
+    )
+    expected = bind_expected_runtime_model(
+        requested, expected_observed_model=expected_observed_model
+    )
     start = {
         "model": prove_observed_model(
             observation,
-            requested_model=requested_model,
-            expected_observed_model=expected_observed_model,
+            requested_model=requested,
+            expected_observed_model=expected,
         ),
         "workspace": prove_workspace_binding(
             observation, expected_workspace=expected_workspace
@@ -715,12 +878,20 @@ class CursorAcpController:
         require_halt: bool = False,
     ) -> Dict[str, Any]:
         observation = self.require_observation()
+        requested = (
+            requested_model
+            if requested_model is not None
+            else observation.get("requested_model")
+        )
+        expected = bind_expected_runtime_model(
+            requested, expected_observed_model=expected_observed_model
+        )
         proved = self.prove(
             expected_session=expected_session,
             expected_conversation_id=expected_conversation_id,
             expected_workspace=expected_workspace,
-            requested_model=requested_model,
-            expected_observed_model=expected_observed_model,
+            requested_model=requested,
+            expected_observed_model=expected,
             expected_result_state=expected_result_state,
             expected_result_id=expected_result_id,
             require_halt=require_halt,
@@ -729,8 +900,8 @@ class CursorAcpController:
             expected_session=expected_session,
             expected_conversation_id=expected_conversation_id,
             expected_workspace=expected_workspace,
-            requested_model=requested_model,
-            expected_observed_model=expected_observed_model,
+            requested_model=requested,
+            expected_observed_model=expected,
             expected_result_state=expected_result_state,
             expected_result_id=expected_result_id,
             require_halt=require_halt,

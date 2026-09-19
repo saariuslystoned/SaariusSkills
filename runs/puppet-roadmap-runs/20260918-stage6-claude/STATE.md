@@ -15,6 +15,7 @@
 - proof_closeout_commit: 5d9e90c
 - job_id: e00b3bd4-add5-4d42-8fef-e8da13d7cc7d
 - live_claude_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_claude_qualification_pending
 - external actions: none
 - focused_tests: 13
 - focused_preservation_tests: 123

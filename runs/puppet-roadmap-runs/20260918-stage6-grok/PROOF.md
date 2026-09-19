@@ -18,6 +18,8 @@
 - Matching model IDs: exactly one.
 - Live Grok: not claimed. All builder-admission proof is a deterministic observation/receipt fixture.
 
+Acceptance scope: code and deterministic fixture proof only. Live Grok qualification remains pending; no live E2E completion is claimed.
+
 ## What landed
 
 Stage 6 added the narrow Grok-only builder admission contract after the existing qualification and authority gates:

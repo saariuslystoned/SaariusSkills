@@ -13,6 +13,7 @@
 - commit: b75569e (parent implementation and proof commit)
 - job_id: f0a9cdd6-ae5c-4f2d-9f1f-2b9f5d14ec79
 - live_grok_claimed: false
+- acceptance_scope: code_and_deterministic_fixture_proof_only; live_grok_qualification_pending
 - external actions: none
 - focused_tests: 12
 - grok_plus_reuse_tests: 85

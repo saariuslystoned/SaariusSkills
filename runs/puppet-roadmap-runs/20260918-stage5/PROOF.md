@@ -17,6 +17,8 @@
 - Selected/current model: `grok-4.6[effort=high,fast=true]`
 - Live Cursor ACP: not claimed. All ACP proof is a deterministic observation/runner fixture.
 
+Acceptance scope: code and deterministic fixture proof only. Live Cursor ACP qualification remains pending; no live E2E completion is claimed.
+
 ## What landed
 
 Stage 5 added the narrow Puppet-owned Cursor ACP adapter/transport boundary on the stage-4 caller/transport path:

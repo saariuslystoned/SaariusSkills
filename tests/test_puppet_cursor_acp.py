@@ -18,6 +18,7 @@ from puppet_lib.caller import make_blocker
 from puppet_lib.cursor_acp import (
     CursorAcpController,
     CursorAcpRunnerFixture,
+    bind_expected_runtime_model,
     caller_fields_from_observation,
     fixture_observation,
     prove_cursor_acp_observation,
@@ -28,6 +29,7 @@ from puppet_lib.cursor_acp import (
     prove_workspace_binding,
     qualify_cursor_acp_lifecycle,
     require_cursor_acp_target,
+    resolve_requested_cursor_model,
 )
 from puppet_lib.errors import IdentityError, UnsupportedError
 from puppet_lib.operator_plan import compile_operator_plan
@@ -174,6 +176,85 @@ class CursorAcpTransportTests(unittest.TestCase):
                 expected_observed_model="other-observed-model",
             )
 
+    def test_catalog_resolves_requested_selector_independently(self):
+        self.assertEqual(
+            resolve_requested_cursor_model("cursor-grok-4.6-high"),
+            "grok-4.6[effort=high,fast=true]",
+        )
+        self.assertEqual(
+            bind_expected_runtime_model("cursor-grok-4.6-high"),
+            "grok-4.6[effort=high,fast=true]",
+        )
+        self.assertEqual(
+            bind_expected_runtime_model("grok-4.6[effort=high,fast=true]"),
+            "grok-4.6[effort=high,fast=true]",
+        )
+        with self.assertRaisesRegex(IdentityError, "unavailable"):
+            bind_expected_runtime_model("cursor-missing-model")
+        with self.assertRaisesRegex(IdentityError, "fallback or default"):
+            bind_expected_runtime_model("default")
+        with self.assertRaisesRegex(IdentityError, "fallback or default"):
+            bind_expected_runtime_model("fallback")
+
+    def test_arbitrary_unverified_observed_model_is_rejected(self):
+        observation = fixture_observation(
+            observed_model="arbitrary-unverified-model",
+            runtime_model="arbitrary-unverified-model",
+        )
+        with self.assertRaisesRegex(IdentityError, "unverified"):
+            prove_observed_model(
+                observation, requested_model="cursor-grok-4.6-high"
+            )
+        with self.assertRaisesRegex(IdentityError, "does not match"):
+            prove_observed_model(
+                observation,
+                requested_model="cursor-grok-4.6-high",
+                expected_observed_model=observation["observed_model"]["id"],
+            )
+
+    def test_wrong_verified_model_is_rejected(self):
+        observation = fixture_observation(
+            observed_model="grok-4.6[effort=low,fast=true]",
+            runtime_model="grok-4.6[effort=low,fast=true]",
+        )
+        with self.assertRaisesRegex(IdentityError, "does not match"):
+            prove_observed_model(
+                observation, requested_model="cursor-grok-4.6-high"
+            )
+
+    def test_fallback_or_default_model_is_rejected(self):
+        for model_id in ("default", "fallback", "auto"):
+            observation = fixture_observation(
+                observed_model=model_id, runtime_model=model_id
+            )
+            with self.assertRaisesRegex(IdentityError, "fallback or default"):
+                prove_observed_model(
+                    observation, requested_model="cursor-grok-4.6-high"
+                )
+        for requested in ("default", "fallback"):
+            with self.assertRaisesRegex(IdentityError, "fallback or default"):
+                prove_observed_model(
+                    fixture_observation(), requested_model=requested
+                )
+
+    def test_unavailable_selector_is_rejected(self):
+        with self.assertRaisesRegex(IdentityError, "unavailable"):
+            prove_observed_model(
+                fixture_observation(), requested_model="cursor-missing-model"
+            )
+
+    def test_legitimate_requested_observed_equality_succeeds(self):
+        runtime = "grok-4.6[effort=high,fast=true]"
+        observation = fixture_observation(
+            requested_model=runtime,
+            observed_model=runtime,
+            runtime_model=runtime,
+        )
+        proved = prove_observed_model(observation, requested_model=runtime)
+        self.assertEqual(proved["observed_model"], runtime)
+        self.assertEqual(proved["requested_model"], runtime)
+        self.assertEqual(proved["source"], "runtime_metadata")
+
     def test_workspace_session_and_result_identity_failures(self):
         observation = fixture_observation()
         with self.assertRaisesRegex(IdentityError, "workspace identity"):
@@ -303,6 +384,48 @@ class CursorAcpTransportTests(unittest.TestCase):
         )
         self.assertEqual(result["lifecycle"]["schema"], "puppet.cursor-acp-lifecycle/v1")
         self.assertFalse(result["lifecycle"]["live_cursor_acp_claimed"])
+        self.assertFalse(CursorAcpController.available())
+
+    def test_structured_launch_rejects_observation_as_expected_model_authority(self):
+        runner = CursorAcpRunnerFixture(
+            fixture_observation(
+                observed_model="arbitrary-unverified-model",
+                runtime_model="arbitrary-unverified-model",
+            )
+        )
+        contract = mock.Mock()
+        contract.repo = Path("/tmp/cursor-acp-workspace")
+        contract.requested_model = "cursor-grok-4.6-high"
+        contract.target = "cursor"
+        with mock.patch(
+            "puppet_lib.session._workspace_snapshot",
+            return_value={
+                "branch": "codex/example",
+                "head": "a" * 40,
+                "tree": "b" * 40,
+                "dirty": False,
+            },
+        ), mock.patch.object(
+            TmuxController, "__init__", side_effect=AssertionError("tmux fallback")
+        ), mock.patch.object(
+            AgyPrintController,
+            "__init__",
+            side_effect=AssertionError("agy-print fallback"),
+        ):
+            with tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaisesRegex(IdentityError, "unverified"):
+                    _cursor_acp_structured_launch(
+                        session="cursor-acp-session",
+                        contract=contract,
+                        transport=bind_run_transport("cursor-acp"),
+                        state_root=Path(temporary),
+                        requested_model="cursor-grok-4.6-high",
+                        runner=runner,
+                    )
+        self.assertEqual(
+            bind_expected_runtime_model("cursor-grok-4.6-high"),
+            "grok-4.6[effort=high,fast=true]",
+        )
         self.assertFalse(CursorAcpController.available())
 
     def test_structured_launch_without_observer_does_not_fall_back(self):
@@ -447,8 +570,32 @@ class CursorAcpTransportTests(unittest.TestCase):
 
     def test_registered_cursor_acp_session_does_not_open_tmux_runtime(self):
         record = {
-            "transport": bind_run_transport("cursor-acp"),
+            "schema_version": 2,
             "session": "cursor-acp-session",
+            "controller": "controller",
+            "target": "cursor",
+            "lease_owner": "owner",
+            "contract_fingerprint": "f" * 64,
+            "contract_path": "/tmp/contract.json",
+            "state": "ACTIVE",
+            "repo": "/tmp/repo",
+            "branch": "codex/example",
+            "mutation_owner": "owner",
+            "proof_root": "/tmp/proof",
+            "transport": bind_run_transport("cursor-acp"),
+            "tmux": {},
+            "process": {},
+            "supervisor": {},
+            "adapter": {},
+            "instructions": {},
+            "protocol": {},
+            "created_at": None,
+            "last_checkpoint": None,
+            "last_validated_at": None,
+            "last_beacon": None,
+            "repair_count": 0,
+            "deadline_at": None,
+            "blocker": None,
         }
         with tempfile.TemporaryDirectory() as temporary:
             with mock.patch.object(
