@@ -48,3 +48,4 @@ PR #49 is open at
 - focused repair suite: 110 passed; worker qualification batch: 144 passed
 - full discovery: 1,258 tests; 1 unrelated timing-sensitive Codex doctor-child assertion failed in the aggregate run and passed on exact isolated rerun
 - exact public CLI AGY qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
+- corrected exact-head CI run `35445828955` passed on Ubuntu 24.04 and macOS 26 after redacting machine-local proof paths
