@@ -92,4 +92,4 @@ Parent also reran `compileall` and `git diff --check`; both passed.
 - Herdr as a Puppet run transport — explicitly unsupported
 - Operator-plan packet still cannot carry transport fields (frozen fanout/Codex entry schema)
 - Tmux settle still lives in the shared transport/authority fingerprint
-- Parent implementation and proof commit: pending (recorded in the closeout event after commit)
+- Parent implementation and proof commit: `23300af` (`puppet: qualify AGY lifecycle and process identity`).
