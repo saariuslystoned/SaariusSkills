@@ -66,4 +66,4 @@ Parent reran the full discovery independently after the worker's earlier cleanup
 - Tmux settle still lives in the shared transport/authority fingerprint; `agy-print` isolation from tmux settle is explicitly unsupported until that transport is implemented
 - #21 Linux process-identity race remains in later lifecycle/halt scope
 - Parent review checks: `git diff --check`, `compileall`, and forbidden bridge/package-path check passed.
-- Parent commit: pending (recorded in the closeout event after commit).
+- Parent implementation and proof commit: `0926c9f` (`puppet: add caller transport boundary`).

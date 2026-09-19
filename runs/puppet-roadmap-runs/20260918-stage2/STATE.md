@@ -9,6 +9,6 @@
 - worker: Cursor ACP / Grok 4.6 High
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: combine #35/#39/#41, refresh #10's contract, finish #30 item 5 at this boundary
-- commit: pending parent commit
+- commit: 0926c9f (parent implementation and proof commit)
 - job_id: ac039365-b49b-476c-a597-693083b25c09
 - external actions: none
