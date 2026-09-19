@@ -397,21 +397,21 @@ A run binds exactly one named transport before launch and never falls back.
 Checkpoints, review, controller acceptance, and human gates stay
 transport-independent. Puppet owns fresh process birth identity and
 stop/escalation; a caller cannot substitute another transport or a stale
-PID. The current implemented transport is `tmux`. `herdr`, `acp`, and
-`agy-print` are named and explicitly unsupported.
+PID. The implemented transports are `tmux` and `agy-print`. `herdr` and `acp`
+are named and explicitly unsupported. Requesting `agy-print` never falls
+back to tmux.
 
 | Transport | Implementation | `status` proves | Halt proves | Resume proves |
 | --- | --- | --- | --- | --- |
 | `tmux` | implemented | pane and registered process identity, not a harness turn result | registered PID gone and pane dead | unsupported |
 | `herdr` | unsupported | unsupported | unsupported | unsupported |
 | `acp` | unsupported | unsupported | unsupported | unsupported |
-| `agy-print` | unsupported | unsupported | unsupported | unsupported |
+| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from runtime metadata, not a live AGY lifecycle | owned PID/birth gone and confined process tree | matching session and conversation identity; not a selector or path |
 
 Tmux settle, startup-screen, and paste sequencing remain shared
-transport/authority evidence while tmux is the only implemented run
-transport. A later implemented structured transport must carry its own
-source list so tmux settle edits do not invalidate it. See
-[transport-contract.md](transport-contract.md).
+transport/authority evidence for AGY-on-tmux. `agy-print` carries its own
+AGY target source so structured-transport edits do not invalidate other
+targets. See [transport-contract.md](transport-contract.md).
 
 ## Transcript blindness
 

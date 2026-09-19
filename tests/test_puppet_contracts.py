@@ -100,6 +100,9 @@ class ContractTests(unittest.TestCase):
             raw["transport"] = "herdr"
             with self.assertRaisesRegex(UnsupportedError, "not implemented"):
                 Contract.from_dict(raw)
+            raw["transport"] = "agy-print"
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.transport, "agy-print")
             raw["transport"] = "not-a-transport"
             with self.assertRaisesRegex(ValidationError, "unsupported transport"):
                 Contract.from_dict(raw)

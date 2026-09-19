@@ -59,10 +59,12 @@ The contract distinguishes three scopes:
    probe, session, explicit run-transport binding, tmux/transport,
    authority, registry, and shipped universal/lifecycle policy sources plus
    protocol and instruction-policy fingerprints. The caller names one
-   transport per run (`tmux` implemented; `herdr`, `acp`, and `agy-print`
-   unsupported). Tmux-only settle evidence stays in this shared fingerprint
-   until a second implemented transport exists; `agy-print` isolation from
-   tmux settle is therefore explicitly unsupported.
+   transport per run (`tmux` and `agy-print` implemented; `herdr` and `acp`
+   unsupported). Tmux settle remains in the shared v1 fingerprint so
+   AGY-on-tmux still tracks it. `agy-print` carries its own AGY target
+   source (`agy_print.py`) so structured-transport edits do not invalidate
+   other targets. Per-transport isolation of tmux settle out of that shared
+   fingerprint waits for a later scope schema.
 3. **Task scope/authorization.** Controller, campaign ID, and goal
    fingerprint. A new task may reuse current compatibility evidence but
    must supply its own authorization. Task authority is never reusable.

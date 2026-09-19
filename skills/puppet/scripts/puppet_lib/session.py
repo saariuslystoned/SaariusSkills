@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .adapter_manifest import AdapterManifest
 from .adapters import adapter_for
@@ -103,6 +103,7 @@ from .transport import (
     record_transport_id,
     transport_capability_table,
     transport_is_available,
+    transport_unavailable_detail,
 )
 from .verdicts import (
     record_acceptance,
@@ -150,6 +151,7 @@ _DOCTOR_BLOCKER_CODES = {
         "subscription_profile_unauthenticated"
     ),
     "tmux is unavailable": "tmux_unavailable",
+    "agy-print transport is unavailable": "transport_unavailable",
     "contract branch does not match checkout": "branch_mismatch",
     "candidate worktree is not clean": "worktree_dirty",
     "proof root is not writable": "proof_root_unwritable",
@@ -191,6 +193,8 @@ def _caller_blockers_from_details(details: List[str]) -> List[Dict[str, Any]]:
                 code = "mismatched_target_population"
             elif "Grok" in detail and "qualification" in detail.lower():
                 code = "grok_launch_authority"
+            elif detail.endswith(" transport is unavailable"):
+                code = "transport_unavailable"
             else:
                 code = "doctor_blocker"
         caller_blockers.append(doctor_blocker(code, detail))
@@ -892,6 +896,45 @@ def _await_input_ready(
     }
 
 
+def _agy_print_structured_launch(
+    *,
+    session: str,
+    contract: Contract,
+    transport: Dict[str, str],
+    state_root: Path,
+    requested_model: Optional[str],
+    observer: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Complete an agy-print launch from structured observation. Never open tmux."""
+
+    from .agy_print import AgyPrintController
+    from .tmux import TmuxController
+
+    workspace = _workspace_snapshot(contract)
+    expected_workspace = {
+        "path": str(contract.repo),
+        "branch": workspace["branch"],
+        "head": workspace["head"],
+        "tree": workspace["tree"],
+    }
+    controller = open_run_transport(
+        transport, state_root, observer=observer
+    )
+    if isinstance(controller, TmuxController):
+        raise IdentityError("agy-print opened a tmux transport")
+    if not isinstance(controller, AgyPrintController):
+        raise IdentityError("agy-print did not open the structured AGY transport")
+    observation = controller.require_observation()
+    conversation_id = observation["session"]["conversation_id"]
+    return controller.caller_result(
+        expected_session=session,
+        expected_conversation_id=conversation_id,
+        expected_workspace=expected_workspace,
+        requested_model=requested_model or contract.requested_model,
+        target=contract.target,
+    )
+
+
 def _runtime(
     registry: SessionRegistry,
     record: Dict[str, Any],
@@ -899,6 +942,15 @@ def _runtime(
     *,
     require_process: bool,
 ) -> Tuple[TmuxController, Dict[str, Any]]:
+    bound = record_transport_id(record)
+    if bound != "tmux":
+        raise IdentityError(
+            "registered session transport is not tmux",
+            blocker=doctor_blocker(
+                "identity_mismatch",
+                "registered session transport is not tmux",
+            ),
+        )
     registry.verify_supervisor(record)
     registry.verify_instructions(record)
     registry.verify_adapter(record, capability)
@@ -1192,7 +1244,7 @@ def doctor(
     )
     blockers.extend(profile_blockers)
     if not transport_is_available(transport["id"]):
-        blockers.append("tmux is unavailable")
+        blockers.append(transport_unavailable_detail(transport["id"]))
     workspace = _workspace_snapshot(contract)
     branch = workspace["branch"]
     head = workspace["head"]
@@ -1383,6 +1435,7 @@ def launch(
     _execution_monotonic_fn: Any = time.monotonic,
     _process_birth_fn: Any = None,
     _allow_test_profile_bypass: bool = False,
+    _agy_print_observer: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     if deadline_seconds is not None:
@@ -1659,6 +1712,15 @@ def launch(
         requested_transport,
         contract_transport=_contract_requested_transport(contract),
     )
+    if transport["id"] == "agy-print":
+        return _agy_print_structured_launch(
+            session=session,
+            contract=contract,
+            transport=transport,
+            state_root=state_root,
+            requested_model=requested_model,
+            observer=_agy_print_observer,
+        )
     registry = SessionRegistry(state_root)
     tmux = open_run_transport(transport, state_root)
     socket = tmux.socket_path(session)

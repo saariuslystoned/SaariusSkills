@@ -12,18 +12,22 @@ before launch and never silently falls back.
 | `tmux` | Portable implemented default. Private socket, exact pane/process birth, ticketed read-only attach. |
 | `herdr` | Named and unsupported as a Puppet run transport. Experimental Herdr-Puppet remains a separate skill. |
 | `acp` | Named and unsupported. Later Cursor/Grok ACP admission is a later stage. |
-| `agy-print` | Named and unsupported. Structured AGY transport and observed-model proof are a later stage. |
+| `agy-print` | Implemented structured AGY transport. Observed model, workspace, terminal result, conversation/session resume, and owned process-tree halt are proved from runtime metadata. Live AGY lifecycle is a later stage. |
 
-Requesting an unimplemented id refuses. Missing tmux does not select Herdr
-or ACP.
+Requesting an unimplemented id refuses. Missing tmux does not select Herdr,
+ACP, or `agy-print`. Requesting `agy-print` never falls back to tmux.
 
 ## Capability and proof
 
 The table in [adapter-contract.md](adapter-contract.md) is the canonical
 per-transport proof matrix. Tmux `status` infers liveness from pane and
 registered process identity; it does not prove a harness turn result.
-Tmux halt proves the registered PID is gone and the pane is dead. Resume
-is unsupported on every current transport.
+Tmux halt proves the registered PID is gone and the pane is dead. Tmux
+resume remains unsupported. `agy-print` `status` proves observed model,
+workspace, worker terminal/result, and conversation/session identity from
+structured runtime metadata. `agy-print` halt proves the owned PID/birth
+and confined process tree. `agy-print` resume proves matching session and
+conversation identity; a selector or path alone is not resume.
 
 Puppet owns fresh kernel birth identity and stop/escalation. A caller may
 not signal a stale or foreign PID, attach as the controller, or treat a

@@ -141,6 +141,8 @@ class QualificationReuseTests(TestCase):
         self.assertIn("scripts/puppet_lib/caller.py", shared)
         self.assertIn("scripts/puppet_lib/transport.py", shared)
         self.assertIn("scripts/puppet_lib/agy_launch.py", agy_sources)
+        self.assertIn("scripts/puppet_lib/agy_print.py", agy_sources)
+        self.assertNotIn("scripts/puppet_lib/agy_print.py", shared)
         self.assertNotIn("scripts/puppet_lib/cursor_qualification.py", agy_sources)
         self.assertIn("scripts/puppet_lib/cursor_qualification.py", cursor_sources)
         self.assertEqual(agy_sources - shared, set(target_source_paths("agy")))

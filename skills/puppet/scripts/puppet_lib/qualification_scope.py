@@ -70,6 +70,7 @@ _SHARED_SOURCE_PATHS: Tuple[str, ...] = (
 _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
     "agy": (
         "scripts/puppet_lib/agy_launch.py",
+        "scripts/puppet_lib/agy_print.py",
         "scripts/puppet_lib/agy_workspace_plane.py",
         "templates/instructions/harness/agy.md",
     ),

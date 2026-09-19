@@ -90,11 +90,13 @@ class CallerContractTests(unittest.TestCase):
         self.assertEqual(halted["final_outcome"]["process"]["pid"], 8)
 
     def test_unsupported_transport_error_includes_remedy(self):
+        self.assertEqual(bind_run_transport("agy-print")["id"], "agy-print")
         with self.assertRaises(UnsupportedError) as raised:
             bind_run_transport("acp")
         payload = raised.exception.as_dict()
         self.assertEqual(payload["blocker"]["code"], "transport_unsupported")
         self.assertIn("no fallback", payload["blocker"]["remedy"])
+        self.assertIn("agy-print", payload["blocker"]["remedy"])
         self.assertEqual(
             make_blocker(code="tmux_unavailable", detail="tmux is unavailable")[
                 "remedy"

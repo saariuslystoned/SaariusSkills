@@ -303,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_parser.add_argument(
         "--transport",
-        help="explicit run transport (default tmux; herdr, acp, and agy-print refuse)",
+        help="explicit run transport (default tmux; agy-print implemented; herdr and acp refuse)",
     )
     plan_parser.set_defaults(handler=_plan)
 
@@ -320,7 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser.add_argument(
         "--transport",
-        help="explicit run transport (default tmux; herdr, acp, and agy-print refuse)",
+        help="explicit run transport (default tmux; agy-print implemented; herdr and acp refuse)",
     )
     doctor_parser.set_defaults(handler=_doctor)
 
@@ -350,7 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     launch_parser.add_argument(
         "--transport",
-        help="explicit run transport (default tmux; herdr, acp, and agy-print refuse)",
+        help="explicit run transport (default tmux; agy-print implemented; herdr and acp refuse)",
     )
     launch_parser.set_defaults(handler=_launch)
 

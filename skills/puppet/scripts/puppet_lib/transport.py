@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
 from .caller import TRANSPORT_BINDING_SCHEMA, make_blocker
 from .errors import UnsupportedError, ValidationError
@@ -11,10 +11,11 @@ from .errors import UnsupportedError, ValidationError
 
 NAMED_TRANSPORTS = ("tmux", "herdr", "acp", "agy-print")
 DEFAULT_TRANSPORT = "tmux"
+IMPLEMENTED_TRANSPORTS = frozenset({"tmux", "agy-print"})
 IMPLEMENTED_TRANSPORT = "tmux"
 
-# Capability/proof table. Structured transports are named and unsupported.
-# Do not invent status, halt, or resume behavior for an unimplemented id.
+# Capability/proof table. Unsupported ids stay named and refuse.
+# agy-print proves identity from structured observation, never from a selector.
 TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     "tmux": {
         "id": "tmux",
@@ -66,19 +67,21 @@ TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     },
     "agy-print": {
         "id": "agy-print",
-        "implementation": "unsupported",
-        "status_proves": "unsupported",
-        "status_does_not_prove": "unsupported",
-        "halt_proves": "unsupported",
-        "halt_authority": "unsupported",
-        "resume_proves": "unsupported",
+        "implementation": "implemented",
+        "status_proves": (
+            "observed_model_workspace_session_terminal_and_process_identity"
+        ),
+        "status_does_not_prove": "live_agy_lifecycle",
+        "halt_proves": "owned_pid_birth_and_confined_process_tree",
+        "halt_authority": "puppet_owned_birth_and_exact_target",
+        "resume_proves": "matching_session_and_conversation_identity",
         "transport_independent": (
             "checkpoints",
             "review",
             "controller_acceptance",
             "human_gates",
         ),
-        "qualification_evidence": "unsupported",
+        "qualification_evidence": "agy_structured_target_source_scope",
     },
 }
 
@@ -95,10 +98,14 @@ def transport_capability_table() -> Dict[str, Dict[str, Any]]:
     }
 
 
+def implemented_transport_ids() -> frozenset:
+    return IMPLEMENTED_TRANSPORTS
+
+
 def _unsupported_transport_error(name: str) -> UnsupportedError:
     detail = (
-        "transport %s is named but not implemented; tmux is the only bound "
-        "Puppet run transport"
+        "transport %s is named but not implemented; tmux and agy-print are "
+        "the implemented Puppet run transports"
         % name
     )
     return UnsupportedError(
@@ -110,6 +117,12 @@ def _unsupported_transport_error(name: str) -> UnsupportedError:
             % name,
         ),
     )
+
+
+def transport_unavailable_detail(name: str) -> str:
+    if name == "tmux":
+        return "tmux is unavailable"
+    return "%s transport is unavailable" % name
 
 
 def normalize_transport_name(value: Any, *, label: str = "transport") -> str:
@@ -145,7 +158,7 @@ def bind_run_transport(
     ):
         raise ValidationError("requested transport does not match the contract")
     name = requested_name or contract_name or DEFAULT_TRANSPORT
-    if name != IMPLEMENTED_TRANSPORT:
+    if name not in IMPLEMENTED_TRANSPORTS:
         raise _unsupported_transport_error(name)
     return {"schema": TRANSPORT_BINDING_SCHEMA, "id": name}
 
@@ -158,7 +171,7 @@ def validate_transport_binding(value: Any) -> Dict[str, str]:
     ):
         raise ValidationError("transport binding fields do not match schema")
     name = normalize_transport_name(value.get("id"), label="bound transport")
-    if name != IMPLEMENTED_TRANSPORT:
+    if name not in IMPLEMENTED_TRANSPORTS:
         raise _unsupported_transport_error(name)
     return {"schema": TRANSPORT_BINDING_SCHEMA, "id": name}
 
@@ -171,12 +184,16 @@ def record_transport_id(record: Mapping[str, Any]) -> str:
 
 
 def transport_is_available(name: str) -> bool:
-    from .tmux import TmuxController
-
     name = normalize_transport_name(name)
-    if name != IMPLEMENTED_TRANSPORT:
-        return False
-    return TmuxController.available()
+    if name == "tmux":
+        from .tmux import TmuxController
+
+        return TmuxController.available()
+    if name == "agy-print":
+        from .agy_print import AgyPrintController
+
+        return AgyPrintController.available()
+    return False
 
 
 def open_run_transport(
@@ -184,21 +201,35 @@ def open_run_transport(
     registry_root: Path,
     **kwargs: Any,
 ):
-    """Open the bound transport. Only tmux is implemented."""
-
-    from .tmux import TmuxController
+    """Open the bound transport. Never substitute another implemented id."""
 
     validated = validate_transport_binding(binding)
-    if validated["id"] != IMPLEMENTED_TRANSPORT:
-        raise _unsupported_transport_error(validated["id"])
-    return TmuxController(registry_root, **kwargs)
+    if validated["id"] == "tmux":
+        from .tmux import TmuxController
+
+        tmux_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in {"_sleep_fn", "_tmux_binary"}
+        }
+        return TmuxController(registry_root, **tmux_kwargs)
+    if validated["id"] == "agy-print":
+        from .agy_print import AgyPrintController
+
+        agy_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in {"observer", "_observer"}
+        }
+        return AgyPrintController(registry_root, **agy_kwargs)
+    raise _unsupported_transport_error(validated["id"])
 
 
 def open_bound_transport(
     record: Mapping[str, Any],
     registry_root: Path,
     **kwargs: Any,
-) -> TmuxController:
+):
     """Open the transport already bound on a session record."""
 
     return open_run_transport(record.get("transport"), registry_root, **kwargs)

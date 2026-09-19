@@ -1,0 +1,12 @@
+{"event":"run_initialized","at":"2026-09-18T20:04:44-04:00","base":"608b070f30c4be6253ef37709868bce1d39c4230","accepted_stage2_code":"0926c9f","stage":"agy_structured_transport_exact_model_proof"}
+{"event":"cursor_acp_readiness","at":"2026-09-18T20:04:44-04:00","ready":true,"requested":"cursor-grok-4.6-high","selected":"grok-4.6[effort=high,fast=true]","current":"grok-4.6[effort=high,fast=true]","matching_model_ids":1}
+{"event":"cursor_acp_delegate","at":"2026-09-18T20:05:06-04:00","job_id":"5f2e0dbc-ec13-4488-a8d9-c28e26e9de16","stage":"agy_structured_transport_exact_model_proof","timeout_ms":1200000}
+{"event":"worker_failed","at":"2026-09-18T20:10:23-04:00","job_id":"5f2e0dbc-ec13-4488-a8d9-c28e26e9de16","code":"BRIDGE_RESTARTED","resubmit":true}
+{"event":"cursor_acp_resubmit","at":"2026-09-18T20:10:47-04:00","job_id":"d7fbebbe-137b-4225-afbe-04c26786a1a8","prior_job_id":"5f2e0dbc-ec13-4488-a8d9-c28e26e9de16","stage":"agy_structured_transport_exact_model_proof","timeout_ms":1200000}
+{"event":"worker_resumed_same_checkout","at":"2026-09-18T20:10:47-04:00","job_id":"d7fbebbe-137b-4225-afbe-04c26786a1a8","preserved_uncommitted":true}
+{"event":"tests_focused","at":"2026-09-18T20:15:20-04:00","ok":63,"seconds":11.330}
+{"event":"tests_relevant","at":"2026-09-18T20:16:50-04:00","ok":181,"seconds":109.435}
+{"event":"tests_agy_print","at":"2026-09-18T20:17:03-04:00","ok":14,"seconds":9.554}
+{"event":"hygiene","at":"2026-09-18T20:16:50-04:00","compileall":"ok","diff_check":"ok","forbidden_bridge_or_package_paths":"none"}
+{"event":"worker_complete_uncommitted","at":"2026-09-18T20:17:20-04:00","head":"608b070f30c4be6253ef37709868bce1d39c4230","commit":null,"live_agy_claimed":false,"focused_ok":63,"agy_print_ok":14,"relevant_ok":181}
+{"event":"parent_verification","at":"2026-09-18T20:25:00-04:00","focused_ok":63,"relevant_ok":181,"full_discover_ok":864,"full_discover_seconds":159.481,"compileall":"ok","diff_check":"ok","forbidden_bridge_or_package_paths":"none"}

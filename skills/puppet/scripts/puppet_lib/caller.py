@@ -51,16 +51,40 @@ _REMEDIES = {
         "operator gate"
     ),
     "transport_unsupported": (
-        "bind transport=tmux; herdr, acp, and agy-print remain explicitly "
-        "unsupported with no fallback"
+        "bind transport=tmux or transport=agy-print; herdr and acp remain "
+        "explicitly unsupported with no fallback"
     ),
     "transport_unavailable": (
-        "install or restore the bound transport executable; do not select "
-        "another named transport as a fallback"
+        "restore the bound transport or its structured observer with no "
+        "fallback to another named transport"
     ),
     "tmux_unavailable": (
         "install tmux and re-run doctor; do not select herdr, acp, or "
         "agy-print as a fallback"
+    ),
+    "model_observation_selector_only": (
+        "prove the executed model from runtime, process, or session "
+        "metadata; a requested selector is not observed model proof"
+    ),
+    "model_observation_mismatch": (
+        "re-run doctor against the observed runtime model; do not treat "
+        "the requested selector as the executed model"
+    ),
+    "workspace_identity_mismatch": (
+        "bind the exact checkout path, branch, head, and tree; a path "
+        "alone is not workspace proof"
+    ),
+    "session_identity_mismatch": (
+        "resume only the matching session and conversation identity; do "
+        "not resume from a selector or path alone"
+    ),
+    "process_identity_mismatch": (
+        "halt only the exact recorded pid and kernel birth if this "
+        "controller owns them; otherwise stop and preserve"
+    ),
+    "process_tree_unowned": (
+        "halt only the owned pid, birth, and recorded children; do not "
+        "signal an unrelated process"
     ),
     "subscription_profile_required": (
         "pass --profile-root <private-profile> for this non-AGY target"
