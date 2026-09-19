@@ -32,7 +32,9 @@ from .caller import (
     caller_projection,
     make_blocker,
 )
+from .contracts import Contract
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
+from .handoffs import validate_handoff
 from .safety import (
     atomic_write_json,
     canonical_json_bytes,
@@ -1494,6 +1496,51 @@ def _bind_owned_children(parent_pid: int) -> List[Dict[str, Any]]:
     return owned
 
 
+def _merge_owned_children(
+    parent_pid: int,
+    recorded_children: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Union recorded birth-bound children with a fresh descendant census."""
+
+    from .registry import ProcessVanished
+
+    merged: List[Dict[str, Any]] = []
+    by_pid: Dict[int, Dict[str, Any]] = {}
+    for child in recorded_children:
+        pid, birth = _identity_pair(child, label="agy-print recorded child")
+        try:
+            current = _revalidate_live_identity(
+                {"pid": pid, "kernel_birth_id": birth}
+            )
+        except ProcessVanished:
+            continue
+        if current["pid"] != pid or current["kernel_birth_id"] != birth:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print recorded child identity changed",
+                pid=pid,
+                kernel_birth_id=birth,
+            )
+        normalized = {"pid": pid, "kernel_birth_id": birth}
+        by_pid[pid] = normalized
+        merged.append(normalized)
+    for child in _bind_owned_children(parent_pid):
+        pid, birth = _identity_pair(child, label="agy-print census child")
+        previous = by_pid.get(pid)
+        if previous is not None and previous["kernel_birth_id"] != birth:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print owned child PID was reused",
+                pid=pid,
+                kernel_birth_id=birth,
+            )
+        if previous is None:
+            normalized = {"pid": pid, "kernel_birth_id": birth}
+            by_pid[pid] = normalized
+            merged.append(normalized)
+    return merged
+
+
 def _sample_birth_identity(pid: int, *, attempts: int = 12) -> Dict[str, Any]:
     """Sample a just-created PID across a bounded exec transition window.
 
@@ -1545,13 +1592,41 @@ def _revalidate_live_identity(expected: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _pid_gone(expected: Mapping[str, Any]) -> bool:
-    from .registry import process_birth_identity
+    from .registry import (
+        ProcessExecutableUnavailable,
+        ProcessVanished,
+        process_birth_identity,
+    )
 
     pid, birth = _identity_pair(expected, label="agy-print expected")
     try:
         current = process_birth_identity(pid)
-    except (IdentityError, OSError, KeyError):
+    except ProcessVanished:
         return True
+    except ProcessExecutableUnavailable as exc:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            raise exc
+        try:
+            state = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+                check=False,
+            ).stdout.decode("ascii", errors="ignore").strip()
+        except (OSError, subprocess.SubprocessError):
+            raise exc
+        if not state or state.startswith("Z"):
+            # A zombie is no longer an executable target. This is a positive
+            # terminal-state observation, unlike treating arbitrary identity
+            # errors as proof of absence.
+            return True
+        raise exc
     if current["kernel_birth_id"] != birth:
         _raise_identity(
             "process_identity_mismatch",
@@ -1935,7 +2010,11 @@ class AgyPrintRuntime:
         expected = {"pid": process["pid"], "kernel_birth_id": process["kernel_birth_id"]}
         signaled: List[int] = []
         parent_alive = not _pid_gone(expected)
-        children = _bind_owned_children(expected["pid"]) if parent_alive else list(self.owned_children)
+        children = (
+            _merge_owned_children(expected["pid"], self.owned_children)
+            if parent_alive
+            else list(self.owned_children)
+        )
         self.owned_children = children
         for child in children:
             if not _pid_gone(child):
@@ -2445,6 +2524,48 @@ class AgyPrintController:
         )
         return observation
 
+    def import_checkpoint(self, *, session: str, handoff_path: Path) -> Dict[str, Any]:
+        stored = self.require_session(session)
+        observation = validate_agy_print_observation(stored["observation"])
+        if not stored.get("held"):
+            raise IdentityError("agy-print checkpoint requires a live session")
+        _revalidate_live_identity(observation["process"])
+        contract_raw = stored.get("contract")
+        if not isinstance(contract_raw, Mapping):
+            raise IdentityError("agy-print session is missing its bound contract")
+        contract = Contract.from_dict(dict(contract_raw))
+        proof_root = stored.get("proof_root")
+        if not isinstance(proof_root, str) or not proof_root:
+            raise IdentityError("agy-print session is missing its proof root")
+        expected = {"session": session}
+        if contract.run_id is not None:
+            expected["run_id"] = contract.run_id
+        if contract.nonce is not None:
+            expected["nonce"] = contract.nonce
+        handoff = validate_handoff(
+            Path(handoff_path),
+            allowed_roots=[Path(proof_root), Path(contract.repo)],
+            expected=expected,
+        )
+        observation = dict(
+            observation,
+            last_checkpoint={"checkpoint_id": handoff.checkpoint_id},
+            last_validated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            record_state="CHECKPOINT_READY",
+        )
+        reference = handoff.reference()
+        persist_agy_print_session(
+            self.registry_root,
+            dict(
+                stored,
+                observation=observation,
+                handoff=reference,
+                handoff_path=str(handoff.path),
+            ),
+        )
+        self.observer = observation
+        return {"ok": True, **reference}
+
     def accept(
         self,
         *,
@@ -2460,20 +2581,29 @@ class AgyPrintController:
             raise ValidationError("agy-print acceptance evidence is required")
         stored = self.require_session(session)
         self._require_stored_qualification(stored, None)
-        review = stored.get("review")
-        if not isinstance(review, Mapping) or review.get("checkpoint_id") != checkpoint_id:
-            raise ValidationError("agy-print acceptance requires a current controller review")
-        if review.get("verdict") not in {"source_accept", "conformance_accept"}:
-            raise ValidationError("agy-print acceptance requires an accepting review")
-        acceptance = read_json(
-            Path(evidence_path), max_bytes=65536, reject_sensitive_fields=True
-        )
         contract_raw = stored.get("contract")
         if not isinstance(contract_raw, Mapping):
             raise IdentityError("agy-print session is missing its bound contract")
-        terminal_criteria = contract_raw.get("terminal_criteria")
-        if not isinstance(terminal_criteria, list) or acceptance.get("terminal_criteria") != terminal_criteria:
-            raise ValidationError("agy-print acceptance evidence does not match terminal criteria")
+        contract = Contract.from_dict(dict(contract_raw))
+        handoff = self._stored_handoff(stored, checkpoint_id, contract)
+        proof_root = Path(stored["proof_root"])
+        review_path = proof_root / "verdicts" / (checkpoint_id + ".json")
+        review = read_json(review_path, max_bytes=131072)
+        from .verdicts import record_acceptance, verify_current_identity
+
+        verify_current_identity(
+            review,
+            checkpoint_id=handoff.checkpoint_id,
+            artifact_sha256=handoff.artifact_sha256,
+            candidate_commit=handoff.identity.get("candidate_commit"),
+        )
+        acceptance = record_acceptance(
+            contract=contract,
+            actor=actor,
+            review=review,
+            evidence_path=Path(evidence_path),
+            acceptance_root=proof_root / "acceptance",
+        )
         observation = validate_agy_print_observation(stored["observation"])
         checkpoint = observation.get("last_checkpoint") or {}
         if checkpoint.get("checkpoint_id") != checkpoint_id:
@@ -2486,11 +2616,7 @@ class AgyPrintController:
         persist_agy_print_session(
             self.registry_root,
             dict(stored, observation=observation,
-                 acceptance={
-                     "actor": actor,
-                     "checkpoint_id": checkpoint_id,
-                     "evidence_sha256": sha256_file(Path(evidence_path), max_bytes=65536),
-                 }),
+                 acceptance=acceptance),
         )
         return self.caller_result(
             expected_session=session,
@@ -2498,6 +2624,30 @@ class AgyPrintController:
             expected_workspace=expected_workspace,
             record_state="ACCEPTED",
         )
+
+    def _stored_handoff(
+        self, stored: Mapping[str, Any], checkpoint_id: str, contract: Contract
+    ) -> Any:
+        reference = stored.get("handoff")
+        handoff_path = stored.get("handoff_path")
+        if not isinstance(reference, Mapping) or not isinstance(handoff_path, str):
+            raise ValidationError("agy-print session has no current validated handoff")
+        if reference.get("checkpoint_id") != checkpoint_id:
+            raise IdentityError("agy-print checkpoint is not current")
+        expected_identity = reference.get("identity")
+        if not isinstance(expected_identity, Mapping):
+            raise IdentityError("agy-print handoff identity reference is invalid")
+        handoff = validate_handoff(
+            Path(handoff_path),
+            allowed_roots=[Path(stored["proof_root"]), Path(contract.repo)],
+            expected=dict(expected_identity),
+        )
+        if (
+            handoff.checkpoint_id != checkpoint_id
+            or handoff.artifact_sha256 != reference.get("artifact_sha256")
+        ):
+            raise IdentityError("agy-print handoff reference changed")
+        return handoff
 
     def review(
         self,
@@ -2516,25 +2666,17 @@ class AgyPrintController:
         if not isinstance(contract_raw, Mapping):
             raise IdentityError("agy-print session is missing its bound contract")
         contract = Contract.from_dict(dict(contract_raw))
-        from .contracts import assert_controller
+        handoff = self._stored_handoff(stored, checkpoint_id, contract)
+        from .verdicts import record_review
 
-        assert_controller(contract, actor)
-        observation = validate_agy_print_observation(stored["observation"])
-        checkpoint = observation.get("last_checkpoint") or {}
-        if checkpoint.get("checkpoint_id") != checkpoint_id:
-            raise IdentityError("agy-print review requires the current checkpoint identity")
-        evidence = read_json(Path(evidence_path), max_bytes=65536, reject_sensitive_fields=True)
-        record = {
-            "schema": "puppet.agy-print-review/v1",
-            "actor": actor,
-            "target": contract.target,
-            "contract_fingerprint": contract.fingerprint,
-            "checkpoint_id": checkpoint_id,
-            "verdict": verdict,
-            "evidence_sha256": sha256_file(Path(evidence_path), max_bytes=65536),
-            "evidence_summary": evidence,
-            "qualification_fingerprint": stored.get("qualification_fingerprint"),
-        }
+        record = record_review(
+            contract=contract,
+            actor=actor,
+            handoff=handoff,
+            verdict=verdict,
+            evidence_path=Path(evidence_path),
+            verdict_root=Path(stored["proof_root"]) / "verdicts",
+        )
         persist_agy_print_session(self.registry_root, dict(stored, review=record))
         return {"ok": True, "review": record}
     def halt(
@@ -2574,8 +2716,8 @@ class AgyPrintController:
         from .registry import send_exact_sigint
 
         parent_alive = not _pid_gone(expected)
-        if parent_alive and stored.get("held"):
-            children = _bind_owned_children(expected["pid"])
+        if parent_alive:
+            children = _merge_owned_children(expected["pid"], children)
         for child in children:
             if not _pid_gone(child):
                 child_identity = _revalidate_live_identity(child)
@@ -2702,6 +2844,7 @@ class AgyPrintController:
                 if qualification_scope is not None
                 else existing.get("qualification_fingerprint")
             ),
+            "send_requests": dict(existing.get("send_requests") or {}),
             "process_backed": True,
             "live_agy_claimed": False,
             "held": alive if held is None else held,
@@ -2726,13 +2869,28 @@ class AgyPrintController:
         if not isinstance(request_id, str) or not request_id.strip():
             raise ValidationError("agy-print request id is required")
         stored = self.require_session(session)
-        prior_id = stored.get("last_send_request_id")
-        if prior_id == request_id:
-            if stored.get("last_send_message_sha256") != sha256_bytes(message.encode("utf-8")):
+        message_sha256 = sha256_bytes(message.encode("utf-8"))
+        requests = stored.get("send_requests")
+        if requests is None:
+            requests = {}
+        if not isinstance(requests, Mapping):
+            raise IdentityError("agy-print send request ledger is invalid")
+        prior = requests.get(request_id)
+        if prior is not None:
+            if (
+                not isinstance(prior, Mapping)
+                or prior.get("message_sha256") != message_sha256
+            ):
                 raise ConflictError("request id was already used for a different message")
-            prior_result = stored.get("last_send_result")
-            if isinstance(prior_result, Mapping):
-                return dict(prior_result, request_id=request_id)
+            if prior.get("phase") == "submitted" and isinstance(
+                prior.get("result"), Mapping
+            ):
+                return dict(prior["result"], request_id=request_id)
+            if prior.get("phase") == "intent":
+                raise ConflictError(
+                    "prior AGY send delivery is ambiguous; adjudicate before retry"
+                )
+            raise IdentityError("agy-print send request ledger entry is invalid")
         require_current_agy_qualification(
             qualification_scope, current_qualification_scope
         )
@@ -2754,6 +2912,23 @@ class AgyPrintController:
                     "agy-print resume refuses --continue; exact --conversation identity is required",
                 ),
             )
+        request_ledger = dict(requests)
+        request_ledger[request_id] = {
+            "message_sha256": message_sha256,
+            "phase": "intent",
+        }
+        submitted_entries = [
+            key
+            for key, value in request_ledger.items()
+            if isinstance(value, Mapping) and value.get("phase") == "submitted"
+        ]
+        while len(request_ledger) > 64 and submitted_entries:
+            evicted = submitted_entries.pop(0)
+            request_ledger.pop(evicted, None)
+        persist_agy_print_session(
+            self.registry_root,
+            dict(stored, send_requests=request_ledger),
+        )
         live = (
             self.runtime is not None
             and self.runtime.process is not None
@@ -2770,12 +2945,11 @@ class AgyPrintController:
                 requested_model=stored.get("requested_model") or requested_model,
                 record_state=observation.get("record_state") or "ACTIVE",
             )
-            persist_agy_print_session(
-                self.registry_root,
-                dict(self.load_session(session) or stored,
-                     last_send_request_id=request_id,
-                     last_send_message_sha256=sha256_bytes(message.encode("utf-8")),
-                     last_send_result=result),
+            self._persist_send_result(
+                session=session,
+                request_id=request_id,
+                message_sha256=message_sha256,
+                result=result,
             )
             result["request_id"] = request_id
             return result
@@ -2794,15 +2968,45 @@ class AgyPrintController:
             qualification_scope=stored.get("qualification_scope") or qualification_scope,
             current_qualification_scope=current_qualification_scope,
         )
-        persist_agy_print_session(
-            self.registry_root,
-            dict(self.load_session(session) or stored,
-                 last_send_request_id=request_id,
-                 last_send_message_sha256=sha256_bytes(message.encode("utf-8")),
-                 last_send_result=result),
+        self._persist_send_result(
+            session=session,
+            request_id=request_id,
+            message_sha256=message_sha256,
+            result=result,
         )
         result["request_id"] = request_id
         return result
+
+    def _persist_send_result(
+        self,
+        *,
+        session: str,
+        request_id: str,
+        message_sha256: str,
+        result: Mapping[str, Any],
+    ) -> None:
+        current = self.load_session(session)
+        if current is None:
+            raise IdentityError("agy-print send result lost its session record")
+        requests = current.get("send_requests")
+        if not isinstance(requests, Mapping):
+            raise IdentityError("agy-print send request ledger is invalid")
+        updated_requests = dict(requests)
+        updated_requests[request_id] = {
+            "message_sha256": message_sha256,
+            "phase": "submitted",
+            "result": dict(result),
+        }
+        persist_agy_print_session(
+            self.registry_root,
+            dict(
+                current,
+                send_requests=updated_requests,
+                last_send_request_id=request_id,
+                last_send_message_sha256=message_sha256,
+                last_send_result=dict(result),
+            ),
+        )
 
     def prove(
         self,

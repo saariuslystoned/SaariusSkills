@@ -68,7 +68,11 @@ def _targets(value: str):
 
 
 def _census(args):
-    bundle = census_many(args.targets, adapter_implementation_fingerprint())
+    bundle = census_many(
+        args.targets,
+        adapter_implementation_fingerprint(),
+        transport=args.transport,
+    )
     atomic_write_json(args.out, bundle)
     return {
         "ok": True,
@@ -627,6 +631,12 @@ def build_parser():
     census_parser = commands.add_parser("census")
     census_parser.add_argument("--targets", required=True, type=_targets)
     census_parser.add_argument("--out", required=True, type=Path)
+    census_parser.add_argument(
+        "--transport",
+        choices=("tmux", "agy-print", "cursor-acp"),
+        default="tmux",
+        help="transport whose runtime authority is being qualified",
+    )
     census_parser.set_defaults(handler=_census)
     scaffold_parser = commands.add_parser("scaffold")
     scaffold_parser.add_argument("--census", required=True, type=Path)

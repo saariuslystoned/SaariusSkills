@@ -587,16 +587,16 @@ def darwin_process_inventory(
                     ) from rebound_exc
                 if vanished:
                     continue
-                try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    # libproc can retain a just-exited PID in its snapshot
-                    # after the BSD row has disappeared. The kernel check
-                    # confirms this is ordinary process churn, not an
-                    # ambiguous live identity.
-                    continue
-                except OSError:
-                    pass
+                if isinstance(rebound_exc, ProcessVanished):
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        # The kernel positively proved that this is a stale
+                        # proc_listpids entry. A generic or persistent BSD-row
+                        # failure remains ambiguous and must still fail closed.
+                        continue
+                    except OSError:
+                        pass
                 raise IdentityError(
                     "Darwin process inventory row remained unavailable"
                 ) from rebound_exc
