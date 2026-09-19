@@ -54,6 +54,21 @@ Commands/results:
 - `python3 -m compileall -q skills/puppet/scripts/puppet_lib/qualification_scope.py tests/test_puppet_qualification_reuse.py` → `COMPILEALL_OK`
 - `git diff --check` → `DIFF_CHECK_OK`
 
+## Parent verification of second review repairs
+
+- Parent independently reran the P1 qualification/receipt suite → 57 tests OK in 2.525s.
+- Parent independently reran the P2 Cursor/catalog suite → 33 tests OK in 5.942s; the three-test cross-target preservation check also passed.
+- Parent reran `python3 -m unittest discover -s tests -p 'test_puppet_*.py' -q` → 946 tests OK in 310.390s.
+- Parent reran compileall over all touched Puppet scripts/tests → `COMPILEALL_OK`.
+- Parent reran `git diff --check` → `DIFF_CHECK_OK`.
+- No live harness, account, or external send action was taken; live qualification remains false.
+
+## P2 Cursor catalog-evidence worker
+
+- Native Cursor ACP job: `c120b10c-0867-41ed-94fe-acaa7083168c`, exact workspace and `cursor-grok-4.6-high` route.
+- Scope: require explicit verified catalog evidence through direct, lifecycle, controller, runner, and structured caller proof; static catalog remains an explicitly supplied fixture only.
+- Status: completed in this workspace as uncommitted source. P1 qualification-scope/receipt source left unchanged. No live Cursor route was built.
+
 ## Worker and parent verification
 
 - Qualification-scope repair completed in this workspace as uncommitted source plus this proof packet.
@@ -126,3 +141,65 @@ Commands/results:
 - Parent compileall for all touched Puppet scripts/tests → `COMPILEALL_OK`.
 - Parent `git diff --check` → `DIFF_CHECK_OK`.
 - Parent commit: `af41be6` (`puppet: repair PR48 qualification and identity boundaries`).
+
+## Second review pass
+
+- Review checkout: `/Users/bobbybones/Developer/worktrees/saariusskills-pr48-review-20260919`.
+- Exact reviewed head: `db527dedf3bb0a519c53f7d5c4f2f103f4bd3445`.
+- Remaining negative probes reproduced: copied-source edits to `beacons.py` and `signal_exec.py` yielded `invalidations=[]`; complete Cursor proof without catalog evidence still succeeded using the static default catalog.
+- P1 native Cursor ACP job: `f6191991-d221-40c7-8fae-c8a862f44bfa`, exact workspace and `cursor-grok-4.6-high` route, submitted for dependency-closure and actual-receipt-validation repair. Cursor model source is not in this slice.
+
+## P1 qualification-scope dependency-closure worker result
+
+- Schema unchanged: `puppet.qualification-scope/v1`.
+- Reproduction first: copied-source edits to `beacons.py` and `signal_exec.py` each returned `invalidations=[]`. Shared ownership lacked both paths.
+- Import/execution ownership: `session.py` parses beacons via `parse_beacon`; `registry.py` validates stored beacon prefix/kind via `PREFIXES`; `tmux.py` executes `signal_exec.py` as the SIGINT-normalizing target wrapper. No extra files added.
+- Added only `scripts/puppet_lib/beacons.py` and `scripts/puppet_lib/signal_exec.py` to `_SHARED_SOURCE_PATHS`.
+- Post-fix same mutations: `compare_qualification_compatibility` → `transport_or_shared_authority_changed` plus `compatibility_scope_fingerprint_changed`.
+- Actual accepted receipt validation: attested scoped receipt plus current manifest, then `verify_qualification_receipt` with the copied skill root. Same mutations raise `IdentityError: qualification compatibility scope is stale: transport_or_shared_authority_changed,compatibility_scope_fingerprint_changed`. Aggregate `adapter_fingerprint` is not used.
+- Unrelated cursor/grok harness drift remains reusable for AGY. Cursor model source (`cursor_acp.py`) untouched. Prior committed repairs at `db527ded` preserved.
+- No live/account actions. Source left uncommitted.
+
+Changed files:
+
+- `skills/puppet/scripts/puppet_lib/qualification_scope.py`
+- `skills/puppet/scripts/puppet_lib/adapter_manifest.py` (`_source_root` hook into scoped compare only)
+- `tests/test_puppet_qualification_reuse.py`
+
+Commands/results:
+
+- Reproduction: `beacons.py` and `signal_exec.py` copied-source probes → `invalidations=[]`
+- `python3 -m unittest tests.test_puppet_qualification_reuse tests.test_puppet_adapters tests.test_puppet_claude_admission.ClaudeBuilderAdmissionTests.test_qualification_scope_keeps_claude_admission_target_local tests.test_puppet_codex_admission.CodexBuilderAdmissionTests.test_qualification_scope_keeps_codex_admission_target_local tests.test_puppet_grok_admission.GrokBuilderAdmissionTests.test_qualification_scope_keeps_grok_admission_target_local -q` → 57 tests OK in 1.582s
+- New test: `test_shared_runtime_beacon_and_signal_exec_drift_invalidates_comparison_and_receipt` proves both comparison and receipt invalidation
+- `python3 -m compileall -q skills/puppet/scripts/puppet_lib/qualification_scope.py skills/puppet/scripts/puppet_lib/adapter_manifest.py tests/test_puppet_qualification_reuse.py` → `COMPILEALL_OK`
+- `git diff --check` → `DIFF_CHECK_OK`
+
+## P2 Cursor catalog-evidence worker result
+
+- Reproduction first: complete Cursor proof without catalog evidence used the static default catalog and succeeded.
+- `_verified_advertised_model_ids` no longer substitutes `VERIFIED_CURSOR_ACP_CATALOG`. Missing catalog evidence is unverified and fails closed.
+- Catalog evidence is forwarded through `prove_observed_model`, `prove_cursor_acp_observation`, `qualify_cursor_acp_lifecycle`, `CursorAcpController.prove`/`qualify_lifecycle`/`caller_result`/`require_catalog`, `CursorAcpRunnerFixture.catalog`, and `_cursor_acp_structured_launch`.
+- `VERIFIED_CURSOR_ACP_CATALOG` remains an explicitly supplied deterministic fixture only.
+- Callers bind expected runtime from independently supplied catalog evidence. Observation is never catalog or expected-model authority.
+- Post-fix: direct, lifecycle, controller, caller, and structured launch without catalog raise `IdentityError: Cursor ACP model catalog is unverified`.
+- Explicit fixture catalog succeeds, including legitimate requested/observed equality.
+- Rejected: unverified, empty, malformed, unavailable requested mapping, wrong verified model, fallback/default, and observation-as-catalog.
+- Preserved: generic ACP unsupported, no tmux/agy-print fallback, `CursorAcpController.available() is False`, live Cursor unclaimed.
+- P1 qualification-scope/receipt source (`qualification_scope.py`, `adapter_manifest.py`, `test_puppet_qualification_reuse.py`) left unchanged. Committed repairs at `db527ded` preserved.
+- No live/account actions. Source left uncommitted.
+
+Changed files:
+
+- `skills/puppet/scripts/puppet_lib/cursor_acp.py`
+- `skills/puppet/scripts/puppet_lib/session.py` (structured launch catalog bind only)
+- `skills/puppet/scripts/puppet_lib/transport.py` (forward `catalog` into Cursor ACP controller)
+- `tests/test_puppet_cursor_acp.py`
+
+Commands/results:
+
+- Reproduction now: `prove_cursor_acp_observation(fixture_observation(), ...)` without catalog → `IdentityError: Cursor ACP model catalog is unverified`
+- `python3 -m unittest tests.test_puppet_cursor_acp tests.test_puppet_transport tests.test_puppet_caller -q` → 33 tests OK in 6.119s
+- New tests: `test_direct_proof_without_catalog_fails_closed`, `test_lifecycle_controller_caller_and_launch_require_catalog`, `test_explicit_verified_catalog_succeeds_including_equality`, `test_unverified_empty_unavailable_wrong_and_fallback_catalogs_fail`
+- Additional preservation: grok/codex/claude `test_existing_transports_and_generic_acp_stay_unchanged` → 3 tests OK
+- `python3 -m compileall -q skills/puppet/scripts/puppet_lib/cursor_acp.py skills/puppet/scripts/puppet_lib/session.py skills/puppet/scripts/puppet_lib/transport.py tests/test_puppet_cursor_acp.py` → `COMPILEALL_OK`
+- `git diff --check` → `DIFF_CHECK_OK`

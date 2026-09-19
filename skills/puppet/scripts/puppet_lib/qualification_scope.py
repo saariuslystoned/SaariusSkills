@@ -27,8 +27,9 @@ QUALIFICATION_SCOPE_VERSION = 1
 
 _TARGETS = frozenset({"agy", "cursor", "claude", "codex", "grok"})
 
-# Shared transport, controller, authority, and subscription-profile owners.
-# Adding a path here is a deliberate invalidation event for every target.
+# Shared transport, controller, authority, subscription-profile, and
+# runtime-signal owners. Adding a path here is a deliberate invalidation
+# event for every target.
 _SHARED_SOURCE_PATHS: Tuple[str, ...] = (
     "scripts/adapter_lab.py",
     "scripts/profile_login.py",
@@ -36,6 +37,7 @@ _SHARED_SOURCE_PATHS: Tuple[str, ...] = (
     "scripts/puppet_lib/adapter_manifest.py",
     "scripts/puppet_lib/adapters.py",
     "scripts/puppet_lib/authority.py",
+    "scripts/puppet_lib/beacons.py",
     "scripts/puppet_lib/caller.py",
     "scripts/puppet_lib/campaign.py",
     "scripts/puppet_lib/census.py",
@@ -55,6 +57,7 @@ _SHARED_SOURCE_PATHS: Tuple[str, ...] = (
     "scripts/puppet_lib/registry.py",
     "scripts/puppet_lib/safety.py",
     "scripts/puppet_lib/session.py",
+    "scripts/puppet_lib/signal_exec.py",
     "scripts/puppet_lib/state.py",
     "scripts/puppet_lib/subscription_profiles.py",
     "scripts/puppet_lib/target_population.py",

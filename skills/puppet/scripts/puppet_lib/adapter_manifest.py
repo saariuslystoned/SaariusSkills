@@ -1030,6 +1030,7 @@ def verify_qualification_receipt(
     _current_manifest: Optional["AdapterManifest"] = None,
     _server_process_fn: Optional[Any] = None,
     _tmux_factory: Optional[Any] = None,
+    _source_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Verify an accepted receipt and every immutable proof artifact it binds."""
 
@@ -1261,6 +1262,7 @@ def verify_qualification_receipt(
             instruction_policy_fingerprint=instruction_policy_fingerprint(
                 target=receipt["target"]
             ),
+            source_root=_source_root,
         )
         reuse = evaluate_qualification_reuse(
             stored_compatibility=scoped,

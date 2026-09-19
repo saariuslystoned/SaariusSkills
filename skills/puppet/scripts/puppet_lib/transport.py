@@ -251,7 +251,7 @@ def open_run_transport(
         acp_kwargs = {
             key: value
             for key, value in kwargs.items()
-            if key in {"observer", "_observer", "runner", "_runner"}
+            if key in {"observer", "_observer", "runner", "_runner", "catalog"}
         }
         return CursorAcpController(registry_root, **acp_kwargs)
     raise _unsupported_transport_error(validated["id"])

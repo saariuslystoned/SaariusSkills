@@ -907,6 +907,7 @@ def _cursor_acp_structured_launch(
     requested_model: Optional[str],
     observer: Optional[Mapping[str, Any]] = None,
     runner: Any = None,
+    catalog: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Complete a cursor-acp launch from structured observation. Never open tmux."""
 
@@ -927,7 +928,11 @@ def _cursor_acp_structured_launch(
         "tree": workspace["tree"],
     }
     controller = open_run_transport(
-        transport, state_root, observer=observer, runner=runner
+        transport,
+        state_root,
+        observer=observer,
+        runner=runner,
+        catalog=catalog,
     )
     if isinstance(controller, TmuxController):
         raise IdentityError("cursor-acp opened a tmux transport")
@@ -938,14 +943,18 @@ def _cursor_acp_structured_launch(
     observation = controller.require_observation()
     conversation_id = observation["session"]["conversation_id"]
     requested = requested_model or contract.requested_model
+    resolved_catalog = controller.require_catalog(catalog)
     return controller.caller_result(
         expected_session=session,
         expected_conversation_id=conversation_id,
         expected_workspace=expected_workspace,
         requested_model=requested,
-        expected_observed_model=bind_expected_runtime_model(requested)
+        expected_observed_model=bind_expected_runtime_model(
+            requested, catalog=resolved_catalog
+        )
         if requested is not None
         else None,
+        catalog=resolved_catalog,
     )
 
 

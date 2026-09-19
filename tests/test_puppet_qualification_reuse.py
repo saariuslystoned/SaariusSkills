@@ -16,13 +16,17 @@ sys.path.insert(0, str(SCRIPTS))
 from adapter_lab import _requalify, build_parser  # noqa: E402
 from puppet_lib.adapter_manifest import (  # noqa: E402
     ADAPTER_MANIFEST_SCHEMA_VERSION,
+    PROBE_CAPABILITIES,
+    QUALIFICATION_PROFILE,
     QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+    QUALIFICATION_STATE_SCHEMA_VERSION,
     _RECEIPT_FIELDS,
     AdapterManifest,
     _bind_expected_qualification_authority,
     direct_execution_bundle,
     verify_qualification_receipt,
 )
+from puppet_lib.authority import attest_qualification  # noqa: E402
 from puppet_lib.agy_launch import (  # noqa: E402
     AGY_REGULAR_PERMISSION_FLAGS,
     AGY_REGULAR_PROJECT_ISOLATION_FLAGS,
@@ -38,6 +42,7 @@ from puppet_lib.instructions import (  # noqa: E402
 from puppet_lib.profiles import (  # noqa: E402
     PROMPT_TRANSPORT,
     SUBMIT_SETTLE_SECONDS,
+    default_session_profile,
     session_profiles_for,
     startup_settle_seconds_for,
 )
@@ -54,7 +59,7 @@ from puppet_lib.qualification_scope import (  # noqa: E402
     target_source_paths,
     validate_compatibility_scope,
 )
-from puppet_lib.safety import sha256_file  # noqa: E402
+from puppet_lib.safety import canonical_json_bytes, sha256_bytes, sha256_file  # noqa: E402
 
 
 def _manifest(target: str = "agy", *, protocol: str = PROTOCOL_FINGERPRINT) -> dict:
@@ -130,6 +135,67 @@ def _write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _write_attested_scoped_receipt(
+    receipt_path: Path,
+    *,
+    manifest: dict,
+    scope: dict,
+    authority_root: Path,
+) -> dict:
+    """Smallest accepted scoped receipt that reaches verify's compatibility check."""
+
+    receipt_core = {
+        "schema_version": QUALIFICATION_RECEIPT_SCHEMA_VERSION,
+        "kind": "real_harness_conformance",
+        "run_id": "scope-runtime-run",
+        "target": manifest["target"],
+        "session_profile": default_session_profile(manifest["target"]),
+        "result": "accepted",
+        "controller": "controller-a",
+        "campaign_id": "campaign-one",
+        "goal_fingerprint": "7" * 64,
+        "executable_fingerprint": manifest["executable"]["sha256"],
+        "execution_fingerprint": manifest["execution"]["execution_fingerprint"],
+        "version_fingerprint": manifest["executable"]["version_sha256"],
+        "platform_fingerprint": sha256_bytes(canonical_json_bytes(manifest["platform"])),
+        "adapter_fingerprint": manifest["adapter_fingerprint"],
+        "protocol_fingerprint": manifest["protocol_fingerprint"],
+        "yolo_mapping_sha256": sha256_bytes(
+            canonical_json_bytes(manifest["yolo_mapping"])
+        ),
+        "launch_plan_sha256": "a" * 64,
+        "subscription_profile_sha256": "b" * 64,
+        "instruction_policy_fingerprint": scope["instruction_policy_fingerprint"],
+        "capabilities": list(PROBE_CAPABILITIES),
+        "accepted_checkpoint_id": "c" * 64,
+        "acceptance_sha256": "d" * 64,
+        "halt_receipt_sha256": "e" * 64,
+        "plane_activation": None,
+        "workspace_isolation": None,
+        "codex_entry_source": None,
+        "codex_control_source": None,
+        "proof_refs": [],
+        "compatibility_scope": scope,
+        "requested_model": None,
+        "requested_effort": None,
+    }
+    receipt = dict(
+        receipt_core,
+        controller_attestation=attest_qualification(
+            receipt_core, authority_root=authority_root
+        ),
+    )
+    _write_json(receipt_path, receipt)
+    _write_json(
+        receipt_path.parent / "state.json",
+        {
+            "schema_version": QUALIFICATION_STATE_SCHEMA_VERSION,
+            "profile": QUALIFICATION_PROFILE,
+        },
+    )
+    return receipt
+
+
 class QualificationReuseTests(TestCase):
     def test_target_scope_excludes_unrelated_harness_sources(self):
         agy_sources = set(scope_source_paths("agy"))
@@ -142,7 +208,25 @@ class QualificationReuseTests(TestCase):
         self.assertIn("scripts/puppet_lib/transport.py", shared)
         self.assertIn("scripts/puppet_lib/authority.py", shared)
         self.assertIn("scripts/puppet_lib/subscription_profiles.py", shared)
+        self.assertIn("scripts/puppet_lib/beacons.py", shared)
+        self.assertIn("scripts/puppet_lib/signal_exec.py", shared)
         self.assertNotIn("scripts/puppet_lib/subscription_onboarding.py", shared)
+        self.assertNotIn(
+            "scripts/puppet_lib/beacons.py",
+            set(target_source_paths("agy"))
+            | set(target_source_paths("cursor"))
+            | set(target_source_paths("claude"))
+            | set(target_source_paths("codex"))
+            | set(target_source_paths("grok")),
+        )
+        self.assertNotIn(
+            "scripts/puppet_lib/signal_exec.py",
+            set(target_source_paths("agy"))
+            | set(target_source_paths("cursor"))
+            | set(target_source_paths("claude"))
+            | set(target_source_paths("codex"))
+            | set(target_source_paths("grok")),
+        )
         self.assertNotIn(
             "scripts/puppet_lib/subscription_profiles.py",
             set(target_source_paths("agy"))
@@ -499,6 +583,112 @@ class QualificationReuseTests(TestCase):
             grok_reasons = {item["reason"] for item in after_grok["invalidations"]}
             self.assertIn("transport_or_shared_authority_changed", grok_reasons)
             self.assertNotIn("selected_target_source_changed", grok_reasons)
+
+    def test_shared_runtime_beacon_and_signal_exec_drift_invalidates_comparison_and_receipt(
+        self,
+    ):
+        manifest = _manifest()
+        policy = instruction_policy_fingerprint(target="agy")
+        current = AdapterManifest.from_dict(manifest)
+        first_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-one",
+            goal_fingerprint="7" * 64,
+        )
+        second_task = build_task_scope(
+            controller="controller-a",
+            campaign_id="campaign-two",
+            goal_fingerprint="8" * 64,
+        )
+        omitted = (
+            ("scripts/puppet_lib/beacons.py", "# beacon runtime drift\n"),
+            ("scripts/puppet_lib/signal_exec.py", "# signal exec drift\n"),
+        )
+        for relative, note in omitted:
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory() as temporary:
+                    copied = Path(temporary) / "puppet"
+                    shutil.copytree(SKILL_ROOT, copied)
+                    authority_root = Path(temporary) / "authority"
+                    receipt_path = Path(temporary) / "receipt.json"
+                    baseline = build_compatibility_scope(
+                        manifest,
+                        requested_model=None,
+                        requested_effort=None,
+                        instruction_policy_fingerprint=policy,
+                        source_root=copied,
+                    )
+                    cursor_source = (
+                        copied / "scripts" / "puppet_lib" / "cursor_qualification.py"
+                    )
+                    cursor_source.write_text(
+                        cursor_source.read_text(encoding="utf-8")
+                        + "\n# cursor-only drift\n",
+                        encoding="utf-8",
+                    )
+                    grok_source = copied / "scripts" / "puppet_lib" / "grok_admission.py"
+                    grok_source.write_text(
+                        grok_source.read_text(encoding="utf-8") + "\n# grok-only drift\n",
+                        encoding="utf-8",
+                    )
+                    after_unrelated = compare_qualification_compatibility(
+                        stored_scope=baseline,
+                        current_manifest=manifest,
+                        instruction_policy_fingerprint=policy,
+                        source_root=copied,
+                    )
+                    self.assertEqual(after_unrelated["invalidations"], [])
+                    unrelated_reuse = evaluate_qualification_reuse(
+                        stored_compatibility=baseline,
+                        stored_task=first_task,
+                        current_compatibility=after_unrelated["current_scope"],
+                        new_task=second_task,
+                    )
+                    self.assertTrue(unrelated_reuse["compatibility_reusable"])
+                    self.assertFalse(unrelated_reuse["task_authority_reusable"])
+                    _write_attested_scoped_receipt(
+                        receipt_path,
+                        manifest=manifest,
+                        scope=baseline,
+                        authority_root=authority_root,
+                    )
+                    with self.assertRaisesRegex(
+                        ValidationError, "terminal lifecycle commit"
+                    ):
+                        verify_qualification_receipt(
+                            receipt_path,
+                            _authority_root=authority_root,
+                            _current_manifest=current,
+                            _source_root=copied,
+                        )
+                    runtime_source = copied.joinpath(*relative.split("/"))
+                    runtime_source.write_text(
+                        runtime_source.read_text(encoding="utf-8") + note,
+                        encoding="utf-8",
+                    )
+                    after_runtime = compare_qualification_compatibility(
+                        stored_scope=baseline,
+                        current_manifest=manifest,
+                        instruction_policy_fingerprint=policy,
+                        source_root=copied,
+                    )
+                    runtime_reasons = {
+                        item["reason"] for item in after_runtime["invalidations"]
+                    }
+                    self.assertIn(
+                        "transport_or_shared_authority_changed", runtime_reasons
+                    )
+                    self.assertNotIn("selected_target_source_changed", runtime_reasons)
+                    with self.assertRaisesRegex(
+                        IdentityError,
+                        "compatibility scope is stale: .*transport_or_shared_authority_changed",
+                    ):
+                        verify_qualification_receipt(
+                            receipt_path,
+                            _authority_root=authority_root,
+                            _current_manifest=current,
+                            _source_root=copied,
+                        )
 
     def test_verify_qualification_receipt_uses_scope_instead_of_aggregate_adapter_hash(
         self,

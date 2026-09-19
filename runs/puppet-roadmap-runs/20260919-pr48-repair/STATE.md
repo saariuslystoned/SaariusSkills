@@ -1,8 +1,9 @@
 # PR #48 repair pass
 
-- status: committed_pushed_pending_pr_check
+- status: second_review_repairs_verified_full_suite_passed_pending_commit
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/48
 - reviewed_head: 9d95cc057a0c7e07f8e83fe121548f731c362a9e
+- second_reviewed_head: db527dedf3bb0a519c53f7d5c4f2f103f4bd3445
 - base: main
 - branch: codex/puppet-roadmap-stage1-20260918
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
@@ -12,8 +13,24 @@
 - qualification_scope_job: 5fa7874e-c8ff-4907-92b4-2d429c857952 (verified)
 - registry_compatibility_job: d2db2728-6a15-4ed8-a0b9-625f1c063f3b (verified; parent rerun complete)
 - cursor_model_job: a940c5e9-6e7c-4e1d-a4b4-0f3530306766 (resubmitted after bridge restart; local fixture repair complete; parent rerun complete)
-- source_committed: true
+- source_committed: false
 - implementation_commit: af41be6
+- proof_close_commit: db527ded
+- p1_qualification_scope_job: f6191991-d221-40c7-8fae-c8a862f44bfa (completed; Cursor model source untouched)
+- p1_focused_tests: 57_ok
+- p1_focused_seconds: 1.582
+- p1_parent_verification: 57_ok
+- p2_catalog_evidence_job: c120b10c-0867-41ed-94fe-acaa7083168c (completed; P1 source untouched)
+- p2_focused_tests: 33_ok
+- p2_focused_seconds: 6.119
+- p2_preservation_tests: 3_ok
+- p2_implicit_default_catalog: removed
+- p2_parent_verification: 33_ok
+- second_review_full_discover: 946_ok
+- second_review_full_discover_seconds: 310.390
+- second_review_compileall: ok
+- second_review_diff_check: ok
+- live_cursor_claimed: false
 - parent_focused_cursor_tests: 29_ok
 - parent_transport_regression_tests: 48_ok
 - parent_full_discover: 941_ok

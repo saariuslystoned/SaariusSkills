@@ -48,6 +48,7 @@ _PARAMETERIZED_RUNTIME_RE = re.compile(r"^(?:cursor-)?grok-4\.6\[(.+)\]$")
 FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
     {"default", "fallback", "auto", "unavailable", "current_default"}
 )
+# Deterministic fixture only. Never used as an implicit default catalog.
 VERIFIED_CURSOR_ACP_CATALOG = {
     "schema": MODEL_CATALOG_SCHEMA,
     "verified": True,
@@ -271,7 +272,12 @@ def validate_cursor_acp_observation(value: Any) -> Dict[str, Any]:
 def _verified_advertised_model_ids(
     catalog: Optional[Mapping[str, Any]] = None,
 ) -> Sequence[str]:
-    raw = VERIFIED_CURSOR_ACP_CATALOG if catalog is None else catalog
+    if catalog is None:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP model catalog is unverified",
+        )
+    raw = catalog
     if (
         not isinstance(raw, Mapping)
         or raw.get("schema") != MODEL_CATALOG_SCHEMA
@@ -319,12 +325,39 @@ def _is_cursor_selector(model_id: str) -> bool:
     return _CURSOR_SELECTOR_RE.fullmatch(model_id) is not None
 
 
+def _independent_catalog(
+    catalog: Optional[Mapping[str, Any]],
+    *,
+    stored: Optional[Mapping[str, Any]] = None,
+    runner: Optional[Any] = None,
+) -> Optional[Mapping[str, Any]]:
+    """Return independently supplied catalog evidence. Never use observation."""
+
+    if catalog is not None:
+        return catalog
+    if stored is not None:
+        return stored
+    if runner is None:
+        return None
+    runner_catalog = getattr(runner, "catalog", None)
+    if callable(runner_catalog):
+        runner_catalog = runner_catalog()
+    if runner_catalog is None:
+        return None
+    if not isinstance(runner_catalog, Mapping):
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP model catalog is unverified",
+        )
+    return runner_catalog
+
+
 def resolve_requested_cursor_model(
     requested_model: Optional[str],
     *,
     catalog: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Resolve one requested selector through the local verified catalog."""
+    """Resolve one requested selector through explicitly supplied catalog evidence."""
 
     if not isinstance(requested_model, str) or not requested_model.strip():
         _raise_identity(
@@ -572,6 +605,7 @@ def prove_cursor_acp_observation(
     expected_result_state: Optional[str] = None,
     expected_result_id: Optional[str] = None,
     require_halt: bool = False,
+    catalog: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Prove the full structured Cursor ACP identity set from one observation."""
 
@@ -582,12 +616,15 @@ def prove_cursor_acp_observation(
         else observation.get("requested_model")
     )
     expected = bind_expected_runtime_model(
-        requested, expected_observed_model=expected_observed_model
+        requested,
+        catalog=catalog,
+        expected_observed_model=expected_observed_model,
     )
     model = prove_observed_model(
         observation,
         requested_model=requested,
         expected_observed_model=expected,
+        catalog=catalog,
     )
     workspace = prove_workspace_binding(
         observation, expected_workspace=expected_workspace
@@ -676,6 +713,7 @@ def qualify_cursor_acp_lifecycle(
     require_halt: bool = False,
     record_state: Optional[str] = None,
     halt_confirmed: Optional[bool] = None,
+    catalog: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Qualify the deterministic Cursor ACP lifecycle. Never claims a live run."""
 
@@ -686,13 +724,16 @@ def qualify_cursor_acp_lifecycle(
         else observation.get("requested_model")
     )
     expected = bind_expected_runtime_model(
-        requested, expected_observed_model=expected_observed_model
+        requested,
+        catalog=catalog,
+        expected_observed_model=expected_observed_model,
     )
     start = {
         "model": prove_observed_model(
             observation,
             requested_model=requested,
             expected_observed_model=expected,
+            catalog=catalog,
         ),
         "workspace": prove_workspace_binding(
             observation, expected_workspace=expected_workspace
@@ -765,10 +806,16 @@ def qualify_cursor_acp_lifecycle(
 class CursorAcpRunnerFixture:
     """Deterministic ACP observation runner. Never starts a live Cursor process."""
 
-    def __init__(self, observation: Optional[Mapping[str, Any]] = None):
+    def __init__(
+        self,
+        observation: Optional[Mapping[str, Any]] = None,
+        *,
+        catalog: Optional[Mapping[str, Any]] = None,
+    ):
         self._observation = (
             dict(observation) if observation is not None else fixture_observation()
         )
+        self._catalog = dict(catalog) if catalog is not None else None
 
     @staticmethod
     def available() -> bool:
@@ -776,6 +823,9 @@ class CursorAcpRunnerFixture:
 
     def observation(self) -> Dict[str, Any]:
         return validate_cursor_acp_observation(self._observation)
+
+    def catalog(self) -> Optional[Dict[str, Any]]:
+        return None if self._catalog is None else dict(self._catalog)
 
 
 class CursorAcpController:
@@ -789,10 +839,12 @@ class CursorAcpController:
         _observer: Optional[Mapping[str, Any]] = None,
         runner: Optional[CursorAcpRunnerFixture] = None,
         _runner: Optional[CursorAcpRunnerFixture] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
     ):
         self.registry_root = Path(registry_root)
         self.observer = observer if observer is not None else _observer
         self.runner = runner if runner is not None else _runner
+        self.catalog = catalog
 
     @staticmethod
     def available() -> bool:
@@ -812,6 +864,13 @@ class CursorAcpController:
             _raise_unavailable("cursor-acp structured observation is unavailable")
         return validate_cursor_acp_observation(self.observer)
 
+    def require_catalog(
+        self, catalog: Optional[Mapping[str, Any]] = None
+    ) -> Optional[Mapping[str, Any]]:
+        return _independent_catalog(
+            catalog, stored=self.catalog, runner=self.runner
+        )
+
     def prove(
         self,
         *,
@@ -823,6 +882,7 @@ class CursorAcpController:
         expected_result_state: Optional[str] = None,
         expected_result_id: Optional[str] = None,
         require_halt: bool = False,
+        catalog: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         return prove_cursor_acp_observation(
             self.require_observation(),
@@ -834,6 +894,7 @@ class CursorAcpController:
             expected_result_state=expected_result_state,
             expected_result_id=expected_result_id,
             require_halt=require_halt,
+            catalog=self.require_catalog(catalog),
         )
 
     def qualify_lifecycle(
@@ -849,6 +910,7 @@ class CursorAcpController:
         require_halt: bool = False,
         record_state: Optional[str] = None,
         halt_confirmed: Optional[bool] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         return qualify_cursor_acp_lifecycle(
             self.require_observation(),
@@ -862,6 +924,7 @@ class CursorAcpController:
             require_halt=require_halt,
             record_state=record_state,
             halt_confirmed=halt_confirmed,
+            catalog=self.require_catalog(catalog),
         )
 
     def caller_result(
@@ -876,15 +939,19 @@ class CursorAcpController:
         expected_result_id: Optional[str] = None,
         record_state: Optional[str] = None,
         require_halt: bool = False,
+        catalog: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         observation = self.require_observation()
+        resolved_catalog = self.require_catalog(catalog)
         requested = (
             requested_model
             if requested_model is not None
             else observation.get("requested_model")
         )
         expected = bind_expected_runtime_model(
-            requested, expected_observed_model=expected_observed_model
+            requested,
+            catalog=resolved_catalog,
+            expected_observed_model=expected_observed_model,
         )
         proved = self.prove(
             expected_session=expected_session,
@@ -895,6 +962,7 @@ class CursorAcpController:
             expected_result_state=expected_result_state,
             expected_result_id=expected_result_id,
             require_halt=require_halt,
+            catalog=resolved_catalog,
         )
         lifecycle = self.qualify_lifecycle(
             expected_session=expected_session,
@@ -906,6 +974,7 @@ class CursorAcpController:
             expected_result_id=expected_result_id,
             require_halt=require_halt,
             record_state=record_state,
+            catalog=resolved_catalog,
         )
         fields = caller_fields_from_observation(
             observation,
