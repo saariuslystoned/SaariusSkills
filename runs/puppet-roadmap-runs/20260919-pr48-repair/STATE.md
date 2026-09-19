@@ -1,6 +1,6 @@
 # PR #48 repair pass
 
-- status: second_review_repairs_committed_pending_push
+- status: pushed_pending_github_checks
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/48
 - reviewed_head: 9d95cc057a0c7e07f8e83fe121548f731c362a9e
 - second_reviewed_head: db527dedf3bb0a519c53f7d5c4f2f103f4bd3445
@@ -15,6 +15,9 @@
 - cursor_model_job: a940c5e9-6e7c-4e1d-a4b4-0f3530306766 (resubmitted after bridge restart; local fixture repair complete; parent rerun complete)
 - source_committed: true
 - second_repair_commit: 3afcdbe
+- proof_close_commit: 20acffe
+- pushed_head: 20acffe68f7aefa4fe7e26a3efe1b2be1d8462be
+- github_checks: pending
 - implementation_commit: af41be6
 - proof_close_commit: db527ded
 - p1_qualification_scope_job: f6191991-d221-40c7-8fae-c8a862f44bfa (completed; Cursor model source untouched)

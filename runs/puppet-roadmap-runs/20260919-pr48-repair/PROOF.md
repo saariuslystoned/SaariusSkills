@@ -63,6 +63,8 @@ Commands/results:
 - Parent reran `git diff --check` → `DIFF_CHECK_OK`.
 - No live harness, account, or external send action was taken; live qualification remains false.
 - Parent commit: `3afcdbe` (`puppet: close PR48 review findings`).
+- Proof closeout commit: `20acffe` (`docs: close PR48 second repair proof`).
+- Branch pushed to `20acffe68f7aefa4fe7e26a3efe1b2be1d8462be`; GitHub macOS and Ubuntu checks are pending. No merge was performed.
 
 ## P2 Cursor catalog-evidence worker
 
