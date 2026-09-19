@@ -12,7 +12,7 @@ before launch and never silently falls back.
 | `tmux` | Portable implemented default. Private socket, exact pane/process birth, ticketed read-only attach. |
 | `herdr` | Named and unsupported as a Puppet run transport. Experimental Herdr-Puppet remains a separate skill. |
 | `acp` | Named and unsupported. Later Cursor/Grok ACP admission is a later stage. |
-| `agy-print` | Implemented structured AGY transport. Observed model, workspace, terminal result, conversation/session resume, and owned process-tree halt are proved from runtime metadata. Live AGY lifecycle is a later stage. |
+| `agy-print` | Implemented structured AGY transport. Observed model, workspace, terminal result, conversation/session resume, owned process-tree halt, and the deterministic start/resume/result/halt lifecycle are proved from runtime metadata plus a process-identity fixture. Live AGY is not claimed. |
 
 Requesting an unimplemented id refuses. Missing tmux does not select Herdr,
 ACP, or `agy-print`. Requesting `agy-print` never falls back to tmux.
@@ -26,8 +26,13 @@ Tmux halt proves the registered PID is gone and the pane is dead. Tmux
 resume remains unsupported. `agy-print` `status` proves observed model,
 workspace, worker terminal/result, and conversation/session identity from
 structured runtime metadata. `agy-print` halt proves the owned PID/birth
-and confined process tree. `agy-print` resume proves matching session and
-conversation identity; a selector or path alone is not resume.
+and confined process tree; a reused, stale, or ambiguous identity fails
+closed and is never signaled. `agy-print` resume proves matching session and
+conversation identity; a selector or path alone is not resume. Deterministic
+lifecycle qualification covers start/bind, matching resume, terminal result,
+distinct worker completion, controller acceptance, confirmed halt, and a
+bounded final outcome. A process fixture may prove that path. Live AGY is
+not claimed.
 
 Puppet owns fresh kernel birth identity and stop/escalation. A caller may
 not signal a stale or foreign PID, attach as the controller, or treat a

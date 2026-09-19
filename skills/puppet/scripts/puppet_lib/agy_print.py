@@ -3,14 +3,16 @@
 `agy-print` is a Puppet-owned structured transport. It never falls back to
 tmux, Herdr, or ACP. Model, workspace, session, resume, and process-tree
 claims come from observed runtime/process/session metadata, not from a
-requested selector or path alone. Live AGY is not claimed; tests inject a
-deterministic observation fixture.
+requested selector or path alone. Lifecycle qualification is deterministic:
+start/bind, matching resume, terminal result, distinct worker/controller/halt
+outcomes, and confined process-tree shutdown. Live AGY is not claimed; tests
+inject observation and process-identity fixtures. `available()` stays false.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .caller import (
     caller_projection,
@@ -25,6 +27,16 @@ OBSERVATION_SCHEMA = "puppet.agy-print-observation/v1"
 BINDING_SCHEMA = "puppet.agy-print-binding/v1"
 RESUME_SCHEMA = "puppet.agy-print-resume-identity/v1"
 HALT_SCHEMA = "puppet.agy-print-halt-proof/v1"
+LIFECYCLE_SCHEMA = "puppet.agy-print-lifecycle/v1"
+LIFECYCLE_PHASES = (
+    "start_bound",
+    "resume_matched",
+    "terminal_result",
+    "worker_completion",
+    "controller_acceptance",
+    "confirmed_halt",
+    "final_outcome",
+)
 
 RUNTIME_MODEL_SOURCES = frozenset(
     {"runtime_metadata", "process_metadata", "session_metadata"}
@@ -72,6 +84,48 @@ def _raise_unavailable(detail: str) -> None:
         detail,
         blocker=_blocker("transport_unavailable", detail),
     )
+
+
+def _identity_pair(value: Mapping[str, Any], *, label: str) -> Tuple[int, str]:
+    pid = value.get("pid")
+    birth = value.get("kernel_birth_id")
+    if (
+        isinstance(pid, bool)
+        or not isinstance(pid, int)
+        or pid <= 1
+        or not isinstance(birth, str)
+        or not birth.strip()
+    ):
+        raise ValidationError("%s process identity is invalid" % label)
+    return pid, birth
+
+
+def owned_identity_map(
+    process: Mapping[str, Any],
+    *,
+    label: str = "agy-print",
+) -> Dict[int, str]:
+    """Index owned pid->birth. Duplicate or colliding PIDs fail closed."""
+
+    mapping: Dict[int, str] = {}
+    pairs = [(_identity_pair(process, label="%s process" % label), "process")]
+    children = process.get("owned_children") or []
+    if not isinstance(children, list):
+        raise ValidationError("%s owned children are invalid" % label)
+    for child in children:
+        if not isinstance(child, Mapping):
+            raise ValidationError("%s owned child is invalid" % label)
+        pairs.append((_identity_pair(child, label="%s owned child" % label), "child"))
+    for (pid, birth), _kind in pairs:
+        if pid in mapping:
+            _raise_identity(
+                "process_identity_mismatch",
+                "%s owned process identity is ambiguous" % label,
+                pid=pid,
+                kernel_birth_id=birth,
+            )
+        mapping[pid] = birth
+    return mapping
 
 
 def _bounded_text(value: Any, *, label: str, maximum: int = 400) -> str:
@@ -186,6 +240,7 @@ def validate_agy_print_observation(value: Any) -> Dict[str, Any]:
     }
     if process["pid"] is None:
         raise ValidationError("agy-print process pid is invalid")
+    owned_identity_map(process)
     halt = value.get("halt")
     if halt is not None:
         if not isinstance(halt, Mapping) or set(halt) != _HALT_KEYS:
@@ -378,11 +433,13 @@ def prove_process_tree(
     observation: Mapping[str, Any],
     *,
     expected_process: Mapping[str, Any],
+    process_table: Optional["ProcessIdentityFixture"] = None,
 ) -> Dict[str, Any]:
     """Prove exact owned pid and birth. Do not accept a foreign process."""
 
     observation = validate_agy_print_observation(observation)
     process = observation["process"]
+    owned = owned_identity_map(process)
     expected_pid = expected_process.get("pid")
     expected_birth = expected_process.get("kernel_birth_id")
     if expected_pid != process["pid"] or expected_birth != process["kernel_birth_id"]:
@@ -391,6 +448,27 @@ def prove_process_tree(
             "agy-print process identity does not match the owned target",
             pid=process["pid"],
             kernel_birth_id=process["kernel_birth_id"],
+        )
+    expected_children = expected_process.get("owned_children")
+    if expected_children is not None:
+        expected_map = owned_identity_map(
+            {
+                "pid": expected_process.get("pid"),
+                "kernel_birth_id": expected_process.get("kernel_birth_id"),
+                "owned_children": expected_children,
+            }
+        )
+        if expected_map != owned:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity does not match the owned target",
+                pid=process["pid"],
+                kernel_birth_id=process["kernel_birth_id"],
+            )
+    if process_table is not None:
+        process_table.revalidate_owned_tree(
+            {"pid": process["pid"], "kernel_birth_id": process["kernel_birth_id"]},
+            list(process["owned_children"]),
         )
     return {
         "pid": process["pid"],
@@ -403,10 +481,15 @@ def prove_shutdown(
     observation: Mapping[str, Any],
     *,
     expected_process: Mapping[str, Any],
+    process_table: Optional["ProcessIdentityFixture"] = None,
 ) -> Dict[str, Any]:
     """Prove exact owned-target halt. Do not broaden cleanup to other PIDs."""
 
-    owned = prove_process_tree(observation, expected_process=expected_process)
+    owned = prove_process_tree(
+        observation,
+        expected_process=expected_process,
+        process_table=process_table,
+    )
     observation = validate_agy_print_observation(observation)
     halt = observation.get("halt")
     if not isinstance(halt, Mapping):
@@ -417,12 +500,25 @@ def prove_shutdown(
             kernel_birth_id=owned["kernel_birth_id"],
         )
     signaled = [item for item in halt["signaled_pids"] if item is not None]
-    allowed = {owned["pid"], *(child["pid"] for child in owned["owned_children"])}
+    if len(signaled) != len(set(signaled)):
+        _raise_identity(
+            "process_identity_mismatch",
+            "agy-print owned process identity is ambiguous",
+            pid=owned["pid"],
+            kernel_birth_id=owned["kernel_birth_id"],
+        )
+    allowed = owned_identity_map(
+        {
+            "pid": owned["pid"],
+            "kernel_birth_id": owned["kernel_birth_id"],
+            "owned_children": owned["owned_children"],
+        }
+    )
     if (
         halt["pid"] != owned["pid"]
         or halt["kernel_birth_id"] != owned["kernel_birth_id"]
         or halt["pid_gone"] is not True
-        or set(signaled) - allowed
+        or set(signaled) - set(allowed)
     ):
         _raise_identity(
             "process_tree_unowned",
@@ -430,12 +526,16 @@ def prove_shutdown(
             pid=owned["pid"],
             kernel_birth_id=owned["kernel_birth_id"],
         )
+    signaled_identities = [
+        {"pid": pid, "kernel_birth_id": allowed[pid]} for pid in signaled
+    ]
     return {
         "schema": HALT_SCHEMA,
         "pid": owned["pid"],
         "kernel_birth_id": owned["kernel_birth_id"],
         "pid_gone": True,
         "signaled_pids": signaled,
+        "signaled_identities": signaled_identities,
     }
 
 
@@ -448,6 +548,7 @@ def prove_agy_print_observation(
     expected_process: Optional[Mapping[str, Any]] = None,
     requested_model: Optional[str] = None,
     require_halt: bool = False,
+    process_table: Optional["ProcessIdentityFixture"] = None,
 ) -> Dict[str, Any]:
     """Prove the full structured AGY identity set from one observation."""
 
@@ -463,10 +564,18 @@ def prove_agy_print_observation(
         expected_conversation_id=expected_conversation_id,
     )
     process_expected = expected_process or observation["process"]
-    process = prove_process_tree(observation, expected_process=process_expected)
+    process = prove_process_tree(
+        observation,
+        expected_process=process_expected,
+        process_table=process_table,
+    )
     halt = None
     if require_halt or observation.get("halt") is not None:
-        halt = prove_shutdown(observation, expected_process=process_expected)
+        halt = prove_shutdown(
+            observation,
+            expected_process=process_expected,
+            process_table=process_table,
+        )
     return {
         "schema": BINDING_SCHEMA,
         "transport": TRANSPORT_ID,
@@ -526,6 +635,339 @@ def caller_fields_from_observation(
     )
 
 
+class ProcessIdentityFixture:
+    """Deterministic PID+birth table. Not a live OS or AGY process."""
+
+    def __init__(self) -> None:
+        self._live: Dict[int, Dict[str, Any]] = {}
+        self._ambiguous: set[int] = set()
+        self._signaled: List[Dict[str, Any]] = []
+
+    def spawn(
+        self,
+        pid: int,
+        kernel_birth_id: str,
+        *,
+        parent_pid: Optional[int] = None,
+        command: str = "agy --print",
+    ) -> Dict[str, Any]:
+        if pid in self._ambiguous:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is ambiguous",
+                pid=pid,
+                kernel_birth_id=kernel_birth_id,
+            )
+        if pid in self._live:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is ambiguous",
+                pid=pid,
+                kernel_birth_id=kernel_birth_id,
+            )
+        record = {
+            "pid": pid,
+            "kernel_birth_id": kernel_birth_id,
+            "parent_pid": parent_pid,
+            "command": command,
+        }
+        self._live[pid] = record
+        return dict(record)
+
+    def vanish(self, pid: int) -> None:
+        self._live.pop(pid, None)
+
+    def reuse_pid(
+        self,
+        pid: int,
+        new_kernel_birth_id: str,
+        *,
+        parent_pid: Optional[int] = None,
+        command: str = "agy --print",
+    ) -> Dict[str, Any]:
+        """Replace the occupant. The prior birth becomes stale."""
+
+        self._live.pop(pid, None)
+        self._ambiguous.discard(pid)
+        return self.spawn(
+            pid,
+            new_kernel_birth_id,
+            parent_pid=parent_pid,
+            command=command,
+        )
+
+    def mark_ambiguous(self, pid: int) -> None:
+        self._ambiguous.add(pid)
+
+    def current(self, pid: int) -> Optional[Dict[str, Any]]:
+        if pid in self._ambiguous:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is ambiguous",
+                pid=pid,
+            )
+        record = self._live.get(pid)
+        return None if record is None else dict(record)
+
+    def revalidate(self, expected: Mapping[str, Any]) -> Dict[str, Any]:
+        pid, birth = _identity_pair(expected, label="agy-print expected")
+        if pid in self._ambiguous:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is ambiguous",
+                pid=pid,
+                kernel_birth_id=birth,
+            )
+        current = self._live.get(pid)
+        if current is None:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is stale",
+                pid=pid,
+                kernel_birth_id=birth,
+            )
+        if current["kernel_birth_id"] != birth:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity changed",
+                pid=pid,
+                kernel_birth_id=current["kernel_birth_id"],
+            )
+        return dict(current)
+
+    def revalidate_owned_tree(
+        self,
+        root: Mapping[str, Any],
+        owned_children: Sequence[Mapping[str, Any]],
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        pinned_root = self.revalidate(root)
+        pinned_children = [self.revalidate(child) for child in owned_children]
+        owned_pids = {pinned_root["pid"], *(child["pid"] for child in pinned_children)}
+        extras = [
+            record
+            for record in self._live.values()
+            if record.get("parent_pid") == pinned_root["pid"]
+            and record["pid"] not in owned_pids
+        ]
+        if extras:
+            _raise_identity(
+                "process_tree_unowned",
+                "agy-print halt is not confined to the owned process tree",
+                pid=pinned_root["pid"],
+                kernel_birth_id=pinned_root["kernel_birth_id"],
+            )
+        return pinned_root, pinned_children
+
+    def signal_exact(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        race: Optional[Callable[["ProcessIdentityFixture"], None]] = None,
+    ) -> Dict[str, Any]:
+        """Pin pid+birth, then signal only if that exact identity is still live."""
+
+        pinned = self.revalidate(expected)
+        if race is not None:
+            race(self)
+        current = None
+        try:
+            current = self.revalidate(pinned)
+        except IdentityError:
+            raise
+        if (
+            current["pid"] != pinned["pid"]
+            or current["kernel_birth_id"] != pinned["kernel_birth_id"]
+        ):
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print process identity is stale",
+                pid=pinned["pid"],
+                kernel_birth_id=pinned["kernel_birth_id"],
+            )
+        signaled = {
+            "pid": pinned["pid"],
+            "kernel_birth_id": pinned["kernel_birth_id"],
+        }
+        self._signaled.append(signaled)
+        return dict(signaled)
+
+    def signal_owned_tree(
+        self,
+        root: Mapping[str, Any],
+        owned_children: Sequence[Mapping[str, Any]],
+        *,
+        signaled_pids: Optional[Sequence[int]] = None,
+        race: Optional[Callable[["ProcessIdentityFixture"], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Revalidate the whole owned tree, then signal only claimed identities."""
+
+        pinned_root, pinned_children = self.revalidate_owned_tree(root, owned_children)
+        child_by_pid = {child["pid"]: child for child in pinned_children}
+        if signaled_pids is None:
+            targets = [pinned_root, *pinned_children]
+        else:
+            if len(list(signaled_pids)) != len(set(signaled_pids)):
+                _raise_identity(
+                    "process_identity_mismatch",
+                    "agy-print owned process identity is ambiguous",
+                    pid=pinned_root["pid"],
+                    kernel_birth_id=pinned_root["kernel_birth_id"],
+                )
+            targets = []
+            for pid in signaled_pids:
+                if pid == pinned_root["pid"]:
+                    targets.append(pinned_root)
+                elif pid in child_by_pid:
+                    targets.append(child_by_pid[pid])
+                else:
+                    _raise_identity(
+                        "process_tree_unowned",
+                        "agy-print halt is not confined to the owned process tree",
+                        pid=pinned_root["pid"],
+                        kernel_birth_id=pinned_root["kernel_birth_id"],
+                    )
+        if race is not None:
+            race(self)
+        confirmed: List[Dict[str, Any]] = []
+        for target in targets:
+            confirmed.append(self.revalidate(target))
+        signaled: List[Dict[str, Any]] = []
+        for target in confirmed:
+            record = {
+                "pid": target["pid"],
+                "kernel_birth_id": target["kernel_birth_id"],
+            }
+            self._signaled.append(record)
+            signaled.append(dict(record))
+        return signaled
+
+    @property
+    def signaled(self) -> List[Dict[str, Any]]:
+        return [dict(item) for item in self._signaled]
+
+
+def process_table_from_observation(
+    observation: Mapping[str, Any],
+) -> ProcessIdentityFixture:
+    """Seed a fixture from one observation. Not a live AGY process."""
+
+    observation = validate_agy_print_observation(observation)
+    table = ProcessIdentityFixture()
+    process = observation["process"]
+    table.spawn(
+        process["pid"],
+        process["kernel_birth_id"],
+        command=process["command"],
+    )
+    for child in process["owned_children"]:
+        table.spawn(
+            child["pid"],
+            child["kernel_birth_id"],
+            parent_pid=process["pid"],
+        )
+    return table
+
+
+def qualify_agy_print_lifecycle(
+    observation: Mapping[str, Any],
+    *,
+    expected_session: str,
+    expected_conversation_id: str,
+    expected_workspace: Mapping[str, Any],
+    expected_process: Optional[Mapping[str, Any]] = None,
+    requested_model: Optional[str] = None,
+    require_halt: bool = False,
+    process_table: Optional[ProcessIdentityFixture] = None,
+    record_state: Optional[str] = None,
+    halt_confirmed: Optional[bool] = None,
+    race: Optional[Callable[[ProcessIdentityFixture], None]] = None,
+) -> Dict[str, Any]:
+    """Qualify the deterministic AGY lifecycle. Never claims a live AGY run."""
+
+    observation = validate_agy_print_observation(observation)
+    process_expected = expected_process or observation["process"]
+    table = process_table
+    if table is None:
+        table = process_table_from_observation(observation)
+    start = {
+        "model": prove_observed_model(observation, requested_model=requested_model),
+        "workspace": prove_workspace_binding(
+            observation, expected_workspace=expected_workspace
+        ),
+        "process": prove_process_tree(
+            observation,
+            expected_process=process_expected,
+            process_table=table,
+        ),
+    }
+    resume = prove_resume_identity(
+        observation,
+        expected_session=expected_session,
+        expected_conversation_id=expected_conversation_id,
+    )
+    terminal = prove_terminal_result(observation)
+    if halt_confirmed is None:
+        halt_confirmed = observation.get("halt") is not None or require_halt
+    fields = caller_fields_from_observation(
+        observation,
+        record_state=record_state,
+        halt_confirmed=halt_confirmed if (require_halt or observation.get("halt")) else False,
+    )
+    worker = fields["caller_outcome"]["worker_completion"]
+    acceptance = fields["caller_outcome"]["controller_acceptance"]
+    halt_state = fields["caller_outcome"]["halt"]
+    halt_proof = None
+    if require_halt or observation.get("halt") is not None:
+        halt_proof = prove_shutdown(
+            observation,
+            expected_process=process_expected,
+            process_table=table,
+        )
+        table.signal_owned_tree(
+            {
+                "pid": halt_proof["pid"],
+                "kernel_birth_id": halt_proof["kernel_birth_id"],
+            },
+            start["process"]["owned_children"],
+            signaled_pids=halt_proof["signaled_pids"],
+            race=race,
+        )
+        halt_proof = dict(halt_proof, signaled_identities=list(table.signaled))
+        if halt_state != "confirmed":
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print confirmed halt is missing",
+                pid=halt_proof["pid"],
+                kernel_birth_id=halt_proof["kernel_birth_id"],
+            )
+    final = fields["final_outcome"]
+    if halt_proof is None and acceptance == "none":
+        if final is not None:
+            raise ValidationError("agy-print final outcome is not bounded")
+    elif final is None:
+        raise ValidationError("agy-print final outcome is missing")
+    phases = {
+        "start_bound": start,
+        "resume_matched": resume,
+        "terminal_result": terminal,
+        "worker_completion": worker,
+        "controller_acceptance": acceptance,
+        "confirmed_halt": halt_proof,
+        "final_outcome": final,
+    }
+    if tuple(phases) != LIFECYCLE_PHASES:
+        raise ValidationError("agy-print lifecycle phases do not match schema")
+    return {
+        "schema": LIFECYCLE_SCHEMA,
+        "transport": TRANSPORT_ID,
+        "phases": phases,
+        "phase_order": list(LIFECYCLE_PHASES),
+        "caller_outcome": fields["caller_outcome"],
+        "progress_cursor": fields["progress_cursor"],
+        "live_agy_claimed": False,
+    }
+
+
 class AgyPrintController:
     """Structured AGY transport. Never constructs or falls back to tmux."""
 
@@ -541,7 +983,7 @@ class AgyPrintController:
 
     @staticmethod
     def available() -> bool:
-        """Live AGY is not claimed. Tests patch this when a fixture is bound."""
+        """Live AGY is not claimed. Fixtures do not make this true."""
 
         return False
 
@@ -561,6 +1003,7 @@ class AgyPrintController:
         expected_process: Optional[Mapping[str, Any]] = None,
         requested_model: Optional[str] = None,
         require_halt: bool = False,
+        process_table: Optional[ProcessIdentityFixture] = None,
     ) -> Dict[str, Any]:
         return prove_agy_print_observation(
             self.require_observation(),
@@ -570,6 +1013,35 @@ class AgyPrintController:
             expected_process=expected_process,
             requested_model=requested_model,
             require_halt=require_halt,
+            process_table=process_table,
+        )
+
+    def qualify_lifecycle(
+        self,
+        *,
+        expected_session: str,
+        expected_conversation_id: str,
+        expected_workspace: Mapping[str, Any],
+        expected_process: Optional[Mapping[str, Any]] = None,
+        requested_model: Optional[str] = None,
+        require_halt: bool = False,
+        process_table: Optional[ProcessIdentityFixture] = None,
+        record_state: Optional[str] = None,
+        halt_confirmed: Optional[bool] = None,
+        race: Optional[Callable[[ProcessIdentityFixture], None]] = None,
+    ) -> Dict[str, Any]:
+        return qualify_agy_print_lifecycle(
+            self.require_observation(),
+            expected_session=expected_session,
+            expected_conversation_id=expected_conversation_id,
+            expected_workspace=expected_workspace,
+            expected_process=expected_process,
+            requested_model=requested_model,
+            require_halt=require_halt,
+            process_table=process_table,
+            record_state=record_state,
+            halt_confirmed=halt_confirmed,
+            race=race,
         )
 
     def caller_result(
@@ -583,6 +1055,7 @@ class AgyPrintController:
         target: str = "agy",
         record_state: Optional[str] = None,
         require_halt: bool = False,
+        process_table: Optional[ProcessIdentityFixture] = None,
     ) -> Dict[str, Any]:
         observation = self.require_observation()
         proved = self.prove(
@@ -592,6 +1065,17 @@ class AgyPrintController:
             expected_process=expected_process,
             requested_model=requested_model,
             require_halt=require_halt,
+            process_table=process_table,
+        )
+        lifecycle = self.qualify_lifecycle(
+            expected_session=expected_session,
+            expected_conversation_id=expected_conversation_id,
+            expected_workspace=expected_workspace,
+            expected_process=expected_process,
+            requested_model=requested_model,
+            require_halt=require_halt,
+            process_table=process_table,
+            record_state=record_state,
         )
         fields = caller_fields_from_observation(
             observation,
@@ -607,6 +1091,7 @@ class AgyPrintController:
             or (record_state or observation.get("record_state") or "ACTIVE"),
             "live_agy_claimed": False,
             "agy_print": proved,
+            "lifecycle": lifecycle,
             **fields,
         }
 

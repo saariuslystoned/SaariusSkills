@@ -1,0 +1,4 @@
+2026-09-18T20:23:11-04:00 delegated stage4 live-agy-lifecycle
+2026-09-18T20:23:40-04:00 worker_submitted job=8c60649c-e555-40be-abd3-9fb270ef5bcd
+2026-09-18T20:30:18-04:00 worker_complete_uncommitted focused=77 lifecycle=14 agy_print=14 relevant=195 live_agy_claimed=false head=263decd
+2026-09-18T20:40:00-04:00 parent_verified stage4 878-puppet-tests-ok

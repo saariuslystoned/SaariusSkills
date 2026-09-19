@@ -262,6 +262,22 @@ class AgyPrintTransportTests(unittest.TestCase):
         self.assertFalse(result["live_agy_claimed"])
         self.assertEqual(result["transport"]["id"], "agy-print")
         self.assertEqual(result["agy_print"]["model"]["observed_model"], "gemini-3.7-flash-high")
+        self.assertEqual(result["lifecycle"]["schema"], "puppet.agy-print-lifecycle/v1")
+        self.assertFalse(result["lifecycle"]["live_agy_claimed"])
+        self.assertEqual(
+            result["lifecycle"]["phase_order"],
+            [
+                "start_bound",
+                "resume_matched",
+                "terminal_result",
+                "worker_completion",
+                "controller_acceptance",
+                "confirmed_halt",
+                "final_outcome",
+            ],
+        )
+        self.assertIsNone(result["lifecycle"]["phases"]["confirmed_halt"])
+        self.assertFalse(AgyPrintController.available())
 
     def test_structured_launch_without_observer_does_not_fall_back(self):
         contract = mock.Mock()

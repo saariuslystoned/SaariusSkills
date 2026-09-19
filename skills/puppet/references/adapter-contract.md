@@ -406,7 +406,7 @@ back to tmux.
 | `tmux` | implemented | pane and registered process identity, not a harness turn result | registered PID gone and pane dead | unsupported |
 | `herdr` | unsupported | unsupported | unsupported | unsupported |
 | `acp` | unsupported | unsupported | unsupported | unsupported |
-| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from runtime metadata, not a live AGY lifecycle | owned PID/birth gone and confined process tree | matching session and conversation identity; not a selector or path |
+| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from runtime metadata; deterministic lifecycle is fixture-qualified, not a live AGY process | owned PID/birth gone and confined process tree; PID reuse and stale/ambiguous identity fail closed | matching session and conversation identity; not a selector or path |
 
 Tmux settle, startup-screen, and paste sequencing remain shared
 transport/authority evidence for AGY-on-tmux. `agy-print` carries its own
