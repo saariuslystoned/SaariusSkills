@@ -11,11 +11,14 @@ before launch and never silently falls back.
 | --- | --- |
 | `tmux` | Portable implemented default. Private socket, exact pane/process birth, ticketed read-only attach. |
 | `herdr` | Named and unsupported as a Puppet run transport. Experimental Herdr-Puppet remains a separate skill. |
-| `acp` | Named and unsupported. Later Cursor/Grok ACP admission is a later stage. |
+| `acp` | Named and unsupported. Generic ACP is never a Puppet run transport and is invalid for every target, including Cursor. |
 | `agy-print` | Implemented structured AGY transport. Observed model, workspace, terminal result, conversation/session resume, owned process-tree halt, and the deterministic start/resume/result/halt lifecycle are proved from runtime metadata plus a process-identity fixture. Live AGY is not claimed. |
+| `cursor-acp` | Implemented Cursor-only ACP adapter/transport. Observed runtime model, exact workspace path/branch/head/tree, ACP session/conversation identity, terminal/result state, and distinct worker/controller/halt/final outcomes are proved from structured observation. A requested selector is not proof. Live Cursor ACP is not claimed. |
 
 Requesting an unimplemented id refuses. Missing tmux does not select Herdr,
-ACP, or `agy-print`. Requesting `agy-print` never falls back to tmux.
+generic ACP, `agy-print`, or `cursor-acp`. Requesting `agy-print` never
+falls back to tmux. Requesting `cursor-acp` never falls back to tmux or
+`agy-print`. Generic `acp` remains unsupported.
 
 ## Capability and proof
 
@@ -32,7 +35,15 @@ conversation identity; a selector or path alone is not resume. Deterministic
 lifecycle qualification covers start/bind, matching resume, terminal result,
 distinct worker completion, controller acceptance, confirmed halt, and a
 bounded final outcome. A process fixture may prove that path. Live AGY is
-not claimed.
+not claimed. `cursor-acp` `status` proves observed runtime model, exact
+workspace identity, ACP session/conversation identity, and terminal/result
+state. `cursor-acp` halt proves the matching ACP session and conversation
+are halted. `cursor-acp` resume proves matching session and conversation
+identity. A selector, path, unbound observation, or generic `acp` id is not
+proof. Unavailable, mismatched, or selector-only observations are
+body-safe blockers with remedies and never fall back. A deterministic ACP
+observation/runner fixture may prove that path. Live Cursor ACP is not
+claimed.
 
 Puppet owns fresh kernel birth identity and stop/escalation. A caller may
 not signal a stale or foreign PID, attach as the controller, or treat a

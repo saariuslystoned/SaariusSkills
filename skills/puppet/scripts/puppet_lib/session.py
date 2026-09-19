@@ -152,6 +152,8 @@ _DOCTOR_BLOCKER_CODES = {
     ),
     "tmux is unavailable": "tmux_unavailable",
     "agy-print transport is unavailable": "transport_unavailable",
+    "cursor-acp transport is unavailable": "transport_unavailable",
+    "cursor-acp is valid only for the cursor target": "transport_target_mismatch",
     "contract branch does not match checkout": "branch_mismatch",
     "candidate worktree is not clean": "worktree_dirty",
     "proof root is not writable": "proof_root_unwritable",
@@ -896,6 +898,50 @@ def _await_input_ready(
     }
 
 
+def _cursor_acp_structured_launch(
+    *,
+    session: str,
+    contract: Contract,
+    transport: Dict[str, str],
+    state_root: Path,
+    requested_model: Optional[str],
+    observer: Optional[Mapping[str, Any]] = None,
+    runner: Any = None,
+) -> Dict[str, Any]:
+    """Complete a cursor-acp launch from structured observation. Never open tmux."""
+
+    from .agy_print import AgyPrintController
+    from .cursor_acp import CursorAcpController, require_cursor_acp_target
+    from .tmux import TmuxController
+
+    require_cursor_acp_target(contract.target)
+    workspace = _workspace_snapshot(contract)
+    expected_workspace = {
+        "path": str(contract.repo),
+        "branch": workspace["branch"],
+        "head": workspace["head"],
+        "tree": workspace["tree"],
+    }
+    controller = open_run_transport(
+        transport, state_root, observer=observer, runner=runner
+    )
+    if isinstance(controller, TmuxController):
+        raise IdentityError("cursor-acp opened a tmux transport")
+    if isinstance(controller, AgyPrintController):
+        raise IdentityError("cursor-acp opened an agy-print transport")
+    if not isinstance(controller, CursorAcpController):
+        raise IdentityError("cursor-acp did not open the structured Cursor ACP transport")
+    observation = controller.require_observation()
+    conversation_id = observation["session"]["conversation_id"]
+    return controller.caller_result(
+        expected_session=session,
+        expected_conversation_id=conversation_id,
+        expected_workspace=expected_workspace,
+        requested_model=requested_model or contract.requested_model,
+        expected_observed_model=observation["runtime"]["model_id"],
+    )
+
+
 def _agy_print_structured_launch(
     *,
     session: str,
@@ -1231,6 +1277,8 @@ def doctor(
         contract_transport=_contract_requested_transport(contract),
     )
     blockers = []
+    if transport["id"] == "cursor-acp" and contract.target != "cursor":
+        blockers.append("cursor-acp is valid only for the cursor target")
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
@@ -1436,6 +1484,8 @@ def launch(
     _process_birth_fn: Any = None,
     _allow_test_profile_bypass: bool = False,
     _agy_print_observer: Optional[Mapping[str, Any]] = None,
+    _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
+    _cursor_acp_runner: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     if deadline_seconds is not None:
@@ -1720,6 +1770,16 @@ def launch(
             state_root=state_root,
             requested_model=requested_model,
             observer=_agy_print_observer,
+        )
+    if transport["id"] == "cursor-acp":
+        return _cursor_acp_structured_launch(
+            session=session,
+            contract=contract,
+            transport=transport,
+            state_root=state_root,
+            requested_model=requested_model,
+            observer=_cursor_acp_observer,
+            runner=_cursor_acp_runner,
         )
     registry = SessionRegistry(state_root)
     tmux = open_run_transport(transport, state_root)

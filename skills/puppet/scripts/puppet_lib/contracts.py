@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
+from .cursor_acp import require_cursor_acp_target
 from .errors import ValidationError
 from .profiles import default_session_profile, validate_session_profile
 from .transport import bind_run_transport
@@ -127,6 +128,8 @@ class Contract:
             value.get("session_profile", default_session_profile(target)),
         )
         transport = bind_run_transport(value.get("transport"))["id"]
+        if transport == "cursor-acp":
+            require_cursor_acp_target(target)
         normalized_raw = dict(value)
         normalized_raw["session_profile"] = session_profile
         if "transport" in value:

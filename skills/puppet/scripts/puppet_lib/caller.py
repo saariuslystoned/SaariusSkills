@@ -51,8 +51,12 @@ _REMEDIES = {
         "operator gate"
     ),
     "transport_unsupported": (
-        "bind transport=tmux or transport=agy-print; herdr and acp remain "
-        "explicitly unsupported with no fallback"
+        "bind transport=tmux, transport=agy-print, or transport=cursor-acp; "
+        "herdr and generic acp remain explicitly unsupported with no fallback"
+    ),
+    "transport_target_mismatch": (
+        "bind cursor-acp only for the cursor target; generic acp remains "
+        "unsupported for every target and never falls back to tmux or agy-print"
     ),
     "transport_unavailable": (
         "restore the bound transport or its structured observer with no "
@@ -77,6 +81,10 @@ _REMEDIES = {
     "session_identity_mismatch": (
         "resume only the matching session and conversation identity; do "
         "not resume from a selector or path alone"
+    ),
+    "result_identity_mismatch": (
+        "prove the worker terminal result from structured ACP runtime "
+        "metadata; do not treat a requested selector as the result"
     ),
     "process_identity_mismatch": (
         "halt only the exact recorded pid and kernel birth if this "

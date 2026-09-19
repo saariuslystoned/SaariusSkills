@@ -9,13 +9,14 @@ from .caller import TRANSPORT_BINDING_SCHEMA, make_blocker
 from .errors import UnsupportedError, ValidationError
 
 
-NAMED_TRANSPORTS = ("tmux", "herdr", "acp", "agy-print")
+NAMED_TRANSPORTS = ("tmux", "herdr", "acp", "agy-print", "cursor-acp")
 DEFAULT_TRANSPORT = "tmux"
-IMPLEMENTED_TRANSPORTS = frozenset({"tmux", "agy-print"})
+IMPLEMENTED_TRANSPORTS = frozenset({"tmux", "agy-print", "cursor-acp"})
 IMPLEMENTED_TRANSPORT = "tmux"
 
 # Capability/proof table. Unsupported ids stay named and refuse.
-# agy-print proves identity from structured observation, never from a selector.
+# agy-print and cursor-acp prove identity from structured observation, never
+# from a selector. Generic acp stays unsupported for every target.
 TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     "tmux": {
         "id": "tmux",
@@ -65,6 +66,24 @@ TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         ),
         "qualification_evidence": "unsupported",
     },
+    "cursor-acp": {
+        "id": "cursor-acp",
+        "implementation": "implemented",
+        "status_proves": (
+            "observed_model_workspace_session_terminal_and_acp_identity"
+        ),
+        "status_does_not_prove": "live_cursor_acp_lifecycle",
+        "halt_proves": "matching_acp_session_and_conversation_halted",
+        "halt_authority": "puppet_owned_cursor_acp_session",
+        "resume_proves": "matching_session_and_conversation_identity",
+        "transport_independent": (
+            "checkpoints",
+            "review",
+            "controller_acceptance",
+            "human_gates",
+        ),
+        "qualification_evidence": "cursor_acp_target_source_scope",
+    },
     "agy-print": {
         "id": "agy-print",
         "implementation": "implemented",
@@ -104,8 +123,8 @@ def implemented_transport_ids() -> frozenset:
 
 def _unsupported_transport_error(name: str) -> UnsupportedError:
     detail = (
-        "transport %s is named but not implemented; tmux and agy-print are "
-        "the implemented Puppet run transports"
+        "transport %s is named but not implemented; tmux, agy-print, and "
+        "cursor-acp are the implemented Puppet run transports"
         % name
     )
     return UnsupportedError(
@@ -193,6 +212,10 @@ def transport_is_available(name: str) -> bool:
         from .agy_print import AgyPrintController
 
         return AgyPrintController.available()
+    if name == "cursor-acp":
+        from .cursor_acp import CursorAcpController
+
+        return CursorAcpController.available()
     return False
 
 
@@ -222,6 +245,15 @@ def open_run_transport(
             if key in {"observer", "_observer"}
         }
         return AgyPrintController(registry_root, **agy_kwargs)
+    if validated["id"] == "cursor-acp":
+        from .cursor_acp import CursorAcpController
+
+        acp_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in {"observer", "_observer", "runner", "_runner"}
+        }
+        return CursorAcpController(registry_root, **acp_kwargs)
     raise _unsupported_transport_error(validated["id"])
 
 

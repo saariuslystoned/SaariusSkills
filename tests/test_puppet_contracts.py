@@ -103,6 +103,16 @@ class ContractTests(unittest.TestCase):
             raw["transport"] = "agy-print"
             contract = Contract.from_dict(raw)
             self.assertEqual(contract.transport, "agy-print")
+            raw["transport"] = "acp"
+            with self.assertRaisesRegex(UnsupportedError, "not implemented"):
+                Contract.from_dict(raw)
+            raw["transport"] = "cursor-acp"
+            with self.assertRaisesRegex(UnsupportedError, "cursor target"):
+                Contract.from_dict(raw)
+            raw["target"] = "cursor"
+            raw["controller"] = "codex"
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.transport, "cursor-acp")
             raw["transport"] = "not-a-transport"
             with self.assertRaisesRegex(ValidationError, "unsupported transport"):
                 Contract.from_dict(raw)

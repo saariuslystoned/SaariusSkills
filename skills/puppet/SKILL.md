@@ -102,9 +102,11 @@ plan -> doctor -> launch -> send -> status -> halt
 8. **Halt.** Use `halt` only for the exact registered target. Preserve tmux
    and proof.
 
-A run binds exactly one transport before launch (`tmux` or `agy-print`;
-`herdr` and `acp` refuse with no fallback). `agy-print` never falls back
-to tmux. `status` exposes a monotonic progress cursor and keeps worker
+A run binds exactly one transport before launch (`tmux`, `agy-print`, or
+`cursor-acp`; `herdr` and generic `acp` refuse with no fallback).
+`agy-print` never falls back to tmux. A `cursor-acp` request never falls
+back to tmux or `agy-print` and is valid only for the Cursor target.
+`status` exposes a monotonic progress cursor and keeps worker
 completion, controller acceptance, and confirmed halt distinct. See the
 capability/proof table in
 [adapter-contract.md](references/adapter-contract.md) and

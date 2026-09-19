@@ -38,6 +38,11 @@ class TransportBoundaryTests(unittest.TestCase):
             table["agy-print"]["resume_proves"],
             "matching_session_and_conversation_identity",
         )
+        self.assertEqual(table["cursor-acp"]["implementation"], "implemented")
+        self.assertEqual(
+            table["cursor-acp"]["resume_proves"],
+            "matching_session_and_conversation_identity",
+        )
         for name in ("herdr", "acp"):
             self.assertEqual(table[name]["implementation"], "unsupported")
             with self.assertRaisesRegex(UnsupportedError, "not implemented"):
@@ -46,6 +51,8 @@ class TransportBoundaryTests(unittest.TestCase):
             bind_run_transport("herdr", contract_transport="tmux")
         with self.assertRaisesRegex(ValidationError, "does not match"):
             bind_run_transport("agy-print", contract_transport="tmux")
+        with self.assertRaisesRegex(ValidationError, "does not match"):
+            bind_run_transport("cursor-acp", contract_transport="tmux")
 
     def test_session_record_requires_the_bound_transport(self):
         binding = validate_transport_binding(

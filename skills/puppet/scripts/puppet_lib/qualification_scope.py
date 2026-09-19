@@ -75,6 +75,7 @@ _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
         "templates/instructions/harness/agy.md",
     ),
     "cursor": (
+        "scripts/puppet_lib/cursor_acp.py",
         "scripts/puppet_lib/cursor_qualification.py",
         "scripts/puppet_lib/cursor_startup_gates.py",
         "scripts/puppet_lib/cursor_workspace_plane.py",
