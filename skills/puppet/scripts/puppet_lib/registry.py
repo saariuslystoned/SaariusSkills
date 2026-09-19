@@ -346,7 +346,7 @@ _DARWIN_LSOF_MAX_BYTES = 65536
 # unavailable during exit.  Keep the retry window short and finite: only a row
 # whose PID is subsequently absent may be skipped; a row that recovers or
 # remains present is still ambiguous and fails closed.
-_DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS = (0.01, 0.05, 0.1)
+_DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.2, 0.4)
 
 
 class ExecTransitionSamplingError(IdentityError):
@@ -587,6 +587,16 @@ def darwin_process_inventory(
                     ) from rebound_exc
                 if vanished:
                     continue
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    # libproc can retain a just-exited PID in its snapshot
+                    # after the BSD row has disappeared. The kernel check
+                    # confirms this is ordinary process churn, not an
+                    # ambiguous live identity.
+                    continue
+                except OSError:
+                    pass
                 raise IdentityError(
                     "Darwin process inventory row remained unavailable"
                 ) from rebound_exc

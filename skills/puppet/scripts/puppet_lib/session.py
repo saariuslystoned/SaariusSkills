@@ -25,6 +25,7 @@ from .agy_launch import (
     validate_agy_shared_auth_launch_binding,
     validate_agy_regular_launch_params,
 )
+from .agy_print import agy_print_launch_argv
 from .authority import (
     acquire_existing_real_harness_lock,
     admit_session_lease,
@@ -49,7 +50,7 @@ from .campaign import (
     validate_campaign_authorization,
 )
 from .conformance import tree_fingerprint, validate_fixture_contract
-from .contracts import Contract
+from .contracts import Contract, assert_controller
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .grok_launch import GROK_LAUNCH_AUTHORITY_BLOCKER
 from .handoffs import ValidatedHandoff, validate_handoff
@@ -987,6 +988,11 @@ def _agy_print_structured_launch(
     observer: Optional[Mapping[str, Any]] = None,
     executable: Optional[Path] = None,
     prompt: Optional[str] = None,
+    proof_root: Optional[Path] = None,
+    manifest_raw: Optional[Mapping[str, Any]] = None,
+    deadline_at: Optional[str] = None,
+    lease_owner: Optional[Mapping[str, str]] = None,
+    instruction_manifest_sha256: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Complete an agy-print launch from observation or a local process. Never open tmux."""
 
@@ -1019,6 +1025,12 @@ def _agy_print_structured_launch(
                     "agy-print structured observation is unavailable",
                 ),
             )
+        controller.contract_raw = dict(contract.raw)
+        controller.manifest_raw = dict(manifest_raw) if manifest_raw is not None else None
+        controller.proof_root = str(proof_root) if proof_root is not None else None
+        controller.deadline_at = deadline_at
+        controller.lease_owner = dict(lease_owner) if lease_owner is not None else None
+        controller.instruction_manifest_sha256 = instruction_manifest_sha256
         return controller.start(
             session=session,
             prompt=prompt,
@@ -1392,7 +1404,10 @@ def doctor(
     mapping = manifest.raw["yolo_mapping"]
     if contract.session_profile != "regular":
         blockers.append("only the regular session profile is enabled")
-    if contract.requested_model is not None or contract.requested_effort is not None:
+    if (
+        (contract.requested_model is not None or contract.requested_effort is not None)
+        and not (contract.target == "agy" and transport["id"] == "agy-print")
+    ):
         blockers.append("explicit model and effort selection remain deferred")
     if not mapping.get("complete"):
         blockers.append(
@@ -1613,6 +1628,10 @@ def launch(
         raise ValidationError("CLI effort selection must match the bound contract")
     effective_model = contract.requested_model
     effective_effort = contract.requested_effort
+    transport = bind_run_transport(
+        requested_transport,
+        contract_transport=_contract_requested_transport(contract),
+    )
     adapter = adapter_for(contract.target)
     if contract.target in {"cursor", "grok"} and (
         effective_model is not None or effective_effort is not None
@@ -1621,7 +1640,14 @@ def launch(
             "%s regular qualification covers only the current default model"
             % contract.target.capitalize()
         )
-    argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
+    if contract.target == "agy" and transport["id"] == "agy-print":
+        argv = agy_print_launch_argv(
+            manifest.raw["executable"]["resolved_path"],
+            requested_model=effective_model,
+            requested_effort=effective_effort,
+        )
+    else:
+        argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
     if contract.target == "cursor":
         from .cursor_qualification import cursor_regular_launch_argv
 
@@ -1632,7 +1658,7 @@ def launch(
         )
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
-    if contract.target == "agy":
+    if contract.target == "agy" and transport["id"] != "agy-print":
         validate_agy_regular_launch_params(
             session_profile=contract.session_profile,
             argv=argv,
@@ -1800,12 +1826,14 @@ def launch(
             executable_path=executable_path,
             cwd=contract.repo,
             environment=launch_environment,
+            argv=argv,
         )
         agy_shared_binding = build_agy_shared_auth_launch_binding(
             executable_path=executable_path,
             cwd=contract.repo,
             environment=launch_environment,
             status=profile_status,
+            argv=argv,
         )
         validate_agy_shared_auth_launch_binding(
             agy_shared_binding,
@@ -1824,10 +1852,6 @@ def launch(
         "effective instruction manifest",
     )
     instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
-    transport = bind_run_transport(
-        requested_transport,
-        contract_transport=_contract_requested_transport(contract),
-    )
     if transport["id"] == "agy-print":
         return _agy_print_structured_launch(
             session=session,
@@ -1841,6 +1865,15 @@ def launch(
             executable=_agy_print_executable
             or Path(manifest.raw["executable"]["resolved_path"]),
             prompt=initial,
+            proof_root=proof_root,
+            manifest_raw=manifest.raw,
+            deadline_at=(
+                None
+                if deadline_seconds is None
+                else _format_utc(_now_utc() + dt.timedelta(seconds=deadline_seconds))
+            ),
+            lease_owner=session_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
         )
     if transport["id"] == "cursor-acp":
         return _cursor_acp_structured_launch(
@@ -2262,6 +2295,10 @@ def send_message(
     agy_controller = _agy_print_bound_session(state_root, session)
     if agy_controller is not None:
         stored = agy_controller.require_session(session)
+        if stored.get("deadline_at") is not None and _deadline_state(stored)[1]:
+            raise ValidationError(
+                "session deadline has passed: steering messages are refused; halt or adjudicate the session"
+            )
         observation = stored["observation"]
         enveloped = adapter_for("agy").envelope(
             message, "regular", initial=False
@@ -2270,8 +2307,8 @@ def send_message(
             session=session,
             message=enveloped,
             expected_workspace=observation["workspace"],
+            request_id=request_id,
         )
-        result["request_id"] = request_id
         return result
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
@@ -2845,6 +2882,17 @@ def review_checkpoint(
     verdict: str,
     evidence_path: Path,
 ) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        if evidence_path.is_symlink() or not evidence_path.is_file():
+            raise ValidationError("agy-print review evidence is unavailable")
+        return agy_controller.review(
+            session=session,
+            checkpoint_id=checkpoint_id,
+            actor=actor,
+            verdict=verdict,
+            evidence_path=evidence_path,
+        )
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2954,10 +3002,19 @@ def accept_checkpoint(
     agy_controller = _agy_print_bound_session(state_root, session)
     if agy_controller is not None:
         stored = agy_controller.require_session(session)
+        contract_raw = stored.get("contract")
+        if not isinstance(contract_raw, dict):
+            raise IdentityError("agy-print session is missing its bound contract")
+        contract = Contract.from_dict(contract_raw)
+        assert_controller(contract, actor)
+        if evidence_path.is_symlink() or not evidence_path.is_file():
+            raise ValidationError("agy-print acceptance evidence is unavailable")
         return agy_controller.accept(
             session=session,
             checkpoint_id=checkpoint_id,
             expected_workspace=stored["observation"]["workspace"],
+            actor=actor,
+            evidence_path=evidence_path,
         )
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)

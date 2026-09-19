@@ -407,7 +407,9 @@ def _census_command_prefix(
     return [execution["runtime_executable"]["path"], support[0]["path"]]
 
 
-def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
+def census_target(
+    target: str, adapter_fingerprint: str, transport: Optional[str] = None
+) -> AdapterManifest:
     if target not in COMMANDS:
         raise ValidationError("target is not on the census allowlist")
     skill_root = Path(__file__).resolve(strict=True).parents[2]
@@ -549,11 +551,14 @@ def census_target(target: str, adapter_fingerprint: str) -> AdapterManifest:
         requested_effort=None,
         instruction_policy_fingerprint=instruction_policy_fingerprint(target=target),
         source_root=skill_root,
+        transport=transport,
     )
     return AdapterManifest.from_dict(raw)
 
 
-def census_many(targets: List[str], adapter_fingerprint: str) -> Dict[str, Any]:
+def census_many(
+    targets: List[str], adapter_fingerprint: str, transport: Optional[str] = None
+) -> Dict[str, Any]:
     if len(set(targets)) != len(targets):
         raise ValidationError("duplicate census targets")
     if set(targets) - set(COMMANDS):
@@ -571,6 +576,7 @@ def census_many(targets: List[str], adapter_fingerprint: str) -> Dict[str, Any]:
         },
         "submit_settle_seconds": SUBMIT_SETTLE_SECONDS,
         "manifests": {
-            target: census_target(target, adapter_fingerprint).raw for target in targets
+            target: census_target(target, adapter_fingerprint, transport).raw
+            for target in targets
         },
     }

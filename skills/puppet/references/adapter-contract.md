@@ -413,13 +413,17 @@ exact `--conversation` identity; `--continue` is refused. `available()`
 follows the installed help probe and is never made true by fixtures.
 It does not depend on a community ACP wrapper or infer a model from a
 requested selector. Generic `acp` remains unsupported and never becomes an
-AGY fallback. The recorded upstream watch link stays a parent (#38)
-decision if it needs a fresh browse.
+AGY fallback. The upstream native-ACP watch decision remains: no official
+AGY ACP transport is documented in the current upstream CLI contract, so
+Puppet continues to use the documented native stream-json boundary. Re-check
+the official source before changing that decision.
 
-The upstream contract to watch is the official
-[AGY headless-mode and stream-json documentation](https://www.agy.dev/docs/cli/headless/),
-especially its stream-prompt, result, model/effort, and exit-status sections.
-Re-check that source before changing the adapter protocol.
+The verified upstream contract is the official
+[AGY headless-mode and stream-json documentation](https://www.agy.dev/docs/cli/headless/)
+(checked 2026-09-19), especially its stream-prompt, result, model/effort,
+and exit-status sections. It documents `--input-format stream-json`,
+`--output-format stream-json`, `--model`, `--effort`, and exact
+`--conversation` resume; it does not document an ACP launch surface.
 
 | Transport | Implementation | `status` proves | Halt proves | Resume proves |
 | --- | --- | --- | --- | --- |

@@ -504,6 +504,15 @@ class QualificationReuseTests(TestCase):
                 requested_effort=None,
                 instruction_policy_fingerprint=agy_policy,
                 source_root=copied,
+                transport="tmux",
+            )
+            agy_print_baseline = build_compatibility_scope(
+                agy_manifest,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+                transport="agy-print",
             )
             cursor_baseline = build_compatibility_scope(
                 cursor_manifest,
@@ -536,8 +545,18 @@ class QualificationReuseTests(TestCase):
                 source_root=copied,
             )
             agy_reasons = {item["reason"] for item in after_agy_print["invalidations"]}
-            self.assertIn("selected_target_source_changed", agy_reasons)
+            self.assertNotIn("selected_target_source_changed", agy_reasons)
             self.assertNotIn("transport_or_shared_authority_changed", agy_reasons)
+            after_print_scope = compare_qualification_compatibility(
+                stored_scope=agy_print_baseline,
+                current_manifest=agy_manifest,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+            )
+            self.assertIn(
+                "selected_target_source_changed",
+                {item["reason"] for item in after_print_scope["invalidations"]},
+            )
             cursor_after_agy_print = compare_qualification_compatibility(
                 stored_scope=cursor_baseline,
                 current_manifest=cursor_manifest,
@@ -560,7 +579,7 @@ class QualificationReuseTests(TestCase):
                 source_root=copied,
             )
             tmux_reasons = {item["reason"] for item in after_tmux["invalidations"]}
-            self.assertIn("transport_or_shared_authority_changed", tmux_reasons)
+            self.assertIn("selected_target_source_changed", tmux_reasons)
             cursor_after_tmux = compare_qualification_compatibility(
                 stored_scope=cursor_baseline,
                 current_manifest=cursor_manifest,
@@ -568,7 +587,7 @@ class QualificationReuseTests(TestCase):
                 source_root=copied,
             )
             self.assertIn(
-                "transport_or_shared_authority_changed",
+                "selected_target_source_changed",
                 {item["reason"] for item in cursor_after_tmux["invalidations"]},
             )
 

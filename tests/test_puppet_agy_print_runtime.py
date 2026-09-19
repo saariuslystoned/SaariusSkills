@@ -383,15 +383,14 @@ class AgyPrintRuntimeTests(unittest.TestCase):
         pid = started["agy_print"]["process"]["pid"]
         self.assertTrue(status(state_root=self.root, session="agy-print-session")["target_process_alive"])
         held.record_checkpoint("agy-print-session", "c" * 64, beacon_sequence=2)
-        accepted = accept_checkpoint(
-            state_root=self.root,
-            session="agy-print-session",
-            checkpoint_id="c" * 64,
-            actor="controller",
-            evidence_path=self.root / "unused.json",
-        )
-        self.assertEqual(accepted["caller_outcome"]["controller_acceptance"], "accepted")
-        self.assertEqual(accepted["caller_outcome"]["halt"], "none")
+        with self.assertRaisesRegex(Exception, "contract|evidence"):
+            accept_checkpoint(
+                state_root=self.root,
+                session="agy-print-session",
+                checkpoint_id="c" * 64,
+                actor="controller",
+                evidence_path=self.root / "unused.json",
+            )
         foreign = os.spawnlp(os.P_NOWAIT, "sleep", "sleep", "30")
         halted = halt(state_root=self.root, session="agy-print-session")
         self.assertEqual(halted["caller_outcome"]["halt"], "confirmed")

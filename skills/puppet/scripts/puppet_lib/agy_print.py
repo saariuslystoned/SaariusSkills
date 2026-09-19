@@ -32,13 +32,14 @@ from .caller import (
     caller_projection,
     make_blocker,
 )
-from .errors import IdentityError, UnsupportedError, ValidationError
+from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .safety import (
     atomic_write_json,
     canonical_json_bytes,
     exclusive_lock,
     read_json,
     sha256_bytes,
+    sha256_file,
     validate_identifier,
 )
 
@@ -61,6 +62,7 @@ CONTINUE_FLAG = "--continue"
 MODEL_FLAG = "--model"
 EFFORT_FLAG = "--effort"
 DANGEROUS_PERMISSIONS_FLAG = "--dangerously-skip-permissions"
+NEW_PROJECT_FLAG = "--new-project"
 DISABLE_SLASH_COMMANDS_FLAG = "--disable-slash-commands"
 LOG_FILE_FLAG = "--log-file"
 DEFAULT_AGY_EXECUTABLE = Path("/Users/bobbybones/.local/bin/agy")
@@ -1120,6 +1122,7 @@ def agy_print_launch_argv(
     argv.extend(
         [
             DANGEROUS_PERMISSIONS_FLAG,
+            NEW_PROJECT_FLAG,
             DISABLE_SLASH_COMMANDS_FLAG,
             LOG_FILE_FLAG,
             "/dev/null",
@@ -1459,8 +1462,18 @@ def _list_child_pids(parent_pid: int) -> List[int]:
 def _bind_owned_children(parent_pid: int) -> List[Dict[str, Any]]:
     from .registry import ProcessVanished
 
+    pending = list(_list_child_pids(parent_pid))
+    seen: set[int] = set()
     owned = []
-    for child_pid in _list_child_pids(parent_pid):
+    while pending:
+        child_pid = pending.pop(0)
+        if child_pid in seen:
+            _raise_identity(
+                "process_identity_mismatch",
+                "agy-print owned process identity is ambiguous",
+                pid=parent_pid,
+            )
+        seen.add(child_pid)
         try:
             identity = _sample_birth_identity(child_pid)
         except ProcessVanished:
@@ -1477,6 +1490,7 @@ def _bind_owned_children(parent_pid: int) -> List[Dict[str, Any]]:
                 "kernel_birth_id": identity["kernel_birth_id"],
             }
         )
+        pending.extend(pid for pid in _list_child_pids(child_pid) if pid not in seen)
     return owned
 
 
@@ -1920,23 +1934,27 @@ class AgyPrintRuntime:
         process = observation["process"]
         expected = {"pid": process["pid"], "kernel_birth_id": process["kernel_birth_id"]}
         signaled: List[int] = []
-        if not _pid_gone(expected):
-            current = _revalidate_live_identity(expected)
-            children = _bind_owned_children(current["pid"])
-            self.owned_children = children
-            for child in children:
+        parent_alive = not _pid_gone(expected)
+        children = _bind_owned_children(expected["pid"]) if parent_alive else list(self.owned_children)
+        self.owned_children = children
+        for child in children:
+            if not _pid_gone(child):
                 child_identity = _revalidate_live_identity(child)
                 send_exact_sigint(child_identity)
                 signaled.append(child_identity["pid"])
+        if parent_alive:
+            current = _revalidate_live_identity(expected)
             send_exact_sigint(current)
             signaled.append(current["pid"])
-            deadline = time.monotonic() + timeout
-            while not _pid_gone(expected) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            if not _pid_gone(expected):
-                raise IdentityError(
-                    "registered target did not stop gracefully; no broad kill attempted"
-                )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if all(_pid_gone(item) for item in [expected, *children]):
+                break
+            time.sleep(0.05)
+        if not all(_pid_gone(item) for item in [expected, *children]):
+            raise IdentityError(
+                "registered owned process tree did not stop gracefully; no broad kill attempted"
+            )
         if (
             self.process is not None
             and self.process.pid == expected["pid"]
@@ -1959,7 +1977,7 @@ class AgyPrintRuntime:
             "pid": process["pid"],
             "kernel_birth_id": process["kernel_birth_id"],
             "pid_gone": True,
-            "signaled_pids": signaled or [process["pid"]],
+            "signaled_pids": signaled,
         }
         self.observation = observation_from_runtime_state(
             session=self.session,
@@ -2230,6 +2248,8 @@ class AgyPrintController:
         current_qualification_scope: Optional[Mapping[str, Any]] = None,
         timeout: float = TURN_READ_TIMEOUT_SECONDS,
     ) -> Dict[str, Any]:
+        self.requested_model = requested_model
+        self.requested_effort = requested_effort
         executable = self.executable
         if executable is None:
             installed = installed_agy_print_runtime()
@@ -2431,8 +2451,29 @@ class AgyPrintController:
         session: str,
         checkpoint_id: str,
         expected_workspace: Mapping[str, Any],
+        actor: Optional[str] = None,
+        evidence_path: Optional[Path] = None,
     ) -> Dict[str, Any]:
+        if not isinstance(actor, str) or not actor.strip():
+            raise ValidationError("agy-print acceptance actor is required")
+        if evidence_path is None or not Path(evidence_path).is_file():
+            raise ValidationError("agy-print acceptance evidence is required")
         stored = self.require_session(session)
+        self._require_stored_qualification(stored, None)
+        review = stored.get("review")
+        if not isinstance(review, Mapping) or review.get("checkpoint_id") != checkpoint_id:
+            raise ValidationError("agy-print acceptance requires a current controller review")
+        if review.get("verdict") not in {"source_accept", "conformance_accept"}:
+            raise ValidationError("agy-print acceptance requires an accepting review")
+        acceptance = read_json(
+            Path(evidence_path), max_bytes=65536, reject_sensitive_fields=True
+        )
+        contract_raw = stored.get("contract")
+        if not isinstance(contract_raw, Mapping):
+            raise IdentityError("agy-print session is missing its bound contract")
+        terminal_criteria = contract_raw.get("terminal_criteria")
+        if not isinstance(terminal_criteria, list) or acceptance.get("terminal_criteria") != terminal_criteria:
+            raise ValidationError("agy-print acceptance evidence does not match terminal criteria")
         observation = validate_agy_print_observation(stored["observation"])
         checkpoint = observation.get("last_checkpoint") or {}
         if checkpoint.get("checkpoint_id") != checkpoint_id:
@@ -2444,7 +2485,12 @@ class AgyPrintController:
         self.observer = observation
         persist_agy_print_session(
             self.registry_root,
-            dict(stored, observation=observation),
+            dict(stored, observation=observation,
+                 acceptance={
+                     "actor": actor,
+                     "checkpoint_id": checkpoint_id,
+                     "evidence_sha256": sha256_file(Path(evidence_path), max_bytes=65536),
+                 }),
         )
         return self.caller_result(
             expected_session=session,
@@ -2453,6 +2499,44 @@ class AgyPrintController:
             record_state="ACCEPTED",
         )
 
+    def review(
+        self,
+        *,
+        session: str,
+        checkpoint_id: str,
+        actor: str,
+        verdict: str,
+        evidence_path: Path,
+    ) -> Dict[str, Any]:
+        if verdict not in {"source_accept", "conformance_accept", "repair", "block", "fail"}:
+            raise ValidationError("invalid controller verdict")
+        stored = self.require_session(session)
+        self._require_stored_qualification(stored, None)
+        contract_raw = stored.get("contract")
+        if not isinstance(contract_raw, Mapping):
+            raise IdentityError("agy-print session is missing its bound contract")
+        contract = Contract.from_dict(dict(contract_raw))
+        from .contracts import assert_controller
+
+        assert_controller(contract, actor)
+        observation = validate_agy_print_observation(stored["observation"])
+        checkpoint = observation.get("last_checkpoint") or {}
+        if checkpoint.get("checkpoint_id") != checkpoint_id:
+            raise IdentityError("agy-print review requires the current checkpoint identity")
+        evidence = read_json(Path(evidence_path), max_bytes=65536, reject_sensitive_fields=True)
+        record = {
+            "schema": "puppet.agy-print-review/v1",
+            "actor": actor,
+            "target": contract.target,
+            "contract_fingerprint": contract.fingerprint,
+            "checkpoint_id": checkpoint_id,
+            "verdict": verdict,
+            "evidence_sha256": sha256_file(Path(evidence_path), max_bytes=65536),
+            "evidence_summary": evidence,
+            "qualification_fingerprint": stored.get("qualification_fingerprint"),
+        }
+        persist_agy_print_session(self.registry_root, dict(stored, review=record))
+        return {"ok": True, "review": record}
     def halt(
         self,
         *,
@@ -2489,23 +2573,27 @@ class AgyPrintController:
         children = list(process["owned_children"])
         from .registry import send_exact_sigint
 
-        if not _pid_gone(expected):
-            current = _revalidate_live_identity(expected)
-            if stored.get("held"):
-                children = _bind_owned_children(current["pid"])
-            for child in children:
+        parent_alive = not _pid_gone(expected)
+        if parent_alive and stored.get("held"):
+            children = _bind_owned_children(expected["pid"])
+        for child in children:
+            if not _pid_gone(child):
                 child_identity = _revalidate_live_identity(child)
                 send_exact_sigint(child_identity)
                 signaled.append(child_identity["pid"])
+        if parent_alive:
+            current = _revalidate_live_identity(expected)
             send_exact_sigint(current)
             signaled.append(current["pid"])
-            deadline = time.monotonic() + timeout
-            while not _pid_gone(expected) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            if not _pid_gone(expected):
-                raise IdentityError(
-                    "registered target did not stop gracefully; no broad kill attempted"
-                )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if all(_pid_gone(item) for item in [expected, *children]):
+                break
+            time.sleep(0.05)
+        if not all(_pid_gone(item) for item in [expected, *children]):
+            raise IdentityError(
+                "registered owned process tree did not stop gracefully; no broad kill attempted"
+            )
         observation = dict(
             observation,
             terminal_result={"state": "halted", "exit_code": None},
@@ -2514,7 +2602,7 @@ class AgyPrintController:
                 "pid": process["pid"],
                 "kernel_birth_id": process["kernel_birth_id"],
                 "pid_gone": True,
-                "signaled_pids": signaled or [process["pid"]],
+                "signaled_pids": signaled,
             },
             process=dict(process, owned_children=children),
         )
@@ -2545,7 +2633,22 @@ class AgyPrintController:
         stored: Mapping[str, Any],
         current_qualification_scope: Optional[Mapping[str, Any]],
     ) -> None:
-        require_current_agy_qualification(None, current_qualification_scope)
+        observed_scope = current_qualification_scope
+        stored_scope = stored.get("qualification_scope")
+        manifest = stored.get("manifest")
+        if observed_scope is None and isinstance(stored_scope, Mapping) and isinstance(manifest, Mapping):
+            from .instructions import instruction_policy_fingerprint
+            from .qualification_scope import build_compatibility_scope
+
+            model_effort = stored_scope.get("harness_scope", {}).get("model_effort", {})
+            observed_scope = build_compatibility_scope(
+                manifest,
+                requested_model=model_effort.get("requested_model"),
+                requested_effort=model_effort.get("requested_effort"),
+                instruction_policy_fingerprint=instruction_policy_fingerprint(target="agy"),
+                transport=stored_scope.get("transport"),
+            )
+        require_current_agy_qualification(stored_scope, observed_scope)
         if (
             stored.get("qualification_fingerprint")
             and current_qualification_scope is not None
@@ -2563,6 +2666,8 @@ class AgyPrintController:
         session: str,
         qualification_scope: Optional[Mapping[str, Any]] = None,
         held: Optional[bool] = None,
+        requested_model: Optional[str] = None,
+        requested_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         observation = self.require_observation()
         existing = self.load_session(session) or {}
@@ -2575,6 +2680,21 @@ class AgyPrintController:
             "transport": TRANSPORT_ID,
             "session": session,
             "conversation_id": observation["session"]["conversation_id"],
+            "contract": dict(getattr(self, "contract_raw", existing.get("contract") or {})),
+            "manifest": dict(getattr(self, "manifest_raw", existing.get("manifest") or {})),
+            "proof_root": getattr(self, "proof_root", None) or existing.get("proof_root"),
+            "deadline_at": getattr(self, "deadline_at", None) or existing.get("deadline_at"),
+            "lease_owner": getattr(self, "lease_owner", None) or existing.get("lease_owner"),
+            "instruction_manifest_sha256": getattr(self, "instruction_manifest_sha256", None) or existing.get("instruction_manifest_sha256"),
+            "requested_model": (
+                requested_model if requested_model is not None else existing.get("requested_model", getattr(self, "requested_model", None))
+            ),
+            "requested_effort": (
+                requested_effort if requested_effort is not None else existing.get("requested_effort", getattr(self, "requested_effort", None))
+            ),
+            "qualification_scope": (
+                dict(qualification_scope) if qualification_scope is not None else existing.get("qualification_scope")
+            ),
             "observation": observation,
             "executable": str(self.executable) if self.executable is not None else existing.get("executable"),
             "qualification_fingerprint": (
@@ -2598,9 +2718,21 @@ class AgyPrintController:
         requested_model: Optional[str] = None,
         qualification_scope: Optional[Mapping[str, Any]] = None,
         current_qualification_scope: Optional[Mapping[str, Any]] = None,
+        request_id: Optional[str] = None,
         **_ignored: Any,
     ) -> Dict[str, Any]:
+        if request_id is None:
+            request_id = "direct-" + sha256_bytes(message.encode("utf-8"))[:24]
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValidationError("agy-print request id is required")
         stored = self.require_session(session)
+        prior_id = stored.get("last_send_request_id")
+        if prior_id == request_id:
+            if stored.get("last_send_message_sha256") != sha256_bytes(message.encode("utf-8")):
+                raise ConflictError("request id was already used for a different message")
+            prior_result = stored.get("last_send_result")
+            if isinstance(prior_result, Mapping):
+                return dict(prior_result, request_id=request_id)
         require_current_agy_qualification(
             qualification_scope, current_qualification_scope
         )
@@ -2631,23 +2763,46 @@ class AgyPrintController:
             self.runtime.send(message)
             observation = self.runtime.read_result()
             self.observer = observation
-            self._persist_current(session=session)
-            return self.caller_result(
+            result = self.caller_result(
                 expected_session=session,
                 expected_conversation_id=conversation_id,
                 expected_workspace=expected_workspace,
-                requested_model=requested_model,
+                requested_model=stored.get("requested_model") or requested_model,
                 record_state=observation.get("record_state") or "ACTIVE",
             )
-        return self.start(
+            persist_agy_print_session(
+                self.registry_root,
+                dict(self.load_session(session) or stored,
+                     last_send_request_id=request_id,
+                     last_send_message_sha256=sha256_bytes(message.encode("utf-8")),
+                     last_send_result=result),
+            )
+            result["request_id"] = request_id
+            return result
+        if stored.get("held"):
+            raise UnsupportedError(
+                "agy-print public send requires explicit halt before validated resume",
+                blocker=_blocker("session_resume_requires_halt", "agy-print public send requires explicit halt before validated resume"),
+            )
+        result = self.start(
             session=session,
             prompt=message,
             expected_workspace=expected_workspace,
-            requested_model=requested_model,
+            requested_model=stored.get("requested_model") or requested_model,
+            requested_effort=stored.get("requested_effort"),
             conversation_id=conversation_id,
-            qualification_scope=qualification_scope,
+            qualification_scope=stored.get("qualification_scope") or qualification_scope,
             current_qualification_scope=current_qualification_scope,
         )
+        persist_agy_print_session(
+            self.registry_root,
+            dict(self.load_session(session) or stored,
+                 last_send_request_id=request_id,
+                 last_send_message_sha256=sha256_bytes(message.encode("utf-8")),
+                 last_send_result=result),
+        )
+        result["request_id"] = request_id
+        return result
 
     def prove(
         self,
