@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import subprocess
@@ -23,7 +24,7 @@ from puppet_lib.agy_print import (
 )
 from puppet_lib.conformance import create_fixture, tree_fingerprint
 from puppet_lib.contracts import MANDATORY_HARD_GATES
-from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError
+from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from puppet_lib.handoffs import HANDOFF_SCHEMA_VERSION, PROTOCOL_FINGERPRINT
 from puppet_lib.session import (
     accept_checkpoint,
@@ -33,6 +34,7 @@ from puppet_lib.session import (
     send_message,
 )
 from puppet_lib.registry import ProcessVanished
+from puppet_lib.safety import sha256_file
 
 
 SESSION = "agy-print-session"
@@ -189,6 +191,19 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
         current["executable"] = sys.executable
         persist_agy_print_session(self.state, current)
 
+    def _bind_resume_executable(self):
+        executable = self.root / "fake-agy"
+        executable.write_text("fixture executable identity\n", encoding="utf-8")
+        current = AgyPrintController(self.state).require_session(SESSION)
+        current["executable"] = str(executable)
+        current["manifest"] = {
+            "executable": {
+                "resolved_path": str(executable),
+                "sha256": sha256_file(executable),
+            }
+        }
+        persist_agy_print_session(self.state, current)
+
     def _public_halt(self):
         with (
             mock.patch(
@@ -215,7 +230,7 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
             require_observation=lambda: observation,
         )
 
-    def _public_resume_send(self, message, request_id):
+    def _public_resume_send(self, message, request_id, *, validate_identity=False):
         stored = AgyPrintController(self.state).require_session(SESSION)
         runtime = self._resumed_runtime(stored)
         start_kwargs = {}
@@ -224,12 +239,11 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
             start_kwargs.update(kwargs)
             return runtime
 
-        with (
+        patches = [
             mock.patch(
                 "puppet_lib.session.require_session_lease",
                 return_value={"state": "halted", "process": dict(PROCESS)},
             ),
-            mock.patch("puppet_lib.session._validate_agy_resume_identity"),
             mock.patch("puppet_lib.session.admit_session_lease"),
             mock.patch("puppet_lib.session.transition_session_lease"),
             mock.patch(
@@ -237,7 +251,14 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
                 return_value=True,
             ),
             mock.patch.object(AgyPrintRuntime, "start", side_effect=start),
-        ):
+        ]
+        if not validate_identity:
+            patches.insert(
+                1, mock.patch("puppet_lib.session._validate_agy_resume_identity")
+            )
+        with contextlib.ExitStack() as stack:
+            for patched in patches:
+                stack.enter_context(patched)
             result = send_message(
                 state_root=self.state,
                 session=SESSION,
@@ -287,13 +308,14 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
         return repo, self._git_commit(repo, "source")
 
     def _source_session_record(self, repo, identity):
+        repo_path = str(Path(repo).resolve())
         record = self._session_record()
         record["contract"].update(
             {
                 "objective": "Bounded AGY public source continuation",
                 "task_profile": "implementation",
                 "mutation_owner": "target",
-                "repo": str(repo),
+                "repo": repo_path,
                 "branch": identity["branch"],
                 "allowed_modes": ["read", "test", "mutate", "local_commit"],
                 "run_id": "source-run",
@@ -306,7 +328,7 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
         )
         record["observation"] = fixture_observation(
             session=SESSION,
-            workspace_path=str(repo),
+            workspace_path=repo_path,
             branch=identity["branch"],
             head=identity["head"],
             tree=identity["tree"],
@@ -726,6 +748,167 @@ class AgyPrintPublicCheckpointTests(unittest.TestCase):
             AgyPrintController(self.state).status(session=SESSION)["state"],
             "AWAITING_CONTROLLER_REVIEW",
         )
+
+    def test_public_source_proof_assignment_replay_keeps_identical_envelope(self):
+        repo, identity = self._init_source_repo()
+        persist_agy_print_session(
+            self.state, self._source_session_record(repo, identity)
+        )
+        source = self._import(
+            self._source_handoff(
+                "source-replay.json",
+                identity["head"],
+                "Bounded source checkpoint",
+            )
+        )
+        review_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=source["checkpoint_id"],
+            actor="tester",
+            verdict="source_accept",
+            evidence_path=write_json(
+                self.proof / "source-review-replay.json",
+                {"findings": [], "classification": "clean"},
+            ),
+        )
+        self._bind_executable()
+        self._public_halt()
+        message = "Create one proof-only child of the accepted source."
+        request_id = "proof-replay-1"
+        first, start_kwargs = self._public_resume_send(message, request_id)
+        self.assertEqual(first["state"], "ACTIVE")
+        self.assertIn("PUPPET_SOURCE_PROOF_ASSIGNMENT_V2", start_kwargs["prompt"])
+        assigned = AgyPrintController(self.state).require_session(SESSION)
+        self.assertEqual(assigned["protocol"]["phase"], "proof_assignment_sent")
+        self.assertEqual(assigned["protocol"]["proof_assignment_id"], request_id)
+        first_hash = assigned["send_requests"][request_id]["message_sha256"]
+        self._public_halt()
+        replay_start_kwargs = {}
+
+        def start(**kwargs):
+            replay_start_kwargs.update(kwargs)
+            return self._resumed_runtime(
+                AgyPrintController(self.state).require_session(SESSION)
+            )
+
+        with (
+            mock.patch(
+                "puppet_lib.session.require_session_lease",
+                return_value={"state": "halted", "process": dict(PROCESS)},
+            ),
+            mock.patch("puppet_lib.session.admit_session_lease") as admit,
+            mock.patch("puppet_lib.session.transition_session_lease") as transition,
+            mock.patch(
+                "puppet_lib.agy_print.agy_print_runtime_available",
+                return_value=True,
+            ),
+            mock.patch.object(AgyPrintRuntime, "start", side_effect=start) as start_mock,
+        ):
+            replay = send_message(
+                state_root=self.state,
+                session=SESSION,
+                message=message,
+                request_id=request_id,
+            )
+            with self.assertRaisesRegex(
+                ConflictError,
+                "request id was already used for a different message",
+            ):
+                send_message(
+                    state_root=self.state,
+                    session=SESSION,
+                    message="A different assignment must not be delivered.",
+                    request_id=request_id,
+                )
+        self.assertEqual(replay["request_id"], request_id)
+        replayed = AgyPrintController(self.state).require_session(SESSION)
+        self.assertEqual(
+            replayed["send_requests"][request_id]["message_sha256"], first_hash
+        )
+        self.assertEqual(replayed["protocol"]["phase"], "proof_assignment_sent")
+        self.assertEqual(replayed["protocol"]["proof_assignment_id"], request_id)
+        self.assertEqual(len(replayed["send_requests"]), 1)
+        self.assertEqual(replayed["send_requests"][request_id]["phase"], "submitted")
+        self.assertFalse(replay_start_kwargs)
+        admit.assert_not_called()
+        start_mock.assert_not_called()
+        transition.assert_not_called()
+
+    def test_reviewed_source_head_becomes_authorized_resume_identity(self):
+        repo, launch = self._init_source_repo()
+        persist_agy_print_session(
+            self.state, self._source_session_record(repo, launch)
+        )
+        (repo / "feature.txt").write_text(
+            "implementation produced by the target\n", encoding="utf-8"
+        )
+        candidate = self._git_commit(repo, "target implementation")
+        self.assertNotEqual(candidate["head"], launch["head"])
+        source = self._import(
+            self._source_handoff(
+                "source-new.json",
+                candidate["head"],
+                "New source after launch",
+            )
+        )
+        review_checkpoint(
+            state_root=self.state,
+            session=SESSION,
+            checkpoint_id=source["checkpoint_id"],
+            actor="tester",
+            verdict="source_accept",
+            evidence_path=write_json(
+                self.proof / "source-review-new.json",
+                {"findings": [], "classification": "clean"},
+            ),
+        )
+        bound = AgyPrintController(self.state).require_session(SESSION)
+        self.assertEqual(bound["observation"]["workspace"]["head"], candidate["head"])
+        self.assertEqual(bound["observation"]["workspace"]["tree"], candidate["tree"])
+        self._bind_resume_executable()
+        self._public_halt()
+        result, start_kwargs = self._public_resume_send(
+            "Create one proof-only child of the accepted source.",
+            "proof-reviewed-head",
+            validate_identity=True,
+        )
+        self.assertEqual(result["state"], "ACTIVE")
+        self.assertIn("PUPPET_SOURCE_PROOF_ASSIGNMENT_V2", start_kwargs["prompt"])
+        resumed = AgyPrintController(self.state).require_session(SESSION)
+        self.assertEqual(
+            resumed["observation"]["workspace"]["head"], candidate["head"]
+        )
+        self.assertEqual(
+            resumed["observation"]["workspace"]["tree"], candidate["tree"]
+        )
+        self.assertEqual(resumed["protocol"]["source_commit"], candidate["head"])
+
+    def test_public_resume_rejects_unreviewed_source_head_drift(self):
+        repo, launch = self._init_source_repo()
+        persist_agy_print_session(
+            self.state, self._source_session_record(repo, launch)
+        )
+        (repo / "feature.txt").write_text("unrelated drift\n", encoding="utf-8")
+        drifted = self._git_commit(repo, "unrelated")
+        self.assertNotEqual(drifted["head"], launch["head"])
+        self._bind_resume_executable()
+        self._public_halt()
+        with mock.patch(
+            "puppet_lib.session.require_session_lease",
+            return_value={"state": "halted", "process": dict(PROCESS)},
+        ):
+            with self.assertRaisesRegex(
+                IdentityError, "agy-print resume workspace identity changed: head"
+            ):
+                send_message(
+                    state_root=self.state,
+                    session=SESSION,
+                    message="Create one proof-only child of the accepted source.",
+                    request_id="proof-unreviewed-drift",
+                )
+        current = AgyPrintController(self.state).require_session(SESSION)
+        self.assertEqual(current["observation"]["workspace"]["head"], launch["head"])
 
     def test_failed_resume_cleanup_recovers_through_later_public_halt(self):
         full_process = {

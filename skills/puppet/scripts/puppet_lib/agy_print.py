@@ -2685,6 +2685,7 @@ class AgyPrintController:
         contract = Contract.from_dict(dict(contract_raw))
         handoff = self._stored_handoff(stored, checkpoint_id, contract)
         from .session import (
+            _authorized_agy_resume_workspace,
             _require_repair_budget,
             _verify_source_identity,
             require_conformance_reviewable,
@@ -2747,6 +2748,11 @@ class AgyPrintController:
         else:
             protocol["phase"] = "reviewed"
         observation = dict(observation, record_state=next_state)
+        if state == "SOURCE_CHECKPOINT_READY" and verdict == "source_accept":
+            observation["workspace"] = _authorized_agy_resume_workspace(
+                dict(stored, protocol=protocol, observation=observation),
+                contract,
+            )
         persist_agy_print_session(
             self.registry_root,
             dict(

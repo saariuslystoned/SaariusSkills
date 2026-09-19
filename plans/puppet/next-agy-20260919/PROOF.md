@@ -80,3 +80,15 @@ runtime/controller gap rather than merging its historical branch wholesale.
 - full discovery: `python3 -m unittest discover -s tests -q` → 1,261 passed in 227.191s
 - exact-head CI run `35452109013` for `ff197b71bd6e546728175011aa9cd1cf7ae137d5` passed on Ubuntu 24.04 and macOS 26, including test suite, compile, and smoke command surfaces
 - exact public CLI AGY qualification receipt/live proof remains pending; no external sends, deploys, merges, or account changes were performed
+
+## PR #49 repair pass 5 (2026-09-19)
+
+- exact starting head: `3bae371b6a3555ce8d94986fdbb24222d536d3d2`; PR remained OPEN and unmerged throughout
+- authoritative packet: `<audit-packet>/20260919-pr49-repair5-review/`; pre-edit probe reproduced source resume rejection at changed HEAD and source proof replay `ConflictError`
+- ACP readiness: exact `<cursor-agent> acp` route, requested `cursor-grok-4.6-high`, selected `grok-4.6[effort=high,fast=true]`
+- source-identity implementation worker job `5732d1e4-2a28-404c-9e01-e8d5beafab05` completed on the exact worktree; it rebound `observation.workspace` only after reviewed `source_accept`, retained clean path/branch/ancestry safeguards, and added real commit-A → commit-B tests; worker verification was 13 checkpoint tests plus 27 adjacent AGY tests
+- replay implementation job `5ad545b4-6b42-4668-ae21-9345f1785b04` selected the same model but failed with `BRIDGE_RESTARTED` before terminal handoff; the bounded partial diff was independently reviewed, and parent verification covered the resulting replay behavior
+- focused verification: `python3 -m unittest tests.test_puppet_agy_print_checkpoint tests.test_puppet_agy_print_runtime tests.test_puppet_probe_transport tests.test_puppet_probe tests.test_puppet_packaging -q` → 125 passed in 47.603s
+- full verification: `python3 -m unittest discover -s tests -q` → 1,264 passed in 270.995s; `python3 -m py_compile` and `git diff --check` passed
+- post-edit adapted probe no longer rejects the reviewed source HEAD; matching proof replay succeeds without new admission/delivery, changed payload remains refused; unsupported native transport remains fail-closed, while the probe's mocked lease fixture cannot complete authority cleanup after transport refusal
+- public AGY qualification receipt/live proof remains pending; no live AGY launch, external sends, deploys, merges, comments, issue edits, or account changes were performed

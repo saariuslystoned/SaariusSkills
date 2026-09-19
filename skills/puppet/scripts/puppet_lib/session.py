@@ -1283,6 +1283,75 @@ def _workspace_snapshot(contract: Contract) -> Dict[str, Any]:
     }
 
 
+def _agy_resume_workspace(contract: Contract) -> Dict[str, Any]:
+    current = _workspace_snapshot(contract)
+    current["path"] = str(contract.repo)
+    return current
+
+
+def _agy_workspace_paths_match(expected: Any, current: Any) -> bool:
+    if not isinstance(expected, str) or not isinstance(current, str):
+        return False
+    try:
+        return Path(expected).resolve() == Path(current).resolve()
+    except OSError:
+        return expected == current
+
+
+def _authorized_agy_resume_workspace(
+    stored: Mapping[str, Any], contract: Contract
+) -> Dict[str, Any]:
+    """Return the workspace identity resume may bind, including reviewed source."""
+
+    observed = stored.get("observation")
+    expected = observed.get("workspace") if isinstance(observed, Mapping) else None
+    if not isinstance(expected, Mapping):
+        raise IdentityError("agy-print resume workspace identity is unavailable")
+    current = _agy_resume_workspace(contract)
+    identity = {
+        "path": current["path"],
+        "branch": current["branch"],
+        "head": current["head"],
+        "tree": current["tree"],
+    }
+    if current["dirty"]:
+        raise IdentityError("candidate worktree is not clean at the exact head")
+    if not _agy_workspace_paths_match(expected.get("path"), current["path"]):
+        raise IdentityError("agy-print resume workspace identity changed: path")
+    if expected.get("branch") != current["branch"]:
+        raise IdentityError("agy-print resume workspace identity changed: branch")
+    if (
+        expected.get("head") == current["head"]
+        and expected.get("tree") == current["tree"]
+    ):
+        return identity
+    protocol = stored.get("protocol")
+    accepted = protocol.get("source_commit") if isinstance(protocol, Mapping) else None
+    if (
+        not isinstance(protocol, Mapping)
+        or protocol.get("kind") != "source"
+        or protocol.get("phase") not in {"source_accepted", "proof_assignment_sent"}
+        or not isinstance(accepted, str)
+        or current["head"] != accepted
+    ):
+        field = "head" if expected.get("head") != current["head"] else "tree"
+        raise IdentityError("agy-print resume workspace identity changed: %s" % field)
+    bound_head = expected.get("head")
+    if not isinstance(bound_head, str):
+        raise IdentityError("agy-print resume workspace identity is unavailable")
+    try:
+        _git(
+            contract.repo,
+            ["merge-base", "--is-ancestor", bound_head, current["head"]],
+            identity_error=True,
+        )
+    except IdentityError:
+        raise IdentityError(
+            "agy-print reviewed source is not descended from the bound workspace"
+        ) from None
+    return identity
+
+
 def _validate_agy_resume_identity(
     stored: Mapping[str, Any], contract: Contract
 ) -> None:
@@ -1303,19 +1372,7 @@ def _validate_agy_resume_identity(
         raise IdentityError("agy-print resume executable identity changed")
     if sha256_file(executable) != expected_sha:
         raise IdentityError("agy-print resume executable identity changed")
-    observed = stored.get("observation")
-    expected_workspace = (
-        observed.get("workspace") if isinstance(observed, Mapping) else None
-    )
-    if not isinstance(expected_workspace, Mapping):
-        raise IdentityError("agy-print resume workspace identity is unavailable")
-    current = _workspace_snapshot(contract)
-    current["path"] = str(contract.repo)
-    for field in ("path", "branch", "head", "tree"):
-        if expected_workspace.get(field) != current.get(field):
-            raise IdentityError(
-                "agy-print resume workspace identity changed: %s" % field
-            )
+    _authorized_agy_resume_workspace(stored, contract)
 
 
 def _profile_doctor_state(
@@ -2528,17 +2585,24 @@ def send_message(
                     raise
             protocol = dict(stored.get("protocol") or {})
             record_state = (stored.get("observation") or {}).get("record_state")
+            first_proof_assignment = (
+                protocol.get("kind") == "source"
+                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
+                and protocol.get("phase") == "source_accepted"
+                and "proof_assignment_id" not in protocol
+            )
+            replayed_proof_assignment = (
+                protocol.get("kind") == "source"
+                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
+                and protocol.get("phase") == "proof_assignment_sent"
+                and protocol.get("proof_assignment_id") == request_id
+            )
             if protocol.get("kind") == "conformance":
                 enveloped = adapter_for("agy").envelope(
                     _followup_envelope(protocol, request_id, message),
                     "regular", initial=False
                 )
-            elif (
-                protocol.get("kind") == "source"
-                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
-                and protocol.get("phase") == "source_accepted"
-                and "proof_assignment_id" not in protocol
-            ):
+            elif first_proof_assignment or replayed_proof_assignment:
                 enveloped = adapter_for("agy").envelope(
                     _proof_assignment_envelope(contract, protocol, request_id, message),
                     "regular", initial=False
