@@ -18,6 +18,9 @@ inspected on its own.
   Android capture or coordinate input, especially on foldables.
 - Read [references/proof-contract.md](references/proof-contract.md) before
   creating a durable proof packet.
+- Read [references/live-voice.md](references/live-voice.md) before proving a
+  spoken conversation with a realtime voice agent on the phone (barge-in,
+  consults while the caller talks, long spoken replies, session survival).
 
 ## Pixel Use interoperability
 
