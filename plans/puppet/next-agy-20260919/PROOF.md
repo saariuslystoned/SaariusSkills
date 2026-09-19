@@ -32,3 +32,15 @@ runtime/controller gap rather than merging its historical branch wholesale.
 - Cursor ACP job `1abc7f49-4173-4ec9-a3b5-b42501045904` failed closed with `BRIDGE_RESTARTED` before terminal result; worktree inspection showed no source changes from that attempt.
 - Cursor ACP job `6f6a9cbe-4ae5-4d1f-9d52-354ad2d72c89` produced the bounded process-backed source slice but its focused `py_compile`/unit-test command hung in a task-owned child process during verification; the job was cancelled natively at `2026-09-19T04:14:39Z`. Parent repair and independent verification are required.
 - Follow-up repair in this worktree: native selector admission before legacy AGY validation, `--new-project` isolation, persisted contract/selector/qualification/deadline identity, explicit halt-before-resume with request-id idempotency, controller review/terminal-criteria acceptance gates, descendant halt proof, transport-specific qualification fingerprints and receipt comparison, and the verified upstream native stream-json decision. Focused AGY/qualification/launch tests (70) and `py_compile` passed. Exact public CLI lifecycle receipt proof remains pending because no current public AGY qualification receipt was available; no helper proof is presented as that receipt.
+
+## PR #49 repair pass (2026-09-19)
+
+- exact branch head: `89fd495902c163c60c0e63b34ef422b5e0139e5a`
+- pushed to the existing PR: `https://github.com/saariuslystoned/SaariusSkills/pull/49`
+- AGY print/runtime/lifecycle tests: 38 passed
+- session integration tests: 31 passed
+- authority plus Cursor transport tests: 79 passed
+- focused Darwin persistent-row and lingering-exit tests: 2 passed
+- `python3 -m compileall -q skills/puppet/scripts` and `git diff --check`: passed
+- full discovery reached 1,237 tests; the prior run had three Darwin/Cursor errors and one unrelated Codex doctor-child timing failure. The three Darwin/Cursor cases pass after the final bounded repair; the Codex timing-sensitive fixture remains unresolved.
+- PR body was updated with the same evidence and explicitly preserves the public CLI receipt limitation.
