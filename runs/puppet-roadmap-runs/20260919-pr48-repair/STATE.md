@@ -1,6 +1,6 @@
 # PR #48 repair pass
 
-- status: second_review_repairs_verified_full_suite_passed_pending_commit
+- status: second_review_repairs_committed_pending_push
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/48
 - reviewed_head: 9d95cc057a0c7e07f8e83fe121548f731c362a9e
 - second_reviewed_head: db527dedf3bb0a519c53f7d5c4f2f103f4bd3445
@@ -13,7 +13,8 @@
 - qualification_scope_job: 5fa7874e-c8ff-4907-92b4-2d429c857952 (verified)
 - registry_compatibility_job: d2db2728-6a15-4ed8-a0b9-625f1c063f3b (verified; parent rerun complete)
 - cursor_model_job: a940c5e9-6e7c-4e1d-a4b4-0f3530306766 (resubmitted after bridge restart; local fixture repair complete; parent rerun complete)
-- source_committed: false
+- source_committed: true
+- second_repair_commit: 3afcdbe
 - implementation_commit: af41be6
 - proof_close_commit: db527ded
 - p1_qualification_scope_job: f6191991-d221-40c7-8fae-c8a862f44bfa (completed; Cursor model source untouched)

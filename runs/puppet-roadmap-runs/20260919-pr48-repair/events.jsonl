@@ -27,6 +27,7 @@
 {"event":"p2_worker_completed","at":"2026-09-18T23:21:30-04:00","job_id":"c120b10c-0867-41ed-94fe-acaa7083168c","unittest":"33_ok","preservation":"3_ok","compileall":"ok","diff_check":"ok","source_committed":false}
 {"event":"p2_parent_verified","at":"2026-09-18T23:22:00-04:00","job_id":"c120b10c-0867-41ed-94fe-acaa7083168c","unittest":"33_ok","compileall":"ok","diff_check":"ok"}
 {"event":"second_review_full_suite_verified","at":"2026-09-18T23:30:00-04:00","unittest":"946_ok","seconds":310.390,"compileall":"ok","diff_check":"ok"}
+{"event":"second_review_repairs_committed","at":"2026-09-18T23:32:00-04:00","commit":"3afcdbe","message":"puppet: close PR48 review findings"}
 {"event":"cursor_model_reproduced","at":"2026-09-18T22:23:20-04:00","requested":"cursor-grok-4.6-high","observed":"arbitrary-unverified-model","result":"unexpected_success"}
 {"event":"cursor_model_repaired","at":"2026-09-18T22:24:48-04:00","bound":"grok-4.6[effort=high,fast=true]","source_committed":false,"caller_uses_observation":false}
 {"event":"cursor_model_verified","at":"2026-09-18T22:24:48-04:00","unittest":"29_ok","unittest_seconds":4.877,"compileall":"ok","diff_check":"ok","post_fix":"unverified_identity_error","live_cursor_claimed":false}
