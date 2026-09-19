@@ -105,4 +105,6 @@ Hygiene:
 - Operator-plan packet still cannot carry transport fields (frozen fanout/Codex entry schema)
 - Tmux settle still lives in the shared transport/authority fingerprint
 - Implementation commit: `c0616a7b68ad4b72cd3fa68cf265b0b49fcf50a9`.
-- Proof closeout commit: pending.
+- Stage accepted after parent verification.
+- Implementation commit: `c0616a7b68ad4b72cd3fa68cf265b0b49fcf50a9`.
+- Proof closeout commit: `5d9e90c`.

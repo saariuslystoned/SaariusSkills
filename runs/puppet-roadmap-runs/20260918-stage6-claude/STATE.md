@@ -1,6 +1,6 @@
 # Puppet roadmap stage 6 — Claude
 
-- status: implementation_committed
+- status: accepted
 - stage: Claude builder admission
 - branch: codex/puppet-roadmap-stage1-20260918
 - base: 4dda99f206b256c44b4adf2a23b1484640839488
@@ -12,6 +12,7 @@
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: Claude-specific builder admission proof; exact model/workspace/session/result binding; no generic ACP or live external claim
 - commit: c0616a7b68ad4b72cd3fa68cf265b0b49fcf50a9
+- proof_closeout_commit: 5d9e90c
 - job_id: e00b3bd4-add5-4d42-8fef-e8da13d7cc7d
 - live_claude_claimed: false
 - external actions: none
