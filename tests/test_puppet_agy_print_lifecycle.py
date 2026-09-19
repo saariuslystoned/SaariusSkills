@@ -78,7 +78,7 @@ class AgyPrintLifecycleTests(unittest.TestCase):
         self.assertEqual(qualified["schema"], "puppet.agy-print-lifecycle/v1")
         self.assertEqual(qualified["phase_order"], list(LIFECYCLE_PHASES))
         self.assertFalse(qualified["live_agy_claimed"])
-        self.assertFalse(AgyPrintController.available())
+        self.assertFalse(qualified.get("process_backed", False))
         phases = qualified["phases"]
         self.assertEqual(
             phases["start_bound"]["model"]["observed_model"],
@@ -268,7 +268,7 @@ class ProcessIdentityRaceTests(unittest.TestCase):
         self.assertEqual(table["herdr"]["implementation"], "unsupported")
         self.assertEqual(table["acp"]["implementation"], "unsupported")
         self.assertEqual(table["tmux"]["implementation"], "implemented")
-        self.assertFalse(AgyPrintController.available())
+        self.assertNotEqual(table["agy-print"]["resume_proves"], "unsupported")
         params = inspect.signature(compile_operator_plan).parameters
         self.assertNotIn("transport", params)
         self.assertNotIn("requested_transport", params)

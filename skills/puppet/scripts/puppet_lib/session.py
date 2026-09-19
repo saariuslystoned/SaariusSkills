@@ -958,6 +958,23 @@ def _cursor_acp_structured_launch(
     )
 
 
+def _agy_print_controller(state_root: Path, **kwargs: Any) -> Any:
+    from .agy_print import AgyPrintController
+
+    return AgyPrintController(Path(state_root), **kwargs)
+
+
+def _agy_print_bound_session(state_root: Path, session: str) -> Optional[Any]:
+    controller = _agy_print_controller(state_root)
+    if not controller.has_session(session):
+        return None
+    stored = controller.require_session(session)
+    executable = stored.get("executable")
+    if executable:
+        controller.executable = Path(str(executable))
+    return controller
+
+
 def _agy_print_structured_launch(
     *,
     session: str,
@@ -965,9 +982,13 @@ def _agy_print_structured_launch(
     transport: Dict[str, str],
     state_root: Path,
     requested_model: Optional[str],
+    requested_effort: Optional[str] = None,
+    qualification_scope: Optional[Mapping[str, Any]] = None,
     observer: Optional[Mapping[str, Any]] = None,
+    executable: Optional[Path] = None,
+    prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Complete an agy-print launch from structured observation. Never open tmux."""
+    """Complete an agy-print launch from observation or a local process. Never open tmux."""
 
     from .agy_print import AgyPrintController
     from .tmux import TmuxController
@@ -980,12 +1001,33 @@ def _agy_print_structured_launch(
         "tree": workspace["tree"],
     }
     controller = open_run_transport(
-        transport, state_root, observer=observer
+        transport,
+        state_root,
+        observer=observer,
+        executable=executable,
     )
     if isinstance(controller, TmuxController):
         raise IdentityError("agy-print opened a tmux transport")
     if not isinstance(controller, AgyPrintController):
         raise IdentityError("agy-print did not open the structured AGY transport")
+    if observer is None:
+        if executable is None or not prompt:
+            raise UnsupportedError(
+                "agy-print structured observation is unavailable",
+                blocker=doctor_blocker(
+                    "transport_unavailable",
+                    "agy-print structured observation is unavailable",
+                ),
+            )
+        return controller.start(
+            session=session,
+            prompt=prompt,
+            expected_workspace=expected_workspace,
+            requested_model=requested_model or contract.requested_model,
+            requested_effort=requested_effort or contract.requested_effort,
+            qualification_scope=qualification_scope,
+            current_qualification_scope=qualification_scope,
+        )
     observation = controller.require_observation()
     conversation_id = observation["session"]["conversation_id"]
     return controller.caller_result(
@@ -1507,6 +1549,7 @@ def launch(
     _process_birth_fn: Any = None,
     _allow_test_profile_bypass: bool = False,
     _agy_print_observer: Optional[Mapping[str, Any]] = None,
+    _agy_print_executable: Optional[Path] = None,
     _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
     _cursor_acp_runner: Any = None,
 ) -> Dict[str, Any]:
@@ -1792,7 +1835,12 @@ def launch(
             transport=transport,
             state_root=state_root,
             requested_model=requested_model,
+            requested_effort=requested_effort,
+            qualification_scope=manifest.raw.get("qualification_scope"),
             observer=_agy_print_observer,
+            executable=_agy_print_executable
+            or Path(manifest.raw["executable"]["resolved_path"]),
+            prompt=initial,
         )
     if transport["id"] == "cursor-acp":
         return _cursor_acp_structured_launch(
@@ -2211,6 +2259,20 @@ def send_message(
     *, state_root: Path, session: str, message: str, request_id: str
 ) -> Dict[str, Any]:
     validate_identifier(request_id, "request id")
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        stored = agy_controller.require_session(session)
+        observation = stored["observation"]
+        enveloped = adapter_for("agy").envelope(
+            message, "regular", initial=False
+        )
+        result = agy_controller.send(
+            session=session,
+            message=enveloped,
+            expected_workspace=observation["workspace"],
+        )
+        result["request_id"] = request_id
+        return result
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)
@@ -2329,6 +2391,9 @@ def send_message(
 
 
 def status(*, state_root: Path, session: str) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        return agy_controller.status(session=session)
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2592,6 +2657,15 @@ def wait_for(
         timeout, "wait timeout", maximum=MAX_WAIT_TIMEOUT_SECONDS
     )
     after = _wait_after(condition, after)
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        return agy_controller.wait(
+            session=session,
+            condition=condition,
+            timeout=timeout,
+            after=after,
+            interval=interval,
+        )
     deadline = time.monotonic() + timeout
     while True:
         report = status(state_root=state_root, session=session)
@@ -2877,6 +2951,14 @@ def accept_checkpoint(
     actor: str,
     evidence_path: Path,
 ) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        stored = agy_controller.require_session(session)
+        return agy_controller.accept(
+            session=session,
+            checkpoint_id=checkpoint_id,
+            expected_workspace=stored["observation"]["workspace"],
+        )
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2923,6 +3005,14 @@ def accept_checkpoint(
 
 
 def attach_command(*, state_root: Path, session: str) -> Dict[str, Any]:
+    if _agy_print_bound_session(state_root, session) is not None:
+        raise UnsupportedError(
+            "agy-print has no tmux attach surface",
+            blocker=doctor_blocker(
+                "transport_unavailable",
+                "agy-print has no tmux attach surface",
+            ),
+        )
     state_root = Path(state_root).resolve(strict=True)
     registry = SessionRegistry(state_root)
     record = registry.load(session)
@@ -3178,6 +3268,9 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     timeout = _bounded_seconds(
         timeout, "halt timeout", maximum=MAX_HALT_TIMEOUT_SECONDS
     )
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        return agy_controller.halt(session=session, timeout=timeout)
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)

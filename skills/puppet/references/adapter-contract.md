@@ -402,18 +402,39 @@ PID. The implemented transports are `tmux`, `agy-print`, and `cursor-acp`.
 Requesting `agy-print` never falls back to tmux. Requesting `cursor-acp`
 never falls back to tmux or `agy-print` and is valid only for Cursor.
 
+### AGY native stream-json decision (#38)
+
+The AGY structured transport uses the installed CLI's native `--print`,
+`--input-format stream-json`, and `--output-format stream-json` interface.
+The controller delivers prompts on stdin, reads NDJSON incrementally, and
+retains only proof-safe init, progress, terminal-result, conversation,
+workspace, and process-identity metadata. Follow-up turns resume only with
+exact `--conversation` identity; `--continue` is refused. `available()`
+follows the installed help probe and is never made true by fixtures.
+It does not depend on a community ACP wrapper or infer a model from a
+requested selector. Generic `acp` remains unsupported and never becomes an
+AGY fallback. The recorded upstream watch link stays a parent (#38)
+decision if it needs a fresh browse.
+
+The upstream contract to watch is the official
+[AGY headless-mode and stream-json documentation](https://www.agy.dev/docs/cli/headless/),
+especially its stream-prompt, result, model/effort, and exit-status sections.
+Re-check that source before changing the adapter protocol.
+
 | Transport | Implementation | `status` proves | Halt proves | Resume proves |
 | --- | --- | --- | --- | --- |
 | `tmux` | implemented | pane and registered process identity, not a harness turn result | registered PID gone and pane dead | unsupported |
 | `herdr` | unsupported | unsupported | unsupported | unsupported |
 | `acp` | unsupported | unsupported | unsupported | unsupported |
-| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from runtime metadata; deterministic lifecycle is fixture-qualified, not a live AGY process | owned PID/birth gone and confined process tree; PID reuse and stale/ambiguous identity fail closed | matching session and conversation identity; not a selector or path |
+| `agy-print` | implemented | observed model, workspace, worker terminal/result, and conversation/session identity from native stream-json runtime metadata plus owned process identity; fixtures never satisfy `available()` or live public-controller proof | owned PID/birth gone and confined process tree; PID reuse and stale/ambiguous identity fail closed | matching session and conversation identity via exact `--conversation`; `--continue` is refused |
 | `cursor-acp` | implemented | observed runtime model, exact workspace path/branch/head/tree, ACP session/conversation identity, and terminal/result state from structured metadata; deterministic lifecycle is fixture-qualified, not a live Cursor ACP process | matching ACP session and conversation halted; generic `acp`, selector-only, unbound, or mismatched observations fail closed | matching session and conversation identity; not a selector or path |
 
 Tmux settle, startup-screen, and paste sequencing remain shared
 transport/authority evidence for AGY-on-tmux. `agy-print` carries its own
 AGY target source so structured-transport edits do not invalidate other
-targets. `cursor-acp` carries its own Cursor target source
+targets. The live `agy-print` path is AGY's native `--print` / stream-json
+interface and does not use a community ACP client or a substitute
+transport. `cursor-acp` carries its own Cursor target source
 (`cursor_acp.py`) so Cursor ACP edits do not invalidate other targets.
 See [transport-contract.md](transport-contract.md).
 

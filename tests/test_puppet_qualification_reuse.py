@@ -490,6 +490,88 @@ class QualificationReuseTests(TestCase):
             self.assertIn("selected_target_source_changed", reasons)
             self.assertIn("transport_or_shared_authority_changed", reasons)
 
+    def test_agy_print_source_drift_invalidates_agy_without_weakening_shared_tmux(self):
+        agy_manifest = _manifest("agy")
+        cursor_manifest = _manifest("cursor")
+        agy_policy = instruction_policy_fingerprint(target="agy")
+        cursor_policy = instruction_policy_fingerprint(target="cursor")
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "puppet"
+            shutil.copytree(SKILL_ROOT, copied)
+            agy_baseline = build_compatibility_scope(
+                agy_manifest,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+            )
+            cursor_baseline = build_compatibility_scope(
+                cursor_manifest,
+                requested_model=None,
+                requested_effort=None,
+                instruction_policy_fingerprint=cursor_policy,
+                source_root=copied,
+            )
+            cursor_source = copied / "scripts" / "puppet_lib" / "cursor_acp.py"
+            cursor_source.write_text(
+                cursor_source.read_text(encoding="utf-8") + "\n# cursor-only drift\n",
+                encoding="utf-8",
+            )
+            after_cursor = compare_qualification_compatibility(
+                stored_scope=agy_baseline,
+                current_manifest=agy_manifest,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+            )
+            self.assertEqual(after_cursor["invalidations"], [])
+            agy_print_source = copied / "scripts" / "puppet_lib" / "agy_print.py"
+            agy_print_source.write_text(
+                agy_print_source.read_text(encoding="utf-8") + "\n# agy-print drift\n",
+                encoding="utf-8",
+            )
+            after_agy_print = compare_qualification_compatibility(
+                stored_scope=agy_baseline,
+                current_manifest=agy_manifest,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+            )
+            agy_reasons = {item["reason"] for item in after_agy_print["invalidations"]}
+            self.assertIn("selected_target_source_changed", agy_reasons)
+            self.assertNotIn("transport_or_shared_authority_changed", agy_reasons)
+            cursor_after_agy_print = compare_qualification_compatibility(
+                stored_scope=cursor_baseline,
+                current_manifest=cursor_manifest,
+                instruction_policy_fingerprint=cursor_policy,
+                source_root=copied,
+            )
+            self.assertNotIn(
+                "transport_or_shared_authority_changed",
+                {item["reason"] for item in cursor_after_agy_print["invalidations"]},
+            )
+            tmux_source = copied / "scripts" / "puppet_lib" / "tmux.py"
+            tmux_source.write_text(
+                tmux_source.read_text(encoding="utf-8") + "\n# shared tmux drift\n",
+                encoding="utf-8",
+            )
+            after_tmux = compare_qualification_compatibility(
+                stored_scope=agy_baseline,
+                current_manifest=agy_manifest,
+                instruction_policy_fingerprint=agy_policy,
+                source_root=copied,
+            )
+            tmux_reasons = {item["reason"] for item in after_tmux["invalidations"]}
+            self.assertIn("transport_or_shared_authority_changed", tmux_reasons)
+            cursor_after_tmux = compare_qualification_compatibility(
+                stored_scope=cursor_baseline,
+                current_manifest=cursor_manifest,
+                instruction_policy_fingerprint=cursor_policy,
+                source_root=copied,
+            )
+            self.assertIn(
+                "transport_or_shared_authority_changed",
+                {item["reason"] for item in cursor_after_tmux["invalidations"]},
+            )
+
     def test_subscription_profile_authority_drift_invalidates_while_unrelated_harness_stays_reusable(
         self,
     ):

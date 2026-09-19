@@ -12,7 +12,7 @@ before launch and never silently falls back.
 | `tmux` | Portable implemented default. Private socket, exact pane/process birth, ticketed read-only attach. |
 | `herdr` | Named and unsupported as a Puppet run transport. Experimental Herdr-Puppet remains a separate skill. |
 | `acp` | Named and unsupported. Generic ACP is never a Puppet run transport and is invalid for every target, including Cursor. |
-| `agy-print` | Implemented structured AGY transport. Observed model, workspace, terminal result, conversation/session resume, owned process-tree halt, and the deterministic start/resume/result/halt lifecycle are proved from runtime metadata plus a process-identity fixture. Live AGY is not claimed. |
+| `agy-print` | Implemented structured AGY transport. Uses the installed CLI's native stream-json stdin/stdout protocol; observed model, workspace, terminal result, conversation/session resume, owned process-tree halt, and the lifecycle are proved from runtime metadata. It never falls back to tmux or a community ACP wrapper. |
 | `cursor-acp` | Implemented Cursor-only ACP adapter/transport. Observed runtime model, exact workspace path/branch/head/tree, ACP session/conversation identity, terminal/result state, and distinct worker/controller/halt/final outcomes are proved from structured observation. A requested selector is not proof. Live Cursor ACP is not claimed. |
 
 Requesting an unimplemented id refuses. Missing tmux does not select Herdr,
@@ -28,14 +28,16 @@ registered process identity; it does not prove a harness turn result.
 Tmux halt proves the registered PID is gone and the pane is dead. Tmux
 resume remains unsupported. `agy-print` `status` proves observed model,
 workspace, worker terminal/result, and conversation/session identity from
-structured runtime metadata. `agy-print` halt proves the owned PID/birth
+structured runtime metadata. `agy-print` uses the native AGY stream-json
+protocol and does not use a community ACP wrapper. `agy-print` halt proves the owned PID/birth
 and confined process tree; a reused, stale, or ambiguous identity fails
 closed and is never signaled. `agy-print` resume proves matching session and
-conversation identity; a selector or path alone is not resume. Deterministic
-lifecycle qualification covers start/bind, matching resume, terminal result,
-distinct worker completion, controller acceptance, confirmed halt, and a
-bounded final outcome. A process fixture may prove that path. Live AGY is
-not claimed. `cursor-acp` `status` proves observed runtime model, exact
+conversation identity through exact `--conversation`; `--continue` is
+refused. Deterministic lifecycle qualification covers start/bind, matching
+resume, terminal result, distinct worker completion, controller acceptance,
+confirmed halt, and a bounded final outcome. Fixtures and task-owned fake
+executables remain unit-test helpers; they cannot qualify a live AGY
+public-controller route. `available()` follows the installed AGY help probe. `cursor-acp` `status` proves observed runtime model, exact
 workspace identity, ACP session/conversation identity, and terminal/result
 state. `cursor-acp` halt proves the matching ACP session and conversation
 are halted. `cursor-acp` resume proves matching session and conversation
