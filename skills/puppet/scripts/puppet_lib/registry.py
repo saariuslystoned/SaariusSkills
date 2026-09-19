@@ -915,6 +915,10 @@ def _process_executable_path(pid: int) -> str:
     if sys.platform.startswith("linux"):
         try:
             value = os.readlink("/proc/%d/exe" % pid)
+        except FileNotFoundError as exc:
+            raise ProcessVanished(
+                "Linux process vanished before executable identity sampling"
+            ) from exc
         except OSError as exc:
             raise ProcessExecutableUnavailable(
                 "process executable identity is unavailable"
