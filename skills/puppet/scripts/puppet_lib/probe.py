@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import inspect
 import json
 import secrets
 import time
@@ -112,6 +113,7 @@ from .cursor_qualification import (
     validate_cursor_qualification_request,
     validate_cursor_terminal_activation,
 )
+from .caller import make_blocker
 from .errors import (
     ConflictError,
     IdentityError,
@@ -121,6 +123,7 @@ from .errors import (
 )
 from .handoffs import HANDOFF_SCHEMA_VERSION, ValidatedHandoff, validate_handoff
 from .qualification_scope import build_compatibility_scope
+from .transport import TRANSPORT_CAPABILITIES, bind_run_transport
 from .halt_control import deliver_halt_actions
 from .instructions import compile_instruction_wrapper, validate_instruction_manifest
 from .instruction_planes import (
@@ -204,6 +207,61 @@ MAX_HALT_SECONDS = 60.0
 POLL_INTERVAL_SECONDS = 0.1
 PROBE_PROFILE = QUALIFICATION_PROFILE
 
+# Session-layer implementation of agy-print/cursor-acp is not a matching
+# qualification-probe execution path or proof contract. The public probe
+# still exercises tmux only and must fail closed for any other selection.
+_QUALIFICATION_PROBE_TRANSPORTS = frozenset({"tmux"})
+
+
+def _bind_qualification_probe_transport(transport: Optional[str]) -> str:
+    """Bind one probe transport or fail closed before any target execution."""
+
+    selected = bind_run_transport(transport)["id"]
+    capabilities = TRANSPORT_CAPABILITIES.get(selected)
+    implemented_for_probe = (
+        selected in _QUALIFICATION_PROBE_TRANSPORTS
+        and isinstance(capabilities, dict)
+        and capabilities.get("implementation") == "implemented"
+        and capabilities.get("qualification_evidence")
+        not in {None, "unsupported"}
+    )
+    if not implemented_for_probe:
+        detail = (
+            "qualification probe transport %s is unimplemented; the probe "
+            "path only exercises a matching transport implementation and "
+            "proof contract, and never stamps a receipt for a transport it "
+            "did not run" % selected
+        )
+        raise UnsupportedError(
+            detail,
+            blocker=make_blocker(
+                code="transport_unsupported",
+                detail=detail,
+                changed=(
+                    "requested qualification transport %s has no matching "
+                    "probe implementation or proof contract" % selected
+                ),
+            ),
+        )
+    return selected
+
+
+def _require_exercised_qualification_transport(
+    selected: str, exercised: Optional[str]
+) -> str:
+    """Refuse an accepted receipt whose claimed transport was not exercised."""
+
+    if exercised is None:
+        raise IdentityError(
+            "qualification receipt cannot claim a transport that was not exercised"
+        )
+    if selected != exercised:
+        raise IdentityError(
+            "qualification receipt transport %s does not match the exercised transport %s"
+            % (selected, exercised)
+        )
+    return exercised
+
 
 def _utc_now() -> str:
     return (
@@ -266,7 +324,8 @@ def _validated_mapping(
     allow_grok_workspace_probe: bool = False,
     allow_codex_ordinary_control: bool = False,
     adapter_fingerprint_fn: Callable[[], str] = adapter_implementation_fingerprint,
-    census_target_fn: Callable[[str, str], AdapterManifest] = census_target,
+    census_target_fn: Callable[..., AdapterManifest] = census_target,
+    transport: str = "tmux",
 ) -> tuple[AdapterManifest, Dict[str, Any], list[str]]:
     manifest = AdapterManifest.from_path(manifest_path)
     if manifest.target != target:
@@ -282,7 +341,16 @@ def _validated_mapping(
         raise IdentityError(
             "doctor manifest does not bind the current adapter implementation"
         )
-    observed = census_target_fn(target, implementation_fingerprint)
+    parameters = inspect.signature(census_target_fn).parameters
+    accepts_transport = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL
+        for parameter in parameters.values()
+    ) or len(parameters) >= 3
+    observed = (
+        census_target_fn(target, implementation_fingerprint, transport)
+        if accepts_transport
+        else census_target_fn(target, implementation_fingerprint)
+    )
     for name in (
         "platform",
         "executable",
@@ -1000,6 +1068,7 @@ def run_probe(
     timeout: float = 300.0,
     halt_timeout: float = 10.0,
     run_id: Optional[str] = None,
+    transport: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _server_process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
@@ -1027,6 +1096,7 @@ def run_probe(
     always uses the real structural process and private-socket tmux surfaces.
     """
 
+    selected_transport = _bind_qualification_probe_transport(transport)
     if target not in TARGETS:
         raise ValidationError("unsupported probe target")
     if target == "agy":
@@ -1170,6 +1240,7 @@ def run_probe(
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+        transport=selected_transport,
     )
     claude_control_source = (
         build_claude_control_source(
@@ -1406,6 +1477,7 @@ def run_probe(
     metadata: Optional[Dict[str, Any]] = None
     process: Optional[Dict[str, Any]] = None
     tmux: Optional[TmuxController] = None
+    exercised_transport: Optional[str] = None
     socket: Optional[Path] = None
     socket_identity: Optional[Dict[str, Any]] = None
     server_identity: Optional[Dict[str, Any]] = None
@@ -1992,6 +2064,7 @@ def run_probe(
         tmux_authority = run_root / "tmux-authority"
         tmux_authority.mkdir(mode=0o700)
         tmux = _tmux_factory(tmux_authority)
+        exercised_transport = "tmux"
         socket = tmux.socket_path(session)
 
         def admit_before_start() -> None:
@@ -3232,6 +3305,9 @@ def run_probe(
                 instruction_policy_fingerprint=compiled.manifest[
                     "instruction_policy_fingerprint"
                 ],
+                transport=_require_exercised_qualification_transport(
+                    selected_transport, exercised_transport
+                ),
             ),
             "requested_model": None,
             "requested_effort": None,
@@ -3519,6 +3595,7 @@ def recover_probe(
     paired_grok_positive_receipt: Optional[Path] = None,
     codex_entry_plan: Optional[Path] = None,
     halt_timeout: float = 10.0,
+    transport: Optional[str] = None,
     _tmux_factory: Callable[[Path], TmuxController] = TmuxController,
     _process_birth_fn: Callable[[int], Dict[str, Any]] = process_birth_identity,
     _process_alive_fn: Callable[[Dict[str, Any]], bool] = process_alive,
@@ -3533,6 +3610,7 @@ def recover_probe(
     _authority_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Reconcile one persisted probe by exact identity without relaunching it."""
+    selected_transport = _bind_qualification_probe_transport(transport)
     if target not in TARGETS:
         raise ValidationError("unsupported recovery target")
     validate_identifier(controller, "controller")
@@ -3739,6 +3817,7 @@ def recover_probe(
         allow_codex_ordinary_control=codex_ordinary_control,
         adapter_fingerprint_fn=_adapter_fingerprint_fn,
         census_target_fn=_census_target_fn,
+        transport=selected_transport,
     )
     claude_control_source = (
         build_claude_control_source(
@@ -4271,6 +4350,18 @@ def recover_probe(
                 _current_manifest=manifest,
                 _server_process_fn=_server_process_birth_fn,
                 _tmux_factory=_tmux_factory,
+            )
+            stored_receipt = read_json(
+                receipt_path, max_bytes=131072, reject_sensitive_fields=True
+            )
+            stored_scope = stored_receipt.get("compatibility_scope")
+            stored_transport = (
+                stored_scope.get("transport")
+                if isinstance(stored_scope, dict)
+                else None
+            )
+            _require_exercised_qualification_transport(
+                selected_transport, stored_transport
             )
             recovered = lease["state"] == "halting"
             if recovered:

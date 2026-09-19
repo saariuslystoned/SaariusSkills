@@ -946,6 +946,8 @@ def execute(
     paired_codex_positive_receipt=None,
     codex_ordinary_worktree_descriptor=None,
     subscription_preflight_fn=None,
+    transport=None,
+    tmux_factory=None,
 ):
     subscription_root = files["subscription_profile"]
     if target == "agy":
@@ -1053,7 +1055,8 @@ def execute(
             timeout=timeout,
             halt_timeout=0.1,
             run_id=run_id,
-            _tmux_factory=lambda root: fake,
+            transport=transport,
+            _tmux_factory=tmux_factory or (lambda root: fake),
             _process_birth_fn=process_birth_fn or (lambda pid: process_identity(fake)),
             _server_process_birth_fn=lambda pid: fake.server_process,
             _process_alive_fn=lambda identity: fake.alive,
@@ -1088,6 +1091,7 @@ def recover_execute(
     plane_descriptor=None,
     process_alive_fn=None,
     exact_sigint_fn=None,
+    transport=None,
 ):
     with (
         patch(
@@ -1112,6 +1116,7 @@ def recover_execute(
             run_id=run_id,
             plane_descriptor=plane_descriptor,
             halt_timeout=0.1,
+            transport=transport,
             _tmux_factory=tmux_factory or (lambda root: FakeTmux(root)),
             _process_alive_fn=process_alive_fn or (lambda identity: False),
             _exact_sigint_fn=exact_sigint_fn or puppet_probe.send_exact_sigint,

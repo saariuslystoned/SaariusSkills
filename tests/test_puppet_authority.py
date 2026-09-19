@@ -161,6 +161,27 @@ def qualification_receipt_core(schema_version=5):
 
 
 class AuthorityTests(unittest.TestCase):
+    def test_linux_proc_disappearance_is_typed(self):
+        with patch.object(
+            puppet_registry.Path,
+            "open",
+            side_effect=FileNotFoundError("process vanished"),
+        ):
+            with self.assertRaises(puppet_registry.ProcessVanished):
+                puppet_registry._linux_kernel_process_record(4242)
+
+    def test_linux_executable_disappearance_is_typed(self):
+        with (
+            patch.object(puppet_registry.sys, "platform", "linux"),
+            patch.object(
+                puppet_registry.os,
+                "readlink",
+                side_effect=FileNotFoundError("process vanished"),
+            ),
+        ):
+            with self.assertRaises(puppet_registry.ProcessVanished):
+                puppet_registry._process_executable_path(4242)
+
     def test_qualification_attestation_v4_is_distinct_from_legacy_rows(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
