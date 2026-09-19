@@ -10,7 +10,7 @@
 - worker: Cursor ACP / Grok 4.6 High
 - workspace: /Users/bobbybones/.codex/worktrees/bcc5/SaariusSkills
 - scope: AGY structured transport, exact model observation, workspace binding, terminal result, matching conversation resume, process-tree shutdown; preserve tmux and refuse fallback
-- commit: pending parent commit
+- commit: bbbb704 (parent implementation and proof commit)
 - job_id: d7fbebbe-137b-4225-afbe-04c26786a1a8
 - prior_job_id: 5f2e0dbc-ec13-4488-a8d9-c28e26e9de16
 - prior_job_status: BRIDGE_RESTARTED; resubmitted and completed on the same checkout

@@ -1,6 +1,7 @@
 2026-09-18T20:04:44-04:00 delegated stage3 agy-structured-transport
 2026-09-18T20:05:06-04:00 worker_submitted job=5f2e0dbc-ec13-4488-a8d9-c28e26e9de16
 2026-09-18T20:25:00-04:00 parent_verified stage3 864-puppet-tests-ok
+2026-09-18T20:26:00-04:00 accepted stage3 commit=bbbb704 live-agy-claimed=false
 2026-09-18T20:10:23-04:00 worker_failed bridge-restarted resubmit-required
 2026-09-18T20:10:47-04:00 worker_resubmitted job=d7fbebbe-137b-4225-afbe-04c26786a1a8
 2026-09-18T20:17:20-04:00 worker_complete_uncommitted focused=63 agy_print=14 relevant=181 live_agy_claimed=false head=608b070
