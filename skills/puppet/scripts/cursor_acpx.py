@@ -1,0 +1,977 @@
+"""Disabled synthetic-only Puppet adapter for the pinned public acpx runtime.
+
+Binds the existing named local Cursor transport ``cursor-acp``. Ordinary
+launch, native defaults, MCP broker policy, and live qualification stay
+unchanged and unavailable. The public-runtime boundary is the documented
+``createAcpRuntime`` options from openclaw/acpx draft PR #648 at exact head
+``02c03c7abeee0324a71e2114e6b1b4cf7b0785ff``; private internals are not
+imported. Tests inject deterministic synthetic runtime and peer fixtures.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+from pathlib import Path
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
+
+from puppet_lib.authority import AUTHORITY_ID
+from puppet_lib.caller import make_blocker
+from puppet_lib.cursor_acp import (
+    TRANSPORT_ID,
+    VERIFIED_CURSOR_ACP_CATALOG,
+    caller_fields_from_observation,
+    fixture_observation,
+    prove_cursor_acp_observation,
+    prove_resume_identity,
+    prove_shutdown,
+    qualify_cursor_acp_lifecycle,
+    require_cursor_acp_target,
+    validate_cursor_acp_observation,
+)
+from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError, ValidationError
+from puppet_lib.safety import (
+    FORBIDDEN_FIELD_PARTS,
+    absolute_root,
+    atomic_write_json,
+    canonical_json_bytes,
+    exclusive_lock,
+    read_json,
+    sha256_bytes,
+    validate_bounded_json,
+    validate_identifier,
+)
+
+
+GENERIC_ACP_ID = "acp"
+TARGET = "cursor"
+ADAPTER_ID = "cursor-acpx"
+DEPENDENCY_SCHEMA = "puppet.cursor-acpx-dependency/v1"
+BOUNDARY_SCHEMA = "puppet.cursor-acpx-public-runtime/v1"
+OWNERSHIP_SCHEMA = "puppet.cursor-acpx-ownership/v1"
+EVIDENCE_SCHEMA = "puppet.cursor-acpx-evidence/v1"
+CALLBACK_SCHEMA = "puppet.cursor-acpx-callback-rejection/v1"
+QUESTION_SCHEMA = "puppet.cursor-acpx-question/v1"
+PROCESS_SCHEMA = "puppet.cursor-acpx-process/v1"
+
+ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648"
+ACPX_HEAD = "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff"
+ACPX_STATUS = "draft"
+ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
+ACPX_PUBLIC_SURFACE = "acpx/runtime"
+ACPX_CONSTRUCTOR = "createAcpRuntime"
+ACPX_QUALIFICATION = "synthetic_only"
+
+PUBLIC_RUNTIME_OPTIONS = (
+    "cwd",
+    "sessionStore",
+    "agentRegistry",
+    "fs",
+    "terminal",
+    "timeoutMs",
+    "processLifecycle",
+    "probeAgent",
+)
+BROKER_POLICY_OPTIONS = frozenset(
+    {
+        "permissionMode",
+        "nonInteractivePermissions",
+        "permissionPolicy",
+        "onPermissionRequest",
+        "mcpServers",
+        "sessionPermissions",
+        "elicitationModes",
+        "agentProcessEnv",
+    }
+)
+FORBIDDEN_RUNTIME_OPTIONS = frozenset(
+    {
+        "permissionMode",
+        "nonInteractivePermissions",
+        "permissionPolicy",
+        "onPermissionRequest",
+        "mcpServers",
+        "sessionPermissions",
+        "elicitationModes",
+        "agentProcessEnv",
+    }
+)
+FORBIDDEN_CALLBACKS = frozenset(
+    {"fs/read", "fs/write", "terminal", "terminal/create", "terminal/write"}
+)
+BODY_FIELD_NAMES = frozenset(
+    {
+        "prompt",
+        "response",
+        "output",
+        "content",
+        "text",
+        "transcript",
+        "title",
+        "options",
+        "messages",
+        "rawInput",
+        "rawOutput",
+        "body",
+    }
+)
+OWNERSHIP_KEYS = frozenset(
+    {
+        "schema",
+        "authority_id",
+        "adapter",
+        "transport",
+        "target",
+        "owner",
+        "isolated_root",
+        "session",
+        "conversation_id",
+        "lease",
+        "ordinary_launch",
+        "qualification",
+        "available",
+        "cleanup",
+        "replacement_blocked",
+        "acpx",
+    }
+)
+
+ProcessQuery = Callable[[Mapping[str, Any]], Mapping[str, Any]]
+
+
+def _blocker(code: str, detail: str, **identity: Any) -> Dict[str, Any]:
+    return make_blocker(code=code, detail=detail, **identity)
+
+
+def _raise_identity(code: str, detail: str, **identity: Any) -> None:
+    raise IdentityError(detail, blocker=_blocker(code, detail, **identity))
+
+
+def _raise_unsupported(code: str, detail: str) -> None:
+    raise UnsupportedError(detail, blocker=_blocker(code, detail))
+
+
+def _raise_conflict(detail: str) -> None:
+    raise ConflictError(
+        detail,
+        blocker=_blocker("isolated_root_owned", detail),
+    )
+
+
+def _reject_body_keys(value: Any, label: str = "artifact") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = str(key).lower().replace("-", "_")
+            if key in BODY_FIELD_NAMES or normalized in BODY_FIELD_NAMES:
+                raise ValidationError("%s contains body-bearing field %s" % (label, key))
+            if normalized in FORBIDDEN_FIELD_PARTS:
+                raise ValidationError("%s contains forbidden field %s" % (label, key))
+            _reject_body_keys(nested, label)
+    elif isinstance(value, list):
+        for nested in value:
+            _reject_body_keys(nested, label)
+
+
+def acpx_dependency_identity() -> Dict[str, Any]:
+    """Return the exact draft public-runtime pin. Not merged or released."""
+
+    pin = {
+        "source": ACPX_SOURCE,
+        "head": ACPX_HEAD,
+        "status": ACPX_STATUS,
+        "ordinary_pinned_package": ACPX_ORDINARY_PINNED_PACKAGE,
+        "ordinary_route_unchanged": True,
+        "qualification": ACPX_QUALIFICATION,
+        "merged": False,
+        "released": False,
+        "public_surface": ACPX_PUBLIC_SURFACE,
+        "constructor": ACPX_CONSTRUCTOR,
+    }
+    integrity = sha256_bytes(canonical_json_bytes(pin))
+    return {
+        "schema": DEPENDENCY_SCHEMA,
+        **pin,
+        "integrity": integrity,
+    }
+
+
+def public_runtime_boundary() -> Dict[str, Any]:
+    """Thinnest documented public-runtime options. Private internals stay out."""
+
+    return {
+        "schema": BOUNDARY_SCHEMA,
+        "surface": ACPX_PUBLIC_SURFACE,
+        "constructor": ACPX_CONSTRUCTOR,
+        "allowed_options": list(PUBLIC_RUNTIME_OPTIONS),
+        "forbidden_options": sorted(FORBIDDEN_RUNTIME_OPTIONS),
+        "fs": False,
+        "terminal": False,
+        "permission_policy": "not_imported",
+        "mcp_broker_policy": "not_imported",
+        "approve_all": False,
+        "private_internals": False,
+        "ordinary_launch": "unavailable",
+        "available": False,
+        "qualification": ACPX_QUALIFICATION,
+        "live_qualification": False,
+    }
+
+
+def validate_public_runtime_options(value: Any) -> Dict[str, Any]:
+    """Accept only the public createAcpRuntime allowlist with callbacks off."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("public runtime options are invalid")
+    if set(value) & BROKER_POLICY_OPTIONS:
+        raise ValidationError("approve-all or MCP broker policy is not imported")
+    unknown = set(value) - set(PUBLIC_RUNTIME_OPTIONS)
+    if unknown:
+        raise ValidationError("public runtime options include private fields")
+    if value.get("fs") is not False:
+        raise ValidationError("filesystem callbacks must stay disabled")
+    if value.get("terminal") is not False:
+        raise ValidationError("terminal callbacks must stay disabled")
+    cwd = value.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        raise ValidationError("public runtime cwd is invalid")
+    if "sessionStore" not in value or "agentRegistry" not in value:
+        raise ValidationError("public runtime identity is incomplete")
+    return {
+        "cwd": cwd,
+        "sessionStore": "memory_only",
+        "agentRegistry": "synthetic_peer",
+        "fs": False,
+        "terminal": False,
+        "timeoutMs": value.get("timeoutMs"),
+        "processLifecycle": "observed_or_unknown",
+        "probeAgent": value.get("probeAgent"),
+    }
+
+
+def _ownership_path(isolated_root: Path) -> Path:
+    return isolated_root / "ownership.json"
+
+
+def _evidence_path(isolated_root: Path) -> Path:
+    return isolated_root / "evidence.json"
+
+
+def _events_path(isolated_root: Path) -> Path:
+    return isolated_root / "events.jsonl"
+
+
+def _lock_path(isolated_root: Path) -> Path:
+    return isolated_root / "ownership.lock"
+
+
+def _require_private_root(isolated_root: Path) -> Path:
+    root = absolute_root(str(isolated_root), "isolated state root")
+    mode = stat.S_IMODE(root.stat().st_mode)
+    if root.stat().st_uid != os.getuid() or mode != 0o700:
+        raise ValidationError("isolated state root is not current-UID mode 0700")
+    return root
+
+
+def _write_event(isolated_root: Path, event: Mapping[str, Any]) -> None:
+    _reject_body_keys(event, "event")
+    validate_bounded_json(event, max_items=64, max_string=400)
+    payload = canonical_json_bytes(dict(event)) + b"\n"
+    path = _events_path(isolated_root)
+    flags = os.O_CREAT | os.O_APPEND | os.O_WRONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(str(path), flags, 0o600)
+    try:
+        os.write(descriptor, payload)
+    finally:
+        os.close(descriptor)
+
+
+def validate_ownership(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != OWNERSHIP_KEYS:
+        raise ValidationError("isolated-root ownership fields do not match schema")
+    if value.get("schema") != OWNERSHIP_SCHEMA:
+        raise ValidationError("isolated-root ownership schema is invalid")
+    if value.get("authority_id") != AUTHORITY_ID:
+        _raise_identity("identity_mismatch", "Puppet authority identity drifted")
+    if value.get("adapter") != ADAPTER_ID:
+        _raise_identity("identity_mismatch", "cursor-acpx adapter identity drifted")
+    if value.get("transport") != TRANSPORT_ID:
+        _raise_identity("identity_mismatch", "cursor-acp transport identity drifted")
+    if value.get("transport") == GENERIC_ACP_ID:
+        _raise_identity("identity_mismatch", "generic acp is not a Cursor transport")
+    require_cursor_acp_target(value.get("target"))
+    if value.get("lease") != "not_admitted":
+        raise ValidationError("cursor-acpx must not admit an ordinary lease")
+    if value.get("ordinary_launch") != "unavailable" or value.get("available") is not False:
+        raise ValidationError("cursor-acpx ordinary launch must stay unavailable")
+    if value.get("qualification") != ACPX_QUALIFICATION:
+        raise ValidationError("cursor-acpx cannot claim live qualification")
+    cleanup = value.get("cleanup")
+    if cleanup not in {"owned", "unknown", "confirmed_absent"}:
+        raise ValidationError("isolated-root cleanup state is invalid")
+    if not isinstance(value.get("replacement_blocked"), bool):
+        raise ValidationError("replacement block flag is invalid")
+    acpx = value.get("acpx")
+    expected = acpx_dependency_identity()
+    if not isinstance(acpx, Mapping) or dict(acpx) != expected:
+        _raise_identity("identity_mismatch", "acpx source identity drifted")
+    _reject_body_keys(value, "ownership")
+    return {
+        "schema": OWNERSHIP_SCHEMA,
+        "authority_id": AUTHORITY_ID,
+        "adapter": ADAPTER_ID,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "owner": validate_identifier(value.get("owner"), "isolated-root owner"),
+        "isolated_root": _bounded_path(value.get("isolated_root")),
+        "session": validate_identifier(value.get("session"), "cursor-acp session"),
+        "conversation_id": validate_identifier(
+            value.get("conversation_id"), "cursor-acp conversation"
+        ),
+        "lease": "not_admitted",
+        "ordinary_launch": "unavailable",
+        "qualification": ACPX_QUALIFICATION,
+        "available": False,
+        "cleanup": cleanup,
+        "replacement_blocked": value["replacement_blocked"],
+        "acpx": expected,
+    }
+
+
+def _bounded_path(value: Any) -> str:
+    if not isinstance(value, str) or not value or len(value) > 1024:
+        raise ValidationError("isolated-root path is invalid")
+    if any(character in value for character in "\x00\n\r"):
+        raise ValidationError("isolated-root path is invalid")
+    return value
+
+
+def claim_isolated_root(
+    isolated_root: Path,
+    *,
+    owner: str,
+    session: str,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    """Claim one isolated state root. Duplicate owners are rejected."""
+
+    root = _require_private_root(isolated_root)
+    owner = validate_identifier(owner, "isolated-root owner")
+    session = validate_identifier(session, "cursor-acp session")
+    conversation_id = validate_identifier(conversation_id, "cursor-acp conversation")
+    claim = {
+        "schema": OWNERSHIP_SCHEMA,
+        "authority_id": AUTHORITY_ID,
+        "adapter": ADAPTER_ID,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "owner": owner,
+        "isolated_root": str(root),
+        "session": session,
+        "conversation_id": conversation_id,
+        "lease": "not_admitted",
+        "ordinary_launch": "unavailable",
+        "qualification": ACPX_QUALIFICATION,
+        "available": False,
+        "cleanup": "owned",
+        "replacement_blocked": False,
+        "acpx": acpx_dependency_identity(),
+    }
+    validate_ownership(claim)
+    with exclusive_lock(_lock_path(root)):
+        path = _ownership_path(root)
+        if path.exists():
+            existing = validate_ownership(read_json(path))
+            if existing["owner"] != owner:
+                _raise_conflict(
+                    "isolated state root is already owned by a different adapter"
+                )
+            if existing["cleanup"] == "unknown" or existing["replacement_blocked"]:
+                _raise_identity(
+                    "cleanup_unknown",
+                    "process-query failure left cleanup unknown; replacement is blocked",
+                )
+            if (
+                existing["session"] != session
+                or existing["conversation_id"] != conversation_id
+            ):
+                _raise_identity(
+                    "session_identity_mismatch",
+                    "isolated-root session identity does not match the bound session",
+                )
+            return existing
+        atomic_write_json(path, claim)
+        _write_event(
+            root,
+            {
+                "event": "ownership_claimed",
+                "owner": owner,
+                "session": session,
+                "conversation_id": conversation_id,
+            },
+        )
+        return claim
+
+
+def load_isolated_root(isolated_root: Path) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    path = _ownership_path(root)
+    if not path.is_file():
+        _raise_unsupported("proof_missing", "isolated-root ownership proof is missing")
+    return validate_ownership(read_json(path))
+
+
+def mark_cleanup_unknown(isolated_root: Path) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    with exclusive_lock(_lock_path(root)):
+        current = validate_ownership(read_json(_ownership_path(root)))
+        current["cleanup"] = "unknown"
+        current["replacement_blocked"] = True
+        atomic_write_json(_ownership_path(root), current)
+        _write_event(
+            root,
+            {
+                "event": "cleanup_unknown",
+                "session": current["session"],
+                "conversation_id": current["conversation_id"],
+                "replacement_blocked": True,
+            },
+        )
+        return current
+
+
+def persist_evidence(isolated_root: Path, evidence: Mapping[str, Any]) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    payload = validate_evidence(evidence)
+    atomic_write_json(_evidence_path(root), payload)
+    _write_event(
+        root,
+        {
+            "event": "evidence_persisted",
+            "session": payload["session"],
+            "conversation_id": payload["conversation_id"],
+            "worker_completion": payload["worker_completion"],
+            "controller_acceptance": payload["controller_acceptance"],
+            "halt": payload["halt"],
+        },
+    )
+    return payload
+
+
+def validate_evidence(value: Any) -> Dict[str, Any]:
+    _reject_body_keys(value, "evidence")
+    if not isinstance(value, Mapping):
+        raise ValidationError("cursor-acpx evidence is invalid")
+    required = {
+        "schema",
+        "transport",
+        "target",
+        "session",
+        "conversation_id",
+        "workspace",
+        "model",
+        "terminal_result",
+        "worker_completion",
+        "controller_acceptance",
+        "halt",
+        "question",
+        "callbacks",
+        "cleanup",
+        "live_claimed",
+        "prompt_retained",
+        "response_retained",
+        "acpx",
+    }
+    if set(value) != required:
+        raise ValidationError("cursor-acpx evidence fields do not match schema")
+    if value.get("schema") != EVIDENCE_SCHEMA:
+        raise ValidationError("cursor-acpx evidence schema is invalid")
+    if value.get("transport") != TRANSPORT_ID or value.get("target") != TARGET:
+        _raise_identity("identity_mismatch", "cursor-acpx evidence identity drifted")
+    if value.get("live_claimed") is not False:
+        raise ValidationError("cursor-acpx must not claim a live run")
+    if value.get("prompt_retained") is not False or value.get("response_retained") is not False:
+        raise ValidationError("cursor-acpx durable evidence retained a body")
+    if dict(value.get("acpx") or {}) != acpx_dependency_identity():
+        _raise_identity("identity_mismatch", "acpx source identity drifted")
+    return {
+        "schema": EVIDENCE_SCHEMA,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "session": validate_identifier(value.get("session"), "cursor-acp session"),
+        "conversation_id": validate_identifier(
+            value.get("conversation_id"), "cursor-acp conversation"
+        ),
+        "workspace": dict(value["workspace"]),
+        "model": dict(value["model"]),
+        "terminal_result": dict(value["terminal_result"]),
+        "worker_completion": value["worker_completion"],
+        "controller_acceptance": value["controller_acceptance"],
+        "halt": value["halt"],
+        "question": dict(value["question"]),
+        "callbacks": dict(value["callbacks"]),
+        "cleanup": value["cleanup"],
+        "live_claimed": False,
+        "prompt_retained": False,
+        "response_retained": False,
+        "acpx": acpx_dependency_identity(),
+    }
+
+
+def audit_durable_artifacts(isolated_root: Path) -> Dict[str, Any]:
+    """Fail closed if any durable Puppet/bridge/runtime artifact retains a body."""
+
+    root = _require_private_root(isolated_root)
+    inspected = 0
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name.endswith(".lock"):
+            continue
+        inspected += 1
+        raw = path.read_bytes()
+        if path.suffix in {".json", ".jsonl"}:
+            text = raw.decode("utf-8")
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                _reject_body_keys(payload, str(path.name))
+                validate_bounded_json(payload, max_items=256, max_string=8192)
+        else:
+            raise ValidationError("isolated-root contains a non-evidence artifact")
+    if inspected == 0:
+        _raise_unsupported("proof_missing", "durable cursor-acpx proof is missing")
+    return {"ok": True, "inspected": inspected, "body_retained": False}
+
+
+class SyntheticAcpxPeer:
+    """Deterministic noncompliant peer. Never answers questions or writes files."""
+
+    def __init__(
+        self,
+        *,
+        session: str,
+        conversation_id: str,
+        workspace_root: Path,
+        requested_callbacks: Sequence[str] = (),
+        question: Optional[Mapping[str, Any]] = None,
+    ):
+        self.session = session
+        self.conversation_id = conversation_id
+        self.workspace_root = Path(workspace_root)
+        self.requested_callbacks = tuple(requested_callbacks)
+        self.question = None if question is None else dict(question)
+        self.side_effects: list[str] = []
+        self.rejected: list[str] = []
+
+    def attempt_forbidden_callbacks(self) -> Dict[str, Any]:
+        for method in self.requested_callbacks:
+            if method not in FORBIDDEN_CALLBACKS:
+                raise ValidationError("synthetic peer requested an unknown callback")
+            marker = self.workspace_root / ("%s.side-effect" % method.replace("/", "-"))
+            if marker.exists():
+                self.side_effects.append(str(marker))
+            self.rejected.append(method)
+        return {
+            "schema": CALLBACK_SCHEMA,
+            "fs": False,
+            "terminal": False,
+            "rejected": list(self.rejected),
+            "local_side_effect": False,
+        }
+
+
+class SyntheticAcpxRuntime:
+    """Public-runtime fixture. Memory-only store; no private acpx internals."""
+
+    def __init__(
+        self,
+        *,
+        isolated_root: Path,
+        peer: SyntheticAcpxPeer,
+        options: Optional[Mapping[str, Any]] = None,
+        process_query: Optional[ProcessQuery] = None,
+        process_identity: Optional[Mapping[str, Any]] = None,
+    ):
+        self.isolated_root = Path(isolated_root)
+        self.peer = peer
+        self._sessions: Dict[str, Dict[str, str]] = {}
+        self.process_query = process_query
+        self.process_identity = dict(process_identity or {})
+        self.options = validate_public_runtime_options(
+            options
+            or {
+                "cwd": str(self.isolated_root),
+                "sessionStore": object(),
+                "agentRegistry": object(),
+                "fs": False,
+                "terminal": False,
+            }
+        )
+        self.cancelled = False
+        self.halted = False
+
+    def ensure_session(self, session: str, conversation_id: str) -> Dict[str, str]:
+        handle = {
+            "session": validate_identifier(session, "cursor-acp session"),
+            "conversation_id": validate_identifier(
+                conversation_id, "cursor-acp conversation"
+            ),
+        }
+        self._sessions[handle["session"]] = dict(handle)
+        return dict(handle)
+
+    def load_session(self, session: str, conversation_id: str) -> Dict[str, str]:
+        stored = self._sessions.get(session)
+        if stored is None:
+            _raise_unsupported("proof_missing", "synthetic runtime session proof is missing")
+        if (
+            stored["session"] != session
+            or stored["conversation_id"] != conversation_id
+        ):
+            _raise_identity(
+                "session_identity_mismatch",
+                "reconnect did not retain the exact session identity",
+            )
+        return dict(stored)
+
+    def query_process(self) -> Dict[str, Any]:
+        if self.process_query is None:
+            _raise_unsupported("proof_missing", "process-query proof is missing")
+        try:
+            result = self.process_query(self.process_identity)
+        except Exception as exc:
+            mark_cleanup_unknown(self.isolated_root)
+            raise IdentityError(
+                "process query failed; cleanup is unknown",
+                blocker=_blocker(
+                    "cleanup_unknown",
+                    "process query failed; cleanup is unknown",
+                ),
+            ) from exc
+        if not isinstance(result, Mapping) or "alive" not in result:
+            mark_cleanup_unknown(self.isolated_root)
+            _raise_identity(
+                "cleanup_unknown",
+                "process query left cleanup unknown; replacement is blocked",
+            )
+        return {
+            "schema": PROCESS_SCHEMA,
+            "alive": bool(result["alive"]),
+            "cleanup": "owned" if result["alive"] is False else "owned",
+        }
+
+
+class CursorAcpxAdapter:
+    """Disabled Puppet adapter. Fixtures never make ordinary launch available."""
+
+    def __init__(
+        self,
+        isolated_root: Path,
+        *,
+        owner: str,
+        session: str,
+        conversation_id: str,
+        workspace: Mapping[str, Any],
+        runtime: Optional[SyntheticAcpxRuntime] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
+    ):
+        self.isolated_root = _require_private_root(isolated_root)
+        self.owner = validate_identifier(owner, "isolated-root owner")
+        self.session = validate_identifier(session, "cursor-acp session")
+        self.conversation_id = validate_identifier(
+            conversation_id, "cursor-acp conversation"
+        )
+        self.workspace = dict(workspace)
+        self.catalog = catalog if catalog is not None else VERIFIED_CURSOR_ACP_CATALOG
+        self.runtime = runtime
+        self.ownership = claim_isolated_root(
+            self.isolated_root,
+            owner=self.owner,
+            session=self.session,
+            conversation_id=self.conversation_id,
+        )
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    @staticmethod
+    def ordinary_launch_available() -> bool:
+        return False
+
+    def require_runtime(self) -> SyntheticAcpxRuntime:
+        if self.runtime is None:
+            _raise_unsupported(
+                "transport_unavailable",
+                "cursor-acpx public runtime fixture is unavailable",
+            )
+        return self.runtime
+
+    def bind_session(self) -> Dict[str, str]:
+        handle = self.require_runtime().ensure_session(self.session, self.conversation_id)
+        if handle["session"] != self.session or handle["conversation_id"] != self.conversation_id:
+            _raise_identity(
+                "session_identity_mismatch",
+                "cursor-acpx session identity does not match the bound session",
+            )
+        return handle
+
+    def reconnect(self) -> Dict[str, str]:
+        ownership = load_isolated_root(self.isolated_root)
+        if (
+            ownership["session"] != self.session
+            or ownership["conversation_id"] != self.conversation_id
+        ):
+            _raise_identity(
+                "session_identity_mismatch",
+                "reconnect/load did not retain the exact session identity",
+            )
+        return self.require_runtime().load_session(self.session, self.conversation_id)
+
+    def reject_callbacks(self) -> Dict[str, Any]:
+        runtime = self.require_runtime()
+        rejected = runtime.peer.attempt_forbidden_callbacks()
+        if rejected["local_side_effect"] or runtime.peer.side_effects:
+            _raise_identity(
+                "identity_mismatch",
+                "forbidden callback produced a local side effect",
+            )
+        for method in runtime.peer.requested_callbacks:
+            marker = runtime.peer.workspace_root / (
+                "%s.side-effect" % method.replace("/", "-")
+            )
+            if marker.exists():
+                _raise_identity(
+                    "identity_mismatch",
+                    "forbidden callback produced a local side effect",
+                )
+        return rejected
+
+    def require_human_question(self, question: Mapping[str, Any]) -> Dict[str, Any]:
+        if question.get("state") != "interaction_required":
+            raise ValidationError("unsupported question state is invalid")
+        if question.get("human_required") is not True:
+            raise ValidationError("unsupported question requires human input")
+        if question.get("invented_answer") is not None:
+            raise ValidationError("cursor-acpx must not invent a question answer")
+        if question.get("outcome") != "cancelled":
+            raise ValidationError("unsupported question must cancel without an answer")
+        interaction_id = validate_identifier(
+            question.get("interaction_id"), "interaction question"
+        )
+        return {
+            "schema": QUESTION_SCHEMA,
+            "state": "cancelled",
+            "interaction_id": interaction_id,
+            "human_required": True,
+            "outcome": "cancelled",
+            "invented_answer": None,
+        }
+
+    def complete(
+        self,
+        observation: Mapping[str, Any],
+        *,
+        expected_result_state: str = "completed",
+        expected_result_id: Optional[str] = None,
+        record_state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        observation = validate_cursor_acp_observation(observation)
+        proved = prove_cursor_acp_observation(
+            observation,
+            expected_session=self.session,
+            expected_conversation_id=self.conversation_id,
+            expected_workspace=self.workspace,
+            expected_result_state=expected_result_state,
+            expected_result_id=expected_result_id,
+            catalog=self.catalog,
+        )
+        lifecycle = qualify_cursor_acp_lifecycle(
+            observation,
+            expected_session=self.session,
+            expected_conversation_id=self.conversation_id,
+            expected_workspace=self.workspace,
+            expected_result_state=expected_result_state,
+            expected_result_id=expected_result_id,
+            record_state=record_state,
+            catalog=self.catalog,
+        )
+        fields = caller_fields_from_observation(observation, record_state=record_state)
+        if (
+            fields["caller_outcome"]["worker_completion"] == "reported"
+            and fields["caller_outcome"]["controller_acceptance"] == "accepted"
+            and record_state != "ACCEPTED"
+        ):
+            _raise_identity(
+                "result_identity_mismatch",
+                "worker completion is not controller acceptance",
+            )
+        return {
+            "ok": True,
+            "available": False,
+            "ordinary_launch": "unavailable",
+            "live_claimed": False,
+            "binding": proved,
+            "lifecycle": lifecycle,
+            "caller_outcome": fields["caller_outcome"],
+            "final_outcome": fields["final_outcome"],
+        }
+
+    def request_cancel(self) -> Dict[str, Any]:
+        runtime = self.require_runtime()
+        runtime.cancelled = True
+        _write_event(
+            self.isolated_root,
+            {
+                "event": "cancel_requested",
+                "session": self.session,
+                "conversation_id": self.conversation_id,
+                "halt": "none",
+            },
+        )
+        return {
+            "status": "cancellation-requested",
+            "session": self.session,
+            "conversation_id": self.conversation_id,
+            "halt": "none",
+        }
+
+    def observe_halt(self, observation: Mapping[str, Any]) -> Dict[str, Any]:
+        runtime = self.require_runtime()
+        if runtime.cancelled and observation.get("halt") is None:
+            _raise_identity(
+                "session_identity_mismatch",
+                "cancellation is not independently observed halt",
+            )
+        halt = prove_shutdown(
+            observation,
+            expected_session=self.session,
+            expected_conversation_id=self.conversation_id,
+        )
+        resume = prove_resume_identity(
+            observation,
+            expected_session=self.session,
+            expected_conversation_id=self.conversation_id,
+        )
+        if resume["session"] != halt["session"]:
+            _raise_identity(
+                "session_identity_mismatch",
+                "halt identity does not match the bound session",
+            )
+        runtime.halted = True
+        return halt
+
+    def persist_lifecycle(
+        self,
+        observation: Mapping[str, Any],
+        *,
+        question: Optional[Mapping[str, Any]] = None,
+        record_state: Optional[str] = None,
+        require_halt: bool = False,
+    ) -> Dict[str, Any]:
+        observation = validate_cursor_acp_observation(observation)
+        completed = self.complete(observation, record_state=record_state)
+        halt_state = completed["caller_outcome"]["halt"]
+        if require_halt:
+            self.observe_halt(observation)
+            halt_state = "confirmed"
+        callbacks = (
+            self.reject_callbacks()
+            if self.runtime is not None
+            else {"schema": CALLBACK_SCHEMA, "fs": False, "terminal": False, "rejected": [], "local_side_effect": False}
+        )
+        question_state = (
+            self.require_human_question(question)
+            if question is not None
+            else {
+                "schema": QUESTION_SCHEMA,
+                "state": "none",
+                "interaction_id": None,
+                "human_required": False,
+                "outcome": None,
+                "invented_answer": None,
+            }
+        )
+        evidence = persist_evidence(
+            self.isolated_root,
+            {
+                "schema": EVIDENCE_SCHEMA,
+                "transport": TRANSPORT_ID,
+                "target": TARGET,
+                "session": self.session,
+                "conversation_id": self.conversation_id,
+                "workspace": dict(self.workspace),
+                "model": dict(completed["binding"]["model"]),
+                "terminal_result": dict(completed["binding"]["terminal_result"]),
+                "worker_completion": completed["caller_outcome"]["worker_completion"],
+                "controller_acceptance": completed["caller_outcome"]["controller_acceptance"],
+                "halt": halt_state,
+                "question": question_state,
+                "callbacks": callbacks,
+                "cleanup": load_isolated_root(self.isolated_root)["cleanup"],
+                "live_claimed": False,
+                "prompt_retained": False,
+                "response_retained": False,
+                "acpx": acpx_dependency_identity(),
+            },
+        )
+        audit_durable_artifacts(self.isolated_root)
+        return {
+            **completed,
+            "ownership": load_isolated_root(self.isolated_root),
+            "evidence": evidence,
+            "acpx": acpx_dependency_identity(),
+            "boundary": public_runtime_boundary(),
+        }
+
+
+def fixture_runtime(
+    isolated_root: Path,
+    *,
+    session: str = "cursor-acp-session",
+    conversation_id: str = "conv-cursor-acp-1",
+    workspace_root: Optional[Path] = None,
+    requested_callbacks: Sequence[str] = (),
+    process_query: Optional[ProcessQuery] = None,
+    process_identity: Optional[Mapping[str, Any]] = None,
+) -> SyntheticAcpxRuntime:
+    peer = SyntheticAcpxPeer(
+        session=session,
+        conversation_id=conversation_id,
+        workspace_root=workspace_root or isolated_root,
+        requested_callbacks=requested_callbacks,
+    )
+    return SyntheticAcpxRuntime(
+        isolated_root=isolated_root,
+        peer=peer,
+        process_query=process_query,
+        process_identity=process_identity,
+    )
+
+
+__all__ = [
+    "ADAPTER_ID",
+    "ACPX_HEAD",
+    "ACPX_ORDINARY_PINNED_PACKAGE",
+    "ACPX_SOURCE",
+    "ACPX_STATUS",
+    "AUTHORITY_ID",
+    "CursorAcpxAdapter",
+    "FORBIDDEN_CALLBACKS",
+    "GENERIC_ACP_ID",
+    "SyntheticAcpxPeer",
+    "SyntheticAcpxRuntime",
+    "TARGET",
+    "TRANSPORT_ID",
+    "acpx_dependency_identity",
+    "audit_durable_artifacts",
+    "claim_isolated_root",
+    "fixture_observation",
+    "fixture_runtime",
+    "load_isolated_root",
+    "mark_cleanup_unknown",
+    "public_runtime_boundary",
+    "validate_public_runtime_options",
+]
