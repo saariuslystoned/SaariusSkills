@@ -1,0 +1,63 @@
+{
+  "overall_behavior": "blocked",
+  "overall_confidence": 0.98,
+  "target": {
+    "type": "local CLI/runtime",
+    "access": "installed native agy and pinned antigravity-acp runtime/helper"
+  },
+  "contract": {
+    "path": "behavior-contract.md",
+    "version": "2026-09-20"
+  },
+  "checks": [
+    {
+      "contract_clause": "Native runtime identity and advertised surface",
+      "status": "pass",
+      "severity": null,
+      "evidence": "Absolute native AGY binary reported version 1.2.7 and advertised --print, stream-json input/output, --conversation, --model, and --effort.",
+      "reproduction_steps": [
+        "/Users/bobbybones/.local/bin/agy --version",
+        "/Users/bobbybones/.local/bin/agy --help"
+      ],
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "Official ACP runtime/helper availability",
+      "status": "pass",
+      "severity": null,
+      "evidence": "Pinned acpx v0.17.1 and the official agy_acp_server_1.1.1 runtime/helper were launched from a temporary isolated root; the candidate session advertised 11 models.",
+      "reproduction_steps": [
+        "pinned acpx v0.17.1 via npm exec",
+        "official agy_acp_server_1.1.1 runtime/helper from the pinned archive",
+        "isolated antigravity sessions new --name compare"
+      ],
+      "confidence": 0.99
+    },
+    {
+      "contract_clause": "Personal OAuth profile and no-fallback quota gate",
+      "status": "partial",
+      "severity": "P1",
+      "evidence": "The temporary isolated GEMINI_HOME was configured for personal OAuth and useG1Credits=false; one smoke request completed, but server-side quota entitlement was not independently proven.",
+      "reproduction_steps": [
+        "check isolated GEMINI_HOME presence without printing its value",
+        "complete one bounded ACP smoke request with response discarded"
+      ],
+      "confidence": 0.99
+    }
+  ],
+  "anti_cheat_probes": [
+    {
+      "probe": "Resolve both named runtimes by absolute path and PATH",
+      "result": "Native AGY and the pinned ACP runtime/helper resolved from separate absolute paths."
+    },
+    {
+      "probe": "One bounded ACP smoke request",
+      "result": "Exit code 0 on gemini-3.8-flash-high; response body discarded."
+    }
+  ],
+  "blockers": [
+    "The isolated profile's server-side quota entitlement remains unproven even though useG1Credits=false is configured.",
+    "Full ACP qualification still requires proof of question cancellation, cancellation/cleanup, and Puppet-owned transport behavior.",
+    "The Codex UI queues hidden PTYs and the computer-use connector cannot type into macOS Terminal.app; the user supplied the launch command directly."
+  ]
+}
