@@ -1,31 +1,41 @@
-# Issue 54 / PR 55 P2 lock repair handoff
+# Issue 54 / PR 55 repair-cycle-2 handoff
 
 Worktree: `/Users/bobbybones/.codex/worktrees/eb45/SaariusSkills`
 Branch: `codex/issue54-cursor-recovery`
-HEAD: `c3f5077` (repair cycle 1 source commit)
-Route: native Cursor ACP only. No alternate transport/model, credentials, auth logs, `.env`, private keys, deploy, or merge.
+HEAD: `2efafae` (reviewed repair-cycle-1 head; this cycle is uncommitted)
+Route: native Cursor ACP only — `/Users/bobbybones/.local/bin/cursor-agent acp` with `cursor-grok-4.6-high`. No alternate transport/model, credentials, auth logs, `.env`, private keys, install/reload, push, deploy, or merge.
+
+## Repair-cycle-2 dispositions
+
+Canonical review `saariusskills-pr55-2efafae-repair1-p3` (PROOF at `/Users/bobbybones/Developer/side-quests/x-api/runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20260920T185532Z-81856/PROOF.md`; local adjudication at `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair1/PROOF.md`) returned 2 required fixes. Both implemented here. Repair-cycle-1 locking (`write`+`fsync`+`link`, reclaim fence, token-checked release) is unchanged.
+
+Native Cursor job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically on the exact route with 150 tool calls. Independent post-handoff verification is 31/31. This remains `SOURCE_FIXED`; no install/reload or `NATIVE_QUALIFIED` claim.
+
+- P2 PID reuse: `required_fix` implemented. After complete matching job-owner and lease identities, `shouldRecoverOwnedJob` now recovers `classifyOwnerIdentity === "reused"` exactly like missing/dead. Unknown/incomplete identity and probes without a definitive start time stay unrecovered. Bare-PID safety is unchanged.
+- P3 setup isolation fixture: `required_fix` implemented. The dead-owner fixture now writes `owners/<brokerId>.json`. An equivalent disposable control is recovered when a broker initializes directly; `setup --check` leaves the original fixture `running`.
 
 ## Changed files
 
-- `bridge/cursor-acp/broker.mjs` — exclusive complete lock publication, reclaim fence, token-checked release
-- `bridge/cursor-acp/test/lock.test.mjs` — two-contender and interruption regressions
-- `docs/cursor-acp-delegation.md` — lock publication/exclusion contract
-- `skills/cursor-acp-delegation/SKILL.md` — matching operator note
+- `bridge/cursor-acp/broker.mjs` — recover proven PID reuse after matching job/lease identities
+- `bridge/cursor-acp/test/broker.test.mjs` — distinguish proven reuse from ambiguous identity
+- `bridge/cursor-acp/test/recovery.test.mjs` — recover proven reuse; keep bare-PID and no-lease fail-safe
+- `bridge/cursor-acp/test/setup.test.mjs` — matching lease plus direct-init negative control
+- `docs/cursor-acp-delegation.md` — proven reuse vs ambiguous identity
+- `skills/cursor-acp-delegation/SKILL.md` — matching operator wording
 - `runs/cursor-acp-issue54-runs/20260920-issue54-001/{PROOF.md,STATE.md,events.jsonl,heartbeat}`
 - `ISSUE54-HANDOFF.md`
 
 ## Tests and proof
 
-- First reproduced both audit negatives against this candidate with imports retargeted here. Original evidence left intact at `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/{PROOF.md,lock-race.mjs,lock-race.json,incomplete-lock.mjs,incomplete-lock.json}`.
-- Candidate repro before repair: lock-race `maximumConcurrentCriticalSections=2`, `cLockRemovedByB=true`; incomplete-lock `statusAfterRecovery=running`, `JOB_LOCK_TIMEOUT`, `lockBytes=0`.
-- `cd bridge/cursor-acp && npm run check`: 30 passed, 0 failed.
-- Focused: `node --test test/lock.test.mjs` (4 passed), including separate-process stale reclamation and separate-process interruption.
-- Repaired repros: lock-race `FIXED` / max concurrent 1; incomplete-lock `FIXED` / recovered `failed` / subsequent lock acquired in 34ms.
-- Native review `89d07e37-7588-43ba-804e-5d4a3097ee00` completed canonically but ended with `PING timed out`; local-only retry `30bf36a1-1236-4edd-9950-3331deeb537e` failed at bridge startup. Independent source proof is 30/30.
+- Targeted before: `node --test test/broker.test.mjs test/recovery.test.mjs test/setup.test.mjs` — 26 passed, including the two tests that encoded the rejected behavior (`PID reuse ... is not reaped`; setup fixture without a lease).
+- Targeted after: same files plus `test/lock.test.mjs` — 31 passed, 0 failed. New/updated: proven reuse recovers `BRIDGE_RESTARTED`; no-lease reuse and bare-PID stay `running`; setup `--check` isolation plus direct-init recovery control.
+- `cd bridge/cursor-acp && npm run check`: 31 passed, 0 failed.
+- Lock suite unchanged and still passing (4/4).
+- No native model turn, shared job-store pointer, install/reload, commit, push, or merge from this worker.
 
 ## Remaining risks
 
-- Parent owns final adjudication; source commit and PR update remain non-merge actions.
+- Parent owns commit, push, PR update, exact-head review, and final adjudication. No `NATIVE_QUALIFIED` claim.
 - Native installed concurrent MCP execution is still unqualified.
 - Unreadable reclaim fences with unknown owners still wait out the lock timeout (fail-safe, not indiscriminate delete).
-- Lock liveness still depends on owner `startTime` matching the probed process start time; synthetic mismatched start times look like PID reuse.
+- Ambiguous probes (`alive` without start time, incomplete identity, missing/mismatched lease) remain unrecovered by design.

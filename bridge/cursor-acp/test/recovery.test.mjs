@@ -227,7 +227,7 @@ test("a lease that does not match the job owner is left unchanged", async () => 
   await broker.close();
 });
 
-test("PID reuse with a mismatched start time is not reaped", async () => {
+test("proven PID reuse with a mismatched start time is recovered as BRIDGE_RESTARTED", async () => {
   const { stateRoot } = await makeState();
   const written = await writeSyntheticJob(stateRoot, {
     owner: {
@@ -235,6 +235,24 @@ test("PID reuse with a mismatched start time is not reaped", async () => {
       pid: process.pid,
       startTime: "Thu Jan  1 00:00:00 1970",
     },
+  });
+  const broker = makeSecondBroker(stateRoot);
+  await broker.init();
+  const after = await broker.result({ jobId: written.jobId });
+  assert.equal(after.status, "failed");
+  assert.equal(after.error.code, "BRIDGE_RESTARTED");
+  await broker.close();
+});
+
+test("proven PID reuse without a matching owner lease is left unchanged", async () => {
+  const { stateRoot } = await makeState();
+  const written = await writeSyntheticJob(stateRoot, {
+    owner: {
+      brokerId: "reusenol-0000-4000-8000-000000000001",
+      pid: process.pid,
+      startTime: "Thu Jan  1 00:00:00 1970",
+    },
+    writeLease: false,
   });
   const broker = makeSecondBroker(stateRoot);
   await broker.init();

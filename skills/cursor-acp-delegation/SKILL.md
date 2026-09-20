@@ -65,9 +65,11 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   owner-local.
 - A second broker initialization or setup/readiness check must not fail a
   non-terminal job owned by another live broker. Startup recovery fails a job
-  only when that exact owner identity is demonstrably dead; unknown or
-  incomplete ownership and PID reuse stay fail-safe. Do not treat bare PID
-  existence as proof of liveness. Job locks publish complete owner metadata
+  only when that exact owner identity is demonstrably gone: missing/dead, or
+  proven PID reuse after complete matching job/lease identities and a definite
+  start-time mismatch. Unknown or incomplete ownership and probes without a
+  definitive start time stay fail-safe. Do not treat bare PID existence as
+  proof of liveness or of reuse. Job locks publish complete owner metadata
   atomically and preserve mutual exclusion across stale-lock takeover and
   release.
 - Treat `completed`, `failed`, `cancelled`, and `needs-input` as distinct

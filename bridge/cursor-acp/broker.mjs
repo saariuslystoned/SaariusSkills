@@ -92,7 +92,8 @@ export function classifyOwnerIdentity(owner, probe) {
 export function shouldRecoverOwnedJob(job, lease, probe) {
   if (!job || isTerminalStatus(job.status)) return false;
   if (!ownerIdentitiesMatch(job.owner, lease)) return false;
-  return classifyOwnerIdentity(job.owner, probe) === "dead";
+  const state = classifyOwnerIdentity(job.owner, probe);
+  return state === "dead" || state === "reused";
 }
 
 export async function inspectProcessIdentity(pid, exec = execFile) {
@@ -402,7 +403,9 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
   // acpx session records contain full conversation messages. Keep those
   // internal records ephemeral; only the broker's bounded control proof is
   // durable. Restart never resumes a previous model session. In-flight jobs
-  // are failed closed only when their exact owner identity is demonstrably dead.
+  // are failed closed only when their exact owner identity is demonstrably
+  // gone: missing/dead, or proven PID reuse after complete matching job and
+  // lease identities plus a definite process start-time mismatch.
   const sessions = new Map();
   const runtime = createAcpRuntime({
     cwd: stateRoot,

@@ -45,16 +45,31 @@ Repaired verification (adapted scripts; original negatives left intact):
 ## Acceptance tracking
 
 - [x] Live owner is preserved during second broker initialization.
-- [x] Demonstrably dead owner is recovered; unknown/PID-reuse cases fail safe.
+- [x] Demonstrably dead owner is recovered; unknown/incomplete identity and probes without a definitive start time fail safe.
+- [x] Proven PID reuse (complete matching job/lease plus definite start-time mismatch) is recovered like missing/dead; bare PID existence is not treated as reuse.
 - [x] Separate-process regression and terminal-state race coverage.
-- [x] Setup/readiness cannot invalidate active jobs.
+- [x] Setup/readiness cannot invalidate active jobs; eligible dead-owner fixture now has a matching lease and a direct-init negative control.
 - [x] Two stale-lock reclaimers keep mutual exclusion, including separate OS processes.
 - [x] Incomplete/interrupted lock publication does not pin a dead-owner job or loop into `JOB_LOCK_TIMEOUT`.
 - [ ] One native Cursor ACP implementation completes while another broker initializes (requires installed reload; not claimed).
-- [x] Source review, commit, non-force push, and PR update completed; merge/adjudication remains external.
+- [x] Source review, commit, non-force push, and PR update completed for repair cycle 1; merge/adjudication remains external.
+- [ ] Repair cycle 2 commit/push/PR update and exact-head review remain with the parent.
+
+## Repair cycle 2
+
+Canonical review `saariusskills-pr55-2efafae-repair1-p3` against head `2efafae2bd1e336a27e482b0ed375a83404fea34` found two required fixes. Official proof: `/Users/bobbybones/Developer/side-quests/x-api/runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20260920T185532Z-81856/PROOF.md`. Local adjudication: `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair1/PROOF.md`.
+
+Implemented on the native Cursor ACP route only (`/Users/bobbybones/.local/bin/cursor-agent acp`, `cursor-grok-4.6-high`) in this worktree. Native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically with 150 tool calls. Repair-cycle-1 locking is preserved. No install/reload, shared job-store pointer, commit, push, or merge.
+
+- P2: `shouldRecoverOwnedJob` recovers `dead` and `reused` after matching job/lease identities. Ambiguous identity stays unrecovered.
+- P3: setup fixture writes `owners/<brokerId>.json`. `setup --check` leaves that eligible fixture `running`; an equivalent disposable fixture is recovered when a broker initializes directly.
+
+Targeted before: `node --test test/broker.test.mjs test/recovery.test.mjs test/setup.test.mjs` — 26 passed (including the two tests that encoded the rejected behavior).
+Targeted after: same plus `test/lock.test.mjs` — 31 passed.
+`cd bridge/cursor-acp && npm run check`: 31 passed, 0 failed, independently rerun after the native handoff.
 
 ## Current terminal status
 
-`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: P2 lock repair is committed as `c3f5077` and independently fixture-proved. Native review `89d07e37-7588-43ba-804e-5d4a3097ee00` completed canonically on the exact route but returned a `PING timed out` handoff before findings; retry `30bf36a1-1236-4edd-9950-3331deeb537e` failed at bridge startup. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
+`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: repair cycle 2 source is implemented and fixture-proved in this worktree against reviewed head `2efafae`. Native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed, and independent `npm run check` is 31/31. It is not yet committed. Parent owns commit, push, PR update, exact-head review, and final adjudication. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
 
 Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55

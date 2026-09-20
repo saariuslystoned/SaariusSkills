@@ -243,7 +243,7 @@ test("safe summaries redact credentials and do not persist prompt bodies", async
   await broker.close();
 });
 
-test("owner identity classification is fail-safe for unknown and PID reuse", () => {
+test("owner identity classification recovers proven PID reuse and fails safe on ambiguous identity", () => {
   const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "Sun Sep 20 13:00:00 2026" };
   const lease = { ...owner };
   assert.equal(classifyOwnerIdentity(undefined, { status: "missing" }), "unknown");
@@ -256,7 +256,9 @@ test("owner identity classification is fail-safe for unknown and PID reuse", () 
   assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), "reused");
   assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: owner.startTime }), "live");
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "missing" }), true);
-  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), true);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "unknown" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, null, { status: "missing" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner, startTime: "other" }, { status: "missing" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "completed", owner }, lease, { status: "missing" }), false);
