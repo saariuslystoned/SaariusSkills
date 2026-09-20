@@ -13,7 +13,7 @@ Source repair is implemented and fixture-proved. Detailed commands and outcomes 
 ## Source repair
 
 - Committed candidate `a821c6c` on `codex/issue54-cursor-recovery`.
-- Branch HEAD at start of P2 lock repair: `9d1e5c8b2a3bc333ae0667bb97856cce526776dd`.
+- Branch HEAD at start of P2 lock repair: `9d1e5c8b2a3bc333ae0667bb97856cce526776dd`; repair commit: `c3f5077`.
 - Isolated setup fixtures only; `setup --check` was not pointed at shared real job storage.
 - No commit, push, deploy, or live Cursor model turn from this worker.
 - Native follow-up `78daf5de-a569-4d82-85af-2392fb4489e5` completed canonically on the exact route with 81 tool calls; review follow-up `ff1b65be-63dc-4214-8a17-df061dfd3249` completed with 111 tool calls.
@@ -55,6 +55,6 @@ Repaired verification (adapted scripts; original negatives left intact):
 
 ## Current terminal status
 
-`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: P2 lock repair is implemented and independently fixture-proved on uncommitted repair-cycle-1 changes above `9d1e5c8`. Native review `89d07e37-7588-43ba-804e-5d4a3097ee00` completed canonically on the exact route but returned a `PING timed out` handoff before findings; retry `30bf36a1-1236-4edd-9950-3331deeb537e` failed at bridge startup. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
+`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: P2 lock repair is committed as `c3f5077` and independently fixture-proved. Native review `89d07e37-7588-43ba-804e-5d4a3097ee00` completed canonically on the exact route but returned a `PING timed out` handoff before findings; retry `30bf36a1-1236-4edd-9950-3331deeb537e` failed at bridge startup. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
 
 Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55

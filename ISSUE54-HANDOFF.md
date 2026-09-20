@@ -2,8 +2,8 @@
 
 Worktree: `/Users/bobbybones/.codex/worktrees/eb45/SaariusSkills`
 Branch: `codex/issue54-cursor-recovery`
-HEAD: `9d1e5c8b2a3bc333ae0667bb97856cce526776dd` (repair cycle 1 candidate uncommitted)
-Route: native Cursor ACP only. No alternate transport/model, credentials, auth logs, `.env`, private keys, push, deploy, or commit.
+HEAD: `c3f5077` (repair cycle 1 source commit)
+Route: native Cursor ACP only. No alternate transport/model, credentials, auth logs, `.env`, private keys, deploy, or merge.
 
 ## Changed files
 
@@ -25,7 +25,7 @@ Route: native Cursor ACP only. No alternate transport/model, credentials, auth l
 
 ## Remaining risks
 
-- Parent owns independent review, commit/push, PR update, and adjudication.
+- Parent owns final adjudication; source commit and PR update remain non-merge actions.
 - Native installed concurrent MCP execution is still unqualified.
 - Unreadable reclaim fences with unknown owners still wait out the lock timeout (fail-safe, not indiscriminate delete).
 - Lock liveness still depends on owner `startTime` matching the probed process start time; synthetic mismatched start times look like PID reuse.
