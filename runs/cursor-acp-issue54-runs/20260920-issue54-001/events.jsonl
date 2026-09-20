@@ -6,7 +6,7 @@
 {"event":"native_attempt_1","jobId":"56a645bb-571d-457f-ae4d-d5d2fa775dc7","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false}
 {"event":"native_attempt_2","jobId":"93321c12-022e-437b-a5b5-f799a6fd0257","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false,"polling":"read_only_job_metadata"}
 {"event":"terminal","status":"BLOCKED","reason":"native_route_self_reaps_async_job_before_worker_turn"}
-{"event": "source_fixed", "tests": "26_passed", "command": "cd bridge/cursor-acp && npm run check", "commit": null, "native_turn": false}
+{"event": "source_fixed", "tests": "26_passed", "command": "cd bridge/cursor-acp && npm run check", "commit": "a821c6c", "native_turn": true}
 {"event":"native_followup","jobId":"78daf5de-a569-4d82-85af-2392fb4489e5","result":"completed","toolCalls":81}
 {"event":"native_review_followup","jobId":"ff1b65be-63dc-4214-8a17-df061dfd3249","result":"completed","toolCalls":111}
 {"event":"independent_verification","command":"cd bridge/cursor-acp && npm run check","result":"26_passed"}

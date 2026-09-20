@@ -12,7 +12,7 @@ Source repair is implemented and fixture-proved. Detailed commands and outcomes 
 
 ## Source repair
 
-- Uncommitted worktree changes on `codex/issue54-cursor-recovery`.
+- Committed candidate `a821c6c` on `codex/issue54-cursor-recovery`.
 - `cd bridge/cursor-acp && npm run check`: 26 passed.
 - Isolated setup fixtures only; `setup --check` was not pointed at shared real job storage.
 - No commit, push, deploy, or live Cursor model turn from this worker.
@@ -30,4 +30,4 @@ Source repair is implemented and fixture-proved. Detailed commands and outcomes 
 
 ## Current terminal status
 
-`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: committed source and review-ready PR are next; installed plugin reload and bounded live in-flight qualification remain owner-gated.
+`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: commit `a821c6c` is ready for review/PR; installed plugin reload and bounded live in-flight qualification remain owner-gated.
