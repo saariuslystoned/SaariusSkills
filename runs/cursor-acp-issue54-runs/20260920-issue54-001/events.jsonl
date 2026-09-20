@@ -13,3 +13,9 @@
 {"event":"independent_recovery_repeat","command":"node --test test/recovery.test.mjs","result":"3_consecutive_passes"}
 {"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true}
 {"event":"pr_opened","url":"https://github.com/saariuslystoned/SaariusSkills/pull/55","state":"OPEN","ci":"IN_PROGRESS"}
+{"event":"p2_lock_audit_repro","candidate":"9d1e5c8b2a3bc333ae0667bb97856cce526776dd","lockRace":"REPRODUCED","maximumConcurrentCriticalSections":2,"cLockRemovedByB":true,"incompleteLock":"REPRODUCED","statusAfterRecovery":"running","subsequentLockAttempt":"JOB_LOCK_TIMEOUT","lockBytes":0,"originalEvidencePreserved":true}
+{"event":"p2_lock_repaired","command":"cd bridge/cursor-acp && npm run check","result":"30_passed","lockRace":"FIXED","maximumConcurrentCriticalSections":1,"incompleteLock":"FIXED","statusAfterRecovery":"failed","subsequentLockAttempt":"acquired","commit":null}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"p2LockRepair":"uncommitted"}
+{"event":"native_review","jobId":"89d07e37-7588-43ba-804e-5d4a3097ee00","result":"completed","handoff":"PING timed out","scope":"P2_lock_race_and_atomic_publication"}
+{"event":"native_review_retry","jobId":"30bf36a1-1236-4edd-9950-3331deeb537e","result":"failed","error":"BRIDGE_ERROR","scope":"local_only_exact_head_review"}
+{"event":"repair_cycle_1_verification","npmCheck":"30_passed","focusedLockTests":"4_passed","lockRaceMaximumConcurrency":1,"interruptedLock":"recovered_and_reacquired"}

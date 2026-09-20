@@ -67,7 +67,9 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   non-terminal job owned by another live broker. Startup recovery fails a job
   only when that exact owner identity is demonstrably dead; unknown or
   incomplete ownership and PID reuse stay fail-safe. Do not treat bare PID
-  existence as proof of liveness.
+  existence as proof of liveness. Job locks publish complete owner metadata
+  atomically and preserve mutual exclusion across stale-lock takeover and
+  release.
 - Treat `completed`, `failed`, `cancelled`, and `needs-input` as distinct
   outcomes. Escalate `needs-input` to the user with the bounded reason; do not
   invent a login flow, API-key fallback, or hidden approval.

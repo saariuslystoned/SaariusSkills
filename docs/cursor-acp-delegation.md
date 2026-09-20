@@ -95,6 +95,12 @@ resumes a previous model session. A later broker initialization fails a
 non-terminal job only when that job's exact owner identity is demonstrably
 dead. Jobs owned by another live broker, and jobs whose ownership cannot be
 proved dead (unknown or incomplete owner, missing lease, or PID reuse), are left unchanged.
+Job mutation uses a sibling lock file whose complete owner metadata is published
+atomically. Stale-lock takeover is serialized by an exclusive reclaim fence and
+token-checked release, so two reclaimers cannot enter a critical section
+together or unlink another live holder. An interrupted acquire must not leave an
+empty or partial lock at the canonical path; unreadable leftovers are reclaimed
+only through that fence, not deleted on sight.
 Bare PID existence is not treated as proof of liveness. Existing stores from
 older bridge versions are not read, migrated or deleted. Final handoffs are bounded and redacted.
 

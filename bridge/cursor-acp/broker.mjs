@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -263,8 +263,52 @@ async function requireDirectory(value, field, { defaultValue } = {}) {
 async function atomicWrite(filePath, contents) {
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
-  const { rename } = await import("node:fs/promises");
   await rename(temporaryPath, filePath);
+}
+
+async function writeCompleteFile(filePath, contents) {
+  const handle = await open(filePath, "w", 0o600);
+  try {
+    await handle.writeFile(contents, { encoding: "utf8" });
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function inspectLockFile(lockPath) {
+  try {
+    const raw = await readFile(lockPath, "utf8");
+    try {
+      const holder = JSON.parse(raw);
+      if (!holder || typeof holder !== "object") return { status: "unreadable" };
+      return { status: "readable", holder };
+    } catch {
+      return { status: "unreadable" };
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "missing" };
+    return { status: "unreadable" };
+  }
+}
+
+function lockHoldersMatch(left, right) {
+  if (!left || !right) return false;
+  if (typeof left.token === "string" && left.token && left.token === right.token) return true;
+  return left.brokerId === right.brokerId &&
+    left.pid === right.pid &&
+    left.startTime === right.startTime;
+}
+
+async function releaseOwnedLockFile(lockPath, token) {
+  try {
+    const inspection = await inspectLockFile(lockPath);
+    if (inspection.status === "readable" && inspection.holder?.token === token) {
+      await rm(lockPath, { force: true });
+    }
+  } catch {
+    // Fail-safe: never delete a lock we cannot prove we still own.
+  }
 }
 
 function routeSummary(executable, model) {
@@ -396,6 +440,7 @@ export class CursorAcpBroker {
       ? options.startTime.trim()
       : null;
     this.inspectProcess = options.inspectProcess ?? inspectProcessIdentity;
+    this.onJobLockPrepared = options.onJobLockPrepared ?? null;
     this.cursorExecutable = path.resolve(
       options.cursorExecutable ??
         process.env.CURSOR_AGENT_EXECUTABLE ??
@@ -496,7 +541,7 @@ export class CursorAcpBroker {
         message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
       };
       await this.writeJobRecord(job);
-      await this.recordEvent(job, "bridge_restarted", { previousStatus });
+      if (job.proof?.events) await this.recordEvent(job, "bridge_restarted", { previousStatus });
     }, { skipOnTimeout: true });
   }
 
@@ -944,39 +989,134 @@ export class CursorAcpBroker {
 
   async withJobLock(jobId, fn, { timeoutMs = JOB_LOCK_TIMEOUT_MS, skipOnTimeout = false } = {}) {
     const lockPath = this.jobLockPath(jobId);
+    const reclaimPath = `${lockPath}.reclaim`;
     const deadline = Date.now() + timeoutMs;
+    let token;
+    let uniquePath;
     while (true) {
+      token = randomUUID();
+      uniquePath = `${lockPath}.${token}`;
+      const payload = `${JSON.stringify({ ...this.ownerIdentity(), token })}\n`;
+      await writeCompleteFile(uniquePath, payload);
+      if (this.onJobLockPrepared) {
+        await this.onJobLockPrepared({ jobId, lockPath, uniquePath, token, payload });
+      }
       try {
-        await writeFile(lockPath, `${JSON.stringify(this.ownerIdentity())}\n`, {
-          encoding: "utf8",
-          flag: "wx",
-          mode: 0o600,
-        });
-        break;
+        await link(uniquePath, lockPath);
       } catch (error) {
+        await rm(uniquePath, { force: true });
+        uniquePath = null;
         if (error?.code !== "EEXIST") throw error;
         if (Date.now() >= deadline) {
           if (skipOnTimeout) return undefined;
           throw new BridgeError("JOB_LOCK_TIMEOUT", `Timed out locking job ${jobId}`);
         }
-        try {
-          const holder = JSON.parse(await readFile(lockPath, "utf8"));
-          const holderState = classifyOwnerIdentity(holder, await this.probeOwner(holder));
-          if (holderState === "dead" || holderState === "reused") {
-            await rm(lockPath, { force: true });
-            continue;
-          }
-        } catch {
-          // Unreadable or raced lock; retry until timeout.
+        const inspection = await inspectLockFile(lockPath);
+        if (inspection.status === "missing") continue;
+        if (inspection.status === "unreadable") {
+          await this.reclaimJobLock(lockPath, reclaimPath, { observed: null, unreadable: true });
+          continue;
+        }
+        const holderState = classifyOwnerIdentity(inspection.holder, await this.probeOwner(inspection.holder));
+        if (holderState === "dead" || holderState === "reused") {
+          await this.reclaimJobLock(lockPath, reclaimPath, { observed: inspection.holder, unreadable: false });
+          continue;
         }
         await sleep(JOB_LOCK_RETRY_MS);
+        continue;
       }
+      if (await this.hasOtherLiveLockHolder(lockPath, token)) {
+        await releaseOwnedLockFile(lockPath, token);
+        await rm(uniquePath, { force: true });
+        uniquePath = null;
+        if (Date.now() >= deadline) {
+          if (skipOnTimeout) return undefined;
+          throw new BridgeError("JOB_LOCK_TIMEOUT", `Timed out locking job ${jobId}`);
+        }
+        await sleep(JOB_LOCK_RETRY_MS);
+        continue;
+      }
+      break;
     }
     try {
       return await fn();
     } finally {
-      await rm(lockPath, { force: true });
+      if (uniquePath) await rm(uniquePath, { force: true });
+      await releaseOwnedLockFile(lockPath, token);
     }
+  }
+
+  async reclaimJobLock(lockPath, reclaimPath, { observed, unreadable }) {
+    const acquired = await this.tryAcquireLockReclaim(reclaimPath);
+    if (!acquired) {
+      await sleep(JOB_LOCK_RETRY_MS);
+      return;
+    }
+    try {
+      const current = await inspectLockFile(lockPath);
+      if (unreadable) {
+        if (current.status === "unreadable") await rm(lockPath, { force: true });
+        return;
+      }
+      if (current.status !== "readable" || !lockHoldersMatch(current.holder, observed)) return;
+      const holderState = classifyOwnerIdentity(current.holder, await this.probeOwner(current.holder));
+      if (holderState === "dead" || holderState === "reused") {
+        await rm(lockPath, { force: true });
+      }
+    } finally {
+      await rm(reclaimPath, { recursive: true, force: true });
+    }
+  }
+
+  async tryAcquireLockReclaim(reclaimPath) {
+    const uniqueReclaim = `${reclaimPath}.${randomUUID()}`;
+    await mkdir(uniqueReclaim);
+    await writeCompleteFile(
+      path.join(uniqueReclaim, "owner.json"),
+      `${JSON.stringify(this.ownerIdentity())}\n`,
+    );
+    try {
+      await rename(uniqueReclaim, reclaimPath);
+      return true;
+    } catch {
+      await rm(uniqueReclaim, { recursive: true, force: true });
+    }
+    try {
+      const holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
+      const state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
+      if (state === "dead" || state === "reused") {
+        await rm(reclaimPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Unreadable reclaim fence: do not delete indiscriminately.
+    }
+    return false;
+  }
+
+  async hasOtherLiveLockHolder(lockPath, token) {
+    const directory = path.dirname(lockPath);
+    const prefix = `${path.basename(lockPath)}.`;
+    let names;
+    try {
+      names = await readdir(directory);
+    } catch {
+      return false;
+    }
+    for (const name of names) {
+      if (!name.startsWith(prefix)) continue;
+      if (name.endsWith(".tmp") || name.endsWith(".reclaim") || name.includes(".reclaim.")) continue;
+      const suffix = name.slice(prefix.length);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(suffix)) continue;
+      if (suffix === token) continue;
+      try {
+        const holder = JSON.parse(await readFile(path.join(directory, name), "utf8"));
+        const state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
+        if (state === "live" || state === "unknown") return true;
+      } catch {
+        // Unreadable unique tickets are not treated as live holders.
+      }
+    }
+    return false;
   }
 
   async saveAndRecord(job, status, details = {}) {
