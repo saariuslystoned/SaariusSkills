@@ -1,0 +1,38 @@
+{"event":"run_started","sourceSha":"46ec908177bce10d8dffbdff8acab7967f43ec74","branch":"codex/issue54-cursor-recovery","status":"DIAGNOSING"}
+{"event":"shared_state_inventory","result":"terminal_jobs_only","modified":false}
+{"event":"native_readiness","result":"PASS","executable":"/Users/bobbybones/.local/bin/cursor-agent","model":"grok-4.6[effort=high,fast=true]","selector":"cursor-grok-4.6-high"}
+{"event":"baseline_tests","command":"cd bridge/cursor-acp && npm test","result":"13_passed"}
+{"event":"baseline_reproduction","result":"FAIL_EXPECTED","before":"running","after":"failed","error":"BRIDGE_RESTARTED","state":"disposable_temp_only"}
+{"event":"native_attempt_1","jobId":"56a645bb-571d-457f-ae4d-d5d2fa775dc7","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false}
+{"event":"native_attempt_2","jobId":"93321c12-022e-437b-a5b5-f799a6fd0257","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false,"polling":"read_only_job_metadata"}
+{"event":"terminal","status":"BLOCKED","reason":"native_route_self_reaps_async_job_before_worker_turn"}
+{"event": "source_fixed", "tests": "26_passed", "command": "cd bridge/cursor-acp && npm run check", "commit": "a821c6c", "native_turn": true}
+{"event":"native_followup","jobId":"78daf5de-a569-4d82-85af-2392fb4489e5","result":"completed","toolCalls":81}
+{"event":"native_review_followup","jobId":"ff1b65be-63dc-4214-8a17-df061dfd3249","result":"completed","toolCalls":111}
+{"event":"independent_verification","command":"cd bridge/cursor-acp && npm run check","result":"26_passed"}
+{"event":"independent_recovery_repeat","command":"node --test test/recovery.test.mjs","result":"3_consecutive_passes"}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true}
+{"event":"pr_opened","url":"https://github.com/saariuslystoned/SaariusSkills/pull/55","state":"OPEN","ci":"IN_PROGRESS"}
+{"event":"p2_lock_audit_repro","candidate":"9d1e5c8b2a3bc333ae0667bb97856cce526776dd","lockRace":"REPRODUCED","maximumConcurrentCriticalSections":2,"cLockRemovedByB":true,"incompleteLock":"REPRODUCED","statusAfterRecovery":"running","subsequentLockAttempt":"JOB_LOCK_TIMEOUT","lockBytes":0,"originalEvidencePreserved":true}
+{"event":"p2_lock_repaired","command":"cd bridge/cursor-acp && npm run check","result":"30_passed","lockRace":"FIXED","maximumConcurrentCriticalSections":1,"incompleteLock":"FIXED","statusAfterRecovery":"failed","subsequentLockAttempt":"acquired","commit":null}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"p2LockRepair":"uncommitted"}
+{"event":"native_review","jobId":"89d07e37-7588-43ba-804e-5d4a3097ee00","result":"completed","handoff":"PING timed out","scope":"P2_lock_race_and_atomic_publication"}
+{"event":"native_review_retry","jobId":"30bf36a1-1236-4edd-9950-3331deeb537e","result":"failed","error":"BRIDGE_ERROR","scope":"local_only_exact_head_review"}
+{"event":"repair_cycle_1_verification","npmCheck":"30_passed","focusedLockTests":"4_passed","lockRaceMaximumConcurrency":1,"interruptedLock":"recovered_and_reacquired"}
+{"event":"repair_cycle_1_commit","commit":"c3f5077","status":"SOURCE_FIXED","nativeQualified":false}
+{"event":"pr_updated","url":"https://github.com/saariuslystoned/SaariusSkills/pull/55#issuecomment-5751873486","status":"OPEN","merge":false}
+{"event":"repair_cycle_2_adjudication","requestId":"saariusskills-pr55-2efafae-repair1-p3","head":"2efafae2bd1e336a27e482b0ed375a83404fea34","result":"incorrect","findings":2,"p2":"required_fix_pid_reuse","p3":"required_fix_setup_fixture","canonicalProof":"/Users/bobbybones/Developer/side-quests/x-api/runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20260920T185532Z-81856/PROOF.md","localProof":"/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair1/PROOF.md"}
+{"event":"repair_cycle_2_before","command":"node --test test/broker.test.mjs test/recovery.test.mjs test/setup.test.mjs","result":"26_passed","pidReuseReaped":false,"setupFixtureHadMatchingLease":false}
+{"event":"repair_cycle_2_source","route":"native_cursor_acp","executable":"/Users/bobbybones/.local/bin/cursor-agent","selector":"cursor-grok-4.6-high","advertisedModel":"grok-4.6[effort=high,fast=true]","jobId":"29036f29-bb4c-4731-b098-0314c6a99bcb","jobStatus":"completed","toolCallCount":150,"lockPathPreserved":true,"nativeModelTurn":false,"commit":null}
+{"event":"repair_cycle_2_after","command":"node --test test/broker.test.mjs test/recovery.test.mjs test/setup.test.mjs test/lock.test.mjs","result":"31_passed","provenPidReuse":"BRIDGE_RESTARTED","barePidReuse":"running","setupCheckLeavesEligibleFixture":true,"directInitRecoversEquivalentFixture":true}
+{"event":"repair_cycle_2_check","command":"cd bridge/cursor-acp && npm run check","result":"31_passed","independent":true}
+{"event":"repair_cycle_2_commit","commit":"d4fb178","message":"fix(cursor-acp): recover proven pid reuse","status":"SOURCE_FIXED","nativeQualified":false}
+{"event":"repair_cycle_2_push","remote":"origin","branch":"codex/issue54-cursor-recovery","status":"pushed","head":"d4fb178"}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":2,"commit":"d4fb178","head":"d74f837","exactHeadReview":"pending"}
+{"event":"repair_cycle_3_authorization","requestId":"saariusskills-pr55-30adc3b-repair2-p3","ownerDecision":"dispatch_the_repair_i_authorize","scope":"observer_side_recovery_after_owner_death","automaticCyclesRemaining":0,"canonicalProof":"/Users/bobbybones/Developer/side-quests/x-api/runs/spark-openclaw-autoreview-runs/spark-openclaw-autoreview-20260920T191122Z-37382/","localProof":"/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair2/PROOF.md"}
+{"event":"repair_cycle_3_source","route":"native_cursor_acp","executable":"/Users/bobbybones/.local/bin/cursor-agent","selector":"cursor-grok-4.6-high","advertisedModel":"grok-4.6[effort=high,fast=true]","jobId":"743d1016-4c22-41f3-9176-14e98c0853f4","jobStatus":"completed","eventCount":1645,"toolCallCount":117,"scope":"foreign_observer_status_result_recovery","genericSweeper":false,"commit":null}
+{"event":"repair_cycle_3_before_after","originalEvidence":"REPRODUCED","candidateEvidence":"RECOVERED_BY_SAME_OBSERVER","sameObserver":"failed/BRIDGE_RESTARTED","thirdBrokerUsed":false,"originalNegativePreserved":true}
+{"event":"repair_cycle_3_check","targeted":"node --test test/broker.test.mjs test/recovery.test.mjs","targetedResult":"28_passed","full":"cd bridge/cursor-acp && npm run check","fullResult":"35_passed","diffCheck":"clean"}
+{"event":"repair_cycle_3_commit","commit":"a88ec6b","message":"fix(cursor-acp): recover dead owners during observation","status":"SOURCE_FIXED","nativeQualified":false}
+{"event":"repair_cycle_3_push","remote":"origin","branch":"codex/issue54-cursor-recovery","status":"pushed","head":"a88ec6b"}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":3,"commit":"a88ec6b","head":"464e378","exactHeadReview":"pending","automaticCyclesRemaining":0}
