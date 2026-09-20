@@ -5,7 +5,8 @@ local `cursor-acp` transport. This artifact is ready for review; it is not
 live-qualified and does not change ordinary launch behavior.
 
 Draft PR: https://github.com/saariuslystoned/SaariusSkills/pull/56
-Commit: `23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a`
+Implementation commit: `23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a`
+Dependency refresh commit: `88d3ba63b7e4bcdc6a9db040e3829bac88ff97ee`
 
 ## Changed files
 
