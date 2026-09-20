@@ -84,6 +84,16 @@ This local experiment does not claim Puppet's transport-neutral controller,
 OpenClaw gateway, remote-host support, or issues #35/#37 complete. See the
 [local setup and rollback guide](docs/cursor-acp-delegation.md).
 
+## Local Antigravity ACP
+
+A second experimental stdio MCP bridge, named `antigravity-acp`, routes one
+bounded implementation slice through pinned `acpx@0.17.1` to Google's official
+`antigravity-acp` 1.1.1 runtime. It stays separate from the Cursor lane and
+from native `agy --print` / Puppet qualification. Exact advertised model IDs
+are required; personal OAuth lives under an explicit `GEMINI_HOME` profile;
+fixed-choice questions fail closed. See the
+[local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
+
 ## PhoneProof
 
 PhoneProof closes the gap between a green mobile build and the UI a human
@@ -243,6 +253,8 @@ invocation, but it is never required when the user's intent is already clear.
 - `skills/phone-proof/scripts/phone_proof.py`: a standard-library Android
   display inventory and structurally validated screenshot helper.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
+- [`skills/antigravity-acp-delegation/SKILL.md`](skills/antigravity-acp-delegation/SKILL.md):
+  the official Antigravity ACP MCP lane, separate from Cursor ACP and native AGY.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
