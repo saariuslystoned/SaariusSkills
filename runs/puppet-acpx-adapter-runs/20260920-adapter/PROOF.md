@@ -19,10 +19,15 @@ rejected. Ordinary launch remains unavailable.
 ## Dependency
 
 - Upstream draft PR: https://github.com/openclaw/acpx/pull/648
-- Exact head: `2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de`
-- Integrity: `cad05ead9a4cae01e0cc612e43a16ea647323a69d14c172700c790c333e4b0fd`
-- Artifact status: reviewed draft only; synthetic development evidence; not
-  merged, released, or production qualification evidence.
+- Exact repaired head: `02c03c7abeee0324a71e2114e6b1b4cf7b0785ff`
+- Integrity: `9f5d189cf0adf8151109b36814b39293a5f8b82bee38668724635f6fed652b66`
+- Artifact status: reviewed repaired draft only; synthetic development
+  evidence; not merged, released, or production qualification evidence.
+- Exact upstream delta from the original pin: test-only hardening in
+  `test/runtime-capabilities.test.ts` for reconnect/load-session support,
+  absolute fixture paths, disabled/enabled control reconnect cases, and probe
+  path assertions. No runtime implementation file changed in that delta.
+- Historical pre-repair identity remains recorded in `events.jsonl`.
 
 ## Implementation
 

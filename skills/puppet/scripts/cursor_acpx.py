@@ -4,7 +4,7 @@ Binds the existing named local Cursor transport ``cursor-acp``. Ordinary
 launch, native defaults, MCP broker policy, and live qualification stay
 unchanged and unavailable. The public-runtime boundary is the documented
 ``createAcpRuntime`` options from openclaw/acpx draft PR #648 at exact head
-``2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de``; private internals are not
+``02c03c7abeee0324a71e2114e6b1b4cf7b0785ff``; private internals are not
 imported. Tests inject deterministic synthetic runtime and peer fixtures.
 """
 
@@ -56,7 +56,7 @@ QUESTION_SCHEMA = "puppet.cursor-acpx-question/v1"
 PROCESS_SCHEMA = "puppet.cursor-acpx-process/v1"
 
 ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648"
-ACPX_HEAD = "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de"
+ACPX_HEAD = "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff"
 ACPX_STATUS = "draft"
 ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
 ACPX_PUBLIC_SURFACE = "acpx/runtime"

@@ -23,12 +23,16 @@ defaults, `broker.mjs`, and `server.mjs` are unchanged.
 ## Dependency tuple
 
 - source: `https://github.com/openclaw/acpx/pull/648`
-- head: `2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de`
+- repaired head: `02c03c7abeee0324a71e2114e6b1b4cf7b0785ff`
 - status: draft; `merged=false`; `released=false`
 - qualification: `synthetic_only`
 - public surface: `acpx/runtime` / `createAcpRuntime`
-- integrity: `cad05ead9a4cae01e0cc612e43a16ea647323a69d14c172700c790c333e4b0fd`
+- integrity: `9f5d189cf0adf8151109b36814b39293a5f8b82bee38668724635f6fed652b66`
 - ordinary pinned package remains `acpx@0.16.0` on the MCP broker
+- upstream repair delta is test-only: reconnect/load-session support, absolute
+  fixture paths, enabled/disabled control reconnect coverage, and probe path
+  assertions; no runtime implementation file changed
+- historical pre-repair identity remains in `events.jsonl`
 
 ## Proof
 

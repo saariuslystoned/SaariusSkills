@@ -4,7 +4,7 @@ import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "n
 import path from "node:path";
 
 export const ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648";
-export const ACPX_HEAD = "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de";
+export const ACPX_HEAD = "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff";
 export const ACPX_STATUS = "draft";
 export const ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0";
 export const ACPX_PUBLIC_SURFACE = "acpx/runtime";

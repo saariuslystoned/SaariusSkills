@@ -8,3 +8,5 @@
 {"event":"focused_tests","python":"99+28 OK","js":"10/10 pass","compileall":"OK"}
 {"event":"closeout","status":"step2_complete_synthetic_only","live_or_provider_action":false,"pr":false}
 {"event":"draft_pr_published","pr":"https://github.com/saariuslystoned/SaariusSkills/pull/56","commit":"23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a","status":"draft","full_discover":"1281_tests_one_unrelated_doctor_child_timing_failure"}
+{"event":"dependency_refresh","artifact":"openclaw/acpx#648","old_head":"2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de","new_head":"02c03c7abeee0324a71e2114e6b1b4cf7b0785ff","new_integrity":"9f5d189cf0adf8151109b36814b39293a5f8b82bee38668724635f6fed652b66","delta":"test_only_capability_proof_hardening","historical_identity_preserved":true}
+{"event":"dependency_refresh_verification","python_adapter_tests":10,"bridge_check_tests":23,"integrity_match":true,"live_provider_action":false}

@@ -14,6 +14,8 @@
 - live_or_provider_action: none
 - full_suite: 1281 tests; one unrelated pre-existing doctor-child timing failure, task-focused suites pass
 
-Dependency: openclaw/acpx draft PR #648 at
-`2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de` (`cad05ead9a4cae01e0cc612e43a16ea647323a69d14c172700c790c333e4b0fd`).
-Synthetic development evidence only; not merged or released.
+Dependency: openclaw/acpx draft PR #648 at repaired head
+`02c03c7abeee0324a71e2114e6b1b4cf7b0785ff`
+(`9f5d189cf0adf8151109b36814b39293a5f8b82bee38668724635f6fed652b66`).
+Historical pre-repair identity remains in `events.jsonl`; current synthetic
+development evidence uses the repaired head. Not merged or released.
