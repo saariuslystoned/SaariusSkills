@@ -31,3 +31,5 @@ Source repair is implemented and fixture-proved. Detailed commands and outcomes 
 ## Current terminal status
 
 `SOURCE_FIXED`, not `NATIVE_QUALIFIED`: commit `a821c6c` is ready for review/PR; installed plugin reload and bounded live in-flight qualification remain owner-gated.
+
+Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55 (open; repository CI was still in progress at handoff).

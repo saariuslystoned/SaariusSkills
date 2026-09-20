@@ -21,6 +21,7 @@ Proof root: this directory
 - First bootstrap native attempt `56a645bb-571d-457f-ae4d-d5d2fa775dc7` and second `93321c12-022e-437b-a5b5-f799a6fd0257` canonically failed with `BRIDGE_RESTARTED` before worker tool calls.
 - Native follow-up `78daf5de-a569-4d82-85af-2392fb4489e5` completed with 81 tool calls; review follow-up `ff1b65be-63dc-4214-8a17-df061dfd3249` completed with 111 tool calls.
 - Independent recovery-suite repeat: 3 consecutive passes. Installed reload and live native qualification remain pending.
+- Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55 (open; CI in progress).
 
 ## Status vocabulary
 
