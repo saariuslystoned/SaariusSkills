@@ -1,8 +1,8 @@
-# Issue 54 / PR 55 repair-cycle-2 handoff
+# Issue 54 / PR 55 repair-cycle-3 handoff
 
 Worktree: `/Users/bobbybones/.codex/worktrees/eb45/SaariusSkills`
 Branch: `codex/issue54-cursor-recovery`
-HEAD: `d74f837` (repair-cycle-2 source fix plus handoff proof, pushed)
+HEAD: `a88ec6b` (repair-cycle-3 source fix, pushed; proof metadata pending)
 Route: native Cursor ACP only — `/Users/bobbybones/.local/bin/cursor-agent acp` with `cursor-grok-4.6-high`. No alternate transport/model, credentials, auth logs, `.env`, private keys, install/reload, deploy, or merge.
 
 ## Repair-cycle-2 dispositions
@@ -14,6 +14,12 @@ Native Cursor job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically o
 - P2 PID reuse: `required_fix` implemented. After complete matching job-owner and lease identities, `shouldRecoverOwnedJob` now recovers `classifyOwnerIdentity === "reused"` exactly like missing/dead. Unknown/incomplete identity and probes without a definitive start time stay unrecovered. Bare-PID safety is unchanged.
 - P3 setup isolation fixture: `required_fix` implemented. The dead-owner fixture now writes `owners/<brokerId>.json`. An equivalent disposable control is recovered when a broker initializes directly; `setup --check` leaves the original fixture `running`.
 
+## Repair-cycle-3 authorized observer recovery
+
+Owner authorization was explicit: one additional bounded repair cycle was approved after canonical review `saariusskills-pr55-30adc3b-repair2-p3` found that an initialized observer never rechecked a foreign owner's death. The immutable audit evidence is at `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair2/PROOF.md`, with the original negative reproduction in `observer-owner-death.mjs` and `observer-owner-death.json`.
+
+Native Cursor job `743d1016-4c22-41f3-9176-14e98c0853f4` completed canonically on the exact route with 117 tool calls. The bounded worker changed observer-side `status`/`result` recovery only: foreign nonterminal observations reuse the existing matching-lease/process-identity/locked-recheck contract, and foreign `result` waits probe in 250ms slices. No generic sweeper was introduced; owner-local cancel/steer and all prior fail-safe cases remain unchanged.
+
 ## Changed files
 
 - `bridge/cursor-acp/broker.mjs` — recover proven PID reuse after matching job/lease identities
@@ -22,6 +28,10 @@ Native Cursor job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically o
 - `bridge/cursor-acp/test/setup.test.mjs` — matching lease plus direct-init negative control
 - `docs/cursor-acp-delegation.md` — proven reuse vs ambiguous identity
 - `skills/cursor-acp-delegation/SKILL.md` — matching operator wording
+- `bridge/cursor-acp/broker.mjs` — recover dead/reused foreign owners during observation and bounded result waits
+- `bridge/cursor-acp/test/recovery.test.mjs` — same-observer owner death, bounded wait, live-owner, and terminal-race coverage
+- `docs/cursor-acp-delegation.md` — observer recovery contract
+- `skills/cursor-acp-delegation/SKILL.md` — observer recovery contract
 - `runs/cursor-acp-issue54-runs/20260920-issue54-001/{PROOF.md,STATE.md,events.jsonl,heartbeat}`
 - `ISSUE54-HANDOFF.md`
 
@@ -32,6 +42,8 @@ Native Cursor job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically o
 - `cd bridge/cursor-acp && npm run check`: 31 passed, 0 failed.
 - Lock suite unchanged and still passing (4/4).
 - No native model turn, shared job-store pointer, install/reload, or merge from this worker. Source commit `d4fb178` was committed and pushed after verification.
+- Repair cycle 3 targeted recovery plus audit adaptation: before `REPRODUCED` (`running`/incomplete/`JOB_NOT_ACTIVE`, only broker C recovered); after `RECOVERED_BY_SAME_OBSERVER` (`failed`/`BRIDGE_RESTARTED`, no broker C). Original negative evidence was preserved.
+- Targeted recovery/broker tests: 28 passed. Independent `cd bridge/cursor-acp && npm run check`: 35 passed, 0 failed. `git diff --check`: clean. Source commit `a88ec6b` was committed and pushed normally.
 
 ## Remaining risks
 
@@ -39,3 +51,5 @@ Native Cursor job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically o
 - Native installed concurrent MCP execution is still unqualified.
 - Unreadable reclaim fences with unknown owners still wait out the lock timeout (fail-safe, not indiscriminate delete).
 - Ambiguous probes (`alive` without start time, incomplete identity, missing/mismatched lease) remain unrecovered by design.
+- A dead-owner job can remain `running` on disk until an observer reads `status`/`result` or a later broker initializes; cancel remains owner-local and does not itself recover the job.
+- No automatic repair cycle beyond this explicitly authorized observer-recovery slice is permitted. Exact-head canonical review and final adjudication remain with the coordinator.

@@ -2,7 +2,7 @@
 
 Status: SOURCE_FIXED
 Issue: https://github.com/saariuslystoned/SaariusSkills/issues/54
-Source SHA: d4fb178 (repair-cycle-2 source fix; pushed to PR branch)
+Source SHA: a88ec6b (repair-cycle-3 observer-recovery source fix; pushed to PR branch)
 Branch: codex/issue54-cursor-recovery
 Owner: current task
 Route: native Cursor ACP only — `/Users/bobbybones/.local/bin/cursor-agent acp` with `cursor-grok-4.6-high`
@@ -27,6 +27,8 @@ Proof root: this directory
 - Independent verification: `npm run check` 30/30; focused lock tests 4/4; adapted audit repair outcomes lock-race max concurrency 1 and interrupted lock recovered `failed` with subsequent acquisition.
 - Repair cycle 2 (this worker): implemented only the two adjudicated required fixes on the native Cursor ACP route. Lock publication/reclaim path preserved. Targeted before 26/26 (encoding rejected PID-reuse and lease-less setup fixtures); after 31/31; `npm run check` 31/31. No native model turn, install/reload, commit, push, or merge. Status remains `SOURCE_FIXED`, not `NATIVE_QUALIFIED`.
 - Repair cycle 2 native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically on the exact route with 150 tool calls. Its bounded handoff made only the two adjudicated fixes; independent verification reproduced 31/31 after the handoff. Source commit `d4fb178` is pushed; exact-head review remains pending. No install/reload or native qualification claim.
+- Repair cycle 3 was explicitly authorized by the owner as one bounded follow-up after canonical request `saariusskills-pr55-30adc3b-repair2-p3`. Native job `743d1016-4c22-41f3-9176-14e98c0853f4` completed canonically on the exact route with 117 tool calls. It adds observer-side recovery for foreign nonterminal `status`/`result`, with 250ms slices for bounded foreign `result` waits; no generic sweeper, install/reload, or native qualification.
+- Repair cycle 3 independent verification: adapted owner-death audit changed from `REPRODUCED` to `RECOVERED_BY_SAME_OBSERVER`; targeted recovery/broker tests 28/28; full `npm run check` 35/35; `git diff --check` clean. Source commit `a88ec6b` is pushed; exact-head review remains pending.
 
 ## Status vocabulary
 

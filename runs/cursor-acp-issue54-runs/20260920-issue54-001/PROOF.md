@@ -68,8 +68,24 @@ Targeted before: `node --test test/broker.test.mjs test/recovery.test.mjs test/s
 Targeted after: same plus `test/lock.test.mjs` — 31 passed.
 `cd bridge/cursor-acp && npm run check`: 31 passed, 0 failed, independently rerun after the native handoff.
 
+## Repair cycle 3: authorized observer-side recovery
+
+Canonical review `saariusskills-pr55-30adc3b-repair2-p3` found one P2: an observer initialized while owner A was live did not recheck ownership after A exited, so its `status`/`result` stayed `running`/incomplete and `cancel` returned `JOB_NOT_ACTIVE`; broker C was required to recover the job. Immutable evidence remains at `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair2/PROOF.md`, `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair2/observer-owner-death.mjs`, and `/Users/bobbybones/Developer/side-quests/x-api/runs/pr55-audit-runs/20260920/repair2/observer-owner-death.json`.
+
+The owner explicitly authorized one bounded additional repair cycle. Native Cursor job `743d1016-4c22-41f3-9176-14e98c0853f4` completed canonically on `/Users/bobbybones/.local/bin/cursor-agent acp`, selector `cursor-grok-4.6-high`, advertised model `grok-4.6[effort=high,fast=true]`, with 117 tool calls. Source commit `a88ec6b` applies only observer-side recovery. Foreign nonterminal `status`/`result` observations reuse the existing complete-owner/matching-lease/process-probe/locked-recheck contract. Foreign `result` waits probe in 250ms slices; locally owned waits retain notification behavior. No generic periodic service was added.
+
+Evidence and regressions:
+
+- Adapted audit imports to this candidate only; original negative evidence was preserved. Before: `REPRODUCED` (`running`, incomplete, `JOB_NOT_ACTIVE`, broker C required). After: `RECOVERED_BY_SAME_OBSERVER` (`failed`, `BRIDGE_RESTARTED`, no broker C).
+- `node --test test/broker.test.mjs test/recovery.test.mjs`: 28 passed, 0 failed.
+- `cd bridge/cursor-acp && npm run check`: 35 passed, 0 failed, independently rerun after the native handoff.
+- `git diff --check`: clean.
+- New coverage preserves live foreign owners, observes owner death during bounded `result`, and loses a terminal-state race without overwriting completion.
+
+Residual scope is explicit: cancel remains owner-local, so cancel alone does not trigger recovery; ambiguous/incomplete identity and missing/mismatched leases remain fail-safe. No install/reload or `NATIVE_QUALIFIED` claim.
+
 ## Current terminal status
 
-`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: repair cycle 2 source is implemented and fixture-proved against reviewed head `2efafae`, committed as `d4fb178`, and pushed to the PR branch. Native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed, and independent `npm run check` is 31/31. Parent owns PR update, exact-head review, and final adjudication. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
+`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: repair cycle 3 source is implemented and separately process-proved against exact starting head `30adc3b`, committed as `a88ec6b`, and pushed to the PR branch. Native job `743d1016-4c22-41f3-9176-14e98c0853f4` completed, and independent `npm run check` is 35/35. The coordinator owns proof review, exact-head canonical review, and final adjudication. Installed plugin reload and bounded live in-flight qualification remain owner-gated. No automatic repair cycle beyond this explicitly authorized slice.
 
 Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55
