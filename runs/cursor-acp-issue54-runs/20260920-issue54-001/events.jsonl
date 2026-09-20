@@ -35,4 +35,4 @@
 {"event":"repair_cycle_3_check","targeted":"node --test test/broker.test.mjs test/recovery.test.mjs","targetedResult":"28_passed","full":"cd bridge/cursor-acp && npm run check","fullResult":"35_passed","diffCheck":"clean"}
 {"event":"repair_cycle_3_commit","commit":"a88ec6b","message":"fix(cursor-acp): recover dead owners during observation","status":"SOURCE_FIXED","nativeQualified":false}
 {"event":"repair_cycle_3_push","remote":"origin","branch":"codex/issue54-cursor-recovery","status":"pushed","head":"a88ec6b"}
-{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":3,"commit":"a88ec6b","head":"a88ec6b","exactHeadReview":"pending","automaticCyclesRemaining":0}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":3,"commit":"a88ec6b","head":"464e378","exactHeadReview":"pending","automaticCyclesRemaining":0}
