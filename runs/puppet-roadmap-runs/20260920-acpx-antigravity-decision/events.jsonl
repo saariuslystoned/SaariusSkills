@@ -1,0 +1,13 @@
+{"ts":"2026-09-20T08:02:00-04:00","event":"worktree_verified","worktree":"/Users/bobbybones/.codex/worktrees/d90a/SaariusSkills","branch":"codex/acpx-antigravity-decision","base":"origin/main","head":"72934effc7db18be0c95a773cd841dbd7b52283e","status":"clean"}
+{"ts":"2026-09-20T08:03:00-04:00","event":"required_artifacts_read","artifacts":["20260920-acpx-antigravity-research/REPORT.md","20260920-pr49-repair6-review/REVIEW.md","20260920-pr49-repair6-review/PROOF.md","20260919-next-agy/ROUTE.md"]}
+{"ts":"2026-09-20T08:04:00-04:00","event":"pr49_verified","state":"OPEN","mergedAt":null,"head":"1e795546c29bf1eba3ed5b6b6e276c8b7c18c8cc","checks":"ubuntu-success,macos-success"}
+{"ts":"2026-09-20T08:05:00-04:00","event":"cursor_acp_readiness","ready":false,"cause":"Authentication required","setup_check":"MCP_READY","model_selector":"cursor-grok-4.6-high","worker_turn":false}
+{"ts":"2026-09-20T08:06:00-04:00","event":"decision","route":"staged-coexistence","native_default":true,"acp_candidate":"non-qualifying"}
+{"ts":"2026-09-20T08:07:00-04:00","event":"docs_patch","file":"skills/puppet/references/adapter-contract.md","scope":"acknowledge official antigravity-acp without changing runtime behavior"}
+{"ts":"2026-09-20T08:20:00-04:00","event":"candidate_contract_implemented","files":["skills/puppet/scripts/puppet_lib/antigravity_acp.py","tests/test_puppet_antigravity_acp.py"],"default_route_unchanged":true,"qualification":"non_qualifying"}
+{"ts":"2026-09-20T08:21:00-04:00","event":"verification","focused_tests":52,"py_compile":true,"diff_check":true}
+{"ts":"2026-09-20T08:24:00-04:00","event":"verification_recheck","focused_tests":52,"default_transport_registration":false,"candidate_contract_validation":true}
+{"ts":"2026-09-20T08:31:00-04:00","event":"black_box_preflight","native_agy":"1.2.7_help_surface_pass","acp_runtime":"absent","acp_helper":"absent","gemini_home":"unset","model_request_sent":false,"status":"blocked"}
+{"ts":"2026-09-20T08:37:00-04:00","event":"oauth_handoff","isolated_profile":"temporary_gemini_home","auth_status":"required","visible_terminal_session":"63533","credentials_handled_by_agent":false,"model_request_sent":false}
+{"ts":"2026-09-20T09:02:00-04:00","event":"acp_runtime_probe","runtime":"agy_acp_server_1.1.1","session_created":true,"advertised_models":11,"exact_model":"gemini-3.8-flash-high","overage_guard":"useG1Credits=false","reopen_auth":"required","model_request_sent":false,"ui_handoff":"blocked_terminal_panels_queued"}
+{"ts":"2026-09-20T09:18:00-04:00","event":"acp_smoke_request","session_created":true,"session":"compare","exact_model":"gemini-3.8-flash-high","exit_code":0,"response_body_retained":false,"overage_guard":"configured_useG1Credits=false","qualification":"non_qualifying"}

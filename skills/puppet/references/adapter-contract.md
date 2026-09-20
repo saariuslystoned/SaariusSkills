@@ -442,6 +442,30 @@ transport. `cursor-acp` carries its own Cursor target source
 (`cursor_acp.py`) so Cursor ACP edits do not invalidate other targets.
 See [transport-contract.md](transport-contract.md).
 
+### Antigravity ACP watch update (#38)
+
+Google now publishes a separate official `antigravity-acp` runtime through
+the ACP registry. This does not replace the native `agy-print` decision and
+does not make generic `acp` an Antigravity fallback: the runtime has its own
+archive/helper pair, account profile, session/model capability surface, and
+permission-question behavior. A future Puppet integration must use a
+distinct target such as `antigravity-acp`, pin the registry/runtime/helper
+identity, and independently prove transcript-blind metadata reduction,
+owned-process birth/death, cancellation escalation, checkpoint/review/
+acceptance gates, and subscription-only authentication. Until that proof
+exists, native `agy-print` remains the default Antigravity route and the ACP
+candidate remains non-qualifying.
+
+The source-only candidate contract lives in
+[`antigravity_acp.py`](../scripts/puppet_lib/antigravity_acp.py) and is not
+registered in transport dispatch. Its focused tests prove pin drift,
+credential fallback, model substitution, question auto-answering, and body
+retention all fail closed.
+
+Primary watch sources: [acpx v0.17.1](https://github.com/openclaw/acpx/releases/tag/v0.17.1),
+[acpx Antigravity guide](https://github.com/openclaw/acpx/blob/50a47ad10a75431cbc276ec9b555d11fe1f69c84/agents/Antigravity.md),
+and the [official ACP registry entry](https://github.com/agentclientprotocol/registry/blob/81bf71b55e15f630c4fb8a86d20d3088071d2071/antigravity-acp/agent.json).
+
 ## Transcript blindness
 
 Never implement status with `capture-pane`, `pipe-pane`, scrollback, raw logs,
