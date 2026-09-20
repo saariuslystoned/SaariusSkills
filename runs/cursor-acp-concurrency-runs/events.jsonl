@@ -1,0 +1,11 @@
+{"event":"prepared","repo":"/Users/bobbybones/.codex/worktrees/7790/SaariusSkills","head":"5fc4a9158f4c454f2c0e2deee7642f79f4a584f8","jobsAllowed":2,"concurrentJobsAllowed":2,"timeoutMs":90000}
+{"event":"readiness","route":"/Users/bobbybones/.local/bin/cursor-agent acp","requestedModel":"cursor-grok-4.6-high","selectedModel":"grok-4.6[effort=high,fast=true]","workspace":"/Users/bobbybones/.codex/worktrees/7790/SaariusSkills","mcpReady":true}
+{"event":"submitted","label":"A","timestamp":"2026-09-20T15:11:52.798Z","jobId":"5c711688-3653-4ffb-ae15-6362b24b6814","workspace":"/Users/bobbybones/.codex/worktrees/7790/SaariusSkills/runs/cursor-acp-concurrency-runs/scratch-a","timeoutMs":90000}
+{"event":"running","label":"A","timestamp":"2026-09-20T15:11:52.802Z","jobId":"5c711688-3653-4ffb-ae15-6362b24b6814","acpxRecordId":"cursor-acp:5c711688-3653-4ffb-ae15-6362b24b6814","backendSessionId":"88ef666b-fe18-4c37-b1f6-075db4f651bf"}
+{"event":"submitted","label":"B","timestamp":"2026-09-20T15:11:54.476Z","jobId":"6fbb224d-fb72-4d92-b8ba-1b510b5c98e7","workspace":"/Users/bobbybones/.codex/worktrees/7790/SaariusSkills/runs/cursor-acp-concurrency-runs/scratch-b","timeoutMs":90000}
+{"event":"running","label":"B","timestamp":"2026-09-20T15:11:54.486Z","jobId":"6fbb224d-fb72-4d92-b8ba-1b510b5c98e7","acpxRecordId":"cursor-acp:6fbb224d-fb72-4d92-b8ba-1b510b5c98e7","backendSessionId":"080f69f7-1b7a-4871-a9a0-184849a094bd"}
+{"event":"prompt_started","label":"A","timestamp":"2026-09-20T15:11:56.303Z","jobId":"5c711688-3653-4ffb-ae15-6362b24b6814"}
+{"event":"prompt_started","label":"B","timestamp":"2026-09-20T15:11:58.652Z","jobId":"6fbb224d-fb72-4d92-b8ba-1b510b5c98e7"}
+{"event":"completed","label":"A","timestamp":"2026-09-20T15:12:01.566Z","jobId":"5c711688-3653-4ffb-ae15-6362b24b6814","handoff":"ACK-A","stopReason":"end_turn","toolCallCount":0}
+{"event":"completed","label":"B","timestamp":"2026-09-20T15:12:02.491Z","jobId":"6fbb224d-fb72-4d92-b8ba-1b510b5c98e7","handoff":"ACK-B","stopReason":"end_turn","toolCallCount":0}
+{"event":"cleanup_check","timestamp":"2026-09-20T15:12:51.300Z","matchingCursorAgentProcesses":0,"cancellationRequired":false}
