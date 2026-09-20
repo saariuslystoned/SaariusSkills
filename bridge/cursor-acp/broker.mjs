@@ -25,6 +25,7 @@ const OWNER_ID_MAX_CHARS = 80;
 const JOB_LOCK_TIMEOUT_MS = 5_000;
 const JOB_LOCK_RETRY_MS = 15;
 const OWNER_HEARTBEAT_MS = 5_000;
+const OWNER_OBSERVE_WAIT_SLICE_MS = 250;
 
 const BRIDGE_SYSTEM_PROMPT = [
   "You are Cursor ACP acting as a bounded implementation worker.",
@@ -405,7 +406,9 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
   // durable. Restart never resumes a previous model session. In-flight jobs
   // are failed closed only when their exact owner identity is demonstrably
   // gone: missing/dead, or proven PID reuse after complete matching job and
-  // lease identities plus a definite process start-time mismatch.
+  // lease identities plus a definite process start-time mismatch. The same
+  // contract is applied by status/result observations of a nonterminal job;
+  // there is no generic periodic recovery service.
   const sessions = new Map();
   const runtime = createAcpRuntime({
     cwd: stateRoot,
@@ -525,6 +528,16 @@ export class CursorAcpBroker {
     } catch {
       return;
     }
+    await this.recoverOwnedJobIfEligible(snapshot);
+  }
+
+  async recoverObservedJob(jobId) {
+    const snapshot = await this.readJobRecord(jobId);
+    if (!snapshot) return;
+    await this.recoverOwnedJobIfEligible(snapshot);
+  }
+
+  async recoverOwnedJobIfEligible(snapshot) {
     if (!snapshot?.jobId || !JOB_ID_PATTERN.test(snapshot.jobId)) return;
     if (isTerminalStatus(snapshot.status)) return;
     const lease = await this.readOwnerLease(snapshot.owner?.brokerId);
@@ -545,6 +558,7 @@ export class CursorAcpBroker {
       };
       await this.writeJobRecord(job);
       if (job.proof?.events) await this.recordEvent(job, "bridge_restarted", { previousStatus });
+      this.notifyChange(job.jobId);
     }, { skipOnTimeout: true });
   }
 
@@ -894,26 +908,33 @@ export class CursorAcpBroker {
 
   async status({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 10_000);
-    let job = await this.getJob(jobId);
+    let job = await this.observeJob(jobId);
     if (boundedWait > 0 && !isTerminalStatus(job.status)) {
       await this.waitForChange(jobId, boundedWait);
-      job = await this.getJob(jobId);
+      job = await this.observeJob(jobId);
     }
     return this.publicJob(job);
   }
 
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
-    let job = await this.getJob(jobId);
+    let job = await this.observeJob(jobId);
     if (boundedWait > 0 && !isTerminalStatus(job.status)) {
       await this.waitForTerminal(jobId, boundedWait);
-      job = await this.getJob(jobId);
+      job = await this.observeJob(jobId);
     }
     return {
       ...this.publicJob(job),
       complete: isTerminalStatus(job.status),
       waitExpired: !isTerminalStatus(job.status) && boundedWait > 0,
     };
+  }
+
+  async observeJob(jobId) {
+    const job = await this.getJob(jobId);
+    if (isTerminalStatus(job.status) || this.active.has(jobId)) return job;
+    await this.recoverObservedJob(jobId);
+    return this.getJob(jobId);
   }
 
   async steer({ jobId, message } = {}) {
@@ -1221,11 +1242,14 @@ export class CursorAcpBroker {
   async waitForTerminal(jobId, waitMs) {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
-      const job = await this.getJob(jobId);
+      const job = await this.observeJob(jobId);
       if (isTerminalStatus(job.status)) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
-      await this.waitForChange(jobId, remaining);
+      const slice = this.active.has(jobId)
+        ? remaining
+        : Math.min(remaining, OWNER_OBSERVE_WAIT_SLICE_MS);
+      await this.waitForChange(jobId, slice);
     }
   }
 

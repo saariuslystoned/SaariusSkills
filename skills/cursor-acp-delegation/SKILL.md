@@ -64,10 +64,13 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   `cursor_acp_result` may observe shared job state; cancel and steer stay
   owner-local.
 - A second broker initialization or setup/readiness check must not fail a
-  non-terminal job owned by another live broker. Startup recovery fails a job
-  only when that exact owner identity is demonstrably gone: missing/dead, or
-  proven PID reuse after complete matching job/lease identities and a definite
-  start-time mismatch. Unknown or incomplete ownership and probes without a
+  non-terminal job owned by another live broker. Startup recovery, and later
+  `cursor_acp_status` / `cursor_acp_result` observations of a non-terminal
+  job, fail it only when that exact owner identity is demonstrably gone:
+  missing/dead, or proven PID reuse after complete matching job/lease
+  identities and a definite start-time mismatch. Owner death during a bounded
+  result wait is observed within that wait; there is no generic periodic
+  recovery service. Unknown or incomplete ownership and probes without a
   definitive start time stay fail-safe. Do not treat bare PID existence as
   proof of liveness or of reuse. Job locks publish complete owner metadata
   atomically and preserve mutual exclusion across stale-lock takeover and

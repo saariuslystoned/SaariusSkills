@@ -416,3 +416,146 @@ test("separate OS broker processes preserve a live owner and recover a dead one"
     }
   }
 });
+
+test("same observer recovers owner death after init without a third broker", { timeout: 20_000 }, async () => {
+  const { stateRoot } = await makeState();
+  await mkdir(stateRoot, { recursive: true });
+  let owner;
+  const observer = makeSecondBroker(stateRoot);
+  try {
+    owner = await spawnOwnerProcess({ stateRoot, mode: "stay" });
+    await observer.init();
+    const live = await observer.status({ jobId: owner.jobId });
+    assert.equal(live.status, "running");
+    assert.equal(live.error, undefined);
+    owner.child.stdin.end();
+    await new Promise((resolve, reject) => {
+      owner.child.once("exit", resolve);
+      owner.child.once("error", reject);
+    });
+    assert.equal((await observer.probeOwner((await observer.readJobRecord(owner.jobId)).owner)).status, "missing");
+    const status = await observer.status({ jobId: owner.jobId });
+    assert.equal(status.status, "failed");
+    assert.equal(status.error.code, "BRIDGE_RESTARTED");
+    const result = await observer.result({ jobId: owner.jobId });
+    assert.equal(result.status, "failed");
+    assert.equal(result.complete, true);
+    assert.equal(result.error.code, "BRIDGE_RESTARTED");
+  } finally {
+    await observer.close();
+    if (owner?.child && owner.child.exitCode === null && owner.child.signalCode === null) {
+      owner.child.kill("SIGKILL");
+    }
+  }
+});
+
+test("owner death during a bounded result wait is observed by the same observer", { timeout: 20_000 }, async () => {
+  const { stateRoot } = await makeState();
+  await mkdir(stateRoot, { recursive: true });
+  let owner;
+  const observer = makeSecondBroker(stateRoot);
+  try {
+    owner = await spawnOwnerProcess({ stateRoot, mode: "stay" });
+    await observer.init();
+    assert.equal((await observer.status({ jobId: owner.jobId })).status, "running");
+    const pending = observer.result({ jobId: owner.jobId, waitMs: 4_000 });
+    await sleep(50);
+    owner.child.stdin.end();
+    await new Promise((resolve, reject) => {
+      owner.child.once("exit", resolve);
+      owner.child.once("error", reject);
+    });
+    const after = await pending;
+    assert.equal(after.status, "failed");
+    assert.equal(after.complete, true);
+    assert.equal(after.waitExpired, false);
+    assert.equal(after.error.code, "BRIDGE_RESTARTED");
+  } finally {
+    await observer.close();
+    if (owner?.child && owner.child.exitCode === null && owner.child.signalCode === null) {
+      owner.child.kill("SIGKILL");
+    }
+  }
+});
+
+test("a later status and result still preserve a live foreign owner", { timeout: 20_000 }, async () => {
+  const { stateRoot } = await makeState();
+  await mkdir(stateRoot, { recursive: true });
+  let owner;
+  const observer = makeSecondBroker(stateRoot);
+  try {
+    owner = await spawnOwnerProcess({ stateRoot, mode: "stay" });
+    await observer.init();
+    const status = await observer.status({ jobId: owner.jobId, waitMs: 200 });
+    assert.equal(status.status, "running");
+    assert.equal(status.error, undefined);
+    const result = await observer.result({ jobId: owner.jobId, waitMs: 200 });
+    assert.equal(result.status, "running");
+    assert.equal(result.complete, false);
+    assert.equal(result.waitExpired, true);
+    const raw = await readJob(stateRoot, owner.jobId);
+    assert.equal(raw.status, "running");
+    assert.equal(raw.error, undefined);
+    assert.equal(raw.owner.pid, owner.ready.pid);
+  } finally {
+    await observer.close();
+    if (owner?.child && owner.child.exitCode === null && owner.child.signalCode === null) {
+      owner.child.kill("SIGKILL");
+    }
+  }
+});
+
+test("observer recovery loses a terminal-state race instead of overwriting completion", { timeout: 8_000 }, async () => {
+  const { stateRoot } = await makeState();
+  const writer = makeSecondBroker(stateRoot, { brokerId: "obswrite-0000-4000-8000-000000000001", startTime: "writer" });
+  await writer.init();
+  const written = await writeSyntheticJob(stateRoot, {
+    owner: { brokerId: "obsracer-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "gone" },
+  });
+  let initDone = false;
+  let releaseInspect;
+  const inspectGate = new Promise((resolve) => {
+    releaseInspect = resolve;
+  });
+  let sawObserveProbe;
+  const started = new Promise((resolve) => {
+    sawObserveProbe = resolve;
+  });
+  const observer = makeSecondBroker(stateRoot, {
+    brokerId: "observer-0000-4000-8000-000000000001",
+    startTime: "observer",
+    inspectProcess: async (pid) => {
+      if (pid === DEAD_PID) {
+        if (!initDone) return { status: "alive", startTime: "gone" };
+        sawObserveProbe();
+        await inspectGate;
+        return { status: "missing" };
+      }
+      return { status: "alive", startTime: "observer" };
+    },
+  });
+  await observer.init();
+  initDone = true;
+  const resultPromise = observer.result({ jobId: written.jobId });
+  await Promise.race([
+    started,
+    sleep(3_000).then(() => {
+      throw new Error("observer inspect did not observe the dead owner");
+    }),
+  ]);
+  const current = await writer.getJob(written.jobId);
+  current.status = "completed";
+  current.handoff = "finished before observer recovery";
+  delete current.error;
+  await writer.saveJob(current);
+  releaseInspect();
+  const after = await resultPromise;
+  assert.equal(after.status, "completed");
+  assert.equal(after.handoff, "finished before observer recovery");
+  assert.equal(after.error, undefined);
+  const raw = await readJob(stateRoot, written.jobId);
+  assert.equal(raw.status, "completed");
+  assert.equal(raw.error, undefined);
+  await writer.close();
+  await observer.close();
+});
