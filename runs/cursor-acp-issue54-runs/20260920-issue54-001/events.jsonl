@@ -28,4 +28,4 @@
 {"event":"repair_cycle_2_check","command":"cd bridge/cursor-acp && npm run check","result":"31_passed","independent":true}
 {"event":"repair_cycle_2_commit","commit":"d4fb178","message":"fix(cursor-acp): recover proven pid reuse","status":"SOURCE_FIXED","nativeQualified":false}
 {"event":"repair_cycle_2_push","remote":"origin","branch":"codex/issue54-cursor-recovery","status":"pushed","head":"d4fb178"}
-{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":2,"commit":"d4fb178","head":"d4fb178","exactHeadReview":"pending"}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true,"repairCycle":2,"commit":"d4fb178","head":"d74f837","exactHeadReview":"pending"}

@@ -2,7 +2,7 @@
 
 Worktree: `/Users/bobbybones/.codex/worktrees/eb45/SaariusSkills`
 Branch: `codex/issue54-cursor-recovery`
-HEAD: `d4fb178` (repair-cycle-2 source fix, pushed)
+HEAD: `d74f837` (repair-cycle-2 source fix plus handoff proof, pushed)
 Route: native Cursor ACP only — `/Users/bobbybones/.local/bin/cursor-agent acp` with `cursor-grok-4.6-high`. No alternate transport/model, credentials, auth logs, `.env`, private keys, install/reload, deploy, or merge.
 
 ## Repair-cycle-2 dispositions
