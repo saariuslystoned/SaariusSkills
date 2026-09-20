@@ -91,8 +91,12 @@ Each job has `STATE.md`, `events.jsonl`, `heartbeat`, and `PROOF.md` outside the
 mutating workspace. Prompts are not persisted by the bridge; only a SHA-256 and character
 count are recorded. The acpx session store is memory-only because its records
 contain conversation messages. Shutdown clears that store; restart never
-resumes a previous model session and fails in-flight jobs closed. Existing
-stores from older bridge versions are not read, migrated or deleted. Final handoffs are bounded and redacted.
+resumes a previous model session. A later broker initialization fails a
+non-terminal job only when that job's exact owner identity is demonstrably
+dead. Jobs owned by another live broker, and jobs whose ownership cannot be
+proved dead (unknown or incomplete owner, missing lease, or PID reuse), are left unchanged.
+Bare PID existence is not treated as proof of liveness. Existing stores from
+older bridge versions are not read, migrated or deleted. Final handoffs are bounded and redacted.
 
 To roll back the app connection, remove the local `saarius-skills` plugin from
 Codex, then restore the previous plugin revision in the repository. Stopping

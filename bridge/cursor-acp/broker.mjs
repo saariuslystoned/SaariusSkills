@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,10 @@ export const MAX_STEER_CHARS = 8_000;
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "needs-input"]);
 const JOB_ID_PATTERN = /^[0-9a-f-]{36}$/i;
+const OWNER_ID_MAX_CHARS = 80;
+const JOB_LOCK_TIMEOUT_MS = 5_000;
+const JOB_LOCK_RETRY_MS = 15;
+const OWNER_HEARTBEAT_MS = 5_000;
 
 const BRIDGE_SYSTEM_PROMPT = [
   "You are Cursor ACP acting as a bounded implementation worker.",
@@ -43,6 +47,81 @@ export class BridgeError extends Error {
 
 export function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSafeOwnerId(brokerId) {
+  return typeof brokerId === "string" &&
+    brokerId.length > 0 &&
+    brokerId.length <= OWNER_ID_MAX_CHARS &&
+    /^[0-9A-Za-z_-]+$/.test(brokerId);
+}
+
+export function isCompleteOwnerIdentity(owner) {
+  return Boolean(
+    owner &&
+      isSafeOwnerId(owner.brokerId) &&
+      Number.isInteger(owner.pid) &&
+      owner.pid > 0 &&
+      typeof owner.startTime === "string" &&
+      owner.startTime.trim().length > 0,
+  );
+}
+
+export function ownerIdentitiesMatch(left, right) {
+  if (!isCompleteOwnerIdentity(left) || !isCompleteOwnerIdentity(right)) return false;
+  return left.brokerId === right.brokerId &&
+    left.pid === right.pid &&
+    left.startTime === right.startTime;
+}
+
+export function classifyOwnerIdentity(owner, probe) {
+  if (!isCompleteOwnerIdentity(owner)) return "unknown";
+  if (!probe || probe.status === "error" || probe.status === "unknown") return "unknown";
+  if (probe.status === "missing") return "dead";
+  if (probe.status !== "alive") return "unknown";
+  if (typeof probe.startTime !== "string" || probe.startTime.trim().length === 0) {
+    return "unknown";
+  }
+  return probe.startTime === owner.startTime ? "live" : "reused";
+}
+
+export function shouldRecoverOwnedJob(job, lease, probe) {
+  if (!job || isTerminalStatus(job.status)) return false;
+  if (!ownerIdentitiesMatch(job.owner, lease)) return false;
+  return classifyOwnerIdentity(job.owner, probe) === "dead";
+}
+
+export async function inspectProcessIdentity(pid, exec = execFile) {
+  if (!Number.isInteger(pid) || pid <= 0) return { status: "unknown" };
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error?.code === "ESRCH") return { status: "missing" };
+    if (error?.code !== "EPERM") return { status: "unknown" };
+  }
+  try {
+    const { stdout } = await exec("ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 4 * 1024,
+      env: { LC_ALL: "C", PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    });
+    const startTime = String(stdout ?? "").trim();
+    if (!startTime) return { status: "unknown" };
+    return { status: "alive", startTime };
+  } catch {
+    try {
+      process.kill(pid, 0);
+      return { status: "unknown" };
+    } catch (error) {
+      if (error?.code === "ESRCH") return { status: "missing" };
+      return { status: "unknown" };
+    }
+  }
 }
 
 export function hashText(value) {
@@ -278,7 +357,8 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
   });
   // acpx session records contain full conversation messages. Keep those
   // internal records ephemeral; only the broker's bounded control proof is
-  // durable. A bridge restart deliberately fails in-flight jobs closed.
+  // durable. Restart never resumes a previous model session. In-flight jobs
+  // are failed closed only when their exact owner identity is demonstrably dead.
   const sessions = new Map();
   const runtime = createAcpRuntime({
     cwd: stateRoot,
@@ -309,6 +389,13 @@ export class CursorAcpBroker {
     this.stateRoot = path.resolve(options.stateRoot ?? defaultStateRoot());
     this.jobsRoot = path.join(this.stateRoot, "jobs");
     this.runsRoot = path.join(this.stateRoot, "runs");
+    this.ownersRoot = path.join(this.stateRoot, "owners");
+    this.brokerId = options.brokerId ?? randomUUID();
+    this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
+    this.startTime = typeof options.startTime === "string" && options.startTime.trim()
+      ? options.startTime.trim()
+      : null;
+    this.inspectProcess = options.inspectProcess ?? inspectProcessIdentity;
     this.cursorExecutable = path.resolve(
       options.cursorExecutable ??
         process.env.CURSOR_AGENT_EXECUTABLE ??
@@ -337,6 +424,15 @@ export class CursorAcpBroker {
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
+    this.heartbeatTimer = null;
+  }
+
+  ownerIdentity() {
+    return {
+      brokerId: this.brokerId,
+      pid: this.pid,
+      startTime: this.startTime,
+    };
   }
 
   async init() {
@@ -344,6 +440,13 @@ export class CursorAcpBroker {
       this.initPromise = (async () => {
         await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
+        await mkdir(this.ownersRoot, { recursive: true, mode: 0o700 });
+        if (this.startTime == null) {
+          const self = await this.inspectProcess(this.pid);
+          if (self.status === "alive" && self.startTime) this.startTime = self.startTime;
+        }
+        await this.writeOwnerLease();
+        this.startOwnerHeartbeat();
         await this.recoverStaleJobs();
         return this;
       })().catch((error) => {
@@ -363,26 +466,92 @@ export class CursorAcpBroker {
     }
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
-      let job;
-      try {
-        job = JSON.parse(await readFile(path.join(this.jobsRoot, name), "utf8"));
-      } catch {
-        continue;
-      }
-      if (!job || isTerminalStatus(job.status)) continue;
+      await this.recoverJobFile(name);
+    }
+  }
+
+  async recoverJobFile(name) {
+    let snapshot;
+    try {
+      snapshot = JSON.parse(await readFile(path.join(this.jobsRoot, name), "utf8"));
+    } catch {
+      return;
+    }
+    if (!snapshot?.jobId || !JOB_ID_PATTERN.test(snapshot.jobId)) return;
+    if (isTerminalStatus(snapshot.status)) return;
+    const lease = await this.readOwnerLease(snapshot.owner?.brokerId);
+    const probe = await this.probeOwner(snapshot.owner);
+    if (!shouldRecoverOwnedJob(snapshot, lease, probe)) return;
+    await this.withJobLock(snapshot.jobId, async () => {
+      const job = await this.readJobRecord(snapshot.jobId);
+      if (!job || isTerminalStatus(job.status)) return;
+      const confirmedLease = await this.readOwnerLease(job.owner?.brokerId);
+      const confirmed = await this.probeOwner(job.owner);
+      if (!shouldRecoverOwnedJob(job, confirmedLease, confirmed)) return;
       const previousStatus = job.status;
       job.status = "failed";
       job.updatedAt = this.now();
       job.error = {
         code: "BRIDGE_RESTARTED",
-        message: "The bridge restarted before this job reached a terminal result; resubmit explicitly.",
+        message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
       };
-      await this.saveJob(job);
+      await this.writeJobRecord(job);
       await this.recordEvent(job, "bridge_restarted", { previousStatus });
+    }, { skipOnTimeout: true });
+  }
+
+  async probeOwner(owner) {
+    if (!isCompleteOwnerIdentity(owner)) return { status: "unknown" };
+    return this.inspectProcess(owner.pid);
+  }
+
+  ownerLeasePath(brokerId) {
+    if (!isSafeOwnerId(brokerId)) return null;
+    return path.join(this.ownersRoot, `${brokerId}.json`);
+  }
+
+  async readOwnerLease(brokerId) {
+    const leasePath = this.ownerLeasePath(brokerId);
+    if (!leasePath) return null;
+    try {
+      const lease = JSON.parse(await readFile(leasePath, "utf8"));
+      return isCompleteOwnerIdentity(lease) ? lease : null;
+    } catch {
+      return null;
     }
   }
 
+  async writeOwnerLease({ released = false } = {}) {
+    const leasePath = this.ownerLeasePath(this.brokerId);
+    if (!leasePath) return;
+    await mkdir(this.ownersRoot, { recursive: true, mode: 0o700 });
+    const record = {
+      schema: "saarius.cursor-acp.owner.v1",
+      ...this.ownerIdentity(),
+      heartbeatAt: this.now(),
+      released,
+    };
+    await atomicWrite(leasePath, `${JSON.stringify(record, null, 2)}\n`);
+  }
+
+  startOwnerHeartbeat() {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      void this.writeOwnerLease().catch(() => undefined);
+    }, OWNER_HEARTBEAT_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
   async close() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    try {
+      await this.writeOwnerLease({ released: true });
+    } catch {
+      // Best effort. Process identity remains the recovery source of truth.
+    }
     for (const [jobId, active] of this.active) {
       try {
         await active.turn?.cancel({ reason: "bridge shutdown" });
@@ -522,6 +691,7 @@ export class CursorAcpBroker {
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
       request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      owner: this.ownerIdentity(),
       sessionKey: `cursor-acp:${jobId}`,
       runDir,
       proof: {
@@ -744,9 +914,69 @@ export class CursorAcpBroker {
   }
 
   async saveJob(job) {
+    await this.withJobLock(job.jobId, async () => {
+      await this.writeJobRecord(job);
+    });
+  }
+
+  async readJobRecord(jobId) {
+    try {
+      return JSON.parse(await readFile(path.join(this.jobsRoot, `${jobId}.json`), "utf8"));
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw new BridgeError("JOB_STATE_INVALID", "Job state could not be read");
+    }
+  }
+
+  async writeJobRecord(job) {
+    if (!job.owner) job.owner = this.ownerIdentity();
     job.updatedAt = job.updatedAt ?? this.now();
     await atomicWrite(path.join(this.jobsRoot, `${job.jobId}.json`), `${JSON.stringify(job, null, 2)}\n`);
-    await this.writeState(job);
+    if (job.proof?.state) {
+      await mkdir(path.dirname(job.proof.state), { recursive: true, mode: 0o700 });
+      await this.writeState(job);
+    }
+  }
+
+  jobLockPath(jobId) {
+    return path.join(this.jobsRoot, `${jobId}.json.lock`);
+  }
+
+  async withJobLock(jobId, fn, { timeoutMs = JOB_LOCK_TIMEOUT_MS, skipOnTimeout = false } = {}) {
+    const lockPath = this.jobLockPath(jobId);
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      try {
+        await writeFile(lockPath, `${JSON.stringify(this.ownerIdentity())}\n`, {
+          encoding: "utf8",
+          flag: "wx",
+          mode: 0o600,
+        });
+        break;
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+        if (Date.now() >= deadline) {
+          if (skipOnTimeout) return undefined;
+          throw new BridgeError("JOB_LOCK_TIMEOUT", `Timed out locking job ${jobId}`);
+        }
+        try {
+          const holder = JSON.parse(await readFile(lockPath, "utf8"));
+          const holderState = classifyOwnerIdentity(holder, await this.probeOwner(holder));
+          if (holderState === "dead" || holderState === "reused") {
+            await rm(lockPath, { force: true });
+            continue;
+          }
+        } catch {
+          // Unreadable or raced lock; retry until timeout.
+        }
+        await sleep(JOB_LOCK_RETRY_MS);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      await rm(lockPath, { force: true });
+    }
   }
 
   async saveAndRecord(job, status, details = {}) {
@@ -780,6 +1010,7 @@ export class CursorAcpBroker {
       `Workspace: ${job.workspace}`,
       `Route: ${job.route.executable} acp`,
       `Requested model: ${job.route.model}`,
+      `Owner: ${job.owner?.brokerId ?? "unknown"}`,
       `Updated: ${job.updatedAt}`,
       "",
       "The request body is intentionally not persisted; only its SHA-256 and character count are recorded.",

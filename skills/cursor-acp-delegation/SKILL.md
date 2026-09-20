@@ -60,7 +60,14 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   the canonical terminal result, then explicitly delegate a bounded follow-up. Use
   `cursor_acp_cancel` when the parent decision changes or the bounded budget is
   no longer justified. A missing active session is a fail-closed result, not a
-  reason to create a replacement session.
+  reason to create a replacement session. `cursor_acp_status` and
+  `cursor_acp_result` may observe shared job state; cancel and steer stay
+  owner-local.
+- A second broker initialization or setup/readiness check must not fail a
+  non-terminal job owned by another live broker. Startup recovery fails a job
+  only when that exact owner identity is demonstrably dead; unknown or
+  incomplete ownership and PID reuse stay fail-safe. Do not treat bare PID
+  existence as proof of liveness.
 - Treat `completed`, `failed`, `cancelled`, and `needs-input` as distinct
   outcomes. Escalate `needs-input` to the user with the bounded reason; do not
   invent a login flow, API-key fallback, or hidden approval.

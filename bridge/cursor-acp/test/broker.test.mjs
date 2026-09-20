@@ -7,10 +7,12 @@ import { randomUUID } from "node:crypto";
 import {
   BridgeError,
   CursorAcpBroker,
+  classifyOwnerIdentity,
   createDefaultRuntime,
   DEFAULT_CURSOR_MODEL,
   redactSensitive,
   resolveRequestedCursorModel,
+  shouldRecoverOwnedJob,
 } from "../broker.mjs";
 
 const fixtureCatalog = JSON.parse(
@@ -241,9 +243,36 @@ test("safe summaries redact credentials and do not persist prompt bodies", async
   await broker.close();
 });
 
-test("a bridge restart fails a persisted in-flight job closed", async () => {
+test("owner identity classification is fail-safe for unknown and PID reuse", () => {
+  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "Sun Sep 20 13:00:00 2026" };
+  const lease = { ...owner };
+  assert.equal(classifyOwnerIdentity(undefined, { status: "missing" }), "unknown");
+  assert.equal(classifyOwnerIdentity({ pid: 4242 }, { status: "missing" }), "unknown");
+  assert.equal(classifyOwnerIdentity({ brokerId: owner.brokerId, pid: 4242 }, { status: "missing" }), "unknown");
+  assert.equal(classifyOwnerIdentity(owner, { status: "unknown" }), "unknown");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive" }), "unknown");
+  assert.equal(classifyOwnerIdentity({ ...owner, startTime: "" }, { status: "alive", startTime: owner.startTime }), "unknown");
+  assert.equal(classifyOwnerIdentity(owner, { status: "missing" }), "dead");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), "reused");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: owner.startTime }), "live");
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "missing" }), true);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, null, { status: "missing" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner, startTime: "other" }, { status: "missing" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "completed", owner }, lease, { status: "missing" }), false);
+  assert.equal(
+    shouldRecoverOwnedJob(
+      { status: "running", owner: { brokerId: owner.brokerId, pid: 4242 } },
+      { brokerId: owner.brokerId, pid: 4242 },
+      { status: "missing" },
+    ),
+    false,
+  );
+});
+
+test("a live owner's in-flight job is preserved when another broker initializes", async () => {
   const first = await makeBroker({ runtimeOptions: { delayMs: 5_000 } });
-  const submitted = await first.broker.delegate({ workspace: first.workspace, prompt: "Hold until the bridge restarts." });
+  const submitted = await first.broker.delegate({ workspace: first.workspace, prompt: "Hold while a second broker starts." });
   await waitUntil(() => first.broker.getJob(submitted.jobId).then((job) => job.status === "running"));
   const secondRuntime = new FixtureRuntime();
   const second = new CursorAcpBroker({
@@ -253,9 +282,13 @@ test("a bridge restart fails a persisted in-flight job closed", async () => {
     execFile: async () => ({ stdout: "2026.08.11-e8db854\n", stderr: "" }),
   });
   await second.init();
-  const recovered = await second.result({ jobId: submitted.jobId });
-  assert.equal(recovered.status, "failed");
-  assert.equal(recovered.error.code, "BRIDGE_RESTARTED");
+  const readiness = await second.discover({ workspace: first.workspace });
+  assert.equal(readiness.ready, true);
+  const observed = await second.result({ jobId: submitted.jobId });
+  assert.equal(observed.status, "running");
+  assert.equal(observed.error, undefined);
+  const raw = JSON.parse(await readFile(path.join(first.broker.jobsRoot, `${submitted.jobId}.json`), "utf8"));
+  assert.equal(raw.owner.brokerId, first.broker.brokerId);
   await first.broker.close();
   await second.close();
 });

@@ -1,0 +1,14 @@
+{"event":"run_started","sourceSha":"46ec908177bce10d8dffbdff8acab7967f43ec74","branch":"codex/issue54-cursor-recovery","status":"DIAGNOSING"}
+{"event":"shared_state_inventory","result":"terminal_jobs_only","modified":false}
+{"event":"native_readiness","result":"PASS","executable":"/Users/bobbybones/.local/bin/cursor-agent","model":"grok-4.6[effort=high,fast=true]","selector":"cursor-grok-4.6-high"}
+{"event":"baseline_tests","command":"cd bridge/cursor-acp && npm test","result":"13_passed"}
+{"event":"baseline_reproduction","result":"FAIL_EXPECTED","before":"running","after":"failed","error":"BRIDGE_RESTARTED","state":"disposable_temp_only"}
+{"event":"native_attempt_1","jobId":"56a645bb-571d-457f-ae4d-d5d2fa775dc7","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false}
+{"event":"native_attempt_2","jobId":"93321c12-022e-437b-a5b5-f799a6fd0257","result":"failed","error":"BRIDGE_RESTARTED","workerToolCalls":0,"sourceEdits":false,"polling":"read_only_job_metadata"}
+{"event":"terminal","status":"BLOCKED","reason":"native_route_self_reaps_async_job_before_worker_turn"}
+{"event": "source_fixed", "tests": "26_passed", "command": "cd bridge/cursor-acp && npm run check", "commit": null, "native_turn": false}
+{"event":"native_followup","jobId":"78daf5de-a569-4d82-85af-2392fb4489e5","result":"completed","toolCalls":81}
+{"event":"native_review_followup","jobId":"ff1b65be-63dc-4214-8a17-df061dfd3249","result":"completed","toolCalls":111}
+{"event":"independent_verification","command":"cd bridge/cursor-acp && npm run check","result":"26_passed"}
+{"event":"independent_recovery_repeat","command":"node --test test/recovery.test.mjs","result":"3_consecutive_passes"}
+{"event":"terminal","status":"SOURCE_FIXED","nativeQualified":false,"installPending":true}
