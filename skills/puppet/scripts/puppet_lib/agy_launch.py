@@ -215,6 +215,7 @@ def _shared_launch_authority(
     executable_path: Path | str,
     cwd: Path | str,
     environment: Mapping[str, str],
+    argv: Optional[Sequence[str]] = None,
 ) -> tuple[Dict[str, Any], Dict[str, str]]:
     """Bind executable, account HOME, cwd, argv, and the exact closed environment."""
 
@@ -236,7 +237,7 @@ def _shared_launch_authority(
         )
     launch_identity = public_launch_identity(
         repo=Path(cwd),
-        argv=agy_regular_launch_argv(executable["path"]),
+        argv=(list(argv) if argv is not None else agy_regular_launch_argv(executable["path"])),
         environment=closed_environment,
     )
     return (
@@ -259,6 +260,7 @@ def run_agy_status_preflight(
     executable_path: Path,
     cwd: Path,
     environment: Mapping[str, str],
+    argv: Optional[Sequence[str]] = None,
     timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """Run body-free ``agy models`` under the exact admitted launch authority."""
@@ -267,6 +269,7 @@ def run_agy_status_preflight(
         executable_path=executable_path,
         cwd=cwd,
         environment=environment,
+        argv=argv,
     )
 
     try:
@@ -289,6 +292,7 @@ def run_agy_status_preflight(
         executable_path=executable_path,
         cwd=cwd,
         environment=closed_environment,
+        argv=argv,
     )
     if after != before:
         raise IdentityError("AGY shared-auth authority changed during status preflight")
@@ -333,6 +337,7 @@ def build_agy_shared_auth_launch_binding(
     cwd: Path | str,
     environment: Mapping[str, str],
     status: Mapping[str, Any],
+    argv: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Build the body-free shared-auth proof joined to one launch context."""
 
@@ -341,6 +346,7 @@ def build_agy_shared_auth_launch_binding(
         executable_path=executable_path,
         cwd=cwd,
         environment=environment,
+        argv=argv,
     )
     if any(validated_status[name] != authority[name] for name in authority):
         raise IdentityError(
@@ -458,12 +464,14 @@ def revalidate_agy_shared_auth_before_start(
         executable_path=Path(executable_path),
         cwd=Path(cwd),
         environment=refreshed_environment,
+        argv=argv,
     )
     refreshed_binding = build_agy_shared_auth_launch_binding(
         executable_path=executable_path,
         cwd=cwd,
         environment=refreshed_environment,
         status=status,
+        argv=argv,
     )
     validate_agy_shared_auth_launch_binding(
         refreshed_binding,

@@ -346,7 +346,7 @@ _DARWIN_LSOF_MAX_BYTES = 65536
 # unavailable during exit.  Keep the retry window short and finite: only a row
 # whose PID is subsequently absent may be skipped; a row that recovers or
 # remains present is still ambiguous and fails closed.
-_DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS = (0.01, 0.05, 0.1)
+_DARWIN_UNAVAILABLE_ROW_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.2, 0.4)
 
 
 class ExecTransitionSamplingError(IdentityError):
@@ -587,6 +587,16 @@ def darwin_process_inventory(
                     ) from rebound_exc
                 if vanished:
                     continue
+                if isinstance(rebound_exc, ProcessVanished):
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        # The kernel positively proved that this is a stale
+                        # proc_listpids entry. A generic or persistent BSD-row
+                        # failure remains ambiguous and must still fail closed.
+                        continue
+                    except OSError:
+                        pass
                 raise IdentityError(
                     "Darwin process inventory row remained unavailable"
                 ) from rebound_exc
@@ -823,6 +833,10 @@ def _linux_kernel_process_record(pid: int) -> Dict[str, Any]:
         if len(raw) > 65536:
             raise IdentityError("kernel process identity exceeds its bound")
         value = raw.decode("utf-8")
+    except FileNotFoundError as exc:
+        raise ProcessVanished(
+            "Linux process vanished before /proc identity sampling"
+        ) from exc
     except (OSError, UnicodeError) as exc:
         raise IdentityError("kernel process identity is unavailable") from exc
     closing = value.rfind(")")
@@ -901,6 +915,10 @@ def _process_executable_path(pid: int) -> str:
     if sys.platform.startswith("linux"):
         try:
             value = os.readlink("/proc/%d/exe" % pid)
+        except FileNotFoundError as exc:
+            raise ProcessVanished(
+                "Linux process vanished before executable identity sampling"
+            ) from exc
         except OSError as exc:
             raise ProcessExecutableUnavailable(
                 "process executable identity is unavailable"

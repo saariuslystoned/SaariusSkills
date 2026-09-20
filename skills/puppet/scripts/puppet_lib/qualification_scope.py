@@ -62,7 +62,6 @@ _SHARED_SOURCE_PATHS: Tuple[str, ...] = (
     "scripts/puppet_lib/state.py",
     "scripts/puppet_lib/subscription_profiles.py",
     "scripts/puppet_lib/target_population.py",
-    "scripts/puppet_lib/tmux.py",
     "scripts/puppet_lib/transport.py",
     "scripts/puppet_lib/verdicts.py",
     "scripts/viewer_attach.py",
@@ -116,10 +115,17 @@ _TARGET_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
     ),
 }
 
+_TRANSPORT_SOURCE_PATHS: Dict[str, Tuple[str, ...]] = {
+    "tmux": ("scripts/puppet_lib/tmux.py",),
+    "agy-print": ("scripts/puppet_lib/agy_print.py",),
+    "cursor-acp": ("scripts/puppet_lib/cursor_acp.py",),
+}
+
 _SCOPE_FIELDS = frozenset(
     {
         "schema",
         "target",
+        "transport",
         "harness_scope",
         "transport_authority_scope",
         "instruction_policy_fingerprint",
@@ -181,18 +187,27 @@ def shared_source_paths() -> Tuple[str, ...]:
     return _SHARED_SOURCE_PATHS
 
 
-def target_source_paths(target: str) -> Tuple[str, ...]:
+def target_source_paths(target: str, transport: Optional[str] = None) -> Tuple[str, ...]:
     """Return the selected-target harness source list."""
 
     if target not in _TARGETS:
         raise ValidationError("unsupported qualification scope target")
-    return _TARGET_SOURCE_PATHS[target]
+    paths = set(_TARGET_SOURCE_PATHS[target])
+    if transport is not None:
+        if transport not in _TRANSPORT_SOURCE_PATHS:
+            raise ValidationError("unsupported qualification scope transport")
+        all_transport_paths = {
+            path for values in _TRANSPORT_SOURCE_PATHS.values() for path in values
+        }
+        paths.difference_update(all_transport_paths)
+        paths.update(_TRANSPORT_SOURCE_PATHS[transport])
+    return tuple(sorted(paths))
 
 
-def scope_source_paths(target: str) -> Tuple[str, ...]:
+def scope_source_paths(target: str, transport: Optional[str] = None) -> Tuple[str, ...]:
     """Return the explicit shared plus selected-target source ownership list."""
 
-    return tuple(sorted(set(shared_source_paths()) | set(target_source_paths(target))))
+    return tuple(sorted(set(shared_source_paths()) | set(target_source_paths(target, transport))))
 
 
 def _source_fingerprint(relative_paths: Tuple[str, ...], source_root: Path) -> str:
@@ -283,6 +298,7 @@ def _fingerprint_body(scope: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "schema": scope["schema"],
         "target": scope["target"],
+        "transport": scope["transport"],
         "harness_scope": scope["harness_scope"],
         "transport_authority_scope": scope["transport_authority_scope"],
         "instruction_policy_fingerprint": scope["instruction_policy_fingerprint"],
@@ -337,6 +353,9 @@ def validate_compatibility_scope(value: Any) -> Dict[str, Any]:
     target = value.get("target")
     if target not in _TARGETS:
         raise ValidationError("qualification scope target is invalid")
+    transport_id = value.get("transport")
+    if transport_id not in _TRANSPORT_SOURCE_PATHS:
+        raise ValidationError("qualification scope transport is invalid")
     validate_sha256(
         value.get("instruction_policy_fingerprint"),
         "qualification scope instruction policy",
@@ -354,14 +373,14 @@ def validate_compatibility_scope(value: Any) -> Dict[str, Any]:
     for name, item in identity.items():
         validate_sha256(item, "qualification scope %s" % name.replace("_", " "))
     _validate_model_effort(harness.get("model_effort"))
-    transport = value.get("transport_authority_scope")
+    transport_authority = value.get("transport_authority_scope")
     if (
-        not isinstance(transport, dict)
-        or set(transport) != _TRANSPORT_AUTHORITY_FIELDS
+        not isinstance(transport_authority, dict)
+        or set(transport_authority) != _TRANSPORT_AUTHORITY_FIELDS
     ):
         raise ValidationError("qualification transport/authority scope is invalid")
     validate_sha256(
-        transport.get("shared_source_fingerprint"),
+        transport_authority.get("shared_source_fingerprint"),
         "qualification transport/authority source",
     )
     expected = sha256_bytes(canonical_json_bytes(_fingerprint_body(value)))
@@ -370,13 +389,14 @@ def validate_compatibility_scope(value: Any) -> Dict[str, Any]:
     return {
         "schema": value["schema"],
         "target": target,
+        "transport": transport_id,
         "harness_scope": {
             "target_source_fingerprint": harness["target_source_fingerprint"],
             "identity": dict(identity),
             "model_effort": dict(harness["model_effort"]),
         },
         "transport_authority_scope": {
-            "shared_source_fingerprint": transport["shared_source_fingerprint"],
+            "shared_source_fingerprint": transport_authority["shared_source_fingerprint"],
         },
         "instruction_policy_fingerprint": value["instruction_policy_fingerprint"],
         "fingerprint": value["fingerprint"],
@@ -389,6 +409,7 @@ def build_compatibility_scope(
     requested_model: Optional[str],
     requested_effort: Optional[str],
     instruction_policy_fingerprint: str,
+    transport: Optional[str] = None,
     source_root: Optional[Path] = None,
     existing_scope: Optional[Mapping[str, Any]] = None,
     legacy: bool = False,
@@ -400,6 +421,10 @@ def build_compatibility_scope(
     target = manifest.get("target")
     if target not in _TARGETS:
         raise ValidationError("unsupported qualification scope target")
+    if transport is None:
+        transport = manifest.get("transport") or "tmux"
+    if transport not in _TRANSPORT_SOURCE_PATHS:
+        raise ValidationError("unsupported qualification scope transport")
     validate_sha256(
         instruction_policy_fingerprint, "qualification scope instruction policy"
     )
@@ -410,9 +435,10 @@ def build_compatibility_scope(
     scope: Dict[str, Any] = {
         "schema": QUALIFICATION_SCOPE_SCHEMA,
         "target": target,
+        "transport": transport,
         "harness_scope": {
             "target_source_fingerprint": _source_fingerprint(
-                target_source_paths(target), root
+                target_source_paths(target, transport), root
             ),
             "identity": _identity(manifest),
             "model_effort": _model_effort(mapping, requested_model, requested_effort),
@@ -539,11 +565,13 @@ def compare_qualification_compatibility(
     source_root: Optional[Path] = None,
     requested_model: Optional[str] = None,
     requested_effort: Optional[str] = None,
+    transport: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Rebuild the current compatibility scope and compare it to stored evidence."""
 
     stored = validate_compatibility_scope(dict(stored_scope))
     model_effort = stored["harness_scope"]["model_effort"]
+    selected_transport = transport if transport is not None else stored["transport"]
     current_scope = build_compatibility_scope(
         current_manifest,
         requested_model=(
@@ -558,6 +586,7 @@ def compare_qualification_compatibility(
         ),
         instruction_policy_fingerprint=instruction_policy_fingerprint,
         source_root=source_root,
+        transport=selected_transport,
     )
     return {
         "current_scope": current_scope,

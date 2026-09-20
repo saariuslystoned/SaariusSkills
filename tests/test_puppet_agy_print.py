@@ -215,8 +215,9 @@ class AgyPrintTransportTests(unittest.TestCase):
         binding = bind_run_transport("agy-print")
         self.assertEqual(binding["id"], "agy-print")
         self.assertNotEqual(binding["id"], "tmux")
-        self.assertFalse(AgyPrintController.available())
-        self.assertFalse(transport_is_available("agy-print"))
+        with mock.patch.object(AgyPrintController, "available", return_value=False):
+            self.assertFalse(AgyPrintController.available())
+            self.assertFalse(transport_is_available("agy-print"))
         self.assertEqual(
             transport_unavailable_detail("agy-print"),
             "agy-print transport is unavailable",
@@ -277,7 +278,8 @@ class AgyPrintTransportTests(unittest.TestCase):
             ],
         )
         self.assertIsNone(result["lifecycle"]["phases"]["confirmed_halt"])
-        self.assertFalse(AgyPrintController.available())
+        self.assertFalse(result["live_agy_claimed"])
+        self.assertFalse(result.get("process_backed"))
 
     def test_structured_launch_without_observer_does_not_fall_back(self):
         contract = mock.Mock()
@@ -320,7 +322,9 @@ class AgyPrintTransportTests(unittest.TestCase):
                 task_profile="implementation",
                 protocol_fingerprint="e" * 64,
             )
-            with mock.patch.object(TmuxController, "__init__", side_effect=AssertionError("tmux")):
+            with mock.patch.object(TmuxController, "__init__", side_effect=AssertionError("tmux")), mock.patch.object(
+                AgyPrintController, "available", return_value=False
+            ):
                 report = doctor(
                     contract_path=files["contract"],
                     manifest_path=files["manifest"],

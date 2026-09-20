@@ -242,7 +242,7 @@ def open_run_transport(
         agy_kwargs = {
             key: value
             for key, value in kwargs.items()
-            if key in {"observer", "_observer"}
+            if key in {"observer", "_observer", "executable", "_executable"}
         }
         return AgyPrintController(registry_root, **agy_kwargs)
     if validated["id"] == "cursor-acp":

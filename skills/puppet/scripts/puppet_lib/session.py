@@ -25,12 +25,14 @@ from .agy_launch import (
     validate_agy_shared_auth_launch_binding,
     validate_agy_regular_launch_params,
 )
+from .agy_print import agy_print_launch_argv
 from .authority import (
     acquire_existing_real_harness_lock,
     admit_session_lease,
     halt_exact_session_lease_generation,
     lease_owner as build_lease_owner,
     reconcile_halted_session_lease,
+    require_session_lease,
     release_real_harness_lock,
     strict_session_lease_projection,
     transition_session_lease,
@@ -49,7 +51,7 @@ from .campaign import (
     validate_campaign_authorization,
 )
 from .conformance import tree_fingerprint, validate_fixture_contract
-from .contracts import Contract
+from .contracts import Contract, assert_controller
 from .errors import ConflictError, IdentityError, UnsupportedError, ValidationError
 from .grok_launch import GROK_LAUNCH_AUTHORITY_BLOCKER
 from .handoffs import ValidatedHandoff, validate_handoff
@@ -68,6 +70,7 @@ from .profiles import (
 )
 from .registry import (
     MAX_REPAIR_VERDICTS,
+    ProcessVanished,
     SESSION_REGISTRY_SCHEMA_VERSION,
     SessionRegistry,
     bind_runtime_process,
@@ -958,6 +961,23 @@ def _cursor_acp_structured_launch(
     )
 
 
+def _agy_print_controller(state_root: Path, **kwargs: Any) -> Any:
+    from .agy_print import AgyPrintController
+
+    return AgyPrintController(Path(state_root), **kwargs)
+
+
+def _agy_print_bound_session(state_root: Path, session: str) -> Optional[Any]:
+    controller = _agy_print_controller(state_root)
+    if not controller.has_session(session):
+        return None
+    stored = controller.require_session(session)
+    executable = stored.get("executable")
+    if executable:
+        controller.executable = Path(str(executable))
+    return controller
+
+
 def _agy_print_structured_launch(
     *,
     session: str,
@@ -965,9 +985,18 @@ def _agy_print_structured_launch(
     transport: Dict[str, str],
     state_root: Path,
     requested_model: Optional[str],
+    requested_effort: Optional[str] = None,
+    qualification_scope: Optional[Mapping[str, Any]] = None,
     observer: Optional[Mapping[str, Any]] = None,
+    executable: Optional[Path] = None,
+    prompt: Optional[str] = None,
+    proof_root: Optional[Path] = None,
+    manifest_raw: Optional[Mapping[str, Any]] = None,
+    deadline_at: Optional[str] = None,
+    lease_owner: Optional[Mapping[str, str]] = None,
+    instruction_manifest_sha256: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Complete an agy-print launch from structured observation. Never open tmux."""
+    """Complete an agy-print launch from observation or a local process. Never open tmux."""
 
     from .agy_print import AgyPrintController
     from .tmux import TmuxController
@@ -980,12 +1009,90 @@ def _agy_print_structured_launch(
         "tree": workspace["tree"],
     }
     controller = open_run_transport(
-        transport, state_root, observer=observer
+        transport,
+        state_root,
+        observer=observer,
+        executable=executable,
     )
     if isinstance(controller, TmuxController):
         raise IdentityError("agy-print opened a tmux transport")
     if not isinstance(controller, AgyPrintController):
         raise IdentityError("agy-print did not open the structured AGY transport")
+    if observer is None:
+        if executable is None or not prompt:
+            raise UnsupportedError(
+                "agy-print structured observation is unavailable",
+                blocker=doctor_blocker(
+                    "transport_unavailable",
+                    "agy-print structured observation is unavailable",
+                ),
+            )
+        controller.contract_raw = dict(contract.raw)
+        controller.manifest_raw = dict(manifest_raw) if manifest_raw is not None else None
+        controller.proof_root = str(proof_root) if proof_root is not None else None
+        controller.deadline_at = deadline_at
+        controller.lease_owner = dict(lease_owner) if lease_owner is not None else None
+        controller.instruction_manifest_sha256 = instruction_manifest_sha256
+        production_lease = lease_owner is not None and instruction_manifest_sha256 is not None
+        registry = SessionRegistry(state_root)
+        admitted = False
+        process_identity: Optional[Dict[str, Any]] = None
+        with exclusive_lock(registry.operation_lock(session)):
+            try:
+                if production_lease:
+                    admit_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(lease_owner),
+                        instruction_manifest_sha256=instruction_manifest_sha256,
+                    )
+                    admitted = True
+                result = controller.start(
+                    session=session,
+                    prompt=prompt,
+                    expected_workspace=expected_workspace,
+                    requested_model=requested_model or contract.requested_model,
+                    requested_effort=requested_effort or contract.requested_effort,
+                    qualification_scope=qualification_scope,
+                    current_qualification_scope=qualification_scope,
+                )
+                if production_lease:
+                    stored = controller.require_session(session)
+                    observed_process = stored["observation"]["process"]
+                    process_identity = process_birth_identity(observed_process["pid"])
+                    if process_identity["kernel_birth_id"] != observed_process["kernel_birth_id"]:
+                        raise IdentityError("agy-print launch process identity changed")
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(lease_owner),
+                        instruction_manifest_sha256=instruction_manifest_sha256,
+                        state="active",
+                        process=process_identity,
+                    )
+                return result
+            except BaseException:
+                if admitted:
+                    try:
+                        if controller.has_session(session):
+                            controller.halt(session=session, expected_workspace=expected_workspace)
+                    except Exception:
+                        pass
+                    try:
+                        transition_session_lease(
+                            session=session,
+                            target=contract.target,
+                            controller=contract.controller,
+                            owner=dict(lease_owner),
+                            instruction_manifest_sha256=instruction_manifest_sha256,
+                            state="failed",
+                            process=None,
+                        )
+                    except Exception:
+                        pass
+                raise
     observation = controller.require_observation()
     conversation_id = observation["session"]["conversation_id"]
     return controller.caller_result(
@@ -1176,6 +1283,98 @@ def _workspace_snapshot(contract: Contract) -> Dict[str, Any]:
     }
 
 
+def _agy_resume_workspace(contract: Contract) -> Dict[str, Any]:
+    current = _workspace_snapshot(contract)
+    current["path"] = str(contract.repo)
+    return current
+
+
+def _agy_workspace_paths_match(expected: Any, current: Any) -> bool:
+    if not isinstance(expected, str) or not isinstance(current, str):
+        return False
+    try:
+        return Path(expected).resolve() == Path(current).resolve()
+    except OSError:
+        return expected == current
+
+
+def _authorized_agy_resume_workspace(
+    stored: Mapping[str, Any], contract: Contract
+) -> Dict[str, Any]:
+    """Return the workspace identity resume may bind, including reviewed source."""
+
+    observed = stored.get("observation")
+    expected = observed.get("workspace") if isinstance(observed, Mapping) else None
+    if not isinstance(expected, Mapping):
+        raise IdentityError("agy-print resume workspace identity is unavailable")
+    current = _agy_resume_workspace(contract)
+    identity = {
+        "path": current["path"],
+        "branch": current["branch"],
+        "head": current["head"],
+        "tree": current["tree"],
+    }
+    if current["dirty"]:
+        raise IdentityError("candidate worktree is not clean at the exact head")
+    if not _agy_workspace_paths_match(expected.get("path"), current["path"]):
+        raise IdentityError("agy-print resume workspace identity changed: path")
+    if expected.get("branch") != current["branch"]:
+        raise IdentityError("agy-print resume workspace identity changed: branch")
+    if (
+        expected.get("head") == current["head"]
+        and expected.get("tree") == current["tree"]
+    ):
+        return identity
+    protocol = stored.get("protocol")
+    accepted = protocol.get("source_commit") if isinstance(protocol, Mapping) else None
+    if (
+        not isinstance(protocol, Mapping)
+        or protocol.get("kind") != "source"
+        or protocol.get("phase") not in {"source_accepted", "proof_assignment_sent"}
+        or not isinstance(accepted, str)
+        or current["head"] != accepted
+    ):
+        field = "head" if expected.get("head") != current["head"] else "tree"
+        raise IdentityError("agy-print resume workspace identity changed: %s" % field)
+    bound_head = expected.get("head")
+    if not isinstance(bound_head, str):
+        raise IdentityError("agy-print resume workspace identity is unavailable")
+    try:
+        _git(
+            contract.repo,
+            ["merge-base", "--is-ancestor", bound_head, current["head"]],
+            identity_error=True,
+        )
+    except IdentityError:
+        raise IdentityError(
+            "agy-print reviewed source is not descended from the bound workspace"
+        ) from None
+    return identity
+
+
+def _validate_agy_resume_identity(
+    stored: Mapping[str, Any], contract: Contract
+) -> None:
+    """Refresh the executable and checkout identity before admitting resume."""
+
+    manifest = stored.get("manifest")
+    if not isinstance(manifest, Mapping):
+        raise IdentityError("agy-print resume manifest identity is unavailable")
+    executable_raw = manifest.get("executable")
+    if not isinstance(executable_raw, Mapping):
+        raise IdentityError("agy-print resume executable identity is unavailable")
+    expected_sha = executable_raw.get("sha256")
+    executable_path = stored.get("executable") or executable_raw.get("resolved_path")
+    if not isinstance(expected_sha, str) or not isinstance(executable_path, str):
+        raise IdentityError("agy-print resume executable identity is unavailable")
+    executable = Path(executable_path)
+    if executable.is_symlink() or not executable.is_file():
+        raise IdentityError("agy-print resume executable identity changed")
+    if sha256_file(executable) != expected_sha:
+        raise IdentityError("agy-print resume executable identity changed")
+    _authorized_agy_resume_workspace(stored, contract)
+
+
 def _profile_doctor_state(
     *,
     profile_root: Optional[Path],
@@ -1314,7 +1513,8 @@ def doctor(
         require_subscription_profile=require_subscription_profile,
     )
     blockers.extend(profile_blockers)
-    if not transport_is_available(transport["id"]):
+    transport_available = transport_is_available(transport["id"])
+    if not transport_available:
         blockers.append(transport_unavailable_detail(transport["id"]))
     workspace = _workspace_snapshot(contract)
     branch = workspace["branch"]
@@ -1350,7 +1550,10 @@ def doctor(
     mapping = manifest.raw["yolo_mapping"]
     if contract.session_profile != "regular":
         blockers.append("only the regular session profile is enabled")
-    if contract.requested_model is not None or contract.requested_effort is not None:
+    if (
+        (contract.requested_model is not None or contract.requested_effort is not None)
+        and not (contract.target == "agy" and transport["id"] == "agy-print")
+    ):
         blockers.append("explicit model and effort selection remain deferred")
     if not mapping.get("complete"):
         blockers.append(
@@ -1374,11 +1577,21 @@ def doctor(
         if manifest.raw["doctor_only"]:
             blockers.append(GROK_LAUNCH_AUTHORITY_BLOCKER)
     else:
-        active = _active_processes(contract.target, manifest)
-        candidate_processes = active
-        parallel_override = _parallel_target_override(
-            authorization, contract.target, active
-        )
+        # A blocked transport cannot launch or steer a target, so avoid an
+        # unrelated live PID census.  This keeps doctor diagnostic and
+        # deterministic when macOS proc rows disappear during sampling.
+        if not transport_available or (
+            transport["id"] == "cursor-acp" and contract.target != "cursor"
+        ):
+            active = []
+            candidate_processes = []
+            parallel_override = False
+        else:
+            active = _active_processes(contract.target, manifest)
+            candidate_processes = active
+            parallel_override = _parallel_target_override(
+                authorization, contract.target, active
+            )
     unverified = sorted(
         name
         for name, status in manifest.raw["capabilities"].items()
@@ -1399,6 +1612,14 @@ def doctor(
                 expected_goal_fingerprint=authority["goal_fingerprint"],
                 expected_session_profile=contract.session_profile,
             )
+            qualification_scope = manifest.raw.get("qualification_scope")
+            if (
+                isinstance(qualification_scope, Mapping)
+                and qualification_scope.get("transport") != transport["id"]
+            ):
+                raise IdentityError(
+                    "qualification transport does not match the requested transport"
+                )
             if qualification.get(
                 "instruction_policy_fingerprint"
             ) != instruction_policy_fingerprint(target=contract.target):
@@ -1507,6 +1728,7 @@ def launch(
     _process_birth_fn: Any = None,
     _allow_test_profile_bypass: bool = False,
     _agy_print_observer: Optional[Mapping[str, Any]] = None,
+    _agy_print_executable: Optional[Path] = None,
     _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
     _cursor_acp_runner: Any = None,
 ) -> Dict[str, Any]:
@@ -1542,6 +1764,10 @@ def launch(
     ):
         raise IdentityError("contract or manifest changed during preflight")
     authorization = _authorization(authorization_path, contract)
+    transport = bind_run_transport(
+        requested_transport,
+        contract_transport=_contract_requested_transport(contract),
+    )
     qualification_authority = _qualification_authority(contract, authorization)
     qualification = manifest.verify_qualification(
         expected_controller=qualification_authority["controller"],
@@ -1564,6 +1790,14 @@ def launch(
         raise IdentityError(
             "qualification instruction policy does not match the current compiler"
         )
+    qualification_scope = manifest.raw.get("qualification_scope")
+    if (
+        isinstance(qualification_scope, Mapping)
+        and qualification_scope.get("transport") != transport["id"]
+    ):
+        raise IdentityError(
+            "qualification transport does not match the requested transport"
+        )
     if requested_model is not None and requested_model != contract.requested_model:
         raise ValidationError("CLI model selection must match the bound contract")
     if requested_effort is not None and requested_effort != contract.requested_effort:
@@ -1578,7 +1812,14 @@ def launch(
             "%s regular qualification covers only the current default model"
             % contract.target.capitalize()
         )
-    argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
+    if contract.target == "agy" and transport["id"] == "agy-print":
+        argv = agy_print_launch_argv(
+            manifest.raw["executable"]["resolved_path"],
+            requested_model=effective_model,
+            requested_effort=effective_effort,
+        )
+    else:
+        argv = adapter.build_launch_argv(manifest, effective_model, effective_effort)
     if contract.target == "cursor":
         from .cursor_qualification import cursor_regular_launch_argv
 
@@ -1589,7 +1830,7 @@ def launch(
         )
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
-    if contract.target == "agy":
+    if contract.target == "agy" and transport["id"] != "agy-print":
         validate_agy_regular_launch_params(
             session_profile=contract.session_profile,
             argv=argv,
@@ -1757,12 +1998,14 @@ def launch(
             executable_path=executable_path,
             cwd=contract.repo,
             environment=launch_environment,
+            argv=argv,
         )
         agy_shared_binding = build_agy_shared_auth_launch_binding(
             executable_path=executable_path,
             cwd=contract.repo,
             environment=launch_environment,
             status=profile_status,
+            argv=argv,
         )
         validate_agy_shared_auth_launch_binding(
             agy_shared_binding,
@@ -1781,10 +2024,6 @@ def launch(
         "effective instruction manifest",
     )
     instruction_manifest_sha = sha256_file(instruction_copy, max_bytes=131072)
-    transport = bind_run_transport(
-        requested_transport,
-        contract_transport=_contract_requested_transport(contract),
-    )
     if transport["id"] == "agy-print":
         return _agy_print_structured_launch(
             session=session,
@@ -1792,7 +2031,21 @@ def launch(
             transport=transport,
             state_root=state_root,
             requested_model=requested_model,
+            requested_effort=requested_effort,
+            qualification_scope=manifest.raw.get("qualification_scope"),
             observer=_agy_print_observer,
+            executable=_agy_print_executable
+            or Path(manifest.raw["executable"]["resolved_path"]),
+            prompt=initial,
+            proof_root=proof_root,
+            manifest_raw=manifest.raw,
+            deadline_at=(
+                None
+                if deadline_seconds is None
+                else _format_utc(_now_utc() + dt.timedelta(seconds=deadline_seconds))
+            ),
+            lease_owner=session_lease_owner,
+            instruction_manifest_sha256=instruction_manifest_sha,
         )
     if transport["id"] == "cursor-acp":
         return _cursor_acp_structured_launch(
@@ -2211,6 +2464,187 @@ def send_message(
     *, state_root: Path, session: str, message: str, request_id: str
 ) -> Dict[str, Any]:
     validate_identifier(request_id, "request id")
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        registry = SessionRegistry(Path(state_root))
+        with exclusive_lock(registry.operation_lock(session)):
+            stored = agy_controller.require_session(session)
+            contract_raw = stored.get("contract")
+            if isinstance(contract_raw, Mapping) and contract_raw and (
+                not isinstance(stored.get("lease_owner"), Mapping)
+                or not isinstance(stored.get("instruction_manifest_sha256"), str)
+            ):
+                raise IdentityError(
+                    "agy-print session lease binding is unavailable; bound contract/evidence required"
+                )
+            production_lease = isinstance(contract_raw, Mapping) and bool(contract_raw)
+            contract = Contract.from_dict(dict(contract_raw)) if production_lease else None
+            lease = None
+            if production_lease:
+                lease = require_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    states={"active", "launching", "halting", "halted", "failed"},
+                )
+            if stored.get("deadline_at") is not None and _deadline_state(stored)[1]:
+                raise ValidationError(
+                    "session deadline has passed: steering messages are refused; halt or adjudicate the session"
+                )
+            observation = stored["observation"]
+            prior_request = (stored.get("send_requests") or {}).get(request_id)
+            historical_replay = (
+                isinstance(prior_request, Mapping)
+                and prior_request.get("phase") == "submitted"
+            )
+            if production_lease and stored.get("held"):
+                if lease["state"] == "launching":
+                    raise IdentityError(
+                        "agy-print send found an unactivated launch lease"
+                    )
+                process = process_birth_identity(observation["process"]["pid"])
+                if process["kernel_birth_id"] != observation["process"]["kernel_birth_id"]:
+                    raise IdentityError("agy-print send process identity changed")
+                if lease["state"] != "active":
+                    raise IdentityError("agy-print send requires an active lease")
+            elif production_lease:
+                if lease["state"] != "halted":
+                    raise IdentityError(
+                        "agy-print resume requires the exact halted lease state"
+                    )
+                if not historical_replay:
+                    _validate_agy_resume_identity(stored, contract)
+
+            def admit_resume() -> None:
+                if not production_lease or stored.get("held"):
+                    return
+                admit_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                )
+
+            def fail_resume() -> None:
+                if not production_lease or stored.get("held"):
+                    return
+                current = agy_controller.require_session(session)
+                launched = (
+                    getattr(agy_controller, "last_public_send_outcome", None)
+                    == "new_launch"
+                    or current.get("held") is True
+                )
+                if launched:
+                    runtime = getattr(agy_controller, "runtime", None)
+                    launched_process = getattr(runtime, "identity", None)
+                    if isinstance(launched_process, Mapping):
+                        if (
+                            launched_process.get("pid")
+                            != current["observation"]["process"].get("pid")
+                            or launched_process.get("kernel_birth_id")
+                            != current["observation"]["process"].get("kernel_birth_id")
+                        ):
+                            raise IdentityError(
+                                "agy-print resumed process identity changed"
+                            )
+                        transition_session_lease(
+                            session=session,
+                            target=contract.target,
+                            controller=contract.controller,
+                            owner=dict(stored["lease_owner"]),
+                            instruction_manifest_sha256=stored[
+                                "instruction_manifest_sha256"
+                            ],
+                            state="active",
+                            process=dict(launched_process),
+                        )
+                    try:
+                        halted = agy_controller.halt(session=session)
+                    except Exception as exc:
+                        raise IdentityError(
+                            "agy-print resume cleanup was not proven"
+                        ) from exc
+                    if halted.get("state") != "HALTED":
+                        raise IdentityError(
+                            "agy-print resume cleanup did not produce a halted result"
+                        )
+                try:
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(stored["lease_owner"]),
+                        instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                        state="failed",
+                        process=None,
+                    )
+                except Exception:
+                    raise
+            protocol = dict(stored.get("protocol") or {})
+            record_state = (stored.get("observation") or {}).get("record_state")
+            first_proof_assignment = (
+                protocol.get("kind") == "source"
+                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
+                and protocol.get("phase") == "source_accepted"
+                and "proof_assignment_id" not in protocol
+            )
+            replayed_proof_assignment = (
+                protocol.get("kind") == "source"
+                and record_state in {"SOURCE_ACCEPTED", "HALTED"}
+                and protocol.get("phase") == "proof_assignment_sent"
+                and protocol.get("proof_assignment_id") == request_id
+            )
+            if protocol.get("kind") == "conformance":
+                enveloped = adapter_for("agy").envelope(
+                    _followup_envelope(protocol, request_id, message),
+                    "regular", initial=False
+                )
+            elif first_proof_assignment or replayed_proof_assignment:
+                enveloped = adapter_for("agy").envelope(
+                    _proof_assignment_envelope(contract, protocol, request_id, message),
+                    "regular", initial=False
+                )
+            else:
+                enveloped = adapter_for("agy").envelope(
+                    message, "regular", initial=False
+                )
+            result = agy_controller.send(
+                session=session,
+                message=enveloped,
+                expected_workspace=observation["workspace"],
+                request_id=request_id,
+                before_resume=admit_resume,
+                on_resume_failure=fail_resume,
+            )
+            if (
+                production_lease
+                and not stored.get("held")
+                and getattr(agy_controller, "last_public_send_outcome", None)
+                == "replay"
+            ):
+                return result
+            if production_lease and not stored.get("held"):
+                try:
+                    resumed = agy_controller.require_session(session)
+                    process = process_birth_identity(resumed["observation"]["process"]["pid"])
+                    if process["kernel_birth_id"] != resumed["observation"]["process"]["kernel_birth_id"]:
+                        raise IdentityError("agy-print resumed process identity changed")
+                    transition_session_lease(
+                        session=session,
+                        target=contract.target,
+                        controller=contract.controller,
+                        owner=dict(resumed["lease_owner"]),
+                        instruction_manifest_sha256=resumed["instruction_manifest_sha256"],
+                        state="active",
+                        process=process,
+                    )
+                except Exception:
+                    fail_resume()
+                    raise
+            return result
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)
@@ -2329,6 +2763,9 @@ def send_message(
 
 
 def status(*, state_root: Path, session: str) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        return agy_controller.status(session=session)
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2592,6 +3029,15 @@ def wait_for(
         timeout, "wait timeout", maximum=MAX_WAIT_TIMEOUT_SECONDS
     )
     after = _wait_after(condition, after)
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        return agy_controller.wait(
+            session=session,
+            condition=condition,
+            timeout=timeout,
+            after=after,
+            interval=interval,
+        )
     deadline = time.monotonic() + timeout
     while True:
         report = status(state_root=state_root, session=session)
@@ -2660,17 +3106,54 @@ def _checkpoint_expected(record: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     raise ValidationError("source checkpoint is out of sequence")
 
 
-def import_checkpoint(
-    *, state_root: Path, session: str, handoff_path: Path
+def agy_session_admission_record(
+    stored: Mapping[str, Any], contract: Contract
 ) -> Dict[str, Any]:
-    registry = SessionRegistry(Path(state_root))
-    record = registry.load(session)
-    contract = _bound_contract(record)
-    _runtime(registry, record, "checkpoint", require_process=True)
-    expected, phase = _checkpoint_expected(record)
+    """Build the shared checkpoint-admission record from an AGY session store."""
+
+    session = stored.get("session")
+    observation = stored.get("observation")
+    if not isinstance(session, str) or not isinstance(observation, Mapping):
+        raise IdentityError("agy-print session admission identity is unavailable")
+    protocol = stored.get("protocol")
+    adapter = stored.get("adapter")
+    if not isinstance(protocol, Mapping) or not isinstance(adapter, Mapping):
+        manifest_raw = stored.get("manifest")
+        if not isinstance(manifest_raw, Mapping) or not manifest_raw:
+            raise IdentityError("agy-print session is missing runtime and protocol binding")
+        manifest = AdapterManifest.from_dict(dict(manifest_raw))
+        if not isinstance(protocol, Mapping):
+            protocol = _protocol_state(contract, manifest, session)
+        if not isinstance(adapter, Mapping):
+            adapter = {
+                "executable_fingerprint": manifest.raw["executable"]["sha256"],
+                "execution_fingerprint": manifest.execution_fingerprint,
+                "adapter_fingerprint": manifest.raw["adapter_fingerprint"],
+                "protocol_fingerprint": manifest.raw["protocol_fingerprint"],
+            }
+    return {
+        "session": session,
+        "state": observation.get("record_state") or "ACTIVE",
+        "protocol": dict(protocol),
+        "adapter": dict(adapter),
+        "repo": str(contract.repo),
+        "proof_root": stored.get("proof_root"),
+    }
+
+
+def admit_checkpoint_handoff(
+    *,
+    record: Mapping[str, Any],
+    contract: Contract,
+    handoff_path: Path,
+    allowed_roots: List[Path],
+) -> Tuple[ValidatedHandoff, Dict[str, Any], str]:
+    """Admit one checkpoint for both registry and AGY public controllers."""
+
+    expected, phase = _checkpoint_expected(dict(record))
     handoff = validate_handoff(
         Path(handoff_path),
-        allowed_roots=[Path(record["proof_root"]), Path(record["repo"])],
+        allowed_roots=allowed_roots,
         expected=expected,
     )
     protocol = dict(record["protocol"])
@@ -2685,43 +3168,97 @@ def import_checkpoint(
                 ready_checkpoint_id=handoff.checkpoint_id,
                 ready_artifact_sha256=handoff.artifact_sha256,
             )
-            next_state = "CONFORMANCE_READY"
-        else:
-            protocol.update(
-                phase="followup_validated",
-                followup_checkpoint_id=handoff.checkpoint_id,
+            return handoff, protocol, "CONFORMANCE_READY"
+        protocol.update(
+            phase="followup_validated",
+            followup_checkpoint_id=handoff.checkpoint_id,
+        )
+        return handoff, protocol, "CONFORMANCE_CHECKPOINT_READY"
+    if handoff.checkpoint_kind != "source":
+        raise ValidationError("source session requires source handoffs")
+    current_head = handoff.identity["candidate_commit"]
+    _verify_source_identity(contract, current_head)
+    if phase == "source":
+        protocol.update(phase="source_checkpoint", source_commit=current_head)
+        return handoff, protocol, "SOURCE_CHECKPOINT_READY"
+    parent = _git(contract.repo, ["rev-parse", "HEAD^"], identity_error=True)
+    if parent != protocol["source_commit"]:
+        raise IdentityError("proof checkpoint is not a child of accepted source")
+    changed = _git(
+        contract.repo,
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+        identity_error=True,
+    ).splitlines()
+    if not changed or any(
+        not any(path.startswith(prefix) for prefix in contract.proof_path_prefixes)
+        for path in changed
+    ):
+        raise IdentityError("proof checkpoint changed files outside proof-only paths")
+    protocol.update(phase="proof_checkpoint", proof_commit=current_head)
+    return handoff, protocol, "PROOF_CHECKPOINT_READY"
+
+
+def require_conformance_reviewable(state: str) -> None:
+    if state != "CONFORMANCE_CHECKPOINT_READY":
+        raise ValidationError("conformance checkpoint is not reviewable")
+
+
+def require_conformance_acceptable(state: str, review: Mapping[str, Any]) -> None:
+    if (
+        state != "AWAITING_CONFORMANCE_REVIEW"
+        or review.get("verdict") != "conformance_accept"
+    ):
+        raise ValidationError("conformance checkpoint lacks an accept review")
+
+
+def require_source_acceptable(state: str, review: Mapping[str, Any]) -> None:
+    if (
+        state != "AWAITING_CONTROLLER_REVIEW"
+        or review.get("verdict") != "source_accept"
+    ):
+        raise ValidationError("source proof checkpoint lacks a final accept review")
+
+
+def import_checkpoint(
+    *, state_root: Path, session: str, handoff_path: Path
+) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        registry = SessionRegistry(Path(state_root))
+        with exclusive_lock(registry.operation_lock(session)):
+            stored = agy_controller.require_session(session)
+            contract_raw = stored.get("contract")
+            if isinstance(contract_raw, Mapping) and contract_raw:
+                if not isinstance(stored.get("lease_owner"), Mapping) or not isinstance(
+                    stored.get("instruction_manifest_sha256"), str
+                ):
+                    raise IdentityError("agy-print session lease binding is unavailable")
+                contract = Contract.from_dict(dict(contract_raw))
+                require_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    states={"active"},
+                )
+                process = process_birth_identity(stored["observation"]["process"]["pid"])
+                if process["kernel_birth_id"] != stored["observation"]["process"]["kernel_birth_id"]:
+                    raise IdentityError("agy-print checkpoint process identity changed")
+            return agy_controller.import_checkpoint(
+                session=session,
+                handoff_path=handoff_path,
             )
-            next_state = "CONFORMANCE_CHECKPOINT_READY"
-    else:
-        if handoff.checkpoint_kind != "source":
-            raise ValidationError("source session requires source handoffs")
-        current_head = handoff.identity["candidate_commit"]
-        _verify_source_identity(contract, current_head)
-        if phase == "source":
-            protocol.update(phase="source_checkpoint", source_commit=current_head)
-            next_state = "SOURCE_CHECKPOINT_READY"
-        else:
-            parent = _git(contract.repo, ["rev-parse", "HEAD^"], identity_error=True)
-            if parent != protocol["source_commit"]:
-                raise IdentityError(
-                    "proof checkpoint is not a child of accepted source"
-                )
-            changed = _git(
-                contract.repo,
-                ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
-                identity_error=True,
-            ).splitlines()
-            if not changed or any(
-                not any(
-                    path.startswith(prefix) for prefix in contract.proof_path_prefixes
-                )
-                for path in changed
-            ):
-                raise IdentityError(
-                    "proof checkpoint changed files outside proof-only paths"
-                )
-            protocol.update(phase="proof_checkpoint", proof_commit=current_head)
-            next_state = "PROOF_CHECKPOINT_READY"
+    registry = SessionRegistry(Path(state_root))
+    record = registry.load(session)
+    contract = _bound_contract(record)
+    _runtime(registry, record, "checkpoint", require_process=True)
+    handoff, protocol, next_state = admit_checkpoint_handoff(
+        record=record,
+        contract=contract,
+        handoff_path=Path(handoff_path),
+        allowed_roots=[Path(record["proof_root"]), Path(record["repo"])],
+    )
     reference = handoff.reference()
     registry.update(
         session,
@@ -2771,6 +3308,38 @@ def review_checkpoint(
     verdict: str,
     evidence_path: Path,
 ) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        registry = SessionRegistry(Path(state_root))
+        with exclusive_lock(registry.operation_lock(session)):
+            stored = agy_controller.require_session(session)
+            contract_raw = stored.get("contract")
+            if isinstance(contract_raw, Mapping) and contract_raw:
+                if not isinstance(stored.get("lease_owner"), Mapping) or not isinstance(
+                    stored.get("instruction_manifest_sha256"), str
+                ):
+                    raise IdentityError("agy-print session lease binding is unavailable")
+                contract = Contract.from_dict(dict(contract_raw))
+                require_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    states={"active"},
+                )
+                process = process_birth_identity(stored["observation"]["process"]["pid"])
+                if process["kernel_birth_id"] != stored["observation"]["process"]["kernel_birth_id"]:
+                    raise IdentityError("agy-print review process identity changed")
+            if evidence_path.is_symlink() or not evidence_path.is_file():
+                raise ValidationError("agy-print review evidence is unavailable")
+            return agy_controller.review(
+                session=session,
+                checkpoint_id=checkpoint_id,
+                actor=actor,
+                verdict=verdict,
+                evidence_path=evidence_path,
+            )
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2790,8 +3359,7 @@ def review_checkpoint(
     if handoff.checkpoint_kind == "source":
         _verify_source_identity(contract, handoff.identity["candidate_commit"])
     if handoff.checkpoint_kind == "conformance":
-        if record["state"] != "CONFORMANCE_CHECKPOINT_READY":
-            raise ValidationError("conformance checkpoint is not reviewable")
+        require_conformance_reviewable(record["state"])
         transition(record["state"], "AWAITING_CONFORMANCE_REVIEW")
         if verdict in {"block", "fail"}:
             transition(
@@ -2877,6 +3445,42 @@ def accept_checkpoint(
     actor: str,
     evidence_path: Path,
 ) -> Dict[str, Any]:
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        registry = SessionRegistry(Path(state_root))
+        with exclusive_lock(registry.operation_lock(session)):
+            stored = agy_controller.require_session(session)
+            contract_raw = stored.get("contract")
+            if not isinstance(contract_raw, dict):
+                raise IdentityError("agy-print session is missing its bound contract")
+            if not isinstance(stored.get("lease_owner"), Mapping) or not isinstance(
+                stored.get("instruction_manifest_sha256"), str
+            ):
+                raise IdentityError(
+                    "agy-print session lease binding is unavailable; bound contract/evidence required"
+                )
+            contract = Contract.from_dict(contract_raw)
+            assert_controller(contract, actor)
+            require_session_lease(
+                session=session,
+                target=contract.target,
+                controller=contract.controller,
+                owner=dict(stored["lease_owner"]),
+                instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                states={"active"},
+            )
+            process = process_birth_identity(stored["observation"]["process"]["pid"])
+            if process["kernel_birth_id"] != stored["observation"]["process"]["kernel_birth_id"]:
+                raise IdentityError("agy-print acceptance process identity changed")
+            if evidence_path.is_symlink() or not evidence_path.is_file():
+                raise ValidationError("agy-print acceptance evidence is unavailable")
+            return agy_controller.accept(
+                session=session,
+                checkpoint_id=checkpoint_id,
+                expected_workspace=stored["observation"]["workspace"],
+                actor=actor,
+                evidence_path=evidence_path,
+            )
     registry = SessionRegistry(Path(state_root))
     record = registry.load(session)
     contract = _bound_contract(record)
@@ -2891,17 +3495,9 @@ def accept_checkpoint(
         candidate_commit=handoff.identity.get("candidate_commit"),
     )
     if handoff.checkpoint_kind == "conformance":
-        if (
-            record["state"] != "AWAITING_CONFORMANCE_REVIEW"
-            or review.get("verdict") != "conformance_accept"
-        ):
-            raise ValidationError("conformance checkpoint lacks an accept review")
+        require_conformance_acceptable(record["state"], review)
     else:
-        if (
-            record["state"] != "AWAITING_CONTROLLER_REVIEW"
-            or review.get("verdict") != "source_accept"
-        ):
-            raise ValidationError("source proof checkpoint lacks a final accept review")
+        require_source_acceptable(record["state"], review)
         _verify_source_identity(contract, handoff.identity["candidate_commit"])
     acceptance = record_acceptance(
         contract=contract,
@@ -2923,6 +3519,14 @@ def accept_checkpoint(
 
 
 def attach_command(*, state_root: Path, session: str) -> Dict[str, Any]:
+    if _agy_print_bound_session(state_root, session) is not None:
+        raise UnsupportedError(
+            "agy-print has no tmux attach surface",
+            blocker=doctor_blocker(
+                "transport_unavailable",
+                "agy-print has no tmux attach surface",
+            ),
+        )
     state_root = Path(state_root).resolve(strict=True)
     registry = SessionRegistry(state_root)
     record = registry.load(session)
@@ -3178,6 +3782,94 @@ def halt(*, state_root: Path, session: str, timeout: float = 10.0) -> Dict[str, 
     timeout = _bounded_seconds(
         timeout, "halt timeout", maximum=MAX_HALT_TIMEOUT_SECONDS
     )
+    agy_controller = _agy_print_bound_session(state_root, session)
+    if agy_controller is not None:
+        registry = SessionRegistry(Path(state_root))
+        with exclusive_lock(registry.operation_lock(session)):
+            stored = agy_controller.require_session(session)
+            contract_raw = stored.get("contract")
+            if isinstance(contract_raw, Mapping) and contract_raw and (
+                not isinstance(stored.get("lease_owner"), Mapping)
+                or not isinstance(stored.get("instruction_manifest_sha256"), str)
+            ):
+                raise IdentityError("agy-print session lease binding is unavailable")
+            production_lease = isinstance(contract_raw, Mapping) and bool(contract_raw)
+            if not production_lease:
+                return agy_controller.halt(session=session, timeout=timeout)
+            contract = Contract.from_dict(dict(contract_raw))
+            lease = require_session_lease(
+                session=session,
+                target=contract.target,
+                controller=contract.controller,
+                owner=dict(stored["lease_owner"]),
+                instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                states={"active", "launching", "halting", "halted", "failed"},
+            )
+            observation = stored["observation"]
+            if lease["state"] in {"halted", "failed"} and observation.get("record_state") == "HALTED":
+                return agy_controller.caller_result(
+                    expected_session=session,
+                    expected_conversation_id=observation["session"]["conversation_id"],
+                    expected_workspace=observation["workspace"],
+                    expected_process=observation["process"],
+                    record_state="HALTED",
+                    require_halt=True,
+                )
+            if lease["state"] == "failed":
+                raise IdentityError(
+                    "agy-print failed lease does not have a proven halted observation"
+                )
+            try:
+                process = process_birth_identity(observation["process"]["pid"])
+            except ProcessVanished:
+                bound_process = lease.get("process")
+                if not isinstance(bound_process, Mapping):
+                    raise IdentityError(
+                        "agy-print halt lease process identity is unavailable"
+                    )
+                if (
+                    bound_process.get("pid") != observation["process"].get("pid")
+                    or bound_process.get("kernel_birth_id")
+                    != observation["process"].get("kernel_birth_id")
+                ):
+                    raise IdentityError("agy-print halt lease process identity changed")
+                process = dict(bound_process)
+            if process["kernel_birth_id"] != observation["process"]["kernel_birth_id"]:
+                raise IdentityError("agy-print halt process identity changed")
+            if lease["state"] == "launching":
+                transition_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    state="active",
+                    process=process,
+                )
+                lease = dict(lease, state="active", process=process)
+            if lease["state"] not in {"active", "halting"}:
+                raise IdentityError("agy-print halt requires an active or halting lease")
+            if lease["state"] == "active":
+                transition_session_lease(
+                    session=session,
+                    target=contract.target,
+                    controller=contract.controller,
+                    owner=dict(stored["lease_owner"]),
+                    instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                    state="halting",
+                    process=process,
+                )
+            result = agy_controller.halt(session=session, timeout=timeout)
+            transition_session_lease(
+                session=session,
+                target=contract.target,
+                controller=contract.controller,
+                owner=dict(stored["lease_owner"]),
+                instruction_manifest_sha256=stored["instruction_manifest_sha256"],
+                state="halted",
+                process=process,
+            )
+            return result
     registry = SessionRegistry(Path(state_root))
     with exclusive_lock(registry.operation_lock(session)):
         record = registry.load(session)

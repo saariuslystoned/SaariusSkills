@@ -1263,6 +1263,7 @@ def verify_qualification_receipt(
                 target=receipt["target"]
             ),
             source_root=_source_root,
+            transport=scoped.get("transport"),
         )
         reuse = evaluate_qualification_reuse(
             stored_compatibility=scoped,
