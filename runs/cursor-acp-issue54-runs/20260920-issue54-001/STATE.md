@@ -2,7 +2,7 @@
 
 Status: SOURCE_FIXED
 Issue: https://github.com/saariuslystoned/SaariusSkills/issues/54
-Source SHA: 2efafae (reviewed repair-cycle-1 head; repair-cycle-2 source is uncommitted)
+Source SHA: d4fb178 (repair-cycle-2 source fix; pushed to PR branch)
 Branch: codex/issue54-cursor-recovery
 Owner: current task
 Route: native Cursor ACP only — `/Users/bobbybones/.local/bin/cursor-agent acp` with `cursor-grok-4.6-high`
@@ -26,7 +26,7 @@ Proof root: this directory
 - Repair cycle 1 native jobs `7a7f1abb-8c23-4622-8c45-d7f9444c3463`, `c5e51899-03b3-4a12-a900-b68559cf7bf9`, and `beddc553-4946-4a14-b231-e2688b6c5bd2` failed at bridge lifecycle after delayed native edits. Review `89d07e37-7588-43ba-804e-5d4a3097ee00` completed canonically but its handoff ended in `PING timed out`; local-only retry `30bf36a1-1236-4edd-9950-3331deeb537e` failed at bridge startup.
 - Independent verification: `npm run check` 30/30; focused lock tests 4/4; adapted audit repair outcomes lock-race max concurrency 1 and interrupted lock recovered `failed` with subsequent acquisition.
 - Repair cycle 2 (this worker): implemented only the two adjudicated required fixes on the native Cursor ACP route. Lock publication/reclaim path preserved. Targeted before 26/26 (encoding rejected PID-reuse and lease-less setup fixtures); after 31/31; `npm run check` 31/31. No native model turn, install/reload, commit, push, or merge. Status remains `SOURCE_FIXED`, not `NATIVE_QUALIFIED`.
-- Repair cycle 2 native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically on the exact route with 150 tool calls. Its bounded handoff made only the two adjudicated fixes; independent verification reproduced 31/31 after the handoff. Commit/push and exact-head review remain pending; no install/reload or native qualification claim.
+- Repair cycle 2 native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed canonically on the exact route with 150 tool calls. Its bounded handoff made only the two adjudicated fixes; independent verification reproduced 31/31 after the handoff. Source commit `d4fb178` is pushed; exact-head review remains pending. No install/reload or native qualification claim.
 
 ## Status vocabulary
 

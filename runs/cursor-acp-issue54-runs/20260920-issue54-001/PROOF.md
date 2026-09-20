@@ -70,6 +70,6 @@ Targeted after: same plus `test/lock.test.mjs` — 31 passed.
 
 ## Current terminal status
 
-`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: repair cycle 2 source is implemented and fixture-proved in this worktree against reviewed head `2efafae`. Native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed, and independent `npm run check` is 31/31. It is not yet committed. Parent owns commit, push, PR update, exact-head review, and final adjudication. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
+`SOURCE_FIXED`, not `NATIVE_QUALIFIED`: repair cycle 2 source is implemented and fixture-proved against reviewed head `2efafae`, committed as `d4fb178`, and pushed to the PR branch. Native job `29036f29-bb4c-4731-b098-0314c6a99bcb` completed, and independent `npm run check` is 31/31. Parent owns PR update, exact-head review, and final adjudication. Installed plugin reload and bounded live in-flight qualification remain owner-gated.
 
 Review PR: https://github.com/saariuslystoned/SaariusSkills/pull/55
