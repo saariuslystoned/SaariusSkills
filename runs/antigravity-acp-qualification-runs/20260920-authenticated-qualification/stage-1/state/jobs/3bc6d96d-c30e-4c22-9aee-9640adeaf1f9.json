@@ -1,0 +1,56 @@
+{
+  "schema": "saarius.antigravity-acp.job.v1",
+  "jobId": "3bc6d96d-c30e-4c22-9aee-9640adeaf1f9",
+  "status": "failed",
+  "createdAt": "2026-09-20T23:11:46.896Z",
+  "updatedAt": "2026-09-20T23:12:08.486Z",
+  "route": {
+    "agent": "antigravity",
+    "transport": "antigravity-acp",
+    "runtime": {
+      "id": "antigravity-acp",
+      "version": "1.1.1",
+      "registryRevision": "81bf71b55e15f630c4fb8a86d20d3088071d2071",
+      "acpxSourceCommit": "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+      "acpxRelease": "0.17.1"
+    },
+    "executable": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par",
+    "argv": [
+      "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par"
+    ],
+    "helper": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/localharness_external",
+    "platformId": "darwin-aarch64",
+    "model": "gemini-3.7-flash-high"
+  },
+  "workspace": "/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills",
+  "timeoutMs": 180000,
+  "request": {
+    "promptSha256": "5f2b733b66cf83981fa0937ce4ee53724c40542a6337b82e441db52fc721a2fc",
+    "promptChars": 102
+  },
+  "auth": {
+    "mode": "oauth-personal",
+    "profileEnv": "GEMINI_HOME",
+    "credentialSource": "runtime_owned",
+    "accountState": "unproven",
+    "settingsAuthType": "oauth-personal",
+    "overageState": "never",
+    "apiKeyPresent": false,
+    "cloudCredentialsPresent": false,
+    "alternateAccount": false,
+    "interactiveLogin": false,
+    "ultraAttribution": "unclaimed"
+  },
+  "sessionKey": "antigravity-acp:3bc6d96d-c30e-4c22-9aee-9640adeaf1f9",
+  "runDir": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-1/state/runs/3bc6d96d-c30e-4c22-9aee-9640adeaf1f9",
+  "proof": {
+    "state": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-1/state/runs/3bc6d96d-c30e-4c22-9aee-9640adeaf1f9/STATE.md",
+    "events": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-1/state/runs/3bc6d96d-c30e-4c22-9aee-9640adeaf1f9/events.jsonl",
+    "proof": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-1/state/runs/3bc6d96d-c30e-4c22-9aee-9640adeaf1f9/PROOF.md"
+  },
+  "startedAt": "2026-09-20T23:11:46.899Z",
+  "error": {
+    "code": "BRIDGE_RESTARTED",
+    "message": "The bridge restarted before this job reached a terminal result; resubmit explicitly."
+  }
+}

@@ -1,0 +1,7 @@
+{"timestamp":"2026-09-20T23:11:00Z","event":"plugin_reinstalled","pluginVersion":"0.3.0","sourceHead":"e5f4b574216b35ec43bbaf3a26ed1d7985c839db","setup":"MCP_READY","toolCount":6}
+{"timestamp":"2026-09-20T23:11:21Z","event":"readiness_passed","runtime":"antigravity-acp@1.1.1","acpx":"0.17.1","modelCount":11,"selectedModel":"gemini-3.7-flash-high","oauth":"oauth-personal","overageState":"never","ultraAttribution":"unclaimed"}
+{"timestamp":"2026-09-20T23:12:27.454Z","event":"stage_1_completed","jobs":1,"completed":1,"model":"gemini-3.7-flash-high","toolCalls":0,"ack":"AGY-ACP-QUAL-01"}
+{"timestamp":"2026-09-20T23:12:58.163Z","event":"stage_2_completed","jobs":2,"completed":2,"model":"gemini-3.7-flash-high","toolCalls":0,"promptOverlapSeconds":1.962,"acks":["AGY-ACP-PAIR-01","AGY-ACP-PAIR-02"]}
+{"timestamp":"2026-09-20T23:13:36.555Z","event":"stage_5_completed","jobs":5,"completed":5,"model":"gemini-3.7-flash-high","toolCalls":0,"submissionSpreadMs":1,"promptOverlapSeconds":1.872,"acks":["AGY-ACP-FIVE-01","AGY-ACP-FIVE-02","AGY-ACP-FIVE-03","AGY-ACP-FIVE-04","AGY-ACP-FIVE-05"]}
+{"timestamp":"2026-09-20T23:13:50Z","event":"cleanup_verified","runtimeProcessesRemaining":0,"crossContaminationObserved":false}
+{"timestamp":"2026-09-20T23:23:53-04:00","event":"qualification_closed","status":"qualified_bounded_five_way","providerLimitClaimed":false,"ultraAttribution":"unclaimed","puppetQualified":false}
