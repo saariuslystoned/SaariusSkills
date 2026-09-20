@@ -13,7 +13,8 @@ rejected. Ordinary launch remains unavailable.
 
 - worktree: `/Users/bobbybones/.codex/worktrees/1b4d/SaariusSkills`
 - branch: `codex/puppet-acpx-adapter-20260920`
-- draft PR pending publication
+- draft PR: https://github.com/saariuslystoned/SaariusSkills/pull/56
+- commit: `23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a`
 
 ## Dependency
 

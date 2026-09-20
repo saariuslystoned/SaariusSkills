@@ -4,6 +4,9 @@ Step 2 is complete as a disabled, synthetic-only Puppet adapter for the named
 local `cursor-acp` transport. This artifact is ready for review; it is not
 live-qualified and does not change ordinary launch behavior.
 
+Draft PR: https://github.com/saariuslystoned/SaariusSkills/pull/56
+Commit: `23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a`
+
 ## Changed files
 
 - `skills/puppet/scripts/cursor_acpx.py` — disabled adapter outside the

@@ -7,3 +7,4 @@
 {"event":"adapter_implemented","status":"synthetic_only","transport":"cursor-acp","available":false,"ordinary_launch":"unavailable","head":"2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de"}
 {"event":"focused_tests","python":"99+28 OK","js":"10/10 pass","compileall":"OK"}
 {"event":"closeout","status":"step2_complete_synthetic_only","live_or_provider_action":false,"pr":false}
+{"event":"draft_pr_published","pr":"https://github.com/saariuslystoned/SaariusSkills/pull/56","commit":"23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a","status":"draft","full_discover":"1281_tests_one_unrelated_doctor_child_timing_failure"}
