@@ -51,7 +51,7 @@ Repaired verification (adapted scripts; original negatives left intact):
 - [x] Two stale-lock reclaimers keep mutual exclusion, including separate OS processes.
 - [x] Incomplete/interrupted lock publication does not pin a dead-owner job or loop into `JOB_LOCK_TIMEOUT`.
 - [ ] One native Cursor ACP implementation completes while another broker initializes (requires installed reload; not claimed).
-- [ ] Parent-owned review, commit/push, PR update, and adjudication.
+- [x] Source review, commit, non-force push, and PR update completed; merge/adjudication remains external.
 
 ## Current terminal status
 
