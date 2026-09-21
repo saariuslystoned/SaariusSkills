@@ -1,18 +1,20 @@
 # Antigravity failure-receipt v4 state
 
-- status: `OFFLINE_CLEANUP_UNCERTAINTY_REPAIR_COMPLETE`
+- status: `BIRTH_MARKER_GUARD_REPAIR_COMPLETE`
 - canonical_result: `completed/end_turn`
 - owner_task: `01a0c107-05e0-7a11-b6b2-93a524b63e98`
 - scope: `task-only v4 cleanup-uncertainty repair; no product source edits`
-- transport: `native cursor-acp`
-- exact_model: `grok-4.6[effort=high,fast=true]`
-- timeout_ms: `600000`
+- transport: `native antigravity-acp`
+- exact_model: `gemini-3.8-flash-high`
+- effort: `unset`
+- timeout_ms: `300000`
 - prior_implementation_job_id: `12791074-59c9-454e-a446-6ca5c7d14214`
 - implementation_job_id: `39633833-5036-4d16-b8bf-6d7d27d33b10`
+- birth_marker_guard_job_id: `2c7e313d-5c52-4571-b188-de772d627bf5`
 - source_head: `d5e33f67f6b42384f6feec1d15be3b69b4525eb8`
 - source_tree: `938ef948a6a1218ad055a17d5d297c633b936167`
 - publication_baseline: `18c438a058407ef08bfc02e8397f039eb8ae0ff6` (pre-v4 publication tree; not current HEAD)
-- provider_turn: `not authorized; no AGY provider call`
+- provider_turn: `one authorized native AGY implementation job; no candidate qualification turn`
 - v3_history: `preserved unchanged`
 - product_source_edits_made: `false`
 - live_claimed_product_boolean: `false` unchanged candidate-only
@@ -20,4 +22,5 @@
 - acpx_artifact_sha256: `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`
 - official_live_command: `staged v4 driver + v4 contract; not executed`
 - historical_v3_to_v2: `quarantined; untouched`
-- next_allowed_action: `independent repaired-delta retest of this v4 cleanup policy only; zero new candidate provider turns`
+- native_job_result: `completed/end_turn; taskComplete=true; cleanupReady=true`
+- next_allowed_action: `independent repaired-delta review of this v4 cleanup policy only; zero new candidate provider turns`

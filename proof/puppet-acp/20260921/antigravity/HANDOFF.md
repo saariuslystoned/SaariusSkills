@@ -26,8 +26,9 @@ the manual v3 path. The user-authorized live allocation was consumed by one
 failed v3 attempt; no useful edit or qualified model/session receipt was
 emitted, so no coordinator should re-request authorization or retry.
 
-Orchestration and review: Codex. Bounded implementation: native Cursor ACP
-using exact Grok 4.6 High.
+Orchestration and review: Codex. Earlier bounded offline implementation used
+native Cursor ACP with exact Grok 4.6 High. The follow-up birth-marker repair
+used one native Antigravity ACP job with exact `gemini-3.8-flash-high`.
 
 The initial offline v4 implementation job was authorized only for this
 failure-receipt repair: native Cursor ACP, exact
@@ -38,7 +39,9 @@ completed with four new policy regressions; the combined suite is 22/22. v4 now
 persists a fresh allowlisted body-free receipt on an ordinary public-runtime /
 local-synthetic-peer fixture failure, preserves primary and cleanup errors
 separately, records unknowns honestly, and rejects receipt overwrite or writes
-into frozen v3 evidence.
+into frozen v3 evidence. The follow-up birth-marker guard adds focused
+coverage for missing, empty, and malformed current identities; the current v4
+suite is 23/23.
 
 ## Frozen provenance
 
@@ -54,8 +57,11 @@ runtime.js     ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683
 Implementation jobs: v1 `d3834068-43d5-4a4e-8092-6882bbe3cc93`, v2
 `a7158f99-fdc2-47f6-8fc9-9d1cf4940dc2`, and final v3
 `ce47ac58-45f3-4958-9427-fc72792d10e2`; each used native Cursor ACP exact
-Grok 4.6 High. No AGY provider job was used for implementation; one manual
-AGY session was later consumed by the released proof attempt.
+Grok 4.6 High. The v4 birth-marker guard follow-up used native Antigravity ACP
+job `2c7e313d-5c52-4571-b188-de772d627bf5`, exact
+`gemini-3.8-flash-high`, effort unset, and 300000ms. It completed with
+`taskComplete=true` and `cleanupReady=true`. The separate installed-plugin
+pilot used job `f595e82d-597f-46c5-9493-2e4e8784a715`.
 
 ## v3 delta
 
@@ -92,7 +98,8 @@ still quarantined. v3 bytes remain unchanged; useful-edit ability remains
 unproven. Official/live missing or unobservable backend cleanup now fences
 explicitly; a failed metadata or liveness lookup remains unknown rather than
 termination. The explicit synthetic no-backend receipt remains non-qualifying.
-No new candidate provider turn is authorized.
+A missing, empty, or malformed birth marker is also fenced rather than treated
+as a distinct incarnation. No new candidate provider turn is authorized.
 
 ## Native installed-plugin pilot
 
@@ -127,8 +134,9 @@ fixture-after gate, no changed path, no retry, and no qualification PASS. The
 fresh fixture/state evidence remains retained locally; no cleanup-uncertainty
 fence was emitted and no replacement was attempted.
 
-There is no remaining live allocation in this packet. Current runtime cap was
-30 seconds. Sister review checkpoint:
+There is no remaining candidate allocation in this packet. The one native AGY
+implementation allocation for the birth-marker repair is complete and its
+cleanup is ready. Sister review checkpoint:
 https://github.com/saariuslystoned/SaariusSkills/pull/62.
 
 ## Original execution evidence
@@ -144,5 +152,6 @@ is included.
 
 See `DIAGNOSIS.md` for the read-only evidence/inference split. The retained
 v3 failure proves no useful fixture edit; v4 adds the missing offline receipt
-shape but does not convert that repair into live AGY acceptance. No further
-provider work is authorized without explicit rescope.
+shape and now fences malformed birth-marker cleanup, but does not convert
+that repair into Puppet candidate acceptance. No further provider work is
+authorized without explicit rescope.

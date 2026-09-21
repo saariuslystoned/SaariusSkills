@@ -688,6 +688,141 @@ class AgyLiveCapableProofDriverTests(unittest.TestCase):
                 self.assertFalse(result["inferred_from_helper_exit"])
                 self.assertEqual(result["surviving_count"], 0)
 
+    def test_birth_identity_guards_missing_null_malformed_and_valid_distinct_marker(self):
+        captured = {
+            "pid": 5555,
+            "ppid": 4242,
+            "executable_name": "localharness_external",
+            "start_birth_identity": "Mon Sep 21 00:00:00 2026",
+        }
+
+        # 1. Current null birth marker with alive=True and alive=False
+        for alive in (True, False):
+            with self.subTest(case="current-null-birth", alive=alive):
+                current = {
+                    "pid": 5555,
+                    "ppid": 4242,
+                    "executable_name": "localharness_external",
+                    "start_birth_identity": None,
+                }
+                with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current):
+                    with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive):
+                        result = evaluate_backend_after_finish([captured])
+                self.assertTrue(result["observed"])
+                self.assertFalse(result["terminated"])
+                self.assertTrue(result["cleanup_uncertain"])
+                self.assertTrue(result["replacement_blocked"])
+                self.assertEqual(result["surviving_count"], 0)
+                self.assertEqual(result["terminated_count"], 0)
+                self.assertFalse(result["helper_exit_sufficient"])
+                self.assertFalse(result["inferred_from_helper_exit"])
+                self.assertFalse(result["agy_backend_claimed"])
+
+        # 2. Current missing, empty, or malformed start_birth_identity
+        malformed_current_markers = (
+            "",
+            "   ",
+            12345,
+            {"start": "malformed"},
+            ["bad"],
+        )
+        for malformed in malformed_current_markers:
+            for alive in (True, False):
+                with self.subTest(case="current-malformed-marker", malformed=malformed, alive=alive):
+                    current = {
+                        "pid": 5555,
+                        "ppid": 4242,
+                        "executable_name": "localharness_external",
+                        "start_birth_identity": malformed,
+                    }
+                    with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current):
+                        with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive):
+                            result = evaluate_backend_after_finish([captured])
+                    self.assertTrue(result["observed"])
+                    self.assertFalse(result["terminated"])
+                    self.assertTrue(result["cleanup_uncertain"])
+                    self.assertTrue(result["replacement_blocked"])
+                    self.assertEqual(result["surviving_count"], 0)
+                    self.assertEqual(result["terminated_count"], 0)
+
+        for alive in (True, False):
+            with self.subTest(case="current-missing-marker-key", alive=alive):
+                current = {
+                    "pid": 5555,
+                    "ppid": 4242,
+                    "executable_name": "localharness_external",
+                }
+                with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current):
+                    with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive):
+                        result = evaluate_backend_after_finish([captured])
+                self.assertTrue(result["observed"])
+                self.assertFalse(result["terminated"])
+                self.assertTrue(result["cleanup_uncertain"])
+                self.assertTrue(result["replacement_blocked"])
+                self.assertEqual(result["surviving_count"], 0)
+                self.assertEqual(result["terminated_count"], 0)
+
+        # 3. Captured missing, empty, null, or malformed start_birth_identity
+        malformed_captured_markers = (
+            None,
+            "",
+            "   ",
+            9999,
+        )
+        for bad_marker in malformed_captured_markers:
+            with self.subTest(case="captured-bad-marker", marker=bad_marker):
+                bad_captured = {
+                    "pid": 5555,
+                    "ppid": 4242,
+                    "executable_name": "localharness_external",
+                    "start_birth_identity": bad_marker,
+                }
+                for current_mock, alive_mock in (
+                    ({"pid": 5555, "start_birth_identity": "valid-start"}, True),
+                    (None, False),
+                ):
+                    with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current_mock):
+                        with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive_mock):
+                            result = evaluate_backend_after_finish([bad_captured])
+                    self.assertTrue(result["observed"])
+                    self.assertFalse(result["terminated"])
+                    self.assertTrue(result["cleanup_uncertain"])
+                    self.assertTrue(result["replacement_blocked"])
+                    self.assertEqual(result["surviving_count"], 0)
+                    self.assertEqual(result["terminated_count"], 0)
+
+        # 4. Positive distinct valid marker control (acceptable replacement case)
+        for alive in (True, False):
+            with self.subTest(case="positive-distinct-valid-marker", alive=alive):
+                current = {
+                    "pid": 5555,
+                    "ppid": 4242,
+                    "executable_name": "localharness_external",
+                    "start_birth_identity": "Mon Sep 21 00:05:00 2026",
+                }
+                with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current):
+                    with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive):
+                        result = evaluate_backend_after_finish([captured])
+                self.assertTrue(result["observed"])
+                self.assertTrue(result["terminated"])
+                self.assertFalse(result["cleanup_uncertain"])
+                self.assertFalse(result["replacement_blocked"])
+                self.assertEqual(result["terminated_count"], 1)
+                self.assertEqual(result["surviving_count"], 0)
+
+        # 5. Positive same-incarnation control
+        with self.subTest(case="positive-same-incarnation-alive"):
+            current = dict(captured)
+            with mock.patch("agy_live_capable_proof_driver._ps_identity", return_value=current):
+                with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=True):
+                    result = evaluate_backend_after_finish([captured])
+            self.assertTrue(result["observed"])
+            self.assertFalse(result["terminated"])
+            self.assertTrue(result["cleanup_uncertain"])
+            self.assertTrue(result["replacement_blocked"])
+            self.assertEqual(result["surviving_count"], 1)
+            self.assertEqual(result["terminated_count"], 0)
+
     def test_task_owned_local_peer_exit_is_accepted_with_positive_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             handle = start_owned_local_backend(Path(temporary) / "owned-backend")

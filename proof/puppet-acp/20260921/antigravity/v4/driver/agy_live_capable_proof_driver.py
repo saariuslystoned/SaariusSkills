@@ -944,6 +944,10 @@ _PROVIDER_CAPABLE_CLEANUP_POLICIES = frozenset({"official", "live", "provider_ca
 _METADATA_LOOKUP_ERRORS = (OSError, subprocess.SubprocessError, ValueError, TypeError)
 
 
+def _meaningful_birth_identity(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def evaluate_backend_after_finish(
     incarnations: list[Mapping[str, Any]],
     *,
@@ -967,6 +971,10 @@ def evaluate_backend_after_finish(
         if not isinstance(pid, int):
             uncertain.append(captured)
             continue
+        captured_birth = captured.get("start_birth_identity")
+        if not _meaningful_birth_identity(captured_birth):
+            uncertain.append(captured)
+            continue
         metadata_unknown = False
         try:
             current = _ps_identity(pid)
@@ -986,7 +994,11 @@ def evaluate_backend_after_finish(
             else:
                 uncertain.append(captured)
             continue
-        same_incarnation = current.get("start_birth_identity") == item.get("start_birth_identity")
+        current_birth = current.get("start_birth_identity")
+        if not _meaningful_birth_identity(current_birth):
+            uncertain.append(captured)
+            continue
+        same_incarnation = current_birth == captured_birth
         if same_incarnation and alive is True:
             surviving.append(captured)
         elif not same_incarnation:

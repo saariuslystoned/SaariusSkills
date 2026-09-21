@@ -20,12 +20,20 @@ backend incarnation/termination evidence and unsupported-close fencing. None
 of these offline results is an AGY useful-edit acceptance.
 
 v4 is an offline failure-receipt repair only. Its original 18-test suite passed;
-the bounded cleanup-uncertainty repair adds four policy regressions for 22/22.
+the bounded cleanup-uncertainty repair added four policy regressions for 22/22.
 The ordinary fixture-failure path contacted the public runtime through the
 local synthetic peer, persisted a fresh body-free receipt, retained the
 independent fixture failure as nonzero, and made no AGY provider call. Official
 or provider-capable missing backend cleanup now fences; failed metadata or
 liveness remains unknown. The staged v4 live command was not executed.
+
+One bounded native Antigravity ACP implementation job then repaired the
+remaining birth-marker edge: `evaluate_backend_after_finish` requires
+meaningful captured and current markers before accepting a distinct
+incarnation. Missing, empty, or malformed markers remain uncertain and
+replacement-blocked. The focused v4 suite is now 23/23; prior positive
+absence, owned-local-peer, official-empty-capture, and synthetic-boundary
+checks remain intact. This does not qualify the Puppet candidate transport.
 
 The separate native installed-plugin 3.8 pilot then completed one useful task
 through official `antigravity-acp`: 2/2 tests and independent CLI checks passed,

@@ -1,10 +1,11 @@
 # Antigravity failure-receipt v4 proof
 
-Status: `OFFLINE_CLEANUP_UNCERTAINTY_REPAIR_COMPLETE`. Canonical
-implementation result: `completed/end_turn`. This is one bounded
-cleanup-uncertainty repair on the existing v4 artifact. Product source,
-pins, ordinary availability, v3 bytes, and earlier receipt bytes are
-unchanged. No official Antigravity provider turn was authorized or launched.
+Status: `BIRTH_MARKER_GUARD_REPAIR_COMPLETE`. Canonical implementation result:
+`completed/end_turn`, with `taskComplete=true` and `cleanupReady=true`. This is
+one bounded birth-marker guard repair on the existing v4 artifact. Product
+source, pins, ordinary availability, v3 bytes, the successful native pilot,
+and earlier receipt bytes are unchanged. No Puppet candidate qualification
+turn was authorized or launched.
 
 ## Frozen identities
 
@@ -23,14 +24,18 @@ runtime.js            ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd3
 
 Initial receipt-repair job `12791074-59c9-454e-a446-6ca5c7d14214` and bounded
 cleanup-repair job `39633833-5036-4d16-b8bf-6d7d27d33b10` used native Cursor
-ACP, exact Grok 4.6 High, timeout 600000ms. No AGY provider job.
+ACP, exact Grok 4.6 High, timeout 600000ms. The follow-up birth-marker guard
+job `2c7e313d-5c52-4571-b188-de772d627bf5` used native Antigravity ACP,
+exact `gemini-3.8-flash-high`, effort unset, and timeout 300000ms. It completed
+with `taskComplete=true` and `cleanupReady=true`. No Cursor fallback, direct
+CLI, or candidate qualification turn was used for this follow-up.
 
 ## v4 authored hashes
 
 | path | SHA-256 |
 | --- | --- |
-| `v4/driver/agy_live_capable_proof_driver.py` | `fe8ba9e2b6e29d92f4c41cf7b97c9a5bee95d643466aeed85b24f251f29f0a0f` |
-| `v4/tests/test_agy_live_capable_proof_driver.py` | `5fb3e10c47ec66baeac7d05684ea769eb9c8c2b3a51c9cc0fdddd69602771195` |
+| `v4/driver/agy_live_capable_proof_driver.py` | `39d5c6e78bcfce79603e317246723e9342e87d83898e45639fcbc4b301398c01` |
+| `v4/tests/test_agy_live_capable_proof_driver.py` | `c74ff122ec1db5a278b096fdda19e77219ad3f3bc6f4cee13cdbd0ea17853729` |
 | `v4/staged/live-invocation.json` | `4b2713cd6e64afda6023f97eee86c2b0c9572fd3e4b013c2e71a5a8766cc7d60` |
 | `v4/staged/launch-input.contract.json` | `0b0bb275478a24aad9d929548818eb5cf3a577b7109c050900d3ea3fb5119859` |
 | `v4/.gitignore` | `c603c47175aa05ae21cd0218309ab9bb204db9485119efcd95df1beed793851b` |
@@ -83,11 +88,24 @@ v3 PROOF  8cca51695d3e1bb883fb354b94be4dfed4b51b743c953223b59a8b3a87923c19
   backend claim, no provider contact, and no backend acceptance. Actual
   task-owned local peer exit is accepted only with positive absence evidence.
 
+## Birth-marker guard delta
+
+- `evaluate_backend_after_finish` now requires a meaningful non-empty string
+  birth marker on both the captured and current process identities before
+  treating a marker mismatch as a distinct incarnation.
+- Missing, null, empty, or non-string current metadata stays uncertain for both
+  alive and absent liveness results; it cannot claim termination or release the
+  replacement block.
+- Focused regressions cover current null/missing/empty/malformed markers,
+  malformed captured markers, a distinct valid marker termination control, and
+  same-incarnation survival. Existing positive absence, owned-local-peer,
+  official empty-capture, and synthetic-boundary checks remain intact.
+
 ## Offline commands and results
 
 ```text
 PYTHONDONTWRITEBYTECODE=1 python3 proof/puppet-acp/20260921/antigravity/v4/tests/test_agy_live_capable_proof_driver.py -v
-Ran 22 tests in 28.815s
+Ran 23 tests in 28.134s
 OK
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
@@ -106,8 +124,8 @@ OK
 --mode stage-live                        executed=false; v4 driver + v4 contract only
 ```
 
-Existing 18 tests continue to pass. Four offline cleanup-policy regressions
-were added. Ordinary no-edit receipt behavior is unchanged.
+Existing 22 tests continue to pass. One offline birth-marker guard regression
+group was added. Ordinary no-edit receipt behavior is unchanged.
 
 ## Ordinary failure receipt
 
@@ -143,9 +161,10 @@ fields were persisted.
 
 ## Remaining limits
 
-This is not live AGY acceptance. Useful-edit ability remains unproven. Both
-previous live attempts remain consumed. This packet authorizes zero new
-candidate provider turns. Missing official/live backend cleanup is now
-explicitly fenced, but that fence is offline policy evidence only. Independent
+This is not Puppet candidate qualification. Useful-edit ability for the
+candidate transport remains unproven, and the prior candidate attempt remains
+consumed. The separate native installed-plugin pilot is recorded under
+`native-plugin-38-pilot/`. Missing official/live backend cleanup is explicitly
+fenced, but that fence is offline policy evidence only. Independent
 repaired-delta review is required before any new one-session proof is
 considered.
