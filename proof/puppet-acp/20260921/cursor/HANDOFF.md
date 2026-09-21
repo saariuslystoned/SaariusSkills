@@ -2,6 +2,15 @@
 
 This is a reviewable proof snapshot, not product integration and not live qualification.
 
+## Latest exact-source offline gate (2026-09-21)
+
+- The reviewed source candidate is the exact PR68 repair commit `6a9140f81b1850a0b39935bb8cd3e58b9ca0f0e2`, tree `2c4a2142266a6f7eaa80873a609935d0e6736e38`, parent `84a6dad7110ed97722b35ff1d7c102671312ec80`. The fresh qualifier checkout is `/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr68-20260921` on branch `codex/puppet-cursor-qualification-pr68-20260921`.
+- The canonical published and execution proof drivers are byte-identical: SHA-256 `44b1ef9473cf58225e4d62129d8940ec761923bec272d272c3c5e70e8b5cd6a3`.
+- The revised canonical focused tests are byte-identical: SHA-256 `f583e8f4df7abe0b44b3a6f78b2edc3eb039bfc3cdc8ec4e4ec35e2e56d63e16`.
+- Focused proof-driver verification: `11 tests in 20.927s OK`, exit 0.
+- Offline integrated driver verification: `ok=true`, `live=false`, receipt SHA-256 `ef6fdc35e0c279b52aad4b48b7dd6287d5e4d5fa79e9c06146af15e401e182e0`; source head/tree matched exactly, `product_source_altered=false`, artifact SHA-256 `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`, backend discard `closed`, worker termination `proven`, `cleanup_uncertain=false`, and `replacement_blocked=false`.
+- Staged live invocation SHA-256 `efd5c78809e54bf96ecea1007d765ecc7de5f0c87e07276fc5e7ff70e39e77d9`. It was not executed. The remaining gate is parent review followed by one explicitly parent-issued live session; no provider turn or retry has occurred.
+
 ## Provenance
 
 - Owner task: `01a0c01d-9ac8-7552-a0f7-aea711f1cb3d`
