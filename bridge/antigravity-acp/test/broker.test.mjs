@@ -8,9 +8,13 @@ import {
   BridgeError,
   classifyOwnerIdentity,
   createDefaultRuntime,
+  isCanonicalComplete,
+  isCleanupReady,
   isInteractionQuestion,
+  needsCleanupFence,
   redactSensitive,
   resolveRequestedAntigravityModel,
+  shouldRecoverCleanupFence,
   shouldRecoverOwnedJob,
 } from "../broker.mjs";
 import { currentPlatformId, defaultRuntimeDir, platformLaunch, settingsPath } from "../contract.mjs";
@@ -28,16 +32,21 @@ class FixtureRuntime {
     delayMs = 10,
     failWith,
     permissionRequest,
+    closeHold,
+    closeError,
   } = {}) {
     this.model = model;
     this.available = available;
     this.delayMs = delayMs;
     this.failWith = failWith;
     this.permissionRequest = permissionRequest;
+    this.closeHold = closeHold;
+    this.closeError = closeError;
     this.permissionDecisions = [];
     this.ensureCalls = [];
     this.turns = [];
     this.closed = [];
+    this.closeStarted = [];
   }
 
   async ensureSession(input) {
@@ -121,6 +130,11 @@ class FixtureRuntime {
   }
 
   async close(input) {
+    this.closeStarted.push(input);
+    if (this.closeHold) await this.closeHold;
+    if (this.closeError) {
+      throw this.closeError instanceof Error ? this.closeError : new Error(String(this.closeError));
+    }
     this.closed.push(input);
   }
 
@@ -482,6 +496,143 @@ test("completed jobs close their persistent ACP session before cleanup", async (
   assert.equal(completed.cleanup.status, "completed");
   assert.equal(runtime.closed.length, 1);
   await broker.close();
+});
+
+test("result keeps task completion separate while terminal cleanup is pending", async () => {
+  let releaseClose;
+  const closeHold = new Promise((resolve) => { releaseClose = resolve; });
+  const { broker, runtime, workspace } = await makeBroker({ runtimeOptions: { closeHold } });
+  const submitted = await broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Complete with delayed cleanup." });
+  const completion = broker.active.get(submitted.jobId)?.promise;
+  await waitUntil(() => runtime.closeStarted.length === 1);
+
+  const pending = await broker.result({ jobId: submitted.jobId, waitMs: 20 });
+  assert.equal(pending.status, "completed");
+  assert.equal(pending.taskComplete, true);
+  assert.equal(pending.cleanupReady, false);
+  assert.equal(pending.complete, false);
+  assert.equal(pending.waitExpired, true);
+  assert.equal(pending.cleanup.status, "pending");
+  assert.equal(runtime.closed.length, 0);
+
+  releaseClose();
+  await completion;
+  const cleaned = await broker.result({ jobId: submitted.jobId, waitMs: 0 });
+  assert.equal(cleaned.complete, true);
+  assert.equal(cleaned.cleanupReady, true);
+  assert.equal(cleaned.cleanup.status, "completed");
+  await broker.close();
+});
+
+test("failed terminal cleanup fences replacement in one workspace but not another", async () => {
+  const { broker, runtime, workspace, root } = await makeBroker({
+    runtimeOptions: { closeError: "injected close failure" },
+  });
+  const submitted = await broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Complete with failed cleanup." });
+  const failedCleanup = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(failedCleanup.status, "completed");
+  assert.equal(failedCleanup.taskComplete, true);
+  assert.equal(failedCleanup.cleanupReady, false);
+  assert.equal(failedCleanup.complete, false);
+  assert.equal(failedCleanup.cleanup.status, "uncertain");
+  assert.equal(broker.active.size, 0);
+  await assert.rejects(
+    () => broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Do not replace an uncleared session." }),
+    (error) => error instanceof BridgeError &&
+      error.code === "WORKSPACE_CLEANUP_PENDING" &&
+      error.details?.jobId === submitted.jobId,
+  );
+
+  const independentWorkspace = path.join(root, "independent-workspace");
+  await mkdir(independentWorkspace);
+  const independent = await broker.delegate({
+    workspace: independentWorkspace,
+    model: FIXTURE_MODEL,
+    prompt: "Independent workspace remains admissible.",
+  });
+  const independentResult = await broker.result({ jobId: independent.jobId, waitMs: 1_000 });
+  assert.equal(independentResult.status, "completed");
+  await broker.close();
+});
+
+test("a second broker observes the shared cleanup fence while its owner remains live", async () => {
+  const first = await makeBroker({ runtimeOptions: { closeError: "injected close failure" } });
+  const submitted = await first.broker.delegate({
+    workspace: first.workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Leave a cleanup fence for a second broker to observe.",
+  });
+  const failedCleanup = await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(failedCleanup.cleanup.status, "uncertain");
+
+  const second = new AntigravityAcpBroker({
+    stateRoot: first.broker.stateRoot,
+    runtimeDir: path.dirname(first.executable),
+    geminiHome: first.geminiHome,
+    processEnv: { PATH: process.env.PATH ?? "" },
+    runtime: new FixtureRuntime(),
+  });
+  await second.init();
+  await assert.rejects(
+    () => second.delegate({ workspace: first.workspace, model: FIXTURE_MODEL, prompt: "Blocked by shared cleanup." }),
+    (error) => error instanceof BridgeError && error.code === "WORKSPACE_CLEANUP_PENDING",
+  );
+
+  const independentWorkspace = path.join(first.root, "second-broker-independent");
+  await mkdir(independentWorkspace);
+  const independent = await second.delegate({
+    workspace: independentWorkspace,
+    model: FIXTURE_MODEL,
+    prompt: "Run independently while another workspace is fenced.",
+  });
+  const independentResult = await second.result({ jobId: independent.jobId, waitMs: 1_000 });
+  assert.equal(independentResult.status, "completed");
+  await first.broker.close();
+  await second.close();
+});
+
+test("owner-dead cleanup recovery records bounded identity before replacement", async () => {
+  const first = await makeBroker({
+    pid: 4242,
+    startTime: "dead-cleanup-owner",
+    inspectProcess: async (pid) => pid === 4242
+      ? { status: "alive", startTime: "dead-cleanup-owner" }
+      : { status: "alive", startTime: "replacement-owner" },
+    runtimeOptions: { closeError: "injected close failure" },
+  });
+  const submitted = await first.broker.delegate({
+    workspace: first.workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Leave a bounded recovery record for the replacement broker.",
+  });
+  const failedCleanup = await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(failedCleanup.cleanup.status, "uncertain");
+
+  const second = new AntigravityAcpBroker({
+    stateRoot: first.broker.stateRoot,
+    runtimeDir: path.dirname(first.executable),
+    geminiHome: first.geminiHome,
+    processEnv: { PATH: process.env.PATH ?? "" },
+    pid: 5252,
+    startTime: "replacement-owner",
+    inspectProcess: async (pid) => pid === 4242
+      ? { status: "missing" }
+      : { status: "alive", startTime: "replacement-owner" },
+    runtime: new FixtureRuntime(),
+  });
+  await second.init();
+  const recovered = await second.result({ jobId: submitted.jobId, waitMs: 0 });
+  assert.equal(recovered.cleanup.status, "recovered");
+  assert.equal(recovered.cleanup.observed, "owner_gone");
+  assert.equal(recovered.cleanup.owner.pid, 4242);
+  const replacement = await second.delegate({
+    workspace: first.workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Replace only after bounded owner-dead recovery.",
+  });
+  assert.equal((await second.result({ jobId: replacement.jobId, waitMs: 1_000 })).status, "completed");
+  await first.broker.close();
+  await second.close();
 });
 
 test("default runtime session store never writes conversation records to disk", async () => {

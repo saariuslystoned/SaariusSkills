@@ -69,7 +69,8 @@ server.registerTool(
 server.registerTool(
   "antigravity_acp_status",
   {
-    description: "Read compact status for an Antigravity ACP delegation job, with an optional bounded wait.",
+    description:
+      "Read compact status for an Antigravity ACP delegation job, with an optional bounded wait. complete is true only after a terminal task outcome and observed cleanup; pending cleanup is not cleanup-ready completion.",
     inputSchema: {
       jobId: z.string(),
       waitMs: z.number().int().min(0).max(10_000).optional(),
@@ -81,7 +82,8 @@ server.registerTool(
 server.registerTool(
   "antigravity_acp_result",
   {
-    description: "Read the bounded final handoff or explicit failure/input/cancellation outcome for a job.",
+    description:
+      "Read the bounded task outcome for a job. complete and cleanupReady become true only after observed terminal cleanup; a completed status with pending cleanup is not replacement authority.",
     inputSchema: {
       jobId: z.string(),
       waitMs: z.number().int().min(0).max(300_000).optional(),

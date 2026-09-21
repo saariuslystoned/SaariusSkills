@@ -58,6 +58,13 @@ the user explicitly authorizes that alternative.
 - Save the returned job ID. Use `antigravity_acp_status` for progress and
   `antigravity_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, or progress event is not task success.
+- Treat task outcome and cleanup readiness as separate facts. A terminal
+  `status` means the task itself ended; `complete` and `cleanupReady` become
+  true only after the runtime cleanup is observed complete. If cleanup is
+  `pending` or `uncertain`, do not delegate a replacement in that same
+  workspace. The bridge returns `WORKSPACE_CLEANUP_PENDING` with bounded job,
+  workspace, owner, and cleanup identity; wait for observed cleanup or the
+  owner-specific recovery path. Independent workspaces remain admissible.
 - `antigravity_acp_steer` fails closed with `STEERING_UNSUPPORTED`. Wait for
   the canonical terminal result, then explicitly delegate a bounded follow-up.
   Use `antigravity_acp_cancel` when the parent decision changes. A missing

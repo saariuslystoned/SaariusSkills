@@ -100,6 +100,42 @@ export function shouldRecoverOwnedJob(job, lease, probe) {
   return state === "dead" || state === "reused";
 }
 
+export function isCleanupObservedComplete(cleanup) {
+  return cleanup?.status === "completed" || cleanup?.status === "recovered";
+}
+
+export function isCleanupReady(job) {
+  if (!job) return false;
+  if (isCleanupObservedComplete(job.cleanup)) return true;
+  return isTerminalStatus(job.status) && !job.handle && !job.cleanup;
+}
+
+export function isCanonicalComplete(job) {
+  return isTerminalStatus(job?.status) && isCleanupReady(job);
+}
+
+export function needsCleanupFence(job) {
+  if (!job?.workspace || !isTerminalStatus(job.status)) return false;
+  if (isCleanupObservedComplete(job.cleanup)) return false;
+  return Boolean(job.handle || job.cleanup);
+}
+
+export function shouldRecoverCleanupFence(job, lease, probe) {
+  if (!needsCleanupFence(job)) return false;
+  if (!ownerIdentitiesMatch(job.owner, lease)) return false;
+  const state = classifyOwnerIdentity(job.owner, probe);
+  return state === "dead" || state === "reused";
+}
+
+function cleanupIdentity(job, handle) {
+  return {
+    jobId: job.jobId,
+    workspace: job.workspace,
+    owner: job.owner ? { ...job.owner } : undefined,
+    handle: handle ? publicHandle(handle) : job.handle,
+  };
+}
+
 export async function inspectProcessIdentity(pid, run = execFile) {
   if (!Number.isInteger(pid) || pid <= 0) return { status: "unknown" };
   try {
@@ -577,6 +613,11 @@ export class AntigravityAcpBroker {
       return;
     }
     await this.recoverOwnedJobIfEligible(snapshot);
+    try {
+      await this.recoverCleanupFenceIfEligible(await this.getJob(snapshot.jobId));
+    } catch {
+      // Missing or unreadable job state is not a reason to recover another job.
+    }
   }
 
   async recoverOwnedJobIfEligible(snapshot) {
@@ -593,8 +634,36 @@ export class AntigravityAcpBroker {
       code: "BRIDGE_RESTARTED",
       message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
     };
+    if (needsCleanupFence(job) || job.handle) {
+      job.cleanup = this.cleanupRecord(job, {
+        status: "recovered",
+        observed: "owner_gone",
+      });
+    }
     await this.saveJob(job);
     await this.recordEvent(job, "bridge_restarted", { previousStatus });
+    this.notifyChange(job.jobId);
+  }
+
+  async recoverCleanupFenceIfEligible(snapshot) {
+    if (!snapshot?.jobId || !JOB_ID_PATTERN.test(snapshot.jobId) || !needsCleanupFence(snapshot)) return;
+    const lease = await this.readOwnerLease(snapshot.owner?.brokerId);
+    const probe = await this.probeOwner(snapshot.owner);
+    if (!shouldRecoverCleanupFence(snapshot, lease, probe)) return;
+    const job = await this.getJob(snapshot.jobId);
+    if (!shouldRecoverCleanupFence(
+      job,
+      await this.readOwnerLease(job.owner?.brokerId),
+      await this.probeOwner(job.owner),
+    )) return;
+    const previousCleanup = job.cleanup?.status ?? "pending";
+    job.cleanup = this.cleanupRecord(job, {
+      status: "recovered",
+      observed: "owner_gone",
+    });
+    job.updatedAt = this.now();
+    await this.saveJob(job);
+    await this.recordEvent(job, "cleanup_recovered", { previousCleanup, observed: "owner_gone" });
     this.notifyChange(job.jobId);
   }
 
@@ -639,28 +708,128 @@ export class AntigravityAcpBroker {
   }
 
   async observeJob(jobId) {
-    const job = await this.getJob(jobId);
-    if (isTerminalStatus(job.status) || this.active.has(jobId)) return job;
-    await this.recoverOwnedJobIfEligible(job);
-    return this.getJob(jobId);
+    let job = await this.getJob(jobId);
+    if (!isTerminalStatus(job.status) && !this.active.has(jobId)) {
+      await this.recoverOwnedJobIfEligible(job);
+      job = await this.getJob(jobId);
+    }
+    if (needsCleanupFence(job) && !this.active.has(jobId)) {
+      await this.recoverCleanupFenceIfEligible(job);
+      job = await this.getJob(jobId);
+    }
+    return job;
+  }
+
+  cleanupRecord(job, { status, observed, message, handle } = {}) {
+    return {
+      status,
+      observed,
+      at: this.now(),
+      ...cleanupIdentity(job, handle),
+      ...(message ? { message } : {}),
+    };
+  }
+
+  async recordCleanup(job, fields) {
+    job.cleanup = this.cleanupRecord(job, fields);
+    job.updatedAt = this.now();
+    await this.saveJob(job);
+    await this.recordEvent(job, `cleanup_${fields.status}`, {
+      observed: fields.observed,
+      message: fields.message,
+      workspace: job.workspace,
+      owner: job.owner,
+    });
+    this.notifyChange(job.jobId);
   }
 
   async closeRuntimeSession(job, handle) {
-    if (!handle || !this.ensureRuntime()?.close) return;
+    if (isCleanupObservedComplete(job.cleanup)) return;
+    if (!handle || !this.ensureRuntime()?.close) {
+      await this.recordCleanup(job, {
+        status: "completed",
+        observed: "no_runtime_close",
+        handle,
+      });
+      return;
+    }
+    await this.recordCleanup(job, {
+      status: "pending",
+      observed: "runtime_close_started",
+      handle,
+    });
     try {
       await this.ensureRuntime().close({
         handle,
         reason: `job ${job.status} terminal cleanup`,
         discardPersistentState: true,
       });
-      job.cleanup = { status: "completed", observed: "runtime_close_returned", at: this.now() };
-      await this.saveJob(job);
-      await this.recordEvent(job, "cleanup_completed", { observed: "runtime_close_returned" });
+      await this.recordCleanup(job, {
+        status: "completed",
+        observed: "runtime_close_returned",
+        handle,
+      });
     } catch (error) {
-      job.cleanup = { status: "uncertain", message: safeMessage(error?.message), at: this.now() };
-      await this.saveJob(job);
-      await this.recordEvent(job, "cleanup_uncertain", { message: job.cleanup.message });
+      await this.recordCleanup(job, {
+        status: "uncertain",
+        observed: "runtime_close_failed",
+        message: safeMessage(error?.message),
+        handle,
+      });
     }
+  }
+
+  async listJobSnapshots() {
+    let names;
+    try {
+      names = await readdir(this.jobsRoot);
+    } catch {
+      return [];
+    }
+    const snapshots = [];
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        snapshots.push(JSON.parse(await readFile(path.join(this.jobsRoot, name), "utf8")));
+      } catch {
+        // Skip unreadable records; admission still fail-closes on a readable fence.
+      }
+    }
+    return snapshots;
+  }
+
+  async findWorkspaceCleanupFence(workspace) {
+    const resolved = path.resolve(workspace);
+    for (const snapshot of await this.listJobSnapshots()) {
+      if (path.resolve(snapshot.workspace ?? "") !== resolved) continue;
+      if (!this.active.has(snapshot.jobId)) {
+        await this.recoverCleanupFenceIfEligible(snapshot);
+      }
+      let job;
+      try {
+        job = await this.getJob(snapshot.jobId);
+      } catch {
+        continue;
+      }
+      if (needsCleanupFence(job)) return job;
+    }
+    return null;
+  }
+
+  async assertWorkspaceAdmissible(workspace) {
+    const fence = await this.findWorkspaceCleanupFence(workspace);
+    if (!fence) return;
+    throw new BridgeError(
+      "WORKSPACE_CLEANUP_PENDING",
+      "A prior job in this workspace still has unresolved terminal cleanup; wait for observed cleanup or owner-controlled recovery before replacing the session.",
+      {
+        jobId: fence.jobId,
+        workspace: fence.workspace,
+        owner: fence.owner,
+        cleanup: fence.cleanup,
+        status: fence.status,
+      },
+    );
   }
 
   async close() {
@@ -926,6 +1095,7 @@ export class AntigravityAcpBroker {
     await this.init();
     assertEffortUnsupported(effort);
     const targetWorkspace = await requireDirectory(workspace, "workspace");
+    await this.assertWorkspaceAdmissible(targetWorkspace);
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
     const requestedModel = resolveRequestedAntigravityModel(model, [model]);
     const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
@@ -1111,28 +1281,36 @@ export class AntigravityAcpBroker {
     }
   }
 
+  publicWaitResult(job, boundedWait = 0) {
+    const taskComplete = isTerminalStatus(job.status);
+    const cleanupReady = isCleanupReady(job);
+    return {
+      ...this.publicJob(job),
+      taskComplete,
+      cleanupReady,
+      complete: taskComplete && cleanupReady,
+      waitExpired: boundedWait > 0 && !(taskComplete && cleanupReady),
+    };
+  }
+
   async status({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 10_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && (!isTerminalStatus(job.status) || (job.handle && !job.cleanup))) {
+    if (boundedWait > 0 && !isCanonicalComplete(job)) {
       await this.waitForChange(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
-    return this.publicJob(job);
+    return this.publicWaitResult(job, boundedWait);
   }
 
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && (!isTerminalStatus(job.status) || (job.handle && !job.cleanup))) {
+    if (boundedWait > 0 && !isCanonicalComplete(job)) {
       await this.waitForTerminal(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
-    return {
-      ...this.publicJob(job),
-      complete: isTerminalStatus(job.status),
-      waitExpired: !isTerminalStatus(job.status) && boundedWait > 0,
-    };
+    return this.publicWaitResult(job, boundedWait);
   }
 
   async steer({ jobId, message } = {}) {
@@ -1290,7 +1468,8 @@ export class AntigravityAcpBroker {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       const job = await this.observeJob(jobId);
-      if (isTerminalStatus(job.status) && (!job.handle || job.cleanup)) return;
+      if (isCanonicalComplete(job)) return;
+      if (isTerminalStatus(job.status) && job.cleanup?.status === "uncertain") return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       await this.waitForChange(
