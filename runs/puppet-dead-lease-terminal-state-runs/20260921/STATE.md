@@ -1,17 +1,18 @@
 # Dead-lease terminal-state repair
 
-- status: native job completed one bounded source repair; draft PR open
-- native_job_id: `15b75753-6b9a-4ab6-9741-9736899c7290`
+- status: follow-up native job completed one bounded IdentityError fail-close; draft PR 66 remains open
+- native_job_id: `91d5b0fd-e993-4e61-a1eb-66af08563e27`
+- prior_native_job_id: `15b75753-6b9a-4ab6-9741-9736899c7290` (completed; not retried)
 - pr: https://github.com/saariuslystoned/SaariusSkills/pull/66
-- head: `ce0be235faf17948973fde10e096fa61c34d064b`
-- tree: `61ed69e3452b3c165c6903a73f8bd8f1fe4dd18c`
-- conversation_id: `d648dc81-6ce8-45cf-84c1-99006f94fd9f` (Cursor conversation; not the native job id)
+- source_repair: `2140e8dc3841c3e52db4aec7cd13ca5328c2af96`
+- source_tree: `cc96ed5d7ff66178ba00e7021771b22f83c0041d`
+- conversation_id: `7c2feda8-cd30-4179-8887-675c2b111707` (Cursor conversation; not the native job id)
 - owner_handoff_id_rejected: `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dead-lease-terminal-state-20260921`
 - branch: `codex/puppet-dead-lease-terminal-state-20260921`
 - base: `49a46404854db7c9c7e7935b351e47fb771beaca` (`origin/main`)
 - starting_tree: `938ef948a6a1218ad055a17d5d297c633b936167`
-- motivation: PR63 CI run `35630314313` Ubuntu failure in `test_replay_of_the_same_halted_generation_is_idempotent`
+- motivation: parent accepted that generic IdentityError plus a Z/X ps sample was treated as terminal
 - changed_files:
   - `skills/puppet/scripts/puppet_lib/session.py`
   - `tests/test_puppet_grok_dead_lease.py`
@@ -19,9 +20,11 @@
   - `runs/puppet-dead-lease-terminal-state-runs/20260921/PROOF.md`
   - `runs/puppet-dead-lease-terminal-state-runs/20260921/events.jsonl`
   - `runs/puppet-dead-lease-terminal-state-runs/20260921/heartbeat`
-- tests: dead-lease suite 14/14; focused offline birth-proof 4/4
+- tests: dead-lease suite 15/15; focused offline birth-proof 5/5
 - live_qualification: not launched
 - shared_install_or_reset: not performed
 - ci_rerun: not performed
 - pr63_pr64_sources: not touched
+- fallback_worker: none
+- retry: none
 - next: parent review of untrusted source; independent review / OpenClaw after draft PR
