@@ -1,0 +1,4 @@
+{"event":"installed_readiness","status":"ready","plugin":"0.3.3","runtime":"1.1.1","model":"gemini-3.7-flash-high"}
+{"event":"real_edit_test","jobId":"d4cce6f3-38c9-4529-89d4-4454e6e27622","status":"completed","testsPassed":17}
+{"event":"five_way_useful_overlap","status":"completed","completedJobs":5,"model":"gemini-3.7-flash-high"}
+{"event":"native_delegate_reload_gate","jobId":"26ce5f65-72e1-444e-8861-5f65305cabf5","status":"needs-input","reason":"previous MCP process retained prior bridge instance"}
