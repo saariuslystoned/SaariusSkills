@@ -650,6 +650,165 @@ export function boundedCandidateTurnResult(value) {
   };
 }
 
+export async function recordBoundCandidateTurn(options = {}) {
+  if (!options || typeof options !== "object") {
+    throw new AdapterError("INVALID_RUNTIME", "candidate turn options are invalid");
+  }
+  rejectCandidateRuntimeConversationParams(options, "candidate turn");
+  const {
+    isolatedRoot,
+    workspaceRoot,
+    owner,
+    hostSession,
+    hostConversationId,
+    requestId,
+    runtime,
+    agent = "candidate",
+    mode = "oneshot",
+    text,
+  } = options;
+  const root = await requirePrivateRoot(isolatedRoot);
+  requireIdentityString(owner, "host owner identity");
+  requireIdentityString(hostSession, "host session identity");
+  requireIdentityString(hostConversationId, "host conversation identity");
+  requireIdentityString(requestId, "host request identity");
+  requireIdentityString(workspaceRoot, "candidate workspace");
+  requireIdentityString(text, "candidate turn input");
+  if (typeof agent !== "string" || !agent) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime agent is missing");
+  }
+  if (mode !== "oneshot" && mode !== "persistent") {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime session mode is invalid");
+  }
+  if (
+    !runtime
+    || typeof runtime.ensureSession !== "function"
+    || typeof runtime.getStatus !== "function"
+    || typeof runtime.startTurn !== "function"
+    || typeof runtime.close !== "function"
+  ) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate public runtime is incomplete");
+  }
+
+  await requireBoundCandidateClaim({
+    isolatedRoot,
+    owner,
+    hostSession,
+    hostConversationId,
+  });
+
+  const ensureInput = rejectCandidateRuntimeConversationParams({
+    sessionKey: hostSession,
+    agent,
+    mode,
+    cwd: workspaceRoot,
+  }, "ensureSession");
+  const handle = await runtime.ensureSession(ensureInput);
+  try {
+    requireOwnedCandidateHandle(handle, { hostSession, workspaceRoot });
+  } catch (error) {
+    await persistCleanupUnknownBestEffort(root);
+    throw error;
+  }
+
+  let settled = false;
+  try {
+    const binding = await bindCandidateRuntime({
+      isolatedRoot,
+      workspaceRoot,
+      owner,
+      hostSession,
+      hostConversationId,
+      requestId,
+      handle,
+    });
+
+    const statusInput = rejectCandidateRuntimeConversationParams({ handle }, "getStatus");
+    await runtime.getStatus(statusInput);
+
+    const startInput = rejectCandidateRuntimeConversationParams({
+      handle,
+      text,
+      mode: "prompt",
+      requestId,
+    }, "startTurn");
+    const turn = runtime.startTurn(startInput);
+    if (!turn || typeof turn !== "object") {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
+    }
+    await turn.promptStarted;
+    const result = await turn.result;
+    const bounded = boundedCandidateTurnResult(result);
+    if (typeof turn.requestId !== "string" || !turn.requestId) {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request identity is missing");
+    }
+    if (turn.requestId !== requestId) {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request does not match the host request");
+    }
+
+    const afterStatus = await runtime.getStatus({ handle });
+    let lastRequestId;
+    if (afterStatus && typeof afterStatus === "object" && Object.hasOwn(afterStatus, "lastRequestId")) {
+      if (typeof afterStatus.lastRequestId !== "string" || afterStatus.lastRequestId !== turn.requestId) {
+        throw new AdapterError(
+          "INVALID_TURN_EVIDENCE",
+          "status lastRequestId does not match the completed turn request",
+        );
+      }
+      lastRequestId = afterStatus.lastRequestId;
+    }
+
+    const terminal = {
+      event: "runtime_turn_completed",
+      host: binding.host,
+      turn: {
+        requestId: turn.requestId,
+        status: bounded.status,
+        stopReason: bounded.stopReason,
+      },
+    };
+    if (lastRequestId !== undefined) {
+      terminal.status = { lastRequestId };
+    }
+    rejectBodyKeys(terminal, "runtime turn");
+    await appendEvent(root, terminal);
+
+    try {
+      await closeOwnedCandidateSession(runtime, handle);
+      settled = true;
+    } catch (error) {
+      await persistCleanupUnknownBestEffort(root);
+      settled = true;
+      throw error;
+    }
+
+    return {
+      binding,
+      handle: binding.runtime,
+      turn: {
+        requestId: turn.requestId,
+        status: bounded.status,
+        stopReason: bounded.stopReason,
+      },
+      result: bounded,
+      status: lastRequestId === undefined ? {} : { lastRequestId },
+      closed: true,
+      body_retained: false,
+      available: adapterAvailable(),
+      ordinary_launch: "unavailable",
+    };
+  } catch (error) {
+    if (!settled) {
+      try {
+        await closeOwnedCandidateSession(runtime, handle);
+      } catch {
+        await persistCleanupUnknownBestEffort(root);
+      }
+    }
+    throw error;
+  }
+}
+
 function rejectBodyKeys(value, label = "artifact") {
   if (Array.isArray(value)) {
     for (const nested of value) rejectBodyKeys(nested, label);
@@ -733,6 +892,213 @@ export async function claimIsolatedRoot(isolatedRoot, { owner, session, conversa
   return claim;
 }
 
+const CONVERSATION_PARAM_KEYS = Object.freeze([
+  "conversation",
+  "conversationId",
+  "conversation_id",
+]);
+const CANDIDATE_RUNTIME_HANDLE_FIELDS = Object.freeze([
+  "sessionKey",
+  "backend",
+  "runtimeSessionName",
+  "cwd",
+  "acpxRecordId",
+  "backendSessionId",
+  "agentSessionId",
+]);
+const REQUIRED_CANDIDATE_RUNTIME_HANDLE_FIELDS = Object.freeze([
+  "sessionKey",
+  "backend",
+  "runtimeSessionName",
+  "cwd",
+  "acpxRecordId",
+  "backendSessionId",
+]);
+
+export function rejectCandidateRuntimeConversationParams(value, label = "runtime call") {
+  if (!value || typeof value !== "object") {
+    throw new AdapterError("INVALID_RUNTIME", `${label} is invalid`);
+  }
+  for (const key of CONVERSATION_PARAM_KEYS) {
+    if (Object.hasOwn(value, key)) {
+      throw new AdapterError(
+        "INVALID_RUNTIME",
+        `${label} must not include nonexistent conversation parameters`,
+      );
+    }
+  }
+  if (value.handle && typeof value.handle === "object") {
+    for (const key of CONVERSATION_PARAM_KEYS) {
+      if (Object.hasOwn(value.handle, key)) {
+        throw new AdapterError(
+          "INVALID_RUNTIME",
+          `${label} must not include nonexistent conversation parameters`,
+        );
+      }
+    }
+  }
+  return value;
+}
+
+function requireIdentityString(value, label) {
+  if (typeof value !== "string" || !value) {
+    throw new AdapterError("PROOF_MISSING", `${label} is missing`);
+  }
+  return value;
+}
+
+function projectCandidateRuntimeHandle(handle) {
+  if (!handle || typeof handle !== "object") {
+    throw new AdapterError("PROOF_MISSING", "runtime handle is missing");
+  }
+  rejectBodyKeys(handle, "runtime handle");
+  rejectCandidateRuntimeConversationParams(handle, "runtime handle");
+  const projected = {};
+  for (const key of CANDIDATE_RUNTIME_HANDLE_FIELDS) {
+    if (!Object.hasOwn(handle, key)) {
+      if (REQUIRED_CANDIDATE_RUNTIME_HANDLE_FIELDS.includes(key)) {
+        throw new AdapterError("PROOF_MISSING", `runtime handle ${key} is missing`);
+      }
+      continue;
+    }
+    const value = handle[key];
+    if (typeof value !== "string" || !value) {
+      if (REQUIRED_CANDIDATE_RUNTIME_HANDLE_FIELDS.includes(key)) {
+        throw new AdapterError("PROOF_MISSING", `runtime handle ${key} is missing`);
+      }
+      continue;
+    }
+    projected[key] = value;
+  }
+  return projected;
+}
+
+async function loadOwnedCandidateClaim(isolatedRoot) {
+  const root = await requirePrivateRoot(isolatedRoot);
+  const ownershipPath = path.join(root, "ownership.json");
+  let claim;
+  try {
+    claim = JSON.parse(await readFile(ownershipPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new AdapterError("PROOF_MISSING", "isolated-root ownership proof is missing");
+    }
+    throw error;
+  }
+  rejectBodyKeys(claim, "ownership");
+  if (claim.acpx) {
+    validateAcpxDependencyIdentity(claim.acpx);
+  }
+  if (claim.cleanup === "unknown" || claim.replacement_blocked) {
+    throw new AdapterError("CLEANUP_UNKNOWN", "process query failed; cleanup is unknown");
+  }
+  return { root, claim };
+}
+
+async function requireBoundCandidateClaim({ isolatedRoot, owner, hostSession, hostConversationId }) {
+  const { root, claim } = await loadOwnedCandidateClaim(isolatedRoot);
+  const boundOwner = requireIdentityString(owner, "host owner identity");
+  const boundSession = requireIdentityString(hostSession, "host session identity");
+  const boundConversation = requireIdentityString(hostConversationId, "host conversation identity");
+  if (claim.owner !== boundOwner) {
+    throw new AdapterError("OWNER_MISMATCH", "ownership claim owner does not match the bound owner");
+  }
+  if (claim.session !== boundSession) {
+    throw new AdapterError("SESSION_MISMATCH", "ownership claim session does not match the host session");
+  }
+  if (claim.conversation_id !== boundConversation) {
+    throw new AdapterError("SESSION_MISMATCH", "ownership claim conversation does not match the host conversation");
+  }
+  return { root, claim, owner: boundOwner, hostSession: boundSession, hostConversationId: boundConversation };
+}
+
+function requireOwnedCandidateHandle(handle, { hostSession, workspaceRoot }) {
+  const runtimeHandle = projectCandidateRuntimeHandle(handle);
+  if (runtimeHandle.sessionKey !== hostSession) {
+    throw new AdapterError("SESSION_MISMATCH", "runtime sessionKey does not match the host session");
+  }
+  if (path.resolve(runtimeHandle.cwd) !== path.resolve(workspaceRoot)) {
+    throw new AdapterError("WORKSPACE_MISMATCH", "runtime cwd does not match the candidate workspace");
+  }
+  return runtimeHandle;
+}
+
+export async function markCleanupUnknown(isolatedRoot) {
+  const root = await requirePrivateRoot(isolatedRoot);
+  const ownershipPath = path.join(root, "ownership.json");
+  const current = JSON.parse(await readFile(ownershipPath, "utf8"));
+  rejectBodyKeys(current, "ownership");
+  if (current.acpx) {
+    validateAcpxDependencyIdentity(current.acpx);
+  }
+  current.cleanup = "unknown";
+  current.replacement_blocked = true;
+  await writeJson(ownershipPath, current);
+  await appendEvent(root, {
+    event: "cleanup_unknown",
+    session: current.session,
+    conversation_id: current.conversation_id,
+    replacement_blocked: true,
+  });
+  return current;
+}
+
+async function persistCleanupUnknownBestEffort(isolatedRoot) {
+  try {
+    await markCleanupUnknown(isolatedRoot);
+  } catch {
+    // Keep the original failure when the existing claim fence cannot be persisted.
+  }
+}
+
+function closeOwnedCandidateSession(runtime, handle) {
+  return runtime.close({
+    handle,
+    reason: "candidate-runtime-bound-close",
+    discardPersistentState: true,
+  });
+}
+
+export async function bindCandidateRuntime({
+  isolatedRoot,
+  workspaceRoot,
+  owner,
+  hostSession,
+  hostConversationId,
+  requestId,
+  handle,
+} = {}) {
+  const { root } = await requireBoundCandidateClaim({
+    isolatedRoot,
+    owner,
+    hostSession,
+    hostConversationId,
+  });
+  const boundSession = requireIdentityString(hostSession, "host session identity");
+  const boundConversation = requireIdentityString(hostConversationId, "host conversation identity");
+  const boundRequest = requireIdentityString(requestId, "host request identity");
+  const boundWorkspace = requireIdentityString(workspaceRoot, "candidate workspace");
+  const runtimeHandle = requireOwnedCandidateHandle(handle, {
+    hostSession: boundSession,
+    workspaceRoot: boundWorkspace,
+  });
+  const binding = {
+    host: {
+      session: boundSession,
+      conversation_id: boundConversation,
+      request_id: boundRequest,
+    },
+    runtime: runtimeHandle,
+  };
+  rejectBodyKeys(binding, "runtime binding");
+  await appendEvent(root, {
+    event: "runtime_bound",
+    host: binding.host,
+    runtime: binding.runtime,
+  });
+  return binding;
+}
+
 export class SyntheticRuntime {
   constructor({ isolatedRoot, workspaceRoot, requestedCallbacks = [], processQuery } = {}) {
     this.isolatedRoot = isolatedRoot;
@@ -788,17 +1154,7 @@ export class SyntheticRuntime {
     try {
       return await this.processQuery();
     } catch (error) {
-      const ownershipPath = path.join(this.isolatedRoot, "ownership.json");
-      const current = JSON.parse(await readFile(ownershipPath, "utf8"));
-      current.cleanup = "unknown";
-      current.replacement_blocked = true;
-      await writeJson(ownershipPath, current);
-      await appendEvent(this.isolatedRoot, {
-        event: "cleanup_unknown",
-        session: current.session,
-        conversation_id: current.conversation_id,
-        replacement_blocked: true,
-      });
+      await markCleanupUnknown(this.isolatedRoot);
       throw new AdapterError("CLEANUP_UNKNOWN", "process query failed; cleanup is unknown");
     }
   }
