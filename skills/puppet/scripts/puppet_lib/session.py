@@ -2982,6 +2982,44 @@ def status(*, state_root: Path, session: str) -> Dict[str, Any]:
     }
 
 
+_TERMINAL_PROCESS_STATES = frozenset({"Z", "X"})
+
+
+def _process_kernel_stat(pid: int) -> Optional[str]:
+    """Return one kernel state sample, or None when denied, missing, or malformed."""
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return None
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "stat="],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=1.0,
+            check=False,
+            text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    tokens = result.stdout.split()
+    if len(tokens) != 1:
+        return None
+    state = tokens[0]
+    if not state or any(character in state for character in "\x00\n\r"):
+        return None
+    return state
+
+
+def _positively_observed_terminal_process(pid: int) -> bool:
+    """True only for an observed zombie or dead state, never from exception type."""
+
+    state = _process_kernel_stat(pid)
+    return bool(state) and state[0] in _TERMINAL_PROCESS_STATES
+
+
 def _prove_recorded_process_birth_gone(process: Dict[str, Any]) -> None:
     """Distinguish an absent/reused birth identity from an ambiguous sample."""
 
@@ -3003,6 +3041,9 @@ def _prove_recorded_process_birth_gone(process: Dict[str, Any]) -> None:
             raise IdentityError(
                 "recorded Grok process state is ambiguous"
             ) from probe_exc
+        # A typed ProcessVanished while the PID remains is not terminal proof.
+        if _positively_observed_terminal_process(pid):
+            return
         raise IdentityError("recorded Grok process state is ambiguous") from exc
     if observed == process:
         raise IdentityError("recorded Grok process is still alive")

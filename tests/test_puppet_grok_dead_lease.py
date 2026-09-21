@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,10 +27,16 @@ from puppet_lib.contracts import Contract  # noqa: E402
 from puppet_lib.errors import IdentityError, ValidationError  # noqa: E402
 from puppet_lib.instructions import instruction_policy_fingerprint  # noqa: E402
 from puppet_lib.journal import Journal  # noqa: E402
-from puppet_lib.registry import SessionRegistry, send_exact_sigint  # noqa: E402
+from puppet_lib.registry import (  # noqa: E402
+    ProcessExecutableUnavailable,
+    ProcessVanished,
+    SessionRegistry,
+    send_exact_sigint,
+)
 from puppet_lib.safety import atomic_write_json  # noqa: E402
 from puppet_lib.session import (  # noqa: E402
     _dead_grok_lease_preflight,
+    _process_kernel_stat,
     _prove_recorded_process_birth_gone,
     halt,
     launch,
@@ -938,49 +944,6 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
             finally:
                 kill_test_server(socket)
 
-    def test_process_birth_proof_rejects_live_and_ambiguous_samples(self):
-        process = {
-            "identity_version": 2,
-            "pid": 4242,
-            "start": "stable",
-            "kernel_birth_id": "test:4242",
-            "command": "grok",
-            "executable_path": "/opt/grok",
-            "device": 1,
-            "inode": 2,
-        }
-        with (
-            patch("puppet_lib.session.os.kill", return_value=None),
-            patch(
-                "puppet_lib.session.process_birth_identity",
-                return_value=process,
-            ),
-            self.assertRaisesRegex(IdentityError, "still alive"),
-        ):
-            _prove_recorded_process_birth_gone(process)
-        with (
-            patch("puppet_lib.session.os.kill", return_value=None),
-            patch(
-                "puppet_lib.session.process_birth_identity",
-                side_effect=IdentityError("sample failed"),
-            ),
-            self.assertRaisesRegex(IdentityError, "ambiguous"),
-        ):
-            _prove_recorded_process_birth_gone(process)
-        with patch(
-            "puppet_lib.session.os.kill",
-            side_effect=ProcessLookupError(),
-        ):
-            _prove_recorded_process_birth_gone(process)
-        with (
-            patch("puppet_lib.session.os.kill", return_value=None),
-            patch(
-                "puppet_lib.session.process_birth_identity",
-                return_value=dict(process, kernel_birth_id="test:replacement"),
-            ),
-        ):
-            _prove_recorded_process_birth_gone(process)
-
     def test_rejects_projection_and_journal_mismatches_read_only(self):
         corruptions = (
             ("target", "projection divergence"),
@@ -1078,3 +1041,162 @@ class GrokDeadLeaseReconciliationTests(unittest.TestCase):
                     kill_test_server(socket)
                     authority_override.stop()
                     self.authority_root = prior_authority_root
+
+
+class GrokDeadLeaseProcessBirthProofTests(unittest.TestCase):
+    def _recorded_process(self, pid: int = 4242) -> dict:
+        return {
+            "identity_version": 2,
+            "pid": pid,
+            "start": "stable",
+            "kernel_birth_id": "test:%d" % pid,
+            "command": "grok",
+            "executable_path": "/opt/grok",
+            "device": 1,
+            "inode": 2,
+        }
+
+    def test_process_birth_proof_rejects_live_and_ambiguous_samples(self):
+        process = self._recorded_process()
+        with (
+            patch("puppet_lib.session.os.kill", return_value=None),
+            patch(
+                "puppet_lib.session.process_birth_identity",
+                return_value=process,
+            ),
+            self.assertRaisesRegex(IdentityError, "still alive"),
+        ):
+            _prove_recorded_process_birth_gone(process)
+        with (
+            patch("puppet_lib.session.os.kill", return_value=None),
+            patch(
+                "puppet_lib.session.process_birth_identity",
+                side_effect=IdentityError("sample failed"),
+            ),
+            patch("puppet_lib.session._process_kernel_stat", return_value=None),
+            self.assertRaisesRegex(IdentityError, "ambiguous"),
+        ):
+            _prove_recorded_process_birth_gone(process)
+        with patch(
+            "puppet_lib.session.os.kill",
+            side_effect=ProcessLookupError(),
+        ):
+            _prove_recorded_process_birth_gone(process)
+        with (
+            patch("puppet_lib.session.os.kill", return_value=None),
+            patch(
+                "puppet_lib.session.process_birth_identity",
+                return_value=dict(process, kernel_birth_id="test:replacement"),
+            ),
+        ):
+            _prove_recorded_process_birth_gone(process)
+
+    def test_process_birth_proof_reproduces_exe_gone_kill_alive_race(self):
+        process = self._recorded_process()
+        vanished = ProcessVanished(
+            "Linux process vanished before executable identity sampling"
+        )
+
+        def kill_then_lookup(_pid, _signal):
+            if kill_then_lookup.calls:
+                raise ProcessLookupError()
+            kill_then_lookup.calls += 1
+            return None
+
+        kill_then_lookup.calls = 0
+        with (
+            patch("puppet_lib.session.os.kill", side_effect=kill_then_lookup),
+            patch(
+                "puppet_lib.session.process_birth_identity",
+                side_effect=vanished,
+            ),
+        ):
+            _prove_recorded_process_birth_gone(process)
+
+        for state in ("Z", "Z+", "X"):
+            with (
+                self.subTest(state=state),
+                patch("puppet_lib.session.os.kill", return_value=None),
+                patch(
+                    "puppet_lib.session.process_birth_identity",
+                    side_effect=vanished,
+                ),
+                patch("puppet_lib.session._process_kernel_stat", return_value=state),
+            ):
+                _prove_recorded_process_birth_gone(process)
+
+    def test_process_birth_proof_rejects_unknown_live_and_denied_samples(self):
+        process = self._recorded_process()
+        vanished = ProcessVanished(
+            "Linux process vanished before executable identity sampling"
+        )
+        unavailable = ProcessExecutableUnavailable(
+            "process executable identity is unavailable"
+        )
+        unknown_states = {
+            "sleeping": "S",
+            "running": "R",
+            "unknown": None,
+            "malformed": "??",
+        }
+        for label, state in unknown_states.items():
+            for error in (vanished, unavailable, IdentityError("sample failed")):
+                with (
+                    self.subTest(state=label, error=type(error).__name__),
+                    patch("puppet_lib.session.os.kill", return_value=None),
+                    patch(
+                        "puppet_lib.session.process_birth_identity",
+                        side_effect=error,
+                    ),
+                    patch(
+                        "puppet_lib.session._process_kernel_stat",
+                        return_value=state,
+                    ),
+                    self.assertRaisesRegex(IdentityError, "ambiguous"),
+                ):
+                    _prove_recorded_process_birth_gone(process)
+
+        with (
+            patch("puppet_lib.session.os.kill", side_effect=PermissionError()),
+            self.assertRaisesRegex(IdentityError, "ambiguous"),
+        ):
+            _prove_recorded_process_birth_gone(process)
+
+        def kill_then_denied(_pid, _signal):
+            if kill_then_denied.calls:
+                raise PermissionError("denied")
+            kill_then_denied.calls += 1
+            return None
+
+        kill_then_denied.calls = 0
+        with (
+            patch("puppet_lib.session.os.kill", side_effect=kill_then_denied),
+            patch(
+                "puppet_lib.session.process_birth_identity",
+                side_effect=vanished,
+            ),
+            self.assertRaisesRegex(IdentityError, "ambiguous"),
+        ):
+            _prove_recorded_process_birth_gone(process)
+
+    def test_process_kernel_stat_uses_ps_and_rejects_unknown(self):
+        completed = Mock()
+        completed.returncode = 0
+        completed.stdout = "Z+\n"
+        with patch("puppet_lib.session.subprocess.run", return_value=completed) as run:
+            self.assertEqual(_process_kernel_stat(4242), "Z+")
+        self.assertEqual(run.call_args[0][0], ["ps", "-p", "4242", "-o", "stat="])
+        completed.returncode = 1
+        completed.stdout = ""
+        with patch("puppet_lib.session.subprocess.run", return_value=completed):
+            self.assertIsNone(_process_kernel_stat(4242))
+        completed.returncode = 0
+        completed.stdout = ""
+        with patch("puppet_lib.session.subprocess.run", return_value=completed):
+            self.assertIsNone(_process_kernel_stat(4242))
+        with patch(
+            "puppet_lib.session.subprocess.run",
+            side_effect=PermissionError("denied"),
+        ):
+            self.assertIsNone(_process_kernel_stat(4242))
+        self.assertIsNone(_process_kernel_stat(1))

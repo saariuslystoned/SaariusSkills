@@ -1,0 +1,24 @@
+# Dead-lease terminal-state repair
+
+- status: native job completed one bounded source repair; draft PR pending after this packet
+- native_job_id: `15b75753-6b9a-4ab6-9741-9736899c7290`
+- conversation_id: `d648dc81-6ce8-45cf-84c1-99006f94fd9f` (Cursor conversation; not the native job id)
+- owner_handoff_id_rejected: `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`
+- worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dead-lease-terminal-state-20260921`
+- branch: `codex/puppet-dead-lease-terminal-state-20260921`
+- base: `49a46404854db7c9c7e7935b351e47fb771beaca` (`origin/main`)
+- starting_tree: `938ef948a6a1218ad055a17d5d297c633b936167`
+- motivation: PR63 CI run `35630314313` Ubuntu failure in `test_replay_of_the_same_halted_generation_is_idempotent`
+- changed_files:
+  - `skills/puppet/scripts/puppet_lib/session.py`
+  - `tests/test_puppet_grok_dead_lease.py`
+  - `runs/puppet-dead-lease-terminal-state-runs/20260921/STATE.md`
+  - `runs/puppet-dead-lease-terminal-state-runs/20260921/PROOF.md`
+  - `runs/puppet-dead-lease-terminal-state-runs/20260921/events.jsonl`
+  - `runs/puppet-dead-lease-terminal-state-runs/20260921/heartbeat`
+- tests: dead-lease suite 14/14; focused offline birth-proof 4/4
+- live_qualification: not launched
+- shared_install_or_reset: not performed
+- ci_rerun: not performed
+- pr63_pr64_sources: not touched
+- next: parent review of untrusted source; independent review / OpenClaw after draft PR
