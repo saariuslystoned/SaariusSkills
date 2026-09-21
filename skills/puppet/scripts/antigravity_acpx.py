@@ -426,12 +426,53 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
                 "body_retained": False,
                 "invented_decision": None,
             }
+            for key in (
+                "kind",
+                "kind_source",
+                "id_class",
+                "path_source",
+                "path_cardinality",
+                "path_class",
+                "reason",
+            ):
+                value = permission.get(key)
+                if isinstance(value, str) and value:
+                    fields["permission"][key] = value
+            offered = permission.get("offered_option_kinds")
+            if isinstance(offered, list):
+                fields["permission"]["offered_option_kinds"] = [
+                    item for item in offered if isinstance(item, str) and item
+                ]
             decisions = permission.get("decisions")
             if isinstance(decisions, list):
                 fields["permission"]["decisions"] = [
                     {
                         "outcome": item.get("outcome"),
                         "permission_kind": item.get("permission_kind"),
+                        **{
+                            key: item.get(key)
+                            for key in (
+                                "kind",
+                                "kind_source",
+                                "id_class",
+                                "path_source",
+                                "path_cardinality",
+                                "path_class",
+                                "reason",
+                            )
+                            if isinstance(item.get(key), str) and item.get(key)
+                        },
+                        **(
+                            {
+                                "offered_option_kinds": [
+                                    option
+                                    for option in item.get("offered_option_kinds")
+                                    if isinstance(option, str) and option
+                                ]
+                            }
+                            if isinstance(item.get("offered_option_kinds"), list)
+                            else {}
+                        ),
                     }
                     for item in decisions
                     if isinstance(item, Mapping)
