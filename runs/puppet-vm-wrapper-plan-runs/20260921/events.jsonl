@@ -1,0 +1,5 @@
+{"ts":"2026-09-21T17:15:56Z","event":"repo_preflight","status":"pass","base":"49a4640","branch":"codex/puppet-vm-wrapper-plan-20260921","remote_default":"origin/main"}
+{"ts":"2026-09-21T17:15:56Z","event":"parent_context_read","status":"pass","sources":["STATE.md","MORNING_HANDOFF.md","upstream692-adjudication.json","VM-VISUAL-RECIPE-RESEARCH.md","VM-PROOF-INSTALL-AUTHORIZATION.md"]}
+{"ts":"2026-09-21T17:15:56Z","event":"vm_owner_receipt_read","status":"pass","owner_task":"01a0c06b-de79-7a03-887b-a1ec04887911","accepted_result":"blocked_guest_acpx_auth_readiness","agent_session":"not_started","credential_values":"not_inspected"}
+{"ts":"2026-09-21T17:15:56Z","event":"upstream_boundary_read","status":"pass","source":"acpx#637","decision":"host_owned_wrapper_remote_termination_workspace_mapping"}
+{"ts":"2026-09-21T17:15:56Z","event":"plan_authored","status":"complete","artifact":"plans/puppet/vm-wrapper-plan-20260921.md","mutations":"docs_only"}
