@@ -141,3 +141,50 @@ cleanup, uncertain-cleanup fencing, unsupported permissions/questions, and
 ordinary availability remaining false. The exact acpx source pin and
 artifact digest above are unchanged. No live qualification or provider
 credential action was used.
+
+## Repair cycle 2 independent adjudication
+
+The single authorized repair worker was Cursor ACP job
+`f3b870e8-94af-42da-a9e9-fe9819ce335c`, completed at the exact
+`grok-4.6[effort=high,fast=true]`. Its canonical worker proof is at
+`/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/f3b870e8-94af-42da-a9e9-fe9819ce335c/{STATE.md,PROOF.md,events.jsonl}`.
+
+The worker delta independently passed:
+
+```text
+python3 -m unittest tests.test_puppet_cursor_acp_runtime tests.test_puppet_antigravity_acp_runtime tests.test_puppet_cursor_acp tests.test_puppet_antigravity_acp -v
+Ran 58 tests ... OK
+
+bridge/cursor-acp supplied-artifact bridge run
+tests 30; pass 30; fail 0; skipped 0
+
+bridge/antigravity-acp supplied-artifact bridge run
+tests 33; pass 33; fail 0; skipped 0
+
+clean git-archive checkout with the worker diff applied
+Cursor: tests 30; pass 23; fail 0; skipped 7
+Antigravity controller driver: tests 1; pass 0; fail 0; skipped 1
+```
+
+The clean-checkout AGY result is an explicit skip because the task-owned
+optional `acpx-0.18.0.tgz` is absent; it is not counted as public-runtime
+success. The supplied-artifact AGY case passed only when that exact local
+artifact was present.
+
+The repair is not source-accepted because normal candidate construction still
+omits the trusted candidate executable. Exact direct caller-path reproductions
+against the worker delta are:
+
+```text
+_cursor_acp_structured_launch(..., prompt="caller task ...")
+ValidationError: cursor-acp candidate executable is missing
+
+_antigravity_acp_structured_launch(..., prompt="caller task ...")
+ValidationError: antigravity-acp candidate executable is missing
+```
+
+Both default factories have an `executable` parameter and both Node drivers
+reject a candidate payload without one. The structured launch callers receive
+the already-resolved manifest executable in `launch()`, but do not forward it
+to either factory. The missing consumer seam is therefore still on the actual
+caller path; the worker source remains uncommitted pending parent rescope.

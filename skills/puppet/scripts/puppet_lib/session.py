@@ -913,6 +913,8 @@ def _cursor_acp_structured_launch(
     observer: Optional[Mapping[str, Any]] = None,
     runner: Any = None,
     catalog: Optional[Mapping[str, Any]] = None,
+    prompt: Optional[str] = None,
+    runtime_factory: Any = None,
 ) -> Dict[str, Any]:
     """Complete a cursor-acp launch from structured observation. Never open tmux."""
 
@@ -920,7 +922,9 @@ def _cursor_acp_structured_launch(
     from .cursor_acp import (
         CursorAcpController,
         bind_expected_runtime_model,
+        build_cursor_acp_candidate_runner,
         require_cursor_acp_target,
+        require_runtime_task_text,
     )
     from .tmux import TmuxController
 
@@ -932,6 +936,21 @@ def _cursor_acp_structured_launch(
         "head": workspace["head"],
         "tree": workspace["tree"],
     }
+    if runner is None:
+        factory = runtime_factory or build_cursor_acp_candidate_runner
+        runner = factory(
+            session=session,
+            contract=contract,
+            state_root=state_root,
+            prompt=prompt,
+            requested_model=requested_model or contract.requested_model,
+            expected_workspace=expected_workspace,
+            catalog=catalog,
+        )
+    elif prompt is not None:
+        runner.bind_task_text(require_runtime_task_text(prompt))
+    elif not getattr(runner, "has_task_text", lambda: True)():
+        require_runtime_task_text(prompt)
     controller = open_run_transport(
         transport,
         state_root,
@@ -973,15 +992,18 @@ def _antigravity_acp_structured_launch(
     observer: Optional[Mapping[str, Any]] = None,
     runner: Any = None,
     catalog: Optional[Mapping[str, Any]] = None,
+    prompt: Optional[str] = None,
+    runtime_factory: Any = None,
 ) -> Dict[str, Any]:
     """Complete an antigravity-acp launch from structured observation. Never open tmux."""
 
     from .agy_print import AgyPrintController
     from .antigravity_acp import (
         AntigravityAcpController,
+        build_antigravity_acp_candidate_runner,
         require_antigravity_acp_target,
     )
-    from .cursor_acp import CursorAcpController
+    from .cursor_acp import CursorAcpController, require_runtime_task_text
     from .tmux import TmuxController
 
     require_antigravity_acp_target(contract.target)
@@ -992,6 +1014,21 @@ def _antigravity_acp_structured_launch(
         "head": workspace["head"],
         "tree": workspace["tree"],
     }
+    if runner is None:
+        factory = runtime_factory or build_antigravity_acp_candidate_runner
+        runner = factory(
+            session=session,
+            contract=contract,
+            state_root=state_root,
+            prompt=prompt,
+            requested_model=requested_model or contract.requested_model,
+            expected_workspace=expected_workspace,
+            catalog=catalog,
+        )
+    elif prompt is not None:
+        runner.bind_task_text(require_runtime_task_text(prompt))
+    elif not getattr(runner, "has_task_text", lambda: True)():
+        require_runtime_task_text(prompt)
     controller = open_run_transport(
         transport,
         state_root,
@@ -1799,8 +1836,10 @@ def launch(
     _agy_print_executable: Optional[Path] = None,
     _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
     _cursor_acp_runner: Any = None,
+    _cursor_acp_runtime_factory: Any = None,
     _antigravity_acp_observer: Optional[Mapping[str, Any]] = None,
     _antigravity_acp_runner: Any = None,
+    _antigravity_acp_runtime_factory: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     if deadline_seconds is not None:
@@ -2126,6 +2165,8 @@ def launch(
             requested_model=requested_model,
             observer=_cursor_acp_observer,
             runner=_cursor_acp_runner,
+            prompt=initial,
+            runtime_factory=_cursor_acp_runtime_factory,
         )
     if transport["id"] == "antigravity-acp":
         return _antigravity_acp_structured_launch(
@@ -2136,6 +2177,8 @@ def launch(
             requested_model=requested_model,
             observer=_antigravity_acp_observer,
             runner=_antigravity_acp_runner,
+            prompt=initial,
+            runtime_factory=_antigravity_acp_runtime_factory,
         )
     registry = SessionRegistry(state_root)
     tmux = open_run_transport(transport, state_root)

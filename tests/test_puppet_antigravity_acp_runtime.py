@@ -18,19 +18,28 @@ from puppet_lib.antigravity_acp import (
     AntigravityAcpNodeRuntime,
     AntigravityAcpRuntimeRunner,
     AntigravityAcpSyntheticRuntime,
+    build_antigravity_acp_candidate_runner,
     map_runtime_antigravity_models,
     verified_antigravity_acp_catalog,
+)
+from puppet_lib.cursor_acp import (
+    FINISH_POLICY_RETAIN,
+    SESSION_MODE_PERSISTENT,
+    SYNTHETIC_PEER_KIND,
+    require_runtime_task_text,
 )
 from puppet_lib.cursor_acp import (
     drain_runtime_turn_events,
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
 )
-from puppet_lib.errors import IdentityError, UnsupportedError
+from puppet_lib.errors import IdentityError, UnsupportedError, ValidationError
 from puppet_lib.session import _antigravity_acp_structured_launch
 from puppet_lib.transport import bind_run_transport
 
 
+CALLER_TASK_TEXT = "caller task: inspect the owned workspace without echoing bodies"
+SECOND_TURN_TEXT = "caller follow-up: continue the same owned session"
 GEMINI_MODELS = {
     "currentModelId": DEFAULT_ANTIGRAVITY_MODEL,
     "availableModelIds": [
@@ -94,6 +103,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             if not isolated.joinpath("ownership.json").exists()
             else _workspace(workspace),
             "requested_model": DEFAULT_ANTIGRAVITY_MODEL,
+            "text": CALLER_TASK_TEXT,
             "catalog": verified_antigravity_acp_catalog(),
         }
         values.update(overrides)
@@ -136,6 +146,8 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             )
             self.assertEqual(len(runtime.start_calls), 1)
             self.assertEqual(runtime.start_calls[0]["requestId"], "agy-acp-request-1")
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertNotIn("antigravity-acp-runtime-turn", runtime.start_calls[0]["text"])
             self.assertGreaterEqual(len(runtime.status_calls), 1)
             self.assertEqual(len(runtime.close_calls), 1)
             self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
@@ -174,6 +186,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     state_root=Path(temporary),
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     runner=runner,
+                    prompt=CALLER_TASK_TEXT,
                 )
             self.assertTrue(launched["ok"])
             self.assertEqual(
@@ -182,6 +195,8 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             )
             self.assertEqual(len(runtime.ensure_calls), 1)
             self.assertEqual(len(runtime.start_calls), 1)
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertNotIn(CALLER_TASK_TEXT, str(launched))
             self.assertNotEqual(
                 runner.handle["backendSessionId"],
                 "conv-agy-acp-1",
@@ -235,8 +250,31 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 Path(temporary),
                 runner=self._runner(isolated, workspace, runtime),
             )
+            result = controller.caller_result(
+                expected_session="agy-acp-session",
+                expected_conversation_id="conv-agy-acp-1",
+                expected_workspace=_workspace(workspace),
+                requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+            )
+            self.assertEqual(
+                result["antigravity_acp"]["model"]["observed_id"],
+                DEFAULT_ANTIGRAVITY_MODEL,
+            )
+            self.assertEqual(runtime.set_model_calls[0]["model"], DEFAULT_ANTIGRAVITY_MODEL)
+            unsupported = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models={
+                    "currentModelId": "gemini-3.1-pro",
+                    "availableModelIds": GEMINI_MODELS["availableModelIds"],
+                },
+                set_model_supported=False,
+            )
+            missing = _private_root(temporary, "missing-set-model")
             with self.assertRaisesRegex(IdentityError, "does not match"):
-                controller.caller_result(
+                AntigravityAcpController(
+                    Path(temporary),
+                    runner=self._runner(missing, workspace, unsupported),
+                ).caller_result(
                     expected_session="agy-acp-session",
                     expected_conversation_id="conv-agy-acp-1",
                     expected_workspace=_workspace(workspace),
@@ -315,6 +353,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 request_id="agy-acp-request-1",
                 workspace=_workspace(workspace),
                 requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                text=CALLER_TASK_TEXT,
                 catalog=verified_antigravity_acp_catalog(),
             )
             controller = AntigravityAcpController(Path(temporary), runner=runner)
@@ -351,6 +390,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     request_id="agy-acp-request-2",
                     workspace=_workspace(workspace),
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
                 ).observation()
 
@@ -486,6 +526,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 workspace=workspace,
                 isolated_root=isolated,
                 repo_root=ROOT,
+                synthetic_peer=True,
             )
             try:
                 runner = AntigravityAcpRuntimeRunner(
@@ -497,6 +538,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     request_id="agy-acp-request-1",
                     workspace=_workspace(workspace),
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
                     halt=True,
                 )
@@ -519,6 +561,190 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertNotEqual(runner.handle["acpxRecordId"], "conv-agy-acp-1")
                 self.assertEqual(runner.discarded_events["body_retained"], False)
                 self.assertFalse(AntigravityAcpController.available())
+                self.assertEqual(runtime.kind, SYNTHETIC_PEER_KIND)
+            finally:
+                runtime.shutdown()
+
+    def test_missing_and_placeholder_task_text_are_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "missing"):
+            require_runtime_task_text("")
+        with self.assertRaisesRegex(ValidationError, "placeholder"):
+            require_runtime_task_text("antigravity-acp-runtime-turn")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+            )
+            runner = AntigravityAcpRuntimeRunner(
+                runtime,
+                isolated_root=isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+                request_id="agy-acp-request-1",
+                workspace=self._claim(isolated, workspace),
+                requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                catalog=verified_antigravity_acp_catalog(),
+            )
+            with self.assertRaisesRegex(ValidationError, "missing"):
+                AntigravityAcpController(Path(temporary), runner=runner).require_observation()
+            self.assertEqual(runtime.start_calls, [])
+
+    def test_structured_launch_factory_selects_model_and_persists_two_turns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models={
+                    "currentModelId": "gemini-3.1-pro",
+                    "availableModelIds": GEMINI_MODELS["availableModelIds"],
+                },
+            )
+            holder = {}
+
+            def factory(**kwargs):
+                runner = build_antigravity_acp_candidate_runner(
+                    runtime=runtime,
+                    isolated_root=isolated,
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-1",
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                    **kwargs,
+                )
+                holder["runner"] = runner
+                return runner
+
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _antigravity_acp_structured_launch(
+                    session="agy-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("antigravity-acp"),
+                    state_root=Path(temporary),
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    prompt=CALLER_TASK_TEXT,
+                    runtime_factory=factory,
+                )
+            runner = holder["runner"]
+            self.assertTrue(launched["ok"])
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertEqual(runtime.set_model_calls[0]["model"], DEFAULT_ANTIGRAVITY_MODEL)
+            self.assertEqual(runtime.ensure_calls[0]["mode"], SESSION_MODE_PERSISTENT)
+            self.assertEqual(len(runtime.close_calls), 0)
+            self.assertEqual(runner.persistent_state, "retained")
+            first_handle = dict(runner.handle)
+            second = runner.next_turn(
+                text=SECOND_TURN_TEXT,
+                request_id="agy-acp-request-2",
+                expected_workspace=_workspace(workspace),
+            )
+            self.assertEqual(runtime.start_calls[1]["text"], SECOND_TURN_TEXT)
+            self.assertEqual(len(runtime.ensure_calls), 1)
+            self.assertEqual(runner.handle["sessionKey"], first_handle["sessionKey"])
+            self.assertEqual(runner.handle["backendSessionId"], first_handle["backendSessionId"])
+            self.assertEqual(second["session"]["session_id"], "agy-acp-session")
+            self.assertNotIn(CALLER_TASK_TEXT, str(second))
+            closed = runner.finish(discard_persistent_state=True)
+            self.assertTrue(closed["final_discard"])
+            self.assertEqual(len(runtime.close_calls), 1)
+            self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
+
+    def test_caller_path_public_runtime_factory_uses_injected_synthetic_peer(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            texts = []
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+            )
+            original = runtime.start_turn
+
+            def capture(payload):
+                texts.append(payload.get("text"))
+                return original(payload)
+
+            runtime.start_turn = capture
+            holder = {}
+
+            def factory(**kwargs):
+                kwargs.setdefault("catalog", verified_antigravity_acp_catalog())
+                runner = build_antigravity_acp_candidate_runner(
+                    runtime=runtime,
+                    isolated_root=isolated,
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-1",
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                    **kwargs,
+                )
+                holder["runner"] = runner
+                return runner
+
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            try:
+                with mock.patch(
+                    "puppet_lib.session._workspace_snapshot",
+                    return_value={
+                        "branch": "codex/example",
+                        "head": "a" * 40,
+                        "tree": "b" * 40,
+                        "dirty": False,
+                    },
+                ):
+                    launched = _antigravity_acp_structured_launch(
+                        session="agy-acp-session",
+                        contract=contract,
+                        transport=bind_run_transport("antigravity-acp"),
+                        state_root=Path(temporary),
+                        requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                        prompt=CALLER_TASK_TEXT,
+                        runtime_factory=factory,
+                    )
+                runner = holder["runner"]
+                self.assertTrue(launched["ok"])
+                self.assertEqual(texts, [CALLER_TASK_TEXT])
+                self.assertEqual(
+                    launched["antigravity_acp"]["model"]["observed_id"],
+                    DEFAULT_ANTIGRAVITY_MODEL,
+                )
+                second = runner.next_turn(
+                    text=SECOND_TURN_TEXT,
+                    request_id="agy-acp-request-2",
+                    expected_workspace=_workspace(workspace),
+                )
+                self.assertEqual(texts, [CALLER_TASK_TEXT, SECOND_TURN_TEXT])
+                self.assertEqual(second["terminal"]["result_id"], "agy-acp-request-2")
+                closed = runner.finish(discard_persistent_state=True)
+                self.assertTrue(closed["final_discard"])
             finally:
                 runtime.shutdown()
 

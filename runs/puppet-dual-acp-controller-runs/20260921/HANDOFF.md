@@ -21,3 +21,23 @@ The bridge dependencies were task-local locked installs with lifecycle
 scripts disabled and no lockfile changes. No live qualification, publication,
 merge, or ordinary route promotion has been performed. Source acceptance and
 the subsequent pinned-source refresh remain parent gates.
+
+Repair cycle 2 was dispatched to exactly one native Cursor ACP worker,
+`f3b870e8-94af-42da-a9e9-fe9819ce335c`, with exact
+`grok-4.6[effort=high,fast=true]`. Its uncommitted delta carries caller task
+text, public `setModel` selection, persistent next-turn/final-close behavior,
+explicit candidate-vs-synthetic runtime configuration, and the AGY
+clean-checkout optional-artifact skip.
+
+Independent evidence for the delta: 58 focused Python tests passed; supplied
+artifact bridge checks passed with Cursor 30/30 and Antigravity 33/33; a clean
+git-archive checkout passed Cursor 23/30 with 7 explicit optional-artifact
+skips and Antigravity with 1 explicit optional-artifact skip. The decisive
+remaining mismatch is normal candidate construction: both structured launch
+callers invoke the default candidate factory without passing the trusted
+manifest executable. Reproductions through the two structured launch
+functions fail before runtime creation with `ValidationError: cursor-acp
+candidate executable is missing` and `ValidationError: antigravity-acp
+candidate executable is missing`. The worker source remains uncommitted for
+parent adjudication; no extra worker, pin refresh, live qualification, or
+provider action was performed.

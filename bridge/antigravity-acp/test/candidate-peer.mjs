@@ -8,6 +8,28 @@ const availableModels = [
   { modelId: "gemini-3-flash", name: "Gemini 3 Flash" },
 ];
 
+const sessions = new Map();
+
+function createSession(sessionId) {
+  const session = {
+    sessionId,
+    modelId: DEFAULT_MODEL,
+  };
+  sessions.set(sessionId, session);
+  return session;
+}
+
+function requireSession(sessionId) {
+  return sessions.get(sessionId) ?? createSession(sessionId);
+}
+
+function sessionModels(session) {
+  return {
+    currentModelId: session.modelId,
+    availableModels,
+  };
+}
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -42,17 +64,36 @@ for await (const line of lines) {
       },
     });
   } else if (request.method === "session/new") {
+    const session = createSession(sessionId);
     send({
       jsonrpc: "2.0",
       id: request.id,
       result: {
-        sessionId,
-        models: {
-          currentModelId: DEFAULT_MODEL,
-          availableModels,
-        },
+        sessionId: session.sessionId,
+        models: sessionModels(session),
       },
     });
+  } else if (request.method === "session/status") {
+    const session = requireSession(request.params?.sessionId ?? sessionId);
+    send({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        models: sessionModels(session),
+      },
+    });
+  } else if (request.method === "session/set_model") {
+    const session = requireSession(request.params?.sessionId ?? sessionId);
+    if (!availableModels.some((model) => model.modelId === request.params?.modelId)) {
+      send({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32602, message: `Unsupported model: ${request.params?.modelId}` },
+      });
+    } else {
+      session.modelId = request.params.modelId;
+      send({ jsonrpc: "2.0", id: request.id, result: {} });
+    }
   } else if (request.method === "session/prompt") {
     notify("session/update", {
       sessionId,

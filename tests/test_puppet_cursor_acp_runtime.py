@@ -13,13 +13,18 @@ sys.path.insert(0, str(SCRIPTS))
 
 from cursor_acpx import claim_isolated_root, load_isolated_root
 from puppet_lib.cursor_acp import (
+    FINISH_POLICY_RETAIN,
+    SESSION_MODE_PERSISTENT,
+    SYNTHETIC_PEER_KIND,
     CursorAcpController,
     CursorAcpNodeRuntime,
     CursorAcpRuntimeRunner,
     CursorAcpSyntheticRuntime,
     advertised_catalog_from_runtime_models,
+    build_cursor_acp_candidate_runner,
     drain_runtime_turn_events,
     map_runtime_models,
+    require_runtime_task_text,
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
 )
@@ -60,6 +65,8 @@ def _handle(workspace, **overrides):
     return handle
 
 
+CALLER_TASK_TEXT = "caller task: inspect the owned workspace without echoing bodies"
+SECOND_TURN_TEXT = "caller follow-up: continue the same owned session"
 GROK_HIGH = "grok-4.6[effort=high,fast=true]"
 GROK_MODELS = {
     "currentModelId": GROK_HIGH,
@@ -91,6 +98,7 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             "request_id": "cursor-acp-request-1",
             "workspace": self._claim(isolated, workspace) if not isolated.joinpath("ownership.json").exists() else _workspace(workspace),
             "requested_model": "cursor-grok-4.6-high",
+            "text": CALLER_TASK_TEXT,
             "catalog": advertised_catalog_from_runtime_models(GROK_MODELS),
         }
         values.update(overrides)
@@ -127,6 +135,8 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(sorted(runtime.ensure_calls[0]), ["agent", "cwd", "mode", "sessionKey"])
             self.assertEqual(len(runtime.start_calls), 1)
             self.assertEqual(runtime.start_calls[0]["requestId"], "cursor-acp-request-1")
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertNotIn("cursor-acp-runtime-turn", runtime.start_calls[0]["text"])
             self.assertGreaterEqual(len(runtime.status_calls), 1)
             self.assertEqual(len(runtime.close_calls), 1)
             self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
@@ -162,11 +172,14 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                     state_root=Path(temporary),
                     requested_model="cursor-grok-4.6-high",
                     runner=runner,
+                    prompt=CALLER_TASK_TEXT,
                 )
             self.assertTrue(launched["ok"])
             self.assertEqual(launched["cursor_acp"]["model"]["observed_model"], GROK_HIGH)
             self.assertEqual(len(runtime.ensure_calls), 1)
             self.assertEqual(len(runtime.start_calls), 1)
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertNotIn(CALLER_TASK_TEXT, str(launched))
 
     def test_model_catalog_requested_selected_current_and_rejections(self):
         mapped = map_runtime_models(
@@ -212,8 +225,28 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             )
             runner = self._runner(isolated, workspace, runtime)
             controller = CursorAcpController(Path(temporary), runner=runner)
+            result = controller.caller_result(
+                expected_session="cursor-acp-session",
+                expected_conversation_id="conv-cursor-acp-1",
+                expected_workspace=_workspace(workspace),
+                requested_model="cursor-grok-4.6-high",
+            )
+            self.assertEqual(result["cursor_acp"]["model"]["observed_model"], GROK_HIGH)
+            self.assertEqual(runtime.set_model_calls[0]["model"], GROK_HIGH)
+            unsupported = CursorAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models={
+                    "currentModelId": "grok-4.6[effort=low,fast=true]",
+                    "availableModelIds": GROK_MODELS["availableModelIds"],
+                },
+                set_model_supported=False,
+            )
+            missing = _private_root(temporary, "missing-set-model")
             with self.assertRaisesRegex(IdentityError, "does not match"):
-                controller.caller_result(
+                CursorAcpController(
+                    Path(temporary),
+                    runner=self._runner(missing, workspace, unsupported),
+                ).caller_result(
                     expected_session="cursor-acp-session",
                     expected_conversation_id="conv-cursor-acp-1",
                     expected_workspace=_workspace(workspace),
@@ -289,6 +322,7 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                 request_id="cursor-acp-request-1",
                 workspace=_workspace(workspace),
                 requested_model="cursor-grok-4.6-high",
+                text=CALLER_TASK_TEXT,
                 catalog=advertised_catalog_from_runtime_models(GROK_MODELS),
             )
             controller = CursorAcpController(Path(temporary), runner=runner)
@@ -322,6 +356,7 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                     request_id="cursor-acp-request-2",
                     workspace=_workspace(workspace),
                     requested_model="cursor-grok-4.6-high",
+                    text=CALLER_TASK_TEXT,
                     catalog=advertised_catalog_from_runtime_models(GROK_MODELS),
                 ).observation()
 
@@ -454,6 +489,7 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                 workspace=workspace,
                 isolated_root=isolated,
                 repo_root=ROOT,
+                synthetic_peer=True,
             )
             try:
                 models = {
@@ -469,6 +505,7 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                     request_id="cursor-acp-request-1",
                     workspace=_workspace(workspace),
                     requested_model="candidate-default",
+                    text=CALLER_TASK_TEXT,
                     catalog=advertised_catalog_from_runtime_models(models),
                     halt=True,
                 )
@@ -496,6 +533,197 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertNotEqual(runner.handle["acpxRecordId"], "conv-cursor-acp-1")
                 self.assertEqual(runner.discarded_events["body_retained"], False)
                 self.assertFalse(CursorAcpController.available())
+                self.assertEqual(runtime.kind, SYNTHETIC_PEER_KIND)
+            finally:
+                runtime.shutdown()
+
+    def test_missing_and_placeholder_task_text_are_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "missing"):
+            require_runtime_task_text("")
+        with self.assertRaisesRegex(ValidationError, "placeholder"):
+            require_runtime_task_text("cursor-acp-runtime-turn")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = CursorAcpSyntheticRuntime(handle=_handle(workspace), models=GROK_MODELS)
+            runner = CursorAcpRuntimeRunner(
+                runtime,
+                isolated_root=isolated,
+                owner="puppet-owner",
+                session="cursor-acp-session",
+                conversation_id="conv-cursor-acp-1",
+                request_id="cursor-acp-request-1",
+                workspace=self._claim(isolated, workspace),
+                requested_model="cursor-grok-4.6-high",
+                catalog=advertised_catalog_from_runtime_models(GROK_MODELS),
+            )
+            with self.assertRaisesRegex(ValidationError, "missing"):
+                CursorAcpController(Path(temporary), runner=runner).require_observation()
+            self.assertEqual(runtime.start_calls, [])
+
+    def test_structured_launch_factory_selects_model_and_persists_two_turns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = CursorAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models={
+                    "currentModelId": "grok-4.6[effort=low,fast=true]",
+                    "availableModelIds": GROK_MODELS["availableModelIds"],
+                },
+            )
+            holder = {}
+
+            def factory(**kwargs):
+                runner = build_cursor_acp_candidate_runner(
+                    runtime=runtime,
+                    isolated_root=isolated,
+                    conversation_id="conv-cursor-acp-1",
+                    request_id="cursor-acp-request-1",
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                    **kwargs,
+                )
+                holder["runner"] = runner
+                return runner
+
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "cursor-grok-4.6-high"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _cursor_acp_structured_launch(
+                    session="cursor-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("cursor-acp"),
+                    state_root=Path(temporary),
+                    requested_model="cursor-grok-4.6-high",
+                    prompt=CALLER_TASK_TEXT,
+                    runtime_factory=factory,
+                )
+            runner = holder["runner"]
+            self.assertTrue(launched["ok"])
+            self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertEqual(runtime.set_model_calls[0]["model"], GROK_HIGH)
+            self.assertEqual(runtime.ensure_calls[0]["mode"], SESSION_MODE_PERSISTENT)
+            self.assertEqual(len(runtime.close_calls), 0)
+            self.assertEqual(runner.persistent_state, "retained")
+            first_handle = dict(runner.handle)
+            second = runner.next_turn(
+                text=SECOND_TURN_TEXT,
+                request_id="cursor-acp-request-2",
+                expected_workspace=_workspace(workspace),
+            )
+            self.assertEqual(runtime.start_calls[1]["text"], SECOND_TURN_TEXT)
+            self.assertEqual(runtime.start_calls[1]["requestId"], "cursor-acp-request-2")
+            self.assertEqual(len(runtime.ensure_calls), 1)
+            self.assertEqual(runner.handle["sessionKey"], first_handle["sessionKey"])
+            self.assertEqual(runner.handle["backendSessionId"], first_handle["backendSessionId"])
+            self.assertEqual(second["session"]["id"], "cursor-acp-session")
+            self.assertNotIn(CALLER_TASK_TEXT, str(second))
+            self.assertNotIn(SECOND_TURN_TEXT, str(second))
+            closed = runner.finish(discard_persistent_state=True)
+            self.assertTrue(closed["final_discard"])
+            self.assertEqual(closed["persistent_state"], "discarded")
+            self.assertEqual(len(runtime.close_calls), 1)
+            self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
+            self.assertFalse(runner.local_release)
+
+    def test_caller_path_public_runtime_factory_uses_injected_synthetic_peer(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            models = {
+                "currentModelId": "candidate-default",
+                "availableModelIds": ["candidate-default", "candidate-fast"],
+            }
+            texts = []
+            runtime = CursorAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+            )
+            original = runtime.start_turn
+
+            def capture(payload):
+                texts.append(payload.get("text"))
+                return original(payload)
+
+            runtime.start_turn = capture
+            holder = {}
+
+            def factory(**kwargs):
+                kwargs.setdefault("catalog", advertised_catalog_from_runtime_models(models))
+                runner = build_cursor_acp_candidate_runner(
+                    runtime=runtime,
+                    isolated_root=isolated,
+                    conversation_id="conv-cursor-acp-1",
+                    request_id="cursor-acp-request-1",
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                    **kwargs,
+                )
+                holder["runner"] = runner
+                return runner
+
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "candidate-fast"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            try:
+                with mock.patch(
+                    "puppet_lib.session._workspace_snapshot",
+                    return_value={
+                        "branch": "codex/example",
+                        "head": "a" * 40,
+                        "tree": "b" * 40,
+                        "dirty": False,
+                    },
+                ):
+                    launched = _cursor_acp_structured_launch(
+                        session="cursor-acp-session",
+                        contract=contract,
+                        transport=bind_run_transport("cursor-acp"),
+                        state_root=Path(temporary),
+                        requested_model="candidate-fast",
+                        prompt=CALLER_TASK_TEXT,
+                        runtime_factory=factory,
+                    )
+                runner = holder["runner"]
+                self.assertTrue(launched["ok"])
+                self.assertEqual(texts, [CALLER_TASK_TEXT])
+                self.assertEqual(
+                    launched["cursor_acp"]["model"]["observed_model"],
+                    "candidate-fast",
+                )
+                self.assertEqual(runner.persistent_state, "retained")
+                second = runner.next_turn(
+                    text=SECOND_TURN_TEXT,
+                    request_id="cursor-acp-request-2",
+                    expected_workspace=_workspace(workspace),
+                )
+                self.assertEqual(texts, [CALLER_TASK_TEXT, SECOND_TURN_TEXT])
+                self.assertEqual(second["terminal_result"]["result_id"], "cursor-acp-request-2")
+                self.assertNotIn(CALLER_TASK_TEXT, str(launched))
+                closed = runner.finish(discard_persistent_state=True)
+                self.assertTrue(closed["final_discard"])
             finally:
                 runtime.shutdown()
 

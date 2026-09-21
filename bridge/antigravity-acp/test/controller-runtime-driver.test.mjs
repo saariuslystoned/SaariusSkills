@@ -6,9 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { existsSync } from "node:fs";
 
 const DRIVER = fileURLToPath(new URL("./controller-runtime-driver.mjs", import.meta.url));
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const LOCAL_ARTIFACT = path.join(
+  REPO_ROOT,
+  "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz",
+);
+const REAL_ARTIFACT_SKIP = existsSync(LOCAL_ARTIFACT)
+  ? false
+  : "exact local acpx artifact is task-owned proof input";
 
 function createClient(child) {
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
@@ -45,7 +53,10 @@ function createClient(child) {
   };
 }
 
-test("actual public runtime driver stays unavailable and maps gemini catalog", async (t) => {
+test("actual public runtime driver stays unavailable and maps gemini catalog", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "agy-acp-driver-"));
   const isolated = path.join(root, "isolated");
   const workspace = path.join(root, "workspace");
@@ -62,7 +73,12 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", a
       child.kill("SIGTERM");
     }
   });
-  const created = await client.rpc("create", { cwd: workspace, isolatedRoot: isolated });
+  const created = await client.rpc("create", {
+    cwd: workspace,
+    isolatedRoot: isolated,
+    syntheticPeer: true,
+    agent: "antigravity",
+  });
   assert.equal(created.available, false);
   assert.equal(created.ordinary_launch, "unavailable");
   const handle = await client.rpc("ensureSession", {

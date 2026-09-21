@@ -18,9 +18,17 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 
 from .caller import caller_projection, make_blocker
 from .cursor_acp import (
+    CANDIDATE_RUNTIME_KIND,
+    FINISH_POLICY_DISCARD,
+    FINISH_POLICY_LOCAL_RELEASE,
+    FINISH_POLICY_RETAIN,
+    SESSION_MODE_ONESHOT,
+    SESSION_MODE_PERSISTENT,
+    SYNTHETIC_PEER_KIND,
     drain_runtime_turn_events,
     project_runtime_handle,
     reject_runtime_conversation_params,
+    require_runtime_task_text,
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
 )
@@ -600,6 +608,64 @@ def map_runtime_antigravity_models(
     }
 
 
+def select_and_map_runtime_antigravity_models(
+    runtime: Any,
+    handle: Mapping[str, Any],
+    *,
+    requested_model: Optional[str] = None,
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Select the requested AGY catalog model through public setModel, then remap."""
+
+    status = runtime.get_status(
+        reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+    )
+    models = status.get("models") if isinstance(status, Mapping) else None
+    requested = requested_model or DEFAULT_ANTIGRAVITY_MODEL
+    if requested in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Antigravity ACP fallback or default model is not bound requested-model proof",
+        )
+    current = models.get("currentModelId") if isinstance(models, Mapping) else None
+    if isinstance(current, str):
+        current = current.strip()
+    if current != requested:
+        setter = getattr(runtime, "set_model", None)
+        if not callable(setter):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        try:
+            setter(
+                reject_runtime_conversation_params(
+                    {"handle": dict(handle), "model": requested},
+                    label="setModel",
+                )
+            )
+        except (ValidationError, UnsupportedError):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        status = runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        models = status.get("models") if isinstance(status, Mapping) else None
+    mapped = map_runtime_antigravity_models(
+        models,
+        requested_model=requested_model,
+        catalog=catalog,
+    )
+    if mapped["selected_model"] != mapped["current_model"] or mapped["selected_model"] != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Antigravity ACP runtime",
+        )
+    return mapped
+
+
 def session_record_from_observation(
     observation: Mapping[str, Any],
     *,
@@ -812,6 +878,7 @@ class AntigravityAcpSyntheticRuntime:
         close_error: Optional[BaseException] = None,
         permission: Optional[Mapping[str, Any]] = None,
         question: Optional[Mapping[str, Any]] = None,
+        set_model_supported: bool = True,
     ):
         self.handle = None if handle is None else dict(handle)
         self.models = dict(models) if models is not None else {
@@ -825,8 +892,10 @@ class AntigravityAcpSyntheticRuntime:
         self.close_error = close_error
         self.permission = None if permission is None else dict(permission)
         self.question = None if question is None else dict(question)
+        self.set_model_supported = set_model_supported
         self.ensure_calls: list[Dict[str, Any]] = []
         self.status_calls: list[Dict[str, Any]] = []
+        self.set_model_calls: list[Dict[str, Any]] = []
         self.start_calls: list[Dict[str, Any]] = []
         self.close_calls: list[Dict[str, Any]] = []
 
@@ -854,6 +923,31 @@ class AntigravityAcpSyntheticRuntime:
             status["lastRequestId"] = last_request
         return status
 
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="setModel")
+        self.set_model_calls.append(dict(payload))
+        if not self.set_model_supported:
+            raise ValidationError("setModel is unsupported")
+        model = payload.get("model")
+        advertised = []
+        for item in self.models.get("availableModelIds") or self.models.get("availableModels") or ():
+            if isinstance(item, Mapping):
+                advertised.append(item.get("modelId"))
+            else:
+                advertised.append(item)
+        if not isinstance(model, str) or model not in advertised:
+            _raise_identity(
+                "model_observation_mismatch",
+                "requested Antigravity ACP selector is unavailable",
+            )
+        if model in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Antigravity ACP fallback or default model is not bound requested-model proof",
+            )
+        self.models["currentModelId"] = model
+        return {}
+
     def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         reject_runtime_conversation_params(payload, label="startTurn")
         self.start_calls.append(dict(payload))
@@ -879,7 +973,7 @@ class AntigravityAcpSyntheticRuntime:
 
 
 class AntigravityAcpNodeRuntime:
-    """Pinned public createAcpRuntime through the local synthetic AGY peer."""
+    """Pinned public createAcpRuntime through the task-owned archive closure."""
 
     def __init__(
         self,
@@ -888,11 +982,17 @@ class AntigravityAcpNodeRuntime:
         isolated_root: Path,
         repo_root: Path,
         env: Optional[Mapping[str, str]] = None,
+        synthetic_peer: bool = False,
+        executable: Optional[Path] = None,
+        candidate_args: Optional[Sequence[str]] = None,
     ):
+        if synthetic_peer and executable is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
         driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
         run_env = dict(os.environ)
         if env is not None:
             run_env.update(env)
+        self.kind = SYNTHETIC_PEER_KIND if synthetic_peer else CANDIDATE_RUNTIME_KIND
         self._proc = subprocess.Popen(
             ["node", str(driver)],
             stdin=subprocess.PIPE,
@@ -901,16 +1001,29 @@ class AntigravityAcpNodeRuntime:
             cwd=str(repo_root),
             env=run_env,
         )
-        self._rpc(
-            "create",
-            {"cwd": str(workspace), "isolatedRoot": str(isolated_root)},
-        )
+        payload: Dict[str, Any] = {
+            "cwd": str(workspace),
+            "isolatedRoot": str(isolated_root),
+            "syntheticPeer": True if synthetic_peer else False,
+            "agent": "antigravity",
+        }
+        if not synthetic_peer:
+            payload["candidate"] = {
+                "kind": CANDIDATE_RUNTIME_KIND,
+                "agent": "antigravity",
+                "executable": None if executable is None else str(executable),
+                "args": list(candidate_args or ()),
+            }
+        self._rpc("create", payload)
 
     def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("ensureSession", dict(payload))
 
     def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("getStatus", dict(payload))
+
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("setModel", dict(payload))
 
     def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("startTurn", dict(payload))
@@ -971,11 +1084,14 @@ class AntigravityAcpRuntimeRunner:
         request_id: str,
         workspace: Mapping[str, Any],
         requested_model: Optional[str] = None,
+        text: Optional[str] = None,
         catalog: Optional[Mapping[str, Any]] = None,
         halt: bool = False,
         permission: Optional[Mapping[str, Any]] = None,
         question: Optional[Mapping[str, Any]] = None,
         auth: Optional[Mapping[str, Any]] = None,
+        session_mode: str = SESSION_MODE_ONESHOT,
+        finish_policy: str = FINISH_POLICY_DISCARD,
     ):
         self.runtime = runtime
         self.isolated_root = Path(isolated_root)
@@ -985,18 +1101,40 @@ class AntigravityAcpRuntimeRunner:
         self.request_id = request_id
         self.workspace = dict(workspace)
         self.requested_model = requested_model or DEFAULT_ANTIGRAVITY_MODEL
+        self._text = None if text is None else require_runtime_task_text(text)
         self._supplied_catalog = None if catalog is None else dict(catalog)
         self._catalog = self._supplied_catalog
         self.require_halt = halt
         self.permission = None if permission is None else dict(permission)
         self.question = None if question is None else dict(question)
         self.auth = None if auth is None else dict(auth)
+        if session_mode not in {SESSION_MODE_ONESHOT, SESSION_MODE_PERSISTENT}:
+            raise ValidationError("antigravity-acp session mode is invalid")
+        if finish_policy not in {
+            FINISH_POLICY_DISCARD,
+            FINISH_POLICY_RETAIN,
+            FINISH_POLICY_LOCAL_RELEASE,
+        }:
+            raise ValidationError("antigravity-acp finish policy is invalid")
+        self.session_mode = session_mode
+        self.finish_policy = finish_policy
         self.discarded_events: Optional[Dict[str, Any]] = None
         self.permission_outcome: Optional[Dict[str, Any]] = None
         self.question_outcome: Optional[Dict[str, Any]] = None
         self._observation: Optional[Dict[str, Any]] = None
         self.handle: Optional[Dict[str, str]] = None
+        self.backend_identity_changes: list[Dict[str, Optional[str]]] = []
+        self.local_release = False
+        self.persistent_state = "absent"
+        self.final_discard = False
         self.backend_discard: str = "closed"
+
+    def bind_task_text(self, text: Any) -> str:
+        self._text = require_runtime_task_text(text)
+        return self._text
+
+    def has_task_text(self) -> bool:
+        return self._text is not None
 
     @staticmethod
     def available() -> bool:
@@ -1058,14 +1196,16 @@ class AntigravityAcpRuntimeRunner:
         handle: Mapping[str, Any],
         *,
         primary: Optional[BaseException] = None,
+        discard_persistent_state: bool = True,
+        reason: str = "antigravity-acp-owned-close",
     ) -> None:
         try:
             self.runtime.close(
                 reject_runtime_conversation_params(
                     {
                         "handle": dict(handle),
-                        "reason": "antigravity-acp-owned-close",
-                        "discardPersistentState": True,
+                        "reason": reason,
+                        "discardPersistentState": discard_persistent_state,
                     },
                     label="close",
                 )
@@ -1076,6 +1216,12 @@ class AntigravityAcpRuntimeRunner:
                 handle
             ):
                 self.backend_discard = "unsupported_local_cleanup_proved"
+                if discard_persistent_state:
+                    self.final_discard = True
+                    self.persistent_state = "discarded"
+                else:
+                    self.local_release = True
+                    self.persistent_state = "retained"
                 if primary is not None:
                     raise primary
                 return
@@ -1083,6 +1229,12 @@ class AntigravityAcpRuntimeRunner:
             if primary is not None:
                 raise primary
             raise
+        if discard_persistent_state:
+            self.final_discard = True
+            self.persistent_state = "discarded"
+        else:
+            self.local_release = True
+            self.persistent_state = "retained"
         if primary is not None:
             raise primary
 
@@ -1093,12 +1245,141 @@ class AntigravityAcpRuntimeRunner:
             handle.get("runtimeSessionName"),
             handle.get("agentSessionId"),
         }
-        host = {self.session, self.conversation_id, self.request_id}
+        host = {self.conversation_id, self.request_id}
         if foreign & host:
             _raise_identity(
                 "identity_mismatch",
                 "runtime identities must not be fabricated from host correlation",
             )
+
+    def _bind_handle(self, raw_handle: Mapping[str, Any]) -> Dict[str, str]:
+        handle = project_runtime_handle(raw_handle)
+        if handle.get("sessionKey") != self.session:
+            _raise_identity(
+                "session_identity_mismatch",
+                "runtime sessionKey does not match the host session",
+            )
+        if os.path.realpath(handle.get("cwd", "")) != os.path.realpath(
+            self.workspace["path"]
+        ):
+            _raise_identity(
+                "workspace_identity_mismatch",
+                "runtime cwd does not match the bound checkout",
+            )
+        self._reject_conflated_ids(handle)
+        previous = self.handle
+        if previous is not None:
+            previous_backend = previous.get("backendSessionId")
+            next_backend = handle.get("backendSessionId")
+            if previous_backend != next_backend:
+                self.backend_identity_changes.append(
+                    {
+                        "previous_backend_session_id": previous_backend,
+                        "backend_session_id": next_backend,
+                    }
+                )
+        self.handle = handle
+        self.persistent_state = "retained"
+        return handle
+
+    def _ensure_owned_handle(self, *, reconnect: bool = False) -> Dict[str, str]:
+        if self.handle is not None and not reconnect:
+            return dict(self.handle)
+        ensure_input = reject_runtime_conversation_params(
+            {
+                "sessionKey": self.session,
+                "agent": "antigravity",
+                "mode": self.session_mode,
+                "cwd": self.workspace["path"],
+            },
+            label="ensureSession",
+        )
+        return self._bind_handle(self.runtime.ensure_session(ensure_input))
+
+    def _run_turn(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
+        text = require_runtime_task_text(self._text)
+        mapped = select_and_map_runtime_antigravity_models(
+            self.runtime,
+            handle,
+            requested_model=self.requested_model,
+            catalog=self._supplied_catalog,
+        )
+        self._catalog = (
+            self._supplied_catalog
+            if self._supplied_catalog is not None
+            else {
+                "schema": MODEL_CATALOG_SCHEMA,
+                "transport": TRANSPORT_ID,
+                "target": TARGET,
+                "current_model": mapped["current_model"],
+                "advertised_models": mapped["advertised_models"],
+            }
+        )
+        turn = self.runtime.start_turn(
+            reject_runtime_conversation_params(
+                {
+                    "handle": dict(handle),
+                    "text": text,
+                    "mode": "prompt",
+                    "requestId": self.request_id,
+                },
+                label="startTurn",
+            )
+        )
+        if not isinstance(turn, Mapping):
+            raise ValidationError("runtime turn is missing")
+        if turn.get("requestId") != self.request_id:
+            _raise_identity(
+                "identity_mismatch",
+                "returned turn request does not match the host request",
+            )
+        self.discarded_events = drain_runtime_turn_events(turn.get("events"))
+        result = turn.get("result")
+        if not isinstance(result, Mapping) or result.get("status") not in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            raise ValidationError("runtime turn result is incomplete")
+        after = self.runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        if isinstance(after, Mapping) and "lastRequestId" in after:
+            if after.get("lastRequestId") != self.request_id:
+                _raise_identity(
+                    "identity_mismatch",
+                    "status lastRequestId does not match the completed turn request",
+                )
+        terminal_state = "completed" if result.get("status") == "completed" else "failed"
+        if self.require_halt:
+            terminal_state = "halted"
+        return observation_from_runtime_turn(
+            host_session=self.session,
+            host_conversation_id=self.conversation_id,
+            requested_model=self.requested_model,
+            observed_model=mapped["current_model"],
+            advertised_models=mapped["advertised_models"],
+            terminal_state=terminal_state,
+            result_id=self.request_id,
+            question=self.question_outcome,
+            auth=self.auth,
+        )
+
+    def _apply_finish_policy(self, handle: Mapping[str, Any]) -> None:
+        if self.require_halt or self.session_mode == SESSION_MODE_ONESHOT:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_DISCARD:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_LOCAL_RELEASE:
+            self._owned_close(
+                handle,
+                discard_persistent_state=False,
+                reason="antigravity-acp-local-release",
+            )
+            return
+        self.persistent_state = "retained"
 
     def _derive(self) -> Dict[str, Any]:
         self._validate_ownership()
@@ -1106,105 +1387,13 @@ class AntigravityAcpRuntimeRunner:
             self.permission_outcome = require_unsupported_permission_outcome(self.permission)
         if self.question is not None:
             self.question_outcome = require_unsupported_question_outcome(self.question)
+        require_runtime_task_text(self._text)
         handle: Optional[Dict[str, str]] = None
         try:
-            ensure_input = reject_runtime_conversation_params(
-                {
-                    "sessionKey": self.session,
-                    "agent": "antigravity",
-                    "mode": "oneshot",
-                    "cwd": self.workspace["path"],
-                },
-                label="ensureSession",
-            )
-            raw_handle = self.runtime.ensure_session(ensure_input)
-            handle = project_runtime_handle(raw_handle)
-            if handle.get("sessionKey") != self.session:
-                _raise_identity(
-                    "session_identity_mismatch",
-                    "runtime sessionKey does not match the host session",
-                )
-            if os.path.realpath(handle.get("cwd", "")) != os.path.realpath(
-                self.workspace["path"]
-            ):
-                _raise_identity(
-                    "workspace_identity_mismatch",
-                    "runtime cwd does not match the bound checkout",
-                )
-            self._reject_conflated_ids(handle)
-            self.handle = handle
-            status = self.runtime.get_status(
-                reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
-            )
-            models = status.get("models") if isinstance(status, Mapping) else None
-            mapped = map_runtime_antigravity_models(
-                models,
-                requested_model=self.requested_model,
-                catalog=self._supplied_catalog,
-            )
-            self._catalog = (
-                self._supplied_catalog
-                if self._supplied_catalog is not None
-                else {
-                    "schema": MODEL_CATALOG_SCHEMA,
-                    "transport": TRANSPORT_ID,
-                    "target": TARGET,
-                    "current_model": mapped["current_model"],
-                    "advertised_models": mapped["advertised_models"],
-                }
-            )
-            turn = self.runtime.start_turn(
-                reject_runtime_conversation_params(
-                    {
-                        "handle": dict(handle),
-                        "text": "antigravity-acp-runtime-turn",
-                        "mode": "prompt",
-                        "requestId": self.request_id,
-                    },
-                    label="startTurn",
-                )
-            )
-            if not isinstance(turn, Mapping):
-                raise ValidationError("runtime turn is missing")
-            if turn.get("requestId") != self.request_id:
-                _raise_identity(
-                    "identity_mismatch",
-                    "returned turn request does not match the host request",
-                )
-            self.discarded_events = drain_runtime_turn_events(turn.get("events"))
-            result = turn.get("result")
-            if not isinstance(result, Mapping) or result.get("status") not in {
-                "completed",
-                "failed",
-                "cancelled",
-            }:
-                raise ValidationError("runtime turn result is incomplete")
-            after = self.runtime.get_status(
-                reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
-            )
-            if isinstance(after, Mapping) and "lastRequestId" in after:
-                if after.get("lastRequestId") != self.request_id:
-                    _raise_identity(
-                        "identity_mismatch",
-                        "status lastRequestId does not match the completed turn request",
-                    )
-            terminal_state = "completed" if result.get("status") == "completed" else "failed"
-            if self.require_halt:
-                self._owned_close(handle)
-                terminal_state = "halted"
-            else:
-                self._owned_close(handle)
-            return observation_from_runtime_turn(
-                host_session=self.session,
-                host_conversation_id=self.conversation_id,
-                requested_model=self.requested_model,
-                observed_model=mapped["current_model"],
-                advertised_models=mapped["advertised_models"],
-                terminal_state=terminal_state,
-                result_id=self.request_id,
-                question=self.question_outcome,
-                auth=self.auth,
-            )
+            handle = self._ensure_owned_handle()
+            observation = self._run_turn(handle)
+            self._apply_finish_policy(handle)
+            return observation
         except BaseException as exc:
             if handle is not None and handle.get("sessionKey") == self.session:
                 try:
@@ -1214,6 +1403,57 @@ class AntigravityAcpRuntimeRunner:
             elif handle is not None:
                 self._fence_cleanup()
             raise
+
+    def next_turn(
+        self,
+        *,
+        text: Any,
+        request_id: str,
+        expected_workspace: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Bind a fresh request to the same owned handle. Never replay a cached turn."""
+
+        self._validate_ownership()
+        if expected_workspace is not None:
+            if os.path.realpath(str(expected_workspace["path"])) != os.path.realpath(
+                self.workspace["path"]
+            ):
+                _raise_identity(
+                    "workspace_identity_mismatch",
+                    "runtime cwd does not match the bound checkout",
+                )
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        self.bind_task_text(text)
+        self.request_id = validate_identifier(request_id, "antigravity-acp request")
+        self.require_halt = False
+        observation = self._run_turn(self.handle)
+        self._observation = validate_candidate_observation(observation)
+        return self._observation
+
+    def finish(self, *, discard_persistent_state: bool = True) -> Dict[str, str]:
+        """Final close of the owned handle. Distinct from local release and retain."""
+
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        if self.final_discard:
+            raise ValidationError("owned runtime session already discarded")
+        handle = dict(self.handle)
+        self._owned_close(
+            handle,
+            discard_persistent_state=discard_persistent_state,
+            reason=(
+                "antigravity-acp-final-discard"
+                if discard_persistent_state
+                else "antigravity-acp-local-release"
+            ),
+        )
+        return {
+            "local_release": self.local_release,
+            "persistent_state": self.persistent_state,
+            "final_discard": self.final_discard,
+            "backend_discard": self.backend_discard,
+        }
 
 
 class AntigravityAcpRunnerFixture:
@@ -1405,4 +1645,94 @@ __all__ = [
     "validate_model_observation",
     "validate_question_observation",
     "verified_antigravity_acp_catalog",
+    "build_antigravity_acp_candidate_runner",
+    "select_and_map_runtime_antigravity_models",
 ]
+
+
+def claim_antigravity_acp_isolated_root(
+    isolated_root: Path,
+    *,
+    owner: str,
+    session: str,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    from antigravity_acpx import claim_isolated_root
+
+    root = Path(isolated_root)
+    root.mkdir(parents=True, exist_ok=True)
+    os.chmod(root, 0o700)
+    return claim_isolated_root(
+        root,
+        owner=owner,
+        session=session,
+        conversation_id=conversation_id,
+    )
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def build_antigravity_acp_candidate_runner(
+    *,
+    session: str,
+    contract: Any,
+    state_root: Path,
+    prompt: Any,
+    requested_model: Optional[str],
+    expected_workspace: Mapping[str, Any],
+    catalog: Optional[Mapping[str, Any]] = None,
+    runtime: Any = None,
+    synthetic_peer: bool = False,
+    executable: Optional[Path] = None,
+    isolated_root: Optional[Path] = None,
+    conversation_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+    session_mode: str = SESSION_MODE_PERSISTENT,
+    finish_policy: str = FINISH_POLICY_RETAIN,
+    halt: bool = False,
+    repo_root: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> AntigravityAcpRuntimeRunner:
+    """Construct the task-owned AGY candidate runner. Synthetic peer is test-only."""
+
+    text = require_runtime_task_text(prompt)
+    owner = validate_identifier(contract.controller, "controller")
+    host_conversation = conversation_id or ("conv-%s" % session)
+    host_request = request_id or ("%s-turn-1" % session)
+    isolated = (
+        Path(isolated_root)
+        if isolated_root is not None
+        else Path(state_root) / session / "acp-isolated"
+    )
+    claim_antigravity_acp_isolated_root(
+        isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+    )
+    if runtime is None:
+        runtime = AntigravityAcpNodeRuntime(
+            workspace=Path(expected_workspace["path"]),
+            isolated_root=isolated,
+            repo_root=repo_root or _repo_root(),
+            env=env,
+            synthetic_peer=synthetic_peer,
+            executable=None if synthetic_peer else executable,
+        )
+    return AntigravityAcpRuntimeRunner(
+        runtime,
+        isolated_root=isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+        request_id=host_request,
+        workspace=expected_workspace,
+        requested_model=requested_model or contract.requested_model,
+        text=text,
+        catalog=catalog,
+        halt=halt,
+        session_mode=session_mode,
+        finish_policy=finish_policy,
+    )
