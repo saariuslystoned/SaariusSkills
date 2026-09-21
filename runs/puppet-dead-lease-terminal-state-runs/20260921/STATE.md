@@ -1,7 +1,10 @@
 # Dead-lease terminal-state repair
 
-- status: native job completed one bounded source repair; draft PR pending after this packet
+- status: native job completed one bounded source repair; draft PR open
 - native_job_id: `15b75753-6b9a-4ab6-9741-9736899c7290`
+- pr: https://github.com/saariuslystoned/SaariusSkills/pull/66
+- head: `ce0be235faf17948973fde10e096fa61c34d064b`
+- tree: `61ed69e3452b3c165c6903a73f8bd8f1fe4dd18c`
 - conversation_id: `d648dc81-6ce8-45cf-84c1-99006f94fd9f` (Cursor conversation; not the native job id)
 - owner_handoff_id_rejected: `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dead-lease-terminal-state-20260921`
