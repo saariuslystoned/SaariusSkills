@@ -39,3 +39,8 @@ one-VM proof identities, reconnect/cancel/timeout/artifact failure handling,
 non-secret credential architecture, reusable primitives, and host-specific
 work. It distinguishes observed VM transport/readiness evidence from proposed
 future proof and does not claim VM qualification or subscription entitlement.
+
+Follow-up portability repair: removed the owner checkout path from the public
+plan while retaining exact machine-specific selectors only in this private run
+packet. `python3 -m unittest tests.test_puppet_packaging -v` passed all 9 tests,
+including `test_public_puppet_plans_do_not_publish_absolute_macos_home_paths`.

@@ -26,9 +26,9 @@ upstream launcher API. Formal Puppet qualification remains a separate claim.
 
 The existing Parallels task is `01a0c06b-de79-7a03-887b-a1ec04887911`,
 “Prove one coding agent inside a Parallels…”, in
-`/Users/bobbybones/.codex/worktrees/dc52/x-api`, branch
-`codex/cursor-guest-broker-20260920`. Its accepted run is
-`runs/parallels-coding-agent-proof-runs/20260920T200509Z-4717/`.
+its owner-controlled worktree, branch `codex/cursor-guest-broker-20260920`.
+Its accepted run is
+`parallels-coding-agent-proof-runs/20260920T200509Z-4717/`.
 
 Observed, non-secret receipt:
 
