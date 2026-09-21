@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Experimental agent supervision, Herdr transport, product decisions, and local Cursor plus Antigravity ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",

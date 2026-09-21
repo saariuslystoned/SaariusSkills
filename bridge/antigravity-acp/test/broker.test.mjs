@@ -32,6 +32,7 @@ class FixtureRuntime {
     this.delayMs = delayMs;
     this.failWith = failWith;
     this.permissionRequest = permissionRequest;
+    this.permissionDecisions = [];
     this.ensureCalls = [];
     this.turns = [];
     this.closed = [];
@@ -102,7 +103,8 @@ class FixtureRuntime {
     setTimeout(async () => {
       if (state.cancelled) return;
       if (this.permissionRequest && input.onPermissionRequest) {
-        await input.onPermissionRequest(this.permissionRequest);
+        const decision = await input.onPermissionRequest(this.permissionRequest);
+        this.permissionDecisions.push(decision);
       }
       if (this.failWith === "auth-turn") {
         finish({
@@ -324,6 +326,26 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
   const rawState = await readFile(path.join(broker.jobsRoot, `${submitted.jobId}.json`), "utf8");
   assert.equal(rawState.includes("interaction_choose"), false);
   assert.equal(rawState.includes("\"options\""), false);
+  await broker.close();
+});
+
+test("non-interaction permission requests delegate and record allow_once", async () => {
+  const { broker, runtime, workspace } = await makeBroker({
+    runtimeOptions: {
+      delayMs: 20,
+      permissionRequest: { raw: { toolCall: { toolCallId: "fs_write_file" } } },
+    },
+  });
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Make a bounded implementation change with permission.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.complete, true);
+  assert.equal(runtime.permissionDecisions.length, 1);
+  assert.equal(runtime.permissionDecisions[0]?.outcome, "allow_once");
   await broker.close();
 });
 

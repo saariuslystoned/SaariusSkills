@@ -789,7 +789,7 @@ export class AntigravityAcpBroker {
   async runJob(job, taskPrompt, requestedModel) {
     let handle;
     let turn;
-    const interaction = { permission: false, elicitation: false, question: false };
+    const interaction = { permissionDenied: false, elicitation: false, question: false };
     let finalText = "";
     let eventCount = 0;
     let toolCallCount = 0;
@@ -827,7 +827,6 @@ export class AntigravityAcpBroker {
             interaction.question = true;
             return { outcome: "cancel" };
           }
-          interaction.permission = true;
           return { outcome: "allow_once" };
         },
         onElicitation: async () => {
@@ -862,7 +861,7 @@ export class AntigravityAcpBroker {
         };
         job.question = { state: "cancelled", humanRequired: true, outcome: "cancelled" };
         await this.saveAndRecord(job, "needs-input", { eventCount, toolCallCount, question: "cancelled" });
-      } else if (interaction.permission || interaction.elicitation) {
+      } else if (interaction.permissionDenied || interaction.elicitation) {
         job.status = "needs-input";
         job.error = {
           code: "INPUT_REQUIRED",
