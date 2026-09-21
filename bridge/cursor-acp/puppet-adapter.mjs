@@ -8,21 +8,21 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
-export const ACPX_SOURCE = "https://github.com/openclaw/acpx/commit/f8883645c261e07b2df7f9c3b4ad243b62d8168a";
-export const ACPX_MERGE_COMMIT = "f8883645c261e07b2df7f9c3b4ad243b62d8168a";
+export const ACPX_SOURCE = "https://github.com/openclaw/acpx/commit/2e05de525dd1ab62e9e74bf02d91e3638920fcf3";
+export const ACPX_MERGE_COMMIT = "2e05de525dd1ab62e9e74bf02d91e3638920fcf3";
 export const ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT;
-export const ACPX_SOURCE_TREE = "f4a4d33b33cdf5b57345e8420f24992953aed5e0";
+export const ACPX_SOURCE_TREE = "c612e764ead5d8eaa409956fb1b11c008a7579ed";
 export const ACPX_HEAD = ACPX_MERGE_COMMIT;
-export const ACPX_PR_HEAD = "706aeadd9c62550ee7e6ddceffe3d31ede5494d1";
-export const ACPX_PR_BASE = "cc9b96388d682f8dbb17dde6015a5467e3f563fc";
+export const ACPX_PR_HEAD = "27e58b7dba7aa4e6e4bc0cc175ad6cdbc00587c7";
+export const ACPX_PR_BASE = "d4916ce050582c7415632c4e7cf84d285d268fa9";
 export const ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58";
 export const ACPX_STATUS = "merged_unreleased";
 export const ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0";
 export const ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0";
 export const ACPX_PUBLISHED_NPM_VERSION = "0.18.0";
-export const ACPX_ARTIFACT_SHA256 = "642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162";
-export const ACPX_ARTIFACT_PATH = "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz";
-export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-dual-acp-controller-runs/20260921/runtime";
+export const ACPX_ARTIFACT_SHA256 = "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614";
+export const ACPX_ARTIFACT_PATH = "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz";
+export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52";
 export const ACPX_CANDIDATE_RUNTIME_MODULE = `${ACPX_CANDIDATE_RUNTIME_ROOT}/node_modules/acpx/dist/runtime.js`;
 export const ACPX_ARTIFACT_RUNTIME_ENTRY = "package/dist/runtime.js";
 export const ACPX_ARTIFACT_KIND = "local_exact_source_tarball";
@@ -45,6 +45,14 @@ export const HISTORICAL_REFRESH_ACPX_PR_BASE = "7879505dcf79448cd71cafd82a21aa6c
 export const HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256 = "ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342";
 export const HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH = "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz";
 export const HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-refresh-runs/20260921/runtime";
+export const HISTORICAL_F888_ACPX_SOURCE = "https://github.com/openclaw/acpx/commit/f8883645c261e07b2df7f9c3b4ad243b62d8168a";
+export const HISTORICAL_F888_ACPX_MERGE_COMMIT = "f8883645c261e07b2df7f9c3b4ad243b62d8168a";
+export const HISTORICAL_F888_ACPX_SOURCE_TREE = "f4a4d33b33cdf5b57345e8420f24992953aed5e0";
+export const HISTORICAL_F888_ACPX_PR_HEAD = "706aeadd9c62550ee7e6ddceffe3d31ede5494d1";
+export const HISTORICAL_F888_ACPX_PR_BASE = "cc9b96388d682f8dbb17dde6015a5467e3f563fc";
+export const HISTORICAL_F888_ACPX_ARTIFACT_SHA256 = "642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162";
+export const HISTORICAL_F888_ACPX_ARTIFACT_PATH = "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz";
+export const HISTORICAL_F888_ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-dual-acp-controller-runs/20260921/runtime";
 export const OBSOLETE_DRAFT_HEADS = Object.freeze([
   "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff",
   "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de",
@@ -58,6 +66,11 @@ export const HISTORICAL_REFRESH_HEADS = Object.freeze([
   HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
   HISTORICAL_REFRESH_ACPX_PR_HEAD,
   HISTORICAL_REFRESH_ACPX_PR_BASE,
+]);
+export const HISTORICAL_F888_HEADS = Object.freeze([
+  HISTORICAL_F888_ACPX_MERGE_COMMIT,
+  HISTORICAL_F888_ACPX_PR_HEAD,
+  HISTORICAL_F888_ACPX_PR_BASE,
 ]);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SHA1_RE = /^[0-9a-f]{40}$/;
@@ -248,6 +261,15 @@ export function validateAcpxDependencyIdentity(value) {
     || value.source_tree === HISTORICAL_REFRESH_ACPX_SOURCE_TREE
   ) {
     throw new AdapterError("IDENTITY_MISMATCH", "historical refresh candidate identity is not the current pin");
+  }
+  if (
+    [mergeCommit, sourceCommit, head].some((commit) => HISTORICAL_F888_HEADS.includes(commit))
+    || value.artifact_sha256 === HISTORICAL_F888_ACPX_ARTIFACT_SHA256
+    || value.artifact_path === HISTORICAL_F888_ACPX_ARTIFACT_PATH
+    || value.source === HISTORICAL_F888_ACPX_SOURCE
+    || value.source_tree === HISTORICAL_F888_ACPX_SOURCE_TREE
+  ) {
+    throw new AdapterError("IDENTITY_MISMATCH", "historical f888 candidate identity is not the current pin");
   }
   const artifact = requireSha256(value.artifact_sha256, "acpx artifact");
   const integrity = requireSha256(value.integrity, "acpx integrity");
@@ -588,6 +610,9 @@ async function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
   }
   if (requested === path.resolve(REPO_ROOT, HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT)) {
     throw new AdapterError("INVALID_RUNTIME", "historical refresh runtime root is not the current candidate runtime");
+  }
+  if (requested === path.resolve(REPO_ROOT, HISTORICAL_F888_ACPX_CANDIDATE_RUNTIME_ROOT)) {
+    throw new AdapterError("INVALID_RUNTIME", "historical f888 runtime root is not the current candidate runtime");
   }
   if (
     requested !== allowed

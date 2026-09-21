@@ -57,3 +57,15 @@ another turn. Official AGY candidate launch starts the driver/child from the
 validated allowed environment only, or fails closed. Focused checks: 119
 Python, 65 Cursor bridge, 34 Antigravity bridge. No pin refresh, live
 qualification, publication, or merge.
+
+The authorized upstream refresh started from accepted
+`e999f88092ef8e07c7dd1736b31c69bfeacb738b`. Both Cursor and AGY consumers now
+materialize exact acpx `2e05de525dd1ab62e9e74bf02d91e3638920fcf3` / tree
+`c612e764ead5d8eaa409956fb1b11c008a7579ed` from
+`runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz`
+(SHA-256 `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`).
+The old f888 artifact remains in place as a rejected fence. Focused checks:
+121 Python, 66 Cursor bridge, 34 Antigravity bridge, including two-turn
+non-default-model cleanup and owned-child retirement/reconnect with recorded
+backend mapping. `#687` was not cherry-picked. No live qualification,
+publication, merge, or PR.

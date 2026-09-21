@@ -32,12 +32,12 @@ ACPX_QUALIFICATION = "non_qualifying"
 
 OWNERSHIP_SCHEMA = "puppet.antigravity-acpx-ownership/v1"
 ACPX_ARTIFACT_SHA256 = (
-    "642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162"
+    "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614"
 )
 ACPX_ARTIFACT_PATH = (
-    "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+    "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz"
 )
-ACPX_MERGE_COMMIT = "f8883645c261e07b2df7f9c3b4ad243b62d8168a"
+ACPX_MERGE_COMMIT = "2e05de525dd1ab62e9e74bf02d91e3638920fcf3"
 
 OWNERSHIP_KEYS = frozenset(
     {

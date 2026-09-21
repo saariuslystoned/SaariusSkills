@@ -1,1 +1,1 @@
-2026-09-21T13:22:00Z repair worker 35e20824-58e5-46b9-bb14-402098b36b69 completed; focused Python 96, Cursor bridge 30, AGY bridge 33, repository unittest discovery 1309 passed; source acceptance pending; no live qualification/publication
+2026-09-21T14:50:00Z refresh worker completed; pin 2e05de52/c612e764; artifact 5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614; focused Python 121, Cursor bridge 66, AGY bridge 34 passed; f888 evidence preserved; no live qualification/publication/PR

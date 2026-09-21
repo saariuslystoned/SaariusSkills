@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from antigravity_acpx import claim_isolated_root, load_isolated_root
+from antigravity_acpx import ACPX_ARTIFACT_PATH, claim_isolated_root, load_isolated_root
 from puppet_lib.acp_consumer import AcpConsumerOwner
 from puppet_lib.antigravity_acp import (
     ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
@@ -597,7 +597,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(runner.question_outcome["outcome"], "cancelled")
 
     def test_actual_public_runtime_through_controller_consumer(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -756,7 +756,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
 
     def test_caller_path_public_runtime_factory_uses_injected_synthetic_peer(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -903,7 +903,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 )
 
     def test_default_consumer_owner_lifecycle_uses_public_runtime_and_synthetic_peer(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -996,7 +996,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 os.kill(closed["child_exit"]["pid"], 0)
 
     def test_wrong_owner_and_exceptional_cleanup(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -1090,7 +1090,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(len(owner._held), 0)
 
     def test_owner_finish_failure_releases_task_owned_synthetic_child(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -1137,7 +1137,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 owner.finish(continuation)
 
     def test_owner_finish_and_shutdown_failure_keeps_synthetic_child(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         with tempfile.TemporaryDirectory() as temporary:
@@ -1243,7 +1243,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 )
 
     def test_official_candidate_child_gets_allowed_env_only(self):
-        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        artifact = ROOT / ACPX_ARTIFACT_PATH
         if not artifact.is_file():
             self.skipTest("exact local acpx artifact is task-owned proof input")
         node = shutil.which("node")
@@ -1333,6 +1333,89 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     self.assertEqual(dump["force_file_storage"], "1")
                 finally:
                     runner.runtime.shutdown()
+
+    def test_public_runtime_records_backend_mapping_after_owned_shutdown_reconnect(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+            )
+            first_runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+            )
+            try:
+                first_runner = AntigravityAcpRuntimeRunner(
+                    first_runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model="gemini-3.1-pro",
+                    text=CALLER_TASK_TEXT,
+                    catalog=verified_antigravity_acp_catalog(),
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                )
+                first = first_runner.observation()
+                self.assertEqual(first["model"]["observed_id"], "gemini-3.1-pro")
+                first_handle = dict(first_runner.handle)
+                first_identity = first_runtime.child_process_identity()
+            finally:
+                first_runtime.shutdown()
+            self.assertTrue(first_runtime.child_process_identity()["exited"])
+            with self.assertRaises(OSError):
+                os.kill(first_identity["pid"], 0)
+            second_runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+            )
+            try:
+                second_runner = AntigravityAcpRuntimeRunner(
+                    second_runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-2",
+                    workspace=_workspace(workspace),
+                    requested_model="gemini-3.1-pro",
+                    text=SECOND_TURN_TEXT,
+                    catalog=verified_antigravity_acp_catalog(),
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                )
+                second = second_runner.observation()
+                self.assertEqual(second["model"]["observed_id"], "gemini-3.1-pro")
+                self.assertEqual(second_runner.handle["sessionKey"], first_handle["sessionKey"])
+                mapping = {
+                    "previous_backend_session_id": first_handle.get("backendSessionId"),
+                    "backend_session_id": second_runner.handle.get("backendSessionId"),
+                    "previous_acpx_record_id": first_handle.get("acpxRecordId"),
+                    "acpx_record_id": second_runner.handle.get("acpxRecordId"),
+                }
+                self.assertIsInstance(mapping["previous_backend_session_id"], str)
+                self.assertIsInstance(mapping["backend_session_id"], str)
+                self.assertNotIn(CALLER_TASK_TEXT, str(second))
+                closed = second_runner.finish(discard_persistent_state=True)
+                self.assertTrue(closed["final_discard"])
+            finally:
+                second_runtime.shutdown()
+            self.assertTrue(second_runtime.child_process_identity()["exited"])
 
 
 if __name__ == "__main__":

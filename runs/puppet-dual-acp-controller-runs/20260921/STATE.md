@@ -1,24 +1,25 @@
 # Dual ACP controller state
 
-- status: consumer release/env repair completed; finish failure now shuts down the task-owned runtime, and official AGY candidate launch starts from the allowed environment only
+- status: upstream acpx refresh completed; candidate pin is exact 2e05de52 / tree c612e764 with a new task-local artifact and runtime root; old f888 evidence is preserved as a rejected fence
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dual-acp-controller-20260921`
 - branch: `codex/puppet-dual-acp-controller-20260921`
-- base: `d0f0644f4ef4c84286d5307966514cf52cededc8`
-- starting repair head: `83935f3ad55e1f2f51a154f948d7d25f63cf26e4`
-- starting repair tree: `fbe9eb21d36668a884dc59400122d855115ae002`
-- frozen upstream acpx: `f8883645c261e07b2df7f9c3b4ad243b62d8168a`
-- artifact SHA-256: `642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162`
+- accepted base: `e999f88092ef8e07c7dd1736b31c69bfeacb738b`
+- accepted base tree: `108303e6ec6f105280f7aee972f9ddb09087167b`
+- frozen upstream acpx: `2e05de525dd1ab62e9e74bf02d91e3638920fcf3`
+- frozen upstream tree: `c612e764ead5d8eaa409956fb1b11c008a7579ed`
+- artifact: `runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz`
+- artifact SHA-256: `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`
+- runtime entry SHA-256: `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683`
+- preserved f888 artifact SHA-256: `642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162`
 - worker_job_id: `59754615-f2c0-41b9-a2e8-d41d999ba4cb`
 - antigravity_worker_job_id: `7214ec87-9b2b-4c6b-a5b1-69cab059854f`
 - repair_worker_job_id: `35e20824-58e5-46b9-bb14-402098b36b69`
 - repair2_worker_job_id: `f3b870e8-94af-42da-a9e9-fe9819ce335c`
 - lifecycle_worker_job_id: `faeec797-3fa7-4893-a0d0-f5c6d289267c`
-- release_env_repair: this in-workspace Cursor ACP session; no separate delegated ACP job id
+- refresh_implementation: this in-workspace Cursor ACP session; no separate delegated ACP job id
 - ordinary/plugin/shared pins: unchanged
 - live qualification: not launched; parent admission required after source acceptance
-- AGY cleanup: no owned worker remains running from this slice
-- independent validation: 119 focused Python tests, 65 Cursor bridge tests, and 34 Antigravity bridge tests passed
-- F1 release: finish failure still attempts owned shutdown; proven `exited=true` retires the continuation; uncertain cleanup keeps the last control reference, fences, and refuses the next turn
-- F2 env: official candidate driver/child starts from the validated allowed map only; forged extra process_env keys fail closed; synthetic peer stays test-only
+- independent validation: 121 focused Python tests, 66 Cursor bridge tests, and 34 Antigravity bridge tests passed
 - process-local limit: continuation cannot resume without the live owner; absent/wrong owner or route binding fail closed
-- next: independent Luna review; no pin refresh, live qualification, publication, or merge from this worker
+- refresh gaps: delegated-terminal #683 retirement and queue/lease #680/#681/#682/#686 surfaces are unused because terminal callbacks and CLI queue ownership stay disabled; #687 not adopted
+- next: independent Luna review; no live qualification, publication, or merge from this worker

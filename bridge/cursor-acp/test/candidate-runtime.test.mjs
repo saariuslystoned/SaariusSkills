@@ -18,6 +18,7 @@ import {
   ACPX_SOURCE_TREE,
   HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT,
   HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT,
+  HISTORICAL_F888_ACPX_CANDIDATE_RUNTIME_ROOT,
   AdapterError,
   CANDIDATE_TURN_OBSERVED_TYPE_BOUND,
   CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND,
@@ -412,6 +413,12 @@ test("candidate runtime rejects bridge, shared modules, historical roots, and ar
       runtimeRoot: path.join(REPO_ROOT, HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT),
     }),
     (error) => error instanceof AdapterError && /historical refresh runtime root/.test(error.message),
+  );
+  await assert.rejects(
+    () => materializeVerifiedCandidateAcpx({
+      runtimeRoot: path.join(REPO_ROOT, HISTORICAL_F888_ACPX_CANDIDATE_RUNTIME_ROOT),
+    }),
+    (error) => error instanceof AdapterError && /historical f888 runtime root/.test(error.message),
   );
   await assert.rejects(
     () => materializeVerifiedCandidateAcpx({ runtimeRoot: os.tmpdir() }),
@@ -1060,6 +1067,7 @@ async function createCandidateRuntime(isolated, workspace, extraOptions = {}) {
     fs: false,
     terminal: false,
     timeoutMs: 30_000,
+    ...(extraOptions.processLifecycle ? { processLifecycle: extraOptions.processLifecycle } : {}),
   }, {
     runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
     isolatedRoot: isolated,
@@ -1250,6 +1258,106 @@ test("actual public runtime replays acknowledged mode and config on reconnect", 
       await second.runtime.shutdown();
     } catch {
       // Shutdown must not hide the reconnect proof.
+    }
+  }
+});
+
+test("actual public runtime retires the owned child on shutdown and records reconnect backend mapping", {
+  timeout: 240_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  // Consumer-visible #683 surface: processLifecycle + owned-child retirement on
+  // runtime shutdown, then reconnect. Delegated-terminal retirement is not
+  // exercised because terminal stays false and approve-all is not imported.
+  const { isolated, workspace } = await privateRoot();
+  const sessionStore = memorySessionStore();
+  const launches = [];
+  const exits = [];
+  const lifecycle = {
+    onSpawned({ pid }) {
+      launches.push(pid);
+    },
+    onExit({ pid }) {
+      exits.push(pid);
+    },
+  };
+  const first = await createCandidateRuntime(isolated, workspace, {
+    sessionStore,
+    processLifecycle: lifecycle,
+  });
+  let firstHandle;
+  try {
+    firstHandle = await first.runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    await first.runtime.setModel({ handle: firstHandle, model: "candidate-fast" });
+    const seed = first.runtime.startTurn({
+      handle: firstHandle,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "idle-disconnect-seed",
+    });
+    const seedEvents = await discardCandidateTurnEvents(seed);
+    assert.equal(seedEvents.body_retained, false);
+    assert.equal((await seed.result).status, "completed");
+    assert.ok(launches.length >= 1);
+  } finally {
+    try {
+      await first.runtime.shutdown();
+    } catch {
+      // First runtime must release before the reconnect runtime starts.
+    }
+  }
+  assert.ok(exits.length >= 1, "owned child must retire on runtime shutdown");
+
+  const second = await createCandidateRuntime(isolated, workspace, {
+    sessionStore,
+    processLifecycle: lifecycle,
+  });
+  try {
+    const reconnected = await second.runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    assert.equal(reconnected.sessionKey, firstHandle.sessionKey);
+    assert.equal("conversation_id" in reconnected, false);
+    const mapping = {
+      previous_backend_session_id: firstHandle.backendSessionId,
+      backend_session_id: reconnected.backendSessionId,
+      previous_acpx_record_id: firstHandle.acpxRecordId,
+      acpx_record_id: reconnected.acpxRecordId,
+    };
+    assert.equal(typeof mapping.previous_backend_session_id, "string");
+    assert.equal(typeof mapping.backend_session_id, "string");
+    assert.equal(typeof mapping.previous_acpx_record_id, "string");
+    assert.equal(typeof mapping.acpx_record_id, "string");
+    const status = await second.runtime.getStatus({ handle: reconnected });
+    assert.equal(status.models?.currentModelId, "candidate-fast");
+    const turn = second.runtime.startTurn({
+      handle: reconnected,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "idle-disconnect-reconnect",
+    });
+    const discarded = await discardCandidateTurnEvents(turn);
+    assert.equal(discarded.body_retained, false);
+    assert.equal((await turn.result).status, "completed");
+    await second.runtime.close({
+      handle: reconnected,
+      reason: "owned-child-retirement-complete",
+      discardPersistentState: true,
+    });
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    try {
+      await second.runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the retirement proof.
     }
   }
 });

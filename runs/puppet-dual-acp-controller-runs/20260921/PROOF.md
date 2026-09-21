@@ -268,3 +268,101 @@ tests 34; pass 34; fail 0; skipped 0
 
 The exact f888 acpx source pin and artifact digest above are unchanged. No
 live qualification, pin refresh, publication, or merge.
+
+## Upstream refresh 2e05de52
+
+This native Cursor implementation started from accepted
+`e999f88092ef8e07c7dd1736b31c69bfeacb738b` /
+`108303e6ec6f105280f7aee972f9ddb09087167b`. It refreshes only the candidate
+identity/materialization pin to exact merged upstream acpx
+`2e05de525dd1ab62e9e74bf02d91e3638920fcf3` / tree
+`c612e764ead5d8eaa409956fb1b11c008a7579ed`. The old f888 archive, digest, and
+import identities remain on disk and are now rejected historical fences.
+`#687` was not cherry-picked.
+
+### Current provenance tuple
+
+| Field | Value |
+| --- | --- |
+| source | https://github.com/openclaw/acpx/commit/2e05de525dd1ab62e9e74bf02d91e3638920fcf3 |
+| status | `merged_unreleased` |
+| merge/source commit | `2e05de525dd1ab62e9e74bf02d91e3638920fcf3` (through `#689`) |
+| source tree | `c612e764ead5d8eaa409956fb1b11c008a7579ed` |
+| PR head | `27e58b7dba7aa4e6e4bc0cc175ad6cdbc00587c7` |
+| PR base | `d4916ce050582c7415632c4e7cf84d285d268fa9` |
+| stale npm gitHead | `8699be1b6428fa7584acc6f07d87f5aec8945f58` |
+| published npm | `acpx@0.18.0` does **not** contain the merge |
+| ordinary production pin | `acpx@0.16.0` |
+| artifact | task-owned local `runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz` |
+| artifact SHA-256 | `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614` |
+| runtime root | `runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52` |
+| runtime entry | `package/dist/runtime.js` |
+| runtime entry SHA-256 | `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683` |
+
+Preserved f888 evidence: artifact
+`runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz`
+SHA-256 `642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162`.
+That path/digest/source/tree is rejected as `historical f888`.
+
+### Actual packed import closure
+
+| package-relative file | SHA-256 |
+| --- | --- |
+| `package/dist/agent-registry-Ct2yWPW7.js` | `5091abb775cb9cfc36bc210acd84a830bd5a413db2ba61eab8a0ef22817230ba` |
+| `package/dist/ipc-Bn8rocUR.js` | `33b50f531ae5bb3d39a56b9f325249631721aee54c764b1ce5a2f72a1eff98c0` |
+| `package/dist/queue-owner-runtime-B-uQhwMC.js` | `fc4f3b27e6c003646539fc933a38c80886e1cdabf38d6f33a4abc7185d8b0d5b` |
+| `package/dist/runtime.js` | `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683` |
+| `package/dist/watch-yKB9yCio.js` | `06254f5cf0af1ee1b5855c0380469ea5f6b691d7f693cfa519288adb7798c635` |
+
+Count: 5 reachable JavaScript files from `package/dist/runtime.js`. Materializer
+walks the real relative imports and fail-closes on digest/source/tree drift.
+
+### Checks
+
+```text
+python3 -m unittest tests.test_puppet_contracts tests.test_puppet_transport tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx tests.test_puppet_cursor_acp tests.test_puppet_antigravity_acp tests.test_puppet_antigravity_acp_runtime tests.test_puppet_antigravity_acpx tests.test_puppet_packaging -v
+Ran 121 tests in 36.524s
+OK
+# includes both-route default-factory two-turn/non-default-model/cleanup
+# plus owned-shutdown reconnect tests that record actual backend mapping
+
+node --test test/*.test.mjs   # bridge/cursor-acp
+tests 66; pass 66; fail 0; skipped 0
+# first full pass hit one flaky lock rmdir ENOTEMPTY on
+# "separate OS processes serialize stale-lock reclamation"; isolated
+# lock.retry and a second full suite both passed 4/4 and 66/66
+
+node --test test/*.test.mjs   # bridge/antigravity-acp
+tests 34; pass 34; fail 0; skipped 0
+```
+
+Actual public-runtime synthetic proof (not live/provider):
+
+- Cursor and AGY consumers each completed two useful turns, a non-default
+  advertised model, and owned cleanup/child-exit evidence against the
+  task-local pinned runtime.
+- Cursor Node suite exercised processLifecycle `onSpawned`/`onExit` owned-child
+  retirement on runtime shutdown, then reconnect with a shared memory store.
+  Handle `sessionKey` stayed host-owned. Backend/record IDs were recorded
+  rather than assumed stable.
+- Python consumers recorded backend mapping after owned driver shutdown and a
+  new runtime; sessionKey matched, backend IDs were recorded as observed.
+
+### Remaining route limits and refresh gaps
+
+- Ordinary Cursor `acpx@0.16.0` and AGY pins stay unchanged.
+- Installed plugin/broker behavior is unchanged. `available()` stays false.
+- No live Cursor or Antigravity qualification, publication, or merge.
+- `#683` delegated-terminal retirement is not exercised. The consumer keeps
+  `terminal: false` and does not import `permissionMode`/`approve-all`; those
+  would violate the delegated-terminal contract.
+- `#680`/`#682` Windows/POSIX descendant cleanup and `#681` queue-observer
+  ownership are CLI/queue/terminal surfaces this consumer does not use.
+- `#686` owner-close lease-release is a queue-lease path; this consumer does
+  not take CLI queue ownership.
+- `#687` remains open/draft and was not cherry-picked. No live stale-queue
+  PID-reuse experiment was run.
+- Public acpx runtime still has no `conversation_id` API; host conversation
+  identity is not copied onto runtime handles.
+
+No live qualification, shared plugin install, credential/usage reset, or PR.

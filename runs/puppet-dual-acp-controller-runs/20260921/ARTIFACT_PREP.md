@@ -34,3 +34,40 @@ Hashed from relative JavaScript imports reachable from `package/dist/runtime.js`
 Count: 5 reachable JavaScript files.
 
 No live Cursor or Antigravity qualification was launched during preparation.
+
+## Refresh 2e05de52 exact-source artifact
+
+The f888 archive above is preserved at
+`runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz`
+and is now a rejected historical fence. The current pin is a separate
+task-local root:
+
+- upstream source commit: `2e05de525dd1ab62e9e74bf02d91e3638920fcf3` (through `#689`)
+- upstream source tree: `c612e764ead5d8eaa409956fb1b11c008a7579ed`
+- PR head: `27e58b7dba7aa4e6e4bc0cc175ad6cdbc00587c7`
+- PR base: `d4916ce050582c7415632c4e7cf84d285d268fa9`
+- stale npm gitHead: `8699be1b6428fa7584acc6f07d87f5aec8945f58`
+- artifact: `runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz`
+- artifact SHA-256: `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`
+- runtime root: `runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52`
+- runtime entry: `package/dist/runtime.js`
+- runtime entry SHA-256: `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683`
+- checkout: `runs/puppet-dual-acp-controller-runs/20260921/upstream-2e05de52` detached at the exact target
+- package install: `pnpm install --frozen-lockfile --ignore-scripts` with pnpm 11.26.0
+- package build: `pnpm run build:quiet`
+
+### Actual packed runtime import closure
+
+Hashed from relative JavaScript imports reachable from `package/dist/runtime.js`.
+These names are the current packed chunks, not the historical f888 four-plus-entry list.
+
+| package-relative file | SHA-256 |
+| --- | --- |
+| `package/dist/agent-registry-Ct2yWPW7.js` | `5091abb775cb9cfc36bc210acd84a830bd5a413db2ba61eab8a0ef22817230ba` |
+| `package/dist/ipc-Bn8rocUR.js` | `33b50f531ae5bb3d39a56b9f325249631721aee54c764b1ce5a2f72a1eff98c0` |
+| `package/dist/queue-owner-runtime-B-uQhwMC.js` | `fc4f3b27e6c003646539fc933a38c80886e1cdabf38d6f33a4abc7185d8b0d5b` |
+| `package/dist/runtime.js` | `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683` |
+| `package/dist/watch-yKB9yCio.js` | `06254f5cf0af1ee1b5855c0380469ea5f6b691d7f693cfa519288adb7798c635` |
+
+Count: 5 reachable JavaScript files. Installed task-local bytes matched these
+digests. `#687` was not cherry-picked. No publication or shared installation.

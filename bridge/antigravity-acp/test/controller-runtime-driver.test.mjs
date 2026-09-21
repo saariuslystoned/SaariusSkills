@@ -7,13 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { existsSync } from "node:fs";
+import { ACPX_ARTIFACT_PATH } from "../../cursor-acp/puppet-adapter.mjs";
 
 const DRIVER = fileURLToPath(new URL("./controller-runtime-driver.mjs", import.meta.url));
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const LOCAL_ARTIFACT = path.join(
-  REPO_ROOT,
-  "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz",
-);
+const LOCAL_ARTIFACT = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
 const REAL_ARTIFACT_SKIP = existsSync(LOCAL_ARTIFACT)
   ? false
   : "exact local acpx artifact is task-owned proof input";
@@ -114,6 +112,10 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", {
 });
 
 test("official candidate create fails closed without allowed process env", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agy-acp-env-"));
+  const isolated = path.join(root, "isolated");
+  await mkdir(isolated, { mode: 0o700 });
+  await chmod(isolated, 0o700);
   const child = spawn(process.execPath, [DRIVER], {
     cwd: REPO_ROOT,
     stdio: ["pipe", "pipe", "pipe"],
@@ -123,7 +125,7 @@ test("official candidate create fails closed without allowed process env", async
     await assert.rejects(
       () => client.rpc("create", {
         cwd: REPO_ROOT,
-        isolatedRoot: path.join(REPO_ROOT, "runs/puppet-dual-acp-controller-runs/20260921/runtime"),
+        isolatedRoot: isolated,
         syntheticPeer: false,
         agent: "antigravity",
         candidate: {

@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import {
+  ACPX_CANDIDATE_RUNTIME_ROOT,
   createVerifiedCandidateAcpRuntime,
   discardCandidateTurnEvents,
   materializeVerifiedCandidateAcpx,
@@ -33,7 +34,7 @@ function send(value) {
 
 async function candidateRegistry(payload) {
   const materialized = await materializeVerifiedCandidateAcpx({
-    runtimeRoot: path.join(REPO_ROOT, "runs/puppet-dual-acp-controller-runs/20260921/runtime"),
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
   });
   const moduleUrl = pathToFileURL(materialized.modulePath).href;
   const { createAgentRegistry } = await import(moduleUrl);
@@ -76,7 +77,7 @@ async function create(payload) {
     terminal: false,
     timeoutMs: 30_000,
   }, {
-    runtimeRoot: path.join(REPO_ROOT, "runs/puppet-dual-acp-controller-runs/20260921/runtime"),
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
     isolatedRoot: payload.isolatedRoot,
   });
   runtime = created.runtime;

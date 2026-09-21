@@ -11,6 +11,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from antigravity_acpx import (
+    ACPX_ARTIFACT_PATH,
     ACPX_ARTIFACT_SHA256,
     ACPX_MERGE_COMMIT,
     ADAPTER_ID,
@@ -39,10 +40,14 @@ class AntigravityAcpxOwnershipTests(unittest.TestCase):
         self.assertEqual(TRANSPORT_ID, "antigravity-acp")
         self.assertEqual(TARGET, "agy")
         self.assertEqual(ADAPTER_ID, "antigravity-acpx")
-        self.assertEqual(ACPX_MERGE_COMMIT, "f8883645c261e07b2df7f9c3b4ad243b62d8168a")
+        self.assertEqual(ACPX_MERGE_COMMIT, "2e05de525dd1ab62e9e74bf02d91e3638920fcf3")
         self.assertEqual(
             ACPX_ARTIFACT_SHA256,
-            "642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162",
+            "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614",
+        )
+        self.assertEqual(
+            ACPX_ARTIFACT_PATH,
+            "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz",
         )
         self.assertEqual(DEFAULT_TRANSPORT, "tmux")
         self.assertEqual(bind_run_transport()["id"], "tmux")
