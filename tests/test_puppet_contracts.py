@@ -113,6 +113,16 @@ class ContractTests(unittest.TestCase):
             raw["controller"] = "codex"
             contract = Contract.from_dict(raw)
             self.assertEqual(contract.transport, "cursor-acp")
+            raw["transport"] = "antigravity-acp"
+            with self.assertRaisesRegex(ValidationError, "requires target agy"):
+                Contract.from_dict(raw)
+            raw["target"] = "agy"
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.transport, "antigravity-acp")
+            raw["requested_effort"] = "high"
+            with self.assertRaisesRegex(ValidationError, "does not support requested effort"):
+                Contract.from_dict(raw)
+            del raw["requested_effort"]
             raw["transport"] = "not-a-transport"
             with self.assertRaisesRegex(ValidationError, "unsupported transport"):
                 Contract.from_dict(raw)

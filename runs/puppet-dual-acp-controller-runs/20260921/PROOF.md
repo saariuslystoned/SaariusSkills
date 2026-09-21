@@ -1,12 +1,13 @@
-# Dual ACP controller Cursor slice proof
+# Dual ACP controller implementation proof and adjudication
 
 ## Boundary
 
 The existing named `cursor-acp` controller/caller path now consumes
-runtime-derived observations from the pinned public `createAcpRuntime`
-surface. Ordinary launch, native defaults, MCP broker policy, and live
-Cursor/AGY qualification stay unavailable. Antigravity ACP was not
-touched.
+ runtime-derived observations from the pinned public `createAcpRuntime`
+ surface. Ordinary launch, native defaults, MCP broker policy, and live
+ Cursor/AGY qualification stay unavailable. Repair cycle 1 now connects the
+ distinct AGY candidate through the existing session/caller path; source
+ acceptance remains a parent gate.
 
 ## Worktree
 
@@ -14,6 +15,8 @@ touched.
 - branch: `codex/puppet-dual-acp-controller-20260921`
 - base: `d0f0644f4ef4c84286d5307966514cf52cededc8`
 - worker job ID: `59754615-f2c0-41b9-a2e8-d41d999ba4cb`
+- Antigravity worker job ID: `7214ec87-9b2b-4c6b-a5b1-69cab059854f`
+- repair worker job ID: `35e20824-58e5-46b9-bb14-402098b36b69`
 - production enablement: none
 
 ## Provenance tuple
@@ -84,4 +87,57 @@ skipped 0
 Owned handles are closed after a derived turn. Post-creation failures
 close only the owned `sessionKey`. Uncertain cleanup fences replacement.
 Task-local runtime `node_modules` and the frozen upstream checkout stay
-gitignored. Ready for canonical cleanup, then the sequential AGY worker.
+gitignored. Both native worker jobs are terminal; the AGY proof reports
+`cleanupReady=true`.
+
+## Prior AGY worker adjudication
+
+The AGY job completed at the exact requested model with 371 observed events
+and 227 tool calls, but without a textual handoff. The resulting source
+delta is preserved in the worktree for parent review. Independent Python
+collection fails before tests run because
+`skills/puppet/scripts/antigravity_acpx.py` imports nonexistent
+`puppet_lib.io`; the fallback import path fails under the repository test
+layout as well. The delta also rewrites shared `contracts.py`, removing the
+base `Contract` model and mandatory authority gates, which is outside the
+requested AGY integration boundary.
+
+The attempted pre-repair bridge command was:
+
+```text
+node --test test/broker.test.mjs test/cleanup-compatibility.test.mjs test/owner-death-cleanup.test.mjs test/setup.test.mjs
+```
+
+It failed at module loading because local `acpx` (and the bridge's other npm
+dependencies) were not installed. This was secondary to the Python import
+failure. The failed source delta remained preserved until repair cycle 1.
+
+## Repair cycle 1 acceptance evidence
+
+The single authorized Cursor repair job completed with exact model
+`grok-4.6[effort=high,fast=true]` and canonical cleanup. It restored the
+existing `Contract` API and mandatory hard gates, reused `puppet_lib.safety`
+and existing typed-error signatures, and added explicit AGY session/caller
+dispatch while keeping `available()` false for ordinary/default promotion.
+
+```text
+python3 -m unittest tests.test_puppet_contracts tests.test_puppet_transport tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx tests.test_puppet_cursor_acp tests.test_puppet_antigravity_acp tests.test_puppet_antigravity_acp_runtime tests.test_puppet_antigravity_acpx tests.test_puppet_packaging -v
+Ran 96 tests ... OK
+
+node --test test/puppet-adapter.test.mjs test/candidate-runtime.test.mjs
+tests 30; pass 30; fail 0
+
+node --test test/broker.test.mjs test/cleanup-compatibility.test.mjs test/owner-death-cleanup.test.mjs test/setup.test.mjs test/controller-runtime-driver.test.mjs
+tests 33; pass 33; fail 0
+
+python3 -m unittest discover -s tests -v
+Ran 1309 tests ... OK
+```
+
+The 96 focused Python tests include both actual frozen public-runtime
+synthetic controller consumers, model/identity rejection, body-free bounded
+event drain, cleanup success, unsupported backend discard with proven local
+cleanup, uncertain-cleanup fencing, unsupported permissions/questions, and
+ordinary availability remaining false. The exact acpx source pin and
+artifact digest above are unchanged. No live qualification or provider
+credential action was used.

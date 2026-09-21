@@ -157,6 +157,8 @@ _DOCTOR_BLOCKER_CODES = {
     "agy-print transport is unavailable": "transport_unavailable",
     "cursor-acp transport is unavailable": "transport_unavailable",
     "cursor-acp is valid only for the cursor target": "transport_target_mismatch",
+    "antigravity-acp transport is unavailable": "transport_unavailable",
+    "antigravity-acp is valid only for the agy target": "transport_target_mismatch",
     "contract branch does not match checkout": "branch_mismatch",
     "candidate worktree is not clean": "worktree_dirty",
     "proof root is not writable": "proof_root_unwritable",
@@ -961,6 +963,70 @@ def _cursor_acp_structured_launch(
     )
 
 
+def _antigravity_acp_structured_launch(
+    *,
+    session: str,
+    contract: Contract,
+    transport: Dict[str, str],
+    state_root: Path,
+    requested_model: Optional[str],
+    observer: Optional[Mapping[str, Any]] = None,
+    runner: Any = None,
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Complete an antigravity-acp launch from structured observation. Never open tmux."""
+
+    from .agy_print import AgyPrintController
+    from .antigravity_acp import (
+        AntigravityAcpController,
+        require_antigravity_acp_target,
+    )
+    from .cursor_acp import CursorAcpController
+    from .tmux import TmuxController
+
+    require_antigravity_acp_target(contract.target)
+    workspace = _workspace_snapshot(contract)
+    expected_workspace = {
+        "path": str(contract.repo),
+        "branch": workspace["branch"],
+        "head": workspace["head"],
+        "tree": workspace["tree"],
+    }
+    controller = open_run_transport(
+        transport,
+        state_root,
+        observer=observer,
+        runner=runner,
+        catalog=catalog,
+    )
+    if isinstance(controller, TmuxController):
+        raise IdentityError("antigravity-acp opened a tmux transport")
+    if isinstance(controller, AgyPrintController):
+        raise IdentityError("antigravity-acp opened an agy-print transport")
+    if isinstance(controller, CursorAcpController):
+        raise IdentityError("antigravity-acp opened a cursor-acp transport")
+    if not isinstance(controller, AntigravityAcpController):
+        raise IdentityError(
+            "antigravity-acp did not open the structured Antigravity ACP transport"
+        )
+    observation = controller.require_observation()
+    conversation_id = observation["session"]["conversation_id"]
+    requested = requested_model or contract.requested_model
+    resolved_catalog = controller.require_catalog(catalog)
+    halted = observation["terminal"]["state"] == "halted"
+    return controller.caller_result(
+        expected_session=session,
+        expected_conversation_id=conversation_id,
+        expected_workspace=expected_workspace,
+        requested_model=requested,
+        expected_observed_model=requested,
+        catalog=resolved_catalog,
+        require_halt=halted,
+        halt_confirmed=halted,
+        record_state="HALTED" if halted else None,
+    )
+
+
 def _agy_print_controller(state_root: Path, **kwargs: Any) -> Any:
     from .agy_print import AgyPrintController
 
@@ -1501,6 +1567,8 @@ def doctor(
     blockers = []
     if transport["id"] == "cursor-acp" and contract.target != "cursor":
         blockers.append("cursor-acp is valid only for the cursor target")
+    if transport["id"] == "antigravity-acp" and contract.target != "agy":
+        blockers.append("antigravity-acp is valid only for the agy target")
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
@@ -1731,6 +1799,8 @@ def launch(
     _agy_print_executable: Optional[Path] = None,
     _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
     _cursor_acp_runner: Any = None,
+    _antigravity_acp_observer: Optional[Mapping[str, Any]] = None,
+    _antigravity_acp_runner: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     if deadline_seconds is not None:
@@ -1830,7 +1900,7 @@ def launch(
         )
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
-    if contract.target == "agy" and transport["id"] != "agy-print":
+    if contract.target == "agy" and transport["id"] not in {"agy-print", "antigravity-acp"}:
         validate_agy_regular_launch_params(
             session_profile=contract.session_profile,
             argv=argv,
@@ -2056,6 +2126,16 @@ def launch(
             requested_model=requested_model,
             observer=_cursor_acp_observer,
             runner=_cursor_acp_runner,
+        )
+    if transport["id"] == "antigravity-acp":
+        return _antigravity_acp_structured_launch(
+            session=session,
+            contract=contract,
+            transport=transport,
+            state_root=state_root,
+            requested_model=requested_model,
+            observer=_antigravity_acp_observer,
+            runner=_antigravity_acp_runner,
         )
     registry = SessionRegistry(state_root)
     tmux = open_run_transport(transport, state_root)

@@ -18,6 +18,7 @@ from puppet_lib.antigravity_acp import (  # noqa: E402
     RUNTIME_VERSION,
     TARGET,
     TRANSPORT_ID,
+    AntigravityAcpController,
     candidate_contract,
     validate_auth_observation,
     validate_candidate_contract,
@@ -30,6 +31,7 @@ from puppet_lib.transport import (  # noqa: E402
     DEFAULT_TRANSPORT,
     bind_run_transport,
     transport_capability_table,
+    transport_is_available,
 )
 
 
@@ -97,10 +99,13 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         self.assertFalse(contract["available"])
         self.assertEqual(contract["qualification"], "non_qualifying")
         table = transport_capability_table()
-        self.assertNotIn(TRANSPORT_ID, table)
+        self.assertEqual(table[TRANSPORT_ID]["implementation"], "implemented")
         self.assertEqual(DEFAULT_TRANSPORT, "tmux")
-        with self.assertRaisesRegex(ValidationError, "unsupported"):
-            bind_run_transport(TRANSPORT_ID)
+        self.assertEqual(bind_run_transport()["id"], "tmux")
+        self.assertEqual(bind_run_transport(TRANSPORT_ID)["id"], TRANSPORT_ID)
+        self.assertFalse(contract["available"])
+        self.assertFalse(AntigravityAcpController.available())
+        self.assertFalse(transport_is_available(TRANSPORT_ID))
 
     def test_contract_rejects_generic_acp_or_pin_drift(self):
         generic = candidate_contract()

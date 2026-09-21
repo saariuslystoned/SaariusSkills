@@ -9,14 +9,14 @@ from .caller import TRANSPORT_BINDING_SCHEMA, make_blocker
 from .errors import UnsupportedError, ValidationError
 
 
-NAMED_TRANSPORTS = ("tmux", "herdr", "acp", "agy-print", "cursor-acp")
+NAMED_TRANSPORTS = ("tmux", "herdr", "acp", "agy-print", "cursor-acp", "antigravity-acp")
 DEFAULT_TRANSPORT = "tmux"
-IMPLEMENTED_TRANSPORTS = frozenset({"tmux", "agy-print", "cursor-acp"})
+IMPLEMENTED_TRANSPORTS = frozenset({"tmux", "agy-print", "cursor-acp", "antigravity-acp"})
 IMPLEMENTED_TRANSPORT = "tmux"
 
 # Capability/proof table. Unsupported ids stay named and refuse.
-# agy-print and cursor-acp prove identity from structured observation, never
-# from a selector. Generic acp stays unsupported for every target.
+# agy-print, cursor-acp, and antigravity-acp prove identity from structured observation,
+# never from a selector. Generic acp stays unsupported for every target.
 TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     "tmux": {
         "id": "tmux",
@@ -84,6 +84,24 @@ TRANSPORT_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         ),
         "qualification_evidence": "cursor_acp_target_source_scope",
     },
+    "antigravity-acp": {
+        "id": "antigravity-acp",
+        "implementation": "implemented",
+        "status_proves": (
+            "observed_model_workspace_session_terminal_and_acp_identity"
+        ),
+        "status_does_not_prove": "live_antigravity_acp_lifecycle",
+        "halt_proves": "matching_acp_session_and_conversation_halted",
+        "halt_authority": "puppet_owned_antigravity_acp_session",
+        "resume_proves": "matching_session_and_conversation_identity",
+        "transport_independent": (
+            "checkpoints",
+            "review",
+            "controller_acceptance",
+            "human_gates",
+        ),
+        "qualification_evidence": "antigravity_acp_target_source_scope",
+    },
     "agy-print": {
         "id": "agy-print",
         "implementation": "implemented",
@@ -123,8 +141,8 @@ def implemented_transport_ids() -> frozenset:
 
 def _unsupported_transport_error(name: str) -> UnsupportedError:
     detail = (
-        "transport %s is named but not implemented; tmux, agy-print, and "
-        "cursor-acp are the implemented Puppet run transports"
+        "transport %s is named but not implemented; tmux, agy-print, "
+        "cursor-acp, and antigravity-acp are the implemented Puppet run transports"
         % name
     )
     return UnsupportedError(
@@ -216,6 +234,10 @@ def transport_is_available(name: str) -> bool:
         from .cursor_acp import CursorAcpController
 
         return CursorAcpController.available()
+    if name == "antigravity-acp":
+        from .antigravity_acp import AntigravityAcpController
+
+        return AntigravityAcpController.available()
     return False
 
 
@@ -254,6 +276,15 @@ def open_run_transport(
             if key in {"observer", "_observer", "runner", "_runner", "catalog"}
         }
         return CursorAcpController(registry_root, **acp_kwargs)
+    if validated["id"] == "antigravity-acp":
+        from .antigravity_acp import AntigravityAcpController
+
+        acp_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in {"observer", "_observer", "runner", "_runner", "catalog"}
+        }
+        return AntigravityAcpController(registry_root, **acp_kwargs)
     raise _unsupported_transport_error(validated["id"])
 
 
