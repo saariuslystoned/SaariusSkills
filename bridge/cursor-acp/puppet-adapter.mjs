@@ -690,6 +690,13 @@ export async function recordBoundCandidateTurn(options = {}) {
     throw new AdapterError("INVALID_RUNTIME", "candidate public runtime is incomplete");
   }
 
+  await requireBoundCandidateClaim({
+    isolatedRoot,
+    owner,
+    hostSession,
+    hostConversationId,
+  });
+
   const ensureInput = rejectCandidateRuntimeConversationParams({
     sessionKey: hostSession,
     agent,
@@ -697,87 +704,109 @@ export async function recordBoundCandidateTurn(options = {}) {
     cwd: workspaceRoot,
   }, "ensureSession");
   const handle = await runtime.ensureSession(ensureInput);
-  const binding = await bindCandidateRuntime({
-    isolatedRoot,
-    workspaceRoot,
-    owner,
-    hostSession,
-    hostConversationId,
-    requestId,
-    handle,
-  });
-
-  const statusInput = rejectCandidateRuntimeConversationParams({ handle }, "getStatus");
-  await runtime.getStatus(statusInput);
-
-  const startInput = rejectCandidateRuntimeConversationParams({
-    handle,
-    text,
-    mode: "prompt",
-    requestId,
-  }, "startTurn");
-  const turn = runtime.startTurn(startInput);
-  if (!turn || typeof turn !== "object") {
-    throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
-  }
-  await turn.promptStarted;
-  const result = await turn.result;
-  const bounded = boundedCandidateTurnResult(result);
-  if (typeof turn.requestId !== "string" || !turn.requestId) {
-    throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request identity is missing");
-  }
-  if (turn.requestId !== requestId) {
-    throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request does not match the host request");
+  try {
+    requireOwnedCandidateHandle(handle, { hostSession, workspaceRoot });
+  } catch (error) {
+    await persistCleanupUnknownBestEffort(root);
+    throw error;
   }
 
-  const afterStatus = await runtime.getStatus({ handle });
-  let lastRequestId;
-  if (afterStatus && typeof afterStatus === "object" && Object.hasOwn(afterStatus, "lastRequestId")) {
-    if (typeof afterStatus.lastRequestId !== "string" || afterStatus.lastRequestId !== turn.requestId) {
-      throw new AdapterError(
-        "INVALID_TURN_EVIDENCE",
-        "status lastRequestId does not match the completed turn request",
-      );
+  let settled = false;
+  try {
+    const binding = await bindCandidateRuntime({
+      isolatedRoot,
+      workspaceRoot,
+      owner,
+      hostSession,
+      hostConversationId,
+      requestId,
+      handle,
+    });
+
+    const statusInput = rejectCandidateRuntimeConversationParams({ handle }, "getStatus");
+    await runtime.getStatus(statusInput);
+
+    const startInput = rejectCandidateRuntimeConversationParams({
+      handle,
+      text,
+      mode: "prompt",
+      requestId,
+    }, "startTurn");
+    const turn = runtime.startTurn(startInput);
+    if (!turn || typeof turn !== "object") {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
     }
-    lastRequestId = afterStatus.lastRequestId;
+    await turn.promptStarted;
+    const result = await turn.result;
+    const bounded = boundedCandidateTurnResult(result);
+    if (typeof turn.requestId !== "string" || !turn.requestId) {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request identity is missing");
+    }
+    if (turn.requestId !== requestId) {
+      throw new AdapterError("INVALID_TURN_EVIDENCE", "returned turn request does not match the host request");
+    }
+
+    const afterStatus = await runtime.getStatus({ handle });
+    let lastRequestId;
+    if (afterStatus && typeof afterStatus === "object" && Object.hasOwn(afterStatus, "lastRequestId")) {
+      if (typeof afterStatus.lastRequestId !== "string" || afterStatus.lastRequestId !== turn.requestId) {
+        throw new AdapterError(
+          "INVALID_TURN_EVIDENCE",
+          "status lastRequestId does not match the completed turn request",
+        );
+      }
+      lastRequestId = afterStatus.lastRequestId;
+    }
+
+    const terminal = {
+      event: "runtime_turn_completed",
+      host: binding.host,
+      turn: {
+        requestId: turn.requestId,
+        status: bounded.status,
+        stopReason: bounded.stopReason,
+      },
+    };
+    if (lastRequestId !== undefined) {
+      terminal.status = { lastRequestId };
+    }
+    rejectBodyKeys(terminal, "runtime turn");
+    await appendEvent(root, terminal);
+
+    try {
+      await closeOwnedCandidateSession(runtime, handle);
+      settled = true;
+    } catch (error) {
+      await persistCleanupUnknownBestEffort(root);
+      settled = true;
+      throw error;
+    }
+
+    return {
+      binding,
+      handle: binding.runtime,
+      turn: {
+        requestId: turn.requestId,
+        status: bounded.status,
+        stopReason: bounded.stopReason,
+      },
+      result: bounded,
+      status: lastRequestId === undefined ? {} : { lastRequestId },
+      closed: true,
+      body_retained: false,
+      available: adapterAvailable(),
+      ordinary_launch: "unavailable",
+    };
+  } catch (error) {
+    if (!settled) {
+      try {
+        await closeOwnedCandidateSession(runtime, handle);
+      } catch {
+        await persistCleanupUnknownBestEffort(root);
+      }
+    }
+    throw error;
   }
-
-  const terminal = {
-    event: "runtime_turn_completed",
-    host: binding.host,
-    turn: {
-      requestId: turn.requestId,
-      status: bounded.status,
-      stopReason: bounded.stopReason,
-    },
-  };
-  if (lastRequestId !== undefined) {
-    terminal.status = { lastRequestId };
-  }
-  rejectBodyKeys(terminal, "runtime turn");
-  await appendEvent(root, terminal);
-
-  await runtime.close({
-    handle,
-    reason: "candidate-runtime-bound-close",
-    discardPersistentState: true,
-  });
-
-  return {
-    binding,
-    handle: binding.runtime,
-    turn: {
-      requestId: turn.requestId,
-      status: bounded.status,
-      stopReason: bounded.stopReason,
-    },
-    result: bounded,
-    status: lastRequestId === undefined ? {} : { lastRequestId },
-    closed: true,
-    body_retained: false,
-    available: adapterAvailable(),
-    ordinary_launch: "unavailable",
-  };
 }
 
 function rejectBodyKeys(value, label = "artifact") {
@@ -966,21 +995,11 @@ async function loadOwnedCandidateClaim(isolatedRoot) {
   return { root, claim };
 }
 
-export async function bindCandidateRuntime({
-  isolatedRoot,
-  workspaceRoot,
-  owner,
-  hostSession,
-  hostConversationId,
-  requestId,
-  handle,
-} = {}) {
+async function requireBoundCandidateClaim({ isolatedRoot, owner, hostSession, hostConversationId }) {
   const { root, claim } = await loadOwnedCandidateClaim(isolatedRoot);
   const boundOwner = requireIdentityString(owner, "host owner identity");
   const boundSession = requireIdentityString(hostSession, "host session identity");
   const boundConversation = requireIdentityString(hostConversationId, "host conversation identity");
-  const boundRequest = requireIdentityString(requestId, "host request identity");
-  const boundWorkspace = requireIdentityString(workspaceRoot, "candidate workspace");
   if (claim.owner !== boundOwner) {
     throw new AdapterError("OWNER_MISMATCH", "ownership claim owner does not match the bound owner");
   }
@@ -990,13 +1009,79 @@ export async function bindCandidateRuntime({
   if (claim.conversation_id !== boundConversation) {
     throw new AdapterError("SESSION_MISMATCH", "ownership claim conversation does not match the host conversation");
   }
+  return { root, claim, owner: boundOwner, hostSession: boundSession, hostConversationId: boundConversation };
+}
+
+function requireOwnedCandidateHandle(handle, { hostSession, workspaceRoot }) {
   const runtimeHandle = projectCandidateRuntimeHandle(handle);
-  if (runtimeHandle.sessionKey !== boundSession) {
+  if (runtimeHandle.sessionKey !== hostSession) {
     throw new AdapterError("SESSION_MISMATCH", "runtime sessionKey does not match the host session");
   }
-  if (path.resolve(runtimeHandle.cwd) !== path.resolve(boundWorkspace)) {
+  if (path.resolve(runtimeHandle.cwd) !== path.resolve(workspaceRoot)) {
     throw new AdapterError("WORKSPACE_MISMATCH", "runtime cwd does not match the candidate workspace");
   }
+  return runtimeHandle;
+}
+
+export async function markCleanupUnknown(isolatedRoot) {
+  const root = await requirePrivateRoot(isolatedRoot);
+  const ownershipPath = path.join(root, "ownership.json");
+  const current = JSON.parse(await readFile(ownershipPath, "utf8"));
+  rejectBodyKeys(current, "ownership");
+  if (current.acpx) {
+    validateAcpxDependencyIdentity(current.acpx);
+  }
+  current.cleanup = "unknown";
+  current.replacement_blocked = true;
+  await writeJson(ownershipPath, current);
+  await appendEvent(root, {
+    event: "cleanup_unknown",
+    session: current.session,
+    conversation_id: current.conversation_id,
+    replacement_blocked: true,
+  });
+  return current;
+}
+
+async function persistCleanupUnknownBestEffort(isolatedRoot) {
+  try {
+    await markCleanupUnknown(isolatedRoot);
+  } catch {
+    // Keep the original failure when the existing claim fence cannot be persisted.
+  }
+}
+
+function closeOwnedCandidateSession(runtime, handle) {
+  return runtime.close({
+    handle,
+    reason: "candidate-runtime-bound-close",
+    discardPersistentState: true,
+  });
+}
+
+export async function bindCandidateRuntime({
+  isolatedRoot,
+  workspaceRoot,
+  owner,
+  hostSession,
+  hostConversationId,
+  requestId,
+  handle,
+} = {}) {
+  const { root } = await requireBoundCandidateClaim({
+    isolatedRoot,
+    owner,
+    hostSession,
+    hostConversationId,
+  });
+  const boundSession = requireIdentityString(hostSession, "host session identity");
+  const boundConversation = requireIdentityString(hostConversationId, "host conversation identity");
+  const boundRequest = requireIdentityString(requestId, "host request identity");
+  const boundWorkspace = requireIdentityString(workspaceRoot, "candidate workspace");
+  const runtimeHandle = requireOwnedCandidateHandle(handle, {
+    hostSession: boundSession,
+    workspaceRoot: boundWorkspace,
+  });
   const binding = {
     host: {
       session: boundSession,
@@ -1069,17 +1154,7 @@ export class SyntheticRuntime {
     try {
       return await this.processQuery();
     } catch (error) {
-      const ownershipPath = path.join(this.isolatedRoot, "ownership.json");
-      const current = JSON.parse(await readFile(ownershipPath, "utf8"));
-      current.cleanup = "unknown";
-      current.replacement_blocked = true;
-      await writeJson(ownershipPath, current);
-      await appendEvent(this.isolatedRoot, {
-        event: "cleanup_unknown",
-        session: current.session,
-        conversation_id: current.conversation_id,
-        replacement_blocked: true,
-      });
+      await markCleanupUnknown(this.isolatedRoot);
       throw new AdapterError("CLEANUP_UNKNOWN", "process query failed; cleanup is unknown");
     }
   }

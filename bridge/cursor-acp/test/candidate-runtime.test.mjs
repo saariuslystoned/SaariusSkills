@@ -23,6 +23,7 @@ import {
   callerOutcomes,
   claimIsolatedRoot,
   createVerifiedCandidateAcpRuntime,
+  markCleanupUnknown,
   materializeVerifiedCandidateAcpx,
   proveInstalledCandidateModule,
   recordBoundCandidateTurn,
@@ -77,12 +78,14 @@ class FakePublicRuntime {
     statusLastRequestId,
     omitLastRequestId = false,
     result = { status: "completed", stopReason: "end_turn" },
+    closeError,
   } = {}) {
     this.handleOverrides = handle;
     this.turnRequestId = turnRequestId;
     this.statusLastRequestId = statusLastRequestId;
     this.omitLastRequestId = omitLastRequestId;
     this.result = result;
+    this.closeError = closeError;
     this.ensureCalls = [];
     this.statusCalls = [];
     this.startCalls = [];
@@ -146,6 +149,7 @@ class FakePublicRuntime {
       reason: input.reason,
       discardPersistentState: input.discardPersistentState,
     });
+    if (this.closeError) throw this.closeError;
   }
 }
 
@@ -176,6 +180,27 @@ function boundTurnOptions(isolated, workspace, runtime, extra = {}) {
 async function readEvents(isolated) {
   const raw = await readFile(path.join(isolated, "events.jsonl"), "utf8");
   return raw.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+async function readClaim(isolated) {
+  return JSON.parse(await readFile(path.join(isolated, "ownership.json"), "utf8"));
+}
+
+function assertNoRuntimeCalls(runtime) {
+  assert.equal(runtime.ensureCalls.length, 0);
+  assert.equal(runtime.statusCalls.length, 0);
+  assert.equal(runtime.startCalls.length, 0);
+  assert.equal(runtime.closeCalls.length, 0);
+}
+
+function assertOwnedUnfenced(claim) {
+  assert.equal(claim.cleanup, "owned");
+  assert.equal(claim.replacement_blocked, false);
+}
+
+function assertFencedClaim(claim) {
+  assert.equal(claim.cleanup, "unknown");
+  assert.equal(claim.replacement_blocked, true);
 }
 
 function eventNamed(events, name) {
@@ -366,48 +391,133 @@ test("candidate ownership binding rejects mismatches before a prompt", async () 
     })),
     (error) => error instanceof AdapterError && error.code === "OWNER_MISMATCH",
   );
-  assert.equal(foreignOwner.startCalls.length, 0);
+  assertNoRuntimeCalls(foreignOwner);
+  assertOwnedUnfenced(await readClaim(isolated));
+
+  const { isolated: foreignRoot, workspace: foreignWorkspace } = await privateRoot();
+  await claimIsolatedRoot(foreignRoot, {
+    owner: "foreign-owner",
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
+  const foreignOwned = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(foreignRoot, foreignWorkspace, foreignOwned)),
+    (error) => error instanceof AdapterError && error.code === "OWNER_MISMATCH",
+  );
+  assertNoRuntimeCalls(foreignOwned);
+  const foreignClaim = await readClaim(foreignRoot);
+  assert.equal(foreignClaim.owner, "foreign-owner");
+  assertOwnedUnfenced(foreignClaim);
+
+  const missingClaimRoot = await privateRoot();
+  const missingClaim = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(
+      missingClaimRoot.isolated,
+      missingClaimRoot.workspace,
+      missingClaim,
+    )),
+    (error) => error instanceof AdapterError && error.code === "PROOF_MISSING",
+  );
+  assertNoRuntimeCalls(missingClaim);
+
+  const fencedUnknown = new FakePublicRuntime();
+  await markCleanupUnknown(isolated);
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, fencedUnknown)),
+    (error) => error instanceof AdapterError && error.code === "CLEANUP_UNKNOWN",
+  );
+  assertNoRuntimeCalls(fencedUnknown);
+  assertFencedClaim(await readClaim(isolated));
+
+  const { isolated: blockedRoot, workspace: blockedWorkspace } = await privateRoot();
+  await claimIsolatedRoot(blockedRoot, {
+    owner: HOST.owner,
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
+  const blockedClaim = await readClaim(blockedRoot);
+  blockedClaim.replacement_blocked = true;
+  await writeFile(path.join(blockedRoot, "ownership.json"), `${JSON.stringify(blockedClaim)}\n`);
+  const blockedRuntime = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(blockedRoot, blockedWorkspace, blockedRuntime)),
+    (error) => error instanceof AdapterError && error.code === "CLEANUP_UNKNOWN",
+  );
+  assertNoRuntimeCalls(blockedRuntime);
+  const stillBlocked = await readClaim(blockedRoot);
+  assert.equal(stillBlocked.cleanup, "owned");
+  assert.equal(stillBlocked.replacement_blocked, true);
+
+  const { isolated: hostIsolated, workspace: hostWorkspace } = await privateRoot();
+  await claimIsolatedRoot(hostIsolated, {
+    owner: HOST.owner,
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
 
   const foreignSession = new FakePublicRuntime();
   await assert.rejects(
-    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignSession, {
+    () => recordBoundCandidateTurn(boundTurnOptions(hostIsolated, hostWorkspace, foreignSession, {
       hostSession: "foreign-session",
     })),
     (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
   );
-  assert.equal(foreignSession.startCalls.length, 0);
+  assertNoRuntimeCalls(foreignSession);
+  assertOwnedUnfenced(await readClaim(hostIsolated));
 
   const foreignConversation = new FakePublicRuntime();
   await assert.rejects(
-    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignConversation, {
+    () => recordBoundCandidateTurn(boundTurnOptions(hostIsolated, hostWorkspace, foreignConversation, {
       hostConversationId: "foreign-conversation",
     })),
     (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
   );
-  assert.equal(foreignConversation.startCalls.length, 0);
+  assertNoRuntimeCalls(foreignConversation);
+  assertOwnedUnfenced(await readClaim(hostIsolated));
 
   const foreignHandleSession = new FakePublicRuntime({
     handle: { sessionKey: "foreign-runtime-session" },
   });
   await assert.rejects(
-    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignHandleSession)),
+    () => recordBoundCandidateTurn(boundTurnOptions(hostIsolated, hostWorkspace, foreignHandleSession)),
     (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
   );
+  assert.equal(foreignHandleSession.ensureCalls.length, 1);
+  assert.equal(foreignHandleSession.statusCalls.length, 0);
   assert.equal(foreignHandleSession.startCalls.length, 0);
+  assert.equal(foreignHandleSession.closeCalls.length, 0);
+  assertFencedClaim(await readClaim(hostIsolated));
 
+  const { isolated: cwdIsolated, workspace: cwdWorkspace } = await privateRoot();
+  await claimIsolatedRoot(cwdIsolated, {
+    owner: HOST.owner,
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
   const foreignCwd = new FakePublicRuntime({
-    handle: { cwd: path.join(workspace, "other") },
+    handle: { cwd: path.join(cwdWorkspace, "other") },
   });
   await assert.rejects(
-    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignCwd)),
+    () => recordBoundCandidateTurn(boundTurnOptions(cwdIsolated, cwdWorkspace, foreignCwd)),
     (error) => error instanceof AdapterError && error.code === "WORKSPACE_MISMATCH",
   );
+  assert.equal(foreignCwd.ensureCalls.length, 1);
   assert.equal(foreignCwd.startCalls.length, 0);
+  assert.equal(foreignCwd.closeCalls.length, 0);
+  assertFencedClaim(await readClaim(cwdIsolated));
 
+  const { isolated: bindIsolated, workspace: bindWorkspace } = await privateRoot();
+  await claimIsolatedRoot(bindIsolated, {
+    owner: HOST.owner,
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
   await assert.rejects(
     () => bindCandidateRuntime({
-      isolatedRoot: isolated,
-      workspaceRoot: workspace,
+      isolatedRoot: bindIsolated,
+      workspaceRoot: bindWorkspace,
       owner: HOST.owner,
       hostSession: HOST.session,
       hostConversationId: HOST.conversationId,
@@ -416,7 +526,7 @@ test("candidate ownership binding rejects mismatches before a prompt", async () 
         sessionKey: HOST.session,
         backend: "acpx",
         runtimeSessionName: "acpx:cursor-acp-session",
-        cwd: workspace,
+        cwd: bindWorkspace,
         acpxRecordId: "record-cursor-acp-session",
         backendSessionId: "backend-session-1",
         prompt: TEST_PROMPT,
@@ -428,14 +538,14 @@ test("candidate ownership binding rejects mismatches before a prompt", async () 
   const missingHandle = {
     backend: "acpx",
     runtimeSessionName: "acpx:cursor-acp-session",
-    cwd: workspace,
+    cwd: bindWorkspace,
     acpxRecordId: "record-cursor-acp-session",
     backendSessionId: "backend-session-1",
   };
   await assert.rejects(
     () => bindCandidateRuntime({
-      isolatedRoot: isolated,
-      workspaceRoot: workspace,
+      isolatedRoot: bindIsolated,
+      workspaceRoot: bindWorkspace,
       owner: HOST.owner,
       hostSession: HOST.session,
       hostConversationId: HOST.conversationId,
@@ -451,22 +561,22 @@ test("candidate ownership binding rejects mismatches before a prompt", async () 
       sessionKey: HOST.session,
       agent: "candidate",
       mode: "oneshot",
-      cwd: workspace,
+      cwd: bindWorkspace,
       conversation_id: HOST.conversationId,
     }, "ensureSession"),
     (error) => error instanceof AdapterError && error.code === "INVALID_RUNTIME",
   );
   const smuggled = new FakePublicRuntime();
   await assert.rejects(
-    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, smuggled, {
+    () => recordBoundCandidateTurn(boundTurnOptions(bindIsolated, bindWorkspace, smuggled, {
       conversation_id: HOST.conversationId,
     })),
     (error) => error instanceof AdapterError && error.code === "INVALID_RUNTIME",
   );
-  assert.equal(smuggled.ensureCalls.length, 0);
-  assert.equal(smuggled.startCalls.length, 0);
+  assertNoRuntimeCalls(smuggled);
+  assertOwnedUnfenced(await readClaim(bindIsolated));
 
-  const events = await readEvents(isolated);
+  const events = await readEvents(hostIsolated);
   assert.deepEqual(eventNamed(events, "runtime_bound"), []);
   assert.deepEqual(eventNamed(events, "runtime_turn_completed"), []);
   assert.equal(CursorAcpxAdapter.available(), false);
@@ -485,7 +595,10 @@ test("candidate ownership binding rejects invalid turn evidence after prompt", a
     (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
   );
   assert.equal(mismatchedTurn.startCalls.length, 1);
-  assert.equal(mismatchedTurn.closeCalls.length, 0);
+  assert.equal(mismatchedTurn.closeCalls.length, 1);
+  assert.equal(mismatchedTurn.closeCalls[0].sessionKey, HOST.session);
+  assert.equal(mismatchedTurn.closeCalls[0].discardPersistentState, true);
+  assertOwnedUnfenced(await readClaim(isolated));
 
   const mismatchedStatus = new FakePublicRuntime({
     statusLastRequestId: "foreign-status-request",
@@ -495,7 +608,8 @@ test("candidate ownership binding rejects invalid turn evidence after prompt", a
     (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
   );
   assert.equal(mismatchedStatus.startCalls.length, 1);
-  assert.equal(mismatchedStatus.closeCalls.length, 0);
+  assert.equal(mismatchedStatus.closeCalls.length, 1);
+  assertOwnedUnfenced(await readClaim(isolated));
 
   const missingTurnId = new FakePublicRuntime({
     turnRequestId: "",
@@ -505,6 +619,84 @@ test("candidate ownership binding rejects invalid turn evidence after prompt", a
     (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
   );
   assert.equal(missingTurnId.startCalls.length, 1);
+  assert.equal(missingTurnId.closeCalls.length, 1);
+  assertOwnedUnfenced(await readClaim(isolated));
+});
+
+test("owned session failures clean up or fence without marking success", async () => {
+  async function claimedRoot() {
+    const roots = await privateRoot();
+    await claimHost(roots.isolated);
+    return roots;
+  }
+
+  const rejectedResult = await claimedRoot();
+  const resultRuntime = new FakePublicRuntime({
+    result: { status: "completed", stopReason: "end_turn", prompt: TEST_PROMPT },
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(
+      rejectedResult.isolated,
+      rejectedResult.workspace,
+      resultRuntime,
+    )),
+    (error) => error instanceof AdapterError && error.code === "BODY_RETAINED",
+  );
+  assert.equal(resultRuntime.closeCalls.length, 1);
+  assert.equal(resultRuntime.closeCalls[0].sessionKey, HOST.session);
+  assertOwnedUnfenced(await readClaim(rejectedResult.isolated));
+  assert.deepEqual(eventNamed(await readEvents(rejectedResult.isolated), "runtime_turn_completed"), []);
+
+  const persistFailure = await claimedRoot();
+  await rm(path.join(persistFailure.isolated, "events.jsonl"));
+  await mkdir(path.join(persistFailure.isolated, "events.jsonl"));
+  const persistRuntime = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(
+      persistFailure.isolated,
+      persistFailure.workspace,
+      persistRuntime,
+    )),
+    (error) => error && error.code === "EISDIR",
+  );
+  assert.equal(persistRuntime.ensureCalls.length, 1);
+  assert.equal(persistRuntime.startCalls.length, 0);
+  assert.equal(persistRuntime.closeCalls.length, 1);
+  assertOwnedUnfenced(await readClaim(persistFailure.isolated));
+
+  const closeFailure = await claimedRoot();
+  const closeError = new Error("owned session close failed");
+  const closeRuntime = new FakePublicRuntime({ closeError });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(
+      closeFailure.isolated,
+      closeFailure.workspace,
+      closeRuntime,
+    )),
+    (error) => error === closeError,
+  );
+  assert.equal(closeRuntime.closeCalls.length, 1);
+  assertFencedClaim(await readClaim(closeFailure.isolated));
+  assert.deepEqual(eventNamed(await readEvents(closeFailure.isolated), "runtime_turn_completed").length, 1);
+
+  const cleanupCloseFailure = await claimedRoot();
+  const cleanupCloseError = new Error("owned cleanup close failed");
+  const cleanupRuntime = new FakePublicRuntime({
+    turnRequestId: "foreign-turn-request",
+    closeError: cleanupCloseError,
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(
+      cleanupCloseFailure.isolated,
+      cleanupCloseFailure.workspace,
+      cleanupRuntime,
+    )),
+    (error) => error instanceof AdapterError
+      && error.code === "INVALID_TURN_EVIDENCE"
+      && error !== cleanupCloseError,
+  );
+  assert.equal(cleanupRuntime.closeCalls.length, 1);
+  assertFencedClaim(await readClaim(cleanupCloseFailure.isolated));
 });
 
 test("fake public runtime records a bound turn without inventing conversation identity", async () => {
@@ -691,4 +883,65 @@ test("verified candidate acpx runtime binds the actual handle before one isolate
     }
     delete process.env.PUPPET_ACPX_CANDIDATE_PEER_CAPABILITIES;
   }
+});
+
+test("verified candidate acpx runtime rejects foreign ownership before ensureSession", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimIsolatedRoot(isolated, {
+    owner: "foreign-owner",
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
+  const { runtime } = await createVerifiedCandidateAcpRuntime({
+    cwd: workspace,
+    sessionStore: memorySessionStore(),
+    agentRegistry: {
+      resolve() {
+        return [process.execPath, PEER];
+      },
+      list() {
+        return ["candidate"];
+      },
+    },
+    fs: false,
+    terminal: false,
+    timeoutMs: 30_000,
+  }, {
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
+    isolatedRoot: isolated,
+  });
+  const ensureCalls = [];
+  const startCalls = [];
+  const closeCalls = [];
+  const original = {
+    ensureSession: runtime.ensureSession.bind(runtime),
+    startTurn: runtime.startTurn.bind(runtime),
+    close: runtime.close.bind(runtime),
+  };
+  runtime.ensureSession = async (input) => {
+    ensureCalls.push(input);
+    return original.ensureSession(input);
+  };
+  runtime.startTurn = (input) => {
+    startCalls.push(input);
+    return original.startTurn(input);
+  };
+  runtime.close = async (input) => {
+    closeCalls.push(input);
+    return original.close(input);
+  };
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime)),
+    (error) => error instanceof AdapterError && error.code === "OWNER_MISMATCH",
+  );
+  assert.equal(ensureCalls.length, 0);
+  assert.equal(startCalls.length, 0);
+  assert.equal(closeCalls.length, 0);
+  const claim = await readClaim(isolated);
+  assert.equal(claim.owner, "foreign-owner");
+  assertOwnedUnfenced(claim);
+  assert.equal(adapterAvailable(), false);
 });
