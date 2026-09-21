@@ -1,0 +1,41 @@
+{
+  "schema": "saarius.native-antigravity-plugin-pilot/v1",
+  "pilot": "native-plugin-38-pilot",
+  "source_commit": "40793726791ea0b3067facc07a72def498bc4419",
+  "fixture_baseline_head": "d526abf4bccd5c0168ebdd35bb7bdefe5c1b2a2b",
+  "fixture_baseline_tree": "3f34ef57c245222c998be421dc9aaec998e47c18",
+  "route": "native antigravity-acp MCP",
+  "runtime": "antigravity-acp 1.1.1",
+  "acpx_release": "0.17.1",
+  "model": "gemini-3.8-flash-high",
+  "effort": null,
+  "job_id": "f595e82d-597f-46c5-9493-2e4e8784a715",
+  "timeout_ms": 300000,
+  "prompt_count": 1,
+  "retry": false,
+  "task_outcome": "completed/end_turn",
+  "task_complete": true,
+  "cleanup_status": "completed",
+  "cleanup_ready": true,
+  "cleanup_observation": "local worker termination observed; backend session discard unsupported",
+  "changed_paths": ["bin/normalize-lines.mjs"],
+  "protected_paths_unchanged": true,
+  "protected_sha256": {
+    "package.json": "6e007d2d6437fe5e77b1d463551687e5b0895161d9cd8f4182f6684c42f35b84",
+    "src/normalize-lines.mjs": "a88019118116a09819d165b3915ba5d288989d405b28e8af7af792a4319bbeb9",
+    "test/normalize-lines.test.mjs": "8f4b59ebfdec80773d1e4cd498355317697643d0efb675aff165582d1495cabe"
+  },
+  "output_sha256": "65b7e0fbf1b603d6fbdeb947baff96441283d616705aaf4df7dd224446240a7d",
+  "tests": {"pass": 2, "fail": 0},
+  "cli": {
+    "normalized": {"marker": "OK", "exit_code": 0},
+    "crlf": {"marker": "NON_NORMALIZED", "exit_code": 1},
+    "trailing_space": {"marker": "NON_NORMALIZED", "exit_code": 1}
+  },
+  "body_free": true,
+  "provider_route_used": true,
+  "ultra_attribution": "unclaimed",
+  "known_answer_copy": false,
+  "puppet_qualification": false,
+  "limits": "one useful native-plugin task only; not Puppet qualification or quota proof"
+}

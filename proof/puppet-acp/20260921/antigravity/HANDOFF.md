@@ -1,0 +1,157 @@
+# Antigravity ACP proof checkpoint
+
+This draft PR is an archival/review checkpoint, not live qualification. It
+contains the task-only v3 lifecycle repair and v4 failure-receipt repair
+produced in the execution checkout
+`/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921`.
+Product source, ordinary Antigravity availability, plugin pins, and the
+candidate-only `live_antigravity_acp_claimed:false` behavior are unchanged.
+
+## Ownership and review state
+
+```text
+owner task       01a0c107-05e0-7a11-b6b2-93a524b63e98
+execution branch codex/puppet-antigravity-controller-proof-20260921
+execution tree   /Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921
+publication branch codex/puppet-antigravity-proof-checkpoint-20260921
+publication tree   /Users/bobbybones/Developer/worktrees/puppet-antigravity-proof-checkpoint-20260921
+prerequisite     https://github.com/saariuslystoned/SaariusSkills/pull/61
+checkpoint       https://github.com/saariuslystoned/SaariusSkills/pull/63
+```
+
+v2 has independent offline approval: 10 focused tests plus 1 public-runtime
+synthetic test passed. v3 has owner-run evidence: 14 focused tests plus 1
+public-runtime synthetic test passed, and independent delta review accepted
+the manual v3 path. The user-authorized live allocation was consumed by one
+failed v3 attempt; no useful edit or qualified model/session receipt was
+emitted, so no coordinator should re-request authorization or retry.
+
+Orchestration and review: Codex. Earlier bounded offline implementation used
+native Cursor ACP with exact Grok 4.6 High. The follow-up birth-marker repair
+used one native Antigravity ACP job with exact `gemini-3.8-flash-high`.
+
+The initial offline v4 implementation job was authorized only for this
+failure-receipt repair: native Cursor ACP, exact
+`grok-4.6[effort=high,fast=true]`, one bounded job, 600000ms timeout, and no
+Antigravity provider turn. It completed with 18 focused tests passing. A second
+bounded offline cleanup-uncertainty repair used the same route/model and
+completed with four new policy regressions; the combined suite is 22/22. v4 now
+persists a fresh allowlisted body-free receipt on an ordinary public-runtime /
+local-synthetic-peer fixture failure, preserves primary and cleanup errors
+separately, records unknowns honestly, and rejects receipt overwrite or writes
+into frozen v3 evidence. The follow-up birth-marker guard adds focused
+coverage for missing, empty, and malformed current identities; the current v4
+suite is 23/23.
+
+## Frozen provenance
+
+```text
+execution HEAD d5e33f67f6b42384f6feec1d15be3b69b4525eb8
+execution TREE 938ef948a6a1218ad055a17d5d297c633b936167
+upstream       2e05de525dd1ab62e9e74bf02d91e3638920fcf3
+upstream tree  c612e764ead5d8eaa409956fb1b11c008a7579ed
+acpx artifact  5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614
+runtime.js     ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683
+```
+
+Implementation jobs: v1 `d3834068-43d5-4a4e-8092-6882bbe3cc93`, v2
+`a7158f99-fdc2-47f6-8fc9-9d1cf4940dc2`, and final v3
+`ce47ac58-45f3-4958-9427-fc72792d10e2`; each used native Cursor ACP exact
+Grok 4.6 High. The v4 birth-marker guard follow-up used native Antigravity ACP
+job `2c7e313d-5c52-4571-b188-de772d627bf5`, exact
+`gemini-3.8-flash-high`, effort unset, and 300000ms. It completed with
+`taskComplete=true` and `cleanupReady=true`. The separate installed-plugin
+pilot used job `f595e82d-597f-46c5-9493-2e4e8784a715`.
+
+## v3 delta
+
+The v3 driver/test snapshot adds real owned-backend incarnation observation
+(PID, PPID, executable, start/birth identity only), re-observes that same
+incarnation after `owner.finish`, and passes the result into unsupported-close
+acceptance. Helper exit alone is insufficient. Offline tests prove both:
+
+- an unsupported close plus an owned `localharness_external` peer exit is
+  accepted; and
+- unknown/surviving backend state retains the primary failure, durable fence,
+  fixture/state identity, and replacement block.
+
+The first turn is the structured-launch `require_observation`; `next_turn` is
+not mislabeled as the first task. The existing 30000ms product runtime cap is
+recorded, not changed. No broad process kill, auth/profile/env read, or live
+provider call occurred.
+
+## v4 failure-receipt delta
+
+The tracked `v4/` snapshot is the reviewed repair over v3. Ordinary fixture
+failure uses the real public structured-launch path and a local synthetic peer;
+it exits nonzero, persists a fresh receipt, and does not claim provider absence
+or qualification. The receipt records route/source/artifact identities when
+available, exact requested/observed model, first and second request IDs and
+stop reasons, same-owner continuation, finish result, backend-incarnation
+termination evidence, and independent fixture outcome. Missing observations
+remain `unknown`.
+
+The live branch remains staged only and is not executed. It rejects the host
+known-answer helper, permits legitimate identical bytes, and retains the sole
+allowed edit/protected-file/test checks. The old v3-to-v2 generated command is
+still quarantined. v3 bytes remain unchanged; useful-edit ability remains
+unproven. Official/live missing or unobservable backend cleanup now fences
+explicitly; a failed metadata or liveness lookup remains unknown rather than
+termination. The explicit synthetic no-backend receipt remains non-qualifying.
+A missing, empty, or malformed birth marker is also fenced rather than treated
+as a distinct incarnation. No new candidate provider turn is authorized.
+
+## Native installed-plugin pilot
+
+Separately from Puppet qualification, one newly scoped native official
+`antigravity-acp` MCP pilot used exact `gemini-3.8-flash-high` with effort
+unset and a 300000ms bound. Job `f595e82d-597f-46c5-9493-2e4e8784a715`
+completed with `taskComplete=true` and `cleanupReady=true`. Independent checks
+verified 2/2 tests, normalized `OK`/exit 0, CRLF and trailing-space
+`NON_NORMALIZED`/exit 1, and only `bin/normalize-lines.mjs` changed. See
+`native-plugin-38-pilot/` for the body-free receipt. This is one useful native
+plugin task, not Puppet candidate qualification, Ultra quota proof, or a new
+authorization for retries.
+
+## Evidence
+
+The v3 driver ran 14 focused tests and the public-runtime synthetic lifecycle
+test successfully. Fixture baseline/after checks passed with exact changed set
+`{bin/normalize-lines.mjs}`; the one released live attempt exited 2 at the
+fixture-after gate with no changed path. Useful-edit ability remains unproven;
+see `LIVE_RESULT.md` for the sanitized outcome.
+
+## Live-command safety boundary
+
+The copied `v3/staged/live-invocation.json` is preserved as source evidence,
+but its command intentionally points to the stale generated v2 driver and
+v2 launch-input. That command is quarantined and must not be executed. The
+parent-selected manual v3 command was already consumed once and failed; do not
+retry or replace it from this PR.
+
+The parent-released v3 attempt is recorded in `LIVE_RESULT.md`: exit 2 at the
+fixture-after gate, no changed path, no retry, and no qualification PASS. The
+fresh fixture/state evidence remains retained locally; no cleanup-uncertainty
+fence was emitted and no replacement was attempted.
+
+There is no remaining candidate allocation in this packet. The one native AGY
+implementation allocation for the birth-marker repair is complete and its
+cleanup is ready. Sister review checkpoint:
+https://github.com/saariuslystoned/SaariusSkills/pull/62.
+
+## Original execution evidence
+
+The complete v1/v2/v3/v4 run history remains in the original task-owned run
+root; this PR contains only the explicit immutable v3 snapshot, reviewed v4
+repair, minimal v2 fixture
+inputs, and this sanitized handoff. No raw ACP transcript, token, credential,
+account/auth/config/env file, runtime tarball, cache, or nested git workspace
+is included.
+
+## Diagnosis
+
+See `DIAGNOSIS.md` for the read-only evidence/inference split. The retained
+v3 failure proves no useful fixture edit; v4 adds the missing offline receipt
+shape and now fences malformed birth-marker cleanup, but does not convert
+that repair into Puppet candidate acceptance. No further provider work is
+authorized without explicit rescope.

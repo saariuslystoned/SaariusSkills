@@ -1,0 +1,32 @@
+{
+  "apply_known_answer": false,
+  "callback_enablement_from_flags": "not_implemented",
+  "catalog_injected": false,
+  "client_callback_policy": {
+    "fs": false,
+    "terminal": false
+  },
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v2/driver/agy_live_capable_proof_driver.py",
+    "--live",
+    "--launch-input",
+    "/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v2/staged/launch-input.contract.json",
+    "--mode",
+    "lifecycle"
+  ],
+  "cwd": "/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921",
+  "effort": null,
+  "executed": false,
+  "first_turn_source": "_antigravity_acp_structured_launch.require_observation",
+  "launch_input_contract": "/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v2/staged/launch-input.contract.json",
+  "note": "staged only; v3 implementation job did not execute this invocation",
+  "official_route_kind": "official_route",
+  "owner_next_turn_is_first_turn": false,
+  "parent_live_allocation": "one session, at most 2 prompts <=300000ms each, no retry",
+  "product_runtime_timeout_ms": 30000,
+  "product_timeout_feature_added": false,
+  "requested_model": "gemini-3.8-flash-high",
+  "route_resolver": "resolve_antigravity_acp_route_binding",
+  "structured_launch": "_antigravity_acp_structured_launch"
+}

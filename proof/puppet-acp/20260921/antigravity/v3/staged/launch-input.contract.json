@@ -1,0 +1,15 @@
+{
+  "apply_known_answer": false,
+  "authorized": true,
+  "client_callback_policy": {
+    "fs": false,
+    "terminal": false
+  },
+  "effort": null,
+  "enable_callbacks": false,
+  "note": "parent-supplied gate only; no credentials, profile, argv, or env secrets",
+  "parent_release": "PARENT_ISSUED_RELEASE",
+  "requested_model": "gemini-3.8-flash-high",
+  "route": "antigravity-acp",
+  "schema": "puppet.antigravity-live-launch-input/v2"
+}

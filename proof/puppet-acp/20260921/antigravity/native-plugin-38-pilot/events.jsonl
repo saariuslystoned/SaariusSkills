@@ -1,0 +1,2 @@
+{"event":"pilot_complete","job_id":"f595e82d-597f-46c5-9493-2e4e8784a715","route":"native antigravity-acp MCP","model":"gemini-3.8-flash-high","task_outcome":"completed/end_turn","cleanup_ready":true,"changed_paths":["bin/normalize-lines.mjs"],"tests":{"pass":2,"fail":0},"provider_route_used":true,"puppet_qualification":false}
+{"event":"independent_cli_check","normalized":{"marker":"OK","exit_code":0},"crlf":{"marker":"NON_NORMALIZED","exit_code":1},"trailing_space":{"marker":"NON_NORMALIZED","exit_code":1},"protected_paths_unchanged":true}

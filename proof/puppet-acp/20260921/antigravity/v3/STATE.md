@@ -1,0 +1,30 @@
+# Antigravity live-driver v3 repair state
+
+- status: `OFFLINE_LIFECYCLE_REPAIR_STAGED_NOT_RUN`
+- owner_task: `01a0c107-05e0-7a11-b6b2-93a524b63e98`
+- implementation_label: `v3-agy-final-lifecycle-repair`
+- implementation_transport: `native cursor-acp`
+- implementation_model: `grok-4.6[effort=high,fast=true]`
+- implementation_timeout_ms: `600000`
+- implementation_job_result: `completed/end_turn`
+- scope: `task-only lifecycle delta over v2; no product source edits`
+- proof_route: `antigravity-acp`; live branch default-off
+- future_live_model: `gemini-3.8-flash-high`
+- effort: `unset`
+- source_head: `d5e33f67f6b42384f6feec1d15be3b69b4525eb8`
+- source_tree: `938ef948a6a1218ad055a17d5d297c633b936167`
+- product_source_edits_allowed: `false`
+- product_source_edits_made: `false`
+- candidate_provider_turn: `not authorized; not launched`
+- official_live_command: `staged only; not executed`
+- official_live_target: `v2 driver + v2 launch-input as parent-specified`
+- first_turn_source: `_antigravity_acp_structured_launch.require_observation`
+- owner_next_turn_is_first_turn: `false`
+- product_runtime_timeout_ms: `30000`
+- product_timeout_feature_added: `false`
+- live_claimed_product_boolean: `false` unchanged candidate-only admission
+- v1_v2_history: `preserved unchanged`
+- historical_job_2ac39aae: `untouched`
+- leftover_task_owned_children: `none`
+- canonical_cleanup: `DONE`
+- next_allowed_action: `parent-issued official one-shot after independent delta review; do not spend live allocation here`
