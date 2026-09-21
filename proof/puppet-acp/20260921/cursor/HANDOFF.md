@@ -53,4 +53,4 @@ Parent review, then a fresh verified d5 execution checkout and one parent-issued
 - v2 received independent review; the v3 delta review is pending.
 - The owner's 10/10 result is separate from independent final acceptance.
 - v3 repairs the accepted gaps: no live fixture deletion/retry, no byte-equality false negative or known-answer helper in live mode, and post-task/post-finish backend-incarnation observation with fail-closed uncertainty.
-- The sister Antigravity checkpoint is pending its PR URL and should be linked by the parent when available.
+- Sister Antigravity checkpoint: [PR #63](https://github.com/saariuslystoned/SaariusSkills/pull/63).
