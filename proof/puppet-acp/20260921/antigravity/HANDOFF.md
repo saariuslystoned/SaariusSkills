@@ -1,7 +1,8 @@
 # Antigravity ACP proof checkpoint
 
 This draft PR is an archival/review checkpoint, not live qualification. It
-contains the task-only v3 lifecycle repair produced in the execution checkout
+contains the task-only v3 lifecycle repair and v4 failure-receipt repair
+produced in the execution checkout
 `/Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921`.
 Product source, ordinary Antigravity availability, plugin pins, and the
 candidate-only `live_antigravity_acp_claimed:false` behavior are unchanged.
@@ -27,6 +28,15 @@ emitted, so no coordinator should re-request authorization or retry.
 
 Orchestration and review: Codex. Bounded implementation: native Cursor ACP
 using exact Grok 4.6 High.
+
+The final offline v4 implementation job was authorized only for this
+failure-receipt repair: native Cursor ACP, exact
+`grok-4.6[effort=high,fast=true]`, one bounded job, 600000ms timeout, and no
+Antigravity provider turn. It completed with 18 focused tests passing. v4 now
+persists a fresh allowlisted body-free receipt on an ordinary public-runtime /
+local-synthetic-peer fixture failure, preserves primary and cleanup errors
+separately, records unknowns honestly, and rejects receipt overwrite or writes
+into frozen v3 evidence.
 
 ## Frozen provenance
 
@@ -62,6 +72,23 @@ not mislabeled as the first task. The existing 30000ms product runtime cap is
 recorded, not changed. No broad process kill, auth/profile/env read, or live
 provider call occurred.
 
+## v4 failure-receipt delta
+
+The tracked `v4/` snapshot is the reviewed repair over v3. Ordinary fixture
+failure uses the real public structured-launch path and a local synthetic peer;
+it exits nonzero, persists a fresh receipt, and does not claim provider absence
+or qualification. The receipt records route/source/artifact identities when
+available, exact requested/observed model, first and second request IDs and
+stop reasons, same-owner continuation, finish result, backend-incarnation
+termination evidence, and independent fixture outcome. Missing observations
+remain `unknown`.
+
+The live branch remains staged only and is not executed. It rejects the host
+known-answer helper, permits legitimate identical bytes, and retains the sole
+allowed edit/protected-file/test checks. The old v3-to-v2 generated command is
+still quarantined. v3 bytes remain unchanged; useful-edit ability remains
+unproven and no new candidate provider turn is authorized.
+
 ## Evidence
 
 The v3 driver ran 14 focused tests and the public-runtime synthetic lifecycle
@@ -89,8 +116,9 @@ https://github.com/saariuslystoned/SaariusSkills/pull/62.
 
 ## Original execution evidence
 
-The complete v1/v2/v3 run history remains in the original task-owned run root;
-this PR contains only the explicit immutable v3 snapshot, minimal v2 fixture
+The complete v1/v2/v3/v4 run history remains in the original task-owned run
+root; this PR contains only the explicit immutable v3 snapshot, reviewed v4
+repair, minimal v2 fixture
 inputs, and this sanitized handoff. No raw ACP transcript, token, credential,
 account/auth/config/env file, runtime tarball, cache, or nested git workspace
 is included.
@@ -98,6 +126,6 @@ is included.
 ## Diagnosis
 
 See `DIAGNOSIS.md` for the read-only evidence/inference split. The retained
-failure proves no useful fixture edit; it does not preserve exact model,
-request/stop-reason, or matched backend-termination metadata. No further
+v3 failure proves no useful fixture edit; v4 adds the missing offline receipt
+shape but does not convert that repair into live AGY acceptance. No further
 provider work is authorized without explicit rescope.
