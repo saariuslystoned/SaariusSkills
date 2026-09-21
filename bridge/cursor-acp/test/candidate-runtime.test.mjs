@@ -13,7 +13,10 @@ import {
   ACPX_ARTIFACT_PATH,
   ACPX_CANDIDATE_RUNTIME_MODULE,
   ACPX_CANDIDATE_RUNTIME_ROOT,
+  ACPX_MERGE_COMMIT,
   ACPX_QUALIFICATION,
+  ACPX_SOURCE_TREE,
+  HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT,
   AdapterError,
   CursorAcpxAdapter,
   adapterAvailable,
@@ -23,6 +26,7 @@ import {
   callerOutcomes,
   claimIsolatedRoot,
   createVerifiedCandidateAcpRuntime,
+  discardCandidateTurnEvents,
   markCleanupUnknown,
   materializeVerifiedCandidateAcpx,
   proveInstalledCandidateModule,
@@ -318,7 +322,7 @@ test("installed candidate imported chunk bytes are bound and cache drift fails c
   }
 });
 
-test("candidate runtime rejects bridge, shared modules, and arbitrary roots", async () => {
+test("candidate runtime rejects bridge, shared modules, historical roots, and arbitrary roots", async () => {
   await assert.rejects(
     () => materializeVerifiedCandidateAcpx({
       runtimeRoot: path.join(REPO_ROOT, "bridge", "cursor-acp"),
@@ -330,6 +334,12 @@ test("candidate runtime rejects bridge, shared modules, and arbitrary roots", as
       runtimeRoot: path.join(REPO_ROOT, "bridge", "cursor-acp", "node_modules"),
     }),
     (error) => error instanceof AdapterError && /shared node_modules/.test(error.message),
+  );
+  await assert.rejects(
+    () => materializeVerifiedCandidateAcpx({
+      runtimeRoot: path.join(REPO_ROOT, HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT),
+    }),
+    (error) => error instanceof AdapterError && /historical #648 runtime root/.test(error.message),
   );
   await assert.rejects(
     () => materializeVerifiedCandidateAcpx({ runtimeRoot: os.tmpdir() }),
@@ -798,10 +808,20 @@ test("verified candidate acpx runtime binds the actual handle before one isolate
       await realpath(path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_MODULE)),
     );
     assert.equal(provenance.artifact_sha256, ACPX_ARTIFACT_SHA256);
+    assert.equal(provenance.merge_commit, ACPX_MERGE_COMMIT);
+    assert.equal(provenance.source_tree, ACPX_SOURCE_TREE);
     assert.equal(
       provenance.module_sha256,
       createHash("sha256").update(await readFile(provenance.module_path)).digest("hex"),
     );
+    assert.ok(Array.isArray(provenance.imported_chunks));
+    assert.ok(provenance.imported_chunks.length > 0);
+    const moduleDir = path.dirname(provenance.module_path);
+    for (const chunk of provenance.imported_chunks) {
+      assert.match(chunk.artifact_entry, /^package\/dist\/.+\.js$/);
+      const installed = await readFile(path.join(moduleDir, path.posix.basename(chunk.artifact_entry)));
+      assert.equal(chunk.sha256, createHash("sha256").update(installed).digest("hex"));
+    }
     assert.equal(provenance.lifecycle_scripts, "disabled");
     assert.equal(provenance.available, false);
     assert.equal(provenance.ordinary_launch, "unavailable");
@@ -944,4 +964,292 @@ test("verified candidate acpx runtime rejects foreign ownership before ensureSes
   assert.equal(claim.owner, "foreign-owner");
   assertOwnedUnfenced(claim);
   assert.equal(adapterAvailable(), false);
+});
+
+const EXPECTED_CONTROLS = Object.freeze([
+  "session/set_mode",
+  "session/set_model",
+  "session/set_config_option",
+  "session/status",
+]);
+
+async function createCandidateRuntime(isolated, workspace, extraOptions = {}) {
+  return createVerifiedCandidateAcpRuntime({
+    cwd: workspace,
+    sessionStore: extraOptions.sessionStore ?? memorySessionStore(),
+    agentRegistry: {
+      resolve() {
+        return [process.execPath, PEER];
+      },
+      list() {
+        return ["candidate"];
+      },
+    },
+    fs: false,
+    terminal: false,
+    timeoutMs: 30_000,
+  }, {
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
+    isolatedRoot: isolated,
+  });
+}
+
+function configValue(status, key) {
+  const options = status?.details?.configOptions;
+  assert.ok(Array.isArray(options), "public status must expose configOptions");
+  const option = options.find((item) => item.id === key);
+  assert.ok(option, `public status is missing config option ${key}`);
+  return option.currentValue;
+}
+
+test("verified candidate imported payload hashes the current runtime closure", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  const { runtime, provenance } = await createCandidateRuntime(isolated, workspace);
+  try {
+    const installed = await proveInstalledCandidateModule({
+      modulePath: provenance.module_path,
+      artifactPath: LOCAL_ARTIFACT,
+    });
+    assert.deepEqual(provenance.imported_chunks, installed.imported_chunks);
+    assert.notEqual(
+      installed.imported_chunks.map((chunk) => chunk.artifact_entry).join(","),
+      "package/dist/ipc-B0t1qnI2.js",
+    );
+    assert.equal(
+      new Set(installed.imported_chunks.map((chunk) => chunk.artifact_entry)).size,
+      installed.imported_chunks.length,
+    );
+  } finally {
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the integrity proof.
+    }
+  }
+});
+
+test("actual public runtime isolates getCapabilities snapshots from later mutation", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  const { runtime } = await createCandidateRuntime(isolated, workspace);
+  try {
+    const handle = await runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    const first = await runtime.getCapabilities();
+    const sibling = await runtime.getCapabilities();
+    const scoped = await runtime.getCapabilities({ handle });
+    assert.notStrictEqual(first, sibling);
+    assert.notStrictEqual(first.controls, sibling.controls);
+    assert.deepEqual(first.controls, EXPECTED_CONTROLS);
+    assert.deepEqual(sibling.controls, EXPECTED_CONTROLS);
+    first.controls.length = 0;
+    first.controls = ["session/status"];
+    if (Array.isArray(first.configOptionKeys)) {
+      first.configOptionKeys.push("changed");
+    }
+    scoped.controls.push("injected");
+    if (Array.isArray(scoped.configOptionKeys)) {
+      scoped.configOptionKeys.push("mutated");
+    }
+    assert.deepEqual(sibling.controls, EXPECTED_CONTROLS);
+    const later = await runtime.getCapabilities();
+    const scopedLater = await runtime.getCapabilities({ handle });
+    assert.deepEqual(later.controls, EXPECTED_CONTROLS);
+    assert.deepEqual(scopedLater.controls, EXPECTED_CONTROLS);
+    assert.equal(scopedLater.controls.includes("injected"), false);
+    assert.ok(Array.isArray(scopedLater.configOptionKeys));
+    assert.equal(scopedLater.configOptionKeys.includes("reasoning_effort"), true);
+    assert.equal(scopedLater.configOptionKeys.includes("mode"), false);
+    assert.equal(scopedLater.configOptionKeys.includes("mutated"), false);
+  } finally {
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the isolation proof.
+    }
+  }
+});
+
+test("actual public runtime replays acknowledged mode and config on reconnect", {
+  timeout: 240_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  const sessionStore = memorySessionStore();
+  const first = await createCandidateRuntime(isolated, workspace, { sessionStore });
+  let handle;
+  try {
+    handle = await first.runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    await first.runtime.setMode({ handle, mode: "plan" });
+    const config = await first.runtime.setConfigOption({
+      handle,
+      key: "reasoning_effort",
+      value: "high",
+    });
+    assert.equal(
+      config?.configOptions?.find((option) => option.id === "reasoning_effort")?.currentValue,
+      "high",
+    );
+    await first.runtime.setModel({ handle, model: "candidate-fast" });
+    const before = await first.runtime.getStatus({ handle });
+    assert.equal(before.models?.currentModelId, "candidate-fast");
+    assert.deepEqual(before.models?.availableModelIds, ["candidate-default", "candidate-fast"]);
+    assert.equal(configValue(before, "reasoning_effort"), "high");
+    assert.equal(
+      before.details?.configOptions?.some((option) => option.id === "mode"),
+      false,
+    );
+    const seedTurn = first.runtime.startTurn({
+      handle,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "candidate-reconnect-seed",
+    });
+    const seedEvents = await discardCandidateTurnEvents(seedTurn);
+    assert.equal(seedEvents.body_retained, false);
+    const seedResult = await seedTurn.result;
+    assert.equal(seedResult.status, "completed");
+    const stored = await sessionStore.load(handle.acpxRecordId ?? handle.sessionKey);
+    assert.equal(stored?.acpx?.desired_mode_id, "plan");
+    assert.notEqual(stored?.acpx?.desired_mode_id, stored?.acpx?.desired_config_options?.mode);
+    assert.equal(stored?.acpx?.desired_config_options?.reasoning_effort, "high");
+  } finally {
+    try {
+      await first.runtime.shutdown();
+    } catch {
+      // First runtime must release before the reconnect runtime starts.
+    }
+  }
+
+  const second = await createCandidateRuntime(isolated, workspace, { sessionStore });
+  try {
+    const reconnected = await second.runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    assert.equal(reconnected.sessionKey, HOST.session);
+    assert.equal("conversation_id" in reconnected, false);
+    const status = await second.runtime.getStatus({ handle: reconnected });
+    assert.equal(status.models?.currentModelId, "candidate-fast");
+    assert.deepEqual(status.models?.availableModelIds, ["candidate-default", "candidate-fast"]);
+    assert.equal(configValue(status, "reasoning_effort"), "high");
+    assert.equal(
+      status.details?.configOptions?.some((option) => option.id === "mode"),
+      false,
+    );
+    const stored = await sessionStore.load(reconnected.acpxRecordId ?? reconnected.sessionKey);
+    assert.equal(stored?.acpx?.desired_mode_id, "plan");
+    assert.equal(stored?.acpx?.desired_config_options?.mode, undefined);
+    const turn = second.runtime.startTurn({
+      handle: reconnected,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "candidate-reconnect-turn",
+    });
+    const discarded = await discardCandidateTurnEvents(turn);
+    assert.equal(discarded.body_retained, false);
+    const result = await turn.result;
+    assert.equal(result.status, "completed");
+    const after = await second.runtime.getStatus({ handle: reconnected });
+    assert.equal(after.lastRequestId, "candidate-reconnect-turn");
+    assert.equal(after.models?.currentModelId, "candidate-fast");
+    assert.equal(configValue(after, "reasoning_effort"), "high");
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    try {
+      await second.runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the reconnect proof.
+    }
+  }
+});
+
+test("actual public runtime discards turn events without retaining bodies", {
+  timeout: 240_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const { runtime } = await createCandidateRuntime(isolated, workspace);
+  try {
+    const handle = await runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "persistent",
+      cwd: workspace,
+    });
+
+    const success = runtime.startTurn({
+      handle,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "candidate-event-success",
+    });
+    const successEvents = await discardCandidateTurnEvents(success);
+    assert.equal(successEvents.observer, "ended");
+    assert.equal(successEvents.body_retained, false);
+    assert.ok(successEvents.observed_types.includes("text_delta"));
+    const successResult = await success.result;
+    assert.equal(successResult.status, "completed");
+
+    const failed = runtime.startTurn({
+      handle,
+      text: "candidate runtime fail",
+      mode: "prompt",
+      requestId: "candidate-event-error",
+    });
+    const failedEvents = await discardCandidateTurnEvents(failed);
+    assert.equal(failedEvents.body_retained, false);
+    const failedResult = await failed.result;
+    assert.equal(failedResult.status, "failed");
+    assert.match(failedResult.error?.message ?? "", /candidate peer failed the turn|ACP_TURN_FAILED|failed/i);
+
+    const observer = runtime.startTurn({
+      handle,
+      text: TEST_PROMPT,
+      mode: "prompt",
+      requestId: "candidate-event-observer-end",
+    });
+    const ended = await discardCandidateTurnEvents(observer, { limit: 1 });
+    assert.equal(ended.observer, "ended");
+    assert.equal(ended.body_retained, false);
+    assert.ok(ended.observed_types.length >= 1);
+    const observerResult = await observer.result;
+    assert.equal(observerResult.status, "completed");
+
+    const audit = await auditDurableArtifacts(isolated);
+    assert.equal(audit.body_retained, false);
+    const names = await readdir(isolated);
+    for (const name of names) {
+      if (name.endsWith(".lock")) continue;
+      const raw = await readFile(path.join(isolated, name), "utf8");
+      assert.equal(raw.includes(TEST_PROMPT), false);
+      assert.equal(raw.includes("candidate-ack"), false);
+      assert.equal(raw.includes('"prompt"'), false);
+      assert.equal(raw.includes('"transcript"'), false);
+    }
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the event-ownership proof.
+    }
+  }
 });

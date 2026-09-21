@@ -29,7 +29,11 @@ from cursor_acpx import (
     ACPX_PR_HEAD,
     ACPX_SOURCE,
     ACPX_SOURCE_COMMIT,
+    ACPX_SOURCE_TREE,
     ACPX_STATUS,
+    HISTORICAL_ACPX_ARTIFACT_PATH,
+    HISTORICAL_ACPX_ARTIFACT_SHA256,
+    HISTORICAL_ACPX_MERGE_COMMIT,
     ADAPTER_ID,
     CursorAcpxAdapter,
     FORBIDDEN_CALLBACKS,
@@ -123,6 +127,7 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         pin = acpx_dependency_identity()
         self.assertEqual(pin["merge_commit"], ACPX_MERGE_COMMIT)
         self.assertEqual(pin["source_commit"], ACPX_SOURCE_COMMIT)
+        self.assertEqual(pin["source_tree"], ACPX_SOURCE_TREE)
         self.assertEqual(pin["head"], ACPX_MERGE_COMMIT)
         self.assertEqual(pin["pr_head"], ACPX_PR_HEAD)
         self.assertEqual(pin["pr_base"], ACPX_PR_BASE)
@@ -130,13 +135,22 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         self.assertEqual(pin["candidate_package_version"], ACPX_CANDIDATE_PACKAGE_VERSION)
         self.assertEqual(pin["published_npm_version"], "0.18.0")
         self.assertFalse(pin["published_npm_contains_merge"])
+        self.assertEqual(
+            pin["artifact_path"],
+            "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz",
+        )
+        self.assertNotEqual(pin["merge_commit"], HISTORICAL_ACPX_MERGE_COMMIT)
+        self.assertNotEqual(pin["artifact_sha256"], HISTORICAL_ACPX_ARTIFACT_SHA256)
+        self.assertNotEqual(pin["artifact_path"], HISTORICAL_ACPX_ARTIFACT_PATH)
+        self.assertNotEqual(pin["source_tree"], pin["merge_commit"])
         distinct = {
             pin["merge_commit"],
+            pin["source_tree"],
             pin["pr_head"],
             pin["pr_base"],
             pin["npm_git_head"],
         }
-        self.assertEqual(len(distinct), 4)
+        self.assertEqual(len(distinct), 5)
         self.assertNotEqual(pin["candidate_package_version"], pin["ordinary_pinned_package"])
         self.assertEqual(
             validate_acpx_dependency_identity(pin)["artifact_sha256"],
@@ -160,6 +174,21 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         live = dict(pin, qualification="live")
         with self.assertRaisesRegex(ValidationError, "live qualification"):
             validate_acpx_dependency_identity(live)
+        historical = dict(
+            pin,
+            source="https://github.com/openclaw/acpx/pull/648",
+            merge_commit=HISTORICAL_ACPX_MERGE_COMMIT,
+            source_commit=HISTORICAL_ACPX_MERGE_COMMIT,
+            head=HISTORICAL_ACPX_MERGE_COMMIT,
+            artifact_path=HISTORICAL_ACPX_ARTIFACT_PATH,
+            artifact_sha256=HISTORICAL_ACPX_ARTIFACT_SHA256,
+            integrity=HISTORICAL_ACPX_ARTIFACT_SHA256,
+        )
+        with self.assertRaisesRegex(IdentityError, "historical #648"):
+            validate_acpx_dependency_identity(historical)
+        tree_as_merge = dict(pin, source_tree=ACPX_MERGE_COMMIT)
+        with self.assertRaisesRegex(IdentityError, "source tree is not the merge"):
+            validate_acpx_dependency_identity(tree_as_merge)
 
     def test_local_artifact_is_exact_source_and_exposes_callback_controls(self):
         if not (ROOT / ACPX_ARTIFACT_PATH).is_file():

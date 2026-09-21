@@ -18,6 +18,10 @@ import {
   ACPX_PR_HEAD,
   ACPX_SOURCE,
   ACPX_SOURCE_COMMIT,
+  ACPX_SOURCE_TREE,
+  HISTORICAL_ACPX_ARTIFACT_PATH,
+  HISTORICAL_ACPX_ARTIFACT_SHA256,
+  HISTORICAL_ACPX_MERGE_COMMIT,
   AdapterError,
   CursorAcpxAdapter,
   FORBIDDEN_CALLBACKS,
@@ -101,10 +105,21 @@ test("merged unreleased provenance stays exact and fail-closed", () => {
   const pin = acpxDependencyIdentity();
   assert.equal(pin.merge_commit, ACPX_MERGE_COMMIT);
   assert.equal(pin.source_commit, ACPX_SOURCE_COMMIT);
+  assert.equal(pin.source_tree, ACPX_SOURCE_TREE);
   assert.equal(pin.pr_head, ACPX_PR_HEAD);
   assert.equal(pin.pr_base, ACPX_PR_BASE);
   assert.equal(pin.npm_git_head, ACPX_NPM_GIT_HEAD);
-  assert.equal(new Set([pin.merge_commit, pin.pr_head, pin.pr_base, pin.npm_git_head]).size, 4);
+  assert.notEqual(pin.merge_commit, HISTORICAL_ACPX_MERGE_COMMIT);
+  assert.notEqual(pin.artifact_sha256, HISTORICAL_ACPX_ARTIFACT_SHA256);
+  assert.notEqual(pin.artifact_path, HISTORICAL_ACPX_ARTIFACT_PATH);
+  assert.notEqual(pin.source_tree, pin.merge_commit);
+  assert.equal(new Set([
+    pin.merge_commit,
+    pin.source_tree,
+    pin.pr_head,
+    pin.pr_base,
+    pin.npm_git_head,
+  ]).size, 5);
   assert.notEqual(pin.candidate_package_version, pin.ordinary_pinned_package);
   assert.equal(pin.published_npm_contains_merge, false);
   assert.throws(
@@ -131,6 +146,23 @@ test("merged unreleased provenance stays exact and fail-closed", () => {
   assert.throws(
     () => validateAcpxDependencyIdentity({ ...pin, published_npm_contains_merge: true }),
     (error) => error instanceof AdapterError && /does not contain the merge/.test(error.message),
+  );
+  assert.throws(
+    () => validateAcpxDependencyIdentity({
+      ...pin,
+      source: "https://github.com/openclaw/acpx/pull/648",
+      merge_commit: HISTORICAL_ACPX_MERGE_COMMIT,
+      source_commit: HISTORICAL_ACPX_MERGE_COMMIT,
+      head: HISTORICAL_ACPX_MERGE_COMMIT,
+      artifact_path: HISTORICAL_ACPX_ARTIFACT_PATH,
+      artifact_sha256: HISTORICAL_ACPX_ARTIFACT_SHA256,
+      integrity: HISTORICAL_ACPX_ARTIFACT_SHA256,
+    }),
+    (error) => error instanceof AdapterError && /historical #648/.test(error.message),
+  );
+  assert.throws(
+    () => validateAcpxDependencyIdentity({ ...pin, source_tree: ACPX_MERGE_COMMIT }),
+    (error) => error instanceof AdapterError && /source tree is not the merge/.test(error.message),
   );
 });
 
