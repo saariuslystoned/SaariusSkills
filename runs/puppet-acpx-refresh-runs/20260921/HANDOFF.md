@@ -6,4 +6,4 @@ The candidate pin, task-local artifact/runtime root, actual-runtime isolation,
 reconnect, and result-only event tests are in the local branch. Owner checks
 pass: Python 23/23 and bridge 64/64. No ordinary broker/plugin pin, live
 candidate qualification, provider turn, release, merge, or OpenClaw review
-has been performed in this slice.
+has been performed in this slice. Draft PR: https://github.com/saariuslystoned/SaariusSkills/pull/60.

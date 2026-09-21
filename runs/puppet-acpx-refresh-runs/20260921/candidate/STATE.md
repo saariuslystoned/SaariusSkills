@@ -1,6 +1,6 @@
 # Puppet acpx candidate refresh state
 
-- status: candidate_only; unreleased; draft PR pending publication
+- status: candidate_only; unreleased; draft PR #60
 - repo: saariuslystoned/SaariusSkills
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-acpx-refresh-20260921`
 - branch: `codex/puppet-acpx-refresh-20260921`
@@ -10,7 +10,7 @@
 - ordinary_launch: unavailable
 - qualification: synthetic_only
 - live_or_provider_action: none
-- public_pr: pending
+- public_pr: https://github.com/saariuslystoned/SaariusSkills/pull/60 (draft)
 - production_enabled: false
 
 ## Provenance

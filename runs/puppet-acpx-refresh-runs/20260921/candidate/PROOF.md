@@ -20,7 +20,7 @@ artifact digest `fe9ba256...`, and runtime root remain rejected fences.
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-acpx-refresh-20260921`
 - branch: `codex/puppet-acpx-refresh-20260921`
 - base: `faa332ca8b3eb7da6662f127d6e3a55056f3db9d`
-- public PR: pending draft publication after owner verification
+- public PR: https://github.com/saariuslystoned/SaariusSkills/pull/60 (draft)
 - production enablement: none
 
 ## Provenance tuple

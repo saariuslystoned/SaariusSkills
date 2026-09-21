@@ -10,4 +10,5 @@
 - live candidate qualification: consumed; no live provider turn authorized
 - ordinary route/plugin pin: unchanged
 - owner verification: Python 23/23; bridge 64/64; diff check clean; artifact digest reverified
-- next: publish one draft PR for human review; no merge or release
+- draft PR: https://github.com/saariuslystoned/SaariusSkills/pull/60
+- next: human review only; no merge or release
