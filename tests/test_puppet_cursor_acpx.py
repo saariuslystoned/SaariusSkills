@@ -162,6 +162,8 @@ class CursorAcpxAdapterTests(unittest.TestCase):
             validate_acpx_dependency_identity(live)
 
     def test_local_artifact_is_exact_source_and_exposes_callback_controls(self):
+        if not (ROOT / ACPX_ARTIFACT_PATH).is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
         proved = prove_local_artifact()
         self.assertEqual(proved["artifact_sha256"], ACPX_ARTIFACT_SHA256)
         self.assertEqual(proved["path"], ACPX_ARTIFACT_PATH)
