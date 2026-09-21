@@ -32,7 +32,7 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 - Live release/session gates reject before process start; existing live workspace/state/fence rejects without deletion or retry.
 - Live path does not call the known-answer helper; attribution uses independent before/after digests and protected-test checks.
 - First turn is `_cursor_acp_structured_launch.require_observation`; helper exit is not backend proof; post-finish backend uncertainty fails closed.
-- No live Cursor provider turn was executed.
+- Historical PR62 live failure had no provider turn; the later PR64 qualification attempt reached one real Cursor task turn and is recorded separately below.
 
 ## Artifact hashes
 
@@ -45,7 +45,7 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 
 ## Qualification status
 
-Independent v3 review and the bounded release decision are complete. The one released live session was consumed and failed before the first provider turn; there is no remaining live allocation and no retry authorization. A new live proof requires acceptance of the source repair and a fresh concrete parent allocation.
+Independent v3 review, the bounded release decision, and the PR64 source acceptance are complete. The fresh PR64 qualification session reached one useful task turn but failed closed during owner cleanup; qualification is not accepted. That allocation is consumed, with no retry or replacement authorization. A future live proof requires the cleanup repair and a fresh concrete parent allocation.
 
 ## Bounded release decision
 
@@ -66,6 +66,15 @@ Independent v3 review and the bounded release decision are complete. The one rel
 - Sanitized outcome receipt: `live-outcome/live-failure.json`, SHA-256 `93270b1f5b1369510a25786c51cf03340e9a0d8bb779ddb4e551f9e32e24e9fc`.
 - Parent adjudication identifies the blocker as a local product-wiring defect: `CursorAcpNodeRuntime` registers the official executable under `cursor`, while `CandidateAcpRuntimeRunner._ensure_owned_handle` hardcodes `agent: candidate`; the synthetic registry hid this mismatch. This is not an established upstream or authentication failure.
 - Repair owner: task `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`. Repair packet: `/Users/bobbybones/Developer/worktrees/acpx-upstream-plan-20260920/runs/puppet-overnight-runs/20260921/CURSOR_ROUTE_IDENTITY_REPAIR.md`.
+
+## PR64 qualification outcome
+
+- Execution worktree: `/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921`; branch `codex/puppet-cursor-qualification-pr64-20260921`; exact PR64 head/tree `84a6dad7110ed97722b35ff1d7c102671312ec80` / `c923dfc6fc698d14d2e5c3fcdfdce3f156226b39`.
+- Session `cursor-proof-v3-live-pr64-20260921` completed one useful first task. Only `normalize-lines.mjs` changed; the protected test stayed unchanged and passed 3/3.
+- Owner cleanup then failed with `ValidationError: Agent does not support session/close for cursor-proof-v3-live-pr64-20260921.` The cleanup fence is retained and replacement is blocked; backend termination is not verified.
+- Requested/expected model were `cursor-grok-4.6-high` / `grok-4.6[effort=high,fast=true]`, but selected/current model metadata was not durably retained before cleanup failure. No model qualification claim is made.
+- Sanitized receipt: `live-outcome-pr64/live-outcome.json`, SHA-256 `a940d5425bd21c04e6542bb754e7cd01ad0d0e473bd933e79f4bb2f68e42fe33`.
+- Budget used: one session, one completed prompt, no retry. This is useful behavior evidence with cleanup uncertainty, not a qualification PASS or ordinary production admission.
 
 ## Attribution
 
