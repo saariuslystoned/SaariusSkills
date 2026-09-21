@@ -11,6 +11,10 @@ import {
   publicProcessLifecycleSnapshot,
   rejectCandidateRuntimeConversationParams,
 } from "../../cursor-acp/puppet-adapter.mjs";
+import {
+  createHostPermissionContractRegistry,
+  rejectCallerTurnPermissionHooks,
+} from "../host-permission-contract.mjs";
 
 const STARTUP_TIMEOUT_MS = 30_000;
 const MIN_TIMEOUT_MS = 1_000;
@@ -35,6 +39,15 @@ const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
 const ALLOWED_SYNTHETIC_PEERS = new Set([
   "candidate-peer.mjs",
   "unsupported-close-peer.mjs",
+  "permission-peer.mjs",
+]);
+const ALLOWED_PEER_PERMISSION_MODES = new Set([
+  "fs_write_file",
+  "fs_write_twice",
+  "deny_protected",
+  "interaction",
+  "elicitation",
+  "ambiguous",
 ]);
 const ALLOWED_PROCESS_ENV_NAMES = new Set([
   "PATH",
@@ -67,6 +80,7 @@ function memorySessionStore() {
 
 let runtime;
 let processLifecycleTracker;
+let hostPermissionContracts;
 
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -106,6 +120,13 @@ function syntheticRegistry(payload) {
   const args = [];
   if (payload?.syntheticPeerSurvive === true) args.push("--survive");
   if (payload?.syntheticPeerHangPrompt === true) args.push("--hang-prompt");
+  if (payload?.syntheticPeerPermission != null && payload.syntheticPeerPermission !== "") {
+    const mode = String(payload.syntheticPeerPermission);
+    if (!ALLOWED_PEER_PERMISSION_MODES.has(mode)) {
+      throw new Error("synthetic peer permission mode is not a local test mode");
+    }
+    args.push("--permission", mode);
+  }
   return {
     resolve() {
       return args.length ? [process.execPath, peer, ...args] : [process.execPath, peer];
@@ -211,6 +232,7 @@ async function create(payload) {
     isolatedRoot: payload.isolatedRoot,
   });
   runtime = created.runtime;
+  hostPermissionContracts = createHostPermissionContractRegistry();
   return {
     available: false,
     ordinary_launch: "unavailable",
@@ -248,10 +270,22 @@ async function handle(message) {
     return {};
   }
   if (op === "startTurn") {
+    rejectCallerTurnPermissionHooks(payload, "startTurn");
     const timeoutMs = requireBoundedTimeoutMs(payload.timeoutMs, "candidate prompt");
+    const sessionKey = payload.handle?.sessionKey;
+    const workspaceRoot = payload.handle?.cwd;
+    if (!hostPermissionContracts) {
+      throw new Error("host permission contract registry is missing");
+    }
+    const contract = hostPermissionContracts.forSession({
+      sessionKey,
+      workspaceRoot,
+    });
     const turn = current.startTurn({
       ...rejectCandidateRuntimeConversationParams(payload, "startTurn"),
       timeoutMs,
+      onPermissionRequest: contract.onPermissionRequest,
+      onElicitation: contract.onElicitation,
     });
     let discarded = {
       observer: "absent",
@@ -282,6 +316,7 @@ async function handle(message) {
         }
       }
     }
+    const permission = contract.snapshot();
     return {
       requestId: turn.requestId,
       timeoutMs,
@@ -289,6 +324,7 @@ async function handle(message) {
       discarded,
       result: boundTurnResult(result, turnError),
       process_lifecycle,
+      ...(permission.decisions.length ? { permission } : {}),
     };
   }
   if (op === "close") {
@@ -315,6 +351,7 @@ async function handle(message) {
     const settled_process_lifecycle = processLifecycleTracker?.snapshot() ?? process_lifecycle;
     runtime = undefined;
     processLifecycleTracker = undefined;
+    hostPermissionContracts = undefined;
     return { process_lifecycle: settled_process_lifecycle };
   }
   throw new Error(`unsupported controller runtime driver op ${op}`);

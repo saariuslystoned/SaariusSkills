@@ -49,6 +49,7 @@ DEFAULT_ROUTE = "agy-print"
 CANDIDATE_SCHEMA = "puppet.antigravity-acp-candidate/v1"
 OBSERVATION_SCHEMA = "puppet.antigravity-acp-observation/v1"
 MODEL_CATALOG_SCHEMA = "puppet.antigravity-acp-model-catalog/v1"
+HOST_PERMISSION_SCHEMA = "puppet.antigravity-acp-host-permission/v1"
 ADAPTER_ID = "antigravity-acpx"
 OWNERSHIP_SCHEMA = "puppet.antigravity-acpx-ownership/v1"
 
@@ -1268,6 +1269,96 @@ def prove_antigravity_acp_observation(
     return obs
 
 
+HOST_PERMISSION_OUTCOMES = frozenset({"allow_once", "denied", "cancelled"})
+HOST_PERMISSION_KINDS = frozenset(
+    {"fs_write_file", "denied", "interaction", "elicitation", "ambiguous", "host"}
+)
+
+
+def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, Any]:
+    """Record a body-free host permission decision. Never persist allow-always."""
+
+    if not isinstance(permission, Mapping):
+        raise ValidationError("host permission outcome is missing")
+    if permission.get("schema") not in {HOST_PERMISSION_SCHEMA, None}:
+        raise ValidationError("host permission schema is invalid")
+    outcome = permission.get("outcome")
+    if outcome not in HOST_PERMISSION_OUTCOMES:
+        raise ValidationError("host permission outcome is invalid")
+    grant_count = permission.get("grant_count", 1 if outcome == "allow_once" else 0)
+    if grant_count not in {0, 1}:
+        raise ValidationError("host permission grant must stay one-time")
+    if permission.get("allowed") is True and grant_count != 1:
+        raise ValidationError("host permission must not mark a non-grant as allowed")
+    if grant_count == 1 and permission.get("allowed") is not True:
+        raise ValidationError("one-time host permission must be marked allowed")
+    if permission.get("invented_decision") is not None:
+        raise ValidationError("antigravity-acp must not invent a permission decision")
+    if permission.get("persisted") is not False:
+        raise ValidationError("host permission must not persist an approval")
+    if permission.get("approve_all") is not False:
+        raise ValidationError("host permission must not import approve-all")
+    if permission.get("os_sandbox") is not False:
+        raise ValidationError("host permission must not claim an OS sandbox")
+    if permission.get("fs") is not False or permission.get("terminal") is not False:
+        raise ValidationError("filesystem and terminal callbacks must stay disabled")
+    if permission.get("ordinary_launch") != "unavailable":
+        raise ValidationError("ordinary launch must stay unavailable")
+    if permission.get("body_retained") is not False:
+        raise ValidationError("host permission receipt retained a body")
+    kind = permission.get("permission_kind") or permission.get("permission_id") or "host"
+    if kind not in HOST_PERMISSION_KINDS:
+        raise ValidationError("host permission kind is invalid")
+    decisions = permission.get("decisions")
+    bounded_decisions = []
+    if decisions is None:
+        bounded_decisions = [{"outcome": outcome, "permission_kind": kind}]
+    elif not isinstance(decisions, list):
+        raise ValidationError("host permission decisions are invalid")
+    else:
+        for item in decisions:
+            if not isinstance(item, Mapping):
+                raise ValidationError("host permission decisions are invalid")
+            item_outcome = item.get("outcome")
+            item_kind = item.get("permission_kind")
+            if item_outcome == "allow_always" or item.get("kind") == "allow_always":
+                raise ValidationError("host permission must not persist allow-always")
+            if item_outcome not in HOST_PERMISSION_OUTCOMES:
+                raise ValidationError("host permission decision outcome is invalid")
+            if item_kind not in HOST_PERMISSION_KINDS:
+                raise ValidationError("host permission decision kind is invalid")
+            if item.get("allowed") is True and item_outcome != "allow_once":
+                raise ValidationError("host permission must not mark a non-grant as allowed")
+            bounded_decisions.append(
+                {"outcome": item_outcome, "permission_kind": item_kind}
+            )
+    if any(
+        item.get("outcome") == "allow_always"
+        or item.get("kind") == "allow_always"
+        for item in (decisions or ())
+        if isinstance(item, Mapping)
+    ):
+        raise ValidationError("host permission must not persist allow-always")
+    return {
+        "schema": HOST_PERMISSION_SCHEMA,
+        "state": outcome,
+        "outcome": outcome,
+        "permission_id": kind,
+        "permission_kind": kind,
+        "decisions": bounded_decisions,
+        "grant_count": grant_count,
+        "allowed": grant_count == 1,
+        "persisted": False,
+        "approve_all": False,
+        "os_sandbox": False,
+        "fs": False,
+        "terminal": False,
+        "ordinary_launch": "unavailable",
+        "body_retained": False,
+        "invented_decision": None,
+    }
+
+
 def fixture_observation(**changes: Any) -> Dict[str, Any]:
     base = {
         "schema": OBSERVATION_SCHEMA,
@@ -1458,6 +1549,7 @@ class AntigravityAcpNodeRuntime:
         synthetic_peer_script: Optional[str] = None,
         synthetic_peer_survive: bool = False,
         synthetic_peer_hang_prompt: bool = False,
+        synthetic_peer_permission: Optional[str] = None,
         startup_timeout_ms: int = STARTUP_TIMEOUT_MS,
     ):
         if synthetic_peer and executable is not None:
@@ -1506,6 +1598,8 @@ class AntigravityAcpNodeRuntime:
                 payload["syntheticPeerScript"] = synthetic_peer_script
             payload["syntheticPeerSurvive"] = bool(synthetic_peer_survive)
             payload["syntheticPeerHangPrompt"] = bool(synthetic_peer_hang_prompt)
+            if synthetic_peer_permission:
+                payload["syntheticPeerPermission"] = synthetic_peer_permission
         payload["startupTimeoutMs"] = require_bounded_timeout_ms(
             startup_timeout_ms, "startup"
         )
@@ -2080,6 +2174,9 @@ class AntigravityAcpRuntimeRunner:
             discarded=self.discarded_events,
             timeout_ms=self.prompt_timeout_ms,
         )
+        host_permission = turn.get("permission")
+        if host_permission is not None:
+            self.permission_outcome = require_host_permission_outcome(host_permission)
         self.receipt_durability = self._persist_turn_receipt()
         after = self.runtime.get_status(
             reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
@@ -2129,15 +2226,18 @@ class AntigravityAcpRuntimeRunner:
         try:
             from antigravity_acpx import persist_turn_receipt
 
+            extras = {
+                **self.terminal_receipt,
+                "process_lifecycle": self.process_lifecycle,
+            }
+            if self.permission_outcome is not None:
+                extras["permission"] = self.permission_outcome
             event = persist_turn_receipt(
                 self.isolated_root,
                 session=self.session,
                 conversation_id=self.conversation_id,
                 request_id=self.request_id,
-                extras={
-                    **self.terminal_receipt,
-                    "process_lifecycle": self.process_lifecycle,
-                },
+                extras=extras,
             )
         except Exception:
             self.receipt_durability = bound_receipt_durability(written=False)
@@ -2414,6 +2514,7 @@ __all__ = [
     "DEFAULT_ROUTE",
     "FALLBACK_OR_DEFAULT_MODEL_IDS",
     "GENERIC_ACP_ID",
+    "HOST_PERMISSION_SCHEMA",
     "MODEL_CATALOG_SCHEMA",
     "OBSERVATION_SCHEMA",
     "OWNERSHIP_SCHEMA",
@@ -2435,6 +2536,7 @@ __all__ = [
     "observation_from_runtime_turn",
     "prove_antigravity_acp_observation",
     "require_antigravity_acp_target",
+    "require_host_permission_outcome",
     "session_record_from_observation",
     "validate_antigravity_acp_catalog",
     "validate_auth_observation",
