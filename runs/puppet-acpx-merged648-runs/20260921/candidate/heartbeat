@@ -1,0 +1,5 @@
+2026-09-20T23:24:00-04:00 initialized merged648 candidate; draft-state pin still current
+2026-09-20T23:24:30-04:00 local tarball SHA-256 matched fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29
+2026-09-20T23:26:00-04:00 Python/JS identity surfaces bound to merge commit ac22c3c8; ordinary pin remains 0.16.0
+2026-09-20T23:27:00-04:00 focused Python 14/14; py_compile ok; bridge npm run check 48/48
+2026-09-20T23:28:21-04:00 candidate closeout; available false; no public PR; no production enablement

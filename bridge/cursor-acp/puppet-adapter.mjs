@@ -2,13 +2,33 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648";
-export const ACPX_HEAD = "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff";
-export const ACPX_STATUS = "draft";
+export const ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8";
+export const ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT;
+export const ACPX_HEAD = ACPX_MERGE_COMMIT;
+export const ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2";
+export const ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8";
+export const ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58";
+export const ACPX_STATUS = "merged_unreleased";
 export const ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0";
+export const ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0";
+export const ACPX_PUBLISHED_NPM_VERSION = "0.18.0";
+export const ACPX_ARTIFACT_SHA256 = "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29";
+export const ACPX_ARTIFACT_PATH = "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz";
+export const ACPX_ARTIFACT_KIND = "local_exact_source_tarball";
 export const ACPX_PUBLIC_SURFACE = "acpx/runtime";
 export const ACPX_CONSTRUCTOR = "createAcpRuntime";
+export const ACPX_QUALIFICATION = "synthetic_only";
+export const CUTOVER_SCHEMA = "puppet.cursor-acpx-cutover/v1";
+export const OBSOLETE_DRAFT_HEADS = Object.freeze([
+  "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff",
+  "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de",
+]);
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const SHA1_RE = /^[0-9a-f]{40}$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
 export const TRANSPORT_ID = "cursor-acp";
 export const ADAPTER_ID = "cursor-acpx";
 export const FORBIDDEN_CALLBACKS = Object.freeze([
@@ -75,24 +95,167 @@ function canonicalJson(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 }
 
+function metadataIntegrityHash(value) {
+  const body = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "schema" && key !== "integrity"),
+  );
+  return createHash("sha256").update(canonicalJson(body), "utf8").digest("hex");
+}
+
+function requireSha1(value, label) {
+  if (typeof value !== "string" || !SHA1_RE.test(value)) {
+    throw new AdapterError("IDENTITY_MISMATCH", `${label} must be a full 40-character lowercase SHA`);
+  }
+  return value;
+}
+
+function requireSha256(value, label) {
+  if (typeof value !== "string" || !SHA256_RE.test(value)) {
+    throw new AdapterError("IDENTITY_MISMATCH", `${label} must be a lowercase SHA-256`);
+  }
+  return value;
+}
+
 export function acpxDependencyIdentity() {
   const pin = {
     source: ACPX_SOURCE,
     head: ACPX_HEAD,
+    merge_commit: ACPX_MERGE_COMMIT,
+    source_commit: ACPX_SOURCE_COMMIT,
+    pr_head: ACPX_PR_HEAD,
+    pr_base: ACPX_PR_BASE,
+    npm_git_head: ACPX_NPM_GIT_HEAD,
     status: ACPX_STATUS,
     ordinary_pinned_package: ACPX_ORDINARY_PINNED_PACKAGE,
+    candidate_package_version: ACPX_CANDIDATE_PACKAGE_VERSION,
+    published_npm_version: ACPX_PUBLISHED_NPM_VERSION,
+    published_npm_contains_merge: false,
     ordinary_route_unchanged: true,
-    qualification: "synthetic_only",
-    merged: false,
+    qualification: ACPX_QUALIFICATION,
+    merged: true,
     released: false,
     public_surface: ACPX_PUBLIC_SURFACE,
     constructor: ACPX_CONSTRUCTOR,
+    artifact_kind: ACPX_ARTIFACT_KIND,
+    artifact_path: ACPX_ARTIFACT_PATH,
+    artifact_sha256: ACPX_ARTIFACT_SHA256,
   };
   return {
     schema: "puppet.cursor-acpx-dependency/v1",
     ...pin,
-    integrity: createHash("sha256").update(canonicalJson(pin), "utf8").digest("hex"),
+    integrity: ACPX_ARTIFACT_SHA256,
   };
+}
+
+export function validateAcpxDependencyIdentity(value) {
+  if (!value || typeof value !== "object") {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx dependency identity is invalid");
+  }
+  rejectBodyKeys(value, "acpx identity");
+  if (value.status === "draft") {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx draft-state identity is obsolete");
+  }
+  if (value.merged !== true) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx source is not the merged commit");
+  }
+  if (value.released === true) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx candidate is not a released package");
+  }
+  if (value.qualification !== ACPX_QUALIFICATION) {
+    throw new AdapterError("IDENTITY_MISMATCH", "cursor-acpx cannot claim live qualification");
+  }
+  if (value.published_npm_contains_merge === true) {
+    throw new AdapterError("IDENTITY_MISMATCH", "published npm acpx@0.18.0 does not contain the merge");
+  }
+  if (value.ordinary_pinned_package !== ACPX_ORDINARY_PINNED_PACKAGE) {
+    throw new AdapterError("IDENTITY_MISMATCH", "ordinary production pin must stay 0.16.0");
+  }
+  if (value.candidate_package_version !== ACPX_CANDIDATE_PACKAGE_VERSION) {
+    throw new AdapterError("IDENTITY_MISMATCH", "candidate package version drifted");
+  }
+  const mergeCommit = requireSha1(value.merge_commit, "merge commit");
+  const sourceCommit = requireSha1(value.source_commit, "source commit");
+  const head = requireSha1(value.head, "bound head");
+  const prHead = requireSha1(value.pr_head, "PR head");
+  const prBase = requireSha1(value.pr_base, "PR base");
+  const npmGitHead = requireSha1(value.npm_git_head, "npm gitHead");
+  if (mergeCommit !== sourceCommit || head !== mergeCommit) {
+    throw new AdapterError("IDENTITY_MISMATCH", "merge and source commit must be the exact merged acpx commit");
+  }
+  if (mergeCommit === npmGitHead) {
+    throw new AdapterError("IDENTITY_MISMATCH", "stale npm gitHead is not the merge commit");
+  }
+  if (mergeCommit === prHead || mergeCommit === prBase) {
+    throw new AdapterError("IDENTITY_MISMATCH", "PR head or base is not the merge commit");
+  }
+  if ([mergeCommit, prHead, prBase, npmGitHead].some((commit) => OBSOLETE_DRAFT_HEADS.includes(commit))) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx draft-state identity is obsolete");
+  }
+  const artifact = requireSha256(value.artifact_sha256, "acpx artifact");
+  const integrity = requireSha256(value.integrity, "acpx integrity");
+  if (integrity === metadataIntegrityHash(value)) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx artifact integrity must not be a hash of descriptive metadata");
+  }
+  if (integrity !== artifact) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx artifact integrity must be the tarball digest");
+  }
+  const expected = acpxDependencyIdentity();
+  if (canonicalJson(value) !== canonicalJson(expected)) {
+    throw new AdapterError("IDENTITY_MISMATCH", "acpx source identity drifted");
+  }
+  return expected;
+}
+
+export async function proveLocalArtifact(artifactPath) {
+  const relative = artifactPath ?? path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
+  const digest = createHash("sha256").update(await readFile(relative)).digest("hex");
+  if (digest !== ACPX_ARTIFACT_SHA256) {
+    throw new AdapterError("IDENTITY_MISMATCH", "local acpx artifact digest drifted");
+  }
+  return {
+    kind: ACPX_ARTIFACT_KIND,
+    path: artifactPath ? String(relative) : ACPX_ARTIFACT_PATH,
+    artifact_sha256: digest,
+    candidate_package_version: ACPX_CANDIDATE_PACKAGE_VERSION,
+    released: false,
+    published_npm_contains_merge: false,
+  };
+}
+
+export function cutoverSafeguards() {
+  return {
+    schema: CUTOVER_SCHEMA,
+    available: false,
+    ordinary_launch: "unavailable",
+    ordinary_pinned_package: ACPX_ORDINARY_PINNED_PACKAGE,
+    candidate_package_version: ACPX_CANDIDATE_PACKAGE_VERSION,
+    released: false,
+    published_npm_contains_merge: false,
+    qualification: ACPX_QUALIFICATION,
+    live_qualification: false,
+    production_enabled: false,
+    public_pr: false,
+    ordinary_route_unchanged: true,
+  };
+}
+
+export function validateCutoverSafeguards(value) {
+  const expected = cutoverSafeguards();
+  const current = value ?? expected;
+  if (canonicalJson(current) !== canonicalJson(expected)) {
+    throw new AdapterError("IDENTITY_MISMATCH", "cursor-acpx cutover safeguards drifted");
+  }
+  if (
+    current.available !== false
+    || current.production_enabled !== false
+    || current.released !== false
+    || current.public_pr !== false
+    || current.live_qualification !== false
+    || current.ordinary_launch !== "unavailable"
+  ) {
+    throw new AdapterError("IDENTITY_MISMATCH", "cursor-acpx must not enable production or ordinary launch");
+  }
+  return expected;
 }
 
 export function publicRuntimeBoundary() {
@@ -110,8 +273,12 @@ export function publicRuntimeBoundary() {
     private_internals: false,
     ordinary_launch: "unavailable",
     available: false,
-    qualification: "synthetic_only",
+    qualification: ACPX_QUALIFICATION,
     live_qualification: false,
+    merged_callback_options: ["fs", "terminal"],
+    callback_omit_default: "enabled",
+    callback_persisted: false,
+    os_sandbox: false,
   };
 }
 
@@ -193,16 +360,17 @@ export async function claimIsolatedRoot(isolatedRoot, { owner, session, conversa
     conversation_id: conversationId,
     lease: "not_admitted",
     ordinary_launch: "unavailable",
-    qualification: "synthetic_only",
+    qualification: ACPX_QUALIFICATION,
     available: false,
     cleanup: "owned",
     replacement_blocked: false,
-    acpx: acpxDependencyIdentity(),
+    acpx: validateAcpxDependencyIdentity(acpxDependencyIdentity()),
   };
   const ownershipPath = path.join(root, "ownership.json");
   try {
     await access(ownershipPath, constants.F_OK);
     const existing = JSON.parse(await readFile(ownershipPath, "utf8"));
+    validateAcpxDependencyIdentity(existing.acpx);
     if (existing.owner !== owner) {
       throw new AdapterError("DUPLICATE_OWNER", "isolated state root is already owned by a different adapter");
     }
