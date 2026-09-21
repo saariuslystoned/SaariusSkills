@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "antigravity-acp": {
+      "command": "node",
+      "args": ["${CURSOR_PLUGIN_ROOT}/bridge/antigravity-acp/server.mjs"]
+    }
+  }
+}
