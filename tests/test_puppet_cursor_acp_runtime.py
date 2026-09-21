@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -14,9 +15,12 @@ sys.path.insert(0, str(SCRIPTS))
 from cursor_acpx import ACPX_ARTIFACT_PATH, claim_isolated_root, load_isolated_root
 from puppet_lib.acp_consumer import AcpConsumerOwner
 from puppet_lib.cursor_acp import (
+    CANDIDATE_RUNTIME_KIND,
     CURSOR_ACP_ARGV_TAIL,
+    DEFAULT_CURSOR_EXECUTABLE,
     FINISH_POLICY_RETAIN,
     SESSION_MODE_PERSISTENT,
+    SYNTHETIC_AGENT,
     SYNTHETIC_PEER_KIND,
     CursorAcpController,
     CursorAcpNodeRuntime,
@@ -24,8 +28,10 @@ from puppet_lib.cursor_acp import (
     CursorAcpSyntheticRuntime,
     advertised_catalog_from_runtime_models,
     build_cursor_acp_candidate_runner,
+    cursor_acp_runtime_agent,
     drain_runtime_turn_events,
     map_runtime_models,
+    require_cursor_acp_runtime_agent,
     require_runtime_task_text,
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
@@ -185,6 +191,8 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(result["cursor_acp"]["halt"]["session"], "cursor-acp-session")
             self.assertEqual(len(runtime.ensure_calls), 1)
             self.assertEqual(sorted(runtime.ensure_calls[0]), ["agent", "cwd", "mode", "sessionKey"])
+            self.assertEqual(runtime.ensure_calls[0]["agent"], SYNTHETIC_AGENT)
+            self.assertEqual(runtime.agent, SYNTHETIC_AGENT)
             self.assertEqual(len(runtime.start_calls), 1)
             self.assertEqual(runtime.start_calls[0]["requestId"], "cursor-acp-request-1")
             self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
@@ -586,6 +594,118 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertEqual(runner.discarded_events["body_retained"], False)
                 self.assertFalse(CursorAcpController.available())
                 self.assertEqual(runtime.kind, SYNTHETIC_PEER_KIND)
+                self.assertEqual(runtime.agent, SYNTHETIC_AGENT)
+            finally:
+                runtime.shutdown()
+
+    def test_runtime_agent_contract_keeps_official_and_synthetic_identities(self):
+        self.assertEqual(cursor_acp_runtime_agent(synthetic_peer=False), "cursor")
+        self.assertEqual(cursor_acp_runtime_agent(synthetic_peer=True), SYNTHETIC_AGENT)
+        self.assertEqual(require_cursor_acp_runtime_agent(type("R", (), {"agent": "cursor"})()), "cursor")
+        self.assertEqual(
+            require_cursor_acp_runtime_agent(type("R", (), {"agent": SYNTHETIC_AGENT})()),
+            SYNTHETIC_AGENT,
+        )
+        self.assertEqual(
+            require_cursor_acp_runtime_agent(type("R", (), {"kind": CANDIDATE_RUNTIME_KIND})()),
+            "cursor",
+        )
+        with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
+            require_cursor_acp_runtime_agent(type("R", (), {"agent": "codex"})())
+        with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
+            require_cursor_acp_runtime_agent(type("R", (), {"agent": "antigravity"})())
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            with self.assertRaisesRegex(ValidationError, "must stay on the cursor route"):
+                CursorAcpNodeRuntime(
+                    workspace=workspace,
+                    isolated_root=isolated,
+                    repo_root=ROOT,
+                    synthetic_peer=False,
+                    executable=Path(temporary) / "peer",
+                    agent=SYNTHETIC_AGENT,
+                )
+
+    def test_official_public_registry_ensure_session_selects_cursor_not_candidate(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        peer = ROOT / "bridge" / "cursor-acp" / "test" / "candidate-peer.mjs"
+        models = {
+            "currentModelId": "candidate-default",
+            "availableModelIds": ["candidate-default", "candidate-fast"],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="cursor-acp-session",
+                conversation_id="conv-cursor-acp-1",
+            )
+            executable = Path(temporary) / "official-cursor-peer"
+            executable.write_text(
+                "#!/bin/sh\nexec /usr/bin/env node %s\n" % shlex.quote(str(peer)),
+                encoding="utf-8",
+            )
+            os.chmod(executable, 0o700)
+            runtime = CursorAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=False,
+                executable=executable,
+                agent="cursor",
+            )
+            try:
+                self.assertEqual(runtime.kind, CANDIDATE_RUNTIME_KIND)
+                self.assertEqual(runtime.agent, "cursor")
+                self.assertNotEqual(str(executable), DEFAULT_CURSOR_EXECUTABLE)
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "Failed to spawn agent command: candidate",
+                ):
+                    runtime.ensure_session(
+                        {
+                            "sessionKey": "cursor-acp-mismatch",
+                            "agent": SYNTHETIC_AGENT,
+                            "mode": "oneshot",
+                            "cwd": str(workspace),
+                        }
+                    )
+                runner = CursorAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="cursor-acp-session",
+                    conversation_id="conv-cursor-acp-1",
+                    request_id="cursor-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model="candidate-default",
+                    text=CALLER_TASK_TEXT,
+                    catalog=advertised_catalog_from_runtime_models(models),
+                    halt=True,
+                )
+                controller = CursorAcpController(Path(temporary), runner=runner)
+                result = controller.caller_result(
+                    expected_session="cursor-acp-session",
+                    expected_conversation_id="conv-cursor-acp-1",
+                    expected_workspace=_workspace(workspace),
+                    requested_model="candidate-default",
+                    require_halt=True,
+                )
+                self.assertTrue(result["ok"])
+                self.assertFalse(result["live_cursor_acp_claimed"])
+                self.assertEqual(runner.handle["sessionKey"], "cursor-acp-session")
+                self.assertNotEqual(runner.handle["backendSessionId"], "conv-cursor-acp-1")
+                self.assertNotEqual(runner.handle["acpxRecordId"], "conv-cursor-acp-1")
+                self.assertEqual(require_cursor_acp_runtime_agent(runtime), "cursor")
+                self.assertFalse(CursorAcpController.available())
+                self.assertFalse(CursorAcpRuntimeRunner.available())
             finally:
                 runtime.shutdown()
 

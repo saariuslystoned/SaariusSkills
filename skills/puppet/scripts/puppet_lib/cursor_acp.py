@@ -82,6 +82,7 @@ DEFAULT_CURSOR_EXECUTABLE = "/Users/bobbybones/.local/bin/cursor-agent"
 CURSOR_ACP_ARGV_TAIL = "acp"
 CURSOR_ROUTE_IDENTITY = "cursor-agent-acp"
 OFFICIAL_ROUTE_KIND = "official_route"
+SYNTHETIC_AGENT = "candidate"
 CURSOR_ROUTE_BINDING_SCHEMA = "puppet.cursor-acp-route-binding/v1"
 SESSION_MODE_ONESHOT = "oneshot"
 SESSION_MODE_PERSISTENT = "persistent"
@@ -1056,6 +1057,28 @@ def resolve_cursor_acp_route_binding(
     )
 
 
+def cursor_acp_runtime_agent(*, synthetic_peer: bool) -> str:
+    """Official Cursor route stays cursor. Synthetic peer stays candidate."""
+
+    return SYNTHETIC_AGENT if synthetic_peer else TARGET
+
+
+def require_cursor_acp_runtime_agent(runtime: Any) -> str:
+    """Bind ensureSession to the runtime's validated route identity."""
+
+    agent = getattr(runtime, "agent", None)
+    if agent is None:
+        kind = getattr(runtime, "kind", None)
+        if kind == CANDIDATE_RUNTIME_KIND:
+            return TARGET
+        return SYNTHETIC_AGENT
+    if agent == TARGET or agent == SYNTHETIC_AGENT:
+        return agent
+    raise ValidationError(
+        "cursor-acp runtime agent must stay on the cursor or synthetic candidate route"
+    )
+
+
 def test_only_cursor_synthetic_route_binding() -> Dict[str, Any]:
     return require_cursor_acp_route_binding(
         {
@@ -1326,6 +1349,7 @@ class CursorAcpSyntheticRuntime:
         self.permission = None if permission is None else dict(permission)
         self.question = None if question is None else dict(question)
         self.set_model_supported = set_model_supported
+        self.agent = SYNTHETIC_AGENT
         self.ensure_calls: list[Dict[str, Any]] = []
         self.status_calls: list[Dict[str, Any]] = []
         self.set_model_calls: list[Dict[str, Any]] = []
@@ -1398,8 +1422,11 @@ class CursorAcpNodeRuntime:
     ):
         if synthetic_peer and executable is not None:
             raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        if not synthetic_peer and agent != TARGET:
+            raise ValidationError("cursor-acp candidate agent must stay on the cursor route")
         driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
         self.kind = SYNTHETIC_PEER_KIND if synthetic_peer else CANDIDATE_RUNTIME_KIND
+        self.agent = cursor_acp_runtime_agent(synthetic_peer=synthetic_peer)
         self._proc = subprocess.Popen(
             ["node", str(driver)],
             stdin=subprocess.PIPE,
@@ -1411,12 +1438,12 @@ class CursorAcpNodeRuntime:
             "cwd": str(workspace),
             "isolatedRoot": str(isolated_root),
             "syntheticPeer": True if synthetic_peer else False,
-            "agent": "candidate" if synthetic_peer else agent,
+            "agent": self.agent,
         }
         if not synthetic_peer:
             payload["candidate"] = {
                 "kind": CANDIDATE_RUNTIME_KIND,
-                "agent": agent,
+                "agent": self.agent,
                 "executable": None if executable is None else str(executable),
                 "args": list(candidate_args or ()),
             }
@@ -1668,7 +1695,7 @@ class CursorAcpRuntimeRunner:
         ensure_input = reject_runtime_conversation_params(
             {
                 "sessionKey": self.session,
-                "agent": "candidate",
+                "agent": require_cursor_acp_runtime_agent(self.runtime),
                 "mode": self.session_mode,
                 "cwd": self.workspace["path"],
             },

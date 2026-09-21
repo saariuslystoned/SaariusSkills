@@ -53,7 +53,10 @@ async function candidateRegistry(payload) {
 
 function syntheticRegistry() {
   return {
-    resolve() {
+    resolve(agentName) {
+      if (agentName !== "candidate") {
+        throw new Error(`Failed to spawn agent command: ${agentName}`);
+      }
       return [process.execPath, PEER];
     },
     list() {

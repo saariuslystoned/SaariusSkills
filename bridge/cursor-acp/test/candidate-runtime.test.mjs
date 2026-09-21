@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, chmod, readFile, readdir, realpath, rm, symlink, writeF
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
@@ -1568,6 +1568,64 @@ test("actual public runtime discards turn events without retaining bodies", {
       await runtime.shutdown();
     } catch {
       // Shutdown must not hide the event-ownership proof.
+    }
+  }
+});
+
+test("official public registry selects the cursor peer and rejects candidate ensureSession", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  const materialized = await materializeVerifiedCandidateAcpx({
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
+  });
+  const { createAgentRegistry } = await import(pathToFileURL(materialized.modulePath).href);
+  const registry = createAgentRegistry({
+    overrides: { cursor: [process.execPath, PEER] },
+  });
+  assert.deepEqual(registry.resolve("cursor"), [process.execPath, PEER]);
+  assert.notDeepEqual(registry.resolve("candidate"), [process.execPath, PEER]);
+  assert.ok(registry.list().includes("cursor"));
+  const { runtime, provenance } = await createVerifiedCandidateAcpRuntime({
+    cwd: workspace,
+    sessionStore: memorySessionStore(),
+    agentRegistry: registry,
+    fs: false,
+    terminal: false,
+    timeoutMs: 30_000,
+  }, {
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
+    isolatedRoot: isolated,
+  });
+  try {
+    assert.equal(provenance.artifact_sha256, ACPX_ARTIFACT_SHA256);
+    assert.equal(provenance.merge_commit, ACPX_MERGE_COMMIT);
+    assert.equal(provenance.available, false);
+    await assert.rejects(
+      () => runtime.ensureSession({
+        sessionKey: `${HOST.session}-mismatch`,
+        agent: "candidate",
+        mode: "oneshot",
+        cwd: workspace,
+      }),
+      (error) => /Failed to spawn agent command: candidate/.test(String(error?.message ?? error)),
+    );
+    const handle = await runtime.ensureSession({
+      sessionKey: HOST.session,
+      agent: "cursor",
+      mode: "oneshot",
+      cwd: workspace,
+    });
+    assert.equal(handle.sessionKey, HOST.session);
+    assert.notEqual(handle.backendSessionId, HOST.conversationId);
+    assert.notEqual(handle.acpxRecordId, HOST.conversationId);
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the official registry proof.
     }
   }
 });
