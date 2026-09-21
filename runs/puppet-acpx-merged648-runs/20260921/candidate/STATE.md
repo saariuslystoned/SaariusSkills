@@ -1,16 +1,18 @@
 # Puppet acpx merged #648 candidate state
 
-- status: candidate_complete_real_runtime_synthetic_peer; unreleased
+- status: candidate_pr_open_human_merge_gate; unreleased
 - repo: saariuslystoned/SaariusSkills
 - worktree: `/Users/bobbybones/.codex/worktrees/runtime-proof/SaariusSkills`
 - branch: `codex/puppet-acpx-runtime-proof-20260921`
-- base: SaariusSkills main `8219a66c8ac44f14be0acec6c13bf5664571dc4f`
+- base: SaariusSkills main `123fc0a43833dfa4f3af4bdd2f72eb78a14f81b0`
+- head: `73fd694a52a86edc201cc82f1382c30591fba0a7`
+- pull_request: https://github.com/saariuslystoned/SaariusSkills/pull/57
 - proof_root: `runs/puppet-acpx-merged648-runs/20260921/candidate`
 - available: false
 - ordinary_launch: unavailable
 - qualification: synthetic_only
 - live_or_provider_action: none
-- public_pr: false
+- public_pr: true; open; not merged
 - production_enabled: false
 
 ## Provenance

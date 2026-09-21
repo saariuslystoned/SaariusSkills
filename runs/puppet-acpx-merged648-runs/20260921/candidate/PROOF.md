@@ -15,8 +15,9 @@ qualification, a production pin, or a public PR.
 
 - worktree: `/Users/bobbybones/.codex/worktrees/runtime-proof/SaariusSkills`
 - branch: `codex/puppet-acpx-runtime-proof-20260921`
-- base: `8219a66c8ac44f14be0acec6c13bf5664571dc4f`
-- public PR: none
+- base: `123fc0a43833dfa4f3af4bdd2f72eb78a14f81b0`
+- public PR: https://github.com/saariuslystoned/SaariusSkills/pull/57 (open; not merged)
+- PR head: `73fd694a52a86edc201cc82f1382c30591fba0a7`
 - production enablement: none
 
 ## Provenance tuple
@@ -107,6 +108,16 @@ pass 3
 
 $ git diff --check
 (exit 0)
+
+$ gh run view 35560529645
+Python 3.14 / ubuntu-24.04: passed
+Python 3.14 / macos-26: passed
+
+$ Spark-2 OpenClaw terminal review
+base 123fc0a43833dfa4f3af4bdd2f72eb78a14f81b0
+head 73fd694a52a86edc201cc82f1382c30591fba0a7
+request req-20260921T041954Z-108015230621
+exit_code 0; scoped-clean; correct (0.96); no accepted/actionable findings
 ```
 
 Covered: Python/JS identity parity; merged/unreleased status; exact
@@ -115,8 +126,8 @@ actual public `createAcpRuntime` loading and one synthetic-peer turn; callback
 controls remain disabled; reconnect/retained-owner/cleanup; cutover safeguards
 keep `available=false` and ordinary pin `0.16.0`.
 
-No live Cursor/provider action, provider qualification, production promotion, or
-public PR.
+No live Cursor/provider action, provider qualification, or production promotion.
+The PR is open for human review and merge; no merge was performed.
 
 ## Remaining gates
 
