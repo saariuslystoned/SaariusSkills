@@ -17,6 +17,7 @@ import {
   ACPX_QUALIFICATION,
   ACPX_SOURCE_TREE,
   HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT,
+  HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT,
   AdapterError,
   CANDIDATE_TURN_OBSERVED_TYPE_BOUND,
   CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND,
@@ -405,6 +406,12 @@ test("candidate runtime rejects bridge, shared modules, historical roots, and ar
       runtimeRoot: path.join(REPO_ROOT, HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT),
     }),
     (error) => error instanceof AdapterError && /historical #648 runtime root/.test(error.message),
+  );
+  await assert.rejects(
+    () => materializeVerifiedCandidateAcpx({
+      runtimeRoot: path.join(REPO_ROOT, HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT),
+    }),
+    (error) => error instanceof AdapterError && /historical refresh runtime root/.test(error.message),
   );
   await assert.rejects(
     () => materializeVerifiedCandidateAcpx({ runtimeRoot: os.tmpdir() }),

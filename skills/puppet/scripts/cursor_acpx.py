@@ -4,13 +4,12 @@ Binds the existing named local Cursor transport ``cursor-acp``. Ordinary
 launch, native defaults, MCP broker policy, and live qualification stay
 unchanged and unavailable. The public-runtime boundary is the documented
 ``createAcpRuntime`` options from openclaw/acpx merged main
-``ce8c3689fe830fd5c6199a8a683dc979d180af1d`` (``#672`` event-iterator
-cleanup only after observers stop reading). That commit is exact-source
-proof only; published ``acpx@0.18.0`` does not contain it. Historical
-``#648`` / ``ac22c3c8...`` identity remains a rejected fence. Private
-internals are not imported. Tests inject deterministic synthetic runtime
-and peer fixtures; optional actual-runtime tests use the task-local
-artifact.
+``f8883645c261e07b2df7f9c3b4ad243b62d8168a`` (``#678``). That commit is
+exact-source proof only; published ``acpx@0.18.0`` does not contain it.
+Historical ``#648`` and refresh ``ce8c3689...`` identities remain rejected
+fences. Private internals are not imported. The existing
+``cursor-acp`` controller consumes runtime-derived observations; this
+adapter keeps ownership, pin, and cutover contracts.
 """
 
 from __future__ import annotations
@@ -33,6 +32,7 @@ from puppet_lib.cursor_acp import (
     prove_shutdown,
     qualify_cursor_acp_lifecycle,
     require_cursor_acp_target,
+    require_unsupported_question_outcome,
     validate_cursor_acp_observation,
 )
 from puppet_lib.errors import ConflictError, IdentityError, UnsupportedError, ValidationError
@@ -64,24 +64,24 @@ QUESTION_SCHEMA = "puppet.cursor-acpx-question/v1"
 PROCESS_SCHEMA = "puppet.cursor-acpx-process/v1"
 
 ACPX_SOURCE = (
-    "https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d"
+    "https://github.com/openclaw/acpx/commit/f8883645c261e07b2df7f9c3b4ad243b62d8168a"
 )
-ACPX_MERGE_COMMIT = "ce8c3689fe830fd5c6199a8a683dc979d180af1d"
+ACPX_MERGE_COMMIT = "f8883645c261e07b2df7f9c3b4ad243b62d8168a"
 ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT
-ACPX_SOURCE_TREE = "04661dbf3af3b3c2a11d16c3061b40e20ce29f4a"
+ACPX_SOURCE_TREE = "f4a4d33b33cdf5b57345e8420f24992953aed5e0"
 ACPX_HEAD = ACPX_MERGE_COMMIT
-ACPX_PR_HEAD = "c64b2751f0b8ca6e9d5613e98f7ed87f778de1b5"
-ACPX_PR_BASE = "7879505dcf79448cd71cafd82a21aa6c937a3f3e"
+ACPX_PR_HEAD = "706aeadd9c62550ee7e6ddceffe3d31ede5494d1"
+ACPX_PR_BASE = "cc9b96388d682f8dbb17dde6015a5467e3f563fc"
 ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58"
 ACPX_STATUS = "merged_unreleased"
 ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
 ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0"
 ACPX_PUBLISHED_NPM_VERSION = "0.18.0"
 ACPX_ARTIFACT_SHA256 = (
-    "ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342"
+    "642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162"
 )
 ACPX_ARTIFACT_PATH = (
-    "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz"
+    "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
 )
 ACPX_ARTIFACT_KIND = "local_exact_source_tarball"
 ACPX_PUBLIC_SURFACE = "acpx/runtime"
@@ -97,6 +97,29 @@ HISTORICAL_ACPX_ARTIFACT_SHA256 = (
 )
 HISTORICAL_ACPX_ARTIFACT_PATH = (
     "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz"
+)
+HISTORICAL_REFRESH_ACPX_SOURCE = (
+    "https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d"
+)
+HISTORICAL_REFRESH_ACPX_MERGE_COMMIT = "ce8c3689fe830fd5c6199a8a683dc979d180af1d"
+HISTORICAL_REFRESH_ACPX_SOURCE_TREE = "04661dbf3af3b3c2a11d16c3061b40e20ce29f4a"
+HISTORICAL_REFRESH_ACPX_PR_HEAD = "c64b2751f0b8ca6e9d5613e98f7ed87f778de1b5"
+HISTORICAL_REFRESH_ACPX_PR_BASE = "7879505dcf79448cd71cafd82a21aa6c937a3f3e"
+HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256 = (
+    "ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342"
+)
+HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH = (
+    "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz"
+)
+HISTORICAL_REFRESH_ACPX_CANDIDATE_RUNTIME_ROOT = (
+    "runs/puppet-acpx-refresh-runs/20260921/runtime"
+)
+HISTORICAL_REFRESH_HEADS = frozenset(
+    {
+        HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+        HISTORICAL_REFRESH_ACPX_PR_HEAD,
+        HISTORICAL_REFRESH_ACPX_PR_BASE,
+    }
 )
 OBSOLETE_DRAFT_HEADS = frozenset(
     {
@@ -359,6 +382,17 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
         _raise_identity(
             "identity_mismatch",
             "historical #648 candidate identity is not the current pin",
+        )
+    if (
+        {merge_commit, source_commit, head} & HISTORICAL_REFRESH_HEADS
+        or value.get("artifact_sha256") == HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256
+        or value.get("artifact_path") == HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH
+        or value.get("source") == HISTORICAL_REFRESH_ACPX_SOURCE
+        or value.get("source_tree") == HISTORICAL_REFRESH_ACPX_SOURCE_TREE
+    ):
+        _raise_identity(
+            "identity_mismatch",
+            "historical refresh candidate identity is not the current pin",
         )
     artifact = validate_sha256(value.get("artifact_sha256"), "acpx artifact")
     integrity = validate_sha256(value.get("integrity"), "acpx integrity")
@@ -991,25 +1025,7 @@ class CursorAcpxAdapter:
         return rejected
 
     def require_human_question(self, question: Mapping[str, Any]) -> Dict[str, Any]:
-        if question.get("state") != "interaction_required":
-            raise ValidationError("unsupported question state is invalid")
-        if question.get("human_required") is not True:
-            raise ValidationError("unsupported question requires human input")
-        if question.get("invented_answer") is not None:
-            raise ValidationError("cursor-acpx must not invent a question answer")
-        if question.get("outcome") != "cancelled":
-            raise ValidationError("unsupported question must cancel without an answer")
-        interaction_id = validate_identifier(
-            question.get("interaction_id"), "interaction question"
-        )
-        return {
-            "schema": QUESTION_SCHEMA,
-            "state": "cancelled",
-            "interaction_id": interaction_id,
-            "human_required": True,
-            "outcome": "cancelled",
-            "invented_answer": None,
-        }
+        return require_unsupported_question_outcome(question)
 
     def complete(
         self,
@@ -1210,6 +1226,9 @@ __all__ = [
     "HISTORICAL_ACPX_ARTIFACT_PATH",
     "HISTORICAL_ACPX_ARTIFACT_SHA256",
     "HISTORICAL_ACPX_MERGE_COMMIT",
+    "HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH",
+    "HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256",
+    "HISTORICAL_REFRESH_ACPX_MERGE_COMMIT",
     "AUTHORITY_ID",
     "CursorAcpxAdapter",
     "FORBIDDEN_CALLBACKS",

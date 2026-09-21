@@ -5,13 +5,17 @@ falls back to tmux, agy-print, Herdr, or generic `acp`. Generic `acp` stays
 unsupported for every target, including Cursor. Model, workspace, ACP
 session/conversation, and terminal/result claims come from observed runtime
 metadata, not from a requested selector or path alone. Live Cursor ACP is
-not claimed; tests inject a deterministic observation/runner fixture.
+not claimed. Tests may inject a deterministic observation fixture or derive
+one from the pinned public runtime and a local synthetic peer.
 `available()` stays false.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
@@ -43,6 +47,34 @@ RUNTIME_MODEL_SOURCES = frozenset(
 )
 TERMINAL_STATES = frozenset({"active", "completed", "failed", "halted"})
 MODEL_CATALOG_SCHEMA = "puppet.cursor-acp-model-catalog/v1"
+PERMISSION_OUTCOME_SCHEMA = "puppet.cursor-acp-permission/v1"
+QUESTION_OUTCOME_SCHEMA = "puppet.cursor-acpx-question/v1"
+RUNTIME_TURN_OBSERVED_TYPE_BOUND = 16
+RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND = 64
+RUNTIME_TURN_UNKNOWN_TYPE = "unknown"
+CONVERSATION_PARAM_KEYS = frozenset(
+    {"conversation", "conversationId", "conversation_id"}
+)
+RUNTIME_HANDLE_FIELDS = (
+    "sessionKey",
+    "backend",
+    "runtimeSessionName",
+    "cwd",
+    "acpxRecordId",
+    "backendSessionId",
+    "agentSessionId",
+)
+REQUIRED_RUNTIME_HANDLE_FIELDS = (
+    "sessionKey",
+    "backend",
+    "runtimeSessionName",
+    "cwd",
+    "acpxRecordId",
+    "backendSessionId",
+)
+CONTROLLER_RUNTIME_DRIVER = (
+    "bridge/cursor-acp/test/controller-runtime-driver.mjs"
+)
 _CURSOR_SELECTOR_RE = re.compile(r"^cursor-grok-4\.6-(low|medium|high|xhigh)$")
 _PARAMETERIZED_RUNTIME_RE = re.compile(r"^(?:cursor-)?grok-4\.6\[(.+)\]$")
 FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
@@ -826,6 +858,611 @@ class CursorAcpRunnerFixture:
 
     def catalog(self) -> Optional[Dict[str, Any]]:
         return None if self._catalog is None else dict(self._catalog)
+
+
+def reject_runtime_conversation_params(value: Any, *, label: str) -> Any:
+    """Public runtime calls must not invent provider conversation_id APIs."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("%s is invalid" % label)
+    for key in CONVERSATION_PARAM_KEYS:
+        if key in value:
+            _raise_identity(
+                "identity_mismatch",
+                "%s must not include nonexistent conversation parameters" % label,
+            )
+        handle = value.get("handle")
+        if isinstance(handle, Mapping) and key in handle:
+            _raise_identity(
+                "identity_mismatch",
+                "%s must not include nonexistent conversation parameters" % label,
+            )
+    return value
+
+
+def project_runtime_handle(handle: Any) -> Dict[str, str]:
+    """Project public handle fields without host conversation identity."""
+
+    if not isinstance(handle, Mapping):
+        _raise_identity("identity_mismatch", "runtime handle is missing")
+    reject_runtime_conversation_params(handle, label="runtime handle")
+    projected: Dict[str, str] = {}
+    for key in RUNTIME_HANDLE_FIELDS:
+        if key not in handle:
+            if key in REQUIRED_RUNTIME_HANDLE_FIELDS:
+                _raise_identity("identity_mismatch", "runtime handle %s is missing" % key)
+            continue
+        value = handle[key]
+        if not isinstance(value, str) or not value:
+            if key in REQUIRED_RUNTIME_HANDLE_FIELDS:
+                _raise_identity("identity_mismatch", "runtime handle %s is missing" % key)
+            continue
+        projected[key] = value
+    return projected
+
+
+def advertised_catalog_from_runtime_models(models: Any) -> Dict[str, Any]:
+    """Build catalog evidence from advertised runtime models only."""
+
+    if not isinstance(models, Mapping):
+        _raise_identity("model_observation_mismatch", "Cursor ACP model catalog is unverified")
+    advertised = models.get("availableModelIds")
+    if not isinstance(advertised, (tuple, list)) or not advertised:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    model_ids = []
+    for model_id in advertised:
+        if not isinstance(model_id, str) or not model_id.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP model catalog is unverified",
+            )
+        cleaned = model_id.strip()
+        if cleaned in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP fallback or default model is not bound requested-model proof",
+            )
+        model_ids.append(cleaned)
+    current = models.get("currentModelId")
+    if current is not None:
+        if not isinstance(current, str) or not current.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed Cursor ACP model is unverified",
+            )
+        current = current.strip()
+        if current in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP fallback or default model is not bound requested-model proof",
+            )
+        if current not in model_ids:
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed Cursor ACP model is unverified",
+            )
+    return {
+        "schema": MODEL_CATALOG_SCHEMA,
+        "verified": True,
+        "advertised_model_ids": tuple(model_ids),
+    }
+
+
+def map_runtime_models(
+    models: Any,
+    *,
+    requested_model: Optional[str],
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, str]:
+    """Map requested/selected/current models from one advertised catalog."""
+
+    advertised = advertised_catalog_from_runtime_models(models)
+    resolved_catalog = catalog if catalog is not None else advertised
+    requested = resolve_requested_cursor_model(requested_model, catalog=resolved_catalog)
+    current = models.get("currentModelId")
+    if not isinstance(current, str) or not current.strip():
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Cursor ACP model is unverified",
+        )
+    current = current.strip()
+    if current in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP fallback or default model is not bound requested-model proof",
+        )
+    advertised_ids = set(advertised["advertised_model_ids"])
+    if current not in advertised_ids or requested not in advertised_ids:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Cursor ACP model is unverified",
+        )
+    if current != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Cursor ACP runtime",
+        )
+    return {
+        "requested_model": requested_model.strip() if isinstance(requested_model, str) else requested,
+        "selected_model": requested,
+        "current_model": current,
+    }
+
+
+def drain_runtime_turn_events(events: Any, *, limit: Optional[int] = None) -> Dict[str, Any]:
+    """Drain turn events to a body-free bounded type summary. Never retain bodies."""
+
+    if events is None:
+        return {
+            "observer": "absent",
+            "observed_types": [],
+            "event_count": 0,
+            "observed_types_truncated": False,
+            "body_retained": False,
+        }
+    iterator = events
+    if hasattr(events, "__iter__") and not isinstance(events, (str, bytes, Mapping)):
+        iterator = iter(events)
+    elif not hasattr(events, "__iter__"):
+        raise ValidationError("runtime turn events are not iterable")
+    observed: list[str] = []
+    count = 0
+    truncated = False
+    try:
+        for event in iterator:
+            if not isinstance(event, Mapping) or not isinstance(event.get("type"), str) or not event["type"]:
+                label = RUNTIME_TURN_UNKNOWN_TYPE
+            elif len(event["type"]) > RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND:
+                label = event["type"][:RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND]
+            else:
+                label = event["type"]
+            if label not in observed:
+                if len(observed) < RUNTIME_TURN_OBSERVED_TYPE_BOUND:
+                    observed.append(label)
+                else:
+                    truncated = True
+            count += 1
+            if isinstance(limit, int) and limit > 0 and count >= limit:
+                break
+    finally:
+        closer = getattr(iterator, "close", None)
+        if closer is None:
+            closer = getattr(events, "close", None)
+        if callable(closer):
+            closer()
+    return {
+        "observer": "ended",
+        "observed_types": observed,
+        "event_count": count,
+        "observed_types_truncated": truncated,
+        "body_retained": False,
+    }
+
+
+def require_unsupported_question_outcome(question: Mapping[str, Any]) -> Dict[str, Any]:
+    """Cancel unsupported questions without inventing an answer."""
+
+    if question.get("state") != "interaction_required":
+        raise ValidationError("unsupported question state is invalid")
+    if question.get("human_required") is not True:
+        raise ValidationError("unsupported question requires human input")
+    if question.get("invented_answer") is not None:
+        raise ValidationError("cursor-acp must not invent a question answer")
+    if question.get("outcome") != "cancelled":
+        raise ValidationError("unsupported question must cancel without an answer")
+    return {
+        "schema": QUESTION_OUTCOME_SCHEMA,
+        "state": "cancelled",
+        "interaction_id": validate_identifier(
+            question.get("interaction_id"), "interaction question"
+        ),
+        "human_required": True,
+        "outcome": "cancelled",
+        "invented_answer": None,
+    }
+
+
+def require_unsupported_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, Any]:
+    """Record explicit denied/cancelled permission outcomes. Never invent allow."""
+
+    if permission.get("state") != "permission_required":
+        raise ValidationError("unsupported permission state is invalid")
+    outcome = permission.get("outcome")
+    if outcome not in {"denied", "cancelled"}:
+        raise ValidationError("unsupported permission must deny or cancel without an answer")
+    if permission.get("allowed") is True:
+        raise ValidationError("unsupported permission must not be allowed")
+    if permission.get("invented_decision") is not None:
+        raise ValidationError("cursor-acp must not invent a permission decision")
+    return {
+        "schema": PERMISSION_OUTCOME_SCHEMA,
+        "state": outcome,
+        "permission_id": validate_identifier(
+            permission.get("permission_id"), "permission request"
+        ),
+        "outcome": outcome,
+        "allowed": False,
+        "invented_decision": None,
+    }
+
+
+def observation_from_runtime_turn(
+    *,
+    host_session: str,
+    host_conversation_id: str,
+    requested_model: str,
+    observed_model: str,
+    workspace: Mapping[str, Any],
+    terminal_state: str,
+    result_id: str,
+    halt: Optional[Mapping[str, Any]] = None,
+    record_state: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Map public-runtime metadata onto the existing cursor-acp observation."""
+
+    return fixture_observation(
+        session=host_session,
+        conversation_id=host_conversation_id,
+        requested_model=requested_model,
+        observed_model=observed_model,
+        observed_source="acp_runtime_metadata",
+        runtime_model=observed_model,
+        workspace_path=str(workspace["path"]),
+        branch=str(workspace["branch"]),
+        head=str(workspace["head"]),
+        tree=str(workspace["tree"]),
+        terminal_state=terminal_state,
+        result_id=result_id,
+        halt=halt,
+        record_state=record_state,
+    )
+
+
+class CursorAcpSyntheticRuntime:
+    """In-process public-runtime peer. Never starts live Cursor or AGY."""
+
+    def __init__(
+        self,
+        *,
+        handle: Mapping[str, Any],
+        models: Mapping[str, Any],
+        result: Optional[Mapping[str, Any]] = None,
+        events: Optional[Sequence[Mapping[str, Any]]] = None,
+        close_error: Optional[BaseException] = None,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+    ):
+        self.handle = dict(handle)
+        self.models = dict(models)
+        self.result = dict(result or {"status": "completed", "stopReason": "end_turn"})
+        self.events = list(events or ())
+        self.close_error = close_error
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        self.ensure_calls: list[Dict[str, Any]] = []
+        self.status_calls: list[Dict[str, Any]] = []
+        self.start_calls: list[Dict[str, Any]] = []
+        self.close_calls: list[Dict[str, Any]] = []
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="ensureSession")
+        self.ensure_calls.append(dict(payload))
+        return dict(self.handle)
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="getStatus")
+        self.status_calls.append(dict(payload))
+        last_request = self.start_calls[-1]["requestId"] if self.start_calls else None
+        status = {"models": dict(self.models)}
+        if last_request is not None:
+            status["lastRequestId"] = last_request
+        return status
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="startTurn")
+        self.start_calls.append(dict(payload))
+        return {
+            "requestId": payload["requestId"],
+            "events": list(self.events),
+            "result": dict(self.result),
+        }
+
+    def close(self, payload: Mapping[str, Any]) -> None:
+        reject_runtime_conversation_params(payload, label="close")
+        self.close_calls.append(dict(payload))
+        if self.close_error is not None:
+            raise self.close_error
+
+
+class CursorAcpNodeRuntime:
+    """Pinned public createAcpRuntime through the local synthetic ACP peer."""
+
+    def __init__(self, *, workspace: Path, isolated_root: Path, repo_root: Path):
+        driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
+        self._proc = subprocess.Popen(
+            ["node", str(driver)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+        )
+        self._rpc(
+            "create",
+            {"cwd": str(workspace), "isolatedRoot": str(isolated_root)},
+        )
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("ensureSession", dict(payload))
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("getStatus", dict(payload))
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("startTurn", dict(payload))
+
+    def close(self, payload: Mapping[str, Any]) -> None:
+        self._rpc("close", dict(payload))
+
+    def shutdown(self) -> None:
+        try:
+            self._rpc("shutdown", {})
+        finally:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+            if self._proc.stdout is not None:
+                self._proc.stdout.close()
+            if self._proc.poll() is None:
+                self._proc.terminate()
+            self._proc.wait(timeout=30)
+
+    def _rpc(self, op: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        if self._proc.stdin is None or self._proc.stdout is None:
+            raise ValidationError("controller runtime driver is unavailable")
+        message = json.dumps({"op": op, "payload": dict(payload)}, separators=(",", ":"))
+        self._proc.stdin.write(message + "\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            raise ValidationError("controller runtime driver closed")
+        response = json.loads(line)
+        if response.get("ok") is not True:
+            detail = response.get("error") or "controller runtime driver failed"
+            code = response.get("code")
+            if code in {"OWNER_MISMATCH", "SESSION_MISMATCH", "WORKSPACE_MISMATCH", "IDENTITY_MISMATCH"}:
+                _raise_identity("identity_mismatch", str(detail))
+            raise ValidationError(str(detail))
+        value = response.get("value")
+        return {} if value is None else dict(value)
+
+
+class CursorAcpRuntimeRunner:
+    """Derive cursor-acp observations from a public runtime for the existing controller."""
+
+    def __init__(
+        self,
+        runtime: Any,
+        *,
+        isolated_root: Path,
+        owner: str,
+        session: str,
+        conversation_id: str,
+        request_id: str,
+        workspace: Mapping[str, Any],
+        requested_model: str,
+        catalog: Optional[Mapping[str, Any]] = None,
+        halt: bool = False,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+    ):
+        self.runtime = runtime
+        self.isolated_root = Path(isolated_root)
+        self.owner = owner
+        self.session = session
+        self.conversation_id = conversation_id
+        self.request_id = request_id
+        self.workspace = dict(workspace)
+        self.requested_model = requested_model
+        self._supplied_catalog = None if catalog is None else dict(catalog)
+        self._catalog = self._supplied_catalog
+        self.require_halt = halt
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        self.discarded_events: Optional[Dict[str, Any]] = None
+        self.permission_outcome: Optional[Dict[str, Any]] = None
+        self.question_outcome: Optional[Dict[str, Any]] = None
+        self._observation: Optional[Dict[str, Any]] = None
+        self.handle: Optional[Dict[str, str]] = None
+        self._mark_cleanup_unknown: Any = None
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    def catalog(self) -> Optional[Dict[str, Any]]:
+        if self._observation is None:
+            self.observation()
+        return None if self._catalog is None else dict(self._catalog)
+
+    def observation(self) -> Dict[str, Any]:
+        if self._observation is None:
+            self._observation = self._derive()
+        return validate_cursor_acp_observation(self._observation)
+
+    def _load_ownership(self) -> Mapping[str, Any]:
+        from cursor_acpx import load_isolated_root, mark_cleanup_unknown
+
+        self._mark_cleanup_unknown = mark_cleanup_unknown
+        return load_isolated_root(self.isolated_root)
+
+    def _fence_cleanup(self) -> None:
+        if self._mark_cleanup_unknown is None:
+            from cursor_acpx import mark_cleanup_unknown
+
+            self._mark_cleanup_unknown = mark_cleanup_unknown
+        try:
+            self._mark_cleanup_unknown(self.isolated_root)
+        except Exception:
+            pass
+
+    def _owned_close(self, handle: Mapping[str, Any], *, primary: Optional[BaseException] = None) -> None:
+        try:
+            self.runtime.close(
+                reject_runtime_conversation_params(
+                    {
+                        "handle": dict(handle),
+                        "reason": "cursor-acp-owned-close",
+                        "discardPersistentState": True,
+                    },
+                    label="close",
+                )
+            )
+        except Exception:
+            self._fence_cleanup()
+            if primary is not None:
+                raise primary
+            raise
+
+    def _reject_conflated_ids(self, handle: Mapping[str, str]) -> None:
+        foreign = {
+            handle.get("backendSessionId"),
+            handle.get("acpxRecordId"),
+            handle.get("runtimeSessionName"),
+            handle.get("agentSessionId"),
+        }
+        host = {self.session, self.conversation_id, self.request_id}
+        if foreign & host:
+            _raise_identity(
+                "identity_mismatch",
+                "runtime identities must not be fabricated from host correlation",
+            )
+
+    def _derive(self) -> Dict[str, Any]:
+        ownership = self._load_ownership()
+        if (
+            ownership.get("owner") != self.owner
+            or ownership.get("session") != self.session
+            or ownership.get("conversation_id") != self.conversation_id
+        ):
+            _raise_identity(
+                "session_identity_mismatch",
+                "ownership must validate before session or prompt",
+            )
+        if ownership.get("cleanup") == "unknown" or ownership.get("replacement_blocked"):
+            _raise_identity(
+                "cleanup_unknown",
+                "process-query failure left cleanup unknown; replacement is blocked",
+            )
+        if self.permission is not None:
+            self.permission_outcome = require_unsupported_permission_outcome(self.permission)
+        if self.question is not None:
+            self.question_outcome = require_unsupported_question_outcome(self.question)
+        ensure_input = reject_runtime_conversation_params(
+            {
+                "sessionKey": self.session,
+                "agent": "candidate",
+                "mode": "oneshot",
+                "cwd": self.workspace["path"],
+            },
+            label="ensureSession",
+        )
+        handle: Optional[Dict[str, str]] = None
+        try:
+            raw_handle = self.runtime.ensure_session(ensure_input)
+            handle = project_runtime_handle(raw_handle)
+            if handle["sessionKey"] != self.session:
+                _raise_identity(
+                    "session_identity_mismatch",
+                    "runtime sessionKey does not match the host session",
+                )
+            if os.path.realpath(handle["cwd"]) != os.path.realpath(self.workspace["path"]):
+                _raise_identity(
+                    "workspace_identity_mismatch",
+                    "runtime cwd does not match the bound checkout",
+                )
+            self._reject_conflated_ids(handle)
+            self.handle = handle
+            status = self.runtime.get_status(
+                reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+            )
+            models = status.get("models") if isinstance(status, Mapping) else None
+            mapped = map_runtime_models(
+                models,
+                requested_model=self.requested_model,
+                catalog=self._supplied_catalog,
+            )
+            self._catalog = (
+                self._supplied_catalog
+                if self._supplied_catalog is not None
+                else advertised_catalog_from_runtime_models(models)
+            )
+            turn = self.runtime.start_turn(
+                reject_runtime_conversation_params(
+                    {
+                        "handle": dict(handle),
+                        "text": "cursor-acp-runtime-turn",
+                        "mode": "prompt",
+                        "requestId": self.request_id,
+                    },
+                    label="startTurn",
+                )
+            )
+            if not isinstance(turn, Mapping):
+                raise ValidationError("runtime turn is missing")
+            if turn.get("requestId") != self.request_id:
+                _raise_identity(
+                    "identity_mismatch",
+                    "returned turn request does not match the host request",
+                )
+            self.discarded_events = drain_runtime_turn_events(turn.get("events"))
+            result = turn.get("result")
+            if not isinstance(result, Mapping) or result.get("status") not in {"completed", "failed", "cancelled"}:
+                raise ValidationError("runtime turn result is incomplete")
+            after = self.runtime.get_status(
+                reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+            )
+            if isinstance(after, Mapping) and "lastRequestId" in after:
+                if after.get("lastRequestId") != self.request_id:
+                    _raise_identity(
+                        "identity_mismatch",
+                        "status lastRequestId does not match the completed turn request",
+                    )
+            terminal_state = "completed" if result.get("status") == "completed" else "failed"
+            halt = None
+            record_state = None
+            if self.require_halt:
+                self._owned_close(handle)
+                terminal_state = "halted"
+                record_state = "HALTED"
+                halt = {
+                    "session": self.session,
+                    "conversation_id": self.conversation_id,
+                    "halted": True,
+                }
+            else:
+                self._owned_close(handle)
+            return observation_from_runtime_turn(
+                host_session=self.session,
+                host_conversation_id=self.conversation_id,
+                requested_model=self.requested_model,
+                observed_model=mapped["current_model"],
+                workspace=self.workspace,
+                terminal_state=terminal_state,
+                result_id=self.request_id,
+                halt=halt,
+                record_state=record_state,
+            )
+        except BaseException as exc:
+            if handle is not None and handle.get("sessionKey") == self.session:
+                try:
+                    self._owned_close(handle, primary=exc)
+                except Exception:
+                    raise exc
+            elif handle is not None:
+                self._fence_cleanup()
+            raise
 
 
 class CursorAcpController:
