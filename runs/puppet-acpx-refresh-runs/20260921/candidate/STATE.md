@@ -1,6 +1,6 @@
 # Puppet acpx candidate refresh state
 
-- status: candidate_only; unreleased; no public PR
+- status: candidate_only; unreleased; draft PR pending publication
 - repo: saariuslystoned/SaariusSkills
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-acpx-refresh-20260921`
 - branch: `codex/puppet-acpx-refresh-20260921`
@@ -10,7 +10,7 @@
 - ordinary_launch: unavailable
 - qualification: synthetic_only
 - live_or_provider_action: none
-- public_pr: false
+- public_pr: pending
 - production_enabled: false
 
 ## Provenance
@@ -29,5 +29,12 @@
 - artifact SHA-256: `ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342`
 - candidate runtime root: `runs/puppet-acpx-refresh-runs/20260921/runtime`
 - historical fence: `#648` / `ac22c3c8f6d077b542f19524afbe5409e46c56e8` / `fe9ba256...` remains rejected
+
+## Owner verification
+
+- implementation commit: `4a560197607197a45abfeb537f5f841457a73db2`
+- Python: 23 passed, 0 skipped
+- bridge: 64 passed, 0 skipped
+- artifact digest and upstream #672 head/base/merge tuple reverified
 
 Integrity is the tarball digest, not a hash of descriptive metadata.

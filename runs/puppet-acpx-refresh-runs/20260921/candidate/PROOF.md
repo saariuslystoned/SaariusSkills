@@ -20,7 +20,7 @@ artifact digest `fe9ba256...`, and runtime root remain rejected fences.
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-acpx-refresh-20260921`
 - branch: `codex/puppet-acpx-refresh-20260921`
 - base: `faa332ca8b3eb7da6662f127d6e3a55056f3db9d`
-- public PR: none
+- public PR: pending draft publication after owner verification
 - production enablement: none
 
 ## Provenance tuple
@@ -115,7 +115,15 @@ fail 0
 skipped 0
 # supplied artifact tests executed, including actual public-runtime
 # capability isolation, reconnect, and event consume/discard
+
+$ gh api repos/openclaw/acpx/pulls/672 --jq '{head_sha:.head.sha,base_sha:.base.sha,merge_commit_sha,merged_at}'
+{"base_sha":"7879505dcf79448cd71cafd82a21aa6c937a3f3e","head_sha":"c64b2751f0b8ca6e9d5613e98f7ed87f778de1b5","merge_commit_sha":"ce8c3689fe830fd5c6199a8a683dc979d180af1d","merged_at":"2026-09-21T10:46:39Z"}
+
+$ git diff --check faa332ca8b3eb7da6662f127d6e3a55056f3db9d
+# clean
+
+$ git rev-parse HEAD
+4a560197607197a45abfeb537f5f841457a73db2
 ```
 
 No live Cursor/provider action, provider qualification, or production promotion.
-No PR was created.
