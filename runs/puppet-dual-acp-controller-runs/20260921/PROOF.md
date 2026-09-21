@@ -366,3 +366,85 @@ Actual public-runtime synthetic proof (not live/provider):
   identity is not copied onto runtime handles.
 
 No live qualification, shared plugin install, credential/usage reset, or PR.
+
+## CI portability repair: task text before official Cursor route
+
+This native Cursor repair started from exact clean PR61 head
+`b8672726939a64710c69f4c2839b037d15e36945` / tree
+`aff6df13f94c1dff053d6b7a467d19f72c0fb3ca`. It repairs only the Ubuntu
+portability failure. The exact-source acpx identity
+`2e05de525dd1ab62e9e74bf02d91e3638920fcf3` / tree
+`c612e764ead5d8eaa409956fb1b11c008a7579ed` / artifact SHA-256
+`5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614` is
+unchanged. Ordinary availability, fallback, and authorization behavior are
+unchanged.
+
+### Failure
+
+Ubuntu full discovery ran 1334 tests with one failure:
+
+```text
+FAIL: test_structured_launch_without_observer_does_not_fall_back
+AssertionError: 'task text is missing' not found in
+'cursor-acp official route executable is missing'
+```
+
+Source excerpt:
+`/Users/bobbybones/Developer/worktrees/acpx-upstream-plan-20260920/runs/puppet-overnight-runs/20260921/pr61-ubuntu-failure.txt`
+
+Hermetic macOS reproduction with official Cursor absent:
+
+```text
+ambient /Users/bobbybones/.local/bin/cursor-agent exists: True
+python3 -m unittest tests.test_puppet_cursor_acp.CursorAcpTransportTests.test_structured_launch_without_observer_does_not_fall_back -v
+OK
+
+CURSOR_AGENT_EXECUTABLE=/missing/cursor-acp-official-route \
+python3 -m unittest tests.test_puppet_cursor_acp.CursorAcpTransportTests.test_structured_launch_without_observer_does_not_fall_back -v
+FAIL: expected 'task text is missing', actual
+'cursor-acp official route executable is missing'
+```
+
+Default official route still pointed at
+`/Users/bobbybones/.local/bin/cursor-agent`. Structured launch resolved that
+path before caller task-text validation, so hosts without Cursor failed the
+wrong closed error. No process was spawned; the failure was validation order.
+
+### Repair
+
+`_cursor_acp_structured_launch` now requires runtime task text before
+`resolve_cursor_acp_route_binding()` on the official default-factory path.
+Missing input fails as `task text is missing`. A present task string with the
+official executable absent still fails as
+`cursor-acp official route executable is missing`. Tmux and agy-print
+constructors remain patched/refused; the official route is not spawned.
+
+The existing no-fallback test now hermetically sets
+`CURSOR_AGENT_EXECUTABLE=/missing/cursor-acp-official-route` and also proves
+the unavailable-official-route closed error. No skip, no Cursor install, no
+environment-specific production branching, no pin or authorization change.
+
+### Checks
+
+```text
+python3 -m unittest tests.test_puppet_cursor_acp.CursorAcpTransportTests.test_structured_launch_without_observer_does_not_fall_back -v
+Ran 1 test ... OK
+# ambient Cursor remains installed at the default path; the test fixture
+# still hides it. A second run with CURSOR_AGENT_EXECUTABLE=/also-missing/...
+# also passed.
+
+python3 -m unittest tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx tests.test_puppet_cursor_acp tests.test_puppet_packaging -v
+Ran 69 tests in 21.581s
+OK
+
+python3 -m unittest discover -s tests -v
+Ran 1334 tests in 230.570s
+OK
+```
+
+Node bridge suites, live Cursor/AGY qualification, shared plugin install,
+credential/usage reset, and pin refresh were not run. Scope is this one
+caller validation-order plus hermetic fixture. Antigravity structured launch
+order was not changed because it was not the failing CI test.
+
+No live qualification, publication, merge, or ordinary route promotion.

@@ -952,6 +952,7 @@ def _cursor_acp_structured_launch(
             if binding is None and route_resolver is not None:
                 binding = route_resolver()
             elif binding is None and runtime_factory is None:
+                require_runtime_task_text(prompt)
                 binding = resolve_cursor_acp_route_binding()
             if binding is not None:
                 binding = require_cursor_acp_route_binding(binding)

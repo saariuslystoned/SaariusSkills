@@ -1,6 +1,6 @@
 # Dual ACP controller state
 
-- status: upstream acpx refresh completed; candidate pin is exact 2e05de52 / tree c612e764 with a new task-local artifact and runtime root; old f888 evidence is preserved as a rejected fence
+- status: CI portability repair completed on top of accepted PR61 head b867272; missing Cursor ACP task text is now rejected before official route executable validation; candidate pin remains exact 2e05de52 / tree c612e764; old f888 evidence stays a rejected fence
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dual-acp-controller-20260921`
 - branch: `codex/puppet-dual-acp-controller-20260921`
 - accepted base: `e999f88092ef8e07c7dd1736b31c69bfeacb738b`
@@ -17,9 +17,11 @@
 - repair2_worker_job_id: `f3b870e8-94af-42da-a9e9-fe9819ce335c`
 - lifecycle_worker_job_id: `faeec797-3fa7-4893-a0d0-f5c6d289267c`
 - refresh_implementation: this in-workspace Cursor ACP session; no separate delegated ACP job id
+- ci_portability_repair: this in-workspace Cursor ACP session; one validation-order plus hermetic fixture commit on exact clean head `b8672726939a64710c69f4c2839b037d15e36945` / tree `aff6df13f94c1dff053d6b7a467d19f72c0fb3ca`
+- ci_failure: Ubuntu full discovery 1334 tests, 1 failure at `tests/test_puppet_cursor_acp.py:731` `test_structured_launch_without_observer_does_not_fall_back`; expected `task text is missing`, actual `cursor-acp official route executable is missing`
 - ordinary/plugin/shared pins: unchanged
 - live qualification: not launched; parent admission required after source acceptance
-- independent validation: 121 focused Python tests, 66 Cursor bridge tests, and 34 Antigravity bridge tests passed
+- independent validation: affected test plus 69 Cursor ACP focused Python tests and 1334-test unittest discovery passed on macOS after the repair; the repaired test now forces the official Cursor executable absent
 - process-local limit: continuation cannot resume without the live owner; absent/wrong owner or route binding fail closed
 - refresh gaps: delegated-terminal #683 retirement and queue/lease #680/#681/#682/#686 surfaces are unused because terminal callbacks and CLI queue ownership stay disabled; #687 not adopted
-- next: independent Luna review; no live qualification, publication, or merge from this worker
+- next: parent CI re-run / review; no live qualification, publication, merge, pin refresh, or shared install from this worker

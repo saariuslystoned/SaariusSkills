@@ -69,3 +69,17 @@ The old f888 artifact remains in place as a rejected fence. Focused checks:
 non-default-model cleanup and owned-child retirement/reconnect with recorded
 backend mapping. `#687` was not cherry-picked. No live qualification,
 publication, merge, or PR.
+
+Ubuntu CI on PR61 head `b8672726939a64710c69f4c2839b037d15e36945` failed one
+portable test: `test_structured_launch_without_observer_does_not_fall_back`
+expected `task text is missing` but saw `cursor-acp official route executable
+is missing` because official `cursor-agent` is absent on the runner. This
+repair starts from that exact clean head. Missing caller task text is now
+rejected before official route executable validation. The same test now
+hermetically points `CURSOR_AGENT_EXECUTABLE` at a missing path and still
+proves no tmux/agy-print fallback; a present task string with the official
+route absent still fails closed as `cursor-acp official route executable is
+missing` without spawning. Exact acpx `2e05de52` / tree `c612e764` / artifact
+SHA-256 `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`
+is unchanged. No pin refresh, live qualification, publication, merge, or
+shared install.

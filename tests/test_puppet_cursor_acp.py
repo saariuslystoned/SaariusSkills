@@ -704,7 +704,10 @@ class CursorAcpTransportTests(unittest.TestCase):
         contract.repo = Path("/tmp/cursor-acp-workspace")
         contract.requested_model = None
         contract.target = "cursor"
-        with mock.patch(
+        with mock.patch.dict(
+            "os.environ",
+            {"CURSOR_AGENT_EXECUTABLE": "/missing/cursor-acp-official-route"},
+        ), mock.patch(
             "puppet_lib.session._workspace_snapshot",
             return_value={
                 "branch": "codex/example",
@@ -728,7 +731,20 @@ class CursorAcpTransportTests(unittest.TestCase):
                         state_root=Path(temporary),
                         requested_model=None,
                     )
-        self.assertIn("task text is missing", str(raised.exception))
+                self.assertIn("task text is missing", str(raised.exception))
+                with self.assertRaises(ValidationError) as raised:
+                    _cursor_acp_structured_launch(
+                        session="cursor-acp-session",
+                        contract=contract,
+                        transport=bind_run_transport("cursor-acp"),
+                        state_root=Path(temporary),
+                        requested_model=None,
+                        prompt="caller task: inspect the owned workspace without echoing bodies",
+                    )
+                self.assertIn(
+                    "cursor-acp official route executable is missing",
+                    str(raised.exception),
+                )
 
     def test_doctor_reports_cursor_acp_unavailable_without_fallback(self):
         with tempfile.TemporaryDirectory() as temporary:
