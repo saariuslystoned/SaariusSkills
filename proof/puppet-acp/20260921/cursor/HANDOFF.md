@@ -75,6 +75,7 @@ Independent v3 review, the bounded release decision, and the PR64 source accepta
 - Requested/expected model were `cursor-grok-4.6-high` / `grok-4.6[effort=high,fast=true]`, but selected/current model metadata was not durably retained before cleanup failure. No model qualification claim is made.
 - Sanitized receipt: `live-outcome-pr64/live-outcome.json`, SHA-256 `a940d5425bd21c04e6542bb754e7cd01ad0d0e473bd933e79f4bb2f68e42fe33`.
 - Budget used: one session, one completed prompt, no retry. This is useful behavior evidence with cleanup uncertainty, not a qualification PASS or ordinary production admission.
+- Read-only diagnosis: `qualification-diagnosis-pr64.md`, SHA-256 `34b7656595f9d4773fe93440423904a28bad7b7c258b08d4afe12e748b4309f5`. The exact blocker is unsupported backend `session/close` plus missing matched Cursor worker lifecycle proof; helper exit is not treated as backend termination. The next gate is an offline synthetic unsupported-close regression and durable model/lifecycle metadata before any new live allocation.
 
 ## Attribution
 
