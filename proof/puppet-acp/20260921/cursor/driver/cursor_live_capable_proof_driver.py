@@ -727,7 +727,54 @@ def evaluate_backend_after_finish(
     incarnations: list[Mapping[str, Any]],
     *,
     live: bool,
+    cleanup: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
+    contract = source_cleanup_contract(cleanup)
+    if contract is not None:
+        lifecycle = contract["process_lifecycle"]
+        worker = contract.get("worker")
+        started = lifecycle.get("started") if isinstance(lifecycle, Mapping) else None
+        exits = lifecycle.get("exits") if isinstance(lifecycle, Mapping) else None
+        worker_proven = contract.get("worker_termination") == "proven"
+        worker_matches = (
+            isinstance(worker, Mapping)
+            and isinstance(started, list)
+            and isinstance(exits, list)
+            and any(source_process_identities_match(worker, item) for item in started)
+            and any(source_process_identities_match(worker, item) for item in exits)
+        )
+        if (
+            worker_proven
+            and worker_matches
+            and contract.get("cleanup_uncertain") is False
+            and contract.get("replacement_blocked") is False
+        ):
+            return {
+                "matched": True,
+                "terminated": True,
+                "surviving_pids": [],
+                "inferred_from_helper_exit": False,
+                "helper_exit_sufficient": False,
+                "backend_discard": contract.get("backend_discard"),
+                "worker_termination": "proven",
+                "process_lifecycle": lifecycle,
+                "cleanup_uncertain": False,
+                "replacement_blocked": False,
+            }
+        if live or contract.get("cleanup_uncertain") is True:
+            return {
+                "matched": bool(started),
+                "terminated": False,
+                "surviving_pids": [],
+                "inferred_from_helper_exit": False,
+                "helper_exit_sufficient": False,
+                "backend_discard": contract.get("backend_discard"),
+                "worker_termination": contract.get("worker_termination", "unknown"),
+                "process_lifecycle": lifecycle,
+                "cleanup_uncertain": True,
+                "replacement_blocked": True,
+                "reason": "source cleanup contract did not prove exact owned worker termination",
+            }
     surviving = []
     for item in incarnations:
         pid = item.get("pid")
@@ -776,6 +823,58 @@ def evaluate_backend_after_finish(
         "helper_exit_sufficient": False,
         "cleanup_uncertain": False,
         "replacement_blocked": False,
+    }
+
+
+def source_process_identities_match(left: Any, right: Any) -> bool:
+    if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+        return False
+    if left.get("pid") != right.get("pid"):
+        return False
+    if not isinstance(left.get("pid"), int) or isinstance(left.get("pid"), bool):
+        return False
+    if not left.get("launchId") or left.get("launchId") != right.get("launchId"):
+        return False
+    if not left.get("startedAt") or left.get("startedAt") != right.get("startedAt"):
+        return False
+    left_scope = left.get("scope")
+    right_scope = right.get("scope")
+    if not isinstance(left_scope, Mapping) or not isinstance(right_scope, Mapping):
+        return False
+    if left_scope.get("kind") != right_scope.get("kind"):
+        return False
+    if left_scope.get("kind") == "runtime-session":
+        return left_scope.get("sessionKey") == right_scope.get("sessionKey")
+    if left_scope.get("kind") == "runtime-probe":
+        return left_scope.get("agent") == right_scope.get("agent")
+    return left_scope.get("kind") == "client"
+
+
+def source_cleanup_contract(cleanup: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(cleanup, Mapping):
+        return None
+    nested = cleanup.get("cleanup")
+    values: Dict[str, Any] = {}
+    if isinstance(nested, Mapping):
+        values.update(nested)
+    values.update(cleanup)
+    required = {"worker_termination", "process_lifecycle"}
+    if not required.intersection(values):
+        return None
+    lifecycle = values.get("process_lifecycle")
+    if not isinstance(lifecycle, Mapping):
+        lifecycle = {"started": [], "exits": []}
+    return {
+        "backend_discard": values.get("backend_discard")
+        or values.get("backendSessionDiscard"),
+        "worker_termination": values.get("worker_termination", "unknown"),
+        "cleanup_uncertain": values.get("cleanup_uncertain"),
+        "replacement_blocked": values.get("replacement_blocked"),
+        "worker": values.get("worker"),
+        "process_lifecycle": {
+            "started": [item for item in lifecycle.get("started", []) if isinstance(item, Mapping)],
+            "exits": [item for item in lifecycle.get("exits", []) if isinstance(item, Mapping)],
+        },
     }
 
 
@@ -1001,13 +1100,14 @@ def consume(
     backend_after_finish = None
     finish_attempted = False
     cleanup = None
+    cleanup_error: Optional[BaseException] = None
     fence = None
     primary: Optional[BaseException] = None
     runner = None
     isolated_root = None
 
     def attempt_owner_finish() -> None:
-        nonlocal finish_attempted, cleanup, fence, backend_after_finish
+        nonlocal finish_attempted, cleanup, cleanup_error, fence, backend_after_finish
         if finish_attempted or owner is None or continuation is None:
             return
         finish_attempted = True
@@ -1023,6 +1123,7 @@ def consume(
             backend_after_finish = evaluate_backend_after_finish(
                 incarnations,
                 live=live,
+                cleanup=closed,
             )
             uncertain = evaluate_child_exit(child_exit)
             backend_uncertain = bool(backend_after_finish.get("cleanup_uncertain"))
@@ -1047,6 +1148,26 @@ def consume(
                 cleanup = dict(closed)
                 cleanup["fence"] = fence
         except Exception as cleanup_exc:
+            cleanup_error = cleanup_exc
+            if runner is not None:
+                runner_cleanup = getattr(runner, "cleanup_receipt", None)
+                if isinstance(runner_cleanup, Mapping):
+                    cleanup = dict(runner_cleanup)
+                else:
+                    cleanup = {
+                        field: getattr(runner, field)
+                        for field in (
+                            "backend_discard",
+                            "worker_termination",
+                            "cleanup_uncertain",
+                            "replacement_blocked",
+                            "worker",
+                            "process_lifecycle",
+                            "selected_model",
+                            "current_model",
+                        )
+                        if hasattr(runner, field)
+                    }
             helper_pid = None
             if runner is not None:
                 try:
@@ -1062,8 +1183,13 @@ def consume(
                 state_root=owned_state,
                 extra={"cleanup_error_type": type(cleanup_exc).__name__},
             )
+            backend_after_finish = evaluate_backend_after_finish(
+                merge_backend_incarnations(process_observation, second_observation),
+                live=live,
+                cleanup=cleanup,
+            )
             if primary is None:
-                raise
+                return
             return
 
     try:
@@ -1224,6 +1350,7 @@ def consume(
         backend_after_finish = evaluate_backend_after_finish(
             merge_backend_incarnations(process_observation, second_observation),
             live=live,
+            cleanup=cleanup,
         )
     uncertain = evaluate_child_exit(child_exit)
     backend_uncertain = bool(backend_after_finish.get("cleanup_uncertain"))
@@ -1242,7 +1369,9 @@ def consume(
             state_root=owned_state,
             extra={"backend_after_finish": backend_after_finish},
         )
-    live_pass_blocked = live and (uncertain is not None or backend_uncertain)
+    live_pass_blocked = live and (
+        uncertain is not None or backend_uncertain or cleanup_error is not None
+    )
     if (not live) and uncertain is not None:
         raise RuntimeError("cleanup uncertain: %s" % uncertain["reason"])
 
@@ -1278,6 +1407,18 @@ def consume(
         "first_request_id": None if first_ids is None else first_ids["request_id"],
         "second_request_id": None if second_ids is None else second_ids["request_id"],
     }
+    model_summary = _model_summary(
+        launched or {},
+        live=live,
+        used_kind=used_kind,
+        requested_model=requested_model,
+        catalog_injected=catalog is not None,
+    )
+    if runner is not None:
+        for key, attr in (("selected_model", "selected_model"), ("current_model", "current_model")):
+            value = getattr(runner, attr, None)
+            if isinstance(value, str) and value:
+                model_summary[key] = value
     receipt = {
         "schema": "puppet.cursor-live-capable-controller-proof/v3",
         "mode": "live_official_route" if live and used_kind == "official_route" else (
@@ -1294,13 +1435,7 @@ def consume(
         "live_cursor_acp_claimed": False if launched is None else launched.get("live_cursor_acp_claimed"),
         "launch_parameters": launch_parameters,
         "turn_attribution": turn_attribution,
-        "model": _model_summary(
-            launched or {},
-            live=live,
-            used_kind=used_kind,
-            requested_model=requested_model,
-            catalog_injected=catalog is not None,
-        ),
+        "model": model_summary,
         "host": {
             "session": None if first_ids is None else first_ids["session"],
             "conversation_id": None if first_ids is None else first_ids["host_conversation_id"],
@@ -1336,11 +1471,20 @@ def consume(
             "local_release": None if cleanup is None else cleanup.get("local_release"),
             "persistent_state": None if cleanup is None else cleanup.get("persistent_state"),
             "backend_discard": None if cleanup is None else cleanup.get("backend_discard"),
+            "worker_termination": None if cleanup is None else cleanup.get("worker_termination"),
+            "cleanup_uncertain": None if cleanup is None else cleanup.get("cleanup_uncertain"),
+            "replacement_blocked": None if cleanup is None else cleanup.get("replacement_blocked"),
+            "worker": None if cleanup is None else cleanup.get("worker"),
+            "process_lifecycle": None if cleanup is None else cleanup.get("process_lifecycle"),
+            "selected_model": None if cleanup is None else cleanup.get("selected_model"),
+            "current_model": None if cleanup is None else cleanup.get("current_model"),
             "child_exit": child_exit,
             "fence": fence,
             "owner_mediated": True,
             "finish_attempted_once": finish_attempted,
             "backend_after_finish": backend_after_finish,
+            "finish_error": None if cleanup_error is None else _error_label(cleanup_error),
+            "source_contract": source_cleanup_contract(cleanup),
         },
         "workspace": fixture_identity(workspace_dir),
         "source": source_identity(),

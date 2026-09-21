@@ -36,6 +36,7 @@ from cursor_live_capable_proof_driver import (  # noqa: E402
     capture_baseline,
     consume,
     create_fixture_workspace,
+    evaluate_backend_after_finish,
     fixture_identity,
     observe_helper_and_backend,
     official_route_resolver,
@@ -48,6 +49,8 @@ from cursor_live_capable_proof_driver import (  # noqa: E402
     require_explicit_live_session,
     require_parent_release,
     staged_live_invocation,
+    source_cleanup_contract,
+    source_process_identities_match,
     synthetic_catalog,
     live_owned_paths,
 )
@@ -81,6 +84,42 @@ def _wrap_live_launch(captured: dict):
 
 
 class CursorLiveCapableProofDriverTests(unittest.TestCase):
+    def test_source_cleanup_contract_requires_exact_worker_lifecycle(self):
+        worker = {
+            "pid": 4242,
+            "startedAt": "2026-09-21T00:00:00.000Z",
+            "launchId": "launch-owned-1",
+            "scope": {"kind": "runtime-session", "sessionKey": "source-contract"},
+        }
+        exited = {**worker, "exitCode": 0, "signal": None, "exitedAt": "2026-09-21T00:00:01.000Z"}
+        self.assertTrue(source_process_identities_match(worker, exited))
+        self.assertFalse(source_process_identities_match(worker, {**exited, "pid": 4343}))
+        contract = {
+            "backend_discard": "unsupported",
+            "worker_termination": "proven",
+            "cleanup_uncertain": False,
+            "replacement_blocked": False,
+            "worker": worker,
+            "process_lifecycle": {"started": [worker], "exits": [exited]},
+        }
+        self.assertEqual(source_cleanup_contract(contract), contract)
+        admitted = evaluate_backend_after_finish([], live=True, cleanup=contract)
+        self.assertTrue(admitted["terminated"])
+        self.assertFalse(admitted["cleanup_uncertain"])
+        self.assertEqual(admitted["backend_discard"], "unsupported")
+
+        uncertain = {
+            **contract,
+            "worker_termination": "unknown",
+            "cleanup_uncertain": True,
+            "replacement_blocked": True,
+            "process_lifecycle": {"started": [worker], "exits": []},
+        }
+        fenced = evaluate_backend_after_finish([], live=True, cleanup=uncertain)
+        self.assertFalse(fenced["terminated"])
+        self.assertTrue(fenced["cleanup_uncertain"])
+        self.assertTrue(fenced["replacement_blocked"])
+
     def test_consumer_lifecycle_uses_fixture_workspace_and_owner(self):
         _skip_without_artifact()
         with tempfile.TemporaryDirectory() as temporary:

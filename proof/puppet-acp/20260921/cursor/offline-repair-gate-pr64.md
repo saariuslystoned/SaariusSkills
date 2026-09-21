@@ -56,3 +56,12 @@ Make final close fail after the first turn has completed. Assert the bounded rec
 ## Dependency
 
 Do not launch another provider session until the source owner has a parent-accepted repair head exposing the lifecycle/cleanup contract, the proof-driver assertions pass offline on that exact head, and the parent issues a fresh one-session allocation. The existing PR64 live allocation remains consumed.
+
+## Proof-driver reconciliation completed
+
+The checkpoint driver now consumes the source contract through `source_cleanup_contract()` and `evaluate_backend_after_finish(..., cleanup=...)`. It validates `launchId`, `scope`, `pid`, and `startedAt` across worker/start/exit records, preserves selected/current model fields on cleanup errors, and records bounded finish-error/source-contract fields. Helper PID evidence remains non-authoritative.
+
+- Checkpoint driver SHA-256: `34b9885102eb84cd52ddb14b22678168cdc9da74b307dc25305ca82db75ec4d8`
+- Focused proof tests SHA-256: `47732b81ae1cb9829507efa8854666419cc544645d6c150a0e655d9a4543dc75`
+- Offline result: 11 tests passed, 6 skipped by the archival source guard, 0 failed.
+- The new contract test is data-only; it does not claim the unmerged source repair is live-qualified.
