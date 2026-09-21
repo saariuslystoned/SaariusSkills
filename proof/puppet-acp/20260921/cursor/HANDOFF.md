@@ -47,6 +47,14 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 
 Parent review, then a fresh verified d5 execution checkout and one parent-issued live session. Budget is one session, at most two prompts of 300000 ms each, no retry. The staged live command is archived under `staged/live-invocation.json` and has not been executed.
 
+## Bounded release decision
+
+- Parent acceptance: `APPROVE10/10`; v3 review and proof were read before release.
+- Release record: `dual-v3-live-release.json`, recorded `2026-09-21T15:55:26Z`.
+- Parent release token: `parent-pr62-v3-20260921`.
+- Released budget: one session, at most two prompts of 300000 ms each, actual runtime timeout 30000 ms, no retry or replacement session.
+- Released execution must use a fresh d5 checkout and the exact reviewed driver hash above. This archival branch remains a checkpoint only; it is not the live execution checkout.
+
 ## Review recovery
 
 - Prerequisite controller work is tracked in [PR #61](https://github.com/saariuslystoned/SaariusSkills/pull/61).
