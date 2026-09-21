@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
@@ -46,6 +47,7 @@ from agy_live_capable_proof_driver import (
     CleanupVisibleError,
     accept_unsupported_backend_discard,
     apply_intended_implementation,
+    backend_cleanup_policy,
     body_free,
     consume,
     create_fixture_workspace,
@@ -54,6 +56,7 @@ from agy_live_capable_proof_driver import (
     observe_helper_and_backend,
     official_route_resolver,
     persist_receipt,
+    pid_is_alive,
     reject_live_claim,
     reject_live_without_launch_input,
     reject_non_official_live_binding,
@@ -68,6 +71,7 @@ from agy_live_capable_proof_driver import (
     staged_live_invocation,
     start_owned_local_backend,
     stop_owned_local_backend,
+    write_cleanup_fence,
     write_staged_artifacts,
 )
 from puppet_lib.antigravity_acp import (
@@ -603,6 +607,130 @@ class AgyLiveCapableProofDriverTests(unittest.TestCase):
         self.assertFalse(missing["observed"])
         self.assertFalse(missing["terminated"])
         self.assertFalse(missing["inferred_from_helper_exit"])
+        self.assertFalse(missing["cleanup_uncertain"])
+
+    def test_official_empty_capture_after_helper_exit_discard_is_fenced(self):
+        self.assertEqual(backend_cleanup_policy(live=True, used_kind=OFFICIAL_ROUTE_KIND), "official")
+        evaluated = evaluate_backend_after_finish([], policy="official")
+        self.assertFalse(evaluated["observed"])
+        self.assertFalse(evaluated["terminated"])
+        self.assertTrue(evaluated["cleanup_uncertain"])
+        self.assertTrue(evaluated["replacement_blocked"])
+        self.assertFalse(evaluated["helper_exit_sufficient"])
+        self.assertFalse(evaluated["inferred_from_helper_exit"])
+        self.assertFalse(evaluated["agy_backend_claimed"])
+        helper = {"exited": True, "pid": 4242, "role": "node_driver_helper"}
+        closed = accept_unsupported_backend_discard(
+            {"backend_discard": "closed", "local_release": False, "final_discard": True},
+            helper,
+            evaluated,
+        )
+        self.assertFalse(closed["accepted"])
+        self.assertEqual(closed["backend_discard"], "closed")
+        self.assertTrue(closed["helper_exited"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fence = write_cleanup_fence(
+                fence_dir=root / "fences",
+                session="agy-v4-official-empty-capture",
+                reason=evaluated["reason"],
+                helper_pid=helper["pid"],
+                workspace=root / "workspace",
+                state_root=root / "state",
+                extra={
+                    "backend_after_finish": evaluated,
+                    "backend_acceptance": closed,
+                    "helper_exit_sufficient": False,
+                },
+            )
+            self.assertTrue(fence["cleanup_uncertain"])
+            self.assertTrue(fence["replacement_blocked"])
+            self.assertFalse(fence["helper_exit_sufficient"])
+            self.assertFalse(fence["workspace_deleted"])
+            self.assertTrue(Path(fence["path"]).is_file())
+
+    def test_failed_metadata_query_with_alive_or_unknown_liveness_is_not_terminated(self):
+        captured = {
+            "pid": 5555,
+            "ppid": 4242,
+            "executable_name": "localharness_external",
+            "start_birth_identity": "Mon Sep 21 00:00:00 2026",
+        }
+        with mock.patch("agy_live_capable_proof_driver.os.kill", side_effect=ProcessLookupError()):
+            self.assertIs(pid_is_alive(5555), False)
+        with mock.patch("agy_live_capable_proof_driver.os.kill", side_effect=PermissionError()):
+            self.assertIsNone(pid_is_alive(5555))
+        with mock.patch(
+            "agy_live_capable_proof_driver.os.kill",
+            side_effect=OSError(errno.EPERM, "Operation not permitted"),
+        ):
+            self.assertIsNone(pid_is_alive(5555))
+        with mock.patch("agy_live_capable_proof_driver.os.kill", return_value=None):
+            self.assertIs(pid_is_alive(5555), True)
+
+        cases = (
+            (None, True),
+            (None, None),
+            (OSError("ps metadata denied"), True),
+            (OSError("ps metadata denied"), None),
+        )
+        for metadata, alive in cases:
+            with self.subTest(metadata=metadata, alive=alive):
+                identity = mock.Mock(side_effect=metadata) if isinstance(metadata, Exception) else mock.Mock(return_value=metadata)
+                with mock.patch("agy_live_capable_proof_driver._ps_identity", identity):
+                    with mock.patch("agy_live_capable_proof_driver.pid_is_alive", return_value=alive):
+                        result = evaluate_backend_after_finish([captured])
+                self.assertTrue(result["observed"])
+                self.assertFalse(result["terminated"])
+                self.assertTrue(result["cleanup_uncertain"])
+                self.assertTrue(result["replacement_blocked"])
+                self.assertFalse(result["helper_exit_sufficient"])
+                self.assertFalse(result["inferred_from_helper_exit"])
+                self.assertEqual(result["surviving_count"], 0)
+
+    def test_task_owned_local_peer_exit_is_accepted_with_positive_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            handle = start_owned_local_backend(Path(temporary) / "owned-backend")
+            try:
+                living = evaluate_backend_after_finish([handle["incarnation"]])
+                self.assertTrue(living["observed"])
+                self.assertFalse(living["terminated"])
+                self.assertTrue(living["cleanup_uncertain"])
+                self.assertEqual(living["surviving"][0]["pid"], handle["pid"])
+                os.kill(handle["pid"], 0)
+            finally:
+                stop_owned_local_backend(handle)
+            exited = evaluate_backend_after_finish([handle["incarnation"]])
+        self.assertTrue(exited["observed"])
+        self.assertTrue(exited["terminated"])
+        self.assertFalse(exited["cleanup_uncertain"])
+        self.assertFalse(exited["replacement_blocked"])
+        self.assertFalse(exited["inferred_from_helper_exit"])
+        self.assertFalse(exited["agy_backend_claimed"])
+        self.assertEqual(exited["terminated_count"], 1)
+        with self.assertRaises(OSError):
+            os.kill(handle["pid"], 0)
+
+    def test_synthetic_no_backend_empty_capture_remains_non_qualifying(self):
+        self.assertEqual(backend_cleanup_policy(live=False, used_kind=SYNTHETIC_PEER_KIND), "synthetic")
+        self.assertEqual(backend_cleanup_policy(live=True, used_kind=SYNTHETIC_PEER_KIND), "synthetic")
+        missing = evaluate_backend_after_finish([], policy="synthetic")
+        self.assertFalse(missing["observed"])
+        self.assertFalse(missing["terminated"])
+        self.assertFalse(missing["cleanup_uncertain"])
+        self.assertFalse(missing.get("replacement_blocked", False))
+        self.assertFalse(missing["agy_backend_claimed"])
+        self.assertFalse(missing["inferred_from_helper_exit"])
+        self.assertFalse(missing["helper_exit_sufficient"])
+        self.assertNotIn("reason", missing)
+        helper = {"exited": True, "pid": 4242, "role": "node_driver_helper"}
+        closed = accept_unsupported_backend_discard(
+            {"backend_discard": "closed", "local_release": False, "final_discard": True},
+            helper,
+            missing,
+        )
+        self.assertFalse(closed["accepted"])
+        self.assertFalse(closed["backend_terminated"])
 
     def test_ordinary_no_edit_fixture_failure_persists_fresh_receipt(self):
         _skip_without_artifact()
@@ -630,6 +758,13 @@ class AgyLiveCapableProofDriverTests(unittest.TestCase):
             self.assertFalse(receipt["official_agy_provider_contacted"])
             self.assertFalse(receipt["provider_never_contacted_implied"])
             self.assertTrue(receipt["synthetic_peer_used"])
+            self.assertTrue(receipt["test_only"])
+            self.assertEqual(receipt["route_kind"], SYNTHETIC_PEER_KIND)
+            self.assertIsNone(receipt["finish"]["cleanup_fence"])
+            self.assertFalse(receipt["process"]["backend_after_finish"]["observed"])
+            self.assertFalse(receipt["process"]["backend_after_finish"]["terminated"])
+            self.assertFalse(receipt["process"]["backend_after_finish"]["cleanup_uncertain"])
+            self.assertFalse(receipt["backend_acceptance"]["accepted"])
             self.assertEqual(receipt["model"]["requested_model"], EXACT_AGY_MODEL)
             self.assertEqual(receipt["model"]["current_model"], EXACT_AGY_MODEL)
             self.assertIsNone(receipt["model"]["effort"])

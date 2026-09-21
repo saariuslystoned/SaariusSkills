@@ -10,8 +10,8 @@ v2 driver  04575383754a61c6ba938de1bd66f8a7aae442e14dd8d70349ba44efd851d2fe
 v2 tests   fcc142b9c1dfb2bf65ae6bf78d5085912b27743cbad33be022ab173114ea864e
 v3 driver  1bf2c9b22be3561f0e3461edc8b191e61de8e1067aa20cbbeb48c6e7d0a89ba8
 v3 tests   00e5a7ea624ab19ecb9ece3702bfa9bb2bcfd58123c98a8b69ac74912a50ed93
-v4 driver  bf5fda87ff9dbfb001bd4603662e00b52c25e75fdd5c63b511c7db17b00176b5
-v4 tests   242d3cc965b4d842edb4b3e99e5e39dba02179fa1ac953d2b1a5575638e17c75
+v4 driver  fe8ba9e2b6e29d92f4c41cf7b97c9a5bee95d643466aeed85b24f251f29f0a0f
+v4 tests   5fb3e10c47ec66baeac7d05684ea769eb9c8c2b3a51c9cc0fdddd69602771195
 ```
 
 v1 proved only the offline synthetic controller lifecycle. v2 added the
@@ -19,8 +19,10 @@ default-off official live branch and exact changed-path assertions. v3 repairs
 backend incarnation/termination evidence and unsupported-close fencing. None
 of these offline results is an AGY useful-edit acceptance.
 
-v4 is an offline failure-receipt repair only. Its 18-test suite passed. The
-ordinary fixture-failure path contacted the public runtime through the local
-synthetic peer, persisted a fresh body-free receipt, retained the independent
-fixture failure as nonzero, and made no AGY provider call. The staged v4 live
-command was not executed.
+v4 is an offline failure-receipt repair only. Its original 18-test suite passed;
+the bounded cleanup-uncertainty repair adds four policy regressions for 22/22.
+The ordinary fixture-failure path contacted the public runtime through the
+local synthetic peer, persisted a fresh body-free receipt, retained the
+independent fixture failure as nonzero, and made no AGY provider call. Official
+or provider-capable missing backend cleanup now fences; failed metadata or
+liveness remains unknown. The staged v4 live command was not executed.

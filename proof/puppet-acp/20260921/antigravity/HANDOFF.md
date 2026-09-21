@@ -29,10 +29,12 @@ emitted, so no coordinator should re-request authorization or retry.
 Orchestration and review: Codex. Bounded implementation: native Cursor ACP
 using exact Grok 4.6 High.
 
-The final offline v4 implementation job was authorized only for this
+The initial offline v4 implementation job was authorized only for this
 failure-receipt repair: native Cursor ACP, exact
 `grok-4.6[effort=high,fast=true]`, one bounded job, 600000ms timeout, and no
-Antigravity provider turn. It completed with 18 focused tests passing. v4 now
+Antigravity provider turn. It completed with 18 focused tests passing. A second
+bounded offline cleanup-uncertainty repair used the same route/model and
+completed with four new policy regressions; the combined suite is 22/22. v4 now
 persists a fresh allowlisted body-free receipt on an ordinary public-runtime /
 local-synthetic-peer fixture failure, preserves primary and cleanup errors
 separately, records unknowns honestly, and rejects receipt overwrite or writes
@@ -87,7 +89,10 @@ The live branch remains staged only and is not executed. It rejects the host
 known-answer helper, permits legitimate identical bytes, and retains the sole
 allowed edit/protected-file/test checks. The old v3-to-v2 generated command is
 still quarantined. v3 bytes remain unchanged; useful-edit ability remains
-unproven and no new candidate provider turn is authorized.
+unproven. Official/live missing or unobservable backend cleanup now fences
+explicitly; a failed metadata or liveness lookup remains unknown rather than
+termination. The explicit synthetic no-backend receipt remains non-qualifying.
+No new candidate provider turn is authorized.
 
 ## Evidence
 

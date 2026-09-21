@@ -1,16 +1,18 @@
 # Antigravity failure-receipt v4 proof
 
-Status: `OFFLINE_FAILURE_RECEIPT_REPAIR_COMPLETE`. Canonical implementation
-result: `completed/end_turn`. This is one bounded proof-artifact repair over
-v3. Product source, pins, ordinary availability, and v3 bytes are unchanged.
-No official Antigravity provider turn was authorized or launched.
+Status: `OFFLINE_CLEANUP_UNCERTAINTY_REPAIR_COMPLETE`. Canonical
+implementation result: `completed/end_turn`. This is one bounded
+cleanup-uncertainty repair on the existing v4 artifact. Product source,
+pins, ordinary availability, v3 bytes, and earlier receipt bytes are
+unchanged. No official Antigravity provider turn was authorized or launched.
 
 ## Frozen identities
 
 ```text
 frozen execution HEAD d5e33f67f6b42384f6feec1d15be3b69b4525eb8
 frozen execution TREE 938ef948a6a1218ad055a17d5d297c633b936167
-publication HEAD      18c438a058407ef08bfc02e8397f039eb8ae0ff6
+publication baseline  18c438a058407ef08bfc02e8397f039eb8ae0ff6
+                      (pre-v4 publication tree; not current HEAD)
 route                 antigravity-acp
 model                 gemini-3.8-flash-high
 effort                unset
@@ -19,15 +21,16 @@ acpx artifact         5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100
 runtime.js            ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683
 ```
 
-Implementation job `12791074-59c9-454e-a446-6ca5c7d14214`, native Cursor ACP,
-exact Grok 4.6 High, timeout 600000ms. No AGY provider job.
+Initial receipt-repair job `12791074-59c9-454e-a446-6ca5c7d14214` and bounded
+cleanup-repair job `39633833-5036-4d16-b8bf-6d7d27d33b10` used native Cursor
+ACP, exact Grok 4.6 High, timeout 600000ms. No AGY provider job.
 
 ## v4 authored hashes
 
 | path | SHA-256 |
 | --- | --- |
-| `v4/driver/agy_live_capable_proof_driver.py` | `bf5fda87ff9dbfb001bd4603662e00b52c25e75fdd5c63b511c7db17b00176b5` |
-| `v4/tests/test_agy_live_capable_proof_driver.py` | `242d3cc965b4d842edb4b3e99e5e39dba02179fa1ac953d2b1a5575638e17c75` |
+| `v4/driver/agy_live_capable_proof_driver.py` | `fe8ba9e2b6e29d92f4c41cf7b97c9a5bee95d643466aeed85b24f251f29f0a0f` |
+| `v4/tests/test_agy_live_capable_proof_driver.py` | `5fb3e10c47ec66baeac7d05684ea769eb9c8c2b3a51c9cc0fdddd69602771195` |
 | `v4/staged/live-invocation.json` | `4b2713cd6e64afda6023f97eee86c2b0c9572fd3e4b013c2e71a5a8766cc7d60` |
 | `v4/staged/launch-input.contract.json` | `0b0bb275478a24aad9d929548818eb5cf3a577b7109c050900d3ea3fb5119859` |
 | `v4/.gitignore` | `c603c47175aa05ae21cd0218309ab9bb204db9485119efcd95df1beed793851b` |
@@ -65,26 +68,52 @@ v3 PROOF  8cca51695d3e1bb883fb354b94be4dfed4b51b743c953223b59a8b3a87923c19
   changed-path / protected-file / test checks still run.
 - Staged invocation names the exact v4 driver and v4 contract. The old
   v3-to-v2 command remains historical/quarantined and was not executed.
+- Official/live or otherwise provider-capable missing or unobservable backend
+  cleanup now sets `cleanup_uncertain` and writes the existing
+  replacement-blocking fence. Helper exit and backend-discard acknowledgement
+  are not backend proof.
+- `evaluate_backend_after_finish` no longer treats a captured incarnation as
+  terminated when process metadata lookup is missing or failed, even if a
+  liveness probe would say alive. Missing, denied, or malformed metadata or
+  liveness stays `cleanup_uncertain`.
+- `pid_is_alive` returns True if reachable, False for positive ESRCH absence,
+  and None for permission or other lookup uncertainty.
+- Explicit synthetic no-backend proof remains non-qualifying and may keep
+  `cleanup_fence=null` only because it records test_only/synthetic, no
+  backend claim, no provider contact, and no backend acceptance. Actual
+  task-owned local peer exit is accepted only with positive absence evidence.
 
 ## Offline commands and results
 
 ```text
 PYTHONDONTWRITEBYTECODE=1 python3 proof/puppet-acp/20260921/antigravity/v4/tests/test_agy_live_capable_proof_driver.py -v
-Ran 18 tests in 37.430s
+Ran 22 tests in 28.815s
+OK
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  test_official_empty_capture_after_helper_exit_discard_is_fenced \
+  test_failed_metadata_query_with_alive_or_unknown_liveness_is_not_terminated \
+  test_task_owned_local_peer_exit_is_accepted_with_positive_evidence \
+  test_synthetic_no_backend_empty_capture_remains_non_qualifying -v
+Ran 4 tests in 0.217s
 OK
 
 --mode reject-live                       exit 2; live turn not authorized
 --mode fixture-baseline                  1 pass / 1 expected missing --check; tree 3f34ef57c245222c998be421dc9aaec998e47c18
 --mode fixture-after                     2 passes; OK/NON_NORMALIZED; exact {bin/normalize-lines.mjs}
---mode ordinary-fixture-failure          exit 2; see receipt below
+--mode ordinary-fixture-failure          exit 2; see receipt below; not rerun
 --live --mode lifecycle                  exit 2; missing launch-input rejected before process start
 --mode stage-live                        executed=false; v4 driver + v4 contract only
 ```
 
+Existing 18 tests continue to pass. Four offline cleanup-policy regressions
+were added. Ordinary no-edit receipt behavior is unchanged.
+
 ## Ordinary failure receipt
 
 Command used the pinned public runtime and local synthetic peer, not an
-injected special-exception branch. Host known-answer was not applied.
+injected special-exception branch. Host known-answer was not applied. This
+receipt was not rewritten by the cleanup-uncertainty repair.
 
 ```text
 exit 2
@@ -116,5 +145,7 @@ fields were persisted.
 
 This is not live AGY acceptance. Useful-edit ability remains unproven. Both
 previous live attempts remain consumed. This packet authorizes zero new
-candidate provider turns. Independent review of this v4 delta is required
-before any new one-session proof is considered.
+candidate provider turns. Missing official/live backend cleanup is now
+explicitly fenced, but that fence is offline policy evidence only. Independent
+repaired-delta review is required before any new one-session proof is
+considered.

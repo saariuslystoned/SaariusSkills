@@ -10,6 +10,7 @@ is not modified. Frozen v3 evidence is never overwritten.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -757,12 +758,34 @@ def _backend_named(identity: Mapping[str, Any]) -> bool:
     return name in _BACKEND_EXECUTABLE_NAMES
 
 
-def pid_is_alive(pid: int) -> bool:
+def pid_is_alive(pid: int) -> Optional[bool]:
+    """True if reachable, False if positively absent, None if lookup is uncertain.
+
+    ESRCH / ProcessLookupError is positive absence. Permission or any other
+    OSError is unknown and must not be treated as termination.
+    """
+
     try:
         os.kill(pid, 0)
-    except OSError:
+    except ProcessLookupError:
         return False
+    except PermissionError:
+        return None
+    except OSError as exc:
+        if getattr(exc, "errno", None) == errno.ESRCH:
+            return False
+        return None
     return True
+
+
+def backend_cleanup_policy(*, live: bool, used_kind: str) -> str:
+    """Official/live or otherwise provider-capable routes need an explicit fence."""
+
+    if used_kind == OFFICIAL_ROUTE_KIND:
+        return "official"
+    if live and used_kind != SYNTHETIC_PEER_KIND:
+        return "provider_capable"
+    return "synthetic"
 
 
 def start_owned_local_backend(directory: Path) -> Dict[str, Any]:
@@ -917,27 +940,63 @@ def merge_backend_incarnations(*observations: Optional[Mapping[str, Any]]) -> li
     return merged
 
 
-def evaluate_backend_after_finish(incarnations: list[Mapping[str, Any]]) -> Dict[str, Any]:
-    """Re-observe the captured backend incarnation only. Helper exit never counts."""
+_PROVIDER_CAPABLE_CLEANUP_POLICIES = frozenset({"official", "live", "provider_capable"})
+_METADATA_LOOKUP_ERRORS = (OSError, subprocess.SubprocessError, ValueError, TypeError)
+
+
+def evaluate_backend_after_finish(
+    incarnations: list[Mapping[str, Any]],
+    *,
+    policy: str = "synthetic",
+) -> Dict[str, Any]:
+    """Re-observe the captured backend incarnation only. Helper exit never counts.
+
+    Missing, denied, or malformed process metadata, and unknown liveness, stay
+    cleanup_uncertain. Only positive absence or a validated different
+    incarnation may be terminated. Official/live or provider-capable empty
+    capture writes the replacement-blocking fence; explicit synthetic
+    no-backend proof may keep cleanup_uncertain false.
+    """
 
     surviving = []
     terminated = []
+    uncertain = []
     for item in incarnations:
+        captured = incarnation_fields(item)
         pid = item.get("pid")
         if not isinstance(pid, int):
+            uncertain.append(captured)
             continue
-        current = _ps_identity(pid)
-        same_incarnation = (
-            current is not None
-            and current.get("start_birth_identity") == item.get("start_birth_identity")
-            and pid_is_alive(pid)
-        )
-        if same_incarnation:
-            surviving.append(incarnation_fields(item))
+        metadata_unknown = False
+        try:
+            current = _ps_identity(pid)
+        except _METADATA_LOOKUP_ERRORS:
+            current = None
+            metadata_unknown = True
+        try:
+            alive = pid_is_alive(pid)
+        except _METADATA_LOOKUP_ERRORS:
+            alive = None
+        if metadata_unknown or alive is None:
+            uncertain.append(captured)
+            continue
+        if current is None:
+            if alive is False:
+                terminated.append(captured)
+            else:
+                uncertain.append(captured)
+            continue
+        same_incarnation = current.get("start_birth_identity") == item.get("start_birth_identity")
+        if same_incarnation and alive is True:
+            surviving.append(captured)
+        elif not same_incarnation:
+            terminated.append(captured)
+        elif alive is False:
+            terminated.append(captured)
         else:
-            terminated.append(incarnation_fields(item))
+            uncertain.append(captured)
     if not incarnations:
-        return {
+        result = {
             "matched": False,
             "observed": False,
             "terminated": False,
@@ -947,10 +1006,24 @@ def evaluate_backend_after_finish(incarnations: list[Mapping[str, Any]]) -> Dict
             "inferred_from_helper_exit": False,
             "helper_exit_sufficient": False,
             "agy_backend_claimed": False,
+            "cleanup_uncertain": False,
+            "replacement_blocked": False,
             "evidence_gap": (
                 "owned backend incarnation was not captured; helper exit is not backend proof"
             ),
         }
+        if policy in _PROVIDER_CAPABLE_CLEANUP_POLICIES:
+            result.update(
+                {
+                    "cleanup_uncertain": True,
+                    "replacement_blocked": True,
+                    "reason": (
+                        "official/live or provider-capable backend cleanup is unobservable; "
+                        "helper exit and backend-discard acknowledgement are not backend proof"
+                    ),
+                }
+            )
+        return result
     if surviving:
         return {
             "matched": True,
@@ -965,6 +1038,24 @@ def evaluate_backend_after_finish(incarnations: list[Mapping[str, Any]]) -> Dict
             "cleanup_uncertain": True,
             "replacement_blocked": True,
             "reason": "captured owned backend incarnation survived owner.finish",
+        }
+    if uncertain:
+        return {
+            "matched": True,
+            "observed": True,
+            "terminated": False,
+            "surviving_count": 0,
+            "terminated_count": len(terminated),
+            "surviving": [],
+            "inferred_from_helper_exit": False,
+            "helper_exit_sufficient": False,
+            "agy_backend_claimed": False,
+            "cleanup_uncertain": True,
+            "replacement_blocked": True,
+            "reason": (
+                "captured owned backend incarnation metadata or liveness is unknown; "
+                "missing lookup is not termination"
+            ),
         }
     return {
         "matched": True,
@@ -1423,7 +1514,10 @@ def consume(
             cleanup = dict(closed)
             child_exit = dict(closed.get("child_exit") or {})
             incarnations = merge_backend_incarnations(process_observation, second_observation)
-            backend_after_finish = evaluate_backend_after_finish(incarnations)
+            backend_after_finish = evaluate_backend_after_finish(
+                incarnations,
+                policy=backend_cleanup_policy(live=live, used_kind=used_kind),
+            )
             helper_uncertain = evaluate_helper_exit(child_exit)
             backend_uncertain = bool(backend_after_finish.get("cleanup_uncertain"))
             accept_uncertain = None

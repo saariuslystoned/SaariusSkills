@@ -10,3 +10,5 @@
 {"event":"v3_bytes_unchanged","v3_driver":"1bf2c9b22be3561f0e3461edc8b191e61de8e1067aa20cbbeb48c6e7d0a89ba8","v3_tests":"00e5a7ea624ab19ecb9ece3702bfa9bb2bcfd58123c98a8b69ac74912a50ed93"}
 {"event":"canonical_cleanup","owned_children":"finished","leftover_controller_runtime_driver":false,"leftover_candidate_peer":false,"leftover_localharness_external":false,"unrelated_kill":false,"pycache_removed":true,"proved_disposable_workspaces_removed":true,"v3_untouched":true}
 {"event":"implementation_complete","job_id":"12791074-59c9-454e-a446-6ca5c7d14214","result":"completed/end_turn","live":false,"official_path":"staged_default_off","useful_edit_ability":"unproven"}
+{"event":"cleanup_repair_dispatched","job_id":"39633833-5036-4d16-b8bf-6d7d27d33b10","transport":"cursor-acp","model":"grok-4.6[effort=high,fast=true]","timeout_ms":600000,"provider_turn":false}
+{"event":"cleanup_repair_complete","job_id":"39633833-5036-4d16-b8bf-6d7d27d33b10","result":"completed/end_turn","tests":"22/22","targeted_policy_checks":"4/4","provider_turn":false,"official_empty_capture_fenced":true,"metadata_unknown_fenced":true,"synthetic_boundary_preserved":true}
