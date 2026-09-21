@@ -10,6 +10,7 @@
 - Cursor canonical result observed: `completed`, `complete:true`, handoff says `CLEANUP_READY`; worker report identifies ACPX main `b224278f3e34a61668964b879efe4d37b17571cb` and release `v0.18.0`.
 - Antigravity canonical result observed: `completed`, `taskComplete:true`, `cleanupReady:true`; cleanup observed as local worker termination; backend session discard was unsupported but did not prevent cleanup-ready completion.
 - Final artifact checks: required run files present; `git diff --check` passed; no VM/model/network/credential/upstream operation performed.
+- Checkpoint: branch `codex/puppet-local-model-research-20260921`, worktree `/Users/bobbybones/.codex/worktrees/ead7/SaariusSkills`, head before this metadata update `e3a60e1ad0bfbbcb3e886a62d6564c949364736d`, draft PR <https://github.com/saariuslystoned/SaariusSkills/pull/67>; PR attached to the task.
 
 ## Primary source set
 

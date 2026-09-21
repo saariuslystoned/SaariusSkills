@@ -102,3 +102,11 @@ Accepted corroboration from both lanes: OpenCode/Qwen are credible ACP harness c
 Not carried as verified facts: the Antigravity report's exact Metal working-set percentage, Parallels edition/RAM caps, claims that all guest OSes have no usable compute path, exact 10–16× slowdowns, exact model footprints/headroom, specific model quality claims, and the assertion that an SSH reverse tunnel is the only safe topology. Those require version-specific primary evidence or measurement. They remain hypotheses/possible proof inputs, not acceptance claims. The report's claimed repository test run is unrelated to local-model feasibility and was not used as proof.
 
 Antigravity cleanup was observed as local worker termination while backend session discard was unsupported; the bridge still returned `cleanupReady:true`. No replacement was started.
+
+## Checkpoint
+
+- Branch: `codex/puppet-local-model-research-20260921`
+- Worktree: `/Users/bobbybones/.codex/worktrees/ead7/SaariusSkills`
+- Head at report checkpoint: `e3a60e1ad0bfbbcb3e886a62d6564c949364736d`
+- Draft PR: <https://github.com/saariuslystoned/SaariusSkills/pull/67>
+- Merge: not performed.
