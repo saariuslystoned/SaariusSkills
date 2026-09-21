@@ -1,8 +1,12 @@
+import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
 
 export const ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648";
 export const ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8";
@@ -17,6 +21,8 @@ export const ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0";
 export const ACPX_PUBLISHED_NPM_VERSION = "0.18.0";
 export const ACPX_ARTIFACT_SHA256 = "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29";
 export const ACPX_ARTIFACT_PATH = "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz";
+export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-merged648-runs/20260921/runtime";
+export const ACPX_CANDIDATE_RUNTIME_MODULE = `${ACPX_CANDIDATE_RUNTIME_ROOT}/node_modules/acpx/dist/runtime.js`;
 export const ACPX_ARTIFACT_KIND = "local_exact_source_tarball";
 export const ACPX_PUBLIC_SURFACE = "acpx/runtime";
 export const ACPX_CONSTRUCTOR = "createAcpRuntime";
@@ -309,6 +315,121 @@ export function validatePublicRuntimeOptions(value) {
     agentRegistry: "synthetic_peer",
     fs: false,
     terminal: false,
+  };
+}
+
+function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
+  const allowed = path.resolve(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT);
+  const requested = path.resolve(runtimeRoot ?? allowed);
+  const bridgeRoot = path.resolve(REPO_ROOT, "bridge");
+  const relativeToRepo = path.relative(REPO_ROOT, requested);
+  if (
+    requested === path.resolve(REPO_ROOT, "node_modules")
+    || requested.includes(`${path.sep}node_modules${path.sep}`)
+    || requested.endsWith(`${path.sep}node_modules`)
+  ) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime cannot use shared node_modules");
+  }
+  if (
+    requested === bridgeRoot
+    || requested.startsWith(`${bridgeRoot}${path.sep}`)
+  ) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime cannot use the repo bridge directory");
+  }
+  if (
+    requested !== allowed
+    || relativeToRepo.startsWith("..")
+    || path.isAbsolute(relativeToRepo)
+  ) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime root is not the task-owned runtime directory");
+  }
+  return allowed;
+}
+
+export async function materializeVerifiedCandidateAcpx({ runtimeRoot } = {}) {
+  const root = resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot);
+  const artifact = await proveLocalArtifact();
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await execFile(
+    "npm",
+    ["install", "--ignore-scripts", "--no-save", path.resolve(REPO_ROOT, ACPX_ARTIFACT_PATH)],
+    {
+      cwd: root,
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        npm_config_ignore_scripts: "true",
+      },
+    },
+  );
+  const modulePath = path.join(root, "node_modules", "acpx", "dist", "runtime.js");
+  await access(modulePath, constants.R_OK);
+  return {
+    runtimeRoot: root,
+    modulePath,
+    artifact_sha256: artifact.artifact_sha256,
+    lifecycle_scripts: "disabled",
+  };
+}
+
+export async function createVerifiedCandidateAcpRuntime(options, { runtimeRoot, isolatedRoot } = {}) {
+  if (!options || typeof options !== "object") {
+    throw new AdapterError("INVALID_RUNTIME", "public runtime options are invalid");
+  }
+  if (FORBIDDEN_RUNTIME_OPTIONS.some((key) => key in options)) {
+    throw new AdapterError("BROKER_POLICY", "approve-all or MCP broker policy is not imported");
+  }
+  const unknown = Object.keys(options).filter((key) => !PUBLIC_RUNTIME_OPTIONS.includes(key));
+  if (unknown.length) {
+    throw new AdapterError("PRIVATE_RUNTIME", "public runtime options include private fields");
+  }
+  if (options.fs === true || options.terminal === true) {
+    throw new AdapterError("CALLBACKS_ENABLED", "filesystem and terminal callbacks must stay disabled");
+  }
+  const forced = {
+    ...options,
+    fs: false,
+    terminal: false,
+  };
+  validatePublicRuntimeOptions(forced);
+  if (isolatedRoot) {
+    await requirePrivateRoot(isolatedRoot);
+  }
+  const materialized = await materializeVerifiedCandidateAcpx({ runtimeRoot });
+  const moduleUrl = pathToFileURL(materialized.modulePath).href;
+  const { createAcpRuntime } = await import(moduleUrl);
+  if (typeof createAcpRuntime !== "function") {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime public export is missing");
+  }
+  return {
+    runtime: createAcpRuntime(forced),
+    provenance: {
+      module_path: materialized.modulePath,
+      artifact_sha256: materialized.artifact_sha256,
+      lifecycle_scripts: "disabled",
+      available: adapterAvailable(),
+      ordinary_launch: "unavailable",
+      qualification: ACPX_QUALIFICATION,
+    },
+  };
+}
+
+export function boundedCandidateTurnResult(value) {
+  if (!value || typeof value !== "object") {
+    throw new AdapterError("PROOF_MISSING", "candidate turn result is missing");
+  }
+  rejectBodyKeys(value, "candidate turn result");
+  if (typeof value.status !== "string" || typeof value.stopReason !== "string") {
+    throw new AdapterError("PROOF_MISSING", "candidate turn result is incomplete");
+  }
+  return {
+    status: value.status,
+    stopReason: value.stopReason,
+    body_retained: false,
+    availability: {
+      available: adapterAvailable(),
+      ordinary_launch: "unavailable",
+    },
   };
 }
 

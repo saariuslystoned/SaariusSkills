@@ -15,6 +15,9 @@ This candidate is experimental and unreleased. Ordinary route behavior stays
 - [x] Keep `available()` / ordinary launch false
 - [x] Keep qualification `synthetic_only`
 - [x] Keep fs/terminal callback controls explicitly disabled
+- [x] Materialize exact artifact under task-owned runtime root only
+- [x] Exercise actual public `createAcpRuntime` with a synthetic ACP peer
+- [x] Prove one bounded completion without durable prompt/response bodies
 - [x] No public PR
 - [x] No shared-plugin or production-pin change
 
@@ -23,7 +26,7 @@ This candidate is experimental and unreleased. Ordinary route behavior stays
 - [ ] Official npm release whose `gitHead` equals merge commit `ac22c3c8f6d077b542f19524afbe5409e46c56e8`
 - [ ] Confirm published package version identity separately from this local `0.18.0` tarball
 - [ ] Explicit decision to change the ordinary bridge/production pin off `0.16.0`
-- [ ] Live Cursor ACP qualification against the merged runtime
+- [ ] Independent live Cursor ACP qualification against the merged runtime
 - [ ] Independently observed halt, retained-owner, and cleanup proof on a live merged runtime
 - [ ] Human approval to set `available()` / ordinary launch true
 - [ ] Human approval to change shared plugins or production pins

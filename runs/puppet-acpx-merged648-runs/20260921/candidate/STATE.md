@@ -1,9 +1,9 @@
 # Puppet acpx merged #648 candidate state
 
-- status: candidate_complete_synthetic_only; unreleased
+- status: candidate_complete_real_runtime_synthetic_peer; unreleased
 - repo: saariuslystoned/SaariusSkills
-- worktree: `/Users/bobbybones/.codex/worktrees/merged648/SaariusSkills`
-- branch: `codex/puppet-acpx-merged648-20260921`
+- worktree: `/Users/bobbybones/.codex/worktrees/runtime-proof/SaariusSkills`
+- branch: `codex/puppet-acpx-runtime-proof-20260921`
 - base: SaariusSkills main `8219a66c8ac44f14be0acec6c13bf5664571dc4f`
 - proof_root: `runs/puppet-acpx-merged648-runs/20260921/candidate`
 - available: false
@@ -26,5 +26,8 @@
 - ordinary production pin: `acpx@0.16.0`
 - artifact: `runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz`
 - artifact SHA-256: `fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29`
+- candidate runtime root: `runs/puppet-acpx-merged648-runs/20260921/runtime`
+- candidate runtime module: `runs/puppet-acpx-merged648-runs/20260921/runtime/node_modules/acpx/dist/runtime.js`
+- real-runtime proof: actual `createAcpRuntime` completed one synthetic-peer turn
 
 Integrity is the tarball digest, not a hash of descriptive metadata.

@@ -2,16 +2,19 @@
 
 ## Boundary
 
-Disabled synthetic-only Puppet adapter for one named local Cursor transport
+Disabled candidate-only Puppet adapter for one named local Cursor transport
 (`cursor-acp`). The adapter now binds exact merged acpx source from PR #648
 without claiming a released npm package or changing ordinary launch.
 
-This is source-artifact proof, not a production pin and not a public PR.
+The candidate-only helper now materializes the exact local artifact under a
+task-owned runtime root and exercises the actual public `createAcpRuntime`
+export with a deterministic synthetic ACP peer. This is not provider/live
+qualification, a production pin, or a public PR.
 
 ## Worktree
 
-- worktree: `/Users/bobbybones/.codex/worktrees/merged648/SaariusSkills`
-- branch: `codex/puppet-acpx-merged648-20260921`
+- worktree: `/Users/bobbybones/.codex/worktrees/runtime-proof/SaariusSkills`
+- branch: `codex/puppet-acpx-runtime-proof-20260921`
 - base: `8219a66c8ac44f14be0acec6c13bf5664571dc4f`
 - public PR: none
 - production enablement: none
@@ -46,10 +49,24 @@ protocol callback policy, not an OS sandbox, and is not persisted.
 - `tests/test_puppet_cursor_acpx.py`
 - `bridge/cursor-acp/puppet-adapter.mjs`
 - `bridge/cursor-acp/test/puppet-adapter.test.mjs`
+- `bridge/cursor-acp/test/candidate-peer.mjs`
+- `bridge/cursor-acp/test/candidate-runtime.test.mjs`
+- `runs/puppet-acpx-merged648-runs/20260921/runtime/.gitignore`
 
 Ordinary `cursor_acp.py`, transport/session/qualification modules, native
 defaults, `broker.mjs`, `server.mjs`, and the bridge `acpx@0.16.0` pin are
 unchanged. Shared plugins were not touched.
+
+## Candidate runtime proof
+
+The helper rejects shared bridge/node_modules roots, proves the tarball digest,
+installs with lifecycle scripts disabled under the task-owned runtime root, and
+loads `runs/puppet-acpx-merged648-runs/20260921/runtime/node_modules/acpx/dist/runtime.js`.
+The real public `createAcpRuntime` then completed one synthetic-peer turn with
+`fs:false` and `terminal:false`; adapter availability remained false.
+
+The peer records only callback capability booleans. Durable ownership/events
+artifacts contain no prompt, response, or transcript body.
 
 ## Checks
 
@@ -72,16 +89,28 @@ added 134 packages (locked acpx@0.16.0; not a candidate pin)
 $ npm run check
 node --check broker.mjs server.mjs puppet-adapter.mjs
 npm test
-tests 48
-pass 48
+tests 51
+pass 51
+
+$ npm install --prefix runs/puppet-acpx-merged648-runs/20260921/runtime --ignore-scripts --no-save runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz
+added 42 packages; lifecycle scripts disabled; task-owned runtime only
+
+$ node --test test/candidate-runtime.test.mjs
+tests 3
+pass 3
+
+$ git diff --check
+(exit 0)
 ```
 
 Covered: Python/JS identity parity; merged/unreleased status; exact
 merge/source vs PR head/base vs stale npm gitHead; local artifact SHA-256;
-callback controls remain disabled; reconnect/retained-owner/cleanup; cutover
-safeguards keep `available=false` and ordinary pin `0.16.0`.
+actual public `createAcpRuntime` loading and one synthetic-peer turn; callback
+controls remain disabled; reconnect/retained-owner/cleanup; cutover safeguards
+keep `available=false` and ordinary pin `0.16.0`.
 
-No live Cursor, provider prompt, qualification promotion, or public PR.
+No live Cursor/provider action, provider qualification, production promotion, or
+public PR.
 
 ## Remaining gates
 
