@@ -120,6 +120,122 @@ export function needsCleanupFence(job) {
   return Boolean(job.handle || job.cleanup);
 }
 
+export const WORKER_EXIT_WAIT_MS = 10_000;
+
+export function isUnsupportedBackendSessionClose(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") return false;
+  return /session\/close/i.test(String(error.message ?? ""));
+}
+
+export function launchScopesMatch(left, right) {
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === "runtime-session") return left.sessionKey === right.sessionKey;
+  if (left.kind === "runtime-probe") return left.agent === right.agent;
+  return left.kind === "client";
+}
+
+export function processIdentitiesMatch(left, right) {
+  if (!left || !right) return false;
+  if (!Number.isInteger(left.pid) || left.pid <= 0 || left.pid !== right.pid) return false;
+  if (typeof left.startedAt !== "string" || !left.startedAt || left.startedAt !== right.startedAt) {
+    return false;
+  }
+  if (typeof left.launchId !== "string" || !left.launchId || left.launchId !== right.launchId) {
+    return false;
+  }
+  return launchScopesMatch(left.scope, right.scope);
+}
+
+export function isOwnedSessionProcess(process, sessionKey) {
+  return Boolean(
+    process &&
+      typeof sessionKey === "string" &&
+      sessionKey &&
+      process.scope?.kind === "runtime-session" &&
+      process.scope.sessionKey === sessionKey,
+  );
+}
+
+function publicWorkerIdentity(process) {
+  if (!process) return undefined;
+  return {
+    pid: process.pid,
+    startedAt: process.startedAt,
+    launchId: process.launchId,
+    scope: process.scope,
+    ...(process.signal !== undefined ? { signal: process.signal } : {}),
+    ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
+  };
+}
+
+export function createProcessLifecycleTracker() {
+  const spawned = [];
+  const exits = [];
+  const waiters = new Set();
+
+  function notify() {
+    for (const wake of waiters) wake();
+  }
+
+  function ownedSpawned(sessionKey) {
+    return spawned.filter((process) => isOwnedSessionProcess(process, sessionKey));
+  }
+
+  function matchingExit(started) {
+    return exits.find((exit) => processIdentitiesMatch(started, exit));
+  }
+
+  function snapshotOwned(sessionKey) {
+    const started = ownedSpawned(sessionKey);
+    const observed = started.map(matchingExit).filter(Boolean);
+    return { started, exits: observed };
+  }
+
+  return {
+    processLifecycle: {
+      onSpawned(process) {
+        spawned.push(process);
+        notify();
+      },
+      onExit(exit) {
+        exits.push(exit);
+        notify();
+      },
+    },
+    spawned,
+    exits,
+    ownedSpawned,
+    matchingExit,
+    snapshotOwned,
+    async waitForOwnedExit(sessionKey, { timeoutMs = WORKER_EXIT_WAIT_MS } = {}) {
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        const snapshot = snapshotOwned(sessionKey);
+        if (snapshot.started.length > 0 && snapshot.exits.length === snapshot.started.length) {
+          return { status: "exited", ...snapshot };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          return { status: snapshot.started.length > 0 ? "pending" : "none", ...snapshot };
+        }
+        await new Promise((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            waiters.delete(done);
+            clearTimeout(timer);
+            resolve();
+          };
+          const timer = setTimeout(done, Math.min(50, remaining));
+          waiters.add(done);
+        });
+      }
+    },
+  };
+}
+
 export function shouldRecoverCleanupFence(job, lease, probe) {
   if (!needsCleanupFence(job)) return false;
   if (!ownerIdentitiesMatch(job.owner, lease)) return false;
@@ -492,6 +608,7 @@ export function createDefaultRuntime({
   geminiHome,
   timeoutMs,
   processEnv = process.env,
+  processLifecycle,
 }) {
   const registry = createAgentRegistry({
     overrides: { antigravity: [launch.command, ...launch.args] },
@@ -520,6 +637,7 @@ export function createDefaultRuntime({
     permissionMode: "approve-all",
     nonInteractivePermissions: "fail",
     timeoutMs,
+    processLifecycle,
   });
   const shutdown = runtime.shutdown.bind(runtime);
   runtime.shutdown = async () => {
@@ -560,6 +678,10 @@ export class AntigravityAcpBroker {
     this.readAuthPolicy = options.readAuthPolicy ?? readAuthPolicyFile;
     this.runtime = options.runtime;
     this.runtimeFactory = options.runtimeFactory;
+    this.processLifecycleTracker = options.processLifecycleTracker ?? createProcessLifecycleTracker();
+    this.workerExitWaitMs = Number.isInteger(options.workerExitWaitMs) && options.workerExitWaitMs >= 0
+      ? options.workerExitWaitMs
+      : WORKER_EXIT_WAIT_MS;
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
@@ -709,13 +831,15 @@ export class AntigravityAcpBroker {
     return job;
   }
 
-  cleanupRecord(job, { status, observed, message, handle } = {}) {
+  cleanupRecord(job, { status, observed, message, handle, worker, backendSessionDiscard } = {}) {
     return {
       status,
       observed,
       at: this.now(),
       ...cleanupIdentity(job, handle),
       ...(message ? { message } : {}),
+      ...(backendSessionDiscard ? { backendSessionDiscard } : {}),
+      ...(worker ? { worker } : {}),
     };
   }
 
@@ -726,6 +850,8 @@ export class AntigravityAcpBroker {
     await this.recordEvent(job, `cleanup_${fields.status}`, {
       observed: fields.observed,
       message: fields.message,
+      backendSessionDiscard: fields.backendSessionDiscard,
+      worker: fields.worker,
       workspace: job.workspace,
       owner: job.owner,
     });
@@ -759,6 +885,20 @@ export class AntigravityAcpBroker {
         handle,
       });
     } catch (error) {
+      const observedExit = isUnsupportedBackendSessionClose(error)
+        ? await this.waitForOwnedWorkerExit(handle?.sessionKey)
+        : null;
+      if (observedExit) {
+        await this.recordCleanup(job, {
+          status: "completed",
+          observed: "local_worker_terminated_backend_session_discard_unsupported",
+          message: "local worker termination observed; backend session discard unsupported",
+          backendSessionDiscard: "unsupported",
+          worker: publicWorkerIdentity(observedExit),
+          handle,
+        });
+        return;
+      }
       await this.recordCleanup(job, {
         status: "uncertain",
         observed: "runtime_close_failed",
@@ -766,6 +906,15 @@ export class AntigravityAcpBroker {
         handle,
       });
     }
+  }
+
+  async waitForOwnedWorkerExit(sessionKey) {
+    if (!sessionKey || !this.processLifecycleTracker) return null;
+    const proof = await this.processLifecycleTracker.waitForOwnedExit(sessionKey, {
+      timeoutMs: this.workerExitWaitMs,
+    });
+    if (proof.status !== "exited") return null;
+    return proof.exits[0] ?? null;
   }
 
   async listJobSnapshots() {
@@ -846,21 +995,17 @@ export class AntigravityAcpBroker {
     if (this.runtime) return this.runtime;
     const launch = this.resolvedLaunch;
     if (!launch) return undefined;
+    const runtimeOptions = {
+      stateRoot: this.stateRoot,
+      launch,
+      geminiHome: this.geminiHome,
+      timeoutMs: this.timeoutMs,
+      processEnv: this.processEnv,
+      processLifecycle: this.processLifecycleTracker.processLifecycle,
+    };
     this.runtime = this.runtimeFactory
-      ? this.runtimeFactory({
-          stateRoot: this.stateRoot,
-          launch,
-          geminiHome: this.geminiHome,
-          timeoutMs: this.timeoutMs,
-          processEnv: this.processEnv,
-        })
-      : createDefaultRuntime({
-          stateRoot: this.stateRoot,
-          launch,
-          geminiHome: this.geminiHome,
-          timeoutMs: this.timeoutMs,
-          processEnv: this.processEnv,
-        });
+      ? this.runtimeFactory(runtimeOptions)
+      : createDefaultRuntime(runtimeOptions);
     return this.runtime;
   }
 
@@ -1045,6 +1190,11 @@ export class AntigravityAcpBroker {
           });
         } catch {
           // A readiness failure must not hide the primary diagnostic.
+        }
+        try {
+          await this.waitForOwnedWorkerExit(handle.sessionKey);
+        } catch {
+          // Readiness must stay honest about the probe without hiding diagnostics.
         }
       }
     }

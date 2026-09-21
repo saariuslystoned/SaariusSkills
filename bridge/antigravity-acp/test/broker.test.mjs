@@ -8,10 +8,13 @@ import {
   BridgeError,
   classifyOwnerIdentity,
   createDefaultRuntime,
+  createProcessLifecycleTracker,
   isCanonicalComplete,
   isCleanupReady,
   isInteractionQuestion,
+  isUnsupportedBackendSessionClose,
   needsCleanupFence,
+  processIdentitiesMatch,
   redactSensitive,
   resolveRequestedAntigravityModel,
   shouldRecoverCleanupFence,
@@ -34,6 +37,10 @@ class FixtureRuntime {
     permissionRequest,
     closeHold,
     closeError,
+    processLifecycle,
+    workerPid = 4242,
+    workerStartedAt = "fixture-worker-start",
+    emitWorkerExitOnClose = false,
   } = {}) {
     this.model = model;
     this.available = available;
@@ -42,11 +49,16 @@ class FixtureRuntime {
     this.permissionRequest = permissionRequest;
     this.closeHold = closeHold;
     this.closeError = closeError;
+    this.processLifecycle = processLifecycle;
+    this.workerPid = workerPid;
+    this.workerStartedAt = workerStartedAt;
+    this.emitWorkerExitOnClose = emitWorkerExitOnClose;
     this.permissionDecisions = [];
     this.ensureCalls = [];
     this.turns = [];
     this.closed = [];
     this.closeStarted = [];
+    this.started = [];
   }
 
   async ensureSession(input) {
@@ -54,6 +66,17 @@ class FixtureRuntime {
     if (this.failWith === "ensure") {
       throw new BridgeError("AUTHENTICATION_REQUIRED", "Authentication required");
     }
+    const started = {
+      launchId: `fixture-launch-${this.ensureCalls.length}`,
+      scope: { kind: "runtime-session", sessionKey: input.sessionKey },
+      command: "fixture",
+      args: [],
+      cwd: input.cwd,
+      pid: this.workerPid,
+      startedAt: this.workerStartedAt,
+    };
+    this.started.push(started);
+    this.processLifecycle?.onSpawned?.(started);
     return {
       sessionKey: input.sessionKey,
       backend: "fixture",
@@ -132,6 +155,17 @@ class FixtureRuntime {
   async close(input) {
     this.closeStarted.push(input);
     if (this.closeHold) await this.closeHold;
+    if (this.emitWorkerExitOnClose || !this.closeError) {
+      const started = this.started.at(-1);
+      if (started) {
+        this.processLifecycle?.onExit?.({
+          ...started,
+          exitCode: 0,
+          signal: "SIGTERM",
+          exitedAt: "fixture-worker-exit",
+        });
+      }
+    }
     if (this.closeError) {
       throw this.closeError instanceof Error ? this.closeError : new Error(String(this.closeError));
     }
@@ -160,13 +194,19 @@ async function makeBroker(options = {}) {
     settingsPath(geminiHome),
     JSON.stringify({ auth: { type: "oauth-personal" }, useG1Credits: false }),
   );
-  const runtime = options.runtime ?? new FixtureRuntime(options.runtimeOptions);
+  const processLifecycleTracker = options.processLifecycleTracker ?? createProcessLifecycleTracker();
+  const runtime = options.runtime ?? new FixtureRuntime({
+    ...options.runtimeOptions,
+    processLifecycle: options.runtimeOptions?.processLifecycle ?? processLifecycleTracker.processLifecycle,
+  });
   const broker = new AntigravityAcpBroker({
     stateRoot: path.join(root, "state"),
     runtimeDir,
     geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     runtime,
+    processLifecycleTracker,
+    workerExitWaitMs: options.workerExitWaitMs ?? 100,
     ...options,
   });
   await broker.init();
@@ -621,4 +661,132 @@ test("default runtime session store never writes conversation records to disk", 
   await runtime.shutdown();
   assert.equal(await runtime.options.sessionStore.load(record.acpxRecordId), undefined);
   await restarted.shutdown();
+});
+
+function unsupportedSessionCloseError() {
+  const error = new Error("Agent does not support session/close for fixture-record.");
+  error.code = "ACP_BACKEND_UNSUPPORTED_CONTROL";
+  return error;
+}
+
+test("unsupported session/close is distinct from matched worker identity", () => {
+  assert.equal(isUnsupportedBackendSessionClose(unsupportedSessionCloseError()), true);
+  assert.equal(isUnsupportedBackendSessionClose(new Error("injected close failure")), false);
+  assert.equal(
+    isUnsupportedBackendSessionClose({
+      code: "ACP_BACKEND_UNSUPPORTED_CONTROL",
+      message: "ACP session does not advertise config option 'model'.",
+    }),
+    false,
+  );
+  const started = {
+    launchId: "launch-1",
+    scope: { kind: "runtime-session", sessionKey: "session-1" },
+    pid: 4242,
+    startedAt: "start-1",
+  };
+  assert.equal(processIdentitiesMatch(started, { ...started, signal: "SIGTERM" }), true);
+  assert.equal(processIdentitiesMatch(started, { ...started, pid: 4343 }), false);
+  assert.equal(processIdentitiesMatch(started, { ...started, startedAt: "other-start" }), false);
+  assert.equal(
+    processIdentitiesMatch(started, { ...started, scope: { kind: "runtime-session", sessionKey: "other" } }),
+    false,
+  );
+});
+
+test("unsupported session/close becomes cleanup-ready only after matched owned worker exit", async () => {
+  const { broker, runtime, workspace } = await makeBroker({
+    runtimeOptions: {
+      closeError: unsupportedSessionCloseError(),
+      emitWorkerExitOnClose: true,
+    },
+  });
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Complete with unsupported session/close and observed worker exit.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.taskComplete, true);
+  assert.equal(completed.cleanupReady, true);
+  assert.equal(completed.complete, true);
+  assert.equal(completed.cleanup.status, "completed");
+  assert.equal(
+    completed.cleanup.observed,
+    "local_worker_terminated_backend_session_discard_unsupported",
+  );
+  assert.equal(completed.cleanup.backendSessionDiscard, "unsupported");
+  assert.equal(completed.cleanup.worker.pid, 4242);
+  assert.equal(completed.cleanup.worker.startedAt, "fixture-worker-start");
+  assert.equal(completed.cleanup.worker.launchId, runtime.started[0].launchId);
+  assert.equal(completed.cleanup.message.includes("backend session discard unsupported"), true);
+  const replacement = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Same workspace is admissible after observed local worker termination.",
+  });
+  const replaced = await broker.result({ jobId: replacement.jobId, waitMs: 1_000 });
+  assert.equal(replaced.status, "completed");
+  await broker.close();
+});
+
+test("unsupported session/close without owned worker-exit proof stays uncertain and fenced", async () => {
+  const { broker, workspace } = await makeBroker({
+    runtimeOptions: {
+      closeError: unsupportedSessionCloseError(),
+      emitWorkerExitOnClose: false,
+    },
+  });
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Complete with unsupported session/close and a surviving worker.",
+  });
+  const failedCleanup = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(failedCleanup.status, "completed");
+  assert.equal(failedCleanup.taskComplete, true);
+  assert.equal(failedCleanup.cleanupReady, false);
+  assert.equal(failedCleanup.complete, false);
+  assert.equal(failedCleanup.cleanup.status, "uncertain");
+  assert.equal(failedCleanup.cleanup.observed, "runtime_close_failed");
+  await assert.rejects(
+    () => broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Stay fenced." }),
+    (error) => error instanceof BridgeError && error.code === "WORKSPACE_CLEANUP_PENDING",
+  );
+  await broker.close();
+});
+
+test("readiness unsupported close waits for the owned probe worker without fencing workspaces", async () => {
+  const { broker, runtime, workspace, root } = await makeBroker({
+    runtimeOptions: {
+      closeError: unsupportedSessionCloseError(),
+      emitWorkerExitOnClose: true,
+    },
+  });
+  const report = await broker.discover({ workspace });
+  assert.equal(report.ready, true);
+  assert.equal(runtime.closeStarted.length, 1);
+  assert.equal(broker.processLifecycleTracker.exits.length, 1);
+  assert.equal(
+    processIdentitiesMatch(runtime.started[0], broker.processLifecycleTracker.exits[0]),
+    true,
+  );
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Readiness cleanup must not fence the same workspace.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  const independentWorkspace = path.join(root, "readiness-independent");
+  await mkdir(independentWorkspace);
+  const independent = await broker.delegate({
+    workspace: independentWorkspace,
+    model: FIXTURE_MODEL,
+    prompt: "Independent workspace remains admissible after readiness.",
+  });
+  const independentResult = await broker.result({ jobId: independent.jobId, waitMs: 1_000 });
+  assert.equal(independentResult.status, "completed");
+  await broker.close();
 });
