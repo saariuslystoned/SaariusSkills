@@ -1,0 +1,10 @@
+2026-09-20T00:00:00-04:00 initialized waiting_for_dependency
+2026-09-20T00:00:00-04:00 dependency retry exhausted; waiting for exact upstream artifact
+2026-09-20T00:00:00-04:00 exact upstream draft artifact consumed; ready for bounded Cursor delegation
+2026-09-20T00:00:00-04:00 Cursor ACP job 1b5f5cb9-d579-4e83-b72f-7772307ac412 submitted; awaiting canonical result
+2026-09-20T00:00:00-04:00 first job BRIDGE_RESTARTED; one bounded retry 1df506c2-e69b-44ea-9999-f4070e9b98e9 submitted
+2026-09-20T15:20:00-04:00 bounded retry implementing disabled synthetic-only adapter in-tree
+2026-09-20T15:25:00-04:00 focused tests passed; step 2 complete; no live or provider action
+2026-09-20T15:34:00-04:00 full repository suite completed: 1281 tests, one unchanged doctor-child timing failure; draft PR 56 published
+2026-09-20T15:45:00-04:00 dependency refreshed to repaired acpx head 02c03c7; recalculated integrity and rerunning affected checks
+2026-09-20T15:49:00-04:00 refreshed Python 10/10 and bridge 23/23 checks passed; integrity matched in Python and JS

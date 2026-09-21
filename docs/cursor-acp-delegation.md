@@ -91,8 +91,23 @@ Each job has `STATE.md`, `events.jsonl`, `heartbeat`, and `PROOF.md` outside the
 mutating workspace. Prompts are not persisted by the bridge; only a SHA-256 and character
 count are recorded. The acpx session store is memory-only because its records
 contain conversation messages. Shutdown clears that store; restart never
-resumes a previous model session and fails in-flight jobs closed. Existing
-stores from older bridge versions are not read, migrated or deleted. Final handoffs are bounded and redacted.
+resumes a previous model session. A later broker initialization, or a later `status`/`result` observation of a
+non-terminal job, fails that job only when its exact owner identity is
+demonstrably gone: the recorded owner is missing/dead, or a complete matching
+job and lease identity plus a definite process start-time mismatch proves PID
+reuse. Owner death during a bounded result wait is observed within that wait.
+There is no generic periodic recovery service. Jobs owned by another live
+broker, and jobs whose ownership is unknown, incomplete, missing a matching
+lease, or probed without a definitive start time, are left unchanged. Proven
+PID reuse is recovered; ambiguous identity is not.
+Job mutation uses a sibling lock file whose complete owner metadata is published
+atomically. Stale-lock takeover is serialized by an exclusive reclaim fence and
+token-checked release, so two reclaimers cannot enter a critical section
+together or unlink another live holder. An interrupted acquire must not leave an
+empty or partial lock at the canonical path; unreadable leftovers are reclaimed
+only through that fence, not deleted on sight.
+Bare PID existence is not treated as proof of liveness or of reuse. Existing stores from
+older bridge versions are not read, migrated or deleted. Final handoffs are bounded and redacted.
 
 To roll back the app connection, remove the local `saarius-skills` plugin from
 Codex, then restore the previous plugin revision in the repository. Stopping

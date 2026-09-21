@@ -1,0 +1,12 @@
+{"event":"run_initialized","step":2,"status":"waiting_for_dependency","branch":"codex/puppet-acpx-adapter-20260920","base":"46ec908177bce10d8dffbdff8acab7967f43ec74","proof_root":"runs/puppet-acpx-adapter-runs/20260920-adapter"}
+{"event":"dependency_update","status":"waiting_for_dependency","detail":"predecessor Cursor ACP worker and one bounded retry both hit BRIDGE_RESTARTED; no worker edits landed; awaiting exact reviewed upstream artifact"}
+{"event":"dependency_satisfied","status":"ready_for_delegation","artifact":"openclaw/acpx#648","head":"2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de","qualification":"synthetic_only; not_merged_or_released"}
+{"event":"cursor_acp_readiness","status":"passed","route":"/Users/bobbybones/.local/bin/cursor-agent acp","requested_model":"cursor-grok-4.6-high","resolved_model":"grok-4.6[effort=high,fast=true]"}
+{"event":"cursor_acp_delegate","status":"submitted","job":"1b5f5cb9-d579-4e83-b72f-7772307ac412","timeout_ms":1200000}
+{"event":"bounded_retry","status":"in_tree_implementation","job":"1b5f5cb9-d579-4e83-b72f-7772307ac412","reason":"BRIDGE_RESTARTED"}
+{"event":"adapter_implemented","status":"synthetic_only","transport":"cursor-acp","available":false,"ordinary_launch":"unavailable","head":"2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de"}
+{"event":"focused_tests","python":"99+28 OK","js":"10/10 pass","compileall":"OK"}
+{"event":"closeout","status":"step2_complete_synthetic_only","live_or_provider_action":false,"pr":false}
+{"event":"draft_pr_published","pr":"https://github.com/saariuslystoned/SaariusSkills/pull/56","commit":"23eb2fd3b3e53dafcc0cad2825ccb9ccf31ba37a","status":"draft","full_discover":"1281_tests_one_unrelated_doctor_child_timing_failure"}
+{"event":"dependency_refresh","artifact":"openclaw/acpx#648","old_head":"2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de","new_head":"02c03c7abeee0324a71e2114e6b1b4cf7b0785ff","new_integrity":"9f5d189cf0adf8151109b36814b39293a5f8b82bee38668724635f6fed652b66","delta":"test_only_capability_proof_hardening","historical_identity_preserved":true}
+{"event":"dependency_refresh_verification","python_adapter_tests":10,"bridge_check_tests":23,"integrity_match":true,"live_provider_action":false}
