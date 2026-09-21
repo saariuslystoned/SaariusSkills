@@ -1,7 +1,7 @@
-5134673a39ed33b7c397a6a41e937834b37ea5dd03b3820bdfafbf1456f40bf3  proof/puppet-acp/20260921/antigravity/HANDOFF.md
+82511205028384d4209054e2b3faefb63a4a9b679e4c0608da22c1ce44e52165  proof/puppet-acp/20260921/antigravity/HANDOFF.md
 21417347328fa0503a3444b8ff43fa686a76f5a0cc77c9d4ca5988fbb6f40973  proof/puppet-acp/20260921/antigravity/DIAGNOSIS.md
 991e98e431c72a2e44d3625dfa27e2b3438421bd60c084c3df4cae201c25c3c0  proof/puppet-acp/20260921/antigravity/LIVE_RESULT.md
-f286872ff2dba5bacde0c43d3c1f78fae82df3cea7e337ecb2edebadb31f85d5  proof/puppet-acp/20260921/antigravity/HISTORY.md
+2d8a8c2b080c81566531274ba65cc8118b1a8406c1197e838cc061bcbd17da3d  proof/puppet-acp/20260921/antigravity/HISTORY.md
 d5f2492952e472245c63d5d054116195083093143a2d13487f46a8da4e951a9a  proof/puppet-acp/20260921/antigravity/inputs/v2-fixture/intended/bin/normalize-lines.mjs
 6e007d2d6437fe5e77b1d463551687e5b0895161d9cd8f4182f6684c42f35b84  proof/puppet-acp/20260921/antigravity/inputs/v2-fixture/normalize-lines-fixture/package.json
 a88019118116a09819d165b3915ba5d288989d405b28e8af7af792a4319bbeb9  proof/puppet-acp/20260921/antigravity/inputs/v2-fixture/normalize-lines-fixture/src/normalize-lines.mjs
@@ -24,3 +24,12 @@ fe8ba9e2b6e29d92f4c41cf7b97c9a5bee95d643466aeed85b24f251f29f0a0f  proof/puppet-a
 0b0bb275478a24aad9d929548818eb5cf3a577b7109c050900d3ea3fb5119859  proof/puppet-acp/20260921/antigravity/v4/staged/launch-input.contract.json
 4b2713cd6e64afda6023f97eee86c2b0c9572fd3e4b013c2e71a5a8766cc7d60  proof/puppet-acp/20260921/antigravity/v4/staged/live-invocation.json
 5fb3e10c47ec66baeac7d05684ea769eb9c8c2b3a51c9cc0fdddd69602771195  proof/puppet-acp/20260921/antigravity/v4/tests/test_agy_live_capable_proof_driver.py
+1f9c74cce60756228d786c07e84dad0b2b895399f4c27affc0fffa0ab0d10626  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/HANDOFF.md
+66a188c7d4cfc36106686227908f84a387ab05e34cc6166dcad8ff824fd9ad0d  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/RECEIPT.json
+0a62595eaf1e41021361c6f54a730baec7cc1a569fc01ab5af16d35420bb4902  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/STATE.md
+65b7e0fbf1b603d6fbdeb947baff96441283d616705aaf4df7dd224446240a7d  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/bin/normalize-lines.mjs
+871b3c6bb3cbcccd588198ac5807913ebccdc2124640cdbcdfeed4daa0a5a6c7  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/events.jsonl
+bc51cd820e0f9c27980cb80904e93cef68f5c84f3c5b34e47be42f02825a31ff  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/heartbeat
+6e007d2d6437fe5e77b1d463551687e5b0895161d9cd8f4182f6684c42f35b84  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/package.json
+a88019118116a09819d165b3915ba5d288989d405b28e8af7af792a4319bbeb9  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/src/normalize-lines.mjs
+8f4b59ebfdec80773d1e4cd498355317697643d0efb675aff165582d1495cabe  proof/puppet-acp/20260921/antigravity/native-plugin-38-pilot/test/normalize-lines.test.mjs

@@ -26,3 +26,8 @@ local synthetic peer, persisted a fresh body-free receipt, retained the
 independent fixture failure as nonzero, and made no AGY provider call. Official
 or provider-capable missing backend cleanup now fences; failed metadata or
 liveness remains unknown. The staged v4 live command was not executed.
+
+The separate native installed-plugin 3.8 pilot then completed one useful task
+through official `antigravity-acp`: 2/2 tests and independent CLI checks passed,
+cleanup was ready, and only the allowed `bin/normalize-lines.mjs` changed. It
+does not qualify the Puppet candidate transport or claim Ultra attribution.

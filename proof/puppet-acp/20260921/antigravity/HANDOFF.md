@@ -94,6 +94,18 @@ explicitly; a failed metadata or liveness lookup remains unknown rather than
 termination. The explicit synthetic no-backend receipt remains non-qualifying.
 No new candidate provider turn is authorized.
 
+## Native installed-plugin pilot
+
+Separately from Puppet qualification, one newly scoped native official
+`antigravity-acp` MCP pilot used exact `gemini-3.8-flash-high` with effort
+unset and a 300000ms bound. Job `f595e82d-597f-46c5-9493-2e4e8784a715`
+completed with `taskComplete=true` and `cleanupReady=true`. Independent checks
+verified 2/2 tests, normalized `OK`/exit 0, CRLF and trailing-space
+`NON_NORMALIZED`/exit 1, and only `bin/normalize-lines.mjs` changed. See
+`native-plugin-38-pilot/` for the body-free receipt. This is one useful native
+plugin task, not Puppet candidate qualification, Ultra quota proof, or a new
+authorization for retries.
+
 ## Evidence
 
 The v3 driver ran 14 focused tests and the public-runtime synthetic lifecycle
