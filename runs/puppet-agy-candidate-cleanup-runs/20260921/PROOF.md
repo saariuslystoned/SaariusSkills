@@ -2,10 +2,11 @@
 
 ## Scope
 
-This checkpoint repairs only the official `antigravity-acp` candidate driver
-and adapter boundary. It consumes the accepted PR68 lifecycle/model-receipt
-interface and does not modify the Cursor implementation or the native AGY
-plugin route.
+This locally authored checkpoint repairs only the official `antigravity-acp`
+candidate driver and adapter boundary. It consumes the accepted PR68
+lifecycle/model-receipt interface and does not modify the Cursor implementation
+or the native AGY plugin route. No native Antigravity ACP job was run; this is
+not AGY authoring provenance or formal provider qualification.
 
 Changed surfaces:
 
@@ -72,8 +73,10 @@ Additional checks:
 
 ## Next gate
 
-Parent must review this exact implementation head before the single authorized
-stacked draft PR. Formal AGY provider qualification remains a separate later
-allocation with exact `gemini-3.8-flash-high`, omitted effort, one prompt,
-timeout no greater than 600000 ms, no fallback/retry, and canonical job receipt
-recorded before result/cleanup.
+The single stacked draft PR is authorized from this exact implementation head;
+its body must retain the explicit local-authoring/no-provider-run limitation.
+Parent review and any native AGY implementation job are separate. Formal AGY
+provider qualification remains a later allocation with exact
+`gemini-3.8-flash-high`, omitted effort, one prompt, timeout no greater than
+300000 ms, no fallback/retry, and canonical job receipt recorded before
+result/cleanup.
