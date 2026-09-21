@@ -43,9 +43,9 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 - Fixture implementation: `7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b`
 - Fixture tests: `bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e`
 
-## Remaining blocker
+## Qualification status
 
-Parent review, then a fresh verified d5 execution checkout and one parent-issued live session. Budget is one session, at most two prompts of 300000 ms each, no retry. The staged live command is archived under `staged/live-invocation.json` and has not been executed.
+Independent v3 review and the bounded release decision are complete. The one released live session was consumed and failed before the first provider turn; there is no remaining live allocation and no retry authorization. A new live proof requires acceptance of the source repair and a fresh concrete parent allocation.
 
 ## Bounded release decision
 
@@ -53,7 +53,7 @@ Parent review, then a fresh verified d5 execution checkout and one parent-issued
 - Release record: `dual-v3-live-release.json`, recorded `2026-09-21T15:55:26Z`.
 - Parent release token: `parent-pr62-v3-20260921`.
 - Released budget: one session, at most two prompts of 300000 ms each, actual runtime timeout 30000 ms, no retry or replacement session.
-- Released execution must use a fresh d5 checkout and the exact reviewed driver hash above. This archival branch remains a checkpoint only; it is not the live execution checkout.
+- The released execution used a fresh d5 checkout and the exact reviewed driver hash above. This archival branch remains a checkpoint only; it is not the live execution checkout.
 
 ## Released live attempt outcome
 
@@ -64,7 +64,8 @@ Parent review, then a fresh verified d5 execution checkout and one parent-issued
 - No candidate backend incarnation, provider turn, useful agent output, or live PASS was established. Fixture `changed_paths=[]`; implementation/protected-test hashes stayed at the frozen baseline. Workspace/state were retained; no cleanup fence was required.
 - Budget used: 1 session, 0 completed prompts; allocation was 1 session, max 2 prompts of 300000 ms each, actual runtime timeout 30000 ms, no retry.
 - Sanitized outcome receipt: `live-outcome/live-failure.json`, SHA-256 `93270b1f5b1369510a25786c51cf03340e9a0d8bb779ddb4e551f9e32e24e9fc`.
-- The blocker is now the route/runtime launch environment resolving the backend command as `candidate`, not product source or fixture behavior.
+- Parent adjudication identifies the blocker as a local product-wiring defect: `CursorAcpNodeRuntime` registers the official executable under `cursor`, while `CandidateAcpRuntimeRunner._ensure_owned_handle` hardcodes `agent: candidate`; the synthetic registry hid this mismatch. This is not an established upstream or authentication failure.
+- Repair owner: task `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`. Repair packet: `/Users/bobbybones/Developer/worktrees/acpx-upstream-plan-20260920/runs/puppet-overnight-runs/20260921/CURSOR_ROUTE_IDENTITY_REPAIR.md`.
 
 ## Attribution
 
@@ -73,7 +74,8 @@ Implementation was delegated through Cursor ACP; orchestration, review, evidence
 ## Review recovery
 
 - Prerequisite controller work is tracked in [PR #61](https://github.com/saariuslystoned/SaariusSkills/pull/61).
-- v2 received independent review; the v3 delta review is pending.
-- The owner's 10/10 result is separate from independent final acceptance.
+- v2 received independent review; the v3 delta review and bounded release review are complete.
+- The owner's 10/10 result was separately confirmed by independent review before release.
 - v3 repairs the accepted gaps: no live fixture deletion/retry, no byte-equality false negative or known-answer helper in live mode, and post-task/post-finish backend-incarnation observation with fail-closed uncertainty.
 - Sister Antigravity checkpoint: [PR #63](https://github.com/saariuslystoned/SaariusSkills/pull/63).
+- Both proof allocations are consumed; do not infer retry authority from unused prompt count.
