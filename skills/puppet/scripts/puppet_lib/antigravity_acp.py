@@ -26,8 +26,13 @@ from .cursor_acp import (
     SESSION_MODE_ONESHOT,
     SESSION_MODE_PERSISTENT,
     SYNTHETIC_PEER_KIND,
+    WORKER_EXIT_WAIT_MS,
     drain_runtime_turn_events,
+    is_owned_session_process,
+    is_unsupported_backend_session_close,
+    process_identities_match,
     project_runtime_handle,
+    public_worker_identity,
     reject_runtime_conversation_params,
     require_runtime_task_text,
     require_unsupported_permission_outcome,
@@ -1164,10 +1169,13 @@ def _load_ownership(isolated_root: Path) -> Dict[str, Any]:
     return load_isolated_root(isolated_root)
 
 
-def _mark_cleanup_unknown(isolated_root: Path) -> Dict[str, Any]:
+def _mark_cleanup_unknown(
+    isolated_root: Path,
+    extras: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     from antigravity_acpx import mark_cleanup_unknown
 
-    return mark_cleanup_unknown(isolated_root)
+    return mark_cleanup_unknown(isolated_root, extras)
 
 
 class AntigravityAcpSyntheticRuntime:
@@ -1181,7 +1189,6 @@ class AntigravityAcpSyntheticRuntime:
         result: Optional[Mapping[str, Any]] = None,
         events: Optional[Sequence[Mapping[str, Any]]] = None,
         unsupported_backend_close: bool = False,
-        local_cleanup_proved: bool = True,
         close_error: Optional[BaseException] = None,
         permission: Optional[Mapping[str, Any]] = None,
         question: Optional[Mapping[str, Any]] = None,
@@ -1195,7 +1202,6 @@ class AntigravityAcpSyntheticRuntime:
         self.result = dict(result or {"status": "completed", "stopReason": "end_turn"})
         self.events = list(events or ())
         self.unsupported_backend_close = unsupported_backend_close
-        self.local_cleanup_proved = local_cleanup_proved
         self.close_error = close_error
         self.permission = None if permission is None else dict(permission)
         self.question = None if question is None else dict(question)
@@ -1275,10 +1281,6 @@ class AntigravityAcpSyntheticRuntime:
             )
         return {"status": "completed"}
 
-    def is_local_cleanup_proved(self, handle: Mapping[str, Any]) -> bool:
-        return self.local_cleanup_proved
-
-
 class AntigravityAcpNodeRuntime:
     """Pinned public createAcpRuntime through the task-owned archive closure."""
 
@@ -1292,6 +1294,8 @@ class AntigravityAcpNodeRuntime:
         synthetic_peer: bool = False,
         executable: Optional[Path] = None,
         candidate_args: Optional[Sequence[str]] = None,
+        synthetic_peer_script: Optional[str] = None,
+        synthetic_peer_survive: bool = False,
     ):
         if synthetic_peer and executable is not None:
             raise ValidationError("synthetic peer injection cannot carry a candidate executable")
@@ -1318,6 +1322,8 @@ class AntigravityAcpNodeRuntime:
             cwd=str(repo_root),
             **({} if allowed_env is None else {"env": allowed_env}),
         )
+        self.last_process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
+        self._shutdown_complete = False
         payload: Dict[str, Any] = {
             "cwd": str(workspace),
             "isolatedRoot": str(isolated_root),
@@ -1332,6 +1338,9 @@ class AntigravityAcpNodeRuntime:
                 "args": list(candidate_args or ()),
             }
             payload["allowedProcessEnv"] = dict(allowed_env or {})
+        elif synthetic_peer and synthetic_peer_script:
+            payload["syntheticPeerScript"] = synthetic_peer_script
+            payload["syntheticPeerSurvive"] = bool(synthetic_peer_survive)
         self._rpc("create", payload)
 
     def child_process_identity(self) -> Dict[str, Any]:
@@ -1357,9 +1366,40 @@ class AntigravityAcpNodeRuntime:
     def close(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("close", dict(payload))
 
+    def wait_for_owned_worker_exit(
+        self,
+        session_key: str,
+        *,
+        timeout_ms: int = WORKER_EXIT_WAIT_MS,
+    ) -> Optional[Dict[str, Any]]:
+        proof = self._rpc(
+            "waitForOwnedExit",
+            {"sessionKey": session_key, "timeoutMs": timeout_ms},
+        )
+        if proof.get("status") != "exited":
+            return None
+        exits = proof.get("exits") or []
+        if not isinstance(exits, list) or not exits:
+            return None
+        first = exits[0]
+        return dict(first) if isinstance(first, Mapping) else None
+
+    def process_lifecycle_snapshot(self, session_key: str) -> Dict[str, Any]:
+        if self._shutdown_complete:
+            return dict(self.last_process_lifecycle)
+        snapshot = self._rpc("processLifecycleSnapshot", {"sessionKey": session_key})
+        self.last_process_lifecycle = (
+            dict(snapshot) if snapshot else {"started": [], "exits": []}
+        )
+        return dict(self.last_process_lifecycle)
+
     def shutdown(self) -> None:
         try:
-            self._rpc("shutdown", {})
+            result = self._rpc("shutdown", {})
+            lifecycle = result.get("process_lifecycle")
+            if isinstance(lifecycle, Mapping):
+                self.last_process_lifecycle = dict(lifecycle)
+            self._shutdown_complete = True
         finally:
             if self._proc.stdin is not None:
                 self._proc.stdin.close()
@@ -1454,6 +1494,16 @@ class AntigravityAcpRuntimeRunner:
         self.persistent_state = "absent"
         self.final_discard = False
         self.backend_discard: str = "closed"
+        self.selected_model: Optional[str] = None
+        self.current_model: Optional[str] = None
+        self.owned_worker: Optional[Dict[str, Any]] = None
+        self.cleanup_receipt: Optional[Dict[str, Any]] = None
+        self.process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
+        self.worker_termination = "unknown"
+        self.cleanup_uncertain = False
+        self.replacement_blocked = False
+        self.worker_exit_wait_ms = WORKER_EXIT_WAIT_MS
+        self._mark_cleanup_unknown: Any = None
 
     def bind_task_text(self, text: Any) -> str:
         self._text = require_runtime_task_text(text)
@@ -1499,23 +1549,140 @@ class AntigravityAcpRuntimeRunner:
             )
         return ownership
 
-    def _fence_cleanup(self) -> None:
+    def _fence_cleanup(self, extras: Optional[Mapping[str, Any]] = None) -> None:
+        if self._mark_cleanup_unknown is None:
+            from antigravity_acpx import mark_cleanup_unknown
+
+            self._mark_cleanup_unknown = mark_cleanup_unknown
         try:
-            _mark_cleanup_unknown(self.isolated_root)
+            self._mark_cleanup_unknown(self.isolated_root, extras)
         except Exception:
             pass
 
     def _is_unsupported_backend_session_close(self, exc: BaseException) -> bool:
-        code = getattr(exc, "code", "")
-        return code == "ACP_BACKEND_UNSUPPORTED_CONTROL" or bool(
-            re.search(r"session/close", str(exc), re.I)
-        )
+        return is_unsupported_backend_session_close(exc)
 
-    def _is_local_cleanup_proved(self, handle: Mapping[str, Any]) -> bool:
-        checker = getattr(self.runtime, "is_local_cleanup_proved", None)
-        if callable(checker):
-            return bool(checker(handle))
-        return bool(getattr(self.runtime, "local_cleanup_proved", False))
+    def _model_receipt_fields(self) -> Dict[str, str]:
+        fields: Dict[str, str] = {}
+        if self.selected_model:
+            fields["selected_model"] = self.selected_model
+        if self.current_model:
+            fields["current_model"] = self.current_model
+        return fields
+
+    def _persist_turn_models(self) -> None:
+        if not self.selected_model or not self.current_model:
+            return
+        try:
+            from antigravity_acpx import persist_turn_models
+
+            persist_turn_models(
+                self.isolated_root,
+                session=self.session,
+                conversation_id=self.conversation_id,
+                selected_model=self.selected_model,
+                current_model=self.current_model,
+            )
+        except Exception:
+            pass
+
+    def _snapshot_process_lifecycle(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
+        session_key = handle.get("sessionKey")
+        snapshotter = getattr(self.runtime, "process_lifecycle_snapshot", None)
+        if isinstance(session_key, str) and callable(snapshotter):
+            try:
+                snapshot = snapshotter(session_key)
+            except Exception:
+                snapshot = None
+            if isinstance(snapshot, Mapping):
+                self.process_lifecycle = {
+                    "started": [
+                        public_worker_identity(item)
+                        for item in snapshot.get("started", [])
+                        if isinstance(item, Mapping)
+                    ],
+                    "exits": [
+                        public_worker_identity(item)
+                        for item in snapshot.get("exits", [])
+                        if isinstance(item, Mapping)
+                    ],
+                }
+        return self.process_lifecycle
+
+    def _derive_worker_termination(self, handle: Mapping[str, Any]) -> str:
+        session_key = handle.get("sessionKey")
+        if not isinstance(session_key, str) or not session_key:
+            return "unknown"
+        started = [
+            item
+            for item in self.process_lifecycle.get("started", [])
+            if is_owned_session_process(item, session_key)
+        ]
+        exits = self.process_lifecycle.get("exits", [])
+        if started and all(
+            any(process_identities_match(item, exit_record) for exit_record in exits)
+            for item in started
+        ):
+            return "proven"
+        return "unknown"
+
+    def _persist_cleanup_receipt(
+        self,
+        *,
+        status: str,
+        observed: str,
+        extras: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            **self._model_receipt_fields(),
+            "local_release": self.local_release,
+            "persistent_state": self.persistent_state,
+            "final_discard": self.final_discard,
+            "backend_discard": self.backend_discard,
+            "worker_termination": self.worker_termination,
+            "cleanup_uncertain": self.cleanup_uncertain,
+            "replacement_blocked": self.replacement_blocked,
+            "process_lifecycle": self.process_lifecycle,
+        }
+        if extras:
+            payload.update(dict(extras))
+        if self.owned_worker and "worker" not in payload:
+            payload["worker"] = self.owned_worker
+        if self.backend_discard != "closed":
+            payload.setdefault("backendSessionDiscard", self.backend_discard)
+        self.cleanup_receipt = {"status": status, "observed": observed, **payload}
+        try:
+            from antigravity_acpx import persist_cleanup_receipt
+
+            persist_cleanup_receipt(
+                self.isolated_root,
+                status=status,
+                observed=observed,
+                extras=payload,
+            )
+        except Exception:
+            pass
+
+    def _wait_for_owned_worker_exit(self, handle: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        session_key = handle.get("sessionKey")
+        waiter = getattr(self.runtime, "wait_for_owned_worker_exit", None)
+        if not isinstance(session_key, str) or not callable(waiter):
+            return None
+        try:
+            proof = waiter(session_key, timeout_ms=self.worker_exit_wait_ms)
+        except Exception:
+            return None
+        if not isinstance(proof, Mapping):
+            return None
+        return dict(proof)
+
+    def _admit_close(self, *, discard_persistent_state: bool) -> None:
+        if discard_persistent_state:
+            self.final_discard = True
+            self.persistent_state = "discarded"
+        else:
+            self.local_release = True
+            self.persistent_state = "retained"
 
     def _owned_close(
         self,
@@ -1525,6 +1692,7 @@ class AntigravityAcpRuntimeRunner:
         discard_persistent_state: bool = True,
         reason: str = "antigravity-acp-owned-close",
     ) -> None:
+        self._persist_turn_models()
         try:
             self.runtime.close(
                 reject_runtime_conversation_params(
@@ -1536,31 +1704,88 @@ class AntigravityAcpRuntimeRunner:
                     label="close",
                 )
             )
+            self._snapshot_process_lifecycle(handle)
             self.backend_discard = "closed"
+            self.worker_termination = self._derive_worker_termination(handle)
+            self.cleanup_uncertain = False
+            self.replacement_blocked = False
+            self._admit_close(discard_persistent_state=discard_persistent_state)
+            self._persist_cleanup_receipt(
+                status="completed",
+                observed="runtime_close_returned",
+            )
         except BaseException as exc:
-            if self._is_unsupported_backend_session_close(exc) and self._is_local_cleanup_proved(
-                handle
-            ):
-                self.backend_discard = "unsupported_local_cleanup_proved"
-                if discard_persistent_state:
-                    self.final_discard = True
-                    self.persistent_state = "discarded"
-                else:
+            if self._is_unsupported_backend_session_close(exc):
+                observed_exit = self._wait_for_owned_worker_exit(handle)
+                if observed_exit is not None:
+                    self.backend_discard = "unsupported"
+                    self.owned_worker = public_worker_identity(observed_exit)
+                    self._snapshot_process_lifecycle(handle)
+                    self.worker_termination = "proven"
+                    self.cleanup_uncertain = False
+                    self.replacement_blocked = False
                     self.local_release = True
-                    self.persistent_state = "retained"
-                if primary is not None:
-                    raise primary
-                return
-            self._fence_cleanup()
+                    self.final_discard = False
+                    self.persistent_state = (
+                        "retained" if not discard_persistent_state else "unknown"
+                    )
+                    self._persist_cleanup_receipt(
+                        status="completed",
+                        observed="local_worker_terminated_backend_session_discard_unsupported",
+                        extras={
+                            "message": (
+                                "local worker termination observed; "
+                                "backend session discard unsupported"
+                            ),
+                            "backendSessionDiscard": "unsupported",
+                            "worker": self.owned_worker,
+                        },
+                    )
+                    if primary is not None:
+                        raise primary
+                    return
+                self.backend_discard = "unsupported"
+                self._snapshot_process_lifecycle(handle)
+                self.worker_termination = "unknown"
+                self.cleanup_uncertain = True
+                self.replacement_blocked = True
+                self._persist_cleanup_receipt(
+                    status="uncertain",
+                    observed="runtime_close_failed",
+                    extras={"backendSessionDiscard": "unsupported"},
+                )
+                self._fence_cleanup(
+                    {
+                        "observed": "runtime_close_failed",
+                        "backendSessionDiscard": "unsupported",
+                        "worker_termination": self.worker_termination,
+                        "cleanup_uncertain": self.cleanup_uncertain,
+                        "replacement_blocked": self.replacement_blocked,
+                        "process_lifecycle": self.process_lifecycle,
+                        **self._model_receipt_fields(),
+                    }
+                )
+            else:
+                self.worker_termination = "unknown"
+                self.cleanup_uncertain = True
+                self.replacement_blocked = True
+                self._persist_cleanup_receipt(
+                    status="uncertain",
+                    observed="runtime_close_failed",
+                )
+                self._fence_cleanup(
+                    {
+                        "observed": "runtime_close_failed",
+                        "worker_termination": self.worker_termination,
+                        "cleanup_uncertain": self.cleanup_uncertain,
+                        "replacement_blocked": self.replacement_blocked,
+                        "process_lifecycle": self.process_lifecycle,
+                        **self._model_receipt_fields(),
+                    }
+                )
             if primary is not None:
                 raise primary
             raise
-        if discard_persistent_state:
-            self.final_discard = True
-            self.persistent_state = "discarded"
-        else:
-            self.local_release = True
-            self.persistent_state = "retained"
         if primary is not None:
             raise primary
 
@@ -1630,6 +1855,9 @@ class AntigravityAcpRuntimeRunner:
             requested_model=self.requested_model,
             catalog=self._supplied_catalog,
         )
+        self.selected_model = mapped["selected_model"]
+        self.current_model = mapped["current_model"]
+        self._persist_turn_models()
         self._catalog = (
             self._supplied_catalog
             if self._supplied_catalog is not None
@@ -1774,12 +2002,25 @@ class AntigravityAcpRuntimeRunner:
                 else "antigravity-acp-local-release"
             ),
         )
-        return {
+        closed: Dict[str, Any] = {
             "local_release": self.local_release,
             "persistent_state": self.persistent_state,
             "final_discard": self.final_discard,
             "backend_discard": self.backend_discard,
+            "worker_termination": self.worker_termination,
+            "cleanup_uncertain": self.cleanup_uncertain,
+            "replacement_blocked": self.replacement_blocked,
+            "process_lifecycle": dict(self.process_lifecycle),
         }
+        if self.owned_worker is not None:
+            closed["worker"] = dict(self.owned_worker)
+        if self.cleanup_receipt is not None:
+            closed["cleanup"] = dict(self.cleanup_receipt)
+        if self.selected_model is not None:
+            closed["selected_model"] = self.selected_model
+        if self.current_model is not None:
+            closed["current_model"] = self.current_model
+        return closed
 
 
 class AntigravityAcpRunnerFixture:
@@ -2015,6 +2256,8 @@ def build_antigravity_acp_candidate_runner(
     catalog: Optional[Mapping[str, Any]] = None,
     runtime: Any = None,
     synthetic_peer: bool = False,
+    synthetic_peer_script: Optional[str] = None,
+    synthetic_peer_survive: bool = False,
     executable: Optional[Path] = None,
     route_binding: Optional[Mapping[str, Any]] = None,
     isolated_root: Optional[Path] = None,
@@ -2057,6 +2300,8 @@ def build_antigravity_acp_candidate_runner(
                 isolated_root=isolated,
                 repo_root=repo_root or _repo_root(),
                 synthetic_peer=True,
+                synthetic_peer_script=synthetic_peer_script,
+                synthetic_peer_survive=synthetic_peer_survive,
             )
         else:
             runtime = AntigravityAcpNodeRuntime(

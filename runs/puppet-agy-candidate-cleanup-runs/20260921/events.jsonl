@@ -1,0 +1,6 @@
+{"event":"implementation_started","authoring":"local","base_commit":"6a9140f81b1850a0b39935bb8cd3e58b9ca0f0e2","base_tree":"2c4a2142266a6f7eaa80873a609935d0e6736e38","canonical_provider_job":null}
+{"event":"artifact_verified","path":"runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz","sha256":"5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614"}
+{"event":"python_tests","result":"41_passed"}
+{"event":"bridge_tests","command":"npm test","result":"34_passed_0_skipped"}
+{"event":"driver_test","result":"2_passed"}
+{"event":"provider_allocation","result":"not_allocated"}

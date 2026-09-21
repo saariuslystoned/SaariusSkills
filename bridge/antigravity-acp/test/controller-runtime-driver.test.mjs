@@ -103,11 +103,20 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", {
   assert.equal(turn.requestId, "agy-acp-request-1");
   assert.equal(turn.result.status, "completed");
   assert.equal(turn.discarded.body_retained, false);
-  await client.rpc("close", {
-    handle,
-    reason: "antigravity-acp-owned-close",
-    discardPersistentState: true,
+  await assert.rejects(
+    () => client.rpc("close", {
+      handle,
+      reason: "antigravity-acp-owned-close",
+      discardPersistentState: true,
+    }),
+    (error) => error.code === "ACP_BACKEND_UNSUPPORTED_CONTROL",
+  );
+  const lifecycle = await client.rpc("waitForOwnedExit", {
+    sessionKey: handle.sessionKey,
+    timeoutMs: 30_000,
   });
+  assert.equal(lifecycle.status, "exited", JSON.stringify(lifecycle));
+  assert.ok(lifecycle.exits.length >= 1, JSON.stringify(lifecycle));
   await client.rpc("shutdown");
 });
 

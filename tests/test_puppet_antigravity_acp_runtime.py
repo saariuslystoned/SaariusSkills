@@ -38,6 +38,7 @@ from puppet_lib.antigravity_acp import (
     verified_antigravity_acp_catalog,
 )
 from puppet_lib.cursor_acp import (
+    FINISH_POLICY_DISCARD,
     FINISH_POLICY_RETAIN,
     SESSION_MODE_PERSISTENT,
     SYNTHETIC_PEER_KIND,
@@ -482,7 +483,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     catalog=verified_antigravity_acp_catalog(),
                 ).observation()
 
-    def test_unsupported_backend_discard_with_proven_local_cleanup(self):
+    def test_unsupported_backend_close_without_worker_proof_fences(self):
         with tempfile.TemporaryDirectory() as temporary:
             isolated = _private_root(temporary)
             workspace = Path(temporary).resolve() / "workspace"
@@ -491,21 +492,17 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 handle=_handle(workspace),
                 models=GEMINI_MODELS,
                 unsupported_backend_close=True,
-                local_cleanup_proved=True,
             )
             runner = self._runner(isolated, workspace, runtime)
             controller = AntigravityAcpController(Path(temporary), runner=runner)
-            result = controller.caller_result(
-                expected_session="agy-acp-session",
-                expected_conversation_id="conv-agy-acp-1",
-                expected_workspace=_workspace(workspace),
-                requested_model=DEFAULT_ANTIGRAVITY_MODEL,
-            )
-            self.assertTrue(result["ok"])
-            self.assertEqual(runner.backend_discard, "unsupported_local_cleanup_proved")
+            with self.assertRaisesRegex(UnsupportedError, "session/close"):
+                controller.require_observation()
+            self.assertEqual(runner.backend_discard, "unsupported")
+            self.assertEqual(runner.worker_termination, "unknown")
+            self.assertTrue(runner.cleanup_uncertain)
             ownership = load_isolated_root(isolated)
-            self.assertEqual(ownership["cleanup"], "owned")
-            self.assertFalse(ownership["replacement_blocked"])
+            self.assertEqual(ownership["cleanup"], "unknown")
+            self.assertTrue(ownership["replacement_blocked"])
 
     def test_uncertain_cleanup_fences_replacement(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -516,7 +513,6 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 handle=_handle(workspace),
                 models=GEMINI_MODELS,
                 unsupported_backend_close=True,
-                local_cleanup_proved=False,
             )
             runner = self._runner(isolated, workspace, runtime)
             controller = AntigravityAcpController(Path(temporary), runner=runner)
@@ -832,7 +828,9 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertEqual(texts, [CALLER_TASK_TEXT, SECOND_TURN_TEXT])
                 self.assertEqual(second["terminal"]["result_id"], "agy-acp-request-2")
                 closed = runner.finish(discard_persistent_state=True)
-                self.assertTrue(closed["final_discard"])
+                self.assertFalse(closed["final_discard"])
+                self.assertEqual(closed["backend_discard"], "unsupported")
+                self.assertEqual(closed["persistent_state"], "unknown")
             finally:
                 runtime.shutdown()
 
@@ -988,7 +986,9 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                         route_resolver=test_only_cursor_synthetic_route_binding,
                     )
             closed = owner.finish(continuation)
-            self.assertTrue(closed["final_discard"])
+            self.assertFalse(closed["final_discard"])
+            self.assertEqual(closed["backend_discard"], "unsupported")
+            self.assertEqual(closed["persistent_state"], "unknown")
             self.assertTrue(closed["child_exit"]["exited"])
             self.assertIsInstance(closed["child_exit"]["pid"], int)
             self.assertIsNotNone(closed["child_exit"]["returncode"])
@@ -1412,10 +1412,164 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertIsInstance(mapping["backend_session_id"], str)
                 self.assertNotIn(CALLER_TASK_TEXT, str(second))
                 closed = second_runner.finish(discard_persistent_state=True)
-                self.assertTrue(closed["final_discard"])
+                self.assertFalse(closed["final_discard"])
+                self.assertEqual(closed["backend_discard"], "unsupported")
+                self.assertEqual(closed["persistent_state"], "unknown")
             finally:
                 second_runtime.shutdown()
             self.assertTrue(second_runtime.child_process_identity()["exited"])
+
+    def test_actual_public_runtime_unsupported_close_uses_exact_owned_worker_exit(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+            )
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_script="unsupported-close-peer.mjs",
+            )
+            try:
+                runner = AntigravityAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    text=CALLER_TASK_TEXT,
+                    catalog=verified_antigravity_acp_catalog(),
+                    halt=True,
+                )
+                observation = runner.observation()
+                self.assertEqual(observation["model"]["observed_id"], DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(runner.selected_model, DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(runner.current_model, DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(runner.backend_discard, "unsupported")
+                self.assertEqual(runner.worker_termination, "proven")
+                self.assertTrue(runner.local_release)
+                self.assertEqual(runner.persistent_state, "unknown")
+                self.assertFalse(runner.final_discard)
+                self.assertFalse(runner.cleanup_uncertain)
+                self.assertFalse(runner.replacement_blocked)
+                self.assertEqual(
+                    runner.cleanup_receipt["observed"],
+                    "local_worker_terminated_backend_session_discard_unsupported",
+                )
+                snapshot = runtime.process_lifecycle_snapshot("agy-acp-session")
+                self.assertGreaterEqual(len(snapshot["started"]), 1)
+                self.assertEqual(len(snapshot["started"]), len(snapshot["exits"]))
+                ownership = load_isolated_root(isolated)
+                self.assertEqual(ownership["cleanup"], "owned")
+                self.assertFalse(ownership["replacement_blocked"])
+                events = [
+                    json.loads(line)
+                    for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+                ]
+                self.assertTrue(any(item.get("event") == "runtime_models_observed" for item in events))
+                cleanup = [item for item in events if item.get("event") == "cleanup_completed"][-1]
+                self.assertEqual(cleanup["backendSessionDiscard"], "unsupported")
+                self.assertEqual(cleanup["persistent_state"], "unknown")
+                self.assertTrue(cleanup["local_release"])
+                self.assertFalse(cleanup["final_discard"])
+            finally:
+                runtime.shutdown()
+
+    def test_actual_public_runtime_surviving_unsupported_close_fences_and_preserves_models(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+            )
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_script="unsupported-close-peer.mjs",
+                synthetic_peer_survive=True,
+            )
+            started = []
+            original_close = runtime.close
+
+            def injected_close(payload):
+                error = ValidationError(
+                    "Agent does not support session/close for agy-acp-session."
+                )
+                error.code = "ACP_BACKEND_UNSUPPORTED_CONTROL"
+                raise error
+
+            runtime.close = injected_close
+            try:
+                runner = AntigravityAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    text=CALLER_TASK_TEXT,
+                    catalog=verified_antigravity_acp_catalog(),
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_DISCARD,
+                )
+                runner.worker_exit_wait_ms = 250
+                with self.assertRaisesRegex(ValidationError, "session/close"):
+                    runner.observation()
+                self.assertEqual(runner.selected_model, DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(runner.current_model, DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(runner.backend_discard, "unsupported")
+                self.assertEqual(runner.worker_termination, "unknown")
+                self.assertTrue(runner.cleanup_uncertain)
+                self.assertTrue(runner.replacement_blocked)
+                snapshot = runtime.process_lifecycle_snapshot("agy-acp-session")
+                started = snapshot.get("started") or []
+                self.assertGreaterEqual(len(started), 1)
+                self.assertEqual(snapshot.get("exits"), [])
+                ownership = load_isolated_root(isolated)
+                self.assertEqual(ownership["cleanup"], "unknown")
+                self.assertTrue(ownership["replacement_blocked"])
+                events = [
+                    json.loads(line)
+                    for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+                ]
+                models = [item for item in events if item.get("event") == "runtime_models_observed"]
+                unknown = [item for item in events if item.get("event") == "cleanup_unknown"][-1]
+                self.assertEqual(models[-1]["selected_model"], DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(models[-1]["current_model"], DEFAULT_ANTIGRAVITY_MODEL)
+                self.assertEqual(unknown["backendSessionDiscard"], "unsupported")
+                self.assertTrue(unknown["replacement_blocked"])
+            finally:
+                runtime.close = original_close
+                runtime.shutdown()
+                for worker in started:
+                    try:
+                        os.kill(worker["pid"], 9)
+                    except OSError:
+                        pass
 
 
 if __name__ == "__main__":
