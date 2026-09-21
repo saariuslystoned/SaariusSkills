@@ -73,6 +73,11 @@ conversation.
   proving Herdr as a human-visible, transcript-blind remote-agent transport
   before proposing it as an optional Puppet backend. Its redacted discovery
   evidence is in [`herdr-puppet-proof.md`](herdr-puppet-proof.md).
+- [`vm-wrapper-plan-20260921.md`](vm-wrapper-plan-20260921.md) places the
+  host-owned Parallels/SSH/container ACP wrapper lane after relevant local ACP
+  and controller proof, with one guest/one harness/one task as the first VM
+  acceptance target. It explicitly keeps remote termination and workspace
+  mapping with the host and does not revive acpx's deferred launcher API.
 
 The raw local ledger/event stream and private-repository identifiers are not
 published. Their material decisions, supersessions, deferments, limitations,
