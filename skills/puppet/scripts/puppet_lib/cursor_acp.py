@@ -1071,7 +1071,11 @@ def require_cursor_acp_runtime_agent(runtime: Any) -> str:
         kind = getattr(runtime, "kind", None)
         if kind == CANDIDATE_RUNTIME_KIND:
             return TARGET
-        return SYNTHETIC_AGENT
+        if kind == SYNTHETIC_PEER_KIND:
+            return SYNTHETIC_AGENT
+        raise ValidationError(
+            "cursor-acp runtime agent must stay on the cursor or synthetic candidate route"
+        )
     if agent == TARGET or agent == SYNTHETIC_AGENT:
         return agent
     raise ValidationError(

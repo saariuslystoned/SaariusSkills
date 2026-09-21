@@ -4,16 +4,19 @@
 
 Local product wiring only. Official Cursor candidate `ensureSession` now
 resolves the registered Cursor executable. Synthetic tests keep agent
-`candidate`. No provider turn, live Cursor/Antigravity qualification,
-shared install, reset, merge, or upstream publication.
+`candidate`. Absent or unrecognized runtime identity is rejected. No
+provider turn, live Cursor/Antigravity qualification, shared install,
+reset, merge, or upstream publication.
 
 ## Worktree
 
 - worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-cursor-route-identity-20260921`
 - branch: `codex/puppet-cursor-route-identity-20260921`
 - starting base: `49a46404854db7c9c7e7935b351e47fb771beaca`
-- starting tree: `938ef948a6a1218ad055a17d5d297c633b936167`
-- job: `4990e283-63d2-44b3-a57e-7e0766c350b8`
+- reviewed head: `c12f6ba2b281908e45f4ade2be18c39030e775d1`
+- final tree: `341a6376fe807034f67516e60272a58b9bd73f04`
+- native job: `62c817a8-2b46-4117-ad2f-ed81bb0c1f8d`
+- prior job: `4990e283-63d2-44b3-a57e-7e0766c350b8`
 - owner: `01a0c01d-4a3b-7123-80eb-44a9ae9228f8`
 - prior PR61 worktree: not touched
 
@@ -26,11 +29,21 @@ spawn command `candidate`, producing `Failed to spawn agent command: candidate`
 before any provider turn. The synthetic driver registry ignored the requested
 key, so in-process and synthetic-peer tests hid the mismatch.
 
+Independent review accepted one remaining contract gap: when `runtime.agent`
+was missing, `require_cursor_acp_runtime_agent` mapped only
+`kind == qualified_archive` to `cursor` and silently returned `candidate` for
+absent or unrecognized kinds. `UnknownRuntime()` and `UnknownKind` both
+returned `candidate`. Default official constructors already set `agent` and
+were unaffected.
+
 ## Repair
 
-`ensureSession` now uses `require_cursor_acp_runtime_agent`: official /
-`qualified_archive` stays `cursor`; synthetic peer and in-process fixtures
-stay `candidate`. Arbitrary names are rejected. The synthetic driver
+`ensureSession` uses `require_cursor_acp_runtime_agent`: official /
+`qualified_archive` stays `cursor`; synthetic peer stays `candidate`.
+Explicit `cursor` and `candidate` identities are retained. Exact existing
+kinds keep their compatibility map (`qualified_archive` -> `cursor`,
+`synthetic_peer` -> `candidate`). Absent or unknown identity/kind raises
+`ValidationError`. Arbitrary names are rejected. The synthetic driver
 registry now resolves only `candidate`. No alias, silent fallback, or
 expanded model acceptance.
 
@@ -49,10 +62,12 @@ Archive and `node_modules` remain untracked.
 
 ```text
 $ python3 -m unittest tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx -v
-Ran 35 tests in 17.047s
+Ran 35 tests in 17.106s
 OK
 # includes official public-registry/ensureSession regression
 # + existing ownership, cleanup, continuation, and synthetic identity tests
+# + UnknownRuntime()/UnknownKind now raise ValidationError
+# + explicit cursor/candidate and qualified_archive/synthetic_peer kinds retained
 
 $ node --test test/candidate-runtime.test.mjs
 tests 18

@@ -1,1 +1,1 @@
-2026-09-21T16:12:30Z route-identity repair tests passed; Python 35 and candidate-runtime 18 OK; official cursor ensureSession resolved local peer; candidate mismatch still fail-closed; no live qualification
+2026-09-21T16:26:20Z PR64 repair1 tests passed; job f8e8c5a6-5844-481a-bdc4-ed948d3f5947; Python 35 and candidate-runtime 18 OK; UnknownRuntime/UnknownKind fail-closed; official cursor ensureSession and synthetic real-runtime preserved; no live qualification

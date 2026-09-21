@@ -610,10 +610,18 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             require_cursor_acp_runtime_agent(type("R", (), {"kind": CANDIDATE_RUNTIME_KIND})()),
             "cursor",
         )
+        self.assertEqual(
+            require_cursor_acp_runtime_agent(type("R", (), {"kind": SYNTHETIC_PEER_KIND})()),
+            SYNTHETIC_AGENT,
+        )
         with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
             require_cursor_acp_runtime_agent(type("R", (), {"agent": "codex"})())
         with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
             require_cursor_acp_runtime_agent(type("R", (), {"agent": "antigravity"})())
+        with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
+            require_cursor_acp_runtime_agent(type("UnknownRuntime", (), {})())
+        with self.assertRaisesRegex(ValidationError, "cursor or synthetic candidate"):
+            require_cursor_acp_runtime_agent(type("UnknownKind", (), {"kind": "unknown"})())
         with tempfile.TemporaryDirectory() as temporary:
             isolated = _private_root(temporary)
             workspace = Path(temporary).resolve() / "workspace"
