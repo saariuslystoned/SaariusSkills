@@ -20,10 +20,10 @@ checkpoint       https://github.com/saariuslystoned/SaariusSkills/pull/63
 
 v2 has independent offline approval: 10 focused tests plus 1 public-runtime
 synthetic test passed. v3 has owner-run evidence: 14 focused tests plus 1
-public-runtime synthetic test passed. Independent delta review of v3 remains
-pending. The user-authorized live allocation was consumed by one failed v3
-attempt; no useful edit or qualified model/session receipt was emitted, so no
-coordinator should re-request authorization or retry.
+public-runtime synthetic test passed, and independent delta review accepted
+the manual v3 path. The user-authorized live allocation was consumed by one
+failed v3 attempt; no useful edit or qualified model/session receipt was
+emitted, so no coordinator should re-request authorization or retry.
 
 Orchestration and review: Codex. Bounded implementation: native Cursor ACP
 using exact Grok 4.6 High.
@@ -42,7 +42,8 @@ runtime.js     ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683
 Implementation jobs: v1 `d3834068-43d5-4a4e-8092-6882bbe3cc93`, v2
 `a7158f99-fdc2-47f6-8fc9-9d1cf4940dc2`, and final v3
 `ce47ac58-45f3-4958-9427-fc72792d10e2`; each used native Cursor ACP exact
-Grok 4.6 High. No AGY provider job was launched.
+Grok 4.6 High. No AGY provider job was used for implementation; one manual
+AGY session was later consumed by the released proof attempt.
 
 ## v3 delta
 
@@ -72,20 +73,19 @@ see `LIVE_RESULT.md` for the sanitized outcome.
 ## Live-command safety boundary
 
 The copied `v3/staged/live-invocation.json` is preserved as source evidence,
-but its command intentionally points to the parent-specified v2 driver and
-v2 launch-input. This checkpoint does not silently promote that old command or
-claim that v3 is integrated into the product live path. Do not execute it from
-this PR. Parent must explicitly select/integrate the reviewed v3 delta before
-releasing the one-session/two-prompt live allocation.
+but its command intentionally points to the stale generated v2 driver and
+v2 launch-input. That command is quarantined and must not be executed. The
+parent-selected manual v3 command was already consumed once and failed; do not
+retry or replace it from this PR.
 
 The parent-released v3 attempt is recorded in `LIVE_RESULT.md`: exit 2 at the
 fixture-after gate, no changed path, no retry, and no qualification PASS. The
 fresh fixture/state evidence remains retained locally; no cleanup-uncertainty
 fence was emitted and no replacement was attempted.
 
-The remaining allocation is one owned session, at most two prompts, each
-`<=300000ms`, no retry. Current runtime cap is stricter at 30 seconds. Sister
-review checkpoint: https://github.com/saariuslystoned/SaariusSkills/pull/62.
+There is no remaining live allocation in this packet. Current runtime cap was
+30 seconds. Sister review checkpoint:
+https://github.com/saariuslystoned/SaariusSkills/pull/62.
 
 ## Original execution evidence
 
@@ -94,3 +94,10 @@ this PR contains only the explicit immutable v3 snapshot, minimal v2 fixture
 inputs, and this sanitized handoff. No raw ACP transcript, token, credential,
 account/auth/config/env file, runtime tarball, cache, or nested git workspace
 is included.
+
+## Diagnosis
+
+See `DIAGNOSIS.md` for the read-only evidence/inference split. The retained
+failure proves no useful fixture edit; it does not preserve exact model,
+request/stop-reason, or matched backend-termination metadata. No further
+provider work is authorized without explicit rescope.
