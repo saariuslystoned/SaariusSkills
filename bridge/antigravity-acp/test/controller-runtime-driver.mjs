@@ -8,8 +8,27 @@ import {
   createVerifiedCandidateAcpRuntime,
   discardCandidateTurnEvents,
   materializeVerifiedCandidateAcpx,
+  publicProcessLifecycleSnapshot,
   rejectCandidateRuntimeConversationParams,
 } from "../../cursor-acp/puppet-adapter.mjs";
+
+const STARTUP_TIMEOUT_MS = 30_000;
+const MIN_TIMEOUT_MS = 1_000;
+const MAX_TIMEOUT_MS = 1_800_000;
+const ALLOWED_TURN_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const ALLOWED_STOP_REASONS = new Set([
+  "end_turn",
+  "max_tokens",
+  "cancelled",
+  "canceled",
+  "error",
+  "stop",
+  "refused",
+  "timeout",
+  "length",
+  "content_filter",
+]);
+const SECRET_CODE_PARTS = ["token", "secret", "password", "prompt", "credential"];
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
@@ -84,15 +103,62 @@ function resolveSyntheticPeer(payload) {
 
 function syntheticRegistry(payload) {
   const peer = resolveSyntheticPeer(payload);
-  const survive = payload?.syntheticPeerSurvive === true;
+  const args = [];
+  if (payload?.syntheticPeerSurvive === true) args.push("--survive");
+  if (payload?.syntheticPeerHangPrompt === true) args.push("--hang-prompt");
   return {
     resolve() {
-      return survive ? [process.execPath, peer, "--survive"] : [process.execPath, peer];
+      return args.length ? [process.execPath, peer, ...args] : [process.execPath, peer];
     },
     list() {
       return ["antigravity", "candidate"];
     },
   };
+}
+
+function requireBoundedTimeoutMs(value, label) {
+  if (!Number.isInteger(value) || value < MIN_TIMEOUT_MS || value > MAX_TIMEOUT_MS) {
+    throw new Error(
+      `${label} timeoutMs must be an integer between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`,
+    );
+  }
+  return value;
+}
+
+function boundErrorCode(value) {
+  if (typeof value !== "string" || !value || value.length > 64) return undefined;
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) return undefined;
+  const lower = value.toLowerCase();
+  if (SECRET_CODE_PARTS.some((part) => lower.includes(part))) return undefined;
+  return value;
+}
+
+function boundTurnResult(result, error) {
+  const status = ALLOWED_TURN_STATUSES.has(result?.status)
+    ? result.status
+    : (error ? "failed" : undefined);
+  if (!status) {
+    throw new Error("candidate turn result is incomplete");
+  }
+  const bounded = { status };
+  if (
+    typeof result?.stopReason === "string"
+    && ALLOWED_STOP_REASONS.has(result.stopReason)
+  ) {
+    bounded.stopReason = result.stopReason;
+  }
+  const code = boundErrorCode(result?.errorCode)
+    || boundErrorCode(result?.error?.code)
+    || boundErrorCode(error?.code);
+  if (code) bounded.errorCode = code;
+  return bounded;
+}
+
+function snapshotOwnedLifecycle(sessionKey) {
+  if (!processLifecycleTracker || typeof sessionKey !== "string" || !sessionKey) {
+    return { started: [], exits: [] };
+  }
+  return publicProcessLifecycleSnapshot(processLifecycleTracker.snapshotOwned(sessionKey));
 }
 
 function applyAllowedProcessEnv(allowed) {
@@ -135,7 +201,10 @@ async function create(payload) {
     agentRegistry,
     fs: false,
     terminal: false,
-    timeoutMs: 30_000,
+    timeoutMs: requireBoundedTimeoutMs(
+      payload.startupTimeoutMs ?? STARTUP_TIMEOUT_MS,
+      "startup",
+    ),
     processLifecycle: processLifecycleTracker.processLifecycle,
   }, {
     runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
@@ -179,18 +248,47 @@ async function handle(message) {
     return {};
   }
   if (op === "startTurn") {
-    const turn = current.startTurn(rejectCandidateRuntimeConversationParams(payload, "startTurn"));
-    await turn.promptStarted;
-    const discarded = await discardCandidateTurnEvents(turn);
-    const result = await turn.result;
+    const timeoutMs = requireBoundedTimeoutMs(payload.timeoutMs, "candidate prompt");
+    const turn = current.startTurn({
+      ...rejectCandidateRuntimeConversationParams(payload, "startTurn"),
+      timeoutMs,
+    });
+    let discarded = {
+      observer: "absent",
+      observed_types: [],
+      event_count: 0,
+      observed_types_truncated: false,
+      body_retained: false,
+    };
+    let process_lifecycle = { started: [], exits: [] };
+    let result;
+    let turnError;
+    try {
+      await turn.promptStarted;
+    } catch (error) {
+      turnError = error;
+    }
+    process_lifecycle = snapshotOwnedLifecycle(payload.handle?.sessionKey);
+    if (!turnError) {
+      try {
+        discarded = await discardCandidateTurnEvents(turn);
+        result = await turn.result;
+      } catch (error) {
+        turnError = error;
+        try {
+          result = await Promise.resolve(turn.result);
+        } catch {
+          result = undefined;
+        }
+      }
+    }
     return {
       requestId: turn.requestId,
+      timeoutMs,
       events: discarded.observed_types.map((type) => ({ type })),
       discarded,
-      result: {
-        status: result.status,
-        stopReason: result.stopReason,
-      },
+      result: boundTurnResult(result, turnError),
+      process_lifecycle,
     };
   }
   if (op === "close") {

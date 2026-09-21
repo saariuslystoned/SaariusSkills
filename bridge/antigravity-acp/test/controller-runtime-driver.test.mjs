@@ -99,10 +99,18 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", {
     text: "antigravity-acp-runtime-turn",
     mode: "prompt",
     requestId: "agy-acp-request-1",
+    timeoutMs: 300_000,
   });
   assert.equal(turn.requestId, "agy-acp-request-1");
+  assert.equal(turn.timeoutMs, 300_000);
   assert.equal(turn.result.status, "completed");
+  assert.equal(turn.result.stopReason, "end_turn");
   assert.equal(turn.discarded.body_retained, false);
+  assert.ok(!Object.hasOwn(turn.result, "prompt"));
+  assert.ok(turn.process_lifecycle.started.length >= 1, JSON.stringify(turn.process_lifecycle));
+  assert.equal(turn.process_lifecycle.started[0].scope.kind, "runtime-session");
+  assert.equal(turn.process_lifecycle.started[0].scope.sessionKey, handle.sessionKey);
+  assert.notEqual(turn.process_lifecycle.started[0].pid, child.pid);
   await assert.rejects(
     () => client.rpc("close", {
       handle,
@@ -151,4 +159,188 @@ test("official candidate create fails closed without allowed process env", async
       child.kill("SIGTERM");
     }
   }
+});
+
+async function withDriver(t, payload, fn) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agy-acp-driver-"));
+  const isolated = path.join(root, "isolated");
+  const workspace = path.join(root, "workspace");
+  await mkdir(isolated, { mode: 0o700 });
+  await chmod(isolated, 0o700);
+  await mkdir(workspace);
+  const child = spawn(process.execPath, [DRIVER], {
+    cwd: REPO_ROOT,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const client = createClient(child);
+  t.after(() => {
+    if (child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+    }
+  });
+  const created = await client.rpc("create", {
+    cwd: workspace,
+    isolatedRoot: isolated,
+    syntheticPeer: true,
+    agent: "antigravity",
+    ...payload,
+  });
+  return fn({ client, child, created, workspace });
+}
+
+test("candidate startTurn rejects missing or unbounded timeout", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
+  await withDriver(t, {}, async ({ client, workspace }) => {
+    const handle = await client.rpc("ensureSession", {
+      sessionKey: "agy-acp-session",
+      agent: "antigravity",
+      mode: "oneshot",
+      cwd: workspace,
+    });
+    await assert.rejects(
+      () => client.rpc("startTurn", {
+        handle,
+        text: "antigravity-acp-runtime-turn",
+        mode: "prompt",
+        requestId: "agy-acp-request-missing-timeout",
+      }),
+      /candidate prompt timeoutMs must be an integer/,
+    );
+    await assert.rejects(
+      () => client.rpc("startTurn", {
+        handle,
+        text: "antigravity-acp-runtime-turn",
+        mode: "prompt",
+        requestId: "agy-acp-request-unlimited-timeout",
+        timeoutMs: 0,
+      }),
+      /candidate prompt timeoutMs must be an integer/,
+    );
+    await client.rpc("shutdown");
+  });
+});
+
+test("actual public runtime binds the candidate prompt timeout and retains failure evidence", {
+  timeout: 30_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
+  await withDriver(t, { syntheticPeerHangPrompt: true }, async ({ client, child, workspace }) => {
+    const handle = await client.rpc("ensureSession", {
+      sessionKey: "agy-acp-timeout-session",
+      agent: "antigravity",
+      mode: "oneshot",
+      cwd: workspace,
+    });
+    const startedAt = Date.now();
+    const turn = await client.rpc("startTurn", {
+      handle,
+      text: "antigravity-acp-runtime-turn",
+      mode: "prompt",
+      requestId: "agy-acp-request-timeout",
+      timeoutMs: 1_000,
+    });
+    const elapsed = Date.now() - startedAt;
+    assert.equal(turn.timeoutMs, 1_000);
+    assert.equal(turn.result.status, "failed");
+    assert.ok(turn.result.errorCode, JSON.stringify(turn.result));
+    assert.ok(!Object.hasOwn(turn.result, "error"));
+    assert.ok(!Object.hasOwn(turn.result, "prompt"));
+    assert.ok(elapsed < 10_000, `prompt timeout leaked past the bound: ${elapsed}ms`);
+    assert.ok(turn.process_lifecycle.started.length >= 1, JSON.stringify(turn.process_lifecycle));
+    assert.notEqual(turn.process_lifecycle.started[0].pid, child.pid);
+    await client.rpc("shutdown");
+  });
+});
+
+test("actual public runtime attributes a short-lived worker during startTurn", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
+  await withDriver(t, {}, async ({ client, child, workspace }) => {
+    const handle = await client.rpc("ensureSession", {
+      sessionKey: "agy-acp-short-lived",
+      agent: "antigravity",
+      mode: "oneshot",
+      cwd: workspace,
+    });
+    const turn = await client.rpc("startTurn", {
+      handle,
+      text: "antigravity-acp-runtime-turn",
+      mode: "prompt",
+      requestId: "agy-acp-request-short-lived",
+      timeoutMs: 300_000,
+    });
+    assert.equal(turn.result.status, "completed");
+    const started = turn.process_lifecycle.started;
+    assert.ok(started.length >= 1, JSON.stringify(turn.process_lifecycle));
+    assert.equal(typeof started[0].launchId, "string");
+    assert.equal(typeof started[0].startedAt, "string");
+    assert.equal(started[0].scope.sessionKey, handle.sessionKey);
+    assert.notEqual(started[0].pid, child.pid);
+    await assert.rejects(
+      () => client.rpc("close", {
+        handle,
+        reason: "antigravity-acp-owned-close",
+        discardPersistentState: true,
+      }),
+      (error) => error.code === "ACP_BACKEND_UNSUPPORTED_CONTROL",
+    );
+    const lifecycle = await client.rpc("waitForOwnedExit", {
+      sessionKey: handle.sessionKey,
+      timeoutMs: 10_000,
+    });
+    assert.equal(lifecycle.status, "exited", JSON.stringify(lifecycle));
+    assert.ok(lifecycle.exits.some((exit) => (
+      exit.pid === started[0].pid
+      && exit.launchId === started[0].launchId
+      && exit.startedAt === started[0].startedAt
+    )), JSON.stringify({ started, lifecycle }));
+    await client.rpc("shutdown");
+  });
+});
+
+test("actual public runtime rejects a surviving worker without helper-PID proof", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
+  await withDriver(t, { syntheticPeerSurvive: true }, async ({ client, child, workspace }) => {
+    const handle = await client.rpc("ensureSession", {
+      sessionKey: "agy-acp-survivor",
+      agent: "antigravity",
+      mode: "persistent",
+      cwd: workspace,
+    });
+    const turn = await client.rpc("startTurn", {
+      handle,
+      text: "antigravity-acp-runtime-turn",
+      mode: "prompt",
+      requestId: "agy-acp-request-survivor",
+      timeoutMs: 300_000,
+    });
+    assert.equal(turn.result.status, "completed");
+    assert.ok(turn.process_lifecycle.started.length >= 1, JSON.stringify(turn.process_lifecycle));
+    assert.notEqual(turn.process_lifecycle.started[0].pid, child.pid);
+    const during = await client.rpc("processLifecycleSnapshot", {
+      sessionKey: handle.sessionKey,
+    });
+    assert.ok(during.started.length >= 1, JSON.stringify(during));
+    assert.equal(during.exits.length, 0, JSON.stringify(during));
+    const lifecycle = await client.rpc("waitForOwnedExit", {
+      sessionKey: handle.sessionKey,
+      timeoutMs: 250,
+    });
+    assert.notEqual(lifecycle.status, "exited", JSON.stringify(lifecycle));
+    assert.ok(lifecycle.started.length >= 1, JSON.stringify(lifecycle));
+    assert.equal(lifecycle.exits.length, 0, JSON.stringify(lifecycle));
+    await client.rpc("shutdown");
+    for (const worker of lifecycle.started) {
+      try {
+        process.kill(worker.pid, "SIGKILL");
+      } catch {
+        // Worker may already be gone after driver shutdown.
+      }
+    }
+  });
 });

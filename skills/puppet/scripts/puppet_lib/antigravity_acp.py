@@ -70,6 +70,28 @@ FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
 CONTROLLER_RUNTIME_DRIVER = (
     "bridge/antigravity-acp/test/controller-runtime-driver.mjs"
 )
+STARTUP_TIMEOUT_MS = 30_000
+CANDIDATE_PROMPT_TIMEOUT_MS = 300_000
+MIN_TIMEOUT_MS = 1_000
+MAX_TIMEOUT_MS = 1_800_000
+ALLOWED_TURN_STATUSES = frozenset({"completed", "failed", "cancelled"})
+RECEIPT_DURABILITY_DURABLE = "durable"
+RECEIPT_DURABILITY_NONDURABLE = "nondurable"
+ALLOWED_STOP_REASONS = frozenset(
+    {
+        "end_turn",
+        "max_tokens",
+        "cancelled",
+        "canceled",
+        "error",
+        "stop",
+        "refused",
+        "timeout",
+        "length",
+        "content_filter",
+    }
+)
+_SECRET_CODE_PARTS = ("token", "secret", "password", "prompt", "credential")
 OFFICIAL_ROUTE_KIND = "official_route"
 ANTIGRAVITY_ROUTE_BINDING_SCHEMA = "puppet.antigravity-acp-route-binding/v1"
 ANTIGRAVITY_ROUTE_IDENTITY = "antigravity-acp-server"
@@ -196,7 +218,10 @@ _OBS_MODEL_KEYS = frozenset(
     {"requested_id", "advertised_ids", "observed_id", "selection_state", "effort"}
 )
 _OBS_SESSION_KEYS = frozenset({"session_id", "conversation_id"})
-_OBS_TERMINAL_KEYS = frozenset({"state", "exit_code", "result_id"})
+_OBS_TERMINAL_REQUIRED_KEYS = frozenset({"state", "exit_code", "result_id"})
+_OBS_TERMINAL_OPTIONAL_KEYS = frozenset(
+    {"status", "stop_reason", "error_code", "event_kinds"}
+)
 _OBS_QUESTION_KEYS = frozenset(
     {"state", "interaction_id", "human_required", "outcome"}
 )
@@ -521,6 +546,107 @@ def _exact_mapping(value: Any, keys: frozenset[str], label: str) -> Mapping[str,
     return value
 
 
+def require_bounded_timeout_ms(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(
+            "%s timeoutMs must be an integer between %s and %s"
+            % (label, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
+        )
+    if value < MIN_TIMEOUT_MS or value > MAX_TIMEOUT_MS:
+        raise ValidationError(
+            "%s timeoutMs must be an integer between %s and %s"
+            % (label, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
+        )
+    return value
+
+
+def bound_error_code(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        return None
+    lower = value.lower()
+    if any(part in lower for part in _SECRET_CODE_PARTS):
+        return None
+    return value
+
+
+def bound_stop_reason(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value in ALLOWED_STOP_REASONS else None
+
+
+def bound_terminal_receipt(
+    result: Any,
+    *,
+    discarded: Optional[Mapping[str, Any]] = None,
+    timeout_ms: Optional[int] = None,
+) -> Dict[str, Any]:
+    if not isinstance(result, Mapping):
+        raise ValidationError("runtime turn result is incomplete")
+    status = result.get("status")
+    if status not in ALLOWED_TURN_STATUSES:
+        raise ValidationError("runtime turn result is incomplete")
+    receipt: Dict[str, Any] = {"status": status}
+    reason = bound_stop_reason(result.get("stopReason") or result.get("stop_reason"))
+    if reason is not None:
+        receipt["stop_reason"] = reason
+    error = result.get("error")
+    code = bound_error_code(result.get("errorCode") or result.get("error_code"))
+    if code is None and isinstance(error, Mapping):
+        code = bound_error_code(error.get("code"))
+    if code is not None:
+        receipt["error_code"] = code
+    if isinstance(discarded, Mapping):
+        kinds = discarded.get("observed_types")
+        if isinstance(kinds, list):
+            receipt["event_kinds"] = [
+                item for item in kinds if isinstance(item, str) and item
+            ][:16]
+    if timeout_ms is not None:
+        receipt["timeout_ms"] = require_bounded_timeout_ms(timeout_ms, "candidate prompt")
+    _reject_body_keys(receipt, "terminal receipt")
+    return receipt
+
+
+def bound_receipt_durability(*, written: bool) -> Dict[str, Any]:
+    """Project a body-free persist signal. Missing or failed writes are never durable."""
+
+    receipt = (
+        {
+            "receipt_durability": RECEIPT_DURABILITY_DURABLE,
+            "durable": True,
+        }
+        if written
+        else {
+            "receipt_durability": RECEIPT_DURABILITY_NONDURABLE,
+            "durable": False,
+        }
+    )
+    _reject_body_keys(receipt, "receipt durability")
+    return receipt
+
+
+def _receipt_durability_from_runner(runner: Any) -> Dict[str, Any]:
+    recorded = getattr(runner, "receipt_durability", None)
+    written = (
+        isinstance(recorded, Mapping)
+        and recorded.get("receipt_durability") == RECEIPT_DURABILITY_DURABLE
+        and recorded.get("durable") is True
+    )
+    return bound_receipt_durability(written=written)
+
+
+def _terminal_mapping(value: Any) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("terminal observation fields do not match schema")
+    keys = set(value)
+    required = _OBS_TERMINAL_REQUIRED_KEYS
+    allowed = required | _OBS_TERMINAL_OPTIONAL_KEYS
+    if not required <= keys or not keys <= allowed:
+        raise ValidationError("terminal observation fields do not match schema")
+    return value
+
+
 def _reject_body_keys(value: Any, label: str = "metadata") -> None:
     if isinstance(value, Mapping):
         for key, nested in value.items():
@@ -757,7 +883,7 @@ def validate_candidate_observation(value: Any) -> Dict[str, Any]:
             session.get("conversation_id"), "ACP conversation"
         ),
     }
-    terminal = _exact_mapping(observation.get("terminal"), _OBS_TERMINAL_KEYS, "terminal observation")
+    terminal = _terminal_mapping(observation.get("terminal"))
     if terminal.get("state") not in {"active", "completed", "failed", "cancelled", "halted"}:
         raise ValidationError("terminal state is invalid")
     exit_code = terminal.get("exit_code")
@@ -768,6 +894,33 @@ def validate_candidate_observation(value: Any) -> Dict[str, Any]:
     result_id = terminal.get("result_id")
     if result_id is not None:
         result_id = validate_identifier(result_id, "ACP result")
+    projected_terminal: Dict[str, Any] = {
+        "state": terminal.get("state"),
+        "exit_code": exit_code,
+        "result_id": result_id,
+    }
+    status = terminal.get("status")
+    if status is not None:
+        if status not in ALLOWED_TURN_STATUSES:
+            raise ValidationError("terminal status is invalid")
+        projected_terminal["status"] = status
+    stop_reason = bound_stop_reason(terminal.get("stop_reason"))
+    if terminal.get("stop_reason") is not None and stop_reason is None:
+        raise ValidationError("terminal stop_reason is invalid")
+    if stop_reason is not None:
+        projected_terminal["stop_reason"] = stop_reason
+    error_code = bound_error_code(terminal.get("error_code"))
+    if terminal.get("error_code") is not None and error_code is None:
+        raise ValidationError("terminal error_code is invalid")
+    if error_code is not None:
+        projected_terminal["error_code"] = error_code
+    event_kinds = terminal.get("event_kinds")
+    if event_kinds is not None:
+        if not isinstance(event_kinds, list) or any(
+            not isinstance(item, str) or not item or len(item) > 64 for item in event_kinds
+        ):
+            raise ValidationError("terminal event_kinds are invalid")
+        projected_terminal["event_kinds"] = list(event_kinds)[:16]
     question = validate_question_observation(observation.get("question"))
     record_state = observation.get("record_state")
     if record_state != "candidate_non_qualifying":
@@ -781,11 +934,7 @@ def validate_candidate_observation(value: Any) -> Dict[str, Any]:
         "auth": auth,
         "model": model,
         "session": session,
-        "terminal": {
-            "state": terminal.get("state"),
-            "exit_code": exit_code,
-            "result_id": result_id,
-        },
+        "terminal": projected_terminal,
         "question": question,
         "record_state": "candidate_non_qualifying",
     }
@@ -1041,7 +1190,17 @@ def observation_from_runtime_turn(
     result_id: str,
     question: Optional[Mapping[str, Any]] = None,
     auth: Optional[Mapping[str, Any]] = None,
+    terminal_receipt: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
+    terminal: Dict[str, Any] = {
+        "state": terminal_state,
+        "exit_code": 0 if terminal_state in {"completed", "halted"} else 1,
+        "result_id": result_id,
+    }
+    if isinstance(terminal_receipt, Mapping):
+        for key in ("status", "stop_reason", "error_code", "event_kinds"):
+            if key in terminal_receipt:
+                terminal[key] = terminal_receipt[key]
     return validate_candidate_observation(
         {
             "schema": OBSERVATION_SCHEMA,
@@ -1077,11 +1236,7 @@ def observation_from_runtime_turn(
                 "session_id": host_session,
                 "conversation_id": host_conversation_id,
             },
-            "terminal": {
-                "state": terminal_state,
-                "exit_code": 0 if terminal_state in {"completed", "halted"} else 1,
-                "result_id": result_id,
-            },
+            "terminal": terminal,
             "question": _question_for_observation(question),
             "record_state": "candidate_non_qualifying",
         }
@@ -1211,6 +1366,7 @@ class AntigravityAcpSyntheticRuntime:
         self.set_model_calls: list[Dict[str, Any]] = []
         self.start_calls: list[Dict[str, Any]] = []
         self.close_calls: list[Dict[str, Any]] = []
+        self.process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
 
     def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         reject_runtime_conversation_params(payload, label="ensureSession")
@@ -1263,11 +1419,16 @@ class AntigravityAcpSyntheticRuntime:
 
     def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         reject_runtime_conversation_params(payload, label="startTurn")
-        self.start_calls.append(dict(payload))
+        timeout_ms = require_bounded_timeout_ms(payload.get("timeoutMs"), "candidate prompt")
+        recorded = dict(payload)
+        recorded["timeoutMs"] = timeout_ms
+        self.start_calls.append(recorded)
         return {
             "requestId": payload["requestId"],
+            "timeoutMs": timeout_ms,
             "events": list(self.events),
             "result": dict(self.result),
+            "process_lifecycle": dict(self.process_lifecycle),
         }
 
     def close(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1296,6 +1457,8 @@ class AntigravityAcpNodeRuntime:
         candidate_args: Optional[Sequence[str]] = None,
         synthetic_peer_script: Optional[str] = None,
         synthetic_peer_survive: bool = False,
+        synthetic_peer_hang_prompt: bool = False,
+        startup_timeout_ms: int = STARTUP_TIMEOUT_MS,
     ):
         if synthetic_peer and executable is not None:
             raise ValidationError("synthetic peer injection cannot carry a candidate executable")
@@ -1338,9 +1501,14 @@ class AntigravityAcpNodeRuntime:
                 "args": list(candidate_args or ()),
             }
             payload["allowedProcessEnv"] = dict(allowed_env or {})
-        elif synthetic_peer and synthetic_peer_script:
-            payload["syntheticPeerScript"] = synthetic_peer_script
+        elif synthetic_peer:
+            if synthetic_peer_script:
+                payload["syntheticPeerScript"] = synthetic_peer_script
             payload["syntheticPeerSurvive"] = bool(synthetic_peer_survive)
+            payload["syntheticPeerHangPrompt"] = bool(synthetic_peer_hang_prompt)
+        payload["startupTimeoutMs"] = require_bounded_timeout_ms(
+            startup_timeout_ms, "startup"
+        )
         self._rpc("create", payload)
 
     def child_process_identity(self) -> Dict[str, Any]:
@@ -1458,6 +1626,7 @@ class AntigravityAcpRuntimeRunner:
         auth: Optional[Mapping[str, Any]] = None,
         session_mode: str = SESSION_MODE_ONESHOT,
         finish_policy: str = FINISH_POLICY_DISCARD,
+        prompt_timeout_ms: int = CANDIDATE_PROMPT_TIMEOUT_MS,
     ):
         self.runtime = runtime
         self.isolated_root = Path(isolated_root)
@@ -1498,11 +1667,16 @@ class AntigravityAcpRuntimeRunner:
         self.current_model: Optional[str] = None
         self.owned_worker: Optional[Dict[str, Any]] = None
         self.cleanup_receipt: Optional[Dict[str, Any]] = None
+        self.terminal_receipt: Optional[Dict[str, Any]] = None
+        self.receipt_durability = bound_receipt_durability(written=False)
         self.process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
         self.worker_termination = "unknown"
         self.cleanup_uncertain = False
         self.replacement_blocked = False
         self.worker_exit_wait_ms = WORKER_EXIT_WAIT_MS
+        self.prompt_timeout_ms = require_bounded_timeout_ms(
+            prompt_timeout_ms, "candidate prompt"
+        )
         self._mark_cleanup_unknown: Any = None
 
     def bind_task_text(self, text: Any) -> str:
@@ -1586,6 +1760,21 @@ class AntigravityAcpRuntimeRunner:
         except Exception:
             pass
 
+    def _ingest_process_lifecycle(self, snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+        self.process_lifecycle = {
+            "started": [
+                public_worker_identity(item)
+                for item in snapshot.get("started", [])
+                if isinstance(item, Mapping)
+            ],
+            "exits": [
+                public_worker_identity(item)
+                for item in snapshot.get("exits", [])
+                if isinstance(item, Mapping)
+            ],
+        }
+        return self.process_lifecycle
+
     def _snapshot_process_lifecycle(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
         session_key = handle.get("sessionKey")
         snapshotter = getattr(self.runtime, "process_lifecycle_snapshot", None)
@@ -1595,18 +1784,7 @@ class AntigravityAcpRuntimeRunner:
             except Exception:
                 snapshot = None
             if isinstance(snapshot, Mapping):
-                self.process_lifecycle = {
-                    "started": [
-                        public_worker_identity(item)
-                        for item in snapshot.get("started", [])
-                        if isinstance(item, Mapping)
-                    ],
-                    "exits": [
-                        public_worker_identity(item)
-                        for item in snapshot.get("exits", [])
-                        if isinstance(item, Mapping)
-                    ],
-                }
+                return self._ingest_process_lifecycle(snapshot)
         return self.process_lifecycle
 
     def _derive_worker_termination(self, handle: Mapping[str, Any]) -> str:
@@ -1646,6 +1824,8 @@ class AntigravityAcpRuntimeRunner:
         }
         if extras:
             payload.update(dict(extras))
+        if self.terminal_receipt and "terminal" not in payload:
+            payload["terminal"] = dict(self.terminal_receipt)
         if self.owned_worker and "worker" not in payload:
             payload["worker"] = self.owned_worker
         if self.backend_discard != "closed":
@@ -1876,6 +2056,7 @@ class AntigravityAcpRuntimeRunner:
                     "text": text,
                     "mode": "prompt",
                     "requestId": self.request_id,
+                    "timeoutMs": self.prompt_timeout_ms,
                 },
                 label="startTurn",
             )
@@ -1887,14 +2068,19 @@ class AntigravityAcpRuntimeRunner:
                 "identity_mismatch",
                 "returned turn request does not match the host request",
             )
+        lifecycle = turn.get("process_lifecycle")
+        if isinstance(lifecycle, Mapping):
+            self._ingest_process_lifecycle(lifecycle)
+        else:
+            self._snapshot_process_lifecycle(handle)
         self.discarded_events = drain_runtime_turn_events(turn.get("events"))
         result = turn.get("result")
-        if not isinstance(result, Mapping) or result.get("status") not in {
-            "completed",
-            "failed",
-            "cancelled",
-        }:
-            raise ValidationError("runtime turn result is incomplete")
+        self.terminal_receipt = bound_terminal_receipt(
+            result,
+            discarded=self.discarded_events,
+            timeout_ms=self.prompt_timeout_ms,
+        )
+        self.receipt_durability = self._persist_turn_receipt()
         after = self.runtime.get_status(
             reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
         )
@@ -1917,6 +2103,7 @@ class AntigravityAcpRuntimeRunner:
             result_id=self.request_id,
             question=self.question_outcome,
             auth=self.auth,
+            terminal_receipt=self.terminal_receipt,
         )
 
     def _apply_finish_policy(self, handle: Mapping[str, Any]) -> None:
@@ -1935,6 +2122,33 @@ class AntigravityAcpRuntimeRunner:
             return
         self.persistent_state = "retained"
 
+    def _persist_turn_receipt(self) -> Dict[str, Any]:
+        if self.terminal_receipt is None:
+            self.receipt_durability = bound_receipt_durability(written=False)
+            return self.receipt_durability
+        try:
+            from antigravity_acpx import persist_turn_receipt
+
+            event = persist_turn_receipt(
+                self.isolated_root,
+                session=self.session,
+                conversation_id=self.conversation_id,
+                request_id=self.request_id,
+                extras={
+                    **self.terminal_receipt,
+                    "process_lifecycle": self.process_lifecycle,
+                },
+            )
+        except Exception:
+            self.receipt_durability = bound_receipt_durability(written=False)
+            return self.receipt_durability
+        written = (
+            isinstance(event, Mapping)
+            and event.get("event") == "runtime_turn_observed"
+        )
+        self.receipt_durability = bound_receipt_durability(written=written)
+        return self.receipt_durability
+
     def _derive(self) -> Dict[str, Any]:
         self._validate_ownership()
         if self.permission is not None:
@@ -1943,12 +2157,16 @@ class AntigravityAcpRuntimeRunner:
             self.question_outcome = require_unsupported_question_outcome(self.question)
         require_runtime_task_text(self._text)
         handle: Optional[Dict[str, str]] = None
+        observation: Optional[Dict[str, Any]] = None
         try:
             handle = self._ensure_owned_handle()
             observation = self._run_turn(handle)
+            self._observation = validate_candidate_observation(observation)
             self._apply_finish_policy(handle)
             return observation
         except BaseException as exc:
+            if observation is not None:
+                self._observation = validate_candidate_observation(observation)
             if handle is not None and handle.get("sessionKey") == self.session:
                 try:
                     self._owned_close(handle, primary=exc)
@@ -2159,6 +2377,11 @@ class AntigravityAcpController:
             record_state="HALTED" if halted else record_state,
             halt_confirmed=True if halt_confirmed is None and halted else halt_confirmed,
         )
+        durability = (
+            _receipt_durability_from_runner(self.runner)
+            if self.runner is not None
+            else bound_receipt_durability(written=False)
+        )
         return {
             "ok": True,
             "session": expected_session,
@@ -2170,6 +2393,7 @@ class AntigravityAcpController:
             "live_antigravity_acp_claimed": False,
             "antigravity_acp": proved,
             **fields,
+            **durability,
         }
 
 
@@ -2183,6 +2407,7 @@ __all__ = [
     "AntigravityAcpRunnerFixture",
     "AntigravityAcpRuntimeRunner",
     "AntigravityAcpSyntheticRuntime",
+    "CANDIDATE_PROMPT_TIMEOUT_MS",
     "CANDIDATE_SCHEMA",
     "CONTROLLER_RUNTIME_DRIVER",
     "DEFAULT_ANTIGRAVITY_MODEL",
@@ -2192,14 +2417,20 @@ __all__ = [
     "MODEL_CATALOG_SCHEMA",
     "OBSERVATION_SCHEMA",
     "OWNERSHIP_SCHEMA",
+    "RECEIPT_DURABILITY_DURABLE",
+    "RECEIPT_DURABILITY_NONDURABLE",
     "REGISTRY_REVISION",
     "RUNTIME_ID",
     "RUNTIME_VERSION",
+    "STARTUP_TIMEOUT_MS",
     "TARGET",
     "TRANSPORT_ID",
+    "bound_receipt_durability",
+    "bound_terminal_receipt",
     "caller_fields_from_observation",
     "candidate_contract",
     "fixture_observation",
+    "require_bounded_timeout_ms",
     "map_runtime_antigravity_models",
     "observation_from_runtime_turn",
     "prove_antigravity_acp_observation",

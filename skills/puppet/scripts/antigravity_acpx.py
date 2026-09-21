@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
@@ -38,6 +39,22 @@ ACPX_ARTIFACT_PATH = (
     "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz"
 )
 ACPX_MERGE_COMMIT = "2e05de525dd1ab62e9e74bf02d91e3638920fcf3"
+
+_TURN_STOP_REASONS = frozenset(
+    {
+        "end_turn",
+        "max_tokens",
+        "cancelled",
+        "canceled",
+        "error",
+        "stop",
+        "refused",
+        "timeout",
+        "length",
+        "content_filter",
+    }
+)
+_TURN_SECRET_CODE_PARTS = ("token", "secret", "password", "prompt", "credential")
 
 OWNERSHIP_KEYS = frozenset(
     {
@@ -307,6 +324,9 @@ def _cleanup_receipt_fields(extras: Optional[Mapping[str, Any]] = None) -> Dict[
         fields["persistent_state"] = extras["persistent_state"]
     if isinstance(extras.get("backend_discard"), str) and extras["backend_discard"]:
         fields["backend_discard"] = extras["backend_discard"]
+    terminal = extras.get("terminal")
+    if isinstance(terminal, Mapping):
+        fields["terminal"] = _turn_receipt_fields(terminal)
     lifecycle = extras.get("process_lifecycle")
     if isinstance(lifecycle, Mapping):
         fields["process_lifecycle"] = {
@@ -343,6 +363,75 @@ def mark_cleanup_unknown(
         event.update(_cleanup_receipt_fields(extras))
         _write_event(root, event)
         return current
+
+
+def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
+    _reject_body_keys(value, "turn receipt")
+    fields: Dict[str, Any] = {}
+    if value.get("status") in {"completed", "failed", "cancelled"}:
+        fields["status"] = value["status"]
+    stop_reason = value.get("stop_reason")
+    if isinstance(stop_reason, str) and stop_reason in _TURN_STOP_REASONS:
+        fields["stop_reason"] = stop_reason
+    error_code = value.get("error_code")
+    if (
+        isinstance(error_code, str)
+        and 0 < len(error_code) <= 64
+        and re.fullmatch(r"[A-Za-z0-9_.-]+", error_code)
+        and not any(part in error_code.lower() for part in _TURN_SECRET_CODE_PARTS)
+    ):
+        fields["error_code"] = error_code
+    kinds = value.get("event_kinds")
+    if isinstance(kinds, list):
+        fields["event_kinds"] = [
+            item
+            for item in kinds
+            if isinstance(item, str)
+            and 0 < len(item) <= 64
+        ][:16]
+    timeout_ms = value.get("timeout_ms")
+    if isinstance(timeout_ms, int) and not isinstance(timeout_ms, bool) and 1_000 <= timeout_ms <= 1_800_000:
+        fields["timeout_ms"] = timeout_ms
+    return fields
+
+
+def persist_turn_receipt(
+    isolated_root: Path,
+    *,
+    session: str,
+    conversation_id: str,
+    request_id: str,
+    extras: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    event = {
+        "event": "runtime_turn_observed",
+        "session": validate_identifier(session, "antigravity-acp session"),
+        "conversation_id": validate_identifier(
+            conversation_id, "antigravity-acp conversation"
+        ),
+        "request_id": validate_identifier(request_id, "antigravity-acp request"),
+        "body_retained": False,
+    }
+    if extras is not None:
+        event.update(_turn_receipt_fields(extras))
+        lifecycle = extras.get("process_lifecycle")
+        if isinstance(lifecycle, Mapping):
+            event["process_lifecycle"] = {
+                "started": [
+                    _public_worker_identity(item)
+                    for item in lifecycle.get("started", [])
+                    if isinstance(item, Mapping)
+                ],
+                "exits": [
+                    _public_worker_identity(item)
+                    for item in lifecycle.get("exits", [])
+                    if isinstance(item, Mapping)
+                ],
+            }
+    _reject_body_keys(event, "turn receipt")
+    _write_event(root, event)
+    return event
 
 
 def persist_turn_models(
@@ -406,6 +495,7 @@ __all__ = [
     "mark_cleanup_unknown",
     "persist_cleanup_receipt",
     "persist_turn_models",
+    "persist_turn_receipt",
     "require_antigravity_acp_target",
     "validate_ownership",
 ]
