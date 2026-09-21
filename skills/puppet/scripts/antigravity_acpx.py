@@ -392,6 +392,51 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
     timeout_ms = value.get("timeout_ms")
     if isinstance(timeout_ms, int) and not isinstance(timeout_ms, bool) and 1_000 <= timeout_ms <= 1_800_000:
         fields["timeout_ms"] = timeout_ms
+    permission = value.get("permission")
+    if isinstance(permission, Mapping):
+        _reject_body_keys(permission, "permission receipt")
+        outcome = permission.get("outcome")
+        grant_count = permission.get("grant_count")
+        if (
+            outcome in {"allow_once", "denied", "cancelled"}
+            and permission.get("persisted") is False
+            and permission.get("approve_all") is False
+            and permission.get("os_sandbox") is False
+            and permission.get("fs") is False
+            and permission.get("terminal") is False
+            and permission.get("ordinary_launch") == "unavailable"
+            and permission.get("body_retained") is False
+            and permission.get("invented_decision") is None
+            and grant_count in {0, 1}
+        ):
+            fields["permission"] = {
+                "schema": permission.get("schema"),
+                "state": outcome,
+                "outcome": outcome,
+                "permission_id": permission.get("permission_id"),
+                "permission_kind": permission.get("permission_kind"),
+                "grant_count": grant_count,
+                "allowed": permission.get("allowed") is True,
+                "persisted": False,
+                "approve_all": False,
+                "os_sandbox": False,
+                "fs": False,
+                "terminal": False,
+                "ordinary_launch": "unavailable",
+                "body_retained": False,
+                "invented_decision": None,
+            }
+            decisions = permission.get("decisions")
+            if isinstance(decisions, list):
+                fields["permission"]["decisions"] = [
+                    {
+                        "outcome": item.get("outcome"),
+                        "permission_kind": item.get("permission_kind"),
+                    }
+                    for item in decisions
+                    if isinstance(item, Mapping)
+                    and item.get("outcome") in {"allow_once", "denied", "cancelled"}
+                ]
     return fields
 
 
