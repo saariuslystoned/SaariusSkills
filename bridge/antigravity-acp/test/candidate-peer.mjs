@@ -8,6 +8,7 @@ const availableModels = [
   { modelId: "gemini-3-flash", name: "Gemini 3 Flash" },
 ];
 
+const hangPrompt = process.argv.includes("--hang-prompt");
 const sessions = new Map();
 
 function createSession(sessionId) {
@@ -95,6 +96,9 @@ for await (const line of lines) {
       send({ jsonrpc: "2.0", id: request.id, result: {} });
     }
   } else if (request.method === "session/prompt") {
+    if (hangPrompt) {
+      await new Promise(() => {});
+    }
     notify("session/update", {
       sessionId,
       update: {

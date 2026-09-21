@@ -177,7 +177,7 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         self.assertEqual(validate_question_observation(question), question)
         with self.assertRaisesRegex(ValidationError, "fail closed"):
             validate_question_observation({**question, "outcome": "answered"})
-        with self.assertRaisesRegex(ValidationError, "fields do not match"):
+        with self.assertRaisesRegex(ValidationError, "question observation fields do not match schema"):
             validate_question_observation({**question, "options": ["A", "B"]})
 
     def test_observation_is_body_free_and_non_qualifying(self):
@@ -203,6 +203,47 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         qualified = candidate_observation(qualification="qualified")
         with self.assertRaisesRegex(ValidationError, "cannot claim qualification"):
             validate_candidate_observation(qualified)
+
+    def test_observation_preserves_allowlisted_terminal_failure_and_rejects_bodies(self):
+        observation = candidate_observation(
+            terminal={
+                "state": "failed",
+                "exit_code": 1,
+                "result_id": "result-1",
+                "status": "failed",
+                "stop_reason": "timeout",
+                "error_code": "ACP_TURN_FAILED",
+                "event_kinds": ["status"],
+            }
+        )
+        accepted = validate_candidate_observation(observation)
+        self.assertEqual(accepted["terminal"]["status"], "failed")
+        self.assertEqual(accepted["terminal"]["stop_reason"], "timeout")
+        self.assertEqual(accepted["terminal"]["error_code"], "ACP_TURN_FAILED")
+        self.assertEqual(accepted["terminal"]["event_kinds"], ["status"])
+        with self.assertRaisesRegex(ValidationError, "body-bearing field prompt"):
+            validate_candidate_observation(
+                candidate_observation(
+                    terminal={
+                        "state": "failed",
+                        "exit_code": 1,
+                        "result_id": "result-1",
+                        "prompt": "secret body",
+                    }
+                )
+            )
+        with self.assertRaisesRegex(ValidationError, "terminal stop_reason is invalid"):
+            validate_candidate_observation(
+                candidate_observation(
+                    terminal={
+                        "state": "failed",
+                        "exit_code": 1,
+                        "result_id": "result-1",
+                        "status": "failed",
+                        "stop_reason": "arbitrary_reason",
+                    }
+                )
+            )
 
 
 if __name__ == "__main__":

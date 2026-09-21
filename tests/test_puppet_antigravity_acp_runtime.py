@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,11 +20,13 @@ from puppet_lib.antigravity_acp import (
     ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
     ANTIGRAVITY_ROUTE_IDENTITY,
     ANTIGRAVITY_SANITIZED_ENV_NAMES,
+    CANDIDATE_PROMPT_TIMEOUT_MS,
     DEFAULT_ANTIGRAVITY_MODEL,
     OFFICIAL_ROUTE_KIND,
     PROFILE_ENV,
     RUNTIME_ID,
     RUNTIME_VERSION,
+    STARTUP_TIMEOUT_MS,
     TRANSPORT_ID,
     AntigravityAcpController,
     AntigravityAcpNodeRuntime,
@@ -236,7 +239,15 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(len(runtime.start_calls), 1)
             self.assertEqual(runtime.start_calls[0]["requestId"], "agy-acp-request-1")
             self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertEqual(runtime.start_calls[0]["timeoutMs"], CANDIDATE_PROMPT_TIMEOUT_MS)
             self.assertNotIn("antigravity-acp-runtime-turn", runtime.start_calls[0]["text"])
+            self.assertEqual(runner.terminal_receipt["status"], "completed")
+            self.assertEqual(runner.terminal_receipt["stop_reason"], "end_turn")
+            self.assertEqual(runner.terminal_receipt["timeout_ms"], CANDIDATE_PROMPT_TIMEOUT_MS)
+            self.assertEqual(
+                result["antigravity_acp"]["terminal"]["stop_reason"],
+                "end_turn",
+            )
             self.assertGreaterEqual(len(runtime.status_calls), 1)
             self.assertEqual(len(runtime.close_calls), 1)
             self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
@@ -244,6 +255,42 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertNotIn("secret-body", str(runner.discarded_events))
             self.assertFalse(AntigravityAcpController.available())
             self.assertFalse(AntigravityAcpRuntimeRunner.available())
+
+    def test_failed_turn_receipt_is_kept_when_cleanup_also_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+                result={
+                    "status": "failed",
+                    "stopReason": "timeout",
+                    "errorCode": "ACP_TURN_FAILED",
+                },
+                close_error=RuntimeError("cleanup also failed"),
+            )
+            runner = self._runner(isolated, workspace, runtime, halt=True)
+            with self.assertRaisesRegex(RuntimeError, "cleanup also failed"):
+                runner.observation()
+            self.assertEqual(runner.terminal_receipt["status"], "failed")
+            self.assertEqual(runner.terminal_receipt["stop_reason"], "timeout")
+            self.assertEqual(runner.terminal_receipt["error_code"], "ACP_TURN_FAILED")
+            self.assertEqual(runner.terminal_receipt["timeout_ms"], CANDIDATE_PROMPT_TIMEOUT_MS)
+            self.assertIsNotNone(runner._observation)
+            self.assertEqual(runner._observation["terminal"]["status"], "failed")
+            self.assertEqual(runner._observation["terminal"]["stop_reason"], "timeout")
+            self.assertEqual(runtime.start_calls[0]["timeoutMs"], CANDIDATE_PROMPT_TIMEOUT_MS)
+            events = [
+                json.loads(line)
+                for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+            ]
+            turn_events = [item for item in events if item.get("event") == "runtime_turn_observed"]
+            self.assertEqual(turn_events[-1]["status"], "failed")
+            self.assertEqual(turn_events[-1]["stop_reason"], "timeout")
+            self.assertEqual(turn_events[-1]["error_code"], "ACP_TURN_FAILED")
+            self.assertNotIn("prompt", turn_events[-1])
 
     def test_structured_launch_uses_runtime_runner_not_injected_observation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -641,6 +688,14 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     DEFAULT_ANTIGRAVITY_MODEL,
                 )
                 self.assertEqual(result["antigravity_acp"]["terminal"]["state"], "halted")
+                self.assertEqual(result["antigravity_acp"]["terminal"]["status"], "completed")
+                self.assertEqual(result["antigravity_acp"]["terminal"]["stop_reason"], "end_turn")
+                self.assertEqual(runner.terminal_receipt["timeout_ms"], CANDIDATE_PROMPT_TIMEOUT_MS)
+                self.assertGreaterEqual(len(runner.process_lifecycle["started"]), 1)
+                self.assertNotEqual(
+                    runner.process_lifecycle["started"][0]["pid"],
+                    runtime.child_process_identity()["pid"],
+                )
                 self.assertNotEqual(runner.handle["backendSessionId"], "conv-agy-acp-1")
                 self.assertNotEqual(runner.handle["acpxRecordId"], "conv-agy-acp-1")
                 self.assertEqual(runner.discarded_events["body_retained"], False)
@@ -1570,6 +1625,69 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                         os.kill(worker["pid"], 9)
                     except OSError:
                         pass
+
+    def test_actual_public_runtime_binds_prompt_timeout_and_retains_failure(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+            )
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_hang_prompt=True,
+                startup_timeout_ms=STARTUP_TIMEOUT_MS,
+            )
+            try:
+                runner = AntigravityAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="agy-acp-request-timeout",
+                    workspace=_workspace(workspace),
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    text=CALLER_TASK_TEXT,
+                    catalog=verified_antigravity_acp_catalog(),
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                    prompt_timeout_ms=1_000,
+                )
+                started_at = time.monotonic()
+                observation = runner.observation()
+                self.assertEqual(observation["terminal"]["status"], "failed")
+                self.assertEqual(runner.terminal_receipt["status"], "failed")
+                self.assertEqual(runner.terminal_receipt["timeout_ms"], 1_000)
+                self.assertTrue(runner.terminal_receipt.get("error_code"))
+                self.assertGreaterEqual(len(runner.process_lifecycle["started"]), 1)
+                self.assertNotEqual(
+                    runner.process_lifecycle["started"][0]["pid"],
+                    runtime.child_process_identity()["pid"],
+                )
+                events = [
+                    json.loads(line)
+                    for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+                ]
+                turn_events = [
+                    item for item in events if item.get("event") == "runtime_turn_observed"
+                ]
+                self.assertEqual(turn_events[-1]["timeout_ms"], 1_000)
+                self.assertEqual(turn_events[-1]["status"], "failed")
+                self.assertNotIn("prompt", str(turn_events[-1]))
+                self.assertLess(time.monotonic() - started_at, 15.0)
+            finally:
+                runtime.shutdown()
 
 
 if __name__ == "__main__":
