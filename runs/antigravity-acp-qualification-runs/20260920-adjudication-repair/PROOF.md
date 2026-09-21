@@ -68,11 +68,12 @@ or weakened.
 
 ## Native process gate
 
-After pushing `8846e41`, the plugin was versioned and reinstalled at `0.3.4`.
+After pushing `be17474`, the plugin was reinstalled at `0.3.4` from the local
+marketplace snapshot.
 The reviewed and installed Cursor broker hashes matched at
 `7190256456a691fce4fc9f0b805393feaff504d20096cd8ae0867fe45cc0b6ea`; the
 Antigravity broker hashes matched at
-`0361630e51c19ba5591c9f1995f50b3fb62cbd8bbbd95b90b38fc23a373208c8`.
+`dc78bcaabb600da8ff82e807adbf6ad0776e0482d7d05b5aeb3cad450c720b75`.
 Antigravity setup returned `MCP_READY` with the pinned runtime and personal
 OAuth policy. The current task's native readiness call also succeeded, but
 native delegate job `b8ece6d8-fea3-4290-865d-1a67c116e3eb` persisted no
