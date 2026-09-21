@@ -24,6 +24,8 @@ from puppet_lib.antigravity_acp import (
     DEFAULT_ANTIGRAVITY_MODEL,
     OFFICIAL_ROUTE_KIND,
     PROFILE_ENV,
+    RECEIPT_DURABILITY_DURABLE,
+    RECEIPT_DURABILITY_NONDURABLE,
     RUNTIME_ID,
     RUNTIME_VERSION,
     STARTUP_TIMEOUT_MS,
@@ -32,6 +34,7 @@ from puppet_lib.antigravity_acp import (
     AntigravityAcpNodeRuntime,
     AntigravityAcpRuntimeRunner,
     AntigravityAcpSyntheticRuntime,
+    bound_receipt_durability,
     build_antigravity_acp_candidate_runner,
     current_antigravity_platform_id,
     map_runtime_antigravity_models,
@@ -291,6 +294,191 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(turn_events[-1]["stop_reason"], "timeout")
             self.assertEqual(turn_events[-1]["error_code"], "ACP_TURN_FAILED")
             self.assertNotIn("prompt", turn_events[-1])
+
+    def test_successful_turn_receipt_persist_is_durable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+            )
+            runner = self._runner(isolated, workspace, runtime, halt=True)
+            controller = AntigravityAcpController(Path(temporary), runner=runner)
+            result = controller.caller_result(
+                expected_session="agy-acp-session",
+                expected_conversation_id="conv-agy-acp-1",
+                expected_workspace=_workspace(workspace),
+                requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                require_halt=True,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["receipt_durability"], RECEIPT_DURABILITY_DURABLE)
+            self.assertTrue(result["durable"])
+            self.assertEqual(runner.receipt_durability, bound_receipt_durability(written=True))
+            self.assertEqual(runner.terminal_receipt["status"], "completed")
+            self.assertEqual(runner.terminal_receipt["stop_reason"], "end_turn")
+            self.assertEqual(result["antigravity_acp"]["terminal"]["status"], "completed")
+            self.assertEqual(result["antigravity_acp"]["terminal"]["stop_reason"], "end_turn")
+            self.assertEqual(len(runtime.close_calls), 1)
+            events = [
+                json.loads(line)
+                for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+            ]
+            turn_events = [item for item in events if item.get("event") == "runtime_turn_observed"]
+            self.assertEqual(turn_events[-1]["status"], "completed")
+            self.assertEqual(turn_events[-1]["stop_reason"], "end_turn")
+            self.assertNotIn("receipt_durability", turn_events[-1])
+            self.assertTrue(any(item.get("event") == "cleanup_completed" for item in events))
+
+    def test_failed_turn_receipt_persist_is_nondurable_and_preserves_task_outcome(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+            )
+            runner = self._runner(isolated, workspace, runtime, halt=True)
+            secret = "synthetic persistence I/O failure token-secret password"
+            with mock.patch(
+                "antigravity_acpx.persist_turn_receipt",
+                side_effect=OSError(secret),
+            ):
+                controller = AntigravityAcpController(Path(temporary), runner=runner)
+                result = controller.caller_result(
+                    expected_session="agy-acp-session",
+                    expected_conversation_id="conv-agy-acp-1",
+                    expected_workspace=_workspace(workspace),
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    require_halt=True,
+                )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["receipt_durability"], RECEIPT_DURABILITY_NONDURABLE)
+            self.assertFalse(result["durable"])
+            self.assertEqual(
+                runner.receipt_durability,
+                bound_receipt_durability(written=False),
+            )
+            self.assertEqual(runner.terminal_receipt["status"], "completed")
+            self.assertEqual(runner.terminal_receipt["stop_reason"], "end_turn")
+            self.assertNotIn("error_code", runner.terminal_receipt)
+            self.assertEqual(result["antigravity_acp"]["terminal"]["state"], "halted")
+            self.assertEqual(result["antigravity_acp"]["terminal"]["status"], "completed")
+            self.assertEqual(result["antigravity_acp"]["terminal"]["stop_reason"], "end_turn")
+            self.assertNotIn("error_code", result["antigravity_acp"]["terminal"])
+            self.assertEqual(len(runtime.close_calls), 1)
+            self.assertTrue(runtime.close_calls[0]["discardPersistentState"])
+            self.assertTrue(runner.final_discard)
+            self.assertEqual(runner.persistent_state, "discarded")
+            self.assertFalse(runner.cleanup_uncertain)
+            events = [
+                json.loads(line)
+                for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+            ]
+            turn_events = [item for item in events if item.get("event") == "runtime_turn_observed"]
+            self.assertEqual(turn_events, [])
+            self.assertTrue(any(item.get("event") == "cleanup_completed" for item in events))
+            rendered = json.dumps(
+                {
+                    "observation": result["antigravity_acp"],
+                    "terminal_receipt": runner.terminal_receipt,
+                    "receipt_durability": runner.receipt_durability,
+                    "caller": result,
+                    "events": events,
+                }
+            )
+            self.assertNotIn(secret, rendered)
+            self.assertNotIn("token-secret", rendered)
+
+    def test_persist_failure_does_not_overwrite_failed_task_outcome(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+                result={
+                    "status": "failed",
+                    "stopReason": "timeout",
+                    "errorCode": "ACP_TURN_FAILED",
+                },
+            )
+            runner = self._runner(isolated, workspace, runtime, halt=True)
+            with mock.patch(
+                "antigravity_acpx.persist_turn_receipt",
+                side_effect=OSError("synthetic persistence I/O failure"),
+            ):
+                observation = runner.observation()
+            self.assertEqual(observation["terminal"]["status"], "failed")
+            self.assertEqual(observation["terminal"]["stop_reason"], "timeout")
+            self.assertEqual(observation["terminal"]["error_code"], "ACP_TURN_FAILED")
+            self.assertEqual(runner.terminal_receipt["status"], "failed")
+            self.assertEqual(runner.terminal_receipt["stop_reason"], "timeout")
+            self.assertEqual(runner.terminal_receipt["error_code"], "ACP_TURN_FAILED")
+            self.assertEqual(
+                runner.receipt_durability,
+                bound_receipt_durability(written=False),
+            )
+            self.assertFalse(runner.receipt_durability["durable"])
+            self.assertEqual(len(runtime.close_calls), 1)
+            events = [
+                json.loads(line)
+                for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+            ]
+            turn_events = [item for item in events if item.get("event") == "runtime_turn_observed"]
+            self.assertEqual(turn_events, [])
+            self.assertTrue(any(item.get("event") == "cleanup_completed" for item in events))
+            self.assertNotIn("synthetic persistence I/O failure", json.dumps(events))
+
+    def test_missing_turn_receipt_write_cannot_claim_durable(self):
+        self.assertEqual(
+            bound_receipt_durability(written=False),
+            {
+                "receipt_durability": RECEIPT_DURABILITY_NONDURABLE,
+                "durable": False,
+            },
+        )
+        self.assertEqual(
+            bound_receipt_durability(written=True),
+            {
+                "receipt_durability": RECEIPT_DURABILITY_DURABLE,
+                "durable": True,
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+            )
+            runner = self._runner(isolated, workspace, runtime, halt=True)
+            self.assertEqual(
+                runner.receipt_durability,
+                bound_receipt_durability(written=False),
+            )
+            self.assertFalse(runner.receipt_durability["durable"])
+            runner.terminal_receipt = None
+            self.assertEqual(
+                runner._persist_turn_receipt(),
+                bound_receipt_durability(written=False),
+            )
+            self.assertFalse(runner.receipt_durability["durable"])
+            runner.terminal_receipt = {"status": "completed", "stop_reason": "end_turn"}
+            with mock.patch(
+                "antigravity_acpx.persist_turn_receipt",
+                return_value=None,
+            ):
+                self.assertEqual(
+                    runner._persist_turn_receipt(),
+                    bound_receipt_durability(written=False),
+                )
+            self.assertFalse(runner.receipt_durability["durable"])
 
     def test_structured_launch_uses_runtime_runner_not_injected_observation(self):
         with tempfile.TemporaryDirectory() as temporary:

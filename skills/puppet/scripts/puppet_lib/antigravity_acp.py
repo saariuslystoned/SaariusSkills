@@ -75,6 +75,8 @@ CANDIDATE_PROMPT_TIMEOUT_MS = 300_000
 MIN_TIMEOUT_MS = 1_000
 MAX_TIMEOUT_MS = 1_800_000
 ALLOWED_TURN_STATUSES = frozenset({"completed", "failed", "cancelled"})
+RECEIPT_DURABILITY_DURABLE = "durable"
+RECEIPT_DURABILITY_NONDURABLE = "nondurable"
 ALLOWED_STOP_REASONS = frozenset(
     {
         "end_turn",
@@ -604,6 +606,34 @@ def bound_terminal_receipt(
         receipt["timeout_ms"] = require_bounded_timeout_ms(timeout_ms, "candidate prompt")
     _reject_body_keys(receipt, "terminal receipt")
     return receipt
+
+
+def bound_receipt_durability(*, written: bool) -> Dict[str, Any]:
+    """Project a body-free persist signal. Missing or failed writes are never durable."""
+
+    receipt = (
+        {
+            "receipt_durability": RECEIPT_DURABILITY_DURABLE,
+            "durable": True,
+        }
+        if written
+        else {
+            "receipt_durability": RECEIPT_DURABILITY_NONDURABLE,
+            "durable": False,
+        }
+    )
+    _reject_body_keys(receipt, "receipt durability")
+    return receipt
+
+
+def _receipt_durability_from_runner(runner: Any) -> Dict[str, Any]:
+    recorded = getattr(runner, "receipt_durability", None)
+    written = (
+        isinstance(recorded, Mapping)
+        and recorded.get("receipt_durability") == RECEIPT_DURABILITY_DURABLE
+        and recorded.get("durable") is True
+    )
+    return bound_receipt_durability(written=written)
 
 
 def _terminal_mapping(value: Any) -> Mapping[str, Any]:
@@ -1638,6 +1668,7 @@ class AntigravityAcpRuntimeRunner:
         self.owned_worker: Optional[Dict[str, Any]] = None
         self.cleanup_receipt: Optional[Dict[str, Any]] = None
         self.terminal_receipt: Optional[Dict[str, Any]] = None
+        self.receipt_durability = bound_receipt_durability(written=False)
         self.process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
         self.worker_termination = "unknown"
         self.cleanup_uncertain = False
@@ -2049,7 +2080,7 @@ class AntigravityAcpRuntimeRunner:
             discarded=self.discarded_events,
             timeout_ms=self.prompt_timeout_ms,
         )
-        self._persist_turn_receipt()
+        self.receipt_durability = self._persist_turn_receipt()
         after = self.runtime.get_status(
             reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
         )
@@ -2091,13 +2122,14 @@ class AntigravityAcpRuntimeRunner:
             return
         self.persistent_state = "retained"
 
-    def _persist_turn_receipt(self) -> None:
+    def _persist_turn_receipt(self) -> Dict[str, Any]:
         if self.terminal_receipt is None:
-            return
+            self.receipt_durability = bound_receipt_durability(written=False)
+            return self.receipt_durability
         try:
             from antigravity_acpx import persist_turn_receipt
 
-            persist_turn_receipt(
+            event = persist_turn_receipt(
                 self.isolated_root,
                 session=self.session,
                 conversation_id=self.conversation_id,
@@ -2108,7 +2140,14 @@ class AntigravityAcpRuntimeRunner:
                 },
             )
         except Exception:
-            pass
+            self.receipt_durability = bound_receipt_durability(written=False)
+            return self.receipt_durability
+        written = (
+            isinstance(event, Mapping)
+            and event.get("event") == "runtime_turn_observed"
+        )
+        self.receipt_durability = bound_receipt_durability(written=written)
+        return self.receipt_durability
 
     def _derive(self) -> Dict[str, Any]:
         self._validate_ownership()
@@ -2338,6 +2377,11 @@ class AntigravityAcpController:
             record_state="HALTED" if halted else record_state,
             halt_confirmed=True if halt_confirmed is None and halted else halt_confirmed,
         )
+        durability = (
+            _receipt_durability_from_runner(self.runner)
+            if self.runner is not None
+            else bound_receipt_durability(written=False)
+        )
         return {
             "ok": True,
             "session": expected_session,
@@ -2349,6 +2393,7 @@ class AntigravityAcpController:
             "live_antigravity_acp_claimed": False,
             "antigravity_acp": proved,
             **fields,
+            **durability,
         }
 
 
@@ -2372,12 +2417,15 @@ __all__ = [
     "MODEL_CATALOG_SCHEMA",
     "OBSERVATION_SCHEMA",
     "OWNERSHIP_SCHEMA",
+    "RECEIPT_DURABILITY_DURABLE",
+    "RECEIPT_DURABILITY_NONDURABLE",
     "REGISTRY_REVISION",
     "RUNTIME_ID",
     "RUNTIME_VERSION",
     "STARTUP_TIMEOUT_MS",
     "TARGET",
     "TRANSPORT_ID",
+    "bound_receipt_durability",
     "bound_terminal_receipt",
     "caller_fields_from_observation",
     "candidate_contract",
