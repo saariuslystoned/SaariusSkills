@@ -1,0 +1,23 @@
+{
+  "name": "@saarius-skills/antigravity-acp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental local stdio MCP bridge from Codex to official Google Antigravity ACP through acpx 0.17.1.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs --install",
+    "doctor": "node scripts/setup.mjs --check",
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check contract.mjs && node --check broker.mjs && node --check server.mjs && npm test",
+    "smoke": "node scripts/live-smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "acpx": "0.17.1",
+    "zod": "4.6.5"
+  }
+}

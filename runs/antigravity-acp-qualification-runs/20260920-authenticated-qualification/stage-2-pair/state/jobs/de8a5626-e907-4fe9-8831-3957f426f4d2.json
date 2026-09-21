@@ -1,0 +1,129 @@
+{
+  "schema": "saarius.antigravity-acp.job.v1",
+  "jobId": "de8a5626-e907-4fe9-8831-3957f426f4d2",
+  "status": "completed",
+  "createdAt": "2026-09-20T23:12:52.944Z",
+  "updatedAt": "2026-09-20T23:12:58.159Z",
+  "route": {
+    "agent": "antigravity",
+    "transport": "antigravity-acp",
+    "runtime": {
+      "id": "antigravity-acp",
+      "version": "1.1.1",
+      "registryRevision": "81bf71b55e15f630c4fb8a86d20d3088071d2071",
+      "acpxSourceCommit": "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+      "acpxRelease": "0.17.1"
+    },
+    "executable": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par",
+    "argv": [
+      "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par"
+    ],
+    "helper": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/localharness_external",
+    "platformId": "darwin-aarch64",
+    "model": "gemini-3.7-flash-high"
+  },
+  "workspace": "/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills",
+  "timeoutMs": 180000,
+  "request": {
+    "promptSha256": "eca4cd27105d55f4c20cdd803ea432d79834c747cc318587aedfc9ad7cd26a8d",
+    "promptChars": 102
+  },
+  "auth": {
+    "mode": "oauth-personal",
+    "profileEnv": "GEMINI_HOME",
+    "credentialSource": "runtime_owned",
+    "accountState": "unproven",
+    "settingsAuthType": "oauth-personal",
+    "overageState": "never",
+    "apiKeyPresent": false,
+    "cloudCredentialsPresent": false,
+    "alternateAccount": false,
+    "interactiveLogin": false,
+    "ultraAttribution": "unclaimed"
+  },
+  "sessionKey": "antigravity-acp:de8a5626-e907-4fe9-8831-3957f426f4d2",
+  "runDir": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-2-pair/state/runs/de8a5626-e907-4fe9-8831-3957f426f4d2",
+  "proof": {
+    "state": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-2-pair/state/runs/de8a5626-e907-4fe9-8831-3957f426f4d2/STATE.md",
+    "events": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-2-pair/state/runs/de8a5626-e907-4fe9-8831-3957f426f4d2/events.jsonl",
+    "proof": "/Users/bobbybones/.codex/worktrees/b8fe/SaariusSkills/runs/antigravity-acp-qualification-runs/20260920-authenticated-qualification/stage-2-pair/state/runs/de8a5626-e907-4fe9-8831-3957f426f4d2/PROOF.md"
+  },
+  "startedAt": "2026-09-20T23:12:52.948Z",
+  "handle": {
+    "sessionKey": "antigravity-acp:de8a5626-e907-4fe9-8831-3957f426f4d2",
+    "backend": "acpx",
+    "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOmRlOGE1NjI2LWU5MDctNGZlOS04ODMxLTM5NTdmNDI2ZjRkMiIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy8uY29kZXgvd29ya3RyZWVzL2FudGlncmF2aXR5LWFjcC1saXZlLXF1YWxpZmljYXRpb24vU2Fhcml1c1NraWxscyIsIm1vZGUiOiJwZXJzaXN0ZW50IiwiYWNweFJlY29yZElkIjoiYW50aWdyYXZpdHktYWNwOmRlOGE1NjI2LWU5MDctNGZlOS04ODMxLTM5NTdmNDI2ZjRkMiIsImJhY2tlbmRTZXNzaW9uSWQiOiIwY2Y4YWFiZC00Y2QyLTQ2YWUtYWIxNy1hMzZhMGU4ZTc5YjgifQ",
+    "cwd": "/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills",
+    "acpxRecordId": "antigravity-acp:de8a5626-e907-4fe9-8831-3957f426f4d2",
+    "backendSessionId": "0cf8aabd-4cd2-46ae-ab17-a36a0e8e79b8"
+  },
+  "model": {
+    "currentModelId": "gemini-3.7-flash-high",
+    "availableModelIds": [
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "gemini-3.7-flash-high",
+      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high",
+      "gemini-3.6-flash-medium",
+      "gemini-3.6-flash-low",
+      "gemini-pro-agent",
+      "gemini-3.1-pro-low"
+    ],
+    "availableModels": [
+      {
+        "modelId": "gemini-3.8-flash-high",
+        "name": "Gemini 3.8 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.8-flash-medium",
+        "name": "Gemini 3.8 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.8-flash-low",
+        "name": "Gemini 3.8 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-high",
+        "name": "Gemini 3.7 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-medium",
+        "name": "Gemini 3.7 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-low",
+        "name": "Gemini 3.7 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-high",
+        "name": "Gemini 3.6 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-medium",
+        "name": "Gemini 3.6 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-low",
+        "name": "Gemini 3.6 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-pro-agent",
+        "name": "Gemini 3.1 Pro (High)"
+      },
+      {
+        "modelId": "gemini-3.1-pro-low",
+        "name": "Gemini 3.1 Pro (Low)"
+      }
+    ],
+    "requestedModel": "gemini-3.7-flash-high",
+    "selectedModelId": "gemini-3.7-flash-high",
+    "workspace": "/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills"
+  },
+  "eventCount": 2,
+  "toolCallCount": 0,
+  "handoff": "AGY-ACP-PAIR-01",
+  "stopReason": "end_turn"
+}

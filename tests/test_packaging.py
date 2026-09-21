@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 HERDR_SKILL = ROOT / "skills" / "herdr-puppet"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
+ANTIGRAVITY_SKILL = ROOT / "skills" / "antigravity-acp-delegation"
 
 
 class PackagingTests(unittest.TestCase):
@@ -31,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.2.1")
+        self.assertEqual(plugin["version"], "0.3.4")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -551,6 +552,46 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("shell=True", helper)
         self.assertNotIn("os.system", helper)
         self.assertNotIn('"serial": serial', helper)
+
+    def test_antigravity_acp_skill_and_mcp_server_are_packaged(self) -> None:
+        skill = (ANTIGRAVITY_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (
+            ANTIGRAVITY_SKILL / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        plugin = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("$antigravity-acp-delegation", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("antigravity_acp_readiness", skill)
+        self.assertIn("exact advertised", skill)
+        self.assertIn("GEMINI_HOME", skill)
+        self.assertIn("interaction_*", skill)
+        self.assertIn("STEERING_UNSUPPORTED", skill)
+        self.assertIn("agy-print", skill)
+        self.assertIn("antigravity-acp", plugin["keywords"])
+        self.assertIn("antigravity-acp", mcp["mcpServers"])
+        self.assertIn("cursor-acp", mcp["mcpServers"])
+        self.assertEqual(
+            mcp["mcpServers"]["antigravity-acp"]["args"],
+            ["bridge/antigravity-acp/server.mjs"],
+        )
+        self.assertEqual(
+            mcp["mcpServers"]["cursor-acp"]["args"],
+            ["bridge/cursor-acp/server.mjs"],
+        )
+        cursor_broker = (ROOT / "bridge" / "cursor-acp" / "broker.mjs").read_text(
+            encoding="utf-8"
+        )
+        cursor_recovery_tests = (
+            ROOT / "bridge" / "cursor-acp" / "test" / "recovery.test.mjs"
+        ).read_text(encoding="utf-8")
+        self.assertIn('schema: "saarius.cursor-acp.owner.v1"', cursor_broker)
+        self.assertIn("startTime", cursor_broker)
+        self.assertIn("recoverStaleJobs", cursor_broker)
+        self.assertIn("live owner", cursor_recovery_tests)
 
 
 if __name__ == "__main__":

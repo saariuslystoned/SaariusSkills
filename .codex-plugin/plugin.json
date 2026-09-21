@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
-  "version": "0.2.1",
-  "description": "Experimental agent supervision, Herdr transport, product decisions, and a local Cursor ACP delegation route.",
+  "version": "0.3.4",
+  "description": "Experimental agent supervision, Herdr transport, product decisions, and local Cursor plus Antigravity ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -18,14 +18,15 @@
     "herdr",
     "agent-transport",
     "cursor-acp",
+    "antigravity-acp",
     "bounded-delegation"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Saarius Skills",
-    "shortDescription": "Agent supervision plus local Cursor ACP delegation.",
-    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, bounded implementation, verification, honest closeout, and an additive local Cursor ACP route.",
+    "shortDescription": "Agent supervision plus local Cursor and Antigravity ACP delegation.",
+    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, bounded implementation, verification, honest closeout, and additive local Cursor ACP and official Antigravity ACP routes.",
     "developerName": "Saariusly Stoned",
     "category": "Productivity",
     "capabilities": [
@@ -36,7 +37,8 @@
     "defaultPrompt": [
       "Help me decide and build the next product slice with GrillTrack.",
       "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
-      "Use Cursor ACP to delegate one bounded implementation slice to local Grok 4.6."
+      "Use Cursor ACP to delegate one bounded implementation slice to local Grok 4.6.",
+      "Use Antigravity ACP to diagnose official Google Antigravity setup or delegate one bounded slice with an exact advertised model."
     ]
   }
 }

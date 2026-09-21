@@ -1,0 +1,3 @@
+{"timestamp":"2026-09-20T23:11:46.898Z","event":"submitted","jobId":"3bc6d96d-c30e-4c22-9aee-9640adeaf1f9","details":{"promptSha256":"5f2b733b66cf83981fa0937ce4ee53724c40542a6337b82e441db52fc721a2fc","workspace":"/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills","requestedModel":"gemini-3.7-flash-high"}}
+{"timestamp":"2026-09-20T23:11:46.901Z","event":"running","jobId":"3bc6d96d-c30e-4c22-9aee-9640adeaf1f9","details":{"workspace":"/Users/bobbybones/.codex/worktrees/antigravity-acp-live-qualification/SaariusSkills"}}
+{"timestamp":"2026-09-20T23:12:08.488Z","event":"bridge_restarted","jobId":"3bc6d96d-c30e-4c22-9aee-9640adeaf1f9","details":{"previousStatus":"running"}}

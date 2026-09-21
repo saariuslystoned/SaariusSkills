@@ -1,0 +1,6 @@
+interface:
+  display_name: "Antigravity ACP Delegation"
+  short_description: "Delegate bounded work to official Antigravity ACP."
+  default_prompt: "Use $antigravity-acp-delegation to diagnose the official Antigravity ACP lane or send one bounded implementation slice with an exact advertised model."
+policy:
+  allow_implicit_invocation: true

@@ -7,6 +7,14 @@
       "env": {
         "CURSOR_AGENT_EXECUTABLE": "/Users/bobbybones/.local/bin/cursor-agent"
       }
+    },
+    "antigravity-acp": {
+      "command": "node",
+      "args": ["bridge/antigravity-acp/server.mjs"],
+      "cwd": ".",
+      "env": {
+        "GEMINI_HOME": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp/gemini-home"
+      }
     }
   }
 }
