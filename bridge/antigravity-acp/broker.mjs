@@ -1,7 +1,9 @@
 import { accessSync, constants } from "node:fs";
-import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, link, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { createAcpRuntime, createAgentRegistry } from "acpx/runtime";
 import {
   AUTH_MODE,
@@ -26,6 +28,10 @@ export const MAX_STEER_CHARS = 8_000;
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "needs-input"]);
 const JOB_ID_PATTERN = /^[0-9a-f-]{36}$/i;
+const OWNER_ID_MAX_CHARS = 80;
+const OWNER_HEARTBEAT_MS = 5_000;
+const OWNER_OBSERVE_WAIT_SLICE_MS = 250;
+const execFile = promisify(execFileCallback);
 
 const BRIDGE_SYSTEM_PROMPT = [
   "You are official Google Antigravity ACP acting as a bounded implementation worker.",
@@ -50,6 +56,75 @@ export class BridgeError extends Error {
 
 export function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
+}
+
+function isSafeOwnerId(brokerId) {
+  return typeof brokerId === "string" &&
+    brokerId.length > 0 &&
+    brokerId.length <= OWNER_ID_MAX_CHARS &&
+    /^[0-9A-Za-z_-]+$/.test(brokerId);
+}
+
+export function isCompleteOwnerIdentity(owner) {
+  return Boolean(
+    owner &&
+      isSafeOwnerId(owner.brokerId) &&
+      Number.isInteger(owner.pid) &&
+      owner.pid > 0 &&
+      typeof owner.startTime === "string" &&
+      owner.startTime.trim().length > 0,
+  );
+}
+
+export function ownerIdentitiesMatch(left, right) {
+  if (!isCompleteOwnerIdentity(left) || !isCompleteOwnerIdentity(right)) return false;
+  return left.brokerId === right.brokerId &&
+    left.pid === right.pid &&
+    left.startTime === right.startTime;
+}
+
+export function classifyOwnerIdentity(owner, probe) {
+  if (!isCompleteOwnerIdentity(owner)) return "unknown";
+  if (!probe || probe.status === "error" || probe.status === "unknown") return "unknown";
+  if (probe.status === "missing") return "dead";
+  if (probe.status !== "alive" || typeof probe.startTime !== "string" || !probe.startTime.trim()) {
+    return "unknown";
+  }
+  return probe.startTime === owner.startTime ? "live" : "reused";
+}
+
+export function shouldRecoverOwnedJob(job, lease, probe) {
+  if (!job || isTerminalStatus(job.status)) return false;
+  if (!ownerIdentitiesMatch(job.owner, lease)) return false;
+  const state = classifyOwnerIdentity(job.owner, probe);
+  return state === "dead" || state === "reused";
+}
+
+export async function inspectProcessIdentity(pid, run = execFile) {
+  if (!Number.isInteger(pid) || pid <= 0) return { status: "unknown" };
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error?.code === "ESRCH") return { status: "missing" };
+    if (error?.code !== "EPERM") return { status: "unknown" };
+  }
+  try {
+    const { stdout } = await run("ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 4 * 1024,
+      env: { LC_ALL: "C", PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    });
+    const startTime = String(stdout ?? "").trim();
+    return startTime ? { status: "alive", startTime } : { status: "unknown" };
+  } catch {
+    try {
+      process.kill(pid, 0);
+      return { status: "unknown" };
+    } catch (error) {
+      return error?.code === "ESRCH" ? { status: "missing" } : { status: "unknown" };
+    }
+  }
 }
 
 export function hashText(value) {
@@ -315,7 +390,7 @@ function classifyFailure(error, interaction) {
     };
   }
   if (
-    interaction?.permission ||
+    interaction?.permissionDenied ||
     interaction?.elicitation ||
     lower.includes("elicitation") ||
     lower.includes("login") ||
@@ -427,6 +502,13 @@ export class AntigravityAcpBroker {
     this.stateRoot = path.resolve(options.stateRoot ?? resolveConfiguredStateRoot(this.processEnv));
     this.jobsRoot = path.join(this.stateRoot, "jobs");
     this.runsRoot = path.join(this.stateRoot, "runs");
+    this.ownersRoot = path.join(this.stateRoot, "owners");
+    this.brokerId = options.brokerId ?? randomUUID();
+    this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
+    this.startTime = typeof options.startTime === "string" && options.startTime.trim()
+      ? options.startTime.trim()
+      : null;
+    this.inspectProcess = options.inspectProcess ?? inspectProcessIdentity;
     this.geminiHome = path.resolve(options.geminiHome ?? resolveConfiguredGeminiHome(this.processEnv));
     this.runtimeDir =
       options.runtimeDir ??
@@ -445,6 +527,11 @@ export class AntigravityAcpBroker {
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
+    this.heartbeatTimer = null;
+  }
+
+  ownerIdentity() {
+    return { brokerId: this.brokerId, pid: this.pid, startTime: this.startTime };
   }
 
   async init() {
@@ -452,6 +539,13 @@ export class AntigravityAcpBroker {
       this.initPromise = (async () => {
         await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
+        await mkdir(this.ownersRoot, { recursive: true, mode: 0o700 });
+        if (this.startTime == null) {
+          const self = await this.inspectProcess(this.pid);
+          if (self.status === "alive" && self.startTime) this.startTime = self.startTime;
+        }
+        await this.writeOwnerLease();
+        this.startOwnerHeartbeat();
         await this.recoverStaleJobs();
         return this;
       })().catch((error) => {
@@ -471,26 +565,114 @@ export class AntigravityAcpBroker {
     }
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
-      let job;
-      try {
-        job = JSON.parse(await readFile(path.join(this.jobsRoot, name), "utf8"));
-      } catch {
-        continue;
-      }
-      if (!job || isTerminalStatus(job.status)) continue;
-      const previousStatus = job.status;
-      job.status = "failed";
-      job.updatedAt = this.now();
-      job.error = {
-        code: "BRIDGE_RESTARTED",
-        message: "The bridge restarted before this job reached a terminal result; resubmit explicitly.",
-      };
+      await this.recoverJobFile(name);
+    }
+  }
+
+  async recoverJobFile(name) {
+    let snapshot;
+    try {
+      snapshot = JSON.parse(await readFile(path.join(this.jobsRoot, name), "utf8"));
+    } catch {
+      return;
+    }
+    await this.recoverOwnedJobIfEligible(snapshot);
+  }
+
+  async recoverOwnedJobIfEligible(snapshot) {
+    if (!snapshot?.jobId || !JOB_ID_PATTERN.test(snapshot.jobId) || isTerminalStatus(snapshot.status)) return;
+    const lease = await this.readOwnerLease(snapshot.owner?.brokerId);
+    const probe = await this.probeOwner(snapshot.owner);
+    if (!shouldRecoverOwnedJob(snapshot, lease, probe)) return;
+    const job = await this.getJob(snapshot.jobId);
+    if (!shouldRecoverOwnedJob(job, await this.readOwnerLease(job.owner?.brokerId), await this.probeOwner(job.owner))) return;
+    const previousStatus = job.status;
+    job.status = "failed";
+    job.updatedAt = this.now();
+    job.error = {
+      code: "BRIDGE_RESTARTED",
+      message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
+    };
+    await this.saveJob(job);
+    await this.recordEvent(job, "bridge_restarted", { previousStatus });
+    this.notifyChange(job.jobId);
+  }
+
+  async probeOwner(owner) {
+    if (!isCompleteOwnerIdentity(owner)) return { status: "unknown" };
+    return this.inspectProcess(owner.pid);
+  }
+
+  ownerLeasePath(brokerId) {
+    if (!isSafeOwnerId(brokerId)) return null;
+    return path.join(this.ownersRoot, `${brokerId}.json`);
+  }
+
+  async readOwnerLease(brokerId) {
+    const leasePath = this.ownerLeasePath(brokerId);
+    if (!leasePath) return null;
+    try {
+      const lease = JSON.parse(await readFile(leasePath, "utf8"));
+      return isCompleteOwnerIdentity(lease) ? lease : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async writeOwnerLease({ released = false } = {}) {
+    const leasePath = this.ownerLeasePath(this.brokerId);
+    if (!leasePath || !this.startTime) return;
+    await atomicWrite(leasePath, `${JSON.stringify({
+      schema: "saarius.antigravity-acp.owner.v1",
+      ...this.ownerIdentity(),
+      heartbeatAt: this.now(),
+      released,
+    }, null, 2)}\n`);
+  }
+
+  startOwnerHeartbeat() {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      void this.writeOwnerLease().catch(() => undefined);
+    }, OWNER_HEARTBEAT_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  async observeJob(jobId) {
+    const job = await this.getJob(jobId);
+    if (isTerminalStatus(job.status) || this.active.has(jobId)) return job;
+    await this.recoverOwnedJobIfEligible(job);
+    return this.getJob(jobId);
+  }
+
+  async closeRuntimeSession(job, handle) {
+    if (!handle || !this.ensureRuntime()?.close) return;
+    try {
+      await this.ensureRuntime().close({
+        handle,
+        reason: `job ${job.status} terminal cleanup`,
+        discardPersistentState: true,
+      });
+      job.cleanup = { status: "completed", observed: "runtime_close_returned", at: this.now() };
       await this.saveJob(job);
-      await this.recordEvent(job, "bridge_restarted", { previousStatus });
+      await this.recordEvent(job, "cleanup_completed", { observed: "runtime_close_returned" });
+    } catch (error) {
+      job.cleanup = { status: "uncertain", message: safeMessage(error?.message), at: this.now() };
+      await this.saveJob(job);
+      await this.recordEvent(job, "cleanup_uncertain", { message: job.cleanup.message });
     }
   }
 
   async close() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    try {
+      await this.writeOwnerLease({ released: true });
+    } catch {
+      // Process identity remains the recovery source of truth.
+    }
     for (const [jobId, active] of this.active) {
       try {
         await active.turn?.cancel({ reason: "bridge shutdown" });
@@ -761,6 +943,7 @@ export class AntigravityAcpBroker {
       route: routeSummary(launch, requestedModel),
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
+      owner: this.ownerIdentity(),
       request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
       auth: publicAuth(auth),
       sessionKey: `antigravity-acp:${jobId}`,
@@ -902,13 +1085,7 @@ export class AntigravityAcpBroker {
       job.updatedAt = this.now();
       await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
     } finally {
-      if (handle && job.status === "failed" && this.ensureRuntime()?.close) {
-        try {
-          await this.ensureRuntime().close({ handle, reason: "job failed", discardPersistentState: false });
-        } catch {
-          // Preserve the primary job result; runtime cleanup is best effort.
-        }
-      }
+      if (handle && isTerminalStatus(job.status)) await this.closeRuntimeSession(job, handle);
       this.notifyChange(job.jobId);
       if (isTerminalStatus(job.status)) this.active.delete(job.jobId);
     }
@@ -936,20 +1113,20 @@ export class AntigravityAcpBroker {
 
   async status({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 10_000);
-    let job = await this.getJob(jobId);
-    if (boundedWait > 0 && !isTerminalStatus(job.status)) {
+    let job = await this.observeJob(jobId);
+    if (boundedWait > 0 && (!isTerminalStatus(job.status) || (job.handle && !job.cleanup))) {
       await this.waitForChange(jobId, boundedWait);
-      job = await this.getJob(jobId);
+      job = await this.observeJob(jobId);
     }
     return this.publicJob(job);
   }
 
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
-    let job = await this.getJob(jobId);
-    if (boundedWait > 0 && !isTerminalStatus(job.status)) {
+    let job = await this.observeJob(jobId);
+    if (boundedWait > 0 && (!isTerminalStatus(job.status) || (job.handle && !job.cleanup))) {
       await this.waitForTerminal(jobId, boundedWait);
-      job = await this.getJob(jobId);
+      job = await this.observeJob(jobId);
     }
     return {
       ...this.publicJob(job),
@@ -960,7 +1137,7 @@ export class AntigravityAcpBroker {
 
   async steer({ jobId, message } = {}) {
     assertBoundedText(message, "message", MAX_STEER_CHARS);
-    const job = await this.getJob(jobId);
+    const job = await this.observeJob(jobId);
     if (job.status !== "running") {
       throw new BridgeError("JOB_NOT_RUNNING", `Job ${jobId} is ${job.status}; steering is unavailable`);
     }
@@ -978,7 +1155,7 @@ export class AntigravityAcpBroker {
   }
 
   async cancel({ jobId, reason } = {}) {
-    const job = await this.getJob(jobId);
+    const job = await this.observeJob(jobId);
     if (isTerminalStatus(job.status)) return { ...this.publicJob(job), cancellationRequested: false };
     const active = this.active.get(jobId);
     if (!active?.handle || !active.turn) {
@@ -1040,6 +1217,8 @@ export class AntigravityAcpBroker {
       `Workspace: ${job.workspace}`,
       `Runtime: antigravity-acp ${RUNTIME_PIN.version}`,
       `Requested model: ${job.route.model ?? "unselected"}`,
+      `Owner: ${job.owner?.brokerId ?? "unknown"}`,
+      `Cleanup: ${job.cleanup?.status ?? "pending"}`,
       `Updated: ${job.updatedAt}`,
       "",
       "The request body is intentionally not persisted; only its SHA-256 and character count are recorded.",
@@ -1058,6 +1237,7 @@ export class AntigravityAcpBroker {
       `Prompt SHA-256: ${job.request.promptSha256}`,
       `Events observed: ${job.eventCount ?? 0}`,
       `Tool calls observed: ${job.toolCallCount ?? 0}`,
+      `Cleanup: ${job.cleanup?.status ?? "unrecorded"}`,
       "",
       "## Bounded handoff",
       "",
@@ -1077,6 +1257,7 @@ export class AntigravityAcpBroker {
       startedAt: job.startedAt,
       timeoutMs: job.timeoutMs,
       model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      cleanup: job.cleanup,
       proof: job.proof,
     };
     if (job.status === "completed" || job.status === "cancelled") result.handoff = job.handoff;
@@ -1108,11 +1289,14 @@ export class AntigravityAcpBroker {
   async waitForTerminal(jobId, waitMs) {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
-      const job = await this.getJob(jobId);
-      if (isTerminalStatus(job.status)) return;
+      const job = await this.observeJob(jobId);
+      if (isTerminalStatus(job.status) && (!job.handle || job.cleanup)) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
-      await this.waitForChange(jobId, remaining);
+      await this.waitForChange(
+        jobId,
+        this.active.has(jobId) ? remaining : Math.min(remaining, OWNER_OBSERVE_WAIT_SLICE_MS),
+      );
     }
   }
 

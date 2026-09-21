@@ -6,10 +6,12 @@ import test from "node:test";
 import {
   AntigravityAcpBroker,
   BridgeError,
+  classifyOwnerIdentity,
   createDefaultRuntime,
   isInteractionQuestion,
   redactSensitive,
   resolveRequestedAntigravityModel,
+  shouldRecoverOwnedJob,
 } from "../broker.mjs";
 import { currentPlatformId, defaultRuntimeDir, platformLaunch, settingsPath } from "../contract.mjs";
 
@@ -254,7 +256,7 @@ test("relative workspace and missing model fail closed before a turn", async () 
 });
 
 test("substituted current model fails closed instead of accepting a fallback", async () => {
-  const { broker, workspace } = await makeBroker({
+  const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: { model: "gemini-3.1-pro", available: ["gemini-3.1-pro"] },
   });
   const submitted = await broker.delegate({
@@ -308,7 +310,7 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
     isInteractionQuestion({ raw: { toolCall: { toolCallId: "interaction_1" } } }),
     true,
   );
-  const { broker, workspace } = await makeBroker({
+  const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: {
       delayMs: 20,
       permissionRequest: { raw: { toolCall: { toolCallId: "interaction_choose" } } },
@@ -323,6 +325,8 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
   assert.equal(completed.status, "needs-input");
   assert.equal(completed.question.outcome, "cancelled");
   assert.equal(completed.question.humanRequired, true);
+  assert.equal(completed.cleanup.status, "completed");
+  assert.equal(runtime.closed.length, 1);
   const rawState = await readFile(path.join(broker.jobsRoot, `${submitted.jobId}.json`), "utf8");
   assert.equal(rawState.includes("interaction_choose"), false);
   assert.equal(rawState.includes("\"options\""), false);
@@ -399,7 +403,18 @@ test("safe summaries redact credentials and do not persist prompt bodies", async
   await broker.close();
 });
 
-test("a bridge restart fails a persisted in-flight job closed distinctly", async () => {
+test("owner identity recovery fails closed when identity is incomplete or ambiguous", () => {
+  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "owner-start" };
+  assert.equal(classifyOwnerIdentity({ pid: 4242 }, { status: "missing" }), "unknown");
+  assert.equal(classifyOwnerIdentity(owner, { status: "unknown" }), "unknown");
+  assert.equal(classifyOwnerIdentity(owner, { status: "missing" }), "dead");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "other-start" }), "reused");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: owner.startTime }), "live");
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner }, { status: "missing" }), true);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, null, { status: "missing" }), false);
+});
+
+test("a live owner's in-flight job survives another broker and remains cancellable by its owner", async () => {
   const first = await makeBroker({ runtimeOptions: { delayMs: 5_000 } });
   const submitted = await first.broker.delegate({
     workspace: first.workspace,
@@ -417,10 +432,56 @@ test("a bridge restart fails a persisted in-flight job closed distinctly", async
   });
   await second.init();
   const recovered = await second.result({ jobId: submitted.jobId });
+  assert.equal(recovered.status, "running");
+  assert.equal(recovered.error, undefined);
+  const requested = await first.broker.cancel({ jobId: submitted.jobId, reason: "owner cancellation" });
+  assert.equal(requested.status, "cancellation-requested");
+  assert.equal((await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 })).status, "cancelled");
+  await first.broker.close();
+  await second.close();
+});
+
+test("a genuinely dead owner is recovered as a bridge restart", async () => {
+  const first = await makeBroker({
+    pid: 4242,
+    startTime: "dead-owner-start",
+    inspectProcess: async () => ({ status: "alive", startTime: "dead-owner-start" }),
+    runtimeOptions: { delayMs: 5_000 },
+  });
+  const submitted = await first.broker.delegate({
+    workspace: first.workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Hold until the owning broker is proven dead.",
+  });
+  await waitUntil(() => first.broker.getJob(submitted.jobId).then((job) => job.status === "running"));
+  const second = new AntigravityAcpBroker({
+    stateRoot: first.broker.stateRoot,
+    runtimeDir: path.dirname(first.executable),
+    geminiHome: first.geminiHome,
+    processEnv: { PATH: process.env.PATH ?? "" },
+    pid: 5252,
+    startTime: "replacement-start",
+    inspectProcess: async (pid) => pid === 4242
+      ? { status: "missing" }
+      : { status: "alive", startTime: "replacement-start" },
+    runtime: new FixtureRuntime(),
+  });
+  await second.init();
+  const recovered = await second.result({ jobId: submitted.jobId });
   assert.equal(recovered.status, "failed");
   assert.equal(recovered.error.code, "BRIDGE_RESTARTED");
   await first.broker.close();
   await second.close();
+});
+
+test("completed jobs close their persistent ACP session before cleanup", async () => {
+  const { broker, runtime, workspace } = await makeBroker();
+  const submitted = await broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Complete and clean up." });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.cleanup.status, "completed");
+  assert.equal(runtime.closed.length, 1);
+  await broker.close();
 });
 
 test("default runtime session store never writes conversation records to disk", async () => {
