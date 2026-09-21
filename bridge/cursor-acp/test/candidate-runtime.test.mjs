@@ -18,11 +18,15 @@ import {
   CursorAcpxAdapter,
   adapterAvailable,
   auditDurableArtifacts,
+  bindCandidateRuntime,
   boundedCandidateTurnResult,
+  callerOutcomes,
   claimIsolatedRoot,
   createVerifiedCandidateAcpRuntime,
   materializeVerifiedCandidateAcpx,
   proveInstalledCandidateModule,
+  recordBoundCandidateTurn,
+  rejectCandidateRuntimeConversationParams,
   resolveContainedOwnedPath,
 } from "../puppet-adapter.mjs";
 
@@ -57,6 +61,125 @@ async function privateRoot() {
   await chmod(isolated, 0o700);
   await mkdir(workspace);
   return { root, isolated, workspace };
+}
+
+const HOST = Object.freeze({
+  owner: "puppet-owner",
+  session: "cursor-acp-session",
+  conversationId: "conv-cursor-acp-1",
+  requestId: "candidate-runtime-turn",
+});
+
+class FakePublicRuntime {
+  constructor({
+    handle = {},
+    turnRequestId,
+    statusLastRequestId,
+    omitLastRequestId = false,
+    result = { status: "completed", stopReason: "end_turn" },
+  } = {}) {
+    this.handleOverrides = handle;
+    this.turnRequestId = turnRequestId;
+    this.statusLastRequestId = statusLastRequestId;
+    this.omitLastRequestId = omitLastRequestId;
+    this.result = result;
+    this.ensureCalls = [];
+    this.statusCalls = [];
+    this.startCalls = [];
+    this.closeCalls = [];
+  }
+
+  async ensureSession(input) {
+    this.ensureCalls.push({
+      keys: Object.keys(input).sort(),
+      sessionKey: input.sessionKey,
+      agent: input.agent,
+      mode: input.mode,
+      cwd: input.cwd,
+    });
+    return {
+      sessionKey: input.sessionKey,
+      backend: "acpx",
+      runtimeSessionName: `acpx:${input.sessionKey}`,
+      cwd: input.cwd,
+      acpxRecordId: `record-${input.sessionKey}`,
+      backendSessionId: "backend-session-1",
+      agentSessionId: "agent-session-1",
+      ...this.handleOverrides,
+    };
+  }
+
+  async getStatus(input) {
+    this.statusCalls.push({
+      keys: Object.keys(input).sort(),
+      sessionKey: input.handle?.sessionKey,
+    });
+    if (this.omitLastRequestId || (this.startCalls.length === 0 && this.statusLastRequestId === undefined)) {
+      return {};
+    }
+    return {
+      lastRequestId: this.startCalls.length
+        ? (this.statusLastRequestId ?? this.startCalls.at(-1).requestId)
+        : this.statusLastRequestId,
+    };
+  }
+
+  startTurn(input) {
+    this.startCalls.push({
+      keys: Object.keys(input).sort(),
+      mode: input.mode,
+      requestId: input.requestId,
+      sessionKey: input.handle?.sessionKey,
+      hasText: typeof input.text === "string" && input.text.length > 0,
+    });
+    return {
+      requestId: this.turnRequestId ?? input.requestId,
+      promptStarted: Promise.resolve(),
+      result: Promise.resolve(this.result),
+    };
+  }
+
+  async close(input) {
+    this.closeCalls.push({
+      keys: Object.keys(input).sort(),
+      sessionKey: input.handle?.sessionKey,
+      reason: input.reason,
+      discardPersistentState: input.discardPersistentState,
+    });
+  }
+}
+
+async function claimHost(isolated) {
+  return claimIsolatedRoot(isolated, {
+    owner: HOST.owner,
+    session: HOST.session,
+    conversationId: HOST.conversationId,
+  });
+}
+
+function boundTurnOptions(isolated, workspace, runtime, extra = {}) {
+  return {
+    isolatedRoot: isolated,
+    workspaceRoot: workspace,
+    owner: HOST.owner,
+    hostSession: HOST.session,
+    hostConversationId: HOST.conversationId,
+    requestId: HOST.requestId,
+    runtime,
+    agent: "candidate",
+    mode: "oneshot",
+    text: TEST_PROMPT,
+    ...extra,
+  };
+}
+
+async function readEvents(isolated) {
+  const raw = await readFile(path.join(isolated, "events.jsonl"), "utf8");
+  return raw.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+function eventNamed(events, name) {
+  return events.filter((item) => item.event === name);
 }
 
 test("owned runtime path rejects symlink escape and accepts contained roots", async () => {
@@ -232,18 +355,204 @@ test("candidate runtime helper stays unavailable and omits prompt bodies", async
   );
 });
 
-test("verified candidate acpx runtime completes one isolated turn", {
+test("candidate ownership binding rejects mismatches before a prompt", async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+
+  const foreignOwner = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignOwner, {
+      owner: "foreign-owner",
+    })),
+    (error) => error instanceof AdapterError && error.code === "OWNER_MISMATCH",
+  );
+  assert.equal(foreignOwner.startCalls.length, 0);
+
+  const foreignSession = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignSession, {
+      hostSession: "foreign-session",
+    })),
+    (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
+  );
+  assert.equal(foreignSession.startCalls.length, 0);
+
+  const foreignConversation = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignConversation, {
+      hostConversationId: "foreign-conversation",
+    })),
+    (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
+  );
+  assert.equal(foreignConversation.startCalls.length, 0);
+
+  const foreignHandleSession = new FakePublicRuntime({
+    handle: { sessionKey: "foreign-runtime-session" },
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignHandleSession)),
+    (error) => error instanceof AdapterError && error.code === "SESSION_MISMATCH",
+  );
+  assert.equal(foreignHandleSession.startCalls.length, 0);
+
+  const foreignCwd = new FakePublicRuntime({
+    handle: { cwd: path.join(workspace, "other") },
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, foreignCwd)),
+    (error) => error instanceof AdapterError && error.code === "WORKSPACE_MISMATCH",
+  );
+  assert.equal(foreignCwd.startCalls.length, 0);
+
+  await assert.rejects(
+    () => bindCandidateRuntime({
+      isolatedRoot: isolated,
+      workspaceRoot: workspace,
+      owner: HOST.owner,
+      hostSession: HOST.session,
+      hostConversationId: HOST.conversationId,
+      requestId: HOST.requestId,
+      handle: {
+        sessionKey: HOST.session,
+        backend: "acpx",
+        runtimeSessionName: "acpx:cursor-acp-session",
+        cwd: workspace,
+        acpxRecordId: "record-cursor-acp-session",
+        backendSessionId: "backend-session-1",
+        prompt: TEST_PROMPT,
+      },
+    }),
+    (error) => error instanceof AdapterError && error.code === "BODY_RETAINED",
+  );
+
+  const missingHandle = {
+    backend: "acpx",
+    runtimeSessionName: "acpx:cursor-acp-session",
+    cwd: workspace,
+    acpxRecordId: "record-cursor-acp-session",
+    backendSessionId: "backend-session-1",
+  };
+  await assert.rejects(
+    () => bindCandidateRuntime({
+      isolatedRoot: isolated,
+      workspaceRoot: workspace,
+      owner: HOST.owner,
+      hostSession: HOST.session,
+      hostConversationId: HOST.conversationId,
+      requestId: HOST.requestId,
+      handle: missingHandle,
+    }),
+    (error) => error instanceof AdapterError && error.code === "PROOF_MISSING",
+  );
+  assert.equal("sessionKey" in missingHandle, false);
+
+  assert.throws(
+    () => rejectCandidateRuntimeConversationParams({
+      sessionKey: HOST.session,
+      agent: "candidate",
+      mode: "oneshot",
+      cwd: workspace,
+      conversation_id: HOST.conversationId,
+    }, "ensureSession"),
+    (error) => error instanceof AdapterError && error.code === "INVALID_RUNTIME",
+  );
+  const smuggled = new FakePublicRuntime();
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, smuggled, {
+      conversation_id: HOST.conversationId,
+    })),
+    (error) => error instanceof AdapterError && error.code === "INVALID_RUNTIME",
+  );
+  assert.equal(smuggled.ensureCalls.length, 0);
+  assert.equal(smuggled.startCalls.length, 0);
+
+  const events = await readEvents(isolated);
+  assert.deepEqual(eventNamed(events, "runtime_bound"), []);
+  assert.deepEqual(eventNamed(events, "runtime_turn_completed"), []);
+  assert.equal(CursorAcpxAdapter.available(), false);
+  assert.equal(adapterAvailable(), false);
+});
+
+test("candidate ownership binding rejects invalid turn evidence after prompt", async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+
+  const mismatchedTurn = new FakePublicRuntime({
+    turnRequestId: "foreign-turn-request",
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, mismatchedTurn)),
+    (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
+  );
+  assert.equal(mismatchedTurn.startCalls.length, 1);
+  assert.equal(mismatchedTurn.closeCalls.length, 0);
+
+  const mismatchedStatus = new FakePublicRuntime({
+    statusLastRequestId: "foreign-status-request",
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, mismatchedStatus)),
+    (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
+  );
+  assert.equal(mismatchedStatus.startCalls.length, 1);
+  assert.equal(mismatchedStatus.closeCalls.length, 0);
+
+  const missingTurnId = new FakePublicRuntime({
+    turnRequestId: "",
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, missingTurnId)),
+    (error) => error instanceof AdapterError && error.code === "INVALID_TURN_EVIDENCE",
+  );
+  assert.equal(missingTurnId.startCalls.length, 1);
+});
+
+test("fake public runtime records a bound turn without inventing conversation identity", async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const runtime = new FakePublicRuntime({ omitLastRequestId: true });
+  const recorded = await recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime));
+  assert.deepEqual(runtime.ensureCalls[0].keys, ["agent", "cwd", "mode", "sessionKey"]);
+  assert.deepEqual(runtime.startCalls[0].keys, ["handle", "mode", "requestId", "text"]);
+  assert.equal(runtime.startCalls[0].hasText, true);
+  assert.equal(runtime.closeCalls.length, 1);
+  assert.equal(runtime.closeCalls[0].discardPersistentState, true);
+  assert.equal(recorded.binding.host.session, HOST.session);
+  assert.equal(recorded.binding.host.conversation_id, HOST.conversationId);
+  assert.equal(recorded.binding.host.request_id, HOST.requestId);
+  assert.equal(recorded.binding.runtime.sessionKey, HOST.session);
+  assert.equal(recorded.binding.runtime.cwd, workspace);
+  assert.equal(recorded.binding.runtime.backendSessionId, "backend-session-1");
+  assert.equal(recorded.binding.runtime.acpxRecordId, `record-${HOST.session}`);
+  assert.equal(recorded.binding.runtime.agentSessionId, "agent-session-1");
+  assert.equal("conversation_id" in recorded.binding.runtime, false);
+  assert.notEqual(recorded.binding.runtime.backendSessionId, HOST.conversationId);
+  assert.equal("lastRequestId" in recorded.status, false);
+  const events = await readEvents(isolated);
+  const bound = eventNamed(events, "runtime_bound");
+  const completed = eventNamed(events, "runtime_turn_completed");
+  assert.equal(bound.length, 1);
+  assert.equal(completed.length, 1);
+  assert.deepEqual(bound[0].host, recorded.binding.host);
+  assert.deepEqual(bound[0].runtime, recorded.binding.runtime);
+  assert.equal(completed[0].turn.requestId, HOST.requestId);
+  assert.equal("status" in completed[0], false);
+  assert.equal("conversation_id" in bound[0].runtime, false);
+  const outcomes = callerOutcomes({ workerCompletion: "reported" });
+  assert.equal(outcomes.controller_acceptance, "none");
+  assert.equal(outcomes.distinct, true);
+  assert.equal(recorded.available, false);
+  assert.equal(adapterAvailable(), false);
+});
+
+test("verified candidate acpx runtime binds the actual handle before one isolated turn", {
   timeout: 180_000,
   skip: REAL_ARTIFACT_SKIP,
 }, async () => {
   const { isolated, workspace } = await privateRoot();
   const capabilitiesPath = path.join(isolated, "callback-capabilities.json");
   process.env.PUPPET_ACPX_CANDIDATE_PEER_CAPABILITIES = capabilitiesPath;
-  await claimIsolatedRoot(isolated, {
-    owner: "puppet-owner",
-    session: "cursor-acp-session",
-    conversationId: "conv-cursor-acp-1",
-  });
+  await claimHost(isolated);
   const { runtime, provenance } = await createVerifiedCandidateAcpRuntime({
     cwd: workspace,
     sessionStore: memorySessionStore(),
@@ -262,6 +571,35 @@ test("verified candidate acpx runtime completes one isolated turn", {
     runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
     isolatedRoot: isolated,
   });
+  const ensureCalls = [];
+  const startCalls = [];
+  const statusCalls = [];
+  const closeCalls = [];
+  const original = {
+    ensureSession: runtime.ensureSession.bind(runtime),
+    getStatus: runtime.getStatus.bind(runtime),
+    startTurn: runtime.startTurn.bind(runtime),
+    close: runtime.close.bind(runtime),
+  };
+  runtime.ensureSession = async (input) => {
+    ensureCalls.push({ keys: Object.keys(input).sort() });
+    return original.ensureSession(input);
+  };
+  runtime.getStatus = async (input) => {
+    statusCalls.push({ keys: Object.keys(input).sort() });
+    return original.getStatus(input);
+  };
+  runtime.startTurn = (input) => {
+    startCalls.push({ keys: Object.keys(input).sort() });
+    return original.startTurn(input);
+  };
+  runtime.close = async (input) => {
+    closeCalls.push({
+      keys: Object.keys(input).sort(),
+      discardPersistentState: input.discardPersistentState,
+    });
+    return original.close(input);
+  };
   try {
     assert.equal(
       await realpath(provenance.module_path),
@@ -279,28 +617,51 @@ test("verified candidate acpx runtime completes one isolated turn", {
     assert.equal(CursorAcpxAdapter.available(), false);
     assert.equal(adapterAvailable(), false);
 
-    const handle = await runtime.ensureSession({
-      sessionKey: "candidate-runtime-session",
-      agent: "candidate",
-      mode: "oneshot",
-      cwd: workspace,
-    });
-    const turn = runtime.startTurn({
-      handle,
-      text: TEST_PROMPT,
-      mode: "prompt",
-      requestId: "candidate-runtime-turn",
-    });
-    const result = await turn.result;
-    const bounded = boundedCandidateTurnResult(result);
-    assert.equal(bounded.status, "completed");
-    assert.equal(bounded.stopReason, "end_turn");
-    assert.equal(bounded.body_retained, false);
-    assert.equal(bounded.availability.available, false);
-    assert.equal(bounded.availability.ordinary_launch, "unavailable");
-    assert.equal("prompt" in bounded, false);
-    assert.equal("response" in bounded, false);
-    assert.equal("transcript" in bounded, false);
+    const recorded = await recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime));
+    assert.deepEqual(ensureCalls[0].keys, ["agent", "cwd", "mode", "sessionKey"]);
+    assert.deepEqual(startCalls[0].keys, ["handle", "mode", "requestId", "text"]);
+    assert.deepEqual(statusCalls[0].keys, ["handle"]);
+    assert.equal(closeCalls.length, 1);
+    assert.equal(closeCalls[0].discardPersistentState, true);
+    assert.equal(recorded.binding.host.session, HOST.session);
+    assert.equal(recorded.binding.host.conversation_id, HOST.conversationId);
+    assert.equal(recorded.binding.host.request_id, HOST.requestId);
+    assert.equal(recorded.binding.runtime.sessionKey, HOST.session);
+    assert.equal(path.resolve(recorded.binding.runtime.cwd), path.resolve(workspace));
+    assert.equal(typeof recorded.binding.runtime.backend, "string");
+    assert.equal(typeof recorded.binding.runtime.runtimeSessionName, "string");
+    assert.equal(typeof recorded.binding.runtime.acpxRecordId, "string");
+    assert.equal(typeof recorded.binding.runtime.backendSessionId, "string");
+    assert.equal("conversation_id" in recorded.binding.runtime, false);
+    assert.notEqual(recorded.binding.runtime.backendSessionId, HOST.conversationId);
+    assert.notEqual(recorded.binding.runtime.acpxRecordId, HOST.conversationId);
+    assert.equal(recorded.turn.requestId, HOST.requestId);
+    assert.equal(recorded.result.status, "completed");
+    assert.equal(recorded.result.stopReason, "end_turn");
+    assert.equal(recorded.result.body_retained, false);
+    assert.equal(recorded.result.availability.available, false);
+    assert.equal(recorded.result.availability.ordinary_launch, "unavailable");
+    assert.equal(recorded.available, false);
+    assert.equal("prompt" in recorded.result, false);
+    assert.equal("response" in recorded.result, false);
+    assert.equal("transcript" in recorded.result, false);
+
+    const events = await readEvents(isolated);
+    const bound = eventNamed(events, "runtime_bound");
+    const completed = eventNamed(events, "runtime_turn_completed");
+    assert.equal(bound.length, 1);
+    assert.equal(completed.length, 1);
+    assert.deepEqual(bound[0].host, recorded.binding.host);
+    assert.deepEqual(bound[0].runtime, recorded.binding.runtime);
+    assert.equal(completed[0].turn.requestId, HOST.requestId);
+    assert.equal(completed[0].turn.status, "completed");
+    assert.equal(completed[0].turn.stopReason, "end_turn");
+    if (completed[0].status) {
+      assert.equal(completed[0].status.lastRequestId, HOST.requestId);
+    }
+    assert.equal("conversation_id" in bound[0].runtime, false);
+    assert.equal("controller_acceptance" in bound[0], false);
+    assert.equal("controller_acceptance" in completed[0], false);
 
     const capabilities = JSON.parse(await readFile(capabilitiesPath, "utf8"));
     assert.equal(capabilities.fs, false);
@@ -317,6 +678,9 @@ test("verified candidate acpx runtime completes one isolated turn", {
       assert.equal(raw.includes('"prompt"'), false);
       assert.equal(raw.includes('"transcript"'), false);
     }
+    const outcomes = callerOutcomes({ workerCompletion: "reported" });
+    assert.equal(outcomes.controller_acceptance, "none");
+    assert.equal(outcomes.distinct, true);
     assert.equal(CursorAcpxAdapter.available(), false);
     assert.equal(adapterAvailable(), false);
   } finally {
