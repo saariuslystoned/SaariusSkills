@@ -8,20 +8,21 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
-export const ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648";
-export const ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8";
+export const ACPX_SOURCE = "https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d";
+export const ACPX_MERGE_COMMIT = "ce8c3689fe830fd5c6199a8a683dc979d180af1d";
 export const ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT;
+export const ACPX_SOURCE_TREE = "04661dbf3af3b3c2a11d16c3061b40e20ce29f4a";
 export const ACPX_HEAD = ACPX_MERGE_COMMIT;
-export const ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2";
-export const ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8";
+export const ACPX_PR_HEAD = "c64b2751f0b8ca6e9d5613e98f7ed87f778de1b5";
+export const ACPX_PR_BASE = "7879505dcf79448cd71cafd82a21aa6c937a3f3e";
 export const ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58";
 export const ACPX_STATUS = "merged_unreleased";
 export const ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0";
 export const ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0";
 export const ACPX_PUBLISHED_NPM_VERSION = "0.18.0";
-export const ACPX_ARTIFACT_SHA256 = "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29";
-export const ACPX_ARTIFACT_PATH = "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz";
-export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-merged648-runs/20260921/runtime";
+export const ACPX_ARTIFACT_SHA256 = "ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342";
+export const ACPX_ARTIFACT_PATH = "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz";
+export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-refresh-runs/20260921/runtime";
 export const ACPX_CANDIDATE_RUNTIME_MODULE = `${ACPX_CANDIDATE_RUNTIME_ROOT}/node_modules/acpx/dist/runtime.js`;
 export const ACPX_ARTIFACT_RUNTIME_ENTRY = "package/dist/runtime.js";
 export const ACPX_ARTIFACT_KIND = "local_exact_source_tarball";
@@ -29,9 +30,21 @@ export const ACPX_PUBLIC_SURFACE = "acpx/runtime";
 export const ACPX_CONSTRUCTOR = "createAcpRuntime";
 export const ACPX_QUALIFICATION = "synthetic_only";
 export const CUTOVER_SCHEMA = "puppet.cursor-acpx-cutover/v1";
+export const HISTORICAL_ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648";
+export const HISTORICAL_ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8";
+export const HISTORICAL_ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2";
+export const HISTORICAL_ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8";
+export const HISTORICAL_ACPX_ARTIFACT_SHA256 = "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29";
+export const HISTORICAL_ACPX_ARTIFACT_PATH = "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz";
+export const HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-merged648-runs/20260921/runtime";
 export const OBSOLETE_DRAFT_HEADS = Object.freeze([
   "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff",
   "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de",
+]);
+export const HISTORICAL_MERGED_HEADS = Object.freeze([
+  HISTORICAL_ACPX_MERGE_COMMIT,
+  HISTORICAL_ACPX_PR_HEAD,
+  HISTORICAL_ACPX_PR_BASE,
 ]);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SHA1_RE = /^[0-9a-f]{40}$/;
@@ -87,6 +100,9 @@ export const PUBLIC_RUNTIME_OPTIONS = Object.freeze([
   "processLifecycle",
   "probeAgent",
 ]);
+export const CANDIDATE_TURN_OBSERVED_TYPE_BOUND = 16;
+export const CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND = 64;
+export const CANDIDATE_TURN_UNKNOWN_TYPE = "unknown";
 
 export class AdapterError extends Error {
   constructor(code, message) {
@@ -129,6 +145,7 @@ export function acpxDependencyIdentity() {
     head: ACPX_HEAD,
     merge_commit: ACPX_MERGE_COMMIT,
     source_commit: ACPX_SOURCE_COMMIT,
+    source_tree: ACPX_SOURCE_TREE,
     pr_head: ACPX_PR_HEAD,
     pr_base: ACPX_PR_BASE,
     npm_git_head: ACPX_NPM_GIT_HEAD,
@@ -182,12 +199,16 @@ export function validateAcpxDependencyIdentity(value) {
   }
   const mergeCommit = requireSha1(value.merge_commit, "merge commit");
   const sourceCommit = requireSha1(value.source_commit, "source commit");
+  const sourceTree = requireSha1(value.source_tree, "source tree");
   const head = requireSha1(value.head, "bound head");
   const prHead = requireSha1(value.pr_head, "PR head");
   const prBase = requireSha1(value.pr_base, "PR base");
   const npmGitHead = requireSha1(value.npm_git_head, "npm gitHead");
   if (mergeCommit !== sourceCommit || head !== mergeCommit) {
     throw new AdapterError("IDENTITY_MISMATCH", "merge and source commit must be the exact merged acpx commit");
+  }
+  if (sourceTree === mergeCommit) {
+    throw new AdapterError("IDENTITY_MISMATCH", "source tree is not the merge commit");
   }
   if (mergeCommit === npmGitHead) {
     throw new AdapterError("IDENTITY_MISMATCH", "stale npm gitHead is not the merge commit");
@@ -197,6 +218,14 @@ export function validateAcpxDependencyIdentity(value) {
   }
   if ([mergeCommit, prHead, prBase, npmGitHead].some((commit) => OBSOLETE_DRAFT_HEADS.includes(commit))) {
     throw new AdapterError("IDENTITY_MISMATCH", "acpx draft-state identity is obsolete");
+  }
+  if (
+    [mergeCommit, sourceCommit, head].some((commit) => HISTORICAL_MERGED_HEADS.includes(commit))
+    || value.artifact_sha256 === HISTORICAL_ACPX_ARTIFACT_SHA256
+    || value.artifact_path === HISTORICAL_ACPX_ARTIFACT_PATH
+    || value.source === HISTORICAL_ACPX_SOURCE
+  ) {
+    throw new AdapterError("IDENTITY_MISMATCH", "historical #648 candidate identity is not the current pin");
   }
   const artifact = requireSha256(value.artifact_sha256, "acpx artifact");
   const integrity = requireSha256(value.integrity, "acpx integrity");
@@ -532,6 +561,9 @@ async function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
   ) {
     throw new AdapterError("INVALID_RUNTIME", "candidate runtime cannot use the repo bridge directory");
   }
+  if (requested === path.resolve(REPO_ROOT, HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT)) {
+    throw new AdapterError("INVALID_RUNTIME", "historical #648 runtime root is not the current candidate runtime");
+  }
   if (
     requested !== allowed
     || relativeToRepo.startsWith("..")
@@ -580,6 +612,7 @@ export async function materializeVerifiedCandidateAcpx({ runtimeRoot } = {}) {
     modulePath,
     artifact_sha256: artifact.artifact_sha256,
     module_sha256: installed.module_sha256,
+    imported_chunks: installed.imported_chunks,
     lifecycle_scripts: "disabled",
   };
 }
@@ -623,6 +656,9 @@ export async function createVerifiedCandidateAcpRuntime(options, { runtimeRoot, 
       module_path: materialized.modulePath,
       artifact_sha256: materialized.artifact_sha256,
       module_sha256: installed.module_sha256,
+      imported_chunks: installed.imported_chunks,
+      merge_commit: ACPX_MERGE_COMMIT,
+      source_tree: ACPX_SOURCE_TREE,
       lifecycle_scripts: "disabled",
       available: adapterAvailable(),
       ordinary_launch: "unavailable",
@@ -647,6 +683,69 @@ export function boundedCandidateTurnResult(value) {
       available: adapterAvailable(),
       ordinary_launch: "unavailable",
     },
+  };
+}
+
+function emptyDiscardedTurnEvents(observer) {
+  return {
+    observer,
+    observed_types: [],
+    event_count: 0,
+    observed_types_truncated: false,
+    body_retained: false,
+  };
+}
+
+function observedTurnEventType(event) {
+  if (!event || typeof event !== "object" || typeof event.type !== "string" || event.type.length === 0) {
+    return CANDIDATE_TURN_UNKNOWN_TYPE;
+  }
+  if (event.type.length > CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND) {
+    return event.type.slice(0, CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND);
+  }
+  return event.type;
+}
+
+export async function discardCandidateTurnEvents(turn, { limit } = {}) {
+  if (!turn || typeof turn !== "object") {
+    throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
+  }
+  const events = turn.events;
+  if (events == null) {
+    return emptyDiscardedTurnEvents("absent");
+  }
+  if (typeof events[Symbol.asyncIterator] !== "function") {
+    throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn events are not iterable");
+  }
+  const observed = [];
+  let count = 0;
+  let truncated = false;
+  try {
+    for await (const event of events) {
+      const label = observedTurnEventType(event);
+      if (!observed.includes(label)) {
+        if (observed.length < CANDIDATE_TURN_OBSERVED_TYPE_BOUND) {
+          observed.push(label);
+        } else {
+          truncated = true;
+        }
+      }
+      count += 1;
+      if (Number.isInteger(limit) && limit > 0 && count >= limit) {
+        break;
+      }
+    }
+  } finally {
+    // Upstream #672 releases queued events only after iteration ends. This
+    // does not prove never-started or indefinitely slow observers. A metadata
+    // cap must not break this loop; only an explicit consume limit may.
+  }
+  return {
+    observer: "ended",
+    observed_types: observed,
+    event_count: count,
+    observed_types_truncated: truncated,
+    body_retained: false,
   };
 }
 
@@ -737,6 +836,10 @@ export async function recordBoundCandidateTurn(options = {}) {
       throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
     }
     await turn.promptStarted;
+    const discardedEvents = await discardCandidateTurnEvents(turn);
+    if (discardedEvents.body_retained !== false) {
+      throw new AdapterError("BODY_RETAINED", "candidate turn events retained a body");
+    }
     const result = await turn.result;
     const bounded = boundedCandidateTurnResult(result);
     if (typeof turn.requestId !== "string" || !turn.requestId) {

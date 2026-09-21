@@ -3,11 +3,14 @@
 Binds the existing named local Cursor transport ``cursor-acp``. Ordinary
 launch, native defaults, MCP broker policy, and live qualification stay
 unchanged and unavailable. The public-runtime boundary is the documented
-``createAcpRuntime`` options from openclaw/acpx PR #648 after merge commit
-``ac22c3c8f6d077b542f19524afbe5409e46c56e8``. That merge is exact-source
-proof only; published ``acpx@0.18.0`` does not contain it. Private
+``createAcpRuntime`` options from openclaw/acpx merged main
+``ce8c3689fe830fd5c6199a8a683dc979d180af1d`` (``#672`` event-iterator
+cleanup only after observers stop reading). That commit is exact-source
+proof only; published ``acpx@0.18.0`` does not contain it. Historical
+``#648`` / ``ac22c3c8...`` identity remains a rejected fence. Private
 internals are not imported. Tests inject deterministic synthetic runtime
-and peer fixtures.
+and peer fixtures; optional actual-runtime tests use the task-local
+artifact.
 """
 
 from __future__ import annotations
@@ -60,32 +63,52 @@ CALLBACK_SCHEMA = "puppet.cursor-acpx-callback-rejection/v1"
 QUESTION_SCHEMA = "puppet.cursor-acpx-question/v1"
 PROCESS_SCHEMA = "puppet.cursor-acpx-process/v1"
 
-ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648"
-ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8"
+ACPX_SOURCE = (
+    "https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d"
+)
+ACPX_MERGE_COMMIT = "ce8c3689fe830fd5c6199a8a683dc979d180af1d"
 ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT
+ACPX_SOURCE_TREE = "04661dbf3af3b3c2a11d16c3061b40e20ce29f4a"
 ACPX_HEAD = ACPX_MERGE_COMMIT
-ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2"
-ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8"
+ACPX_PR_HEAD = "c64b2751f0b8ca6e9d5613e98f7ed87f778de1b5"
+ACPX_PR_BASE = "7879505dcf79448cd71cafd82a21aa6c937a3f3e"
 ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58"
 ACPX_STATUS = "merged_unreleased"
 ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
 ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0"
 ACPX_PUBLISHED_NPM_VERSION = "0.18.0"
 ACPX_ARTIFACT_SHA256 = (
-    "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29"
+    "ad9bc677a6687268010da9c57b83fd96d2d35eddafdb55a6e043fd70679cc342"
 )
 ACPX_ARTIFACT_PATH = (
-    "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz"
+    "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz"
 )
 ACPX_ARTIFACT_KIND = "local_exact_source_tarball"
 ACPX_PUBLIC_SURFACE = "acpx/runtime"
 ACPX_CONSTRUCTOR = "createAcpRuntime"
 ACPX_QUALIFICATION = "synthetic_only"
 CUTOVER_SCHEMA = "puppet.cursor-acpx-cutover/v1"
+HISTORICAL_ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648"
+HISTORICAL_ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8"
+HISTORICAL_ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2"
+HISTORICAL_ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8"
+HISTORICAL_ACPX_ARTIFACT_SHA256 = (
+    "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29"
+)
+HISTORICAL_ACPX_ARTIFACT_PATH = (
+    "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz"
+)
 OBSOLETE_DRAFT_HEADS = frozenset(
     {
         "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff",
         "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de",
+    }
+)
+HISTORICAL_MERGED_HEADS = frozenset(
+    {
+        HISTORICAL_ACPX_MERGE_COMMIT,
+        HISTORICAL_ACPX_PR_HEAD,
+        HISTORICAL_ACPX_PR_BASE,
     }
 )
 
@@ -216,6 +239,7 @@ def acpx_dependency_identity() -> Dict[str, Any]:
         "head": ACPX_HEAD,
         "merge_commit": ACPX_MERGE_COMMIT,
         "source_commit": ACPX_SOURCE_COMMIT,
+        "source_tree": ACPX_SOURCE_TREE,
         "pr_head": ACPX_PR_HEAD,
         "pr_base": ACPX_PR_BASE,
         "npm_git_head": ACPX_NPM_GIT_HEAD,
@@ -281,6 +305,7 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
         )
     merge_commit = value.get("merge_commit")
     source_commit = value.get("source_commit")
+    source_tree = value.get("source_tree")
     head = value.get("head")
     pr_head = value.get("pr_head")
     pr_base = value.get("pr_base")
@@ -288,6 +313,7 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
     for label, commit in (
         ("merge commit", merge_commit),
         ("source commit", source_commit),
+        ("source tree", source_tree),
         ("bound head", head),
         ("PR head", pr_head),
         ("PR base", pr_base),
@@ -298,6 +324,11 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
         _raise_identity(
             "identity_mismatch",
             "merge and source commit must be the exact merged acpx commit",
+        )
+    if source_tree == merge_commit:
+        _raise_identity(
+            "identity_mismatch",
+            "source tree is not the merge commit",
         )
     if merge_commit == npm_git_head:
         _raise_identity(
@@ -318,6 +349,16 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
         _raise_identity(
             "identity_mismatch",
             "acpx draft-state identity is obsolete",
+        )
+    if (
+        {merge_commit, source_commit, head} & HISTORICAL_MERGED_HEADS
+        or value.get("artifact_sha256") == HISTORICAL_ACPX_ARTIFACT_SHA256
+        or value.get("artifact_path") == HISTORICAL_ACPX_ARTIFACT_PATH
+        or value.get("source") == HISTORICAL_ACPX_SOURCE
+    ):
+        _raise_identity(
+            "identity_mismatch",
+            "historical #648 candidate identity is not the current pin",
         )
     artifact = validate_sha256(value.get("artifact_sha256"), "acpx artifact")
     integrity = validate_sha256(value.get("integrity"), "acpx integrity")
@@ -1164,7 +1205,11 @@ __all__ = [
     "ACPX_PR_HEAD",
     "ACPX_SOURCE",
     "ACPX_SOURCE_COMMIT",
+    "ACPX_SOURCE_TREE",
     "ACPX_STATUS",
+    "HISTORICAL_ACPX_ARTIFACT_PATH",
+    "HISTORICAL_ACPX_ARTIFACT_SHA256",
+    "HISTORICAL_ACPX_MERGE_COMMIT",
     "AUTHORITY_ID",
     "CursorAcpxAdapter",
     "FORBIDDEN_CALLBACKS",
