@@ -484,6 +484,9 @@ test("a genuinely dead owner is recovered as a bridge restart", async () => {
   const recovered = await second.result({ jobId: submitted.jobId });
   assert.equal(recovered.status, "failed");
   assert.equal(recovered.error.code, "BRIDGE_RESTARTED");
+  assert.notEqual(recovered.cleanup?.status, "recovered");
+  assert.equal(recovered.cleanupReady, false);
+  assert.equal(recovered.complete, false);
   await first.broker.close();
   await second.close();
 });
@@ -587,50 +590,6 @@ test("a second broker observes the shared cleanup fence while its owner remains 
   });
   const independentResult = await second.result({ jobId: independent.jobId, waitMs: 1_000 });
   assert.equal(independentResult.status, "completed");
-  await first.broker.close();
-  await second.close();
-});
-
-test("owner-dead cleanup recovery records bounded identity before replacement", async () => {
-  const first = await makeBroker({
-    pid: 4242,
-    startTime: "dead-cleanup-owner",
-    inspectProcess: async (pid) => pid === 4242
-      ? { status: "alive", startTime: "dead-cleanup-owner" }
-      : { status: "alive", startTime: "replacement-owner" },
-    runtimeOptions: { closeError: "injected close failure" },
-  });
-  const submitted = await first.broker.delegate({
-    workspace: first.workspace,
-    model: FIXTURE_MODEL,
-    prompt: "Leave a bounded recovery record for the replacement broker.",
-  });
-  const failedCleanup = await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(failedCleanup.cleanup.status, "uncertain");
-
-  const second = new AntigravityAcpBroker({
-    stateRoot: first.broker.stateRoot,
-    runtimeDir: path.dirname(first.executable),
-    geminiHome: first.geminiHome,
-    processEnv: { PATH: process.env.PATH ?? "" },
-    pid: 5252,
-    startTime: "replacement-owner",
-    inspectProcess: async (pid) => pid === 4242
-      ? { status: "missing" }
-      : { status: "alive", startTime: "replacement-owner" },
-    runtime: new FixtureRuntime(),
-  });
-  await second.init();
-  const recovered = await second.result({ jobId: submitted.jobId, waitMs: 0 });
-  assert.equal(recovered.cleanup.status, "recovered");
-  assert.equal(recovered.cleanup.observed, "owner_gone");
-  assert.equal(recovered.cleanup.owner.pid, 4242);
-  const replacement = await second.delegate({
-    workspace: first.workspace,
-    model: FIXTURE_MODEL,
-    prompt: "Replace only after bounded owner-dead recovery.",
-  });
-  assert.equal((await second.result({ jobId: replacement.jobId, waitMs: 1_000 })).status, "completed");
   await first.broker.close();
   await second.close();
 });

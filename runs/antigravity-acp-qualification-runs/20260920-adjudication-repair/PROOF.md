@@ -48,14 +48,21 @@ while the first peer remained alive. The repaired broker now returns
 and rejects same-workspace replacement with `WORKSPACE_CLEANUP_PENDING` while
 allowing independent workspaces.
 
-The new deterministic coverage also exercises a second broker sharing the same
-state root and owner-dead recovery. The separate broker remains blocked while
-the owner is live; an exact dead-owner identity records `cleanup=recovered`
-with the original owner PID before replacement is admitted.
+The deterministic cross-broker coverage keeps the separate broker blocked while
+the owner is live. Owner death alone no longer records observed cleanup: the
+broker preserves `cleanup=uncertain`, keeps `complete=false`, and keeps the
+same-workspace replacement fence in place.
+
+The real-process regression `test/owner-death-cleanup.test.mjs` uses the
+production `createDefaultRuntime`/pinned `acpx` path with a synthetic ACP peer,
+injects only the runtime close failure, exits the owner broker, and observes the
+peer heartbeat continuing after owner exit. The replacement broker rejects the
+same workspace with `WORKSPACE_CLEANUP_PENDING` while an independent workspace
+still completes; the test finally kills only the exact fixture peer PIDs.
 
 ## F3: packaging assertion
 
-The packaging test now expects the shipped plugin version `0.3.3`, matching the
+The packaging test now expects the shipped plugin version `0.3.4`, matching the
 manifest and installed plugin. The assertion remains exact; it was not removed
 or weakened.
 

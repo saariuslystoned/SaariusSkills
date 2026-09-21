@@ -634,12 +634,8 @@ export class AntigravityAcpBroker {
       code: "BRIDGE_RESTARTED",
       message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
     };
-    if (needsCleanupFence(job) || job.handle) {
-      job.cleanup = this.cleanupRecord(job, {
-        status: "recovered",
-        observed: "owner_gone",
-      });
-    }
+    // Owner PID death can interrupt the job. It is not proof that the owned
+    // ACP worker/session stopped, so unresolved cleanup stays pending/uncertain.
     await this.saveJob(job);
     await this.recordEvent(job, "bridge_restarted", { previousStatus });
     this.notifyChange(job.jobId);
@@ -656,15 +652,8 @@ export class AntigravityAcpBroker {
       await this.readOwnerLease(job.owner?.brokerId),
       await this.probeOwner(job.owner),
     )) return;
-    const previousCleanup = job.cleanup?.status ?? "pending";
-    job.cleanup = this.cleanupRecord(job, {
-      status: "recovered",
-      observed: "owner_gone",
-    });
-    job.updatedAt = this.now();
-    await this.saveJob(job);
-    await this.recordEvent(job, "cleanup_recovered", { previousCleanup, observed: "owner_gone" });
-    this.notifyChange(job.jobId);
+    // Owner PID death is not independent exact-worker/session termination
+    // proof. Keep pending/uncertain cleanup and the replacement fence.
   }
 
   async probeOwner(owner) {
