@@ -32,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.3.3")
+        self.assertEqual(plugin["version"], "0.3.4")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -582,6 +582,16 @@ class PackagingTests(unittest.TestCase):
             mcp["mcpServers"]["cursor-acp"]["args"],
             ["bridge/cursor-acp/server.mjs"],
         )
+        cursor_broker = (ROOT / "bridge" / "cursor-acp" / "broker.mjs").read_text(
+            encoding="utf-8"
+        )
+        cursor_recovery_tests = (
+            ROOT / "bridge" / "cursor-acp" / "test" / "recovery.test.mjs"
+        ).read_text(encoding="utf-8")
+        self.assertIn('schema: "saarius.cursor-acp.owner.v1"', cursor_broker)
+        self.assertIn("startTime", cursor_broker)
+        self.assertIn("recoverStaleJobs", cursor_broker)
+        self.assertIn("live owner", cursor_recovery_tests)
 
 
 if __name__ == "__main__":
