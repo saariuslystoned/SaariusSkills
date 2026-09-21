@@ -9,7 +9,8 @@ publication was performed.
 
 ## Repository checks
 
-- Worktree: `/Users/bobbybones/.codex/worktrees/ee24/SaariusSkills`.
+- Repository/worktree: `SaariusSkills` (absolute checkout path intentionally
+  omitted from this public packet).
 - Branch: `codex/puppet-vm-wrapper-plan-20260921`.
 - Fresh `origin/main`: `49a4640` (no divergence at branch creation).
 - No repository-local `AGENTS.md` or `REPO_HYGIENE.md`; provided global swarm
@@ -44,3 +45,7 @@ Follow-up portability repair: removed the owner checkout path from the public
 plan while retaining exact machine-specific selectors only in this private run
 packet. `python3 -m unittest tests.test_puppet_packaging -v` passed all 9 tests,
 including `test_public_puppet_plans_do_not_publish_absolute_macos_home_paths`.
+
+Final public-packet cleanup: replaced the two remaining absolute checkout paths
+in `STATE.md` and this proof with repo-relative or path-omitted references.
+The changed-content scan across all PR65 files found no absolute home paths.

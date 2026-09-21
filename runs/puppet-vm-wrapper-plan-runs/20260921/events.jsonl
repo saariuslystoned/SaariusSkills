@@ -4,3 +4,4 @@
 {"ts":"2026-09-21T17:15:56Z","event":"upstream_boundary_read","status":"pass","source":"acpx#637","decision":"host_owned_wrapper_remote_termination_workspace_mapping"}
 {"ts":"2026-09-21T17:15:56Z","event":"plan_authored","status":"complete","artifact":"plans/puppet/vm-wrapper-plan-20260921.md","mutations":"docs_only"}
 {"ts":"2026-09-21T17:20:00Z","event":"public_plan_portability_repair","status":"pass","change":"removed_owner_checkout_path_from_public_plan","focused_check":"python3 -m unittest tests.test_puppet_packaging -v","tests_passed":9}
+{"ts":"2026-09-21T18:01:35Z","event":"public_run_packet_portability_repair","status":"pass","change":"replaced_two_absolute_checkout_paths","changed_content_scan":"pass","focused_check":"python3 -m unittest tests.test_puppet_packaging -v","tests_passed":9}
