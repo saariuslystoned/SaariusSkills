@@ -593,6 +593,85 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("recoverStaleJobs", cursor_broker)
         self.assertIn("live owner", cursor_recovery_tests)
 
+    def test_cursor_plugin_manifest_packages_skills_and_antigravity_mcp(
+        self,
+    ) -> None:
+        cursor = json.loads(
+            (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        cursor_mcp_text = (ROOT / ".cursor-plugin" / "mcp.json").read_text(
+            encoding="utf-8"
+        )
+        cursor_mcp = json.loads(cursor_mcp_text)
+        packaged = {
+            path.name
+            for path in (ROOT / "skills").iterdir()
+            if path.is_dir() and (path / "SKILL.md").is_file()
+        }
+        omitted = "cursor-acp-delegation"
+        expected_skills = [
+            f"./skills/{name}/"
+            for name in sorted(packaged - {omitted})
+        ]
+        codex = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        root_plugin = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        codex_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+
+        self.assertIn(omitted, packaged)
+        self.assertEqual(cursor["name"], "saarius-skills")
+        self.assertEqual(cursor["skills"], expected_skills)
+        self.assertNotIn(f"./skills/{omitted}/", cursor["skills"])
+        self.assertIn("./skills/antigravity-acp-delegation/", cursor["skills"])
+        self.assertIn("./skills/pstack-playbooks/", cursor["skills"])
+        for skill in cursor["skills"]:
+            self.assertTrue((ROOT / skill / "SKILL.md").is_file(), skill)
+        self.assertEqual(cursor["mcpServers"], "./.cursor-plugin/mcp.json")
+        self.assertNotEqual(cursor, root_plugin)
+        self.assertNotEqual(cursor, codex)
+
+        self.assertEqual(set(cursor_mcp["mcpServers"]), {"antigravity-acp"})
+        server = cursor_mcp["mcpServers"]["antigravity-acp"]
+        self.assertEqual(server["command"], "node")
+        self.assertEqual(
+            server["args"],
+            ["${CURSOR_PLUGIN_ROOT}/bridge/antigravity-acp/server.mjs"],
+        )
+        self.assertNotIn("env", server)
+        self.assertNotIn("GEMINI_HOME", cursor_mcp_text)
+        self.assertNotIn("CURSOR_AGENT_EXECUTABLE", cursor_mcp_text)
+        self.assertNotIn("/Users/", cursor_mcp_text)
+        self.assertNotIn("${PLUGIN_ROOT}", cursor_mcp_text)
+        self.assertNotIn("cursor-acp", cursor_mcp["mcpServers"])
+
+        self.assertEqual(
+            root_plugin,
+            {
+                "name": "saarius-skills",
+                "description": "Experimental agent supervision, Herdr transport, and progressive product-decision workflows.",
+            },
+        )
+        self.assertEqual(codex["name"], "saarius-skills")
+        self.assertEqual(codex["version"], "0.3.4")
+        self.assertEqual(codex["skills"], "./skills/")
+        self.assertEqual(codex["mcpServers"], "./.mcp.json")
+        self.assertEqual(marketplace["name"], "saarius-skills")
+        self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")
+        self.assertEqual(
+            codex_mcp["mcpServers"]["antigravity-acp"]["args"],
+            ["bridge/antigravity-acp/server.mjs"],
+        )
+        self.assertEqual(
+            codex_mcp["mcpServers"]["cursor-acp"]["args"],
+            ["bridge/cursor-acp/server.mjs"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,23 @@
+{
+  "name": "saarius-skills",
+  "skills": [
+    "./skills/antigravity-acp-delegation/",
+    "./skills/architect/",
+    "./skills/automate-me/",
+    "./skills/blast-radius/",
+    "./skills/bobby-mode/",
+    "./skills/create-verification-skill/",
+    "./skills/grilltrack/",
+    "./skills/herdr-puppet/",
+    "./skills/how/",
+    "./skills/maintain-verification-skill/",
+    "./skills/phone-proof/",
+    "./skills/pstack-playbooks/",
+    "./skills/puppet/",
+    "./skills/reflect/",
+    "./skills/tdd/",
+    "./skills/unslop/",
+    "./skills/why/"
+  ],
+  "mcpServers": "./.cursor-plugin/mcp.json"
+}
