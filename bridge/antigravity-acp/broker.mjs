@@ -11,6 +11,7 @@ import {
   authRepair,
   currentPlatformId,
   defaultGeminiHome,
+  defaultRuntimeDir,
   defaultStateRoot,
   platformLaunch,
   presentForbiddenEnvNames,
@@ -423,7 +424,10 @@ export class AntigravityAcpBroker {
     this.jobsRoot = path.join(this.stateRoot, "jobs");
     this.runsRoot = path.join(this.stateRoot, "runs");
     this.geminiHome = path.resolve(options.geminiHome ?? resolveConfiguredGeminiHome(this.processEnv));
-    this.runtimeDir = options.runtimeDir ?? this.processEnv.ANTIGRAVITY_ACP_RUNTIME_DIR?.trim();
+    this.runtimeDir =
+      options.runtimeDir ??
+      this.processEnv.ANTIGRAVITY_ACP_RUNTIME_DIR?.trim() ??
+      defaultRuntimeDir();
     this.runtimeServer = options.runtimeServer ?? this.processEnv.ANTIGRAVITY_ACP_SERVER?.trim();
     this.helperPath = options.helperPath ?? this.processEnv.ANTIGRAVITY_HARNESS_PATH?.trim();
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();

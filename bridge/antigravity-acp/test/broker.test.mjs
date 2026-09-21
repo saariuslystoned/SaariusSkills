@@ -11,7 +11,7 @@ import {
   redactSensitive,
   resolveRequestedAntigravityModel,
 } from "../broker.mjs";
-import { currentPlatformId, platformLaunch, settingsPath } from "../contract.mjs";
+import { currentPlatformId, defaultRuntimeDir, platformLaunch, settingsPath } from "../contract.mjs";
 
 const fixtureCatalog = JSON.parse(
   await readFile(new URL("../fixtures/model-catalog.json", import.meta.url), "utf8"),
@@ -163,6 +163,17 @@ async function waitUntil(predicate, timeoutMs = 1_000) {
   }
   assert.fail("condition did not become true before timeout");
 }
+
+test("default runtime directory follows the pinned platform archive layout", () => {
+  assert.match(
+    defaultRuntimeDir("darwin-aarch64"),
+    /\.local\/share\/saarius-skills\/antigravity-acp\/1\.1\.1-darwin-arm64$/,
+  );
+  assert.match(
+    defaultRuntimeDir("linux-x86_64"),
+    /\.local\/share\/saarius-skills\/antigravity-acp\/1\.1\.1-linux-x86_64$/,
+  );
+});
 
 test("readiness proves advertised models without a turn", async () => {
   const { broker, runtime, workspace } = await makeBroker();

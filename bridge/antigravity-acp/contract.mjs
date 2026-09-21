@@ -115,6 +115,24 @@ export function platformLaunch(platformId = currentPlatformId()) {
   };
 }
 
+export function defaultRuntimeDir(platformId = currentPlatformId()) {
+  const archiveDirectory = {
+    "darwin-aarch64": `${RUNTIME_VERSION}-darwin-arm64`,
+    "linux-aarch64": `${RUNTIME_VERSION}-linux-arm64`,
+    "linux-x86_64": `${RUNTIME_VERSION}-linux-x86_64`,
+    "windows-aarch64": `${RUNTIME_VERSION}-windows-arm64`,
+    "windows-x86_64": `${RUNTIME_VERSION}-windows-x86_64`,
+  }[platformId] ?? `${RUNTIME_VERSION}-${platformId}`;
+  return path.join(
+    homedir(),
+    ".local",
+    "share",
+    "saarius-skills",
+    RUNTIME_ID,
+    archiveDirectory,
+  );
+}
+
 export function defaultGeminiHome() {
   return path.join(
     homedir(),
@@ -152,7 +170,7 @@ export function runtimeRepair(platformId = currentPlatformId()) {
     `Download the pinned antigravity-acp ${RUNTIME_VERSION} archive for ${platformId}: ${launch.archive}`,
     `Extract it to a durable directory and keep ${path.basename(launch.runtimeCommand)} plus ${launch.helper} from that same release together.`,
     `chmod +x both files on Linux/macOS. Do not let setup download or update them.`,
-    `Set ANTIGRAVITY_ACP_RUNTIME_DIR to that directory, or ANTIGRAVITY_ACP_SERVER to the absolute runtime path.`,
+    `The default runtime directory is ${defaultRuntimeDir(platformId)}; set ANTIGRAVITY_ACP_RUNTIME_DIR to another directory, or ANTIGRAVITY_ACP_SERVER to the absolute runtime path.`,
     `Set ANTIGRAVITY_HARNESS_PATH to the absolute matching helper if it is not beside the runtime.`,
     `Set GEMINI_HOME to an explicit dedicated profile. Complete personal Google OAuth in an interactive ACP client using that profile.`,
     `Write ${path.join("<GEMINI_HOME>", "antigravity-acp", "settings.json")} with {"auth":{"type":"oauth-personal"},"useG1Credits":false}.`,

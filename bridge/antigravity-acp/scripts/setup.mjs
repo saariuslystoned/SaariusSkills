@@ -13,6 +13,7 @@ import {
   authRepair,
   currentPlatformId,
   defaultGeminiHome,
+  defaultRuntimeDir,
   platformLaunch,
   presentForbiddenEnvNames,
   runtimeRepair,
@@ -51,7 +52,7 @@ function diagnoseLockedRuntime(env = process.env) {
   }
   const basename = path.basename(launch.runtimeCommand);
   const helperName = path.basename(launch.helper);
-  const runtimeDir = env.ANTIGRAVITY_ACP_RUNTIME_DIR?.trim();
+  const runtimeDir = env.ANTIGRAVITY_ACP_RUNTIME_DIR?.trim() || defaultRuntimeDir(platformId);
   const runtimeServer = env.ANTIGRAVITY_ACP_SERVER?.trim();
   const helperOverride = env.ANTIGRAVITY_HARNESS_PATH?.trim();
   const command = runtimeServer

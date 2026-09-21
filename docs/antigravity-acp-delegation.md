@@ -15,6 +15,16 @@ The runtime binary and matching `localharness_external` helper are a separate
 download. This package does not install or update them. Native `agy --print`
 and Puppet qualification stay on their own routes.
 
+When the pinned runtime is installed at the documented default location,
+native MCP readiness discovers it without shell-only environment overrides:
+
+```text
+~/.local/share/saarius-skills/antigravity-acp/<version>-<platform-archive>
+```
+
+`ANTIGRAVITY_ACP_RUNTIME_DIR`, `ANTIGRAVITY_ACP_SERVER`, and
+`ANTIGRAVITY_HARNESS_PATH` remain explicit overrides for non-default layouts.
+
 The requested model must be an exact advertised ACP model id. The bridge fails
 closed when the runtime/helper is missing, personal OAuth is not already
 configured under the explicit `GEMINI_HOME` profile, API-key or Cloud fallback
