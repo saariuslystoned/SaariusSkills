@@ -61,15 +61,20 @@ or weakened.
 
 ## Native process gate
 
-After pushing `e365520`, the plugin was reinstalled at `0.3.3`; Antigravity
-setup returned `MCP_READY` with the pinned runtime and personal OAuth policy.
-The current task's native readiness call also succeeded, but native delegate
-job `8b7a509d-48bf-4ad3-823c-92aee18f2105` persisted no `Owner` or `Cleanup`
-fields in its non-secret `STATE.md`/`PROOF.md`. It therefore came from the
-pre-repair MCP process despite the reinstall. The job was cancelled before
-spending a coding turn. A fresh Codex task or explicit MCP reconnect is still
-required; only a subsequent job whose persisted metadata contains the repaired
-owner/cleanup fields can establish native execution on this head.
+After pushing `8846e41`, the plugin was versioned and reinstalled at `0.3.4`.
+The reviewed and installed Cursor broker hashes matched at
+`7190256456a691fce4fc9f0b805393feaff504d20096cd8ae0867fe45cc0b6ea`; the
+Antigravity broker hashes matched at
+`0361630e51c19ba5591c9f1995f50b3fb62cbd8bbbd95b90b38fc23a373208c8`.
+Antigravity setup returned `MCP_READY` with the pinned runtime and personal
+OAuth policy. The current task's native readiness call also succeeded, but
+native delegate job `b8ece6d8-fea3-4290-865d-1a67c116e3eb` persisted no
+`Owner` or `Cleanup` fields in its non-secret `STATE.md`/`PROOF.md`. It
+therefore came from the pre-repair MCP process despite the versioned reinstall
+and source-hash match. The job was cancelled before spending a coding turn. A
+fresh Codex task or explicit MCP reconnect is still required; only a subsequent
+job whose persisted metadata contains the repaired owner/cleanup fields can
+establish native execution on this head.
 
 ## Review boundary
 
