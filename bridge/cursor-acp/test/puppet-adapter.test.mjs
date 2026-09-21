@@ -22,6 +22,12 @@ import {
   HISTORICAL_ACPX_ARTIFACT_PATH,
   HISTORICAL_ACPX_ARTIFACT_SHA256,
   HISTORICAL_ACPX_MERGE_COMMIT,
+  HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH,
+  HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+  HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+  HISTORICAL_F888_ACPX_ARTIFACT_PATH,
+  HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+  HISTORICAL_F888_ACPX_MERGE_COMMIT,
   AdapterError,
   CursorAcpxAdapter,
   FORBIDDEN_CALLBACKS,
@@ -159,6 +165,32 @@ test("merged unreleased provenance stays exact and fail-closed", () => {
       integrity: HISTORICAL_ACPX_ARTIFACT_SHA256,
     }),
     (error) => error instanceof AdapterError && /historical #648/.test(error.message),
+  );
+  assert.throws(
+    () => validateAcpxDependencyIdentity({
+      ...pin,
+      source: "https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d",
+      merge_commit: HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+      source_commit: HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+      head: HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+      artifact_path: HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH,
+      artifact_sha256: HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+      integrity: HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+    }),
+    (error) => error instanceof AdapterError && /historical refresh/.test(error.message),
+  );
+  assert.throws(
+    () => validateAcpxDependencyIdentity({
+      ...pin,
+      source: "https://github.com/openclaw/acpx/commit/f8883645c261e07b2df7f9c3b4ad243b62d8168a",
+      merge_commit: HISTORICAL_F888_ACPX_MERGE_COMMIT,
+      source_commit: HISTORICAL_F888_ACPX_MERGE_COMMIT,
+      head: HISTORICAL_F888_ACPX_MERGE_COMMIT,
+      artifact_path: HISTORICAL_F888_ACPX_ARTIFACT_PATH,
+      artifact_sha256: HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+      integrity: HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+    }),
+    (error) => error instanceof AdapterError && /historical f888/.test(error.message),
   );
   assert.throws(
     () => validateAcpxDependencyIdentity({ ...pin, source_tree: ACPX_MERGE_COMMIT }),

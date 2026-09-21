@@ -11,6 +11,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.agy_print import AgyPrintController
+from puppet_lib.antigravity_acp import AntigravityAcpController
 from puppet_lib.errors import UnsupportedError, ValidationError
 from puppet_lib.tmux import TmuxController
 from puppet_lib.transport import (
@@ -41,6 +42,11 @@ class TransportBoundaryTests(unittest.TestCase):
         self.assertEqual(table["cursor-acp"]["implementation"], "implemented")
         self.assertEqual(
             table["cursor-acp"]["resume_proves"],
+            "matching_session_and_conversation_identity",
+        )
+        self.assertEqual(table["antigravity-acp"]["implementation"], "implemented")
+        self.assertEqual(
+            table["antigravity-acp"]["resume_proves"],
             "matching_session_and_conversation_identity",
         )
         for name in ("herdr", "acp"):
@@ -88,3 +94,15 @@ class TransportBoundaryTests(unittest.TestCase):
                 {"schema": "puppet.transport-binding/v1", "id": "agy-print"},
                 Path(tempfile.gettempdir()),
             )
+
+    def test_antigravity_acp_binds_without_falling_back_and_stays_unavailable(self):
+        binding = bind_run_transport("antigravity-acp")
+        self.assertEqual(binding["id"], "antigravity-acp")
+        with tempfile.TemporaryDirectory() as temporary:
+            controller = open_run_transport(binding, Path(temporary))
+            self.assertIsInstance(controller, AntigravityAcpController)
+            self.assertNotIsInstance(controller, TmuxController)
+            self.assertFalse(AntigravityAcpController.available())
+        with mock.patch.object(AntigravityAcpController, "available", return_value=False):
+            self.assertFalse(transport_is_available("antigravity-acp"))
+            self.assertEqual(bind_run_transport("antigravity-acp")["id"], "antigravity-acp")

@@ -5,15 +5,19 @@ falls back to tmux, agy-print, Herdr, or generic `acp`. Generic `acp` stays
 unsupported for every target, including Cursor. Model, workspace, ACP
 session/conversation, and terminal/result claims come from observed runtime
 metadata, not from a requested selector or path alone. Live Cursor ACP is
-not claimed; tests inject a deterministic observation/runner fixture.
+not claimed. Tests may inject a deterministic observation fixture or derive
+one from the pinned public runtime and a local synthetic peer.
 `available()` stays false.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from .caller import caller_projection, make_blocker
 from .errors import IdentityError, UnsupportedError, ValidationError
@@ -43,6 +47,50 @@ RUNTIME_MODEL_SOURCES = frozenset(
 )
 TERMINAL_STATES = frozenset({"active", "completed", "failed", "halted"})
 MODEL_CATALOG_SCHEMA = "puppet.cursor-acp-model-catalog/v1"
+PERMISSION_OUTCOME_SCHEMA = "puppet.cursor-acp-permission/v1"
+QUESTION_OUTCOME_SCHEMA = "puppet.cursor-acpx-question/v1"
+RUNTIME_TURN_OBSERVED_TYPE_BOUND = 16
+RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND = 64
+RUNTIME_TURN_UNKNOWN_TYPE = "unknown"
+CONVERSATION_PARAM_KEYS = frozenset(
+    {"conversation", "conversationId", "conversation_id"}
+)
+RUNTIME_HANDLE_FIELDS = (
+    "sessionKey",
+    "backend",
+    "runtimeSessionName",
+    "cwd",
+    "acpxRecordId",
+    "backendSessionId",
+    "agentSessionId",
+)
+REQUIRED_RUNTIME_HANDLE_FIELDS = (
+    "sessionKey",
+    "backend",
+    "runtimeSessionName",
+    "cwd",
+    "acpxRecordId",
+    "backendSessionId",
+)
+CONTROLLER_RUNTIME_DRIVER = (
+    "bridge/cursor-acp/test/controller-runtime-driver.mjs"
+)
+CANDIDATE_RUNTIME_KIND = "qualified_archive"
+SYNTHETIC_PEER_KIND = "synthetic_peer"
+# Mirrors bridge/cursor-acp/broker.mjs DEFAULT_CURSOR_EXECUTABLE + argv ["acp"].
+DEFAULT_CURSOR_EXECUTABLE = "/Users/bobbybones/.local/bin/cursor-agent"
+CURSOR_ACP_ARGV_TAIL = "acp"
+CURSOR_ROUTE_IDENTITY = "cursor-agent-acp"
+OFFICIAL_ROUTE_KIND = "official_route"
+CURSOR_ROUTE_BINDING_SCHEMA = "puppet.cursor-acp-route-binding/v1"
+SESSION_MODE_ONESHOT = "oneshot"
+SESSION_MODE_PERSISTENT = "persistent"
+FINISH_POLICY_DISCARD = "discard"
+FINISH_POLICY_RETAIN = "retain"
+FINISH_POLICY_LOCAL_RELEASE = "local_release"
+PLACEHOLDER_TASK_TEXTS = frozenset(
+    {"cursor-acp-runtime-turn", "antigravity-acp-runtime-turn"}
+)
 _CURSOR_SELECTOR_RE = re.compile(r"^cursor-grok-4\.6-(low|medium|high|xhigh)$")
 _PARAMETERIZED_RUNTIME_RE = re.compile(r"^(?:cursor-)?grok-4\.6\[(.+)\]$")
 FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
@@ -828,6 +876,965 @@ class CursorAcpRunnerFixture:
         return None if self._catalog is None else dict(self._catalog)
 
 
+def reject_runtime_conversation_params(value: Any, *, label: str) -> Any:
+    """Public runtime calls must not invent provider conversation_id APIs."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("%s is invalid" % label)
+    for key in CONVERSATION_PARAM_KEYS:
+        if key in value:
+            _raise_identity(
+                "identity_mismatch",
+                "%s must not include nonexistent conversation parameters" % label,
+            )
+        handle = value.get("handle")
+        if isinstance(handle, Mapping) and key in handle:
+            _raise_identity(
+                "identity_mismatch",
+                "%s must not include nonexistent conversation parameters" % label,
+            )
+    return value
+
+
+def project_runtime_handle(handle: Any) -> Dict[str, str]:
+    """Project public handle fields without host conversation identity."""
+
+    if not isinstance(handle, Mapping):
+        _raise_identity("identity_mismatch", "runtime handle is missing")
+    reject_runtime_conversation_params(handle, label="runtime handle")
+    projected: Dict[str, str] = {}
+    for key in RUNTIME_HANDLE_FIELDS:
+        if key not in handle:
+            if key in REQUIRED_RUNTIME_HANDLE_FIELDS:
+                _raise_identity("identity_mismatch", "runtime handle %s is missing" % key)
+            continue
+        value = handle[key]
+        if not isinstance(value, str) or not value:
+            if key in REQUIRED_RUNTIME_HANDLE_FIELDS:
+                _raise_identity("identity_mismatch", "runtime handle %s is missing" % key)
+            continue
+        projected[key] = value
+    return projected
+
+
+def advertised_catalog_from_runtime_models(models: Any) -> Dict[str, Any]:
+    """Build catalog evidence from advertised runtime models only."""
+
+    if not isinstance(models, Mapping):
+        _raise_identity("model_observation_mismatch", "Cursor ACP model catalog is unverified")
+    advertised = models.get("availableModelIds")
+    if not isinstance(advertised, (tuple, list)) or not advertised:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Cursor ACP selector is unavailable",
+        )
+    model_ids = []
+    for model_id in advertised:
+        if not isinstance(model_id, str) or not model_id.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP model catalog is unverified",
+            )
+        cleaned = model_id.strip()
+        if cleaned in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP fallback or default model is not bound requested-model proof",
+            )
+        model_ids.append(cleaned)
+    current = models.get("currentModelId")
+    if current is not None:
+        if not isinstance(current, str) or not current.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed Cursor ACP model is unverified",
+            )
+        current = current.strip()
+        if current in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP fallback or default model is not bound requested-model proof",
+            )
+        if current not in model_ids:
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed Cursor ACP model is unverified",
+            )
+    return {
+        "schema": MODEL_CATALOG_SCHEMA,
+        "verified": True,
+        "advertised_model_ids": tuple(model_ids),
+    }
+
+
+def map_runtime_models(
+    models: Any,
+    *,
+    requested_model: Optional[str],
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, str]:
+    """Map requested/selected/current models from one advertised catalog."""
+
+    advertised = advertised_catalog_from_runtime_models(models)
+    resolved_catalog = catalog if catalog is not None else advertised
+    requested = resolve_requested_cursor_model(requested_model, catalog=resolved_catalog)
+    current = models.get("currentModelId")
+    if not isinstance(current, str) or not current.strip():
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Cursor ACP model is unverified",
+        )
+    current = current.strip()
+    if current in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Cursor ACP fallback or default model is not bound requested-model proof",
+        )
+    advertised_ids = set(advertised["advertised_model_ids"])
+    if current not in advertised_ids or requested not in advertised_ids:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Cursor ACP model is unverified",
+        )
+    if current != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Cursor ACP runtime",
+        )
+    return {
+        "requested_model": requested_model.strip() if isinstance(requested_model, str) else requested,
+        "selected_model": requested,
+        "current_model": current,
+    }
+
+
+def require_runtime_task_text(value: Any, *, label: str = "task text") -> str:
+    """Require caller task text. Never substitute a fixture placeholder."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("%s is missing" % label)
+    if value.strip() in PLACEHOLDER_TASK_TEXTS:
+        raise ValidationError("%s must not use a fixed placeholder prompt" % label)
+    return value
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _cursor_route_executable(process_env: Optional[Mapping[str, str]] = None) -> Path:
+    env = os.environ if process_env is None else process_env
+    configured = env.get("CURSOR_AGENT_EXECUTABLE")
+    raw = configured.strip() if isinstance(configured, str) and configured.strip() else DEFAULT_CURSOR_EXECUTABLE
+    return Path(raw).expanduser()
+
+
+def resolve_cursor_acp_route_binding(
+    *,
+    executable: Optional[Path] = None,
+    process_env: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
+    """Bind the approved cursor-agent ACP route. Not an arbitrary caller path."""
+
+    path = Path(executable) if executable is not None else _cursor_route_executable(process_env)
+    resolved = path.resolve()
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ValidationError("cursor-acp official route executable is missing")
+    command = str(resolved)
+    return require_cursor_acp_route_binding(
+        {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": OFFICIAL_ROUTE_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": command,
+            "argv": [command, CURSOR_ACP_ARGV_TAIL],
+            "test_only": False,
+        }
+    )
+
+
+def test_only_cursor_synthetic_route_binding() -> Dict[str, Any]:
+    return require_cursor_acp_route_binding(
+        {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": None,
+            "argv": None,
+            "test_only": True,
+        }
+    )
+
+
+def require_cursor_acp_route_binding(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("cursor-acp trusted route binding is missing")
+    if value.get("schema") != CURSOR_ROUTE_BINDING_SCHEMA:
+        raise ValidationError("cursor-acp trusted route binding schema is invalid")
+    if value.get("route") != TRANSPORT_ID or value.get("agent") != TARGET:
+        raise ValidationError("cursor-acp trusted route binding identity is wrong")
+    if value.get("transport") != "acp" or value.get("identity") != CURSOR_ROUTE_IDENTITY:
+        raise ValidationError("cursor-acp trusted route binding identity is wrong")
+    kind = value.get("kind")
+    if kind == SYNTHETIC_PEER_KIND:
+        if value.get("test_only") is not True:
+            raise ValidationError("cursor-acp synthetic peer remains test-only")
+        if value.get("executable") is not None or value.get("argv") is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        return {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": None,
+            "argv": None,
+            "test_only": True,
+        }
+    if kind != OFFICIAL_ROUTE_KIND:
+        raise ValidationError("cursor-acp trusted route binding kind is invalid")
+    executable = value.get("executable")
+    argv = value.get("argv")
+    if not isinstance(executable, str) or not executable:
+        raise ValidationError("cursor-acp trusted route binding executable is missing")
+    if not isinstance(argv, (list, tuple)) or list(argv) != [executable, CURSOR_ACP_ARGV_TAIL]:
+        raise ValidationError("cursor-acp trusted route binding argv is invalid")
+    return {
+        "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+        "route": TRANSPORT_ID,
+        "kind": OFFICIAL_ROUTE_KIND,
+        "agent": TARGET,
+        "transport": "acp",
+        "identity": CURSOR_ROUTE_IDENTITY,
+        "executable": executable,
+        "argv": [executable, CURSOR_ACP_ARGV_TAIL],
+        "test_only": False,
+    }
+
+
+def select_and_map_runtime_models(
+    runtime: Any,
+    handle: Mapping[str, Any],
+    *,
+    requested_model: Optional[str],
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Tuple[Dict[str, str], Dict[str, Any], Mapping[str, Any]]:
+    """Select the requested catalog model through public setModel, then remap."""
+
+    status = runtime.get_status(
+        reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+    )
+    models = status.get("models") if isinstance(status, Mapping) else None
+    advertised = advertised_catalog_from_runtime_models(models)
+    resolved_catalog = catalog if catalog is not None else advertised
+    requested = resolve_requested_cursor_model(requested_model, catalog=resolved_catalog)
+    current = models.get("currentModelId") if isinstance(models, Mapping) else None
+    if isinstance(current, str):
+        current = current.strip()
+    if current != requested:
+        setter = getattr(runtime, "set_model", None)
+        if not callable(setter):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Cursor ACP runtime",
+            )
+        try:
+            setter(
+                reject_runtime_conversation_params(
+                    {"handle": dict(handle), "model": requested},
+                    label="setModel",
+                )
+            )
+        except (ValidationError, UnsupportedError):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Cursor ACP runtime",
+            )
+        status = runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        models = status.get("models") if isinstance(status, Mapping) else None
+    mapped = map_runtime_models(
+        models,
+        requested_model=requested_model,
+        catalog=resolved_catalog,
+    )
+    if mapped["selected_model"] != mapped["current_model"] or mapped["selected_model"] != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Cursor ACP runtime",
+        )
+    return mapped, resolved_catalog, status
+
+
+def drain_runtime_turn_events(events: Any, *, limit: Optional[int] = None) -> Dict[str, Any]:
+    """Drain turn events to a body-free bounded type summary. Never retain bodies."""
+
+    if events is None:
+        return {
+            "observer": "absent",
+            "observed_types": [],
+            "event_count": 0,
+            "observed_types_truncated": False,
+            "body_retained": False,
+        }
+    iterator = events
+    if hasattr(events, "__iter__") and not isinstance(events, (str, bytes, Mapping)):
+        iterator = iter(events)
+    elif not hasattr(events, "__iter__"):
+        raise ValidationError("runtime turn events are not iterable")
+    observed: list[str] = []
+    count = 0
+    truncated = False
+    try:
+        for event in iterator:
+            if not isinstance(event, Mapping) or not isinstance(event.get("type"), str) or not event["type"]:
+                label = RUNTIME_TURN_UNKNOWN_TYPE
+            elif len(event["type"]) > RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND:
+                label = event["type"][:RUNTIME_TURN_OBSERVED_TYPE_LABEL_BOUND]
+            else:
+                label = event["type"]
+            if label not in observed:
+                if len(observed) < RUNTIME_TURN_OBSERVED_TYPE_BOUND:
+                    observed.append(label)
+                else:
+                    truncated = True
+            count += 1
+            if isinstance(limit, int) and limit > 0 and count >= limit:
+                break
+    finally:
+        closer = getattr(iterator, "close", None)
+        if closer is None:
+            closer = getattr(events, "close", None)
+        if callable(closer):
+            closer()
+    return {
+        "observer": "ended",
+        "observed_types": observed,
+        "event_count": count,
+        "observed_types_truncated": truncated,
+        "body_retained": False,
+    }
+
+
+def require_unsupported_question_outcome(question: Mapping[str, Any]) -> Dict[str, Any]:
+    """Cancel unsupported questions without inventing an answer."""
+
+    if question.get("state") != "interaction_required":
+        raise ValidationError("unsupported question state is invalid")
+    if question.get("human_required") is not True:
+        raise ValidationError("unsupported question requires human input")
+    if question.get("invented_answer") is not None:
+        raise ValidationError("cursor-acp must not invent a question answer")
+    if question.get("outcome") != "cancelled":
+        raise ValidationError("unsupported question must cancel without an answer")
+    return {
+        "schema": QUESTION_OUTCOME_SCHEMA,
+        "state": "cancelled",
+        "interaction_id": validate_identifier(
+            question.get("interaction_id"), "interaction question"
+        ),
+        "human_required": True,
+        "outcome": "cancelled",
+        "invented_answer": None,
+    }
+
+
+def require_unsupported_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, Any]:
+    """Record explicit denied/cancelled permission outcomes. Never invent allow."""
+
+    if permission.get("state") != "permission_required":
+        raise ValidationError("unsupported permission state is invalid")
+    outcome = permission.get("outcome")
+    if outcome not in {"denied", "cancelled"}:
+        raise ValidationError("unsupported permission must deny or cancel without an answer")
+    if permission.get("allowed") is True:
+        raise ValidationError("unsupported permission must not be allowed")
+    if permission.get("invented_decision") is not None:
+        raise ValidationError("cursor-acp must not invent a permission decision")
+    return {
+        "schema": PERMISSION_OUTCOME_SCHEMA,
+        "state": outcome,
+        "permission_id": validate_identifier(
+            permission.get("permission_id"), "permission request"
+        ),
+        "outcome": outcome,
+        "allowed": False,
+        "invented_decision": None,
+    }
+
+
+def observation_from_runtime_turn(
+    *,
+    host_session: str,
+    host_conversation_id: str,
+    requested_model: str,
+    observed_model: str,
+    workspace: Mapping[str, Any],
+    terminal_state: str,
+    result_id: str,
+    halt: Optional[Mapping[str, Any]] = None,
+    record_state: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Map public-runtime metadata onto the existing cursor-acp observation."""
+
+    return fixture_observation(
+        session=host_session,
+        conversation_id=host_conversation_id,
+        requested_model=requested_model,
+        observed_model=observed_model,
+        observed_source="acp_runtime_metadata",
+        runtime_model=observed_model,
+        workspace_path=str(workspace["path"]),
+        branch=str(workspace["branch"]),
+        head=str(workspace["head"]),
+        tree=str(workspace["tree"]),
+        terminal_state=terminal_state,
+        result_id=result_id,
+        halt=halt,
+        record_state=record_state,
+    )
+
+
+class CursorAcpSyntheticRuntime:
+    """In-process public-runtime peer. Never starts live Cursor or AGY."""
+
+    def __init__(
+        self,
+        *,
+        handle: Mapping[str, Any],
+        models: Mapping[str, Any],
+        result: Optional[Mapping[str, Any]] = None,
+        events: Optional[Sequence[Mapping[str, Any]]] = None,
+        close_error: Optional[BaseException] = None,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+        set_model_supported: bool = True,
+    ):
+        self.handle = dict(handle)
+        self.models = dict(models)
+        self.result = dict(result or {"status": "completed", "stopReason": "end_turn"})
+        self.events = list(events or ())
+        self.close_error = close_error
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        self.set_model_supported = set_model_supported
+        self.ensure_calls: list[Dict[str, Any]] = []
+        self.status_calls: list[Dict[str, Any]] = []
+        self.set_model_calls: list[Dict[str, Any]] = []
+        self.start_calls: list[Dict[str, Any]] = []
+        self.close_calls: list[Dict[str, Any]] = []
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="ensureSession")
+        self.ensure_calls.append(dict(payload))
+        return dict(self.handle)
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="getStatus")
+        self.status_calls.append(dict(payload))
+        last_request = self.start_calls[-1]["requestId"] if self.start_calls else None
+        status = {"models": dict(self.models)}
+        if last_request is not None:
+            status["lastRequestId"] = last_request
+        return status
+
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="setModel")
+        self.set_model_calls.append(dict(payload))
+        if not self.set_model_supported:
+            raise ValidationError("setModel is unsupported")
+        model = payload.get("model")
+        advertised = self.models.get("availableModelIds")
+        if not isinstance(model, str) or not isinstance(advertised, (list, tuple)) or model not in advertised:
+            _raise_identity(
+                "model_observation_mismatch",
+                "requested Cursor ACP selector is unavailable",
+            )
+        if model in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Cursor ACP fallback or default model is not bound requested-model proof",
+            )
+        self.models["currentModelId"] = model
+        return {}
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="startTurn")
+        self.start_calls.append(dict(payload))
+        return {
+            "requestId": payload["requestId"],
+            "events": list(self.events),
+            "result": dict(self.result),
+        }
+
+    def close(self, payload: Mapping[str, Any]) -> None:
+        reject_runtime_conversation_params(payload, label="close")
+        self.close_calls.append(dict(payload))
+        if self.close_error is not None:
+            raise self.close_error
+
+
+class CursorAcpNodeRuntime:
+    """Pinned public createAcpRuntime through the task-owned archive closure."""
+
+    def __init__(
+        self,
+        *,
+        workspace: Path,
+        isolated_root: Path,
+        repo_root: Path,
+        synthetic_peer: bool = False,
+        executable: Optional[Path] = None,
+        agent: str = "cursor",
+        candidate_args: Optional[Sequence[str]] = None,
+    ):
+        if synthetic_peer and executable is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
+        self.kind = SYNTHETIC_PEER_KIND if synthetic_peer else CANDIDATE_RUNTIME_KIND
+        self._proc = subprocess.Popen(
+            ["node", str(driver)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+        )
+        payload: Dict[str, Any] = {
+            "cwd": str(workspace),
+            "isolatedRoot": str(isolated_root),
+            "syntheticPeer": True if synthetic_peer else False,
+            "agent": "candidate" if synthetic_peer else agent,
+        }
+        if not synthetic_peer:
+            payload["candidate"] = {
+                "kind": CANDIDATE_RUNTIME_KIND,
+                "agent": agent,
+                "executable": None if executable is None else str(executable),
+                "args": list(candidate_args or ()),
+            }
+        self._rpc("create", payload)
+
+    def child_process_identity(self) -> Dict[str, Any]:
+        return {
+            "pid": self._proc.pid,
+            "returncode": self._proc.returncode,
+            "exited": self._proc.poll() is not None,
+            "kind": self.kind,
+        }
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("ensureSession", dict(payload))
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("getStatus", dict(payload))
+
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("setModel", dict(payload))
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("startTurn", dict(payload))
+
+    def close(self, payload: Mapping[str, Any]) -> None:
+        self._rpc("close", dict(payload))
+
+    def shutdown(self) -> None:
+        try:
+            self._rpc("shutdown", {})
+        finally:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+            if self._proc.stdout is not None:
+                self._proc.stdout.close()
+            if self._proc.poll() is None:
+                self._proc.terminate()
+            self._proc.wait(timeout=30)
+
+    def _rpc(self, op: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        if self._proc.stdin is None or self._proc.stdout is None:
+            raise ValidationError("controller runtime driver is unavailable")
+        message = json.dumps({"op": op, "payload": dict(payload)}, separators=(",", ":"))
+        self._proc.stdin.write(message + "\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            raise ValidationError("controller runtime driver closed")
+        response = json.loads(line)
+        if response.get("ok") is not True:
+            detail = response.get("error") or "controller runtime driver failed"
+            code = response.get("code")
+            if code in {"OWNER_MISMATCH", "SESSION_MISMATCH", "WORKSPACE_MISMATCH", "IDENTITY_MISMATCH"}:
+                _raise_identity("identity_mismatch", str(detail))
+            raise ValidationError(str(detail))
+        value = response.get("value")
+        return {} if value is None else dict(value)
+
+
+class CursorAcpRuntimeRunner:
+    """Derive cursor-acp observations from a public runtime for the existing controller."""
+
+    def __init__(
+        self,
+        runtime: Any,
+        *,
+        isolated_root: Path,
+        owner: str,
+        session: str,
+        conversation_id: str,
+        request_id: str,
+        workspace: Mapping[str, Any],
+        requested_model: str,
+        text: Optional[str] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
+        halt: bool = False,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+        session_mode: str = SESSION_MODE_ONESHOT,
+        finish_policy: str = FINISH_POLICY_DISCARD,
+    ):
+        self.runtime = runtime
+        self.isolated_root = Path(isolated_root)
+        self.owner = owner
+        self.session = session
+        self.conversation_id = conversation_id
+        self.request_id = request_id
+        self.workspace = dict(workspace)
+        self.requested_model = requested_model
+        self._text = None if text is None else require_runtime_task_text(text)
+        self._supplied_catalog = None if catalog is None else dict(catalog)
+        self._catalog = self._supplied_catalog
+        self.require_halt = halt
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        if session_mode not in {SESSION_MODE_ONESHOT, SESSION_MODE_PERSISTENT}:
+            raise ValidationError("cursor-acp session mode is invalid")
+        if finish_policy not in {
+            FINISH_POLICY_DISCARD,
+            FINISH_POLICY_RETAIN,
+            FINISH_POLICY_LOCAL_RELEASE,
+        }:
+            raise ValidationError("cursor-acp finish policy is invalid")
+        self.session_mode = session_mode
+        self.finish_policy = finish_policy
+        self.discarded_events: Optional[Dict[str, Any]] = None
+        self.permission_outcome: Optional[Dict[str, Any]] = None
+        self.question_outcome: Optional[Dict[str, Any]] = None
+        self._observation: Optional[Dict[str, Any]] = None
+        self.handle: Optional[Dict[str, str]] = None
+        self.backend_identity_changes: list[Dict[str, Optional[str]]] = []
+        self.local_release = False
+        self.persistent_state = "absent"
+        self.final_discard = False
+        self._mark_cleanup_unknown: Any = None
+
+    def bind_task_text(self, text: Any) -> str:
+        self._text = require_runtime_task_text(text)
+        return self._text
+
+    def has_task_text(self) -> bool:
+        return self._text is not None
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    def catalog(self) -> Optional[Dict[str, Any]]:
+        if self._observation is None:
+            self.observation()
+        return None if self._catalog is None else dict(self._catalog)
+
+    def observation(self) -> Dict[str, Any]:
+        if self._observation is None:
+            self._observation = self._derive()
+        return validate_cursor_acp_observation(self._observation)
+
+    def _load_ownership(self) -> Mapping[str, Any]:
+        from cursor_acpx import load_isolated_root, mark_cleanup_unknown
+
+        self._mark_cleanup_unknown = mark_cleanup_unknown
+        return load_isolated_root(self.isolated_root)
+
+    def _fence_cleanup(self) -> None:
+        if self._mark_cleanup_unknown is None:
+            from cursor_acpx import mark_cleanup_unknown
+
+            self._mark_cleanup_unknown = mark_cleanup_unknown
+        try:
+            self._mark_cleanup_unknown(self.isolated_root)
+        except Exception:
+            pass
+
+    def _owned_close(
+        self,
+        handle: Mapping[str, Any],
+        *,
+        primary: Optional[BaseException] = None,
+        discard_persistent_state: bool = True,
+        reason: str = "cursor-acp-owned-close",
+    ) -> None:
+        try:
+            self.runtime.close(
+                reject_runtime_conversation_params(
+                    {
+                        "handle": dict(handle),
+                        "reason": reason,
+                        "discardPersistentState": discard_persistent_state,
+                    },
+                    label="close",
+                )
+            )
+        except Exception:
+            self._fence_cleanup()
+            if primary is not None:
+                raise primary
+            raise
+        if discard_persistent_state:
+            self.final_discard = True
+            self.persistent_state = "discarded"
+        else:
+            self.local_release = True
+            self.persistent_state = "retained"
+
+    def _reject_conflated_ids(self, handle: Mapping[str, str]) -> None:
+        foreign = {
+            handle.get("backendSessionId"),
+            handle.get("acpxRecordId"),
+            handle.get("runtimeSessionName"),
+            handle.get("agentSessionId"),
+        }
+        host = {self.conversation_id, self.request_id}
+        if foreign & host:
+            _raise_identity(
+                "identity_mismatch",
+                "runtime identities must not be fabricated from host correlation",
+            )
+
+    def _validate_ownership(self) -> Mapping[str, Any]:
+        ownership = self._load_ownership()
+        if (
+            ownership.get("owner") != self.owner
+            or ownership.get("session") != self.session
+            or ownership.get("conversation_id") != self.conversation_id
+        ):
+            _raise_identity(
+                "session_identity_mismatch",
+                "ownership must validate before session or prompt",
+            )
+        if ownership.get("cleanup") == "unknown" or ownership.get("replacement_blocked"):
+            _raise_identity(
+                "cleanup_unknown",
+                "process-query failure left cleanup unknown; replacement is blocked",
+            )
+        return ownership
+
+    def _bind_handle(self, raw_handle: Mapping[str, Any]) -> Dict[str, str]:
+        handle = project_runtime_handle(raw_handle)
+        if handle["sessionKey"] != self.session:
+            _raise_identity(
+                "session_identity_mismatch",
+                "runtime sessionKey does not match the host session",
+            )
+        if os.path.realpath(handle["cwd"]) != os.path.realpath(self.workspace["path"]):
+            _raise_identity(
+                "workspace_identity_mismatch",
+                "runtime cwd does not match the bound checkout",
+            )
+        self._reject_conflated_ids(handle)
+        previous = self.handle
+        if previous is not None:
+            previous_backend = previous.get("backendSessionId")
+            next_backend = handle.get("backendSessionId")
+            if previous_backend != next_backend:
+                self.backend_identity_changes.append(
+                    {
+                        "previous_backend_session_id": previous_backend,
+                        "backend_session_id": next_backend,
+                    }
+                )
+        self.handle = handle
+        self.persistent_state = "retained"
+        return handle
+
+    def _ensure_owned_handle(self, *, reconnect: bool = False) -> Dict[str, str]:
+        if self.handle is not None and not reconnect:
+            return dict(self.handle)
+        ensure_input = reject_runtime_conversation_params(
+            {
+                "sessionKey": self.session,
+                "agent": "candidate",
+                "mode": self.session_mode,
+                "cwd": self.workspace["path"],
+            },
+            label="ensureSession",
+        )
+        return self._bind_handle(self.runtime.ensure_session(ensure_input))
+
+    def _run_turn(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
+        text = require_runtime_task_text(self._text)
+        mapped, resolved_catalog, _status = select_and_map_runtime_models(
+            self.runtime,
+            handle,
+            requested_model=self.requested_model,
+            catalog=self._supplied_catalog,
+        )
+        self._catalog = (
+            self._supplied_catalog if self._supplied_catalog is not None else resolved_catalog
+        )
+        turn = self.runtime.start_turn(
+            reject_runtime_conversation_params(
+                {
+                    "handle": dict(handle),
+                    "text": text,
+                    "mode": "prompt",
+                    "requestId": self.request_id,
+                },
+                label="startTurn",
+            )
+        )
+        if not isinstance(turn, Mapping):
+            raise ValidationError("runtime turn is missing")
+        if turn.get("requestId") != self.request_id:
+            _raise_identity(
+                "identity_mismatch",
+                "returned turn request does not match the host request",
+            )
+        self.discarded_events = drain_runtime_turn_events(turn.get("events"))
+        result = turn.get("result")
+        if not isinstance(result, Mapping) or result.get("status") not in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            raise ValidationError("runtime turn result is incomplete")
+        after = self.runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        if isinstance(after, Mapping) and "lastRequestId" in after:
+            if after.get("lastRequestId") != self.request_id:
+                _raise_identity(
+                    "identity_mismatch",
+                    "status lastRequestId does not match the completed turn request",
+                )
+        terminal_state = "completed" if result.get("status") == "completed" else "failed"
+        halt = None
+        record_state = None
+        if self.require_halt:
+            terminal_state = "halted"
+            record_state = "HALTED"
+            halt = {
+                "session": self.session,
+                "conversation_id": self.conversation_id,
+                "halted": True,
+            }
+        return observation_from_runtime_turn(
+            host_session=self.session,
+            host_conversation_id=self.conversation_id,
+            requested_model=self.requested_model,
+            observed_model=mapped["current_model"],
+            workspace=self.workspace,
+            terminal_state=terminal_state,
+            result_id=self.request_id,
+            halt=halt,
+            record_state=record_state,
+        )
+
+    def _apply_finish_policy(self, handle: Mapping[str, Any]) -> None:
+        if self.require_halt or self.session_mode == SESSION_MODE_ONESHOT:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_DISCARD:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_LOCAL_RELEASE:
+            self._owned_close(
+                handle,
+                discard_persistent_state=False,
+                reason="cursor-acp-local-release",
+            )
+            return
+        self.persistent_state = "retained"
+
+    def _derive(self) -> Dict[str, Any]:
+        self._validate_ownership()
+        if self.permission is not None:
+            self.permission_outcome = require_unsupported_permission_outcome(self.permission)
+        if self.question is not None:
+            self.question_outcome = require_unsupported_question_outcome(self.question)
+        require_runtime_task_text(self._text)
+        handle: Optional[Dict[str, str]] = None
+        try:
+            handle = self._ensure_owned_handle()
+            observation = self._run_turn(handle)
+            self._apply_finish_policy(handle)
+            return observation
+        except BaseException as exc:
+            if handle is not None and handle.get("sessionKey") == self.session:
+                try:
+                    self._owned_close(handle, primary=exc)
+                except Exception:
+                    raise exc
+            elif handle is not None:
+                self._fence_cleanup()
+            raise
+
+    def next_turn(
+        self,
+        *,
+        text: Any,
+        request_id: str,
+        expected_workspace: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Bind a fresh request to the same owned handle. Never replay a cached turn."""
+
+        self._validate_ownership()
+        if expected_workspace is not None:
+            if os.path.realpath(str(expected_workspace["path"])) != os.path.realpath(
+                self.workspace["path"]
+            ):
+                _raise_identity(
+                    "workspace_identity_mismatch",
+                    "runtime cwd does not match the bound checkout",
+                )
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        self.bind_task_text(text)
+        self.request_id = validate_identifier(request_id, "cursor-acp request")
+        self.require_halt = False
+        observation = self._run_turn(self.handle)
+        self._observation = validate_cursor_acp_observation(observation)
+        return self._observation
+
+    def finish(self, *, discard_persistent_state: bool = True) -> Dict[str, str]:
+        """Final close of the owned handle. Distinct from local release and retain."""
+
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        if self.final_discard:
+            raise ValidationError("owned runtime session already discarded")
+        handle = dict(self.handle)
+        self._owned_close(
+            handle,
+            discard_persistent_state=discard_persistent_state,
+            reason=(
+                "cursor-acp-final-discard"
+                if discard_persistent_state
+                else "cursor-acp-local-release"
+            ),
+        )
+        return {
+            "local_release": self.local_release,
+            "persistent_state": self.persistent_state,
+            "final_discard": self.final_discard,
+        }
+
+
 class CursorAcpController:
     """Structured Cursor ACP transport. Never constructs tmux or agy-print."""
 
@@ -1044,3 +2051,98 @@ def fixture_observation(
         "last_validated_at": last_validated_at,
         "record_state": record_state,
     }
+
+
+def claim_cursor_acp_isolated_root(
+    isolated_root: Path,
+    *,
+    owner: str,
+    session: str,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    from cursor_acpx import claim_isolated_root
+
+    root = Path(isolated_root)
+    root.mkdir(parents=True, exist_ok=True)
+    os.chmod(root, 0o700)
+    return claim_isolated_root(
+        root,
+        owner=owner,
+        session=session,
+        conversation_id=conversation_id,
+    )
+
+
+def build_cursor_acp_candidate_runner(
+    *,
+    session: str,
+    contract: Any,
+    state_root: Path,
+    prompt: Any,
+    requested_model: Optional[str],
+    expected_workspace: Mapping[str, Any],
+    catalog: Optional[Mapping[str, Any]] = None,
+    runtime: Any = None,
+    synthetic_peer: bool = False,
+    executable: Optional[Path] = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
+    isolated_root: Optional[Path] = None,
+    conversation_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+    session_mode: str = SESSION_MODE_PERSISTENT,
+    finish_policy: str = FINISH_POLICY_RETAIN,
+    halt: bool = False,
+    repo_root: Optional[Path] = None,
+) -> CursorAcpRuntimeRunner:
+    """Construct the task-owned candidate runner. Synthetic peer is test-only."""
+
+    text = require_runtime_task_text(prompt)
+    owner = validate_identifier(contract.controller, "controller")
+    host_conversation = conversation_id or ("conv-%s" % session)
+    host_request = request_id or ("%s-turn-1" % session)
+    isolated = Path(isolated_root) if isolated_root is not None else Path(state_root) / session / "acp-isolated"
+    claim_cursor_acp_isolated_root(
+        isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+    )
+    if runtime is None:
+        if executable is not None and route_binding is None and not synthetic_peer:
+            raise ValidationError(
+                "cursor-acp does not accept an arbitrary executable as a trusted route binding"
+            )
+        if synthetic_peer and route_binding is None:
+            route_binding = test_only_cursor_synthetic_route_binding()
+        binding = require_cursor_acp_route_binding(route_binding)
+        if binding["kind"] == SYNTHETIC_PEER_KIND:
+            runtime = CursorAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                synthetic_peer=True,
+            )
+        else:
+            runtime = CursorAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                synthetic_peer=False,
+                executable=Path(binding["executable"]),
+                agent="cursor",
+            )
+    return CursorAcpRuntimeRunner(
+        runtime,
+        isolated_root=isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+        request_id=host_request,
+        workspace=expected_workspace,
+        requested_model=requested_model or contract.requested_model,
+        text=text,
+        catalog=catalog,
+        halt=halt,
+        session_mode=session_mode,
+        finish_policy=finish_policy,
+    )

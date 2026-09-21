@@ -34,6 +34,12 @@ from cursor_acpx import (
     HISTORICAL_ACPX_ARTIFACT_PATH,
     HISTORICAL_ACPX_ARTIFACT_SHA256,
     HISTORICAL_ACPX_MERGE_COMMIT,
+    HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH,
+    HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+    HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+    HISTORICAL_F888_ACPX_ARTIFACT_PATH,
+    HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+    HISTORICAL_F888_ACPX_MERGE_COMMIT,
     ADAPTER_ID,
     CursorAcpxAdapter,
     FORBIDDEN_CALLBACKS,
@@ -135,10 +141,7 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         self.assertEqual(pin["candidate_package_version"], ACPX_CANDIDATE_PACKAGE_VERSION)
         self.assertEqual(pin["published_npm_version"], "0.18.0")
         self.assertFalse(pin["published_npm_contains_merge"])
-        self.assertEqual(
-            pin["artifact_path"],
-            "runs/puppet-acpx-refresh-runs/20260921/artifacts/acpx-0.18.0.tgz",
-        )
+        self.assertEqual(pin["artifact_path"], ACPX_ARTIFACT_PATH)
         self.assertNotEqual(pin["merge_commit"], HISTORICAL_ACPX_MERGE_COMMIT)
         self.assertNotEqual(pin["artifact_sha256"], HISTORICAL_ACPX_ARTIFACT_SHA256)
         self.assertNotEqual(pin["artifact_path"], HISTORICAL_ACPX_ARTIFACT_PATH)
@@ -186,6 +189,30 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(IdentityError, "historical #648"):
             validate_acpx_dependency_identity(historical)
+        refresh = dict(
+            pin,
+            source="https://github.com/openclaw/acpx/commit/ce8c3689fe830fd5c6199a8a683dc979d180af1d",
+            merge_commit=HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+            source_commit=HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+            head=HISTORICAL_REFRESH_ACPX_MERGE_COMMIT,
+            artifact_path=HISTORICAL_REFRESH_ACPX_ARTIFACT_PATH,
+            artifact_sha256=HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+            integrity=HISTORICAL_REFRESH_ACPX_ARTIFACT_SHA256,
+        )
+        with self.assertRaisesRegex(IdentityError, "historical refresh"):
+            validate_acpx_dependency_identity(refresh)
+        f888 = dict(
+            pin,
+            source="https://github.com/openclaw/acpx/commit/f8883645c261e07b2df7f9c3b4ad243b62d8168a",
+            merge_commit=HISTORICAL_F888_ACPX_MERGE_COMMIT,
+            source_commit=HISTORICAL_F888_ACPX_MERGE_COMMIT,
+            head=HISTORICAL_F888_ACPX_MERGE_COMMIT,
+            artifact_path=HISTORICAL_F888_ACPX_ARTIFACT_PATH,
+            artifact_sha256=HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+            integrity=HISTORICAL_F888_ACPX_ARTIFACT_SHA256,
+        )
+        with self.assertRaisesRegex(IdentityError, "historical f888"):
+            validate_acpx_dependency_identity(f888)
         tree_as_merge = dict(pin, source_tree=ACPX_MERGE_COMMIT)
         with self.assertRaisesRegex(IdentityError, "source tree is not the merge"):
             validate_acpx_dependency_identity(tree_as_merge)

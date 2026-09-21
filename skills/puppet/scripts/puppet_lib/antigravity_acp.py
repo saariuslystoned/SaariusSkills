@@ -1,17 +1,39 @@
-"""Non-qualifying contract for Google's official Antigravity ACP runtime.
+"""Named antigravity-acp candidate transport with existing candidate contracts.
 
-This module is deliberately not a Puppet transport.  It pins the upstream
-runtime shape and validates body-free candidate metadata so a future adapter
-cannot silently reuse generic ``acp``, an API/cloud credential, an unobserved
-model, or an automatic answer to an Antigravity interaction question.
+Pins the official Antigravity runtime shape and consumes the pinned public
+acpx runtime through the existing controller/caller path. Ordinary
+availability stays false. Host conversation_id stays separate from
+runtimeSessionName/backendSessionId/acpxRecordId.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import platform
+import re
+import subprocess
 from copy import deepcopy
-from typing import Any, Dict, Mapping
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional, Sequence
 
-from .errors import ValidationError
+from .caller import caller_projection, make_blocker
+from .cursor_acp import (
+    CANDIDATE_RUNTIME_KIND,
+    FINISH_POLICY_DISCARD,
+    FINISH_POLICY_LOCAL_RELEASE,
+    FINISH_POLICY_RETAIN,
+    SESSION_MODE_ONESHOT,
+    SESSION_MODE_PERSISTENT,
+    SYNTHETIC_PEER_KIND,
+    drain_runtime_turn_events,
+    project_runtime_handle,
+    reject_runtime_conversation_params,
+    require_runtime_task_text,
+    require_unsupported_permission_outcome,
+    require_unsupported_question_outcome,
+)
+from .errors import IdentityError, UnsupportedError, ValidationError
 from .safety import validate_identifier
 
 
@@ -21,12 +43,55 @@ TARGET = "agy"
 DEFAULT_ROUTE = "agy-print"
 CANDIDATE_SCHEMA = "puppet.antigravity-acp-candidate/v1"
 OBSERVATION_SCHEMA = "puppet.antigravity-acp-observation/v1"
+MODEL_CATALOG_SCHEMA = "puppet.antigravity-acp-model-catalog/v1"
+ADAPTER_ID = "antigravity-acpx"
+OWNERSHIP_SCHEMA = "puppet.antigravity-acpx-ownership/v1"
 
 REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071"
 RUNTIME_ID = "antigravity-acp"
 RUNTIME_VERSION = "1.1.1"
 ACPX_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84"
 ACPX_RELEASE = "0.17.1"
+
+DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-high"
+ADVERTISED_ANTIGRAVITY_MODELS = (
+    "gemini-3.8-flash-high",
+    "gemini-3.1-pro",
+    "gemini-3-flash",
+)
+FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
+    {"default", "fallback", "auto", "unavailable", "current_default"}
+)
+CONTROLLER_RUNTIME_DRIVER = (
+    "bridge/antigravity-acp/test/controller-runtime-driver.mjs"
+)
+OFFICIAL_ROUTE_KIND = "official_route"
+ANTIGRAVITY_ROUTE_BINDING_SCHEMA = "puppet.antigravity-acp-route-binding/v1"
+ANTIGRAVITY_ROUTE_IDENTITY = "antigravity-acp-server"
+PROFILE_ENV = "GEMINI_HOME"
+ANTIGRAVITY_SANITIZED_ENV_NAMES = (
+    "PATH",
+    "GEMINI_HOME",
+    "AGY_ACP_FORCE_FILE_STORAGE",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "ANTIGRAVITY_HARNESS_PATH",
+)
+_ANTIGRAVITY_REQUIRED_ENV_NAMES = (
+    "PATH",
+    "GEMINI_HOME",
+    "AGY_ACP_FORCE_FILE_STORAGE",
+    "ANTIGRAVITY_HARNESS_PATH",
+)
+_ANTIGRAVITY_OPTIONAL_ENV_NAMES = ("HOME", "TMPDIR", "LANG")
+_PLATFORM_ARCHIVE_DIRS = {
+    "darwin-aarch64": "1.1.1-darwin-arm64",
+    "linux-aarch64": "1.1.1-linux-arm64",
+    "linux-x86_64": "1.1.1-linux-x86_64",
+    "windows-aarch64": "1.1.1-windows-arm64",
+    "windows-x86_64": "1.1.1-windows-x86_64",
+}
 
 _PLATFORM_COMMANDS = {
     "darwin-aarch64": {
@@ -93,7 +158,6 @@ _MODEL_POLICY_KEYS = frozenset(
 _QUESTION_POLICY_KEYS = frozenset(
     {"interaction_requests", "answer_selection", "human_required_outcome"}
 )
-
 _OBSERVATION_KEYS = frozenset(
     {
         "schema",
@@ -134,6 +198,316 @@ _OBS_QUESTION_KEYS = frozenset(
 _BODY_KEYS = frozenset(
     {"prompt", "output", "content", "text", "transcript", "title", "options"}
 )
+
+
+def _blocker(code: str, detail: str, **identity: Any) -> Dict[str, Any]:
+    return make_blocker(code=code, detail=detail, **identity)
+
+
+def _raise_identity(code: str, detail: str, **identity: Any) -> None:
+    raise IdentityError(detail, blocker=_blocker(code, detail, **identity))
+
+
+def _raise_unsupported(code: str, detail: str) -> None:
+    raise UnsupportedError(detail, blocker=_blocker(code, detail))
+
+
+def _raise_unavailable(detail: str) -> None:
+    raise UnsupportedError(detail, blocker=_blocker("transport_unavailable", detail))
+
+
+def _backend_unsupported_close(detail: str) -> UnsupportedError:
+    error = UnsupportedError(
+        detail,
+        blocker=_blocker("acp_backend_unsupported_control", detail),
+    )
+    error.code = "ACP_BACKEND_UNSUPPORTED_CONTROL"
+    return error
+
+
+def require_antigravity_acp_target(target: Any) -> str:
+    if target != TARGET:
+        raise ValidationError("antigravity-acp transport requires target agy")
+    return TARGET
+
+
+def current_antigravity_platform_id(
+    system: Optional[str] = None, machine: Optional[str] = None
+) -> str:
+    host = system or platform.system()
+    cpu_raw = (machine or platform.machine()).lower()
+    os_name = {
+        "Darwin": "darwin",
+        "Linux": "linux",
+        "Windows": "windows",
+        "darwin": "darwin",
+        "linux": "linux",
+        "windows": "windows",
+        "win32": "windows",
+    }.get(host, host.lower())
+    cpu = "aarch64" if cpu_raw in {"arm64", "aarch64"} else (
+        "x86_64" if cpu_raw in {"x86_64", "amd64"} else cpu_raw
+    )
+    return "%s-%s" % (os_name, cpu)
+
+
+def default_antigravity_runtime_dir(platform_id: Optional[str] = None) -> Path:
+    resolved = platform_id or current_antigravity_platform_id()
+    archive = _PLATFORM_ARCHIVE_DIRS.get(resolved, "%s-%s" % (RUNTIME_VERSION, resolved))
+    return Path.home() / ".local" / "share" / "saarius-skills" / RUNTIME_ID / archive
+
+
+def default_antigravity_gemini_home() -> Path:
+    return (
+        Path.home()
+        / ".local"
+        / "state"
+        / "saarius-skills"
+        / "antigravity-acp"
+        / "gemini-home"
+    )
+
+
+def sanitized_antigravity_process_env(
+    process_env: Optional[Mapping[str, str]],
+    *,
+    gemini_home: Path,
+    helper: Path,
+) -> Dict[str, str]:
+    # Mirrors bridge/antigravity-acp/broker.mjs sanitizedAgentEnv.
+    env = os.environ if process_env is None else process_env
+    child = {
+        "PATH": env.get("PATH") or "",
+        "GEMINI_HOME": str(gemini_home),
+        "AGY_ACP_FORCE_FILE_STORAGE": "1",
+    }
+    if env.get("HOME"):
+        child["HOME"] = env["HOME"]
+    if env.get("TMPDIR"):
+        child["TMPDIR"] = env["TMPDIR"]
+    if env.get("LANG"):
+        child["LANG"] = env["LANG"]
+    child["ANTIGRAVITY_HARNESS_PATH"] = str(helper)
+    return child
+
+
+def require_antigravity_process_env(
+    process_env: Any,
+    *,
+    helper: str,
+    profile_path: str,
+) -> Dict[str, str]:
+    if not isinstance(process_env, Mapping):
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    extra = set(process_env) - set(ANTIGRAVITY_SANITIZED_ENV_NAMES)
+    if extra:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    child: Dict[str, str] = {}
+    for name in _ANTIGRAVITY_REQUIRED_ENV_NAMES:
+        value = process_env.get(name)
+        if not isinstance(value, str):
+            raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+        child[name] = value
+    for name in _ANTIGRAVITY_OPTIONAL_ENV_NAMES:
+        if name not in process_env:
+            continue
+        value = process_env[name]
+        if not isinstance(value, str):
+            raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+        child[name] = value
+    if child.get("GEMINI_HOME") != profile_path:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    if child.get("ANTIGRAVITY_HARNESS_PATH") != helper:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    if child.get("AGY_ACP_FORCE_FILE_STORAGE") != "1":
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    return child
+
+
+def resolve_antigravity_acp_route_binding(
+    *,
+    runtime_dir: Optional[Path] = None,
+    runtime_server: Optional[Path] = None,
+    helper_path: Optional[Path] = None,
+    gemini_home: Optional[Path] = None,
+    process_env: Optional[Mapping[str, str]] = None,
+    platform_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Bind the official pinned ACP server, helper, argv, and profile env.
+
+    This is not the native AGY manifest executable. Policy matches
+    bridge/antigravity-acp/broker.mjs resolveLaunch + sanitizedAgentEnv.
+    """
+
+    env = os.environ if process_env is None else process_env
+    resolved_platform = platform_id or current_antigravity_platform_id()
+    launch = _PLATFORM_COMMANDS.get(resolved_platform)
+    if launch is None:
+        raise ValidationError(
+            "antigravity-acp official route has no pinned launch for %s" % resolved_platform
+        )
+    basename = Path(launch["runtime_command"]).name
+    configured_server = runtime_server or (
+        Path(env["ANTIGRAVITY_ACP_SERVER"]) if env.get("ANTIGRAVITY_ACP_SERVER") else None
+    )
+    configured_dir = runtime_dir or (
+        Path(env["ANTIGRAVITY_ACP_RUNTIME_DIR"])
+        if env.get("ANTIGRAVITY_ACP_RUNTIME_DIR")
+        else default_antigravity_runtime_dir(resolved_platform)
+    )
+    if configured_server is not None:
+        command = Path(configured_server).expanduser().resolve()
+    else:
+        command = Path(configured_dir).expanduser().resolve() / basename
+    if not command.is_file() or not os.access(command, os.X_OK):
+        raise ValidationError("antigravity-acp official route executable is missing")
+    helper_name = Path(launch["helper"]).name
+    if helper_path is not None:
+        helper = Path(helper_path).expanduser().resolve()
+    elif env.get("ANTIGRAVITY_HARNESS_PATH"):
+        helper = Path(env["ANTIGRAVITY_HARNESS_PATH"]).expanduser().resolve()
+    else:
+        helper = command.parent / helper_name
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise ValidationError("antigravity-acp official route helper is missing")
+    scoped = env.get("SAARIUS_ANTIGRAVITY_ACP_GEMINI_HOME") or env.get("GEMINI_HOME")
+    profile = (
+        Path(gemini_home).expanduser().resolve()
+        if gemini_home is not None
+        else (
+            Path(scoped).expanduser().resolve()
+            if isinstance(scoped, str) and scoped.strip()
+            else default_antigravity_gemini_home()
+        )
+    )
+    argv = [str(command), *list(launch["runtime_args"])]
+    process = sanitized_antigravity_process_env(
+        env, gemini_home=profile, helper=helper
+    )
+    return require_antigravity_acp_route_binding(
+        {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": OFFICIAL_ROUTE_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": resolved_platform,
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": str(command),
+            "argv": argv,
+            "helper": str(helper),
+            "profile_env": PROFILE_ENV,
+            "profile_path": str(profile),
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": process,
+            "test_only": False,
+        }
+    )
+
+
+def test_only_antigravity_synthetic_route_binding() -> Dict[str, Any]:
+    return require_antigravity_acp_route_binding(
+        {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": current_antigravity_platform_id(),
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": None,
+            "argv": None,
+            "helper": None,
+            "profile_env": PROFILE_ENV,
+            "profile_path": None,
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": None,
+            "test_only": True,
+        }
+    )
+
+
+def require_antigravity_acp_route_binding(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("antigravity-acp trusted route binding is missing")
+    if value.get("schema") != ANTIGRAVITY_ROUTE_BINDING_SCHEMA:
+        raise ValidationError("antigravity-acp trusted route binding schema is invalid")
+    if value.get("route") != TRANSPORT_ID or value.get("agent") != "antigravity":
+        raise ValidationError("antigravity-acp trusted route binding identity is wrong")
+    if (
+        value.get("transport") != "acp"
+        or value.get("identity") != ANTIGRAVITY_ROUTE_IDENTITY
+        or value.get("runtime_id") != RUNTIME_ID
+        or value.get("runtime_version") != RUNTIME_VERSION
+        or value.get("profile_env") != PROFILE_ENV
+    ):
+        raise ValidationError("antigravity-acp trusted route binding identity is wrong")
+    kind = value.get("kind")
+    if kind == SYNTHETIC_PEER_KIND:
+        if value.get("test_only") is not True:
+            raise ValidationError("antigravity-acp synthetic peer remains test-only")
+        if value.get("executable") is not None or value.get("argv") is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        return {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": value.get("platform_id") or current_antigravity_platform_id(),
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": None,
+            "argv": None,
+            "helper": None,
+            "profile_env": PROFILE_ENV,
+            "profile_path": None,
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": None,
+            "test_only": True,
+        }
+    if kind != OFFICIAL_ROUTE_KIND:
+        raise ValidationError("antigravity-acp trusted route binding kind is invalid")
+    executable = value.get("executable")
+    argv = value.get("argv")
+    helper = value.get("helper")
+    profile_path = value.get("profile_path")
+    process_env = value.get("process_env")
+    if not isinstance(executable, str) or not executable:
+        raise ValidationError("antigravity-acp trusted route binding executable is missing")
+    if not isinstance(argv, (list, tuple)) or not argv or argv[0] != executable:
+        raise ValidationError("antigravity-acp trusted route binding argv is invalid")
+    if not isinstance(helper, str) or not helper:
+        raise ValidationError("antigravity-acp trusted route binding helper is missing")
+    if not isinstance(profile_path, str) or not profile_path:
+        raise ValidationError("antigravity-acp trusted route binding profile is missing")
+    process = require_antigravity_process_env(
+        process_env, helper=helper, profile_path=profile_path
+    )
+    return {
+        "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+        "route": TRANSPORT_ID,
+        "kind": OFFICIAL_ROUTE_KIND,
+        "agent": "antigravity",
+        "transport": "acp",
+        "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+        "platform_id": value.get("platform_id"),
+        "runtime_id": RUNTIME_ID,
+        "runtime_version": RUNTIME_VERSION,
+        "executable": executable,
+        "argv": list(argv),
+        "helper": helper,
+        "profile_env": PROFILE_ENV,
+        "profile_path": profile_path,
+        "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+        "process_env": process,
+        "test_only": False,
+    }
 
 
 def _exact_mapping(value: Any, keys: frozenset[str], label: str) -> Mapping[str, Any]:
@@ -379,7 +753,7 @@ def validate_candidate_observation(value: Any) -> Dict[str, Any]:
         ),
     }
     terminal = _exact_mapping(observation.get("terminal"), _OBS_TERMINAL_KEYS, "terminal observation")
-    if terminal.get("state") not in {"active", "completed", "failed", "cancelled"}:
+    if terminal.get("state") not in {"active", "completed", "failed", "cancelled", "halted"}:
         raise ValidationError("terminal state is invalid")
     exit_code = terminal.get("exit_code")
     if exit_code is not None and (
@@ -412,22 +786,1300 @@ def validate_candidate_observation(value: Any) -> Dict[str, Any]:
     }
 
 
+def validate_antigravity_acp_catalog(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("model catalog must be a mapping")
+    if value.get("schema") != MODEL_CATALOG_SCHEMA:
+        raise ValidationError("model catalog schema is invalid")
+    if value.get("transport") != TRANSPORT_ID:
+        raise ValidationError("model catalog transport is invalid")
+    if value.get("target") != TARGET:
+        raise ValidationError("model catalog target is invalid")
+    advertised = value.get("advertised_models")
+    if not isinstance(advertised, (list, tuple)) or not advertised:
+        raise ValidationError("model catalog advertised_models is invalid")
+    clean_advertised = []
+    for item in advertised:
+        if not isinstance(item, str) or not item.strip():
+            raise ValidationError("model catalog model id is invalid")
+        if item in clean_advertised:
+            raise ValidationError("model catalog has duplicate model ids")
+        clean_advertised.append(item)
+    current = value.get("current_model")
+    if not isinstance(current, str) or current not in clean_advertised:
+        raise ValidationError("model catalog current_model is not in advertised_models")
+    return {
+        "schema": MODEL_CATALOG_SCHEMA,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "current_model": current,
+        "advertised_models": clean_advertised,
+    }
+
+
+def verified_antigravity_acp_catalog() -> Dict[str, Any]:
+    return {
+        "schema": MODEL_CATALOG_SCHEMA,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "current_model": DEFAULT_ANTIGRAVITY_MODEL,
+        "advertised_models": list(ADVERTISED_ANTIGRAVITY_MODELS),
+    }
+
+
+def map_runtime_antigravity_models(
+    models: Any,
+    *,
+    requested_model: Optional[str] = None,
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Map requested/selected/current models from one advertised catalog."""
+
+    if not isinstance(models, Mapping):
+        _raise_identity("model_observation_mismatch", "Antigravity ACP model catalog is unverified")
+    current_model = models.get("currentModelId")
+    if not isinstance(current_model, str) or not current_model.strip():
+        _raise_identity("model_observation_mismatch", "observed Antigravity ACP model is unverified")
+    current_model = current_model.strip()
+    available_raw = models.get("availableModels") or models.get("availableModelIds")
+    if not isinstance(available_raw, (list, tuple)) or not available_raw:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Antigravity ACP selector is unavailable",
+        )
+    advertised_ids: list[str] = []
+    for item in available_raw:
+        if isinstance(item, Mapping):
+            mid = item.get("modelId")
+        elif isinstance(item, str):
+            mid = item
+        else:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Antigravity ACP model catalog is unverified",
+            )
+            continue
+        if not isinstance(mid, str) or not mid.strip():
+            _raise_identity(
+                "model_observation_mismatch",
+                "Antigravity ACP model catalog is unverified",
+            )
+        mid = mid.strip()
+        if mid in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Antigravity ACP fallback or default model is not bound requested-model proof",
+            )
+        if mid not in advertised_ids:
+            advertised_ids.append(mid)
+    if catalog is not None:
+        validated = validate_antigravity_acp_catalog(catalog)
+        if set(validated["advertised_models"]) != set(advertised_ids):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed Antigravity ACP model is unverified",
+            )
+    requested = requested_model or DEFAULT_ANTIGRAVITY_MODEL
+    if requested in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Antigravity ACP fallback or default model is not bound requested-model proof",
+        )
+    if requested not in advertised_ids:
+        _raise_identity(
+            "model_observation_mismatch",
+            "requested Antigravity ACP selector is unavailable",
+        )
+    if current_model in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Antigravity ACP fallback or default model is not bound requested-model proof",
+        )
+    if current_model not in advertised_ids:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed Antigravity ACP model is unverified",
+        )
+    if current_model != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Antigravity ACP runtime",
+        )
+    return {
+        "current_model": current_model,
+        "selected_model": requested,
+        "advertised_models": advertised_ids,
+        "requested_model": requested,
+        "selection_state": "exact",
+        "effort": None,
+    }
+
+
+def select_and_map_runtime_antigravity_models(
+    runtime: Any,
+    handle: Mapping[str, Any],
+    *,
+    requested_model: Optional[str] = None,
+    catalog: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Select the requested AGY catalog model through public setModel, then remap."""
+
+    status = runtime.get_status(
+        reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+    )
+    models = status.get("models") if isinstance(status, Mapping) else None
+    requested = requested_model or DEFAULT_ANTIGRAVITY_MODEL
+    if requested in FALLBACK_OR_DEFAULT_MODEL_IDS:
+        _raise_identity(
+            "model_observation_mismatch",
+            "Antigravity ACP fallback or default model is not bound requested-model proof",
+        )
+    current = models.get("currentModelId") if isinstance(models, Mapping) else None
+    if isinstance(current, str):
+        current = current.strip()
+    if current != requested:
+        setter = getattr(runtime, "set_model", None)
+        if not callable(setter):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        try:
+            setter(
+                reject_runtime_conversation_params(
+                    {"handle": dict(handle), "model": requested},
+                    label="setModel",
+                )
+            )
+        except (ValidationError, UnsupportedError):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        status = runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        models = status.get("models") if isinstance(status, Mapping) else None
+    mapped = map_runtime_antigravity_models(
+        models,
+        requested_model=requested_model,
+        catalog=catalog,
+    )
+    if mapped["selected_model"] != mapped["current_model"] or mapped["selected_model"] != requested:
+        _raise_identity(
+            "model_observation_mismatch",
+            "observed model does not match the bound Antigravity ACP runtime",
+        )
+    return mapped
+
+
+def session_record_from_observation(
+    observation: Mapping[str, Any],
+    *,
+    record_state: Optional[str] = None,
+) -> Dict[str, Any]:
+    obs = validate_candidate_observation(observation)
+    state = record_state or "ACTIVE"
+    if obs["terminal"]["state"] == "halted" and state in {
+        "ACTIVE",
+        "candidate_non_qualifying",
+        None,
+    }:
+        state = "HALTED"
+    return {
+        "session": obs["session"]["session_id"],
+        "target": TARGET,
+        "state": state,
+        "process": None,
+        "transport": {"schema": "puppet.transport-binding/v1", "id": TRANSPORT_ID},
+    }
+
+
+def caller_fields_from_observation(
+    observation: Mapping[str, Any],
+    *,
+    record_state: Optional[str] = None,
+    halt_confirmed: Optional[bool] = None,
+) -> Dict[str, Any]:
+    record = session_record_from_observation(observation, record_state=record_state)
+    if halt_confirmed is None:
+        halt_confirmed = record["state"] == "HALTED"
+    return caller_projection(
+        record, transport_id=TRANSPORT_ID, halt_confirmed=halt_confirmed
+    )
+
+
+def _question_for_observation(question: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    if question is None:
+        return {
+            "state": "none",
+            "interaction_id": None,
+            "human_required": False,
+            "outcome": None,
+        }
+    return {
+        "state": "cancelled",
+        "interaction_id": question.get("interaction_id"),
+        "human_required": True,
+        "outcome": "cancelled",
+    }
+
+
+def observation_from_runtime_turn(
+    *,
+    host_session: str,
+    host_conversation_id: str,
+    requested_model: str,
+    observed_model: str,
+    advertised_models: Sequence[str],
+    terminal_state: str,
+    result_id: str,
+    question: Optional[Mapping[str, Any]] = None,
+    auth: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    return validate_candidate_observation(
+        {
+            "schema": OBSERVATION_SCHEMA,
+            "transport": TRANSPORT_ID,
+            "target": TARGET,
+            "qualification": "non_qualifying",
+            "runtime": {
+                "id": RUNTIME_ID,
+                "version": RUNTIME_VERSION,
+                "registry_revision": REGISTRY_REVISION,
+            },
+            "auth": auth
+            if auth is not None
+            else {
+                "mode": "oauth-personal",
+                "profile_env": "GEMINI_HOME",
+                "credential_source": "runtime_owned",
+                "account_state": "authenticated",
+                "api_key_present": False,
+                "cloud_credentials_present": False,
+                "alternate_account": False,
+                "interactive_login": False,
+                "overage_state": "never",
+            },
+            "model": {
+                "requested_id": requested_model,
+                "advertised_ids": list(advertised_models),
+                "observed_id": observed_model,
+                "selection_state": "exact",
+                "effort": None,
+            },
+            "session": {
+                "session_id": host_session,
+                "conversation_id": host_conversation_id,
+            },
+            "terminal": {
+                "state": terminal_state,
+                "exit_code": 0 if terminal_state in {"completed", "halted"} else 1,
+                "result_id": result_id,
+            },
+            "question": _question_for_observation(question),
+            "record_state": "candidate_non_qualifying",
+        }
+    )
+
+
+def prove_antigravity_acp_observation(
+    observation: Mapping[str, Any],
+    *,
+    expected_session: str,
+    expected_conversation_id: str,
+    expected_workspace: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    obs = validate_candidate_observation(observation)
+    if obs["transport"] != TRANSPORT_ID:
+        _raise_identity("identity_mismatch", "transport is not antigravity-acp")
+    if obs["target"] != TARGET:
+        _raise_identity("identity_mismatch", "target is not agy")
+    if obs["session"]["session_id"] != expected_session:
+        _raise_identity(
+            "session_identity_mismatch",
+            "observation session does not match expected session",
+        )
+    if obs["session"]["conversation_id"] != expected_conversation_id:
+        _raise_identity(
+            "session_identity_mismatch",
+            "observation conversation does not match expected conversation",
+        )
+    return obs
+
+
+def fixture_observation(**changes: Any) -> Dict[str, Any]:
+    base = {
+        "schema": OBSERVATION_SCHEMA,
+        "transport": TRANSPORT_ID,
+        "target": TARGET,
+        "qualification": "non_qualifying",
+        "runtime": {
+            "id": RUNTIME_ID,
+            "version": RUNTIME_VERSION,
+            "registry_revision": REGISTRY_REVISION,
+        },
+        "auth": {
+            "mode": "oauth-personal",
+            "profile_env": "GEMINI_HOME",
+            "credential_source": "runtime_owned",
+            "account_state": "authenticated",
+            "api_key_present": False,
+            "cloud_credentials_present": False,
+            "alternate_account": False,
+            "interactive_login": False,
+            "overage_state": "never",
+        },
+        "model": {
+            "requested_id": DEFAULT_ANTIGRAVITY_MODEL,
+            "advertised_ids": list(ADVERTISED_ANTIGRAVITY_MODELS),
+            "observed_id": DEFAULT_ANTIGRAVITY_MODEL,
+            "selection_state": "exact",
+            "effort": None,
+        },
+        "session": {
+            "session_id": "ses-agy-1",
+            "conversation_id": "conv-agy-1",
+        },
+        "terminal": {
+            "state": "completed",
+            "exit_code": 0,
+            "result_id": "req-agy-1",
+        },
+        "question": {
+            "state": "none",
+            "interaction_id": None,
+            "human_required": False,
+            "outcome": None,
+        },
+        "record_state": "candidate_non_qualifying",
+    }
+    base.update(changes)
+    return validate_candidate_observation(base)
+
+
+def _load_ownership(isolated_root: Path) -> Dict[str, Any]:
+    from antigravity_acpx import load_isolated_root
+
+    return load_isolated_root(isolated_root)
+
+
+def _mark_cleanup_unknown(isolated_root: Path) -> Dict[str, Any]:
+    from antigravity_acpx import mark_cleanup_unknown
+
+    return mark_cleanup_unknown(isolated_root)
+
+
+class AntigravityAcpSyntheticRuntime:
+    """In-process public-runtime peer. Never starts live AGY or Cursor."""
+
+    def __init__(
+        self,
+        *,
+        handle: Optional[Mapping[str, Any]] = None,
+        models: Optional[Mapping[str, Any]] = None,
+        result: Optional[Mapping[str, Any]] = None,
+        events: Optional[Sequence[Mapping[str, Any]]] = None,
+        unsupported_backend_close: bool = False,
+        local_cleanup_proved: bool = True,
+        close_error: Optional[BaseException] = None,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+        set_model_supported: bool = True,
+    ):
+        self.handle = None if handle is None else dict(handle)
+        self.models = dict(models) if models is not None else {
+            "currentModelId": DEFAULT_ANTIGRAVITY_MODEL,
+            "availableModelIds": list(ADVERTISED_ANTIGRAVITY_MODELS),
+        }
+        self.result = dict(result or {"status": "completed", "stopReason": "end_turn"})
+        self.events = list(events or ())
+        self.unsupported_backend_close = unsupported_backend_close
+        self.local_cleanup_proved = local_cleanup_proved
+        self.close_error = close_error
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        self.set_model_supported = set_model_supported
+        self.ensure_calls: list[Dict[str, Any]] = []
+        self.status_calls: list[Dict[str, Any]] = []
+        self.set_model_calls: list[Dict[str, Any]] = []
+        self.start_calls: list[Dict[str, Any]] = []
+        self.close_calls: list[Dict[str, Any]] = []
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="ensureSession")
+        self.ensure_calls.append(dict(payload))
+        if self.handle is not None:
+            return dict(self.handle)
+        return {
+            "sessionKey": payload["sessionKey"],
+            "cwd": payload["cwd"],
+            "backend": "acpx",
+            "runtimeSessionName": "acpx:%s" % payload["sessionKey"],
+            "acpxRecordId": "record-owned-1",
+            "backendSessionId": "backend-session-1",
+            "agentSessionId": "agent-session-1",
+        }
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="getStatus")
+        self.status_calls.append(dict(payload))
+        last_request = self.start_calls[-1]["requestId"] if self.start_calls else None
+        status = {"models": dict(self.models)}
+        if last_request is not None:
+            status["lastRequestId"] = last_request
+        return status
+
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="setModel")
+        self.set_model_calls.append(dict(payload))
+        if not self.set_model_supported:
+            raise ValidationError("setModel is unsupported")
+        model = payload.get("model")
+        advertised = []
+        for item in self.models.get("availableModelIds") or self.models.get("availableModels") or ():
+            if isinstance(item, Mapping):
+                advertised.append(item.get("modelId"))
+            else:
+                advertised.append(item)
+        if not isinstance(model, str) or model not in advertised:
+            _raise_identity(
+                "model_observation_mismatch",
+                "requested Antigravity ACP selector is unavailable",
+            )
+        if model in FALLBACK_OR_DEFAULT_MODEL_IDS:
+            _raise_identity(
+                "model_observation_mismatch",
+                "Antigravity ACP fallback or default model is not bound requested-model proof",
+            )
+        self.models["currentModelId"] = model
+        return {}
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="startTurn")
+        self.start_calls.append(dict(payload))
+        return {
+            "requestId": payload["requestId"],
+            "events": list(self.events),
+            "result": dict(self.result),
+        }
+
+    def close(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        reject_runtime_conversation_params(payload, label="close")
+        self.close_calls.append(dict(payload))
+        if self.close_error is not None:
+            raise self.close_error
+        if self.unsupported_backend_close:
+            raise _backend_unsupported_close(
+                "Agent does not support session/close for surviving-peer."
+            )
+        return {"status": "completed"}
+
+    def is_local_cleanup_proved(self, handle: Mapping[str, Any]) -> bool:
+        return self.local_cleanup_proved
+
+
+class AntigravityAcpNodeRuntime:
+    """Pinned public createAcpRuntime through the task-owned archive closure."""
+
+    def __init__(
+        self,
+        *,
+        workspace: Path,
+        isolated_root: Path,
+        repo_root: Path,
+        env: Optional[Mapping[str, str]] = None,
+        synthetic_peer: bool = False,
+        executable: Optional[Path] = None,
+        candidate_args: Optional[Sequence[str]] = None,
+    ):
+        if synthetic_peer and executable is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        if synthetic_peer and env is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate process environment")
+        driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
+        allowed_env: Optional[Dict[str, str]] = None
+        if not synthetic_peer:
+            if env is None:
+                raise ValidationError("antigravity-acp official candidate process environment is missing")
+            helper = env.get("ANTIGRAVITY_HARNESS_PATH")
+            profile_path = env.get("GEMINI_HOME")
+            if not isinstance(helper, str) or not isinstance(profile_path, str):
+                raise ValidationError("antigravity-acp official candidate process environment is invalid")
+            allowed_env = require_antigravity_process_env(
+                env, helper=helper, profile_path=profile_path
+            )
+        self.kind = SYNTHETIC_PEER_KIND if synthetic_peer else CANDIDATE_RUNTIME_KIND
+        self._proc = subprocess.Popen(
+            ["node", str(driver)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+            **({} if allowed_env is None else {"env": allowed_env}),
+        )
+        payload: Dict[str, Any] = {
+            "cwd": str(workspace),
+            "isolatedRoot": str(isolated_root),
+            "syntheticPeer": True if synthetic_peer else False,
+            "agent": "antigravity",
+        }
+        if not synthetic_peer:
+            payload["candidate"] = {
+                "kind": CANDIDATE_RUNTIME_KIND,
+                "agent": "antigravity",
+                "executable": None if executable is None else str(executable),
+                "args": list(candidate_args or ()),
+            }
+            payload["allowedProcessEnv"] = dict(allowed_env or {})
+        self._rpc("create", payload)
+
+    def child_process_identity(self) -> Dict[str, Any]:
+        return {
+            "pid": self._proc.pid,
+            "returncode": self._proc.returncode,
+            "exited": self._proc.poll() is not None,
+            "kind": self.kind,
+        }
+
+    def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("ensureSession", dict(payload))
+
+    def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("getStatus", dict(payload))
+
+    def set_model(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("setModel", dict(payload))
+
+    def start_turn(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("startTurn", dict(payload))
+
+    def close(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._rpc("close", dict(payload))
+
+    def shutdown(self) -> None:
+        try:
+            self._rpc("shutdown", {})
+        finally:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+            if self._proc.stdout is not None:
+                self._proc.stdout.close()
+            if self._proc.poll() is None:
+                self._proc.terminate()
+            self._proc.wait(timeout=30)
+
+    def _rpc(self, op: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        if self._proc.stdin is None or self._proc.stdout is None:
+            raise ValidationError("controller runtime driver is unavailable")
+        message = json.dumps({"op": op, "payload": dict(payload)}, separators=(",", ":"))
+        self._proc.stdin.write(message + "\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            raise ValidationError("controller runtime driver closed")
+        response = json.loads(line)
+        if response.get("ok") is not True:
+            detail = response.get("error") or "controller runtime driver failed"
+            code = response.get("code")
+            if code in {
+                "OWNER_MISMATCH",
+                "SESSION_MISMATCH",
+                "WORKSPACE_MISMATCH",
+                "IDENTITY_MISMATCH",
+            }:
+                _raise_identity("identity_mismatch", str(detail))
+            if code == "ACP_BACKEND_UNSUPPORTED_CONTROL":
+                raise _backend_unsupported_close(str(detail))
+            raise ValidationError(str(detail))
+        value = response.get("value")
+        return {} if value is None else dict(value)
+
+
+class AntigravityAcpRuntimeRunner:
+    """Derive antigravity-acp observations from a public runtime for the controller."""
+
+    def __init__(
+        self,
+        runtime: Any,
+        *,
+        isolated_root: Path,
+        owner: str,
+        session: str,
+        conversation_id: str,
+        request_id: str,
+        workspace: Mapping[str, Any],
+        requested_model: Optional[str] = None,
+        text: Optional[str] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
+        halt: bool = False,
+        permission: Optional[Mapping[str, Any]] = None,
+        question: Optional[Mapping[str, Any]] = None,
+        auth: Optional[Mapping[str, Any]] = None,
+        session_mode: str = SESSION_MODE_ONESHOT,
+        finish_policy: str = FINISH_POLICY_DISCARD,
+    ):
+        self.runtime = runtime
+        self.isolated_root = Path(isolated_root)
+        self.owner = owner
+        self.session = session
+        self.conversation_id = conversation_id
+        self.request_id = request_id
+        self.workspace = dict(workspace)
+        self.requested_model = requested_model or DEFAULT_ANTIGRAVITY_MODEL
+        self._text = None if text is None else require_runtime_task_text(text)
+        self._supplied_catalog = None if catalog is None else dict(catalog)
+        self._catalog = self._supplied_catalog
+        self.require_halt = halt
+        self.permission = None if permission is None else dict(permission)
+        self.question = None if question is None else dict(question)
+        self.auth = None if auth is None else dict(auth)
+        if session_mode not in {SESSION_MODE_ONESHOT, SESSION_MODE_PERSISTENT}:
+            raise ValidationError("antigravity-acp session mode is invalid")
+        if finish_policy not in {
+            FINISH_POLICY_DISCARD,
+            FINISH_POLICY_RETAIN,
+            FINISH_POLICY_LOCAL_RELEASE,
+        }:
+            raise ValidationError("antigravity-acp finish policy is invalid")
+        self.session_mode = session_mode
+        self.finish_policy = finish_policy
+        self.discarded_events: Optional[Dict[str, Any]] = None
+        self.permission_outcome: Optional[Dict[str, Any]] = None
+        self.question_outcome: Optional[Dict[str, Any]] = None
+        self._observation: Optional[Dict[str, Any]] = None
+        self.handle: Optional[Dict[str, str]] = None
+        self.backend_identity_changes: list[Dict[str, Optional[str]]] = []
+        self.local_release = False
+        self.persistent_state = "absent"
+        self.final_discard = False
+        self.backend_discard: str = "closed"
+
+    def bind_task_text(self, text: Any) -> str:
+        self._text = require_runtime_task_text(text)
+        return self._text
+
+    def has_task_text(self) -> bool:
+        return self._text is not None
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    def catalog(self) -> Optional[Dict[str, Any]]:
+        if self._observation is None:
+            self.observation()
+        return None if self._catalog is None else dict(self._catalog)
+
+    def observation(self) -> Dict[str, Any]:
+        if self._observation is None:
+            self._observation = self._derive()
+        return validate_candidate_observation(self._observation)
+
+    def _validate_ownership(self) -> Dict[str, Any]:
+        ownership = _load_ownership(self.isolated_root)
+        if (
+            ownership.get("owner") != self.owner
+            or ownership.get("session") != self.session
+            or ownership.get("conversation_id") != self.conversation_id
+        ):
+            _raise_identity(
+                "session_identity_mismatch",
+                "ownership must validate before session or prompt",
+            )
+        if ownership.get("transport") != TRANSPORT_ID or ownership.get("target") != TARGET:
+            _raise_identity(
+                "identity_mismatch",
+                "isolated state root is not an Antigravity ACP ownership claim",
+            )
+        if ownership.get("cleanup") == "unknown" or ownership.get("replacement_blocked"):
+            _raise_identity(
+                "cleanup_unknown",
+                "process-query failure left cleanup unknown; replacement is blocked",
+            )
+        return ownership
+
+    def _fence_cleanup(self) -> None:
+        try:
+            _mark_cleanup_unknown(self.isolated_root)
+        except Exception:
+            pass
+
+    def _is_unsupported_backend_session_close(self, exc: BaseException) -> bool:
+        code = getattr(exc, "code", "")
+        return code == "ACP_BACKEND_UNSUPPORTED_CONTROL" or bool(
+            re.search(r"session/close", str(exc), re.I)
+        )
+
+    def _is_local_cleanup_proved(self, handle: Mapping[str, Any]) -> bool:
+        checker = getattr(self.runtime, "is_local_cleanup_proved", None)
+        if callable(checker):
+            return bool(checker(handle))
+        return bool(getattr(self.runtime, "local_cleanup_proved", False))
+
+    def _owned_close(
+        self,
+        handle: Mapping[str, Any],
+        *,
+        primary: Optional[BaseException] = None,
+        discard_persistent_state: bool = True,
+        reason: str = "antigravity-acp-owned-close",
+    ) -> None:
+        try:
+            self.runtime.close(
+                reject_runtime_conversation_params(
+                    {
+                        "handle": dict(handle),
+                        "reason": reason,
+                        "discardPersistentState": discard_persistent_state,
+                    },
+                    label="close",
+                )
+            )
+            self.backend_discard = "closed"
+        except BaseException as exc:
+            if self._is_unsupported_backend_session_close(exc) and self._is_local_cleanup_proved(
+                handle
+            ):
+                self.backend_discard = "unsupported_local_cleanup_proved"
+                if discard_persistent_state:
+                    self.final_discard = True
+                    self.persistent_state = "discarded"
+                else:
+                    self.local_release = True
+                    self.persistent_state = "retained"
+                if primary is not None:
+                    raise primary
+                return
+            self._fence_cleanup()
+            if primary is not None:
+                raise primary
+            raise
+        if discard_persistent_state:
+            self.final_discard = True
+            self.persistent_state = "discarded"
+        else:
+            self.local_release = True
+            self.persistent_state = "retained"
+        if primary is not None:
+            raise primary
+
+    def _reject_conflated_ids(self, handle: Mapping[str, str]) -> None:
+        foreign = {
+            handle.get("backendSessionId"),
+            handle.get("acpxRecordId"),
+            handle.get("runtimeSessionName"),
+            handle.get("agentSessionId"),
+        }
+        host = {self.conversation_id, self.request_id}
+        if foreign & host:
+            _raise_identity(
+                "identity_mismatch",
+                "runtime identities must not be fabricated from host correlation",
+            )
+
+    def _bind_handle(self, raw_handle: Mapping[str, Any]) -> Dict[str, str]:
+        handle = project_runtime_handle(raw_handle)
+        if handle.get("sessionKey") != self.session:
+            _raise_identity(
+                "session_identity_mismatch",
+                "runtime sessionKey does not match the host session",
+            )
+        if os.path.realpath(handle.get("cwd", "")) != os.path.realpath(
+            self.workspace["path"]
+        ):
+            _raise_identity(
+                "workspace_identity_mismatch",
+                "runtime cwd does not match the bound checkout",
+            )
+        self._reject_conflated_ids(handle)
+        previous = self.handle
+        if previous is not None:
+            previous_backend = previous.get("backendSessionId")
+            next_backend = handle.get("backendSessionId")
+            if previous_backend != next_backend:
+                self.backend_identity_changes.append(
+                    {
+                        "previous_backend_session_id": previous_backend,
+                        "backend_session_id": next_backend,
+                    }
+                )
+        self.handle = handle
+        self.persistent_state = "retained"
+        return handle
+
+    def _ensure_owned_handle(self, *, reconnect: bool = False) -> Dict[str, str]:
+        if self.handle is not None and not reconnect:
+            return dict(self.handle)
+        ensure_input = reject_runtime_conversation_params(
+            {
+                "sessionKey": self.session,
+                "agent": "antigravity",
+                "mode": self.session_mode,
+                "cwd": self.workspace["path"],
+            },
+            label="ensureSession",
+        )
+        return self._bind_handle(self.runtime.ensure_session(ensure_input))
+
+    def _run_turn(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
+        text = require_runtime_task_text(self._text)
+        mapped = select_and_map_runtime_antigravity_models(
+            self.runtime,
+            handle,
+            requested_model=self.requested_model,
+            catalog=self._supplied_catalog,
+        )
+        self._catalog = (
+            self._supplied_catalog
+            if self._supplied_catalog is not None
+            else {
+                "schema": MODEL_CATALOG_SCHEMA,
+                "transport": TRANSPORT_ID,
+                "target": TARGET,
+                "current_model": mapped["current_model"],
+                "advertised_models": mapped["advertised_models"],
+            }
+        )
+        turn = self.runtime.start_turn(
+            reject_runtime_conversation_params(
+                {
+                    "handle": dict(handle),
+                    "text": text,
+                    "mode": "prompt",
+                    "requestId": self.request_id,
+                },
+                label="startTurn",
+            )
+        )
+        if not isinstance(turn, Mapping):
+            raise ValidationError("runtime turn is missing")
+        if turn.get("requestId") != self.request_id:
+            _raise_identity(
+                "identity_mismatch",
+                "returned turn request does not match the host request",
+            )
+        self.discarded_events = drain_runtime_turn_events(turn.get("events"))
+        result = turn.get("result")
+        if not isinstance(result, Mapping) or result.get("status") not in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            raise ValidationError("runtime turn result is incomplete")
+        after = self.runtime.get_status(
+            reject_runtime_conversation_params({"handle": dict(handle)}, label="getStatus")
+        )
+        if isinstance(after, Mapping) and "lastRequestId" in after:
+            if after.get("lastRequestId") != self.request_id:
+                _raise_identity(
+                    "identity_mismatch",
+                    "status lastRequestId does not match the completed turn request",
+                )
+        terminal_state = "completed" if result.get("status") == "completed" else "failed"
+        if self.require_halt:
+            terminal_state = "halted"
+        return observation_from_runtime_turn(
+            host_session=self.session,
+            host_conversation_id=self.conversation_id,
+            requested_model=self.requested_model,
+            observed_model=mapped["current_model"],
+            advertised_models=mapped["advertised_models"],
+            terminal_state=terminal_state,
+            result_id=self.request_id,
+            question=self.question_outcome,
+            auth=self.auth,
+        )
+
+    def _apply_finish_policy(self, handle: Mapping[str, Any]) -> None:
+        if self.require_halt or self.session_mode == SESSION_MODE_ONESHOT:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_DISCARD:
+            self._owned_close(handle, discard_persistent_state=True)
+            return
+        if self.finish_policy == FINISH_POLICY_LOCAL_RELEASE:
+            self._owned_close(
+                handle,
+                discard_persistent_state=False,
+                reason="antigravity-acp-local-release",
+            )
+            return
+        self.persistent_state = "retained"
+
+    def _derive(self) -> Dict[str, Any]:
+        self._validate_ownership()
+        if self.permission is not None:
+            self.permission_outcome = require_unsupported_permission_outcome(self.permission)
+        if self.question is not None:
+            self.question_outcome = require_unsupported_question_outcome(self.question)
+        require_runtime_task_text(self._text)
+        handle: Optional[Dict[str, str]] = None
+        try:
+            handle = self._ensure_owned_handle()
+            observation = self._run_turn(handle)
+            self._apply_finish_policy(handle)
+            return observation
+        except BaseException as exc:
+            if handle is not None and handle.get("sessionKey") == self.session:
+                try:
+                    self._owned_close(handle, primary=exc)
+                except Exception:
+                    raise exc
+            elif handle is not None:
+                self._fence_cleanup()
+            raise
+
+    def next_turn(
+        self,
+        *,
+        text: Any,
+        request_id: str,
+        expected_workspace: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Bind a fresh request to the same owned handle. Never replay a cached turn."""
+
+        self._validate_ownership()
+        if expected_workspace is not None:
+            if os.path.realpath(str(expected_workspace["path"])) != os.path.realpath(
+                self.workspace["path"]
+            ):
+                _raise_identity(
+                    "workspace_identity_mismatch",
+                    "runtime cwd does not match the bound checkout",
+                )
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        self.bind_task_text(text)
+        self.request_id = validate_identifier(request_id, "antigravity-acp request")
+        self.require_halt = False
+        observation = self._run_turn(self.handle)
+        self._observation = validate_candidate_observation(observation)
+        return self._observation
+
+    def finish(self, *, discard_persistent_state: bool = True) -> Dict[str, str]:
+        """Final close of the owned handle. Distinct from local release and retain."""
+
+        if self.handle is None:
+            raise ValidationError("owned runtime session is missing")
+        if self.final_discard:
+            raise ValidationError("owned runtime session already discarded")
+        handle = dict(self.handle)
+        self._owned_close(
+            handle,
+            discard_persistent_state=discard_persistent_state,
+            reason=(
+                "antigravity-acp-final-discard"
+                if discard_persistent_state
+                else "antigravity-acp-local-release"
+            ),
+        )
+        return {
+            "local_release": self.local_release,
+            "persistent_state": self.persistent_state,
+            "final_discard": self.final_discard,
+            "backend_discard": self.backend_discard,
+        }
+
+
+class AntigravityAcpRunnerFixture:
+    """Deterministic Antigravity ACP observation runner. Never starts a live process."""
+
+    def __init__(
+        self,
+        observation: Optional[Mapping[str, Any]] = None,
+        *,
+        catalog: Optional[Mapping[str, Any]] = None,
+    ):
+        self._observation = (
+            dict(observation) if observation is not None else fixture_observation()
+        )
+        self._catalog = dict(catalog) if catalog is not None else None
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    def observation(self) -> Dict[str, Any]:
+        return validate_candidate_observation(self._observation)
+
+    def catalog(self) -> Optional[Dict[str, Any]]:
+        return None if self._catalog is None else dict(self._catalog)
+
+
+class AntigravityAcpController:
+    """Structured Antigravity ACP transport. Never constructs tmux or agy-print."""
+
+    transport_id: str = TRANSPORT_ID
+    target: str = TARGET
+
+    def __init__(
+        self,
+        registry_root: Path,
+        *,
+        observer: Optional[Mapping[str, Any]] = None,
+        _observer: Optional[Mapping[str, Any]] = None,
+        runner: Any = None,
+        _runner: Any = None,
+        catalog: Optional[Mapping[str, Any]] = None,
+    ):
+        self.registry_root = Path(registry_root)
+        self.observer = observer if observer is not None else _observer
+        self.runner = runner if runner is not None else _runner
+        self.catalog = catalog
+
+    @staticmethod
+    def available() -> bool:
+        return False
+
+    def require_observation(self) -> Dict[str, Any]:
+        if self.runner is not None:
+            if self.runner.available():
+                _raise_unsupported(
+                    "transport_unavailable",
+                    "antigravity-acp runner fixture must stay fail-closed",
+                )
+            return self.runner.observation()
+        if self.observer is None:
+            _raise_unavailable("antigravity-acp structured observation is unavailable")
+        return validate_candidate_observation(self.observer)
+
+    def require_catalog(
+        self, catalog: Optional[Mapping[str, Any]] = None
+    ) -> Dict[str, Any]:
+        if catalog is not None:
+            return validate_antigravity_acp_catalog(catalog)
+        if self.runner is not None:
+            observed = self.runner.catalog()
+            if observed is not None:
+                return validate_antigravity_acp_catalog(observed)
+        if self.catalog is not None:
+            return validate_antigravity_acp_catalog(self.catalog)
+        return verified_antigravity_acp_catalog()
+
+    def prove(
+        self,
+        *,
+        expected_session: Optional[str] = None,
+        expected_conversation_id: Optional[str] = None,
+        expected_workspace: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        observation = self.require_observation()
+        return prove_antigravity_acp_observation(
+            observation,
+            expected_session=expected_session or observation["session"]["session_id"],
+            expected_conversation_id=(
+                expected_conversation_id or observation["session"]["conversation_id"]
+            ),
+            expected_workspace=expected_workspace,
+        )
+
+    def caller_result(
+        self,
+        *,
+        expected_session: Optional[str] = None,
+        expected_conversation_id: Optional[str] = None,
+        expected_workspace: Optional[Mapping[str, Any]] = None,
+        requested_model: Optional[str] = None,
+        expected_observed_model: Optional[str] = None,
+        record_state: Optional[str] = None,
+        halt_confirmed: Optional[bool] = None,
+        catalog: Optional[Mapping[str, Any]] = None,
+        require_halt: bool = False,
+    ) -> Dict[str, Any]:
+        observation = self.require_observation()
+        expected_session = expected_session or observation["session"]["session_id"]
+        expected_conversation_id = (
+            expected_conversation_id or observation["session"]["conversation_id"]
+        )
+        proved = self.prove(
+            expected_session=expected_session,
+            expected_conversation_id=expected_conversation_id,
+            expected_workspace=expected_workspace,
+        )
+        if requested_model is not None and proved["model"]["requested_id"] != requested_model:
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        if (
+            expected_observed_model is not None
+            and proved["model"]["observed_id"] != expected_observed_model
+        ):
+            _raise_identity(
+                "model_observation_mismatch",
+                "observed model does not match the bound Antigravity ACP runtime",
+            )
+        if require_halt and proved["terminal"]["state"] != "halted":
+            _raise_identity("identity_mismatch", "antigravity-acp halt was not observed")
+        halted = proved["terminal"]["state"] == "halted"
+        fields = caller_fields_from_observation(
+            proved,
+            record_state="HALTED" if halted else record_state,
+            halt_confirmed=True if halt_confirmed is None and halted else halt_confirmed,
+        )
+        return {
+            "ok": True,
+            "session": expected_session,
+            "state": (
+                "HALTED"
+                if fields["caller_outcome"]["halt"] == "confirmed"
+                else (record_state or "ACTIVE")
+            ),
+            "live_antigravity_acp_claimed": False,
+            "antigravity_acp": proved,
+            **fields,
+        }
+
+
 __all__ = [
     "ACPX_RELEASE",
     "ACPX_SOURCE_COMMIT",
+    "ADAPTER_ID",
+    "ADVERTISED_ANTIGRAVITY_MODELS",
+    "AntigravityAcpController",
+    "AntigravityAcpNodeRuntime",
+    "AntigravityAcpRunnerFixture",
+    "AntigravityAcpRuntimeRunner",
+    "AntigravityAcpSyntheticRuntime",
     "CANDIDATE_SCHEMA",
+    "CONTROLLER_RUNTIME_DRIVER",
+    "DEFAULT_ANTIGRAVITY_MODEL",
     "DEFAULT_ROUTE",
+    "FALLBACK_OR_DEFAULT_MODEL_IDS",
     "GENERIC_ACP_ID",
+    "MODEL_CATALOG_SCHEMA",
     "OBSERVATION_SCHEMA",
+    "OWNERSHIP_SCHEMA",
     "REGISTRY_REVISION",
     "RUNTIME_ID",
     "RUNTIME_VERSION",
     "TARGET",
     "TRANSPORT_ID",
+    "caller_fields_from_observation",
     "candidate_contract",
+    "fixture_observation",
+    "map_runtime_antigravity_models",
+    "observation_from_runtime_turn",
+    "prove_antigravity_acp_observation",
+    "require_antigravity_acp_target",
+    "session_record_from_observation",
+    "validate_antigravity_acp_catalog",
     "validate_auth_observation",
     "validate_candidate_contract",
     "validate_candidate_observation",
     "validate_model_observation",
     "validate_question_observation",
+    "verified_antigravity_acp_catalog",
+    "build_antigravity_acp_candidate_runner",
+    "require_antigravity_acp_route_binding",
+    "require_antigravity_process_env",
+    "resolve_antigravity_acp_route_binding",
+    "select_and_map_runtime_antigravity_models",
+    "test_only_antigravity_synthetic_route_binding",
 ]
+
+
+def claim_antigravity_acp_isolated_root(
+    isolated_root: Path,
+    *,
+    owner: str,
+    session: str,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    from antigravity_acpx import claim_isolated_root
+
+    root = Path(isolated_root)
+    root.mkdir(parents=True, exist_ok=True)
+    os.chmod(root, 0o700)
+    return claim_isolated_root(
+        root,
+        owner=owner,
+        session=session,
+        conversation_id=conversation_id,
+    )
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def build_antigravity_acp_candidate_runner(
+    *,
+    session: str,
+    contract: Any,
+    state_root: Path,
+    prompt: Any,
+    requested_model: Optional[str],
+    expected_workspace: Mapping[str, Any],
+    catalog: Optional[Mapping[str, Any]] = None,
+    runtime: Any = None,
+    synthetic_peer: bool = False,
+    executable: Optional[Path] = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
+    isolated_root: Optional[Path] = None,
+    conversation_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+    session_mode: str = SESSION_MODE_PERSISTENT,
+    finish_policy: str = FINISH_POLICY_RETAIN,
+    halt: bool = False,
+    repo_root: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> AntigravityAcpRuntimeRunner:
+    """Construct the task-owned AGY candidate runner. Synthetic peer is test-only."""
+
+    text = require_runtime_task_text(prompt)
+    owner = validate_identifier(contract.controller, "controller")
+    host_conversation = conversation_id or ("conv-%s" % session)
+    host_request = request_id or ("%s-turn-1" % session)
+    isolated = (
+        Path(isolated_root)
+        if isolated_root is not None
+        else Path(state_root) / session / "acp-isolated"
+    )
+    claim_antigravity_acp_isolated_root(
+        isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+    )
+    if runtime is None:
+        if (executable is not None or env is not None) and route_binding is None and not synthetic_peer:
+            raise ValidationError(
+                "antigravity-acp does not accept an arbitrary executable or env payload as a trusted route binding"
+            )
+        if synthetic_peer and route_binding is None:
+            route_binding = test_only_antigravity_synthetic_route_binding()
+        binding = require_antigravity_acp_route_binding(route_binding)
+        if binding["kind"] == SYNTHETIC_PEER_KIND:
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                synthetic_peer=True,
+            )
+        else:
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                env=binding["process_env"],
+                synthetic_peer=False,
+                executable=Path(binding["executable"]),
+                candidate_args=list(binding["argv"][1:]),
+            )
+    return AntigravityAcpRuntimeRunner(
+        runtime,
+        isolated_root=isolated,
+        owner=owner,
+        session=session,
+        conversation_id=host_conversation,
+        request_id=host_request,
+        workspace=expected_workspace,
+        requested_model=requested_model or contract.requested_model,
+        text=text,
+        catalog=catalog,
+        halt=halt,
+        session_mode=session_mode,
+        finish_policy=finish_policy,
+    )

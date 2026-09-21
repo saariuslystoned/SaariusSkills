@@ -51,12 +51,14 @@ _REMEDIES = {
         "operator gate"
     ),
     "transport_unsupported": (
-        "bind transport=tmux, transport=agy-print, or transport=cursor-acp; "
-        "herdr and generic acp remain explicitly unsupported with no fallback"
+        "bind transport=tmux, transport=agy-print, transport=cursor-acp, or "
+        "transport=antigravity-acp; herdr and generic acp remain explicitly "
+        "unsupported with no fallback"
     ),
     "transport_target_mismatch": (
-        "bind cursor-acp only for the cursor target; generic acp remains "
-        "unsupported for every target and never falls back to tmux or agy-print"
+        "bind cursor-acp only for the cursor target and antigravity-acp only "
+        "for the agy target; generic acp remains unsupported for every target "
+        "and never falls back to tmux or agy-print"
     ),
     "transport_unavailable": (
         "restore the bound transport or its structured observer with no "

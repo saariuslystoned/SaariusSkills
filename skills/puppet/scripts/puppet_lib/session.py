@@ -157,6 +157,8 @@ _DOCTOR_BLOCKER_CODES = {
     "agy-print transport is unavailable": "transport_unavailable",
     "cursor-acp transport is unavailable": "transport_unavailable",
     "cursor-acp is valid only for the cursor target": "transport_target_mismatch",
+    "antigravity-acp transport is unavailable": "transport_unavailable",
+    "antigravity-acp is valid only for the agy target": "transport_target_mismatch",
     "contract branch does not match checkout": "branch_mismatch",
     "candidate worktree is not clean": "worktree_dirty",
     "proof root is not writable": "proof_root_unwritable",
@@ -911,14 +913,24 @@ def _cursor_acp_structured_launch(
     observer: Optional[Mapping[str, Any]] = None,
     runner: Any = None,
     catalog: Optional[Mapping[str, Any]] = None,
+    prompt: Optional[str] = None,
+    runtime_factory: Any = None,
+    consumer_owner: Any = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
+    route_resolver: Any = None,
 ) -> Dict[str, Any]:
     """Complete a cursor-acp launch from structured observation. Never open tmux."""
 
+    from .acp_consumer import AcpConsumerOwner, attach_consumer_lifecycle
     from .agy_print import AgyPrintController
     from .cursor_acp import (
         CursorAcpController,
         bind_expected_runtime_model,
+        build_cursor_acp_candidate_runner,
+        require_cursor_acp_route_binding,
         require_cursor_acp_target,
+        require_runtime_task_text,
+        resolve_cursor_acp_route_binding,
     )
     from .tmux import TmuxController
 
@@ -930,35 +942,185 @@ def _cursor_acp_structured_launch(
         "head": workspace["head"],
         "tree": workspace["tree"],
     }
-    controller = open_run_transport(
-        transport,
-        state_root,
-        observer=observer,
-        runner=runner,
-        catalog=catalog,
-    )
-    if isinstance(controller, TmuxController):
-        raise IdentityError("cursor-acp opened a tmux transport")
-    if isinstance(controller, AgyPrintController):
-        raise IdentityError("cursor-acp opened an agy-print transport")
-    if not isinstance(controller, CursorAcpController):
-        raise IdentityError("cursor-acp did not open the structured Cursor ACP transport")
-    observation = controller.require_observation()
-    conversation_id = observation["session"]["conversation_id"]
-    requested = requested_model or contract.requested_model
-    resolved_catalog = controller.require_catalog(catalog)
-    return controller.caller_result(
-        expected_session=session,
-        expected_conversation_id=conversation_id,
-        expected_workspace=expected_workspace,
-        requested_model=requested,
-        expected_observed_model=bind_expected_runtime_model(
-            requested, catalog=resolved_catalog
+    owner = consumer_owner or AcpConsumerOwner()
+    created = runner is None
+    built = runner
+    try:
+        if built is None:
+            factory = runtime_factory or build_cursor_acp_candidate_runner
+            binding = route_binding
+            if binding is None and route_resolver is not None:
+                binding = route_resolver()
+            elif binding is None and runtime_factory is None:
+                require_runtime_task_text(prompt)
+                binding = resolve_cursor_acp_route_binding()
+            if binding is not None:
+                binding = require_cursor_acp_route_binding(binding)
+            built = factory(
+                session=session,
+                contract=contract,
+                state_root=state_root,
+                prompt=prompt,
+                requested_model=requested_model or contract.requested_model,
+                expected_workspace=expected_workspace,
+                catalog=catalog,
+                **({} if binding is None else {"route_binding": binding}),
+            )
+        elif prompt is not None:
+            built.bind_task_text(require_runtime_task_text(prompt))
+        elif not getattr(built, "has_task_text", lambda: True)():
+            require_runtime_task_text(prompt)
+        controller = open_run_transport(
+            transport,
+            state_root,
+            observer=observer,
+            runner=built,
+            catalog=catalog,
         )
-        if requested is not None
-        else None,
-        catalog=resolved_catalog,
+        if isinstance(controller, TmuxController):
+            raise IdentityError("cursor-acp opened a tmux transport")
+        if isinstance(controller, AgyPrintController):
+            raise IdentityError("cursor-acp opened an agy-print transport")
+        if not isinstance(controller, CursorAcpController):
+            raise IdentityError("cursor-acp did not open the structured Cursor ACP transport")
+        observation = controller.require_observation()
+        conversation_id = observation["session"]["conversation_id"]
+        requested = requested_model or contract.requested_model
+        resolved_catalog = controller.require_catalog(catalog)
+        result = controller.caller_result(
+            expected_session=session,
+            expected_conversation_id=conversation_id,
+            expected_workspace=expected_workspace,
+            requested_model=requested,
+            expected_observed_model=bind_expected_runtime_model(
+                requested, catalog=resolved_catalog
+            )
+            if requested is not None
+            else None,
+            catalog=resolved_catalog,
+        )
+        return attach_consumer_lifecycle(
+            result,
+            owner=owner,
+            runner=built,
+            route="cursor-acp",
+            expected_workspace=expected_workspace,
+        )
+    except BaseException as exc:
+        if created and built is not None:
+            owner.release_unretained(built, primary=exc)
+        raise
+
+
+def _antigravity_acp_structured_launch(
+    *,
+    session: str,
+    contract: Contract,
+    transport: Dict[str, str],
+    state_root: Path,
+    requested_model: Optional[str],
+    observer: Optional[Mapping[str, Any]] = None,
+    runner: Any = None,
+    catalog: Optional[Mapping[str, Any]] = None,
+    prompt: Optional[str] = None,
+    runtime_factory: Any = None,
+    consumer_owner: Any = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
+    route_resolver: Any = None,
+) -> Dict[str, Any]:
+    """Complete an antigravity-acp launch from structured observation. Never open tmux."""
+
+    from .acp_consumer import AcpConsumerOwner, attach_consumer_lifecycle
+    from .agy_print import AgyPrintController
+    from .antigravity_acp import (
+        AntigravityAcpController,
+        build_antigravity_acp_candidate_runner,
+        require_antigravity_acp_route_binding,
+        require_antigravity_acp_target,
+        resolve_antigravity_acp_route_binding,
     )
+    from .cursor_acp import CursorAcpController, require_runtime_task_text
+    from .tmux import TmuxController
+
+    require_antigravity_acp_target(contract.target)
+    workspace = _workspace_snapshot(contract)
+    expected_workspace = {
+        "path": str(contract.repo),
+        "branch": workspace["branch"],
+        "head": workspace["head"],
+        "tree": workspace["tree"],
+    }
+    owner = consumer_owner or AcpConsumerOwner()
+    created = runner is None
+    built = runner
+    try:
+        if built is None:
+            factory = runtime_factory or build_antigravity_acp_candidate_runner
+            binding = route_binding
+            if binding is None and route_resolver is not None:
+                binding = route_resolver()
+            elif binding is None and runtime_factory is None:
+                binding = resolve_antigravity_acp_route_binding()
+            if binding is not None:
+                binding = require_antigravity_acp_route_binding(binding)
+            built = factory(
+                session=session,
+                contract=contract,
+                state_root=state_root,
+                prompt=prompt,
+                requested_model=requested_model or contract.requested_model,
+                expected_workspace=expected_workspace,
+                catalog=catalog,
+                **({} if binding is None else {"route_binding": binding}),
+            )
+        elif prompt is not None:
+            built.bind_task_text(require_runtime_task_text(prompt))
+        elif not getattr(built, "has_task_text", lambda: True)():
+            require_runtime_task_text(prompt)
+        controller = open_run_transport(
+            transport,
+            state_root,
+            observer=observer,
+            runner=built,
+            catalog=catalog,
+        )
+        if isinstance(controller, TmuxController):
+            raise IdentityError("antigravity-acp opened a tmux transport")
+        if isinstance(controller, AgyPrintController):
+            raise IdentityError("antigravity-acp opened an agy-print transport")
+        if isinstance(controller, CursorAcpController):
+            raise IdentityError("antigravity-acp opened a cursor-acp transport")
+        if not isinstance(controller, AntigravityAcpController):
+            raise IdentityError(
+                "antigravity-acp did not open the structured Antigravity ACP transport"
+            )
+        observation = controller.require_observation()
+        conversation_id = observation["session"]["conversation_id"]
+        requested = requested_model or contract.requested_model
+        resolved_catalog = controller.require_catalog(catalog)
+        halted = observation["terminal"]["state"] == "halted"
+        result = controller.caller_result(
+            expected_session=session,
+            expected_conversation_id=conversation_id,
+            expected_workspace=expected_workspace,
+            requested_model=requested,
+            expected_observed_model=requested,
+            catalog=resolved_catalog,
+            require_halt=halted,
+            halt_confirmed=halted,
+            record_state="HALTED" if halted else None,
+        )
+        return attach_consumer_lifecycle(
+            result,
+            owner=owner,
+            runner=built,
+            route="antigravity-acp",
+            expected_workspace=expected_workspace,
+        )
+    except BaseException as exc:
+        if created and built is not None:
+            owner.release_unretained(built, primary=exc)
+        raise
 
 
 def _agy_print_controller(state_root: Path, **kwargs: Any) -> Any:
@@ -1501,6 +1663,8 @@ def doctor(
     blockers = []
     if transport["id"] == "cursor-acp" and contract.target != "cursor":
         blockers.append("cursor-acp is valid only for the cursor target")
+    if transport["id"] == "antigravity-acp" and contract.target != "agy":
+        blockers.append("antigravity-acp is valid only for the agy target")
     executable = Path(manifest.raw["executable"]["resolved_path"])
     if executable.is_symlink() or not executable.is_file():
         blockers.append("resolved executable is unavailable or a symlink")
@@ -1731,6 +1895,10 @@ def launch(
     _agy_print_executable: Optional[Path] = None,
     _cursor_acp_observer: Optional[Mapping[str, Any]] = None,
     _cursor_acp_runner: Any = None,
+    _cursor_acp_runtime_factory: Any = None,
+    _antigravity_acp_observer: Optional[Mapping[str, Any]] = None,
+    _antigravity_acp_runner: Any = None,
+    _antigravity_acp_runtime_factory: Any = None,
 ) -> Dict[str, Any]:
     validate_identifier(session, "session")
     if deadline_seconds is not None:
@@ -1830,7 +1998,7 @@ def launch(
         )
     profile_context: Optional[SubscriptionLaunchContext] = None
     profile_status: Optional[Dict[str, Any]] = None
-    if contract.target == "agy" and transport["id"] != "agy-print":
+    if contract.target == "agy" and transport["id"] not in {"agy-print", "antigravity-acp"}:
         validate_agy_regular_launch_params(
             session_profile=contract.session_profile,
             argv=argv,
@@ -2056,6 +2224,20 @@ def launch(
             requested_model=requested_model,
             observer=_cursor_acp_observer,
             runner=_cursor_acp_runner,
+            prompt=initial,
+            runtime_factory=_cursor_acp_runtime_factory,
+        )
+    if transport["id"] == "antigravity-acp":
+        return _antigravity_acp_structured_launch(
+            session=session,
+            contract=contract,
+            transport=transport,
+            state_root=state_root,
+            requested_model=requested_model,
+            observer=_antigravity_acp_observer,
+            runner=_antigravity_acp_runner,
+            prompt=initial,
+            runtime_factory=_antigravity_acp_runtime_factory,
         )
     registry = SessionRegistry(state_root)
     tmux = open_run_transport(transport, state_root)

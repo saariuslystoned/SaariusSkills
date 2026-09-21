@@ -130,6 +130,8 @@ class Contract:
         transport = bind_run_transport(value.get("transport"))["id"]
         if transport == "cursor-acp":
             require_cursor_acp_target(target)
+        if transport == "antigravity-acp" and target != "agy":
+            raise ValidationError("antigravity-acp transport requires target agy")
         normalized_raw = dict(value)
         normalized_raw["session_profile"] = session_profile
         if "transport" in value:
@@ -150,6 +152,8 @@ class Contract:
             or any(char in requested_effort for char in "\x00\n\r")
         ):
             raise ValidationError("invalid requested effort")
+        if transport == "antigravity-acp" and requested_effort is not None:
+            raise ValidationError("antigravity-acp does not support requested effort")
         max_helpers = value.get("max_helpers", 0)
         if isinstance(max_helpers, bool) or not isinstance(max_helpers, int) or not 0 <= max_helpers <= 32:
             raise ValidationError("max_helpers must be an integer from zero to 32")

@@ -1,0 +1,27 @@
+# Dual ACP controller state
+
+- status: CI portability repair completed on top of accepted PR61 head b867272; missing Cursor ACP task text is now rejected before official route executable validation; candidate pin remains exact 2e05de52 / tree c612e764; old f888 evidence stays a rejected fence
+- worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-dual-acp-controller-20260921`
+- branch: `codex/puppet-dual-acp-controller-20260921`
+- accepted base: `e999f88092ef8e07c7dd1736b31c69bfeacb738b`
+- accepted base tree: `108303e6ec6f105280f7aee972f9ddb09087167b`
+- frozen upstream acpx: `2e05de525dd1ab62e9e74bf02d91e3638920fcf3`
+- frozen upstream tree: `c612e764ead5d8eaa409956fb1b11c008a7579ed`
+- artifact: `runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz`
+- artifact SHA-256: `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`
+- runtime entry SHA-256: `ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683`
+- preserved f888 artifact SHA-256: `642d4c299bd58b275ca1a360196f3077fc4f84997e2654542f492b1e0001c162`
+- worker_job_id: `59754615-f2c0-41b9-a2e8-d41d999ba4cb`
+- antigravity_worker_job_id: `7214ec87-9b2b-4c6b-a5b1-69cab059854f`
+- repair_worker_job_id: `35e20824-58e5-46b9-bb14-402098b36b69`
+- repair2_worker_job_id: `f3b870e8-94af-42da-a9e9-fe9819ce335c`
+- lifecycle_worker_job_id: `faeec797-3fa7-4893-a0d0-f5c6d289267c`
+- refresh_implementation: this in-workspace Cursor ACP session; no separate delegated ACP job id
+- ci_portability_repair: this in-workspace Cursor ACP session; one validation-order plus hermetic fixture commit on exact clean head `b8672726939a64710c69f4c2839b037d15e36945` / tree `aff6df13f94c1dff053d6b7a467d19f72c0fb3ca`
+- ci_failure: Ubuntu full discovery 1334 tests, 1 failure at `tests/test_puppet_cursor_acp.py:731` `test_structured_launch_without_observer_does_not_fall_back`; expected `task text is missing`, actual `cursor-acp official route executable is missing`
+- ordinary/plugin/shared pins: unchanged
+- live qualification: not launched; parent admission required after source acceptance
+- independent validation: affected test plus 69 Cursor ACP focused Python tests and 1334-test unittest discovery passed on macOS after the repair; the repaired test now forces the official Cursor executable absent
+- process-local limit: continuation cannot resume without the live owner; absent/wrong owner or route binding fail closed
+- refresh gaps: delegated-terminal #683 retirement and queue/lease #680/#681/#682/#686 surfaces are unused because terminal callbacks and CLI queue ownership stay disabled; #687 not adopted
+- next: parent CI re-run / review; no live qualification, publication, merge, pin refresh, or shared install from this worker
