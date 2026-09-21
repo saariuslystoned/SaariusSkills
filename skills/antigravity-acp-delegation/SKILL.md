@@ -63,10 +63,12 @@ the user explicitly authorizes that alternative.
   Use `antigravity_acp_cancel` when the parent decision changes. A missing
   active session is fail-closed, not a reason to create a replacement session.
 - Treat `completed`, `failed`, `cancelled`, and `needs-input` as distinct
-  outcomes. Fixed-choice `interaction_*` questions and permissions fail closed
-  as `needs-input` or `cancelled`; never auto-answer them. Escalate
-  `needs-input` to the user with the bounded reason; do not invent a login
-  flow, entitlement proof, or hidden approval.
+  outcomes. The bridge grants one-time permission for tool calls in the exact
+  delegated workspace, matching the bounded Cursor ACP lane; it never grants
+  reusable `allow_always` approval. Fixed-choice `interaction_*` questions and
+  elicitation still fail closed as `needs-input` or `cancelled`; never
+  auto-answer them. Escalate `needs-input` to the user with the bounded reason;
+  do not invent a login flow, entitlement proof, or hidden approval.
 - Do not claim Google AI Ultra quota attribution from this route. Missing
   login or overage-disabled proof is a setup/input result, not a reason to
   switch accounts or enable billing.

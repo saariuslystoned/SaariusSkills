@@ -402,7 +402,11 @@ export function createDefaultRuntime({
       geminiHome,
       helperPath: launch.helper,
     }),
-    permissionMode: "deny-all",
+    // Match the Cursor ACP lane's bounded worker behavior: every tool request
+    // is approved once for this exact delegated session. Fixed-choice questions
+    // and elicitation remain fail-closed below; no permission is persisted as
+    // allow-always and the bridge never forwards a reusable approval.
+    permissionMode: "approve-all",
     nonInteractivePermissions: "fail",
     timeoutMs,
   });
@@ -824,7 +828,7 @@ export class AntigravityAcpBroker {
             return { outcome: "cancel" };
           }
           interaction.permission = true;
-          return { outcome: "cancel" };
+          return { outcome: "allow_once" };
         },
         onElicitation: async () => {
           interaction.elicitation = true;
