@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -23,6 +23,7 @@ export const ACPX_ARTIFACT_SHA256 = "fe9ba256bc562b01bff007a2e63017a28daebb2dbc4
 export const ACPX_ARTIFACT_PATH = "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz";
 export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-acpx-merged648-runs/20260921/runtime";
 export const ACPX_CANDIDATE_RUNTIME_MODULE = `${ACPX_CANDIDATE_RUNTIME_ROOT}/node_modules/acpx/dist/runtime.js`;
+export const ACPX_ARTIFACT_RUNTIME_ENTRY = "package/dist/runtime.js";
 export const ACPX_ARTIFACT_KIND = "local_exact_source_tarball";
 export const ACPX_PUBLIC_SURFACE = "acpx/runtime";
 export const ACPX_CONSTRUCTOR = "createAcpRuntime";
@@ -318,7 +319,90 @@ export function validatePublicRuntimeOptions(value) {
   };
 }
 
-function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
+function isContainedPath(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return relative === ""
+    || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function resolveExistingPrefix(targetPath) {
+  let current = path.resolve(targetPath);
+  const missing = [];
+  for (;;) {
+    try {
+      await lstat(current);
+      return path.join(await realpath(current), ...missing.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+export async function resolveContainedOwnedPath(ownedRoot, targetPath, label = "path") {
+  let ownedReal;
+  try {
+    ownedReal = await realpath(path.resolve(ownedRoot));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new AdapterError("INVALID_RUNTIME", `${label} owned root is missing`);
+    }
+    throw error;
+  }
+  const resolved = await resolveExistingPrefix(targetPath);
+  if (!isContainedPath(ownedReal, resolved)) {
+    throw new AdapterError("INVALID_RUNTIME", `${label} escapes the owned root`);
+  }
+  return resolved;
+}
+
+async function readArtifactEntry(artifactPath, entryName) {
+  const { stdout } = await execFile("tar", ["-xOf", artifactPath, entryName], {
+    encoding: "buffer",
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  return stdout;
+}
+
+export async function proveInstalledCandidateModule({
+  modulePath,
+  artifactPath,
+  entryName = ACPX_ARTIFACT_RUNTIME_ENTRY,
+} = {}) {
+  if (!modulePath || !artifactPath) {
+    throw new AdapterError("IDENTITY_MISMATCH", "installed candidate runtime proof is incomplete");
+  }
+  let info;
+  try {
+    info = await lstat(modulePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new AdapterError("IDENTITY_MISMATCH", "installed candidate runtime is missing");
+    }
+    throw error;
+  }
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new AdapterError("IDENTITY_MISMATCH", "installed candidate runtime is not a regular file");
+  }
+  const installed = await readFile(modulePath);
+  const expected = await readArtifactEntry(artifactPath, entryName);
+  const installedDigest = createHash("sha256").update(installed).digest("hex");
+  const expectedDigest = createHash("sha256").update(expected).digest("hex");
+  if (installedDigest !== expectedDigest) {
+    throw new AdapterError("IDENTITY_MISMATCH", "installed candidate runtime digest drifted");
+  }
+  return {
+    modulePath,
+    module_sha256: installedDigest,
+    artifact_entry: entryName,
+  };
+}
+
+async function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
   const allowed = path.resolve(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT);
   const requested = path.resolve(runtimeRoot ?? allowed);
   const bridgeRoot = path.resolve(REPO_ROOT, "bridge");
@@ -343,18 +427,25 @@ function resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot) {
   ) {
     throw new AdapterError("INVALID_RUNTIME", "candidate runtime root is not the task-owned runtime directory");
   }
-  return allowed;
+  const repoReal = await realpath(REPO_ROOT);
+  const resolved = await resolveContainedOwnedPath(repoReal, requested, "candidate runtime root");
+  if (resolved !== path.join(repoReal, ACPX_CANDIDATE_RUNTIME_ROOT)) {
+    throw new AdapterError("INVALID_RUNTIME", "candidate runtime root is not the task-owned runtime directory");
+  }
+  return resolved;
 }
 
 export async function materializeVerifiedCandidateAcpx({ runtimeRoot } = {}) {
-  const root = resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot);
+  const root = await resolveTaskOwnedCandidateRuntimeRoot(runtimeRoot);
   const artifact = await proveLocalArtifact();
+  const artifactPath = path.resolve(REPO_ROOT, ACPX_ARTIFACT_PATH);
   await mkdir(root, { recursive: true, mode: 0o700 });
+  const ownedRoot = await resolveContainedOwnedPath(await realpath(REPO_ROOT), root, "candidate runtime root");
   await execFile(
     "npm",
-    ["install", "--ignore-scripts", "--no-save", path.resolve(REPO_ROOT, ACPX_ARTIFACT_PATH)],
+    ["install", "--ignore-scripts", "--no-save", artifactPath],
     {
-      cwd: root,
+      cwd: ownedRoot,
       timeout: 120_000,
       env: {
         ...process.env,
@@ -362,12 +453,21 @@ export async function materializeVerifiedCandidateAcpx({ runtimeRoot } = {}) {
       },
     },
   );
-  const modulePath = path.join(root, "node_modules", "acpx", "dist", "runtime.js");
+  const modulePath = await resolveContainedOwnedPath(
+    ownedRoot,
+    path.join(ownedRoot, "node_modules", "acpx", "dist", "runtime.js"),
+    "candidate runtime module",
+  );
   await access(modulePath, constants.R_OK);
+  const installed = await proveInstalledCandidateModule({
+    modulePath,
+    artifactPath,
+  });
   return {
-    runtimeRoot: root,
+    runtimeRoot: ownedRoot,
     modulePath,
     artifact_sha256: artifact.artifact_sha256,
+    module_sha256: installed.module_sha256,
     lifecycle_scripts: "disabled",
   };
 }
@@ -396,6 +496,10 @@ export async function createVerifiedCandidateAcpRuntime(options, { runtimeRoot, 
     await requirePrivateRoot(isolatedRoot);
   }
   const materialized = await materializeVerifiedCandidateAcpx({ runtimeRoot });
+  const installed = await proveInstalledCandidateModule({
+    modulePath: materialized.modulePath,
+    artifactPath: path.resolve(REPO_ROOT, ACPX_ARTIFACT_PATH),
+  });
   const moduleUrl = pathToFileURL(materialized.modulePath).href;
   const { createAcpRuntime } = await import(moduleUrl);
   if (typeof createAcpRuntime !== "function") {
@@ -406,6 +510,7 @@ export async function createVerifiedCandidateAcpRuntime(options, { runtimeRoot, 
     provenance: {
       module_path: materialized.modulePath,
       artifact_sha256: materialized.artifact_sha256,
+      module_sha256: installed.module_sha256,
       lifecycle_scripts: "disabled",
       available: adapterAvailable(),
       ordinary_launch: "unavailable",

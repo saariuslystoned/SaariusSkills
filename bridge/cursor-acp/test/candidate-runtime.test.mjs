@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, chmod, readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, chmod, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import test from "node:test";
 import {
   ACPX_ARTIFACT_SHA256,
@@ -19,12 +22,19 @@ import {
   claimIsolatedRoot,
   createVerifiedCandidateAcpRuntime,
   materializeVerifiedCandidateAcpx,
+  proveInstalledCandidateModule,
+  resolveContainedOwnedPath,
 } from "../puppet-adapter.mjs";
+
+const execFile = promisify(execFileCallback);
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
 const TEST_PROMPT = "candidate runtime proof ping";
 const LOCAL_ARTIFACT = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
+const REAL_ARTIFACT_SKIP = existsSync(LOCAL_ARTIFACT)
+  ? false
+  : "exact local acpx artifact is task-owned proof input";
 
 function memorySessionStore() {
   const sessions = new Map();
@@ -48,6 +58,71 @@ async function privateRoot() {
   await mkdir(workspace);
   return { root, isolated, workspace };
 }
+
+test("owned runtime path rejects symlink escape and accepts contained roots", async () => {
+  const owned = await mkdtemp(path.join(os.tmpdir(), "puppet-acpx-owned-"));
+  const escape = await mkdtemp(path.join(os.tmpdir(), "puppet-acpx-escape-"));
+  try {
+    const runtime = path.join(owned, "runtime");
+    const contained = path.join(owned, "runtime-real");
+    await mkdir(contained, { mode: 0o700 });
+    await chmod(contained, 0o700);
+    const accepted = await resolveContainedOwnedPath(owned, contained);
+    assert.equal(accepted, await realpath(contained));
+
+    await symlink(escape, runtime);
+    await assert.rejects(
+      () => resolveContainedOwnedPath(owned, runtime),
+      (error) => error instanceof AdapterError && /escapes the owned root/.test(error.message),
+    );
+
+    const moduleDir = path.join(contained, "node_modules", "acpx", "dist");
+    await mkdir(moduleDir, { recursive: true });
+    const modulePath = path.join(moduleDir, "runtime.js");
+    const escapedModule = path.join(escape, "runtime.js");
+    await writeFile(escapedModule, "export function createAcpRuntime() { return { escaped: true }; }\n");
+    await symlink(escapedModule, modulePath);
+    await assert.rejects(
+      () => resolveContainedOwnedPath(contained, modulePath),
+      (error) => error instanceof AdapterError && /escapes the owned root/.test(error.message),
+    );
+  } finally {
+    await rm(owned, { recursive: true, force: true });
+    await rm(escape, { recursive: true, force: true });
+  }
+});
+
+test("installed candidate runtime bytes are bound and cache drift fails closed", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "puppet-acpx-integrity-"));
+  try {
+    const payloadDir = path.join(fixture, "package", "dist");
+    await mkdir(payloadDir, { recursive: true });
+    const expectedSource = "export function createAcpRuntime() { return { fixture: true }; }\n";
+    await writeFile(path.join(payloadDir, "runtime.js"), expectedSource);
+    const artifact = path.join(fixture, "acpx-fixture.tgz");
+    await execFile("tar", ["-czf", artifact, "package"], { cwd: fixture });
+
+    const modulePath = path.join(fixture, "runtime", "node_modules", "acpx", "dist", "runtime.js");
+    await mkdir(path.dirname(modulePath), { recursive: true });
+    await writeFile(modulePath, expectedSource);
+    const proved = await proveInstalledCandidateModule({
+      modulePath,
+      artifactPath: artifact,
+    });
+    assert.equal(proved.module_sha256, createHash("sha256").update(expectedSource).digest("hex"));
+
+    await writeFile(modulePath, "export function createAcpRuntime() { return { tampered: true }; }\n");
+    await assert.rejects(
+      () => proveInstalledCandidateModule({
+        modulePath,
+        artifactPath: artifact,
+      }),
+      (error) => error instanceof AdapterError && /installed candidate runtime digest drifted/.test(error.message),
+    );
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
 
 test("candidate runtime rejects bridge, shared modules, and arbitrary roots", async () => {
   await assert.rejects(
@@ -113,7 +188,7 @@ test("candidate runtime helper stays unavailable and omits prompt bodies", async
 
 test("verified candidate acpx runtime completes one isolated turn", {
   timeout: 180_000,
-  skip: !existsSync(LOCAL_ARTIFACT),
+  skip: REAL_ARTIFACT_SKIP,
 }, async () => {
   const { isolated, workspace } = await privateRoot();
   const capabilitiesPath = path.join(isolated, "callback-capabilities.json");
@@ -142,8 +217,15 @@ test("verified candidate acpx runtime completes one isolated turn", {
     isolatedRoot: isolated,
   });
   try {
-    assert.equal(provenance.module_path, path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_MODULE));
+    assert.equal(
+      await realpath(provenance.module_path),
+      await realpath(path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_MODULE)),
+    );
     assert.equal(provenance.artifact_sha256, ACPX_ARTIFACT_SHA256);
+    assert.equal(
+      provenance.module_sha256,
+      createHash("sha256").update(await readFile(provenance.module_path)).digest("hex"),
+    );
     assert.equal(provenance.lifecycle_scripts, "disabled");
     assert.equal(provenance.available, false);
     assert.equal(provenance.ordinary_launch, "unavailable");

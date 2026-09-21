@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -36,6 +37,10 @@ import {
 } from "../puppet-adapter.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const LOCAL_ARTIFACT = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
+const REAL_ARTIFACT_SKIP = existsSync(LOCAL_ARTIFACT)
+  ? false
+  : "exact local acpx artifact is task-owned proof input";
 
 function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -129,23 +134,27 @@ test("merged unreleased provenance stays exact and fail-closed", () => {
   );
 });
 
-test("local artifact digest is source integrity and exposes callback controls", async () => {
-  const proved = await proveLocalArtifact();
-  assert.equal(proved.artifact_sha256, ACPX_ARTIFACT_SHA256);
-  assert.equal(proved.path, ACPX_ARTIFACT_PATH);
-  assert.equal(proved.released, false);
-  const artifact = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
-  const { execFileSync } = await import("node:child_process");
-  const runtime = execFileSync("tar", ["-xOf", artifact, "package/dist/runtime.d.ts"], { encoding: "utf8" });
-  assert.match(runtime, /fs\?: boolean/);
-  assert.match(runtime, /terminal\?: boolean/);
-  assert.match(runtime, /createAcpRuntime/);
+test("decoy artifact digest fails closed without the real tarball", async () => {
   const decoy = path.join(os.tmpdir(), `acpx-decoy-${process.pid}.tgz`);
   await writeFile(decoy, "not-the-merged-source");
   await assert.rejects(
     () => proveLocalArtifact(decoy),
     (error) => error instanceof AdapterError && /artifact digest drifted/.test(error.message),
   );
+});
+
+test("local artifact digest is source integrity and exposes callback controls", {
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const proved = await proveLocalArtifact();
+  assert.equal(proved.artifact_sha256, ACPX_ARTIFACT_SHA256);
+  assert.equal(proved.path, ACPX_ARTIFACT_PATH);
+  assert.equal(proved.released, false);
+  const { execFileSync } = await import("node:child_process");
+  const runtime = execFileSync("tar", ["-xOf", LOCAL_ARTIFACT, "package/dist/runtime.d.ts"], { encoding: "utf8" });
+  assert.match(runtime, /fs\?: boolean/);
+  assert.match(runtime, /terminal\?: boolean/);
+  assert.match(runtime, /createAcpRuntime/);
 });
 
 test("cutover safeguards keep ordinary route disabled", () => {
