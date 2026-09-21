@@ -17,7 +17,7 @@ qualification, a production pin, or a public PR.
 - branch: `codex/puppet-acpx-runtime-proof-20260921`
 - base: `123fc0a43833dfa4f3af4bdd2f72eb78a14f81b0`
 - public PR: https://github.com/saariuslystoned/SaariusSkills/pull/57 (open; not merged)
-- PR head: `73fd694a52a86edc201cc82f1382c30591fba0a7`
+- PR head: `154b4d8667857aa9f9920f5cbc4ac1b05df313cd`
 - production enablement: none
 
 ## Provenance tuple
@@ -115,9 +115,9 @@ Python 3.14 / macos-26: passed
 
 $ Spark-2 OpenClaw terminal review
 base 123fc0a43833dfa4f3af4bdd2f72eb78a14f81b0
-head 73fd694a52a86edc201cc82f1382c30591fba0a7
-request req-20260921T041954Z-108015230621
-exit_code 0; scoped-clean; correct (0.96); no accepted/actionable findings
+head 154b4d8667857aa9f9920f5cbc4ac1b05df313cd
+request req-20260921T042618Z-109260112539
+exit_code 0; scoped-clean; correct (0.98); no accepted/actionable findings
 ```
 
 Covered: Python/JS identity parity; merged/unreleased status; exact
