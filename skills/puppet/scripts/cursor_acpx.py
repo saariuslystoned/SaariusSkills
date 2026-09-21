@@ -1,11 +1,13 @@
-"""Disabled synthetic-only Puppet adapter for the pinned public acpx runtime.
+"""Disabled synthetic-only Puppet adapter for merged, unreleased acpx source.
 
 Binds the existing named local Cursor transport ``cursor-acp``. Ordinary
 launch, native defaults, MCP broker policy, and live qualification stay
 unchanged and unavailable. The public-runtime boundary is the documented
-``createAcpRuntime`` options from openclaw/acpx draft PR #648 at exact head
-``02c03c7abeee0324a71e2114e6b1b4cf7b0785ff``; private internals are not
-imported. Tests inject deterministic synthetic runtime and peer fixtures.
+``createAcpRuntime`` options from openclaw/acpx PR #648 after merge commit
+``ac22c3c8f6d077b542f19524afbe5409e46c56e8``. That merge is exact-source
+proof only; published ``acpx@0.18.0`` does not contain it. Private
+internals are not imported. Tests inject deterministic synthetic runtime
+and peer fixtures.
 """
 
 from __future__ import annotations
@@ -39,8 +41,11 @@ from puppet_lib.safety import (
     exclusive_lock,
     read_json,
     sha256_bytes,
+    sha256_file,
     validate_bounded_json,
     validate_identifier,
+    validate_sha1,
+    validate_sha256,
 )
 
 
@@ -56,12 +61,33 @@ QUESTION_SCHEMA = "puppet.cursor-acpx-question/v1"
 PROCESS_SCHEMA = "puppet.cursor-acpx-process/v1"
 
 ACPX_SOURCE = "https://github.com/openclaw/acpx/pull/648"
-ACPX_HEAD = "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff"
-ACPX_STATUS = "draft"
+ACPX_MERGE_COMMIT = "ac22c3c8f6d077b542f19524afbe5409e46c56e8"
+ACPX_SOURCE_COMMIT = ACPX_MERGE_COMMIT
+ACPX_HEAD = ACPX_MERGE_COMMIT
+ACPX_PR_HEAD = "8de4219c4e87af4dbbc468f0056970d2cda343a2"
+ACPX_PR_BASE = "4e4dcf5bdf4689509169861fefe5cea3a334d5f8"
+ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58"
+ACPX_STATUS = "merged_unreleased"
 ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
+ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0"
+ACPX_PUBLISHED_NPM_VERSION = "0.18.0"
+ACPX_ARTIFACT_SHA256 = (
+    "fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29"
+)
+ACPX_ARTIFACT_PATH = (
+    "runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz"
+)
+ACPX_ARTIFACT_KIND = "local_exact_source_tarball"
 ACPX_PUBLIC_SURFACE = "acpx/runtime"
 ACPX_CONSTRUCTOR = "createAcpRuntime"
 ACPX_QUALIFICATION = "synthetic_only"
+CUTOVER_SCHEMA = "puppet.cursor-acpx-cutover/v1"
+OBSOLETE_DRAFT_HEADS = frozenset(
+    {
+        "02c03c7abeee0324a71e2114e6b1b4cf7b0785ff",
+        "2b7627a6b91b4c94c8a83ad0cc4863f72e8f14de",
+    }
+)
 
 PUBLIC_RUNTIME_OPTIONS = (
     "cwd",
@@ -173,27 +199,201 @@ def _reject_body_keys(value: Any, label: str = "artifact") -> None:
             _reject_body_keys(nested, label)
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _metadata_integrity_hash(value: Mapping[str, Any]) -> str:
+    body = {key: item for key, item in value.items() if key not in {"schema", "integrity"}}
+    return sha256_bytes(canonical_json_bytes(body))
+
+
 def acpx_dependency_identity() -> Dict[str, Any]:
-    """Return the exact draft public-runtime pin. Not merged or released."""
+    """Return the merged-unreleased exact-source pin. Not an npm release."""
 
     pin = {
         "source": ACPX_SOURCE,
         "head": ACPX_HEAD,
+        "merge_commit": ACPX_MERGE_COMMIT,
+        "source_commit": ACPX_SOURCE_COMMIT,
+        "pr_head": ACPX_PR_HEAD,
+        "pr_base": ACPX_PR_BASE,
+        "npm_git_head": ACPX_NPM_GIT_HEAD,
         "status": ACPX_STATUS,
         "ordinary_pinned_package": ACPX_ORDINARY_PINNED_PACKAGE,
+        "candidate_package_version": ACPX_CANDIDATE_PACKAGE_VERSION,
+        "published_npm_version": ACPX_PUBLISHED_NPM_VERSION,
+        "published_npm_contains_merge": False,
         "ordinary_route_unchanged": True,
         "qualification": ACPX_QUALIFICATION,
-        "merged": False,
+        "merged": True,
         "released": False,
         "public_surface": ACPX_PUBLIC_SURFACE,
         "constructor": ACPX_CONSTRUCTOR,
+        "artifact_kind": ACPX_ARTIFACT_KIND,
+        "artifact_path": ACPX_ARTIFACT_PATH,
+        "artifact_sha256": ACPX_ARTIFACT_SHA256,
     }
-    integrity = sha256_bytes(canonical_json_bytes(pin))
     return {
         "schema": DEPENDENCY_SCHEMA,
         **pin,
-        "integrity": integrity,
+        "integrity": ACPX_ARTIFACT_SHA256,
     }
+
+
+def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
+    """Fail closed on draft, release, or metadata-hash provenance claims."""
+
+    if not isinstance(value, Mapping):
+        raise ValidationError("acpx dependency identity is invalid")
+    _reject_body_keys(value, "acpx identity")
+    if value.get("status") == "draft":
+        _raise_identity(
+            "identity_mismatch",
+            "acpx draft-state identity is obsolete",
+        )
+    if value.get("merged") is not True:
+        _raise_identity(
+            "identity_mismatch",
+            "acpx source is not the merged commit",
+        )
+    if value.get("released") is True:
+        _raise_identity(
+            "identity_mismatch",
+            "acpx candidate is not a released package",
+        )
+    if value.get("qualification") != ACPX_QUALIFICATION:
+        raise ValidationError("cursor-acpx cannot claim live qualification")
+    if value.get("published_npm_contains_merge") is True:
+        _raise_identity(
+            "identity_mismatch",
+            "published npm acpx@0.18.0 does not contain the merge",
+        )
+    if value.get("ordinary_pinned_package") != ACPX_ORDINARY_PINNED_PACKAGE:
+        _raise_identity(
+            "identity_mismatch",
+            "ordinary production pin must stay 0.16.0",
+        )
+    if value.get("candidate_package_version") != ACPX_CANDIDATE_PACKAGE_VERSION:
+        _raise_identity(
+            "identity_mismatch",
+            "candidate package version drifted",
+        )
+    merge_commit = value.get("merge_commit")
+    source_commit = value.get("source_commit")
+    head = value.get("head")
+    pr_head = value.get("pr_head")
+    pr_base = value.get("pr_base")
+    npm_git_head = value.get("npm_git_head")
+    for label, commit in (
+        ("merge commit", merge_commit),
+        ("source commit", source_commit),
+        ("bound head", head),
+        ("PR head", pr_head),
+        ("PR base", pr_base),
+        ("npm gitHead", npm_git_head),
+    ):
+        validate_sha1(commit, label)
+    if merge_commit != source_commit or head != merge_commit:
+        _raise_identity(
+            "identity_mismatch",
+            "merge and source commit must be the exact merged acpx commit",
+        )
+    if merge_commit == npm_git_head:
+        _raise_identity(
+            "identity_mismatch",
+            "stale npm gitHead is not the merge commit",
+        )
+    if merge_commit == pr_head or merge_commit == pr_base:
+        _raise_identity(
+            "identity_mismatch",
+            "PR head or base is not the merge commit",
+        )
+    if {
+        merge_commit,
+        pr_head,
+        pr_base,
+        npm_git_head,
+    } & OBSOLETE_DRAFT_HEADS:
+        _raise_identity(
+            "identity_mismatch",
+            "acpx draft-state identity is obsolete",
+        )
+    artifact = validate_sha256(value.get("artifact_sha256"), "acpx artifact")
+    integrity = validate_sha256(value.get("integrity"), "acpx integrity")
+    if integrity == _metadata_integrity_hash(value):
+        _raise_identity(
+            "identity_mismatch",
+            "acpx artifact integrity must not be a hash of descriptive metadata",
+        )
+    if integrity != artifact:
+        _raise_identity(
+            "identity_mismatch",
+            "acpx artifact integrity must be the tarball digest",
+        )
+    expected = acpx_dependency_identity()
+    if dict(value) != expected:
+        _raise_identity("identity_mismatch", "acpx source identity drifted")
+    return expected
+
+
+def prove_local_artifact(artifact_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Prove the on-disk tarball digest. Not an npm release claim."""
+
+    path = Path(artifact_path) if artifact_path is not None else _repo_root() / ACPX_ARTIFACT_PATH
+    digest = sha256_file(path)
+    if digest != ACPX_ARTIFACT_SHA256:
+        _raise_identity(
+            "identity_mismatch",
+            "local acpx artifact digest drifted",
+        )
+    return {
+        "kind": ACPX_ARTIFACT_KIND,
+        "path": ACPX_ARTIFACT_PATH if artifact_path is None else str(path),
+        "artifact_sha256": digest,
+        "candidate_package_version": ACPX_CANDIDATE_PACKAGE_VERSION,
+        "released": False,
+        "published_npm_contains_merge": False,
+    }
+
+
+def cutover_safeguards() -> Dict[str, Any]:
+    """Explicit gates that keep this candidate experimental and unreleased."""
+
+    return {
+        "schema": CUTOVER_SCHEMA,
+        "available": False,
+        "ordinary_launch": "unavailable",
+        "ordinary_pinned_package": ACPX_ORDINARY_PINNED_PACKAGE,
+        "candidate_package_version": ACPX_CANDIDATE_PACKAGE_VERSION,
+        "released": False,
+        "published_npm_contains_merge": False,
+        "qualification": ACPX_QUALIFICATION,
+        "live_qualification": False,
+        "production_enabled": False,
+        "public_pr": False,
+        "ordinary_route_unchanged": True,
+    }
+
+
+def validate_cutover_safeguards(value: Any = None) -> Dict[str, Any]:
+    expected = cutover_safeguards()
+    current = expected if value is None else value
+    if not isinstance(current, Mapping) or dict(current) != expected:
+        _raise_identity("identity_mismatch", "cursor-acpx cutover safeguards drifted")
+    if (
+        current["available"] is not False
+        or current["production_enabled"] is not False
+        or current["released"] is not False
+        or current["public_pr"] is not False
+        or current["live_qualification"] is not False
+        or current["ordinary_launch"] != "unavailable"
+    ):
+        _raise_identity(
+            "identity_mismatch",
+            "cursor-acpx must not enable production or ordinary launch",
+        )
+    return expected
 
 
 def public_runtime_boundary() -> Dict[str, Any]:
@@ -215,6 +415,10 @@ def public_runtime_boundary() -> Dict[str, Any]:
         "available": False,
         "qualification": ACPX_QUALIFICATION,
         "live_qualification": False,
+        "merged_callback_options": ["fs", "terminal"],
+        "callback_omit_default": "enabled",
+        "callback_persisted": False,
+        "os_sandbox": False,
     }
 
 
@@ -313,10 +517,7 @@ def validate_ownership(value: Any) -> Dict[str, Any]:
         raise ValidationError("isolated-root cleanup state is invalid")
     if not isinstance(value.get("replacement_blocked"), bool):
         raise ValidationError("replacement block flag is invalid")
-    acpx = value.get("acpx")
-    expected = acpx_dependency_identity()
-    if not isinstance(acpx, Mapping) or dict(acpx) != expected:
-        _raise_identity("identity_mismatch", "acpx source identity drifted")
+    acpx = validate_acpx_dependency_identity(value.get("acpx"))
     _reject_body_keys(value, "ownership")
     return {
         "schema": OWNERSHIP_SCHEMA,
@@ -336,7 +537,7 @@ def validate_ownership(value: Any) -> Dict[str, Any]:
         "available": False,
         "cleanup": cleanup,
         "replacement_blocked": value["replacement_blocked"],
-        "acpx": expected,
+        "acpx": acpx,
     }
 
 
@@ -494,8 +695,7 @@ def validate_evidence(value: Any) -> Dict[str, Any]:
         raise ValidationError("cursor-acpx must not claim a live run")
     if value.get("prompt_retained") is not False or value.get("response_retained") is not False:
         raise ValidationError("cursor-acpx durable evidence retained a body")
-    if dict(value.get("acpx") or {}) != acpx_dependency_identity():
-        _raise_identity("identity_mismatch", "acpx source identity drifted")
+    acpx = validate_acpx_dependency_identity(value.get("acpx"))
     return {
         "schema": EVIDENCE_SCHEMA,
         "transport": TRANSPORT_ID,
@@ -516,7 +716,7 @@ def validate_evidence(value: Any) -> Dict[str, Any]:
         "live_claimed": False,
         "prompt_retained": False,
         "response_retained": False,
-        "acpx": acpx_dependency_identity(),
+        "acpx": acpx,
     }
 
 
@@ -953,9 +1153,17 @@ def fixture_runtime(
 
 __all__ = [
     "ADAPTER_ID",
+    "ACPX_ARTIFACT_PATH",
+    "ACPX_ARTIFACT_SHA256",
+    "ACPX_CANDIDATE_PACKAGE_VERSION",
     "ACPX_HEAD",
+    "ACPX_MERGE_COMMIT",
+    "ACPX_NPM_GIT_HEAD",
     "ACPX_ORDINARY_PINNED_PACKAGE",
+    "ACPX_PR_BASE",
+    "ACPX_PR_HEAD",
     "ACPX_SOURCE",
+    "ACPX_SOURCE_COMMIT",
     "ACPX_STATUS",
     "AUTHORITY_ID",
     "CursorAcpxAdapter",
@@ -968,10 +1176,14 @@ __all__ = [
     "acpx_dependency_identity",
     "audit_durable_artifacts",
     "claim_isolated_root",
+    "cutover_safeguards",
     "fixture_observation",
     "fixture_runtime",
     "load_isolated_root",
     "mark_cleanup_unknown",
+    "prove_local_artifact",
     "public_runtime_boundary",
+    "validate_acpx_dependency_identity",
+    "validate_cutover_safeguards",
     "validate_public_runtime_options",
 ]
