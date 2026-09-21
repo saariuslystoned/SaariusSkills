@@ -21,9 +21,12 @@ checkpoint       https://github.com/saariuslystoned/SaariusSkills/pull/63
 v2 has independent offline approval: 10 focused tests plus 1 public-runtime
 synthetic test passed. v3 has owner-run evidence: 14 focused tests plus 1
 public-runtime synthetic test passed. Independent delta review of v3 remains
-pending. The user-authorized live allocation is unconsumed; launch awaits
-parent technical acceptance of v3, so no coordinator should re-request that
-authorization.
+pending. The user-authorized live allocation was consumed by one failed v3
+attempt; no useful edit or qualified model/session receipt was emitted, so no
+coordinator should re-request authorization or retry.
+
+Orchestration and review: Codex. Bounded implementation: native Cursor ACP
+using exact Grok 4.6 High.
 
 ## Frozen provenance
 
@@ -62,9 +65,9 @@ provider call occurred.
 
 The v3 driver ran 14 focused tests and the public-runtime synthetic lifecycle
 test successfully. Fixture baseline/after checks passed with exact changed set
-`{bin/normalize-lines.mjs}`; live refusals exit 2 before process start. Useful
-edit ability remains unproven because the user-authorized live allocation is
-unconsumed; launch awaits parent technical acceptance of v3.
+`{bin/normalize-lines.mjs}`; the one released live attempt exited 2 at the
+fixture-after gate with no changed path. Useful-edit ability remains unproven;
+see `LIVE_RESULT.md` for the sanitized outcome.
 
 ## Live-command safety boundary
 
@@ -74,6 +77,11 @@ v2 launch-input. This checkpoint does not silently promote that old command or
 claim that v3 is integrated into the product live path. Do not execute it from
 this PR. Parent must explicitly select/integrate the reviewed v3 delta before
 releasing the one-session/two-prompt live allocation.
+
+The parent-released v3 attempt is recorded in `LIVE_RESULT.md`: exit 2 at the
+fixture-after gate, no changed path, no retry, and no qualification PASS. The
+fresh fixture/state evidence remains retained locally; no cleanup-uncertainty
+fence was emitted and no replacement was attempted.
 
 The remaining allocation is one owned session, at most two prompts, each
 `<=300000ms`, no retry. Current runtime cap is stricter at 30 seconds. Sister
