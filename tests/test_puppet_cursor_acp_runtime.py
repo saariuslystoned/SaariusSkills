@@ -55,6 +55,54 @@ def _private_root(temporary, name="isolated"):
     return root
 
 
+class _DummyOwnedRuntime:
+    def __init__(self, *, shutdown_error=None, exited=True):
+        self.shutdown_calls = 0
+        self.shutdown_error = shutdown_error
+        self.pid = 4343
+        self.exited = False
+        self._exited_after_shutdown = exited
+
+    def shutdown(self):
+        self.shutdown_calls += 1
+        if self.shutdown_error is not None:
+            raise self.shutdown_error
+        self.exited = self._exited_after_shutdown
+
+    def child_process_identity(self):
+        return {
+            "pid": self.pid,
+            "returncode": 0 if self.exited else None,
+            "exited": self.exited,
+            "kind": "dummy",
+        }
+
+
+class _DummyOwnedRunner:
+    def __init__(self, runtime, *, finish_error=None):
+        self.runtime = runtime
+        self.handle = {"sessionKey": "cursor-acp-session"}
+        self.final_discard = False
+        self.finish_calls = 0
+        self.finish_error = finish_error
+        self.session = "cursor-acp-session"
+        self.conversation_id = "conv-cursor-acp-1"
+        self.request_id = "cursor-acp-request-1"
+        self.transport_id = "cursor-acp"
+
+    def finish(self, *, discard_persistent_state=True):
+        self.finish_calls += 1
+        if self.finish_error is not None:
+            raise self.finish_error
+        self.final_discard = discard_persistent_state
+        return {
+            "final_discard": self.final_discard,
+            "local_release": False,
+            "persistent_state": "discarded" if discard_persistent_state else "retained",
+            "backend_discard": "closed",
+        }
+
+
 def _handle(workspace, **overrides):
     handle = {
         "sessionKey": "cursor-acp-session",
@@ -905,6 +953,96 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             self.assertIsNotNone(owner.last_child_exit)
             self.assertTrue(owner.last_child_exit["exited"])
             self.assertIsNotNone(owner.last_child_exit["returncode"])
+            with self.assertRaisesRegex(ValidationError, "owner is absent"):
+                owner.finish(continuation)
+
+    def test_owner_finish_failure_still_shuts_down_and_retires(self):
+        runtime = _DummyOwnedRuntime()
+        runner = _DummyOwnedRunner(runtime, finish_error=RuntimeError("synthetic finish failure"))
+        owner = AcpConsumerOwner()
+        continuation = owner.retain(
+            runner, route="cursor-acp", expected_workspace=_workspace("/tmp")
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+            owner.finish(continuation)
+        self.assertEqual(runner.finish_calls, 1)
+        self.assertEqual(runtime.shutdown_calls, 1)
+        self.assertTrue(owner.last_child_exit["exited"])
+        self.assertEqual(len(owner._held), 0)
+        with self.assertRaisesRegex(ValidationError, "owner is absent"):
+            owner.finish(continuation)
+
+    def test_owner_finish_and_shutdown_failure_keeps_ownership(self):
+        runtime = _DummyOwnedRuntime(
+            shutdown_error=RuntimeError("synthetic shutdown failure"),
+        )
+        runner = _DummyOwnedRunner(runtime, finish_error=RuntimeError("synthetic finish failure"))
+        owner = AcpConsumerOwner()
+        continuation = owner.retain(
+            runner, route="cursor-acp", expected_workspace=_workspace("/tmp")
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+            owner.finish(continuation)
+        self.assertEqual(runner.finish_calls, 1)
+        self.assertEqual(runtime.shutdown_calls, 1)
+        self.assertFalse(owner.last_child_exit["exited"])
+        self.assertEqual(len(owner._held), 1)
+        with self.assertRaisesRegex(ValidationError, "release is uncertain"):
+            owner.next_turn(
+                continuation,
+                text=SECOND_TURN_TEXT,
+                request_id="cursor-acp-request-2",
+            )
+        runtime.shutdown_error = None
+        runner.finish_error = None
+        closed = owner.finish(continuation)
+        self.assertTrue(closed["child_exit"]["exited"])
+        self.assertEqual(len(owner._held), 0)
+
+    def test_owner_finish_failure_releases_task_owned_synthetic_child(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "candidate-fast"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _cursor_acp_structured_launch(
+                    session="cursor-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("cursor-acp"),
+                    state_root=Path(temporary),
+                    requested_model="candidate-fast",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_cursor_synthetic_route_binding,
+                )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            record = owner.resolve(continuation)
+            runner = record["runner"]
+            identity = runner.runtime.child_process_identity()
+            runner.finish = lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("synthetic finish failure")
+            )
+            with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+                owner.finish(continuation)
+            self.assertTrue(owner.last_child_exit["exited"])
+            self.assertEqual(owner.last_child_exit["pid"], identity["pid"])
+            with self.assertRaises(OSError):
+                os.kill(identity["pid"], 0)
             with self.assertRaisesRegex(ValidationError, "owner is absent"):
                 owner.finish(continuation)
 

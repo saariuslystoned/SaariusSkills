@@ -11,6 +11,21 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
+const ALLOWED_PROCESS_ENV_NAMES = new Set([
+  "PATH",
+  "GEMINI_HOME",
+  "AGY_ACP_FORCE_FILE_STORAGE",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "ANTIGRAVITY_HARNESS_PATH",
+]);
+const REQUIRED_PROCESS_ENV_NAMES = [
+  "PATH",
+  "GEMINI_HOME",
+  "AGY_ACP_FORCE_FILE_STORAGE",
+  "ANTIGRAVITY_HARNESS_PATH",
+];
 
 function memorySessionStore() {
   const sessions = new Map();
@@ -61,9 +76,35 @@ function syntheticRegistry() {
   };
 }
 
+function applyAllowedProcessEnv(allowed) {
+  if (allowed == null || typeof allowed !== "object" || Array.isArray(allowed)) {
+    throw new Error("antigravity-acp official candidate process environment is missing");
+  }
+  const names = Object.keys(allowed);
+  if (names.some((name) => !ALLOWED_PROCESS_ENV_NAMES.has(name) || typeof allowed[name] !== "string")) {
+    throw new Error("antigravity-acp official candidate process environment is invalid");
+  }
+  if (REQUIRED_PROCESS_ENV_NAMES.some((name) => typeof allowed[name] !== "string")) {
+    throw new Error("antigravity-acp official candidate process environment is invalid");
+  }
+  if (allowed.AGY_ACP_FORCE_FILE_STORAGE !== "1" || !allowed.GEMINI_HOME || !allowed.ANTIGRAVITY_HARNESS_PATH) {
+    throw new Error("antigravity-acp official candidate process environment is invalid");
+  }
+  for (const key of Object.keys(process.env)) {
+    delete process.env[key];
+  }
+  Object.assign(process.env, allowed);
+}
+
 async function create(payload) {
   if (payload.syntheticPeer === true && payload.candidate) {
     throw new Error("synthetic peer injection cannot carry a candidate executable");
+  }
+  if (payload.syntheticPeer === true && payload.allowedProcessEnv != null) {
+    throw new Error("synthetic peer injection cannot carry a candidate process environment");
+  }
+  if (payload.syntheticPeer !== true) {
+    applyAllowedProcessEnv(payload.allowedProcessEnv);
   }
   const agentRegistry = payload.syntheticPeer === true
     ? syntheticRegistry()

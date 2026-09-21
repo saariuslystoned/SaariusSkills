@@ -151,6 +151,8 @@ class AcpConsumerOwner:
         expected_workspace: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         record = self.resolve(continuation)
+        if record.get("release_uncertain"):
+            raise ValidationError("process-local ACP consumer release is uncertain")
         runner = record["runner"]
         workspace = expected_workspace or record["expected_workspace"]
         try:
@@ -224,7 +226,9 @@ class AcpConsumerOwner:
         discard_persistent_state: bool = True,
     ) -> Dict[str, Any]:
         runner = record["runner"]
+        runtime = getattr(runner, "runtime", None)
         closed: Dict[str, Any] = {}
+        finish_error: Optional[BaseException] = None
         try:
             if (
                 getattr(runner, "handle", None) is not None
@@ -233,27 +237,50 @@ class AcpConsumerOwner:
                 closed = dict(
                     runner.finish(discard_persistent_state=discard_persistent_state)
                 )
-        except Exception:
-            if primary is None:
-                raise
+        except Exception as exc:
+            finish_error = exc
+        shutdown_error: Optional[BaseException] = None
         try:
-            child_exit = shutdown_task_owned_runtime(getattr(runner, "runtime", None))
-        except Exception:
-            if primary is None:
-                raise
-            child_exit = {
-                "pid": None,
-                "returncode": None,
-                "exited": False,
-                "kind": "shutdown_failed",
-            }
+            child_exit = shutdown_task_owned_runtime(runtime)
+        except Exception as exc:
+            shutdown_error = exc
+            try:
+                child_exit = runtime_child_exit(runtime)
+            except Exception:
+                child_exit = {
+                    "pid": None,
+                    "returncode": None,
+                    "exited": False,
+                    "kind": "shutdown_failed",
+                }
+            else:
+                child_exit = dict(child_exit)
+                if child_exit.get("exited") is not True:
+                    child_exit["exited"] = False
+                    if not child_exit.get("kind"):
+                        child_exit["kind"] = "shutdown_failed"
         reject_consumer_bodies(child_exit, label="child exit")
         self.last_child_exit = child_exit
-        for key, held in list(self._held.items()):
-            if held is record or held.get("runner") is runner:
-                self._held.pop(key, None)
+        proven_local_release = child_exit.get("exited") is True
+        if proven_local_release:
+            for key, held in list(self._held.items()):
+                if held is record or held.get("runner") is runner:
+                    self._held.pop(key, None)
+        else:
+            if isinstance(record, dict) and not record.get("unretained"):
+                record["release_uncertain"] = True
+            fence = getattr(runner, "_fence_cleanup", None)
+            if callable(fence):
+                try:
+                    fence()
+                except Exception:
+                    pass
         if primary is not None:
             raise primary
+        if finish_error is not None:
+            raise finish_error
+        if shutdown_error is not None and not proven_local_release:
+            raise shutdown_error
         closed["child_exit"] = child_exit
         reject_consumer_bodies(closed, label="owner finish")
         return closed

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -14,7 +16,15 @@ sys.path.insert(0, str(SCRIPTS))
 from antigravity_acpx import claim_isolated_root, load_isolated_root
 from puppet_lib.acp_consumer import AcpConsumerOwner
 from puppet_lib.antigravity_acp import (
+    ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+    ANTIGRAVITY_ROUTE_IDENTITY,
+    ANTIGRAVITY_SANITIZED_ENV_NAMES,
     DEFAULT_ANTIGRAVITY_MODEL,
+    OFFICIAL_ROUTE_KIND,
+    PROFILE_ENV,
+    RUNTIME_ID,
+    RUNTIME_VERSION,
+    TRANSPORT_ID,
     AntigravityAcpController,
     AntigravityAcpNodeRuntime,
     AntigravityAcpRuntimeRunner,
@@ -22,6 +32,7 @@ from puppet_lib.antigravity_acp import (
     build_antigravity_acp_candidate_runner,
     current_antigravity_platform_id,
     map_runtime_antigravity_models,
+    require_antigravity_acp_route_binding,
     resolve_antigravity_acp_route_binding,
     test_only_antigravity_synthetic_route_binding,
     verified_antigravity_acp_catalog,
@@ -71,6 +82,78 @@ def _private_root(temporary, name="isolated"):
     root.mkdir(mode=0o700)
     os.chmod(root, 0o700)
     return root
+
+
+ENV_AMBIENT_SENTINEL = "PUPPET_TEST_AMBIENT_SENTINEL"
+ENV_FORGED_KEY = "PUPPET_TEST_FORGED_API_KEY"
+ENV_DUMP_NAME = "puppet-test-only-env-dump.json"
+TEST_ONLY_ENV_PEER = """#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+
+writeFileSync(path.join(process.cwd(), "puppet-test-only-env-dump.json"), JSON.stringify({
+  test_only: true,
+  sentinel: process.env.PUPPET_TEST_AMBIENT_SENTINEL ?? null,
+  forged_key: process.env.PUPPET_TEST_FORGED_API_KEY ?? null,
+  has_path: Object.hasOwn(process.env, "PATH"),
+  has_home: Object.hasOwn(process.env, "HOME"),
+  has_tmpdir: Object.hasOwn(process.env, "TMPDIR"),
+  has_lang: Object.hasOwn(process.env, "LANG"),
+  has_gemini_home: Object.hasOwn(process.env, "GEMINI_HOME"),
+  has_helper: Object.hasOwn(process.env, "ANTIGRAVITY_HARNESS_PATH"),
+  force_file_storage: process.env.AGY_ACP_FORCE_FILE_STORAGE ?? null,
+}));
+await import(pathToFileURL(process.argv[2]).href);
+"""
+
+
+class _DummyOwnedRuntime:
+    def __init__(self, *, shutdown_error=None, exited=True):
+        self.shutdown_calls = 0
+        self.shutdown_error = shutdown_error
+        self.pid = 4242
+        self.exited = False
+        self._exited_after_shutdown = exited
+
+    def shutdown(self):
+        self.shutdown_calls += 1
+        if self.shutdown_error is not None:
+            raise self.shutdown_error
+        self.exited = self._exited_after_shutdown
+
+    def child_process_identity(self):
+        return {
+            "pid": self.pid,
+            "returncode": 0 if self.exited else None,
+            "exited": self.exited,
+            "kind": "dummy",
+        }
+
+
+class _DummyOwnedRunner:
+    def __init__(self, runtime, *, finish_error=None):
+        self.runtime = runtime
+        self.handle = {"sessionKey": "agy-acp-session"}
+        self.final_discard = False
+        self.finish_calls = 0
+        self.finish_error = finish_error
+        self.session = "agy-acp-session"
+        self.conversation_id = "conv-agy-acp-1"
+        self.request_id = "agy-acp-request-1"
+        self.transport_id = "antigravity-acp"
+
+    def finish(self, *, discard_persistent_state=True):
+        self.finish_calls += 1
+        if self.finish_error is not None:
+            raise self.finish_error
+        self.final_discard = discard_persistent_state
+        return {
+            "final_discard": self.final_discard,
+            "local_release": False,
+            "persistent_state": "discarded" if discard_persistent_state else "retained",
+            "backend_discard": "closed",
+        }
 
 
 def _handle(workspace, **overrides):
@@ -962,6 +1045,294 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 )
             self.assertTrue(owner.last_child_exit["exited"])
             self.assertIsNotNone(owner.last_child_exit["returncode"])
+
+    def test_owner_finish_failure_still_shuts_down_and_retires(self):
+        runtime = _DummyOwnedRuntime()
+        runner = _DummyOwnedRunner(runtime, finish_error=RuntimeError("synthetic finish failure"))
+        owner = AcpConsumerOwner()
+        continuation = owner.retain(
+            runner, route="antigravity-acp", expected_workspace=_workspace("/tmp")
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+            owner.finish(continuation)
+        self.assertEqual(runner.finish_calls, 1)
+        self.assertEqual(runtime.shutdown_calls, 1)
+        self.assertTrue(owner.last_child_exit["exited"])
+        self.assertEqual(len(owner._held), 0)
+        with self.assertRaisesRegex(ValidationError, "owner is absent"):
+            owner.finish(continuation)
+
+    def test_owner_finish_and_shutdown_failure_keeps_ownership(self):
+        runtime = _DummyOwnedRuntime(
+            shutdown_error=RuntimeError("synthetic shutdown failure"),
+        )
+        runner = _DummyOwnedRunner(runtime, finish_error=RuntimeError("synthetic finish failure"))
+        owner = AcpConsumerOwner()
+        continuation = owner.retain(
+            runner, route="antigravity-acp", expected_workspace=_workspace("/tmp")
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+            owner.finish(continuation)
+        self.assertEqual(runner.finish_calls, 1)
+        self.assertEqual(runtime.shutdown_calls, 1)
+        self.assertFalse(owner.last_child_exit["exited"])
+        self.assertEqual(len(owner._held), 1)
+        with self.assertRaisesRegex(ValidationError, "release is uncertain"):
+            owner.next_turn(
+                continuation,
+                text=SECOND_TURN_TEXT,
+                request_id="agy-acp-request-2",
+            )
+        runtime.shutdown_error = None
+        runner.finish_error = None
+        closed = owner.finish(continuation)
+        self.assertTrue(closed["child_exit"]["exited"])
+        self.assertEqual(len(owner._held), 0)
+
+    def test_owner_finish_failure_releases_task_owned_synthetic_child(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "gemini-3.1-pro"
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _antigravity_acp_structured_launch(
+                    session="agy-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("antigravity-acp"),
+                    state_root=Path(temporary),
+                    requested_model="gemini-3.1-pro",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_antigravity_synthetic_route_binding,
+                )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            record = owner.resolve(continuation)
+            runner = record["runner"]
+            identity = runner.runtime.child_process_identity()
+            runner.finish = lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("synthetic finish failure")
+            )
+            with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+                owner.finish(continuation)
+            self.assertTrue(owner.last_child_exit["exited"])
+            self.assertEqual(owner.last_child_exit["pid"], identity["pid"])
+            with self.assertRaises(OSError):
+                os.kill(identity["pid"], 0)
+            with self.assertRaisesRegex(ValidationError, "owner is absent"):
+                owner.finish(continuation)
+
+    def test_owner_finish_and_shutdown_failure_keeps_synthetic_child(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "gemini-3.1-pro"
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _antigravity_acp_structured_launch(
+                    session="agy-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("antigravity-acp"),
+                    state_root=Path(temporary),
+                    requested_model="gemini-3.1-pro",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_antigravity_synthetic_route_binding,
+                )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            record = owner.resolve(continuation)
+            runner = record["runner"]
+            runtime = runner.runtime
+            identity = runtime.child_process_identity()
+            original_finish = runner.finish
+            original_shutdown = runtime.shutdown
+            runner.finish = lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("synthetic finish failure")
+            )
+            runtime.shutdown = lambda: (_ for _ in ()).throw(
+                RuntimeError("synthetic shutdown failure")
+            )
+            try:
+                with self.assertRaisesRegex(RuntimeError, "synthetic finish failure"):
+                    owner.finish(continuation)
+                self.assertFalse(owner.last_child_exit["exited"])
+                self.assertEqual(len(owner._held), 1)
+                os.kill(identity["pid"], 0)
+                with self.assertRaisesRegex(ValidationError, "release is uncertain"):
+                    owner.next_turn(
+                        continuation,
+                        text=SECOND_TURN_TEXT,
+                        request_id="agy-acp-request-2",
+                    )
+            finally:
+                runner.finish = original_finish
+                runtime.shutdown = original_shutdown
+                closed = owner.finish(continuation)
+            self.assertTrue(closed["child_exit"]["exited"])
+            with self.assertRaises(OSError):
+                os.kill(identity["pid"], 0)
+
+    def test_official_route_binding_rejects_forged_process_env(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime_dir = Path(temporary) / "runtime"
+            runtime_dir.mkdir()
+            platform_id = current_antigravity_platform_id()
+            server_name = (
+                "agy_acp_server.exe"
+                if platform_id.startswith("windows")
+                else "agy_acp_server.par"
+            )
+            helper_name = (
+                "localharness_external.exe"
+                if platform_id.startswith("windows")
+                else "localharness_external"
+            )
+            server = runtime_dir / server_name
+            helper = runtime_dir / helper_name
+            server.write_text("#!/bin/sh\nexit 0\n")
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(server, 0o700)
+            os.chmod(helper, 0o700)
+            gemini_home = Path(temporary) / "gemini-home"
+            gemini_home.mkdir()
+            binding = resolve_antigravity_acp_route_binding(
+                runtime_dir=runtime_dir,
+                gemini_home=gemini_home,
+                process_env={"PATH": os.environ.get("PATH", "")},
+            )
+            forged = dict(binding)
+            forged["process_env"] = dict(binding["process_env"])
+            forged["process_env"][ENV_FORGED_KEY] = "should-not-leak"
+            with self.assertRaisesRegex(ValidationError, "process environment"):
+                require_antigravity_acp_route_binding(forged)
+            with self.assertRaisesRegex(ValidationError, "process environment"):
+                AntigravityAcpNodeRuntime(
+                    workspace=Path(temporary),
+                    isolated_root=Path(temporary) / "isolated",
+                    repo_root=ROOT,
+                    env=forged["process_env"],
+                    executable=server,
+                )
+
+    def test_official_candidate_child_gets_allowed_env_only(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is required for the official candidate env proof")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            isolated = _private_root(temporary)
+            helper = Path(temporary) / "localharness_external"
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(helper, 0o700)
+            wrapper = Path(temporary) / "puppet-test-only-env-peer.mjs"
+            wrapper.write_text(TEST_ONLY_ENV_PEER)
+            os.chmod(wrapper, 0o700)
+            peer = ROOT / "bridge/antigravity-acp/test/candidate-peer.mjs"
+            gemini_home = Path(temporary) / "gemini-home"
+            gemini_home.mkdir()
+            synth_home = Path(temporary) / "home"
+            synth_tmp = Path(temporary) / "tmp"
+            synth_home.mkdir()
+            synth_tmp.mkdir()
+            process_env = {
+                "PATH": os.environ.get("PATH") or "/usr/bin:/bin",
+                "HOME": str(synth_home),
+                "TMPDIR": str(synth_tmp),
+                "LANG": "C.UTF-8",
+                "GEMINI_HOME": str(gemini_home.resolve()),
+                "AGY_ACP_FORCE_FILE_STORAGE": "1",
+                "ANTIGRAVITY_HARNESS_PATH": str(helper.resolve()),
+            }
+            binding = require_antigravity_acp_route_binding(
+                {
+                    "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+                    "route": TRANSPORT_ID,
+                    "kind": OFFICIAL_ROUTE_KIND,
+                    "agent": "antigravity",
+                    "transport": "acp",
+                    "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+                    "platform_id": current_antigravity_platform_id(),
+                    "runtime_id": RUNTIME_ID,
+                    "runtime_version": RUNTIME_VERSION,
+                    "executable": node,
+                    "argv": [node, str(wrapper), str(peer)],
+                    "helper": str(helper.resolve()),
+                    "profile_env": PROFILE_ENV,
+                    "profile_path": str(gemini_home.resolve()),
+                    "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+                    "process_env": process_env,
+                    "test_only": False,
+                }
+            )
+            ambient = {
+                ENV_AMBIENT_SENTINEL: "ambient-sentinel-value",
+                ENV_FORGED_KEY: "should-not-leak",
+            }
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch.dict(os.environ, ambient, clear=False):
+                runner = build_antigravity_acp_candidate_runner(
+                    session="agy-acp-session",
+                    contract=contract,
+                    state_root=Path(temporary),
+                    prompt=CALLER_TASK_TEXT,
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    expected_workspace=_workspace(workspace),
+                    catalog=verified_antigravity_acp_catalog(),
+                    route_binding=binding,
+                    isolated_root=isolated,
+                )
+                try:
+                    observation = runner.observation()
+                    self.assertEqual(observation["session"]["session_id"], "agy-acp-session")
+                    dump = json.loads((workspace / ENV_DUMP_NAME).read_text())
+                    self.assertTrue(dump["test_only"])
+                    self.assertIsNone(dump["sentinel"])
+                    self.assertIsNone(dump["forged_key"])
+                    self.assertTrue(dump["has_path"])
+                    self.assertTrue(dump["has_home"])
+                    self.assertTrue(dump["has_tmpdir"])
+                    self.assertTrue(dump["has_lang"])
+                    self.assertTrue(dump["has_gemini_home"])
+                    self.assertTrue(dump["has_helper"])
+                    self.assertEqual(dump["force_file_storage"], "1")
+                finally:
+                    runner.runtime.shutdown()
 
 
 if __name__ == "__main__":

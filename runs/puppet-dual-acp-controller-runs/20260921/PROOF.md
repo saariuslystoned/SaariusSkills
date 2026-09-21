@@ -224,3 +224,47 @@ tests 33; pass 33; fail 0; skipped 0
 
 The exact f888 acpx source pin and artifact digest above are unchanged. No
 live qualification or provider action was used.
+
+## Consumer release and AGY env repair
+
+This native Cursor repair started from exact
+`83935f3ad55e1f2f51a154f948d7d25f63cf26e4` /
+`fbe9eb21d36668a884dc59400122d855115ae002`. It repairs only the two
+accepted findings.
+
+F1: `AcpConsumerOwner._release` now always attempts task-owned runtime
+shutdown after `runner.finish`, even when finish fails. The original
+operation or finish error is preserved if shutdown also fails. Proven
+local release (`child_exit.exited is True`) retires the continuation.
+Uncertain release keeps the held runner, records truthful non-exit
+evidence, fences cleanup, and refuses another turn. Backend persistent
+state discard stays separate from local worker release.
+
+F2: official AGY candidate launch no longer merges the allowed
+environment over ambient `os.environ`. The Node driver process starts
+with only the validated allowed map, then replaces `process.env` with
+that same map before the pinned public runtime is created. Forged extra
+`process_env` keys fail closed. `agentProcessEnv` is still not passed
+through `createVerifiedCandidateAcpRuntime`; acpx continues to start
+from `process.env`. Synthetic peer launches stay test-only and do not
+carry a candidate environment.
+
+```text
+python3 -m unittest tests.test_puppet_contracts tests.test_puppet_transport tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx tests.test_puppet_cursor_acp tests.test_puppet_antigravity_acp tests.test_puppet_antigravity_acp_runtime tests.test_puppet_antigravity_acpx tests.test_puppet_packaging -v
+Ran 119 tests ... OK
+# includes prior two-turn/normal-finish and failed-next-turn owner
+# lifecycle for both routes, plus finish-failure shutdown, combined
+# finish/shutdown error precedence, actual synthetic-child release, forged
+# process_env rejection, and official candidate env isolation against the
+# pinned public runtime using literal synthetic sentinel names
+
+node --test test/*.test.mjs   # bridge/cursor-acp
+tests 65; pass 65; fail 0; skipped 0
+
+node --test test/*.test.mjs   # bridge/antigravity-acp
+tests 34; pass 34; fail 0; skipped 0
+# includes official candidate create failing closed without allowedProcessEnv
+```
+
+The exact f888 acpx source pin and artifact digest above are unchanged. No
+live qualification, pin refresh, publication, or merge.

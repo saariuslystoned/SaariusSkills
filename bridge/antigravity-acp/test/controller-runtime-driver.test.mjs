@@ -112,3 +112,32 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", {
   });
   await client.rpc("shutdown");
 });
+
+test("official candidate create fails closed without allowed process env", async () => {
+  const child = spawn(process.execPath, [DRIVER], {
+    cwd: REPO_ROOT,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const client = createClient(child);
+  try {
+    await assert.rejects(
+      () => client.rpc("create", {
+        cwd: REPO_ROOT,
+        isolatedRoot: path.join(REPO_ROOT, "runs/puppet-dual-acp-controller-runs/20260921/runtime"),
+        syntheticPeer: false,
+        agent: "antigravity",
+        candidate: {
+          kind: "qualified_archive",
+          agent: "antigravity",
+          executable: process.execPath,
+          args: [],
+        },
+      }),
+      /official candidate process environment is missing/,
+    );
+  } finally {
+    if (child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+    }
+  }
+});

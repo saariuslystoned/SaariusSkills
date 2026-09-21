@@ -49,3 +49,11 @@ body-free continuation from the default factory, and proves two useful turns
 plus exact synthetic child exit without private runner injection. The native
 AGY manifest executable is not used as the ACP server. Ordinary availability
 stays false. No pin refresh, live qualification, publication, or merge.
+
+This release/env repair started from exact
+`83935f3ad55e1f2f51a154f948d7d25f63cf26e4`. Finish failure now still shuts
+down the task-owned runtime; uncertain cleanup keeps ownership and refuses
+another turn. Official AGY candidate launch starts the driver/child from the
+validated allowed environment only, or fails closed. Focused checks: 119
+Python, 65 Cursor bridge, 34 Antigravity bridge. No pin refresh, live
+qualification, publication, or merge.

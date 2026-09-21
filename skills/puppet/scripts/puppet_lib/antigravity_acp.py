@@ -78,6 +78,13 @@ ANTIGRAVITY_SANITIZED_ENV_NAMES = (
     "LANG",
     "ANTIGRAVITY_HARNESS_PATH",
 )
+_ANTIGRAVITY_REQUIRED_ENV_NAMES = (
+    "PATH",
+    "GEMINI_HOME",
+    "AGY_ACP_FORCE_FILE_STORAGE",
+    "ANTIGRAVITY_HARNESS_PATH",
+)
+_ANTIGRAVITY_OPTIONAL_ENV_NAMES = ("HOME", "TMPDIR", "LANG")
 _PLATFORM_ARCHIVE_DIRS = {
     "darwin-aarch64": "1.1.1-darwin-arm64",
     "linux-aarch64": "1.1.1-linux-arm64",
@@ -284,6 +291,39 @@ def sanitized_antigravity_process_env(
     return child
 
 
+def require_antigravity_process_env(
+    process_env: Any,
+    *,
+    helper: str,
+    profile_path: str,
+) -> Dict[str, str]:
+    if not isinstance(process_env, Mapping):
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    extra = set(process_env) - set(ANTIGRAVITY_SANITIZED_ENV_NAMES)
+    if extra:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    child: Dict[str, str] = {}
+    for name in _ANTIGRAVITY_REQUIRED_ENV_NAMES:
+        value = process_env.get(name)
+        if not isinstance(value, str):
+            raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+        child[name] = value
+    for name in _ANTIGRAVITY_OPTIONAL_ENV_NAMES:
+        if name not in process_env:
+            continue
+        value = process_env[name]
+        if not isinstance(value, str):
+            raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+        child[name] = value
+    if child.get("GEMINI_HOME") != profile_path:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    if child.get("ANTIGRAVITY_HARNESS_PATH") != helper:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    if child.get("AGY_ACP_FORCE_FILE_STORAGE") != "1":
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    return child
+
+
 def resolve_antigravity_acp_route_binding(
     *,
     runtime_dir: Optional[Path] = None,
@@ -446,10 +486,9 @@ def require_antigravity_acp_route_binding(value: Any) -> Dict[str, Any]:
         raise ValidationError("antigravity-acp trusted route binding helper is missing")
     if not isinstance(profile_path, str) or not profile_path:
         raise ValidationError("antigravity-acp trusted route binding profile is missing")
-    if not isinstance(process_env, Mapping) or process_env.get("GEMINI_HOME") != profile_path:
-        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
-    if process_env.get("ANTIGRAVITY_HARNESS_PATH") != helper:
-        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    process = require_antigravity_process_env(
+        process_env, helper=helper, profile_path=profile_path
+    )
     return {
         "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
         "route": TRANSPORT_ID,
@@ -466,7 +505,7 @@ def require_antigravity_acp_route_binding(value: Any) -> Dict[str, Any]:
         "profile_env": PROFILE_ENV,
         "profile_path": profile_path,
         "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
-        "process_env": dict(process_env),
+        "process_env": process,
         "test_only": False,
     }
 
@@ -1256,10 +1295,20 @@ class AntigravityAcpNodeRuntime:
     ):
         if synthetic_peer and executable is not None:
             raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        if synthetic_peer and env is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate process environment")
         driver = Path(repo_root) / CONTROLLER_RUNTIME_DRIVER
-        run_env = dict(os.environ)
-        if env is not None:
-            run_env.update(env)
+        allowed_env: Optional[Dict[str, str]] = None
+        if not synthetic_peer:
+            if env is None:
+                raise ValidationError("antigravity-acp official candidate process environment is missing")
+            helper = env.get("ANTIGRAVITY_HARNESS_PATH")
+            profile_path = env.get("GEMINI_HOME")
+            if not isinstance(helper, str) or not isinstance(profile_path, str):
+                raise ValidationError("antigravity-acp official candidate process environment is invalid")
+            allowed_env = require_antigravity_process_env(
+                env, helper=helper, profile_path=profile_path
+            )
         self.kind = SYNTHETIC_PEER_KIND if synthetic_peer else CANDIDATE_RUNTIME_KIND
         self._proc = subprocess.Popen(
             ["node", str(driver)],
@@ -1267,7 +1316,7 @@ class AntigravityAcpNodeRuntime:
             stdout=subprocess.PIPE,
             text=True,
             cwd=str(repo_root),
-            env=run_env,
+            **({} if allowed_env is None else {"env": allowed_env}),
         )
         payload: Dict[str, Any] = {
             "cwd": str(workspace),
@@ -1282,6 +1331,7 @@ class AntigravityAcpNodeRuntime:
                 "executable": None if executable is None else str(executable),
                 "args": list(candidate_args or ()),
             }
+            payload["allowedProcessEnv"] = dict(allowed_env or {})
         self._rpc("create", payload)
 
     def child_process_identity(self) -> Dict[str, Any]:
@@ -1923,6 +1973,7 @@ __all__ = [
     "verified_antigravity_acp_catalog",
     "build_antigravity_acp_candidate_runner",
     "require_antigravity_acp_route_binding",
+    "require_antigravity_process_env",
     "resolve_antigravity_acp_route_binding",
     "select_and_map_runtime_antigravity_models",
     "test_only_antigravity_synthetic_route_binding",
