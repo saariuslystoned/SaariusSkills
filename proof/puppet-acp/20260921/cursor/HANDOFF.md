@@ -4,9 +4,12 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 
 ## Provenance
 
+- Owner task: `01a0c01d-9ac8-7552-a0f7-aea711f1cb3d`
+- Coordination task: `01a0b564-7919-7851-a28d-34afa78683c8`
 - Publication branch: `codex/puppet-cursor-proof-checkpoint-20260921`
 - Publication base: `49a46404854db7c9c7e7935b351e47fb771beaca` (`origin/main` at checkout)
 - Original execution checkout: `/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921`
+- Original execution branch: `codex/puppet-cursor-controller-proof-20260921`
 - Original execution HEAD at checkpoint: `6840e3c7da84954320289239540aa5358ac2fbd2`
 - Product source identity used by the driver: d5e33f67f6b42384f6feec1d15be3b69b4525eb8 / tree `938ef948a6a1218ad055a17d5d297c633b936167`
 - Important: the original execution checkout now has proof artifacts on top of d5, so its full checkout HEAD/tree no longer equals the driver's exact d5 guard. This publication snapshot does not bypass that guard. A fresh d5 execution checkout must be prepared and verified before any live launch.
@@ -43,3 +46,11 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 ## Remaining blocker
 
 Parent review, then a fresh verified d5 execution checkout and one parent-issued live session. Budget is one session, at most two prompts of 300000 ms each, no retry. The staged live command is archived under `staged/live-invocation.json` and has not been executed.
+
+## Review recovery
+
+- Prerequisite controller work is tracked in [PR #61](https://github.com/saariuslystoned/SaariusSkills/pull/61).
+- v2 received independent review; the v3 delta review is pending.
+- The owner's 10/10 result is separate from independent final acceptance.
+- v3 repairs the accepted gaps: no live fixture deletion/retry, no byte-equality false negative or known-answer helper in live mode, and post-task/post-finish backend-incarnation observation with fail-closed uncertainty.
+- The sister Antigravity checkpoint is pending its PR URL and should be linked by the parent when available.
