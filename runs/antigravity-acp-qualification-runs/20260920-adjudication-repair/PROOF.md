@@ -59,6 +59,18 @@ The packaging test now expects the shipped plugin version `0.3.3`, matching the
 manifest and installed plugin. The assertion remains exact; it was not removed
 or weakened.
 
+## Native process gate
+
+After pushing `e365520`, the plugin was reinstalled at `0.3.3`; Antigravity
+setup returned `MCP_READY` with the pinned runtime and personal OAuth policy.
+The current task's native readiness call also succeeded, but native delegate
+job `8b7a509d-48bf-4ad3-823c-92aee18f2105` persisted no `Owner` or `Cleanup`
+fields in its non-secret `STATE.md`/`PROOF.md`. It therefore came from the
+pre-repair MCP process despite the reinstall. The job was cancelled before
+spending a coding turn. A fresh Codex task or explicit MCP reconnect is still
+required; only a subsequent job whose persisted metadata contains the repaired
+owner/cleanup fields can establish native execution on this head.
+
 ## Review boundary
 
 The PR remains unmerged. Native MCP reload/reconnection is a separate gate: the
