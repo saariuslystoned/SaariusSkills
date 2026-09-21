@@ -132,12 +132,35 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
                     validate_auth_observation(auth_observation(**changes))
 
     def test_model_requires_exact_advertised_observation_and_no_effort_inference(self):
+        accepted = validate_model_observation(model_observation())
+        self.assertEqual(
+            accepted["advertised_ids"],
+            ["gemini-3.8-flash-high", "gemini-3.1-pro"],
+        )
+        self.assertEqual(accepted["requested_id"], accepted["observed_id"])
         with self.assertRaisesRegex(ValidationError, "advertised id"):
             validate_model_observation(model_observation(requested_id="unknown"))
         with self.assertRaisesRegex(ValidationError, "does not match"):
             validate_model_observation(model_observation(observed_id="substituted"))
         with self.assertRaisesRegex(ValidationError, "effort selection"):
             validate_model_observation(model_observation(effort="high"))
+
+    def test_observation_rejects_unbounded_or_body_bearing_advertised_models(self):
+        exact = "gemini-3.8-flash-high"
+        sibling = "gemini-3.1-pro"
+        cases = (
+            ([exact, "x" * 201], "advertised model is invalid"),
+            ([exact, sibling + "\nprompt body"], "advertised model contains control characters"),
+            ([exact, sibling + "\routput body"], "advertised model contains control characters"),
+            ([exact, sibling + "\x00content"], "advertised model contains control characters"),
+        )
+        for advertised_ids, message in cases:
+            with self.subTest(advertised_ids=advertised_ids):
+                model = model_observation(advertised_ids=advertised_ids)
+                with self.assertRaisesRegex(ValidationError, message):
+                    validate_model_observation(model)
+                with self.assertRaisesRegex(ValidationError, message):
+                    validate_candidate_observation(candidate_observation(model=model))
 
     def test_interaction_question_must_cancel_and_never_carries_question_body(self):
         question = {

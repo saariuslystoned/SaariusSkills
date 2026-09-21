@@ -300,6 +300,7 @@ def validate_model_observation(value: Any) -> Dict[str, Any]:
         raise ValidationError("advertised model catalog is unproven")
     if any(not isinstance(item, str) or not item for item in advertised):
         raise ValidationError("advertised model catalog is invalid")
+    advertised = [_bounded_string(item, "advertised model") for item in advertised]
     if len(set(advertised)) != len(advertised) or requested not in advertised:
         raise ValidationError("requested model is not an exact advertised id")
     observed = _bounded_string(model.get("observed_id"), "observed model")
