@@ -11,6 +11,16 @@ This is a reviewable proof snapshot, not product integration and not live qualif
 - Offline integrated driver verification: `ok=true`, `live=false`, receipt SHA-256 `ef6fdc35e0c279b52aad4b48b7dd6287d5e4d5fa79e9c06146af15e401e182e0`; source head/tree matched exactly, `product_source_altered=false`, artifact SHA-256 `5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614`, backend discard `closed`, worker termination `proven`, `cleanup_uncertain=false`, and `replacement_blocked=false`.
 - Staged live invocation SHA-256 `efd5c78809e54bf96ecea1007d765ecc7de5f0c87e07276fc5e7ff70e39e77d9`. It was not executed. The remaining gate is parent review followed by one explicitly parent-issued live session; no provider turn or retry has occurred.
 
+## Parent-authorized live-path outcome (2026-09-21)
+
+- The one authorized command was executed exactly once in the fresh exact-source checkout with session `cursor-proof-v3-live-pr68-20260921-once` and release `parent-pr68-20260921-one-prompt`. No retry, second prompt, or fallback was issued.
+- The official `cursor-agent` process started and exact worker lifecycle termination was proven. Selected/current model metadata matched `grok-4.6[effort=high,fast=true]`; first-turn event types included `status`, `text_delta`, and `tool_call`; no second turn was requested.
+- Fixture result: `normalize-lines.mjs` changed; protected test remained unchanged; post-task tests passed 3/3 (baseline 2/3).
+- The driver returned `ok=true`, `live=false`, `live_claimed=false`, `live_cursor_acp_claimed=false`, `mode=live_path_substitute`, `used_kind=qualified_archive`, and `ordinary_launch=unavailable`. Cleanup returned `backend_discard=unsupported`, `worker_termination=proven`, `cleanup_uncertain=false`, `replacement_blocked=false`, `finish_error=null`, and no fence.
+- Sanitized receipt: `live-outcome-pr68/live-receipt.json`, SHA-256 `8b19acc25d0f604154059a3fa95e19900a1fb3579d443258109ebdc68c5c27a9`.
+- Raw task-local driver output: `live-outcome-pr68/live-driver-output.log`, SHA-256 `473b7c9d5ba73e2940395f16fcb07485eeea8a4ec6ed838d243113783affa3d6`.
+- This is useful official-route process/fixture evidence, not a live qualification pass. The remaining blocker is ordinary live launch availability; the parent-authorized allocation is consumed and no retry is authorized.
+
 ## Provenance
 
 - Owner task: `01a0c01d-9ac8-7552-a0f7-aea711f1cb3d`
