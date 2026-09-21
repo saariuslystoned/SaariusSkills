@@ -12,7 +12,9 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from cursor_acpx import claim_isolated_root, load_isolated_root
+from puppet_lib.acp_consumer import AcpConsumerOwner
 from puppet_lib.cursor_acp import (
+    CURSOR_ACP_ARGV_TAIL,
     FINISH_POLICY_RETAIN,
     SESSION_MODE_PERSISTENT,
     SYNTHETIC_PEER_KIND,
@@ -27,6 +29,8 @@ from puppet_lib.cursor_acp import (
     require_runtime_task_text,
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
+    resolve_cursor_acp_route_binding,
+    test_only_cursor_synthetic_route_binding,
 )
 from puppet_lib.errors import IdentityError, ValidationError
 from puppet_lib.session import _cursor_acp_structured_launch
@@ -726,6 +730,183 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertTrue(closed["final_discard"])
             finally:
                 runtime.shutdown()
+
+    def test_official_route_binding_uses_approved_cursor_agent_acp_argv(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "cursor-agent"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(executable, 0o700)
+            binding = resolve_cursor_acp_route_binding(executable=executable)
+            resolved = str(executable.resolve())
+            self.assertEqual(binding["kind"], "official_route")
+            self.assertEqual(binding["identity"], "cursor-agent-acp")
+            self.assertEqual(binding["executable"], resolved)
+            self.assertEqual(binding["argv"], [resolved, CURSOR_ACP_ARGV_TAIL])
+            self.assertFalse(binding["test_only"])
+
+    def test_default_factory_rejects_arbitrary_executable_without_route_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "candidate-fast"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            with self.assertRaisesRegex(ValidationError, "arbitrary executable"):
+                build_cursor_acp_candidate_runner(
+                    session="cursor-acp-session",
+                    contract=contract,
+                    state_root=Path(temporary),
+                    prompt=CALLER_TASK_TEXT,
+                    requested_model="candidate-fast",
+                    expected_workspace=_workspace(workspace),
+                    executable=Path(temporary) / "untrusted",
+                )
+
+    def test_default_consumer_owner_lifecycle_uses_public_runtime_and_synthetic_peer(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "candidate-fast"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.cursor_acp.build_cursor_acp_candidate_runner",
+                wraps=build_cursor_acp_candidate_runner,
+            ) as factory, mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _cursor_acp_structured_launch(
+                    session="cursor-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("cursor-acp"),
+                    state_root=Path(temporary),
+                    requested_model="candidate-fast",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_cursor_synthetic_route_binding,
+                )
+            factory.assert_called_once()
+            self.assertNotIn("runtime", factory.call_args.kwargs)
+            self.assertNotIn("runtime_factory", factory.call_args.kwargs)
+            self.assertEqual(
+                factory.call_args.kwargs["route_binding"]["kind"], SYNTHETIC_PEER_KIND
+            )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            self.assertIsInstance(owner, AcpConsumerOwner)
+            self.assertFalse(owner.available())
+            self.assertFalse(CursorAcpController.available())
+            self.assertTrue(continuation["process_local"])
+            self.assertFalse(continuation["cross_process_resume"])
+            self.assertEqual(
+                launched["cursor_acp"]["model"]["observed_model"],
+                "candidate-fast",
+            )
+            self.assertNotEqual(continuation["request_id"], continuation["backend_session_id"])
+            self.assertNotEqual(continuation["host_conversation_id"], continuation["runtime_session_name"])
+            self.assertNotIn(CALLER_TASK_TEXT, str(launched))
+            first_backend = continuation["backend_session_id"]
+            first_runtime = continuation["runtime_session_name"]
+            first_request = continuation["request_id"]
+            second = owner.next_turn(
+                continuation,
+                text=SECOND_TURN_TEXT,
+                request_id="cursor-acp-request-2",
+                expected_workspace=_workspace(workspace),
+            )
+            self.assertEqual(
+                second["observation"]["terminal_result"]["result_id"],
+                "cursor-acp-request-2",
+            )
+            self.assertEqual(second["continuation"]["backend_session_id"], first_backend)
+            self.assertEqual(second["continuation"]["runtime_session_name"], first_runtime)
+            self.assertEqual(second["continuation"]["request_id"], "cursor-acp-request-2")
+            self.assertNotEqual(second["continuation"]["request_id"], first_request)
+            self.assertNotIn(CALLER_TASK_TEXT, str(second))
+            self.assertNotIn(SECOND_TURN_TEXT, str(second))
+            with self.assertRaisesRegex(ValidationError, "owner does not match"):
+                AcpConsumerOwner().next_turn(
+                    continuation,
+                    text=SECOND_TURN_TEXT,
+                    request_id="cursor-acp-request-3",
+                )
+            closed = owner.finish(continuation)
+            self.assertTrue(closed["final_discard"])
+            self.assertTrue(closed["child_exit"]["exited"])
+            self.assertIsInstance(closed["child_exit"]["pid"], int)
+            self.assertIsNotNone(closed["child_exit"]["returncode"])
+            with self.assertRaises(OSError):
+                os.kill(closed["child_exit"]["pid"], 0)
+
+    def test_wrong_route_binding_and_exceptional_owner_cleanup(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "candidate-fast"
+            contract.target = "cursor"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                with self.assertRaisesRegex(ValidationError, "trusted route binding"):
+                    _cursor_acp_structured_launch(
+                        session="cursor-acp-session",
+                        contract=contract,
+                        transport=bind_run_transport("cursor-acp"),
+                        state_root=Path(temporary),
+                        requested_model="candidate-fast",
+                        prompt=CALLER_TASK_TEXT,
+                        route_resolver=lambda: None,
+                    )
+                launched = _cursor_acp_structured_launch(
+                    session="cursor-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("cursor-acp"),
+                    state_root=Path(temporary),
+                    requested_model="candidate-fast",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_cursor_synthetic_route_binding,
+                )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            foreign = _workspace(workspace)
+            foreign["path"] = str(Path(temporary).resolve() / "foreign")
+            Path(foreign["path"]).mkdir()
+            with self.assertRaisesRegex(IdentityError, "bound checkout"):
+                owner.next_turn(
+                    continuation,
+                    text=SECOND_TURN_TEXT,
+                    request_id="cursor-acp-request-2",
+                    expected_workspace=foreign,
+                )
+            self.assertIsNotNone(owner.last_child_exit)
+            self.assertTrue(owner.last_child_exit["exited"])
+            self.assertIsNotNone(owner.last_child_exit["returncode"])
+            with self.assertRaisesRegex(ValidationError, "owner is absent"):
+                owner.finish(continuation)
 
 
 if __name__ == "__main__":

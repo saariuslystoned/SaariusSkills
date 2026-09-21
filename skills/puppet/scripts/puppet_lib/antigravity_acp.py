@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import subprocess
 from copy import deepcopy
@@ -64,6 +65,26 @@ FALLBACK_OR_DEFAULT_MODEL_IDS = frozenset(
 CONTROLLER_RUNTIME_DRIVER = (
     "bridge/antigravity-acp/test/controller-runtime-driver.mjs"
 )
+OFFICIAL_ROUTE_KIND = "official_route"
+ANTIGRAVITY_ROUTE_BINDING_SCHEMA = "puppet.antigravity-acp-route-binding/v1"
+ANTIGRAVITY_ROUTE_IDENTITY = "antigravity-acp-server"
+PROFILE_ENV = "GEMINI_HOME"
+ANTIGRAVITY_SANITIZED_ENV_NAMES = (
+    "PATH",
+    "GEMINI_HOME",
+    "AGY_ACP_FORCE_FILE_STORAGE",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "ANTIGRAVITY_HARNESS_PATH",
+)
+_PLATFORM_ARCHIVE_DIRS = {
+    "darwin-aarch64": "1.1.1-darwin-arm64",
+    "linux-aarch64": "1.1.1-linux-arm64",
+    "linux-x86_64": "1.1.1-linux-x86_64",
+    "windows-aarch64": "1.1.1-windows-arm64",
+    "windows-x86_64": "1.1.1-windows-x86_64",
+}
 
 _PLATFORM_COMMANDS = {
     "darwin-aarch64": {
@@ -201,6 +222,253 @@ def require_antigravity_acp_target(target: Any) -> str:
     if target != TARGET:
         raise ValidationError("antigravity-acp transport requires target agy")
     return TARGET
+
+
+def current_antigravity_platform_id(
+    system: Optional[str] = None, machine: Optional[str] = None
+) -> str:
+    host = system or platform.system()
+    cpu_raw = (machine or platform.machine()).lower()
+    os_name = {
+        "Darwin": "darwin",
+        "Linux": "linux",
+        "Windows": "windows",
+        "darwin": "darwin",
+        "linux": "linux",
+        "windows": "windows",
+        "win32": "windows",
+    }.get(host, host.lower())
+    cpu = "aarch64" if cpu_raw in {"arm64", "aarch64"} else (
+        "x86_64" if cpu_raw in {"x86_64", "amd64"} else cpu_raw
+    )
+    return "%s-%s" % (os_name, cpu)
+
+
+def default_antigravity_runtime_dir(platform_id: Optional[str] = None) -> Path:
+    resolved = platform_id or current_antigravity_platform_id()
+    archive = _PLATFORM_ARCHIVE_DIRS.get(resolved, "%s-%s" % (RUNTIME_VERSION, resolved))
+    return Path.home() / ".local" / "share" / "saarius-skills" / RUNTIME_ID / archive
+
+
+def default_antigravity_gemini_home() -> Path:
+    return (
+        Path.home()
+        / ".local"
+        / "state"
+        / "saarius-skills"
+        / "antigravity-acp"
+        / "gemini-home"
+    )
+
+
+def sanitized_antigravity_process_env(
+    process_env: Optional[Mapping[str, str]],
+    *,
+    gemini_home: Path,
+    helper: Path,
+) -> Dict[str, str]:
+    # Mirrors bridge/antigravity-acp/broker.mjs sanitizedAgentEnv.
+    env = os.environ if process_env is None else process_env
+    child = {
+        "PATH": env.get("PATH") or "",
+        "GEMINI_HOME": str(gemini_home),
+        "AGY_ACP_FORCE_FILE_STORAGE": "1",
+    }
+    if env.get("HOME"):
+        child["HOME"] = env["HOME"]
+    if env.get("TMPDIR"):
+        child["TMPDIR"] = env["TMPDIR"]
+    if env.get("LANG"):
+        child["LANG"] = env["LANG"]
+    child["ANTIGRAVITY_HARNESS_PATH"] = str(helper)
+    return child
+
+
+def resolve_antigravity_acp_route_binding(
+    *,
+    runtime_dir: Optional[Path] = None,
+    runtime_server: Optional[Path] = None,
+    helper_path: Optional[Path] = None,
+    gemini_home: Optional[Path] = None,
+    process_env: Optional[Mapping[str, str]] = None,
+    platform_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Bind the official pinned ACP server, helper, argv, and profile env.
+
+    This is not the native AGY manifest executable. Policy matches
+    bridge/antigravity-acp/broker.mjs resolveLaunch + sanitizedAgentEnv.
+    """
+
+    env = os.environ if process_env is None else process_env
+    resolved_platform = platform_id or current_antigravity_platform_id()
+    launch = _PLATFORM_COMMANDS.get(resolved_platform)
+    if launch is None:
+        raise ValidationError(
+            "antigravity-acp official route has no pinned launch for %s" % resolved_platform
+        )
+    basename = Path(launch["runtime_command"]).name
+    configured_server = runtime_server or (
+        Path(env["ANTIGRAVITY_ACP_SERVER"]) if env.get("ANTIGRAVITY_ACP_SERVER") else None
+    )
+    configured_dir = runtime_dir or (
+        Path(env["ANTIGRAVITY_ACP_RUNTIME_DIR"])
+        if env.get("ANTIGRAVITY_ACP_RUNTIME_DIR")
+        else default_antigravity_runtime_dir(resolved_platform)
+    )
+    if configured_server is not None:
+        command = Path(configured_server).expanduser().resolve()
+    else:
+        command = Path(configured_dir).expanduser().resolve() / basename
+    if not command.is_file() or not os.access(command, os.X_OK):
+        raise ValidationError("antigravity-acp official route executable is missing")
+    helper_name = Path(launch["helper"]).name
+    if helper_path is not None:
+        helper = Path(helper_path).expanduser().resolve()
+    elif env.get("ANTIGRAVITY_HARNESS_PATH"):
+        helper = Path(env["ANTIGRAVITY_HARNESS_PATH"]).expanduser().resolve()
+    else:
+        helper = command.parent / helper_name
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise ValidationError("antigravity-acp official route helper is missing")
+    scoped = env.get("SAARIUS_ANTIGRAVITY_ACP_GEMINI_HOME") or env.get("GEMINI_HOME")
+    profile = (
+        Path(gemini_home).expanduser().resolve()
+        if gemini_home is not None
+        else (
+            Path(scoped).expanduser().resolve()
+            if isinstance(scoped, str) and scoped.strip()
+            else default_antigravity_gemini_home()
+        )
+    )
+    argv = [str(command), *list(launch["runtime_args"])]
+    process = sanitized_antigravity_process_env(
+        env, gemini_home=profile, helper=helper
+    )
+    return require_antigravity_acp_route_binding(
+        {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": OFFICIAL_ROUTE_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": resolved_platform,
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": str(command),
+            "argv": argv,
+            "helper": str(helper),
+            "profile_env": PROFILE_ENV,
+            "profile_path": str(profile),
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": process,
+            "test_only": False,
+        }
+    )
+
+
+def test_only_antigravity_synthetic_route_binding() -> Dict[str, Any]:
+    return require_antigravity_acp_route_binding(
+        {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": current_antigravity_platform_id(),
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": None,
+            "argv": None,
+            "helper": None,
+            "profile_env": PROFILE_ENV,
+            "profile_path": None,
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": None,
+            "test_only": True,
+        }
+    )
+
+
+def require_antigravity_acp_route_binding(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("antigravity-acp trusted route binding is missing")
+    if value.get("schema") != ANTIGRAVITY_ROUTE_BINDING_SCHEMA:
+        raise ValidationError("antigravity-acp trusted route binding schema is invalid")
+    if value.get("route") != TRANSPORT_ID or value.get("agent") != "antigravity":
+        raise ValidationError("antigravity-acp trusted route binding identity is wrong")
+    if (
+        value.get("transport") != "acp"
+        or value.get("identity") != ANTIGRAVITY_ROUTE_IDENTITY
+        or value.get("runtime_id") != RUNTIME_ID
+        or value.get("runtime_version") != RUNTIME_VERSION
+        or value.get("profile_env") != PROFILE_ENV
+    ):
+        raise ValidationError("antigravity-acp trusted route binding identity is wrong")
+    kind = value.get("kind")
+    if kind == SYNTHETIC_PEER_KIND:
+        if value.get("test_only") is not True:
+            raise ValidationError("antigravity-acp synthetic peer remains test-only")
+        if value.get("executable") is not None or value.get("argv") is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        return {
+            "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": "antigravity",
+            "transport": "acp",
+            "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+            "platform_id": value.get("platform_id") or current_antigravity_platform_id(),
+            "runtime_id": RUNTIME_ID,
+            "runtime_version": RUNTIME_VERSION,
+            "executable": None,
+            "argv": None,
+            "helper": None,
+            "profile_env": PROFILE_ENV,
+            "profile_path": None,
+            "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+            "process_env": None,
+            "test_only": True,
+        }
+    if kind != OFFICIAL_ROUTE_KIND:
+        raise ValidationError("antigravity-acp trusted route binding kind is invalid")
+    executable = value.get("executable")
+    argv = value.get("argv")
+    helper = value.get("helper")
+    profile_path = value.get("profile_path")
+    process_env = value.get("process_env")
+    if not isinstance(executable, str) or not executable:
+        raise ValidationError("antigravity-acp trusted route binding executable is missing")
+    if not isinstance(argv, (list, tuple)) or not argv or argv[0] != executable:
+        raise ValidationError("antigravity-acp trusted route binding argv is invalid")
+    if not isinstance(helper, str) or not helper:
+        raise ValidationError("antigravity-acp trusted route binding helper is missing")
+    if not isinstance(profile_path, str) or not profile_path:
+        raise ValidationError("antigravity-acp trusted route binding profile is missing")
+    if not isinstance(process_env, Mapping) or process_env.get("GEMINI_HOME") != profile_path:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    if process_env.get("ANTIGRAVITY_HARNESS_PATH") != helper:
+        raise ValidationError("antigravity-acp trusted route binding process environment is invalid")
+    return {
+        "schema": ANTIGRAVITY_ROUTE_BINDING_SCHEMA,
+        "route": TRANSPORT_ID,
+        "kind": OFFICIAL_ROUTE_KIND,
+        "agent": "antigravity",
+        "transport": "acp",
+        "identity": ANTIGRAVITY_ROUTE_IDENTITY,
+        "platform_id": value.get("platform_id"),
+        "runtime_id": RUNTIME_ID,
+        "runtime_version": RUNTIME_VERSION,
+        "executable": executable,
+        "argv": list(argv),
+        "helper": helper,
+        "profile_env": PROFILE_ENV,
+        "profile_path": profile_path,
+        "process_env_names": list(ANTIGRAVITY_SANITIZED_ENV_NAMES),
+        "process_env": dict(process_env),
+        "test_only": False,
+    }
 
 
 def _exact_mapping(value: Any, keys: frozenset[str], label: str) -> Mapping[str, Any]:
@@ -1016,6 +1284,14 @@ class AntigravityAcpNodeRuntime:
             }
         self._rpc("create", payload)
 
+    def child_process_identity(self) -> Dict[str, Any]:
+        return {
+            "pid": self._proc.pid,
+            "returncode": self._proc.returncode,
+            "exited": self._proc.poll() is not None,
+            "kind": self.kind,
+        }
+
     def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("ensureSession", dict(payload))
 
@@ -1646,7 +1922,10 @@ __all__ = [
     "validate_question_observation",
     "verified_antigravity_acp_catalog",
     "build_antigravity_acp_candidate_runner",
+    "require_antigravity_acp_route_binding",
+    "resolve_antigravity_acp_route_binding",
     "select_and_map_runtime_antigravity_models",
+    "test_only_antigravity_synthetic_route_binding",
 ]
 
 
@@ -1686,6 +1965,7 @@ def build_antigravity_acp_candidate_runner(
     runtime: Any = None,
     synthetic_peer: bool = False,
     executable: Optional[Path] = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
     isolated_root: Optional[Path] = None,
     conversation_id: Optional[str] = None,
     request_id: Optional[str] = None,
@@ -1713,14 +1993,30 @@ def build_antigravity_acp_candidate_runner(
         conversation_id=host_conversation,
     )
     if runtime is None:
-        runtime = AntigravityAcpNodeRuntime(
-            workspace=Path(expected_workspace["path"]),
-            isolated_root=isolated,
-            repo_root=repo_root or _repo_root(),
-            env=env,
-            synthetic_peer=synthetic_peer,
-            executable=None if synthetic_peer else executable,
-        )
+        if (executable is not None or env is not None) and route_binding is None and not synthetic_peer:
+            raise ValidationError(
+                "antigravity-acp does not accept an arbitrary executable or env payload as a trusted route binding"
+            )
+        if synthetic_peer and route_binding is None:
+            route_binding = test_only_antigravity_synthetic_route_binding()
+        binding = require_antigravity_acp_route_binding(route_binding)
+        if binding["kind"] == SYNTHETIC_PEER_KIND:
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                synthetic_peer=True,
+            )
+        else:
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=Path(expected_workspace["path"]),
+                isolated_root=isolated,
+                repo_root=repo_root or _repo_root(),
+                env=binding["process_env"],
+                synthetic_peer=False,
+                executable=Path(binding["executable"]),
+                candidate_args=list(binding["argv"][1:]),
+            )
     return AntigravityAcpRuntimeRunner(
         runtime,
         isolated_root=isolated,

@@ -41,3 +41,11 @@ candidate executable is missing` and `ValidationError: antigravity-acp
 candidate executable is missing`. The worker source remains uncommitted for
 parent adjudication; no extra worker, pin refresh, live qualification, or
 provider action was performed.
+
+The parent-rescoped lifecycle worker was native Cursor ACP job
+`faeec797-3fa7-4893-a0d0-f5c6d289267c`. It binds each named route through the
+existing official resolver policy, returns a process-local owner plus
+body-free continuation from the default factory, and proves two useful turns
+plus exact synthetic child exit without private runner injection. The native
+AGY manifest executable is not used as the ACP server. Ordinary availability
+stays false. No pin refresh, live qualification, publication, or merge.

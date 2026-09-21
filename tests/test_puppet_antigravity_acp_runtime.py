@@ -12,6 +12,7 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from antigravity_acpx import claim_isolated_root, load_isolated_root
+from puppet_lib.acp_consumer import AcpConsumerOwner
 from puppet_lib.antigravity_acp import (
     DEFAULT_ANTIGRAVITY_MODEL,
     AntigravityAcpController,
@@ -19,7 +20,10 @@ from puppet_lib.antigravity_acp import (
     AntigravityAcpRuntimeRunner,
     AntigravityAcpSyntheticRuntime,
     build_antigravity_acp_candidate_runner,
+    current_antigravity_platform_id,
     map_runtime_antigravity_models,
+    resolve_antigravity_acp_route_binding,
+    test_only_antigravity_synthetic_route_binding,
     verified_antigravity_acp_catalog,
 )
 from puppet_lib.cursor_acp import (
@@ -27,6 +31,7 @@ from puppet_lib.cursor_acp import (
     SESSION_MODE_PERSISTENT,
     SYNTHETIC_PEER_KIND,
     require_runtime_task_text,
+    test_only_cursor_synthetic_route_binding,
 )
 from puppet_lib.cursor_acp import (
     drain_runtime_turn_events,
@@ -747,6 +752,216 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertTrue(closed["final_discard"])
             finally:
                 runtime.shutdown()
+
+    def test_official_route_binding_uses_pinned_server_not_manifest_executable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime_dir = Path(temporary) / "runtime"
+            runtime_dir.mkdir()
+            platform_id = current_antigravity_platform_id()
+            server_name = (
+                "agy_acp_server.exe"
+                if platform_id.startswith("windows")
+                else "agy_acp_server.par"
+            )
+            helper_name = (
+                "localharness_external.exe"
+                if platform_id.startswith("windows")
+                else "localharness_external"
+            )
+            decoy = Path(temporary) / "agy"
+            decoy.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(decoy, 0o700)
+            server = runtime_dir / server_name
+            helper = runtime_dir / helper_name
+            server.write_text("#!/bin/sh\nexit 0\n")
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            os.chmod(server, 0o700)
+            os.chmod(helper, 0o700)
+            gemini_home = Path(temporary) / "gemini-home"
+            gemini_home.mkdir()
+            binding = resolve_antigravity_acp_route_binding(
+                runtime_dir=runtime_dir,
+                gemini_home=gemini_home,
+                process_env={"PATH": os.environ.get("PATH", "")},
+            )
+            self.assertEqual(binding["kind"], "official_route")
+            self.assertEqual(binding["identity"], "antigravity-acp-server")
+            self.assertEqual(binding["executable"], str(server.resolve()))
+            self.assertNotEqual(binding["executable"], str(decoy.resolve()))
+            self.assertEqual(binding["argv"][0], binding["executable"])
+            self.assertEqual(binding["helper"], str(helper.resolve()))
+            self.assertEqual(binding["profile_env"], "GEMINI_HOME")
+            self.assertEqual(binding["profile_path"], str(gemini_home.resolve()))
+            self.assertEqual(binding["process_env"]["GEMINI_HOME"], binding["profile_path"])
+            self.assertEqual(
+                binding["process_env"]["ANTIGRAVITY_HARNESS_PATH"],
+                binding["helper"],
+            )
+
+    def test_default_factory_rejects_arbitrary_executable_and_env(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "gemini-3.1-pro"
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with self.assertRaisesRegex(ValidationError, "arbitrary executable"):
+                build_antigravity_acp_candidate_runner(
+                    session="agy-acp-session",
+                    contract=contract,
+                    state_root=Path(temporary),
+                    prompt=CALLER_TASK_TEXT,
+                    requested_model="gemini-3.1-pro",
+                    expected_workspace=_workspace(workspace),
+                    executable=Path(temporary) / "agy",
+                    env={"GEMINI_HOME": str(Path(temporary) / "untrusted")},
+                )
+
+    def test_default_consumer_owner_lifecycle_uses_public_runtime_and_synthetic_peer(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "gemini-3.1-pro"
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.antigravity_acp.build_antigravity_acp_candidate_runner",
+                wraps=build_antigravity_acp_candidate_runner,
+            ) as factory, mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _antigravity_acp_structured_launch(
+                    session="agy-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("antigravity-acp"),
+                    state_root=Path(temporary),
+                    requested_model="gemini-3.1-pro",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_antigravity_synthetic_route_binding,
+                )
+            factory.assert_called_once()
+            self.assertNotIn("runtime", factory.call_args.kwargs)
+            self.assertEqual(
+                factory.call_args.kwargs["route_binding"]["kind"], SYNTHETIC_PEER_KIND
+            )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            self.assertIsInstance(owner, AcpConsumerOwner)
+            self.assertFalse(owner.available())
+            self.assertFalse(AntigravityAcpController.available())
+            self.assertEqual(
+                launched["antigravity_acp"]["model"]["observed_id"],
+                "gemini-3.1-pro",
+            )
+            self.assertNotEqual(continuation["request_id"], continuation["backend_session_id"])
+            self.assertNotEqual(
+                continuation["host_conversation_id"],
+                continuation["runtime_session_name"],
+            )
+            self.assertNotIn(CALLER_TASK_TEXT, str(launched))
+            first_backend = continuation["backend_session_id"]
+            first_request = continuation["request_id"]
+            second = owner.next_turn(
+                continuation,
+                text=SECOND_TURN_TEXT,
+                request_id="agy-acp-request-2",
+                expected_workspace=_workspace(workspace),
+            )
+            self.assertEqual(second["observation"]["terminal"]["result_id"], "agy-acp-request-2")
+            self.assertEqual(second["continuation"]["backend_session_id"], first_backend)
+            self.assertEqual(second["continuation"]["request_id"], "agy-acp-request-2")
+            self.assertNotEqual(second["continuation"]["request_id"], first_request)
+            self.assertNotIn(CALLER_TASK_TEXT, str(second))
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                with self.assertRaisesRegex(ValidationError, "trusted route binding"):
+                    _antigravity_acp_structured_launch(
+                        session="agy-wrong-binding",
+                        contract=contract,
+                        transport=bind_run_transport("antigravity-acp"),
+                        state_root=Path(temporary),
+                        requested_model="gemini-3.1-pro",
+                        prompt=CALLER_TASK_TEXT,
+                        route_resolver=test_only_cursor_synthetic_route_binding,
+                    )
+            closed = owner.finish(continuation)
+            self.assertTrue(closed["final_discard"])
+            self.assertTrue(closed["child_exit"]["exited"])
+            self.assertIsInstance(closed["child_exit"]["pid"], int)
+            self.assertIsNotNone(closed["child_exit"]["returncode"])
+            with self.assertRaises(OSError):
+                os.kill(closed["child_exit"]["pid"], 0)
+
+    def test_wrong_owner_and_exceptional_cleanup(self):
+        artifact = ROOT / "runs/puppet-dual-acp-controller-runs/20260921/artifacts/acpx-0.18.0.tgz"
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = "gemini-3.1-pro"
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            with mock.patch(
+                "puppet_lib.session._workspace_snapshot",
+                return_value={
+                    "branch": "codex/example",
+                    "head": "a" * 40,
+                    "tree": "b" * 40,
+                    "dirty": False,
+                },
+            ):
+                launched = _antigravity_acp_structured_launch(
+                    session="agy-acp-session",
+                    contract=contract,
+                    transport=bind_run_transport("antigravity-acp"),
+                    state_root=Path(temporary),
+                    requested_model="gemini-3.1-pro",
+                    prompt=CALLER_TASK_TEXT,
+                    route_resolver=test_only_antigravity_synthetic_route_binding,
+                )
+            owner = launched["owner"]
+            continuation = launched["continuation"]
+            with self.assertRaisesRegex(ValidationError, "owner does not match"):
+                AcpConsumerOwner().next_turn(
+                    continuation,
+                    text=SECOND_TURN_TEXT,
+                    request_id="agy-acp-request-2",
+                )
+            foreign = _workspace(workspace)
+            foreign["path"] = str(Path(temporary).resolve() / "foreign")
+            Path(foreign["path"]).mkdir()
+            with self.assertRaisesRegex(IdentityError, "bound checkout"):
+                owner.next_turn(
+                    continuation,
+                    text=SECOND_TURN_TEXT,
+                    request_id="agy-acp-request-2",
+                    expected_workspace=foreign,
+                )
+            self.assertTrue(owner.last_child_exit["exited"])
+            self.assertIsNotNone(owner.last_child_exit["returncode"])
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ The existing named `cursor-acp` controller/caller path now consumes
 - worker job ID: `59754615-f2c0-41b9-a2e8-d41d999ba4cb`
 - Antigravity worker job ID: `7214ec87-9b2b-4c6b-a5b1-69cab059854f`
 - repair worker job ID: `35e20824-58e5-46b9-bb14-402098b36b69`
+- lifecycle worker job ID: `faeec797-3fa7-4893-a0d0-f5c6d289267c`
 - production enablement: none
 
 ## Provenance tuple
@@ -188,3 +189,38 @@ reject a candidate payload without one. The structured launch callers receive
 the already-resolved manifest executable in `launch()`, but do not forward it
 to either factory. The missing consumer seam is therefore still on the actual
 caller path; the worker source remains uncommitted pending parent rescope.
+
+## Task-owned consumer lifecycle
+
+The single authorized lifecycle worker was Cursor ACP job
+`faeec797-3fa7-4893-a0d0-f5c6d289267c`. It started from checkpoint
+`d0732a15d587633151bab39f22ba467812c1288b`. Default structured launch now
+resolves a trusted route binding before calling the default factory. Cursor
+binds `/Users/bobbybones/.local/bin/cursor-agent` plus `acp`. Antigravity
+binds the pinned ACP server, colocated helper, platform argv, `GEMINI_HOME`,
+and sanitized process environment from the existing broker policy. Arbitrary
+executable/env payloads are not production trust proof. Synthetic peers stay
+test-only at the resolver boundary.
+
+The public return is a live `AcpConsumerOwner` plus a body-free continuation.
+`owner.next_turn(continuation, ...)` and `owner.finish(continuation)` reuse
+the retained runner. A continuation identifier cannot recover the runner
+without that process-local owner. Cross-process resume is unsupported.
+
+```text
+python3 -m unittest tests.test_puppet_contracts tests.test_puppet_transport tests.test_puppet_cursor_acp_runtime tests.test_puppet_cursor_acpx tests.test_puppet_cursor_acp tests.test_puppet_antigravity_acp tests.test_puppet_antigravity_acp_runtime tests.test_puppet_antigravity_acpx tests.test_puppet_packaging -v
+Ran 110 tests ... OK
+# includes default-factory owner lifecycle for both routes, using
+# build_*_candidate_runner with no runtime= injection, two useful task
+# strings, non-default advertised models, fresh request IDs, finish, and
+# exact synthetic child exit
+
+node --test test/*.test.mjs   # bridge/cursor-acp
+tests 65; pass 65; fail 0; skipped 0
+
+node --test test/*.test.mjs   # bridge/antigravity-acp
+tests 33; pass 33; fail 0; skipped 0
+```
+
+The exact f888 acpx source pin and artifact digest above are unchanged. No
+live qualification or provider action was used.

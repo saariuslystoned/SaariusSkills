@@ -77,6 +77,12 @@ CONTROLLER_RUNTIME_DRIVER = (
 )
 CANDIDATE_RUNTIME_KIND = "qualified_archive"
 SYNTHETIC_PEER_KIND = "synthetic_peer"
+# Mirrors bridge/cursor-acp/broker.mjs DEFAULT_CURSOR_EXECUTABLE + argv ["acp"].
+DEFAULT_CURSOR_EXECUTABLE = "/Users/bobbybones/.local/bin/cursor-agent"
+CURSOR_ACP_ARGV_TAIL = "acp"
+CURSOR_ROUTE_IDENTITY = "cursor-agent-acp"
+OFFICIAL_ROUTE_KIND = "official_route"
+CURSOR_ROUTE_BINDING_SCHEMA = "puppet.cursor-acp-route-binding/v1"
 SESSION_MODE_ONESHOT = "oneshot"
 SESSION_MODE_PERSISTENT = "persistent"
 FINISH_POLICY_DISCARD = "discard"
@@ -1016,6 +1022,103 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
+def _cursor_route_executable(process_env: Optional[Mapping[str, str]] = None) -> Path:
+    env = os.environ if process_env is None else process_env
+    configured = env.get("CURSOR_AGENT_EXECUTABLE")
+    raw = configured.strip() if isinstance(configured, str) and configured.strip() else DEFAULT_CURSOR_EXECUTABLE
+    return Path(raw).expanduser()
+
+
+def resolve_cursor_acp_route_binding(
+    *,
+    executable: Optional[Path] = None,
+    process_env: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
+    """Bind the approved cursor-agent ACP route. Not an arbitrary caller path."""
+
+    path = Path(executable) if executable is not None else _cursor_route_executable(process_env)
+    resolved = path.resolve()
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ValidationError("cursor-acp official route executable is missing")
+    command = str(resolved)
+    return require_cursor_acp_route_binding(
+        {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": OFFICIAL_ROUTE_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": command,
+            "argv": [command, CURSOR_ACP_ARGV_TAIL],
+            "test_only": False,
+        }
+    )
+
+
+def test_only_cursor_synthetic_route_binding() -> Dict[str, Any]:
+    return require_cursor_acp_route_binding(
+        {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": None,
+            "argv": None,
+            "test_only": True,
+        }
+    )
+
+
+def require_cursor_acp_route_binding(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValidationError("cursor-acp trusted route binding is missing")
+    if value.get("schema") != CURSOR_ROUTE_BINDING_SCHEMA:
+        raise ValidationError("cursor-acp trusted route binding schema is invalid")
+    if value.get("route") != TRANSPORT_ID or value.get("agent") != TARGET:
+        raise ValidationError("cursor-acp trusted route binding identity is wrong")
+    if value.get("transport") != "acp" or value.get("identity") != CURSOR_ROUTE_IDENTITY:
+        raise ValidationError("cursor-acp trusted route binding identity is wrong")
+    kind = value.get("kind")
+    if kind == SYNTHETIC_PEER_KIND:
+        if value.get("test_only") is not True:
+            raise ValidationError("cursor-acp synthetic peer remains test-only")
+        if value.get("executable") is not None or value.get("argv") is not None:
+            raise ValidationError("synthetic peer injection cannot carry a candidate executable")
+        return {
+            "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+            "route": TRANSPORT_ID,
+            "kind": SYNTHETIC_PEER_KIND,
+            "agent": TARGET,
+            "transport": "acp",
+            "identity": CURSOR_ROUTE_IDENTITY,
+            "executable": None,
+            "argv": None,
+            "test_only": True,
+        }
+    if kind != OFFICIAL_ROUTE_KIND:
+        raise ValidationError("cursor-acp trusted route binding kind is invalid")
+    executable = value.get("executable")
+    argv = value.get("argv")
+    if not isinstance(executable, str) or not executable:
+        raise ValidationError("cursor-acp trusted route binding executable is missing")
+    if not isinstance(argv, (list, tuple)) or list(argv) != [executable, CURSOR_ACP_ARGV_TAIL]:
+        raise ValidationError("cursor-acp trusted route binding argv is invalid")
+    return {
+        "schema": CURSOR_ROUTE_BINDING_SCHEMA,
+        "route": TRANSPORT_ID,
+        "kind": OFFICIAL_ROUTE_KIND,
+        "agent": TARGET,
+        "transport": "acp",
+        "identity": CURSOR_ROUTE_IDENTITY,
+        "executable": executable,
+        "argv": [executable, CURSOR_ACP_ARGV_TAIL],
+        "test_only": False,
+    }
+
+
 def select_and_map_runtime_models(
     runtime: Any,
     handle: Mapping[str, Any],
@@ -1318,6 +1421,14 @@ class CursorAcpNodeRuntime:
                 "args": list(candidate_args or ()),
             }
         self._rpc("create", payload)
+
+    def child_process_identity(self) -> Dict[str, Any]:
+        return {
+            "pid": self._proc.pid,
+            "returncode": self._proc.returncode,
+            "exited": self._proc.poll() is not None,
+            "kind": self.kind,
+        }
 
     def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self._rpc("ensureSession", dict(payload))
@@ -1974,6 +2085,7 @@ def build_cursor_acp_candidate_runner(
     runtime: Any = None,
     synthetic_peer: bool = False,
     executable: Optional[Path] = None,
+    route_binding: Optional[Mapping[str, Any]] = None,
     isolated_root: Optional[Path] = None,
     conversation_id: Optional[str] = None,
     request_id: Optional[str] = None,
@@ -1996,7 +2108,14 @@ def build_cursor_acp_candidate_runner(
         conversation_id=host_conversation,
     )
     if runtime is None:
-        if synthetic_peer:
+        if executable is not None and route_binding is None and not synthetic_peer:
+            raise ValidationError(
+                "cursor-acp does not accept an arbitrary executable as a trusted route binding"
+            )
+        if synthetic_peer and route_binding is None:
+            route_binding = test_only_cursor_synthetic_route_binding()
+        binding = require_cursor_acp_route_binding(route_binding)
+        if binding["kind"] == SYNTHETIC_PEER_KIND:
             runtime = CursorAcpNodeRuntime(
                 workspace=Path(expected_workspace["path"]),
                 isolated_root=isolated,
@@ -2009,7 +2128,7 @@ def build_cursor_acp_candidate_runner(
                 isolated_root=isolated,
                 repo_root=repo_root or _repo_root(),
                 synthetic_peer=False,
-                executable=executable,
+                executable=Path(binding["executable"]),
                 agent="cursor",
             )
     return CursorAcpRuntimeRunner(
