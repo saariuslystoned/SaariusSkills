@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import sys
@@ -26,6 +27,7 @@ from puppet_lib.cursor_acp import (
     CursorAcpNodeRuntime,
     CursorAcpRuntimeRunner,
     CursorAcpSyntheticRuntime,
+    ProcessLifecycleTracker,
     advertised_catalog_from_runtime_models,
     build_cursor_acp_candidate_runner,
     cursor_acp_runtime_agent,
@@ -1220,6 +1222,11 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             finally:
                 first_runtime.shutdown()
             self.assertTrue(first_runtime.child_process_identity()["exited"])
+            self.assertGreaterEqual(len(first_runtime.last_process_lifecycle["started"]), 1)
+            self.assertEqual(
+                len(first_runtime.last_process_lifecycle["started"]),
+                len(first_runtime.last_process_lifecycle["exits"]),
+            )
             with self.assertRaises(OSError):
                 os.kill(first_identity["pid"], 0)
             second_runtime = CursorAcpNodeRuntime(
@@ -1260,6 +1267,298 @@ class CursorAcpRuntimeControllerTests(unittest.TestCase):
             finally:
                 second_runtime.shutdown()
             self.assertTrue(second_runtime.child_process_identity()["exited"])
+
+    def _events(self, isolated):
+        path = isolated / "events.jsonl"
+        if not path.is_file():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def test_matched_owned_worker_exit_plus_unsupported_close_admits_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            tracker = ProcessLifecycleTracker()
+            runtime = CursorAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GROK_MODELS,
+                unsupported_backend_close=True,
+                process_lifecycle_tracker=tracker,
+                worker_exit_mode="matched",
+            )
+            runner = self._runner(isolated, workspace, runtime)
+            controller = CursorAcpController(Path(temporary), runner=runner)
+            result = controller.caller_result(
+                expected_session="cursor-acp-session",
+                expected_conversation_id="conv-cursor-acp-1",
+                expected_workspace=_workspace(workspace),
+                requested_model="cursor-grok-4.6-high",
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["cursor_acp"]["model"]["observed_model"], GROK_HIGH)
+            self.assertEqual(runner.backend_discard, "unsupported")
+            self.assertEqual(runner.selected_model, GROK_HIGH)
+            self.assertEqual(runner.current_model, GROK_HIGH)
+            self.assertEqual(runner.cleanup_receipt["status"], "completed")
+            self.assertEqual(
+                runner.cleanup_receipt["backendSessionDiscard"],
+                "unsupported",
+            )
+            self.assertEqual(runner.cleanup_receipt["worker_termination"], "proven")
+            self.assertFalse(runner.cleanup_receipt["cleanup_uncertain"])
+            self.assertFalse(runner.cleanup_receipt["replacement_blocked"])
+            self.assertGreaterEqual(len(runner.process_lifecycle["started"]), 1)
+            self.assertEqual(
+                len(runner.process_lifecycle["started"]),
+                len(runner.process_lifecycle["exits"]),
+            )
+            self.assertEqual(tracker.snapshot_owned("cursor-acp-session")["exits"][0]["pid"], 4242)
+            ownership = load_isolated_root(isolated)
+            self.assertEqual(ownership["cleanup"], "owned")
+            self.assertFalse(ownership["replacement_blocked"])
+            events = self._events(isolated)
+            self.assertTrue(any(item.get("event") == "runtime_models_observed" for item in events))
+            self.assertTrue(any(item.get("event") == "cleanup_completed" for item in events))
+            self.assertFalse(CursorAcpController.available())
+
+    def test_surviving_no_exit_helper_only_and_mismatched_workers_stay_fenced(self):
+        for mode in ("none", "helper_only", "mismatched"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                isolated = _private_root(temporary)
+                workspace = Path(temporary).resolve() / "workspace"
+                workspace.mkdir()
+                tracker = ProcessLifecycleTracker()
+                runtime = CursorAcpSyntheticRuntime(
+                    handle=_handle(workspace),
+                    models=GROK_MODELS,
+                    unsupported_backend_close=True,
+                    process_lifecycle_tracker=tracker,
+                    worker_exit_mode=mode,
+                )
+                runner = self._runner(isolated, workspace, runtime)
+                runner.worker_exit_wait_ms = 50
+                controller = CursorAcpController(Path(temporary), runner=runner)
+                with self.assertRaisesRegex(RuntimeError, "session/close"):
+                    controller.require_observation()
+                ownership = load_isolated_root(isolated)
+                self.assertEqual(ownership["cleanup"], "unknown")
+                self.assertTrue(ownership["replacement_blocked"])
+                self.assertEqual(runner.selected_model, GROK_HIGH)
+                self.assertEqual(runner.current_model, GROK_HIGH)
+                self.assertEqual(runner._observation["observed_model"]["id"], GROK_HIGH)
+                events = self._events(isolated)
+                models = [item for item in events if item.get("event") == "runtime_models_observed"]
+                unknown = [item for item in events if item.get("event") == "cleanup_unknown"]
+                self.assertEqual(models[0]["selected_model"], GROK_HIGH)
+                self.assertEqual(models[0]["current_model"], GROK_HIGH)
+                self.assertEqual(unknown[0]["backendSessionDiscard"], "unsupported")
+                self.assertTrue(unknown[0]["replacement_blocked"])
+                self.assertEqual(runner.worker_termination, "unknown")
+                self.assertTrue(runner.cleanup_uncertain)
+                self.assertTrue(runner.replacement_blocked)
+                with self.assertRaisesRegex(IdentityError, "replacement is blocked"):
+                    CursorAcpRuntimeRunner(
+                        CursorAcpSyntheticRuntime(handle=_handle(workspace), models=GROK_MODELS),
+                        isolated_root=isolated,
+                        owner="puppet-owner",
+                        session="cursor-acp-session",
+                        conversation_id="conv-cursor-acp-1",
+                        request_id="cursor-acp-request-2",
+                        workspace=_workspace(workspace),
+                        requested_model="cursor-grok-4.6-high",
+                        text=CALLER_TASK_TEXT,
+                        catalog=advertised_catalog_from_runtime_models(GROK_MODELS),
+                    ).observation()
+
+    def test_cleanup_failure_preserves_selected_current_model_and_lifecycle_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            close_error = RuntimeError("owned cleanup close failed")
+            runtime = CursorAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GROK_MODELS,
+                close_error=close_error,
+            )
+            runner = self._runner(isolated, workspace, runtime)
+            controller = CursorAcpController(Path(temporary), runner=runner)
+            with self.assertRaises(RuntimeError) as raised:
+                controller.require_observation()
+            self.assertIs(raised.exception, close_error)
+            self.assertEqual(runner.selected_model, GROK_HIGH)
+            self.assertEqual(runner.current_model, GROK_HIGH)
+            self.assertEqual(runner._observation["observed_model"]["id"], GROK_HIGH)
+            ownership = load_isolated_root(isolated)
+            self.assertEqual(ownership["cleanup"], "unknown")
+            self.assertTrue(ownership["replacement_blocked"])
+            events = self._events(isolated)
+            models = [item for item in events if item.get("event") == "runtime_models_observed"]
+            unknown = [item for item in events if item.get("event") == "cleanup_unknown"]
+            self.assertEqual(models[0]["selected_model"], GROK_HIGH)
+            self.assertEqual(models[0]["current_model"], GROK_HIGH)
+            self.assertEqual(unknown[0]["observed"], "runtime_close_failed")
+            self.assertEqual(unknown[0]["selected_model"], GROK_HIGH)
+            self.assertEqual(runner.worker_termination, "unknown")
+            self.assertTrue(runner.cleanup_uncertain)
+            self.assertTrue(runner.replacement_blocked)
+            self.assertNotIn(CALLER_TASK_TEXT, str(events))
+
+    def test_actual_public_runtime_unsupported_close_uses_owned_worker_lifecycle(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        models = {
+            "currentModelId": "candidate-default",
+            "availableModelIds": ["candidate-default", "candidate-fast"],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="cursor-acp-session",
+                conversation_id="conv-cursor-acp-1",
+            )
+            runtime = CursorAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_script="unsupported-close-peer.mjs",
+            )
+            try:
+                runner = CursorAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="cursor-acp-session",
+                    conversation_id="conv-cursor-acp-1",
+                    request_id="cursor-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model="candidate-default",
+                    text=CALLER_TASK_TEXT,
+                    catalog=advertised_catalog_from_runtime_models(models),
+                    halt=True,
+                )
+                controller = CursorAcpController(Path(temporary), runner=runner)
+                result = controller.caller_result(
+                    expected_session="cursor-acp-session",
+                    expected_conversation_id="conv-cursor-acp-1",
+                    expected_workspace=_workspace(workspace),
+                    requested_model="candidate-default",
+                    require_halt=True,
+                )
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["cursor_acp"]["model"]["observed_model"], "candidate-default")
+                self.assertEqual(runner.selected_model, "candidate-default")
+                self.assertEqual(runner.current_model, "candidate-default")
+                self.assertEqual(runner.backend_discard, "unsupported")
+                self.assertEqual(
+                    runner.cleanup_receipt["observed"],
+                    "local_worker_terminated_backend_session_discard_unsupported",
+                )
+                snapshot = runtime.process_lifecycle_snapshot("cursor-acp-session")
+                started = snapshot.get("started") or []
+                exits = snapshot.get("exits") or []
+                self.assertGreaterEqual(len(started), 1)
+                self.assertEqual(len(exits), len(started))
+                ownership = load_isolated_root(isolated)
+                self.assertEqual(ownership["cleanup"], "owned")
+                self.assertFalse(ownership["replacement_blocked"])
+                self.assertFalse(CursorAcpController.available())
+            finally:
+                runtime.shutdown()
+
+    def test_actual_public_runtime_surviving_peer_fences_and_preserves_models(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        models = {
+            "currentModelId": "candidate-default",
+            "availableModelIds": ["candidate-default", "candidate-fast"],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="cursor-acp-session",
+                conversation_id="conv-cursor-acp-1",
+            )
+            runtime = CursorAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_script="unsupported-close-peer.mjs",
+                synthetic_peer_survive=True,
+            )
+            try:
+                original_close = runtime.close
+
+                def injected_close(payload):
+                    error = ValidationError(
+                        "Agent does not support session/close for cursor-acp-session."
+                    )
+                    error.code = "ACP_BACKEND_UNSUPPORTED_CONTROL"
+                    raise error
+
+                runtime.close = injected_close
+                runner = CursorAcpRuntimeRunner(
+                    runtime,
+                    isolated_root=isolated,
+                    owner="puppet-owner",
+                    session="cursor-acp-session",
+                    conversation_id="conv-cursor-acp-1",
+                    request_id="cursor-acp-request-1",
+                    workspace=_workspace(workspace),
+                    requested_model="candidate-default",
+                    text=CALLER_TASK_TEXT,
+                    catalog=advertised_catalog_from_runtime_models(models),
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                )
+                runner.worker_exit_wait_ms = 250
+                controller = CursorAcpController(Path(temporary), runner=runner)
+                observation = controller.require_observation()
+                self.assertEqual(observation["observed_model"]["id"], "candidate-default")
+                self.assertEqual(runner.selected_model, "candidate-default")
+                self.assertEqual(runner.current_model, "candidate-default")
+                with self.assertRaisesRegex(ValidationError, "session/close"):
+                    runner.finish(discard_persistent_state=True)
+                ownership = load_isolated_root(isolated)
+                self.assertEqual(ownership["cleanup"], "unknown")
+                self.assertTrue(ownership["replacement_blocked"])
+                snapshot = runtime.process_lifecycle_snapshot("cursor-acp-session")
+                self.assertGreaterEqual(len(snapshot.get("started") or []), 1)
+                self.assertEqual(len(snapshot.get("exits") or []), 0)
+                events = self._events(isolated)
+                models_events = [
+                    item for item in events if item.get("event") == "runtime_models_observed"
+                ]
+                self.assertEqual(models_events[0]["selected_model"], "candidate-default")
+                self.assertEqual(models_events[0]["current_model"], "candidate-default")
+            finally:
+                runtime.close = original_close
+                snapshot = runtime.process_lifecycle_snapshot("cursor-acp-session")
+                runtime.shutdown()
+                for started in snapshot.get("started") or []:
+                    pid = started.get("pid")
+                    if isinstance(pid, int) and pid > 0:
+                        try:
+                            os.kill(pid, 9)
+                        except OSError:
+                            pass
 
 
 if __name__ == "__main__":

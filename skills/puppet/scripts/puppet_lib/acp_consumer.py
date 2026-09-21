@@ -261,6 +261,8 @@ class AcpConsumerOwner:
                         child_exit["kind"] = "shutdown_failed"
         reject_consumer_bodies(child_exit, label="child exit")
         self.last_child_exit = child_exit
+        # Helper/controller PID exit is local process bookkeeping only. It is
+        # never owned worker termination or cleanup admission proof.
         proven_local_release = child_exit.get("exited") is True
         if proven_local_release:
             for key, held in list(self._held.items()):
@@ -282,6 +284,34 @@ class AcpConsumerOwner:
         if shutdown_error is not None and not proven_local_release:
             raise shutdown_error
         closed["child_exit"] = child_exit
+        worker = closed.get("worker") or getattr(runner, "owned_worker", None)
+        if isinstance(worker, Mapping):
+            closed["worker"] = dict(worker)
+        discard = closed.get("backend_discard") or getattr(runner, "backend_discard", None)
+        if isinstance(discard, str) and discard:
+            closed["backend_discard"] = discard
+        for field in (
+            "selected_model",
+            "current_model",
+            "worker_termination",
+            "cleanup_uncertain",
+            "replacement_blocked",
+        ):
+            if field not in closed and hasattr(runner, field):
+                closed[field] = getattr(runner, field)
+        cleanup = closed.get("cleanup") or getattr(runner, "cleanup_receipt", None)
+        if isinstance(cleanup, Mapping):
+            closed["cleanup"] = dict(cleanup)
+        lifecycle = (
+            closed.get("process_lifecycle")
+            or getattr(runner, "process_lifecycle", None)
+            or getattr(runtime, "last_process_lifecycle", None)
+        )
+        if isinstance(lifecycle, Mapping):
+            closed["process_lifecycle"] = {
+                "started": [dict(item) for item in lifecycle.get("started", []) if isinstance(item, Mapping)],
+                "exits": [dict(item) for item in lifecycle.get("exits", []) if isinstance(item, Mapping)],
+            }
         reject_consumer_bodies(closed, label="owner finish")
         return closed
 

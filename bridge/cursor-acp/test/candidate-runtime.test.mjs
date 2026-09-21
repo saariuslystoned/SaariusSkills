@@ -30,10 +30,13 @@ import {
   boundedCandidateTurnResult,
   callerOutcomes,
   claimIsolatedRoot,
+  createProcessLifecycleTracker,
   createVerifiedCandidateAcpRuntime,
   discardCandidateTurnEvents,
+  isUnsupportedBackendSessionClose,
   markCleanupUnknown,
   materializeVerifiedCandidateAcpx,
+  processIdentitiesMatch,
   proveInstalledCandidateModule,
   recordBoundCandidateTurn,
   rejectCandidateRuntimeConversationParams,
@@ -44,7 +47,12 @@ const execFile = promisify(execFileCallback);
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
+const UNSUPPORTED_CLOSE_PEER = fileURLToPath(new URL("./unsupported-close-peer.mjs", import.meta.url));
 const TEST_PROMPT = "candidate runtime proof ping";
+const OBSERVED_MODELS = Object.freeze({
+  currentModelId: "candidate-fast",
+  availableModelIds: ["candidate-default", "candidate-fast"],
+});
 const LOCAL_ARTIFACT = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
 const REAL_ARTIFACT_SKIP = existsSync(LOCAL_ARTIFACT)
   ? false
@@ -88,6 +96,7 @@ class FakePublicRuntime {
     omitLastRequestId = false,
     result = { status: "completed", stopReason: "end_turn" },
     closeError,
+    models,
   } = {}) {
     this.handleOverrides = handle;
     this.turnRequestId = turnRequestId;
@@ -95,6 +104,7 @@ class FakePublicRuntime {
     this.omitLastRequestId = omitLastRequestId;
     this.result = result;
     this.closeError = closeError;
+    this.models = models;
     this.ensureCalls = [];
     this.statusCalls = [];
     this.startCalls = [];
@@ -126,14 +136,17 @@ class FakePublicRuntime {
       keys: Object.keys(input).sort(),
       sessionKey: input.handle?.sessionKey,
     });
-    if (this.omitLastRequestId || (this.startCalls.length === 0 && this.statusLastRequestId === undefined)) {
-      return {};
+    const status = {};
+    if (this.models) {
+      status.models = { ...this.models };
     }
-    return {
-      lastRequestId: this.startCalls.length
-        ? (this.statusLastRequestId ?? this.startCalls.at(-1).requestId)
-        : this.statusLastRequestId,
-    };
+    if (this.omitLastRequestId || (this.startCalls.length === 0 && this.statusLastRequestId === undefined)) {
+      return status;
+    }
+    status.lastRequestId = this.startCalls.length
+      ? (this.statusLastRequestId ?? this.startCalls.at(-1).requestId)
+      : this.statusLastRequestId;
+    return status;
   }
 
   startTurn(input) {
@@ -210,6 +223,22 @@ function assertOwnedUnfenced(claim) {
 function assertFencedClaim(claim) {
   assert.equal(claim.cleanup, "unknown");
   assert.equal(claim.replacement_blocked, true);
+}
+
+function unsupportedCloseError(session = HOST.session) {
+  const error = new Error(`Agent does not support session/close for ${session}.`);
+  error.code = "ACP_BACKEND_UNSUPPORTED_CONTROL";
+  return error;
+}
+
+function ownedWorker(sessionKey = HOST.session, overrides = {}) {
+  return {
+    pid: 4242,
+    startedAt: "2026-09-21T00:00:00.000Z",
+    launchId: "launch-owned-1",
+    scope: { kind: "runtime-session", sessionKey },
+    ...overrides,
+  };
 }
 
 function eventNamed(events, name) {
@@ -1626,6 +1655,243 @@ test("official public registry selects the cursor peer and rejects candidate ens
       await runtime.shutdown();
     } catch {
       // Shutdown must not hide the official registry proof.
+    }
+  }
+});
+
+async function createUnsupportedCloseRuntime(isolated, workspace, extraOptions = {}) {
+  const peerArgs = extraOptions.survive === true ? [UNSUPPORTED_CLOSE_PEER, "--survive"] : [UNSUPPORTED_CLOSE_PEER];
+  return createVerifiedCandidateAcpRuntime({
+    cwd: workspace,
+    sessionStore: extraOptions.sessionStore ?? memorySessionStore(),
+    agentRegistry: {
+      resolve() {
+        return [process.execPath, ...peerArgs];
+      },
+      list() {
+        return ["candidate"];
+      },
+    },
+    fs: false,
+    terminal: false,
+    timeoutMs: 30_000,
+    ...(extraOptions.processLifecycle ? { processLifecycle: extraOptions.processLifecycle } : {}),
+  }, {
+    runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
+    isolatedRoot: isolated,
+  });
+}
+
+test("synthetic unsupported close with matched owned worker exit admits cleanup", async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const tracker = createProcessLifecycleTracker();
+  const started = ownedWorker();
+  tracker.processLifecycle.onSpawned(started);
+  tracker.processLifecycle.onExit({ ...started, exitCode: 0 });
+  const runtime = new FakePublicRuntime({
+    closeError: unsupportedCloseError(),
+    models: OBSERVED_MODELS,
+  });
+  const recorded = await recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime, {
+    processLifecycleTracker: tracker,
+  }));
+  assert.equal(recorded.result.status, "completed");
+  assert.equal(recorded.selected_model, "candidate-fast");
+  assert.equal(recorded.current_model, "candidate-fast");
+  assert.equal(recorded.cleanup.status, "completed");
+  assert.equal(recorded.cleanup.backendSessionDiscard, "unsupported");
+  assert.equal(recorded.cleanup.observed, "local_worker_terminated_backend_session_discard_unsupported");
+  assert.equal(recorded.cleanup.worker_termination, "proven");
+  assert.equal(recorded.cleanup.cleanup_uncertain, false);
+  assert.equal(recorded.cleanup.replacement_blocked, false);
+  assert.equal(recorded.cleanup.process_lifecycle.started.length, 1);
+  assert.equal(recorded.cleanup.process_lifecycle.exits.length, 1);
+  assert.equal(processIdentitiesMatch(started, recorded.cleanup.worker), true);
+  assertOwnedUnfenced(await readClaim(isolated));
+  const events = await readEvents(isolated);
+  const completed = eventNamed(events, "runtime_turn_completed");
+  const cleanup = eventNamed(events, "cleanup_completed");
+  assert.equal(completed[0].selected_model, "candidate-fast");
+  assert.equal(completed[0].current_model, "candidate-fast");
+  assert.equal(cleanup[0].backendSessionDiscard, "unsupported");
+  assert.equal(adapterAvailable(), false);
+});
+
+test("synthetic surviving, no-exit, helper-only, and mismatched workers stay fenced", async () => {
+  async function fencedCase(label, mutateTracker) {
+    const { isolated, workspace } = await privateRoot();
+    await claimHost(isolated);
+    const tracker = createProcessLifecycleTracker();
+    mutateTracker(tracker);
+    const closeError = unsupportedCloseError(`${HOST.session}-${label}`);
+    const runtime = new FakePublicRuntime({
+      closeError,
+      models: OBSERVED_MODELS,
+    });
+    await assert.rejects(
+      () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime, {
+        processLifecycleTracker: tracker,
+        workerExitWaitMs: 50,
+      })),
+      (error) => error === closeError && isUnsupportedBackendSessionClose(error),
+    );
+    assertFencedClaim(await readClaim(isolated));
+    const events = await readEvents(isolated);
+    const completed = eventNamed(events, "runtime_turn_completed");
+    const unknown = eventNamed(events, "cleanup_unknown");
+    assert.equal(completed[0].selected_model, "candidate-fast");
+    assert.equal(completed[0].current_model, "candidate-fast");
+    assert.equal(unknown[0].replacement_blocked, true);
+    assert.equal(unknown[0].backendSessionDiscard, "unsupported");
+    assert.equal(unknown[0].worker_termination, "unknown");
+    assert.equal(unknown[0].cleanup_uncertain, true);
+    assert.equal(unknown[0].replacement_blocked, true);
+    assert.equal(unknown[0].selected_model, "candidate-fast");
+    assert.equal(unknown[0].current_model, "candidate-fast");
+    assert.equal(adapterAvailable(), false);
+  }
+
+  const started = ownedWorker();
+  await fencedCase("surviving", (tracker) => {
+    tracker.processLifecycle.onSpawned(started);
+  });
+  await fencedCase("no-exit", () => {});
+  await fencedCase("helper-only", (tracker) => {
+    tracker.processLifecycle.onExit({
+      pid: 59286,
+      startedAt: started.startedAt,
+      launchId: "launch-helper-1",
+      scope: { kind: "client" },
+      exitCode: 0,
+    });
+  });
+  await fencedCase("mismatched", (tracker) => {
+    tracker.processLifecycle.onSpawned(started);
+    tracker.processLifecycle.onExit({
+      ...started,
+      pid: 4343,
+      launchId: "launch-other-1",
+      exitCode: 0,
+    });
+  });
+});
+
+test("cleanup failure still preserves selected and current model plus lifecycle receipt", async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const closeError = new Error("owned cleanup close failed");
+  const runtime = new FakePublicRuntime({
+    closeError,
+    models: OBSERVED_MODELS,
+  });
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime)),
+    (error) => error === closeError,
+  );
+  assertFencedClaim(await readClaim(isolated));
+  const events = await readEvents(isolated);
+  const completed = eventNamed(events, "runtime_turn_completed");
+  const unknown = eventNamed(events, "cleanup_unknown");
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].selected_model, "candidate-fast");
+  assert.equal(completed[0].current_model, "candidate-fast");
+  assert.equal(unknown[0].observed, "runtime_close_failed");
+  assert.equal(unknown[0].selected_model, "candidate-fast");
+  assert.equal(unknown[0].current_model, "candidate-fast");
+  assert.equal(JSON.stringify(events).includes(TEST_PROMPT), false);
+  assert.equal(adapterAvailable(), false);
+});
+
+test("pinned public runtime matched worker exit plus unsupported close admits cleanup", {
+  timeout: 240_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const tracker = createProcessLifecycleTracker();
+  const { runtime } = await createUnsupportedCloseRuntime(isolated, workspace, {
+    processLifecycle: tracker.processLifecycle,
+  });
+  try {
+    const recorded = await recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime, {
+      processLifecycleTracker: tracker,
+    }));
+    assert.equal(recorded.result.status, "completed");
+    assert.equal(typeof recorded.selected_model, "string");
+    assert.equal(recorded.selected_model, recorded.current_model);
+    assert.equal(recorded.cleanup.status, "completed");
+    assert.equal(recorded.cleanup.backendSessionDiscard, "unsupported");
+    assert.equal(recorded.cleanup.observed, "local_worker_terminated_backend_session_discard_unsupported");
+    const proof = tracker.snapshotOwned(HOST.session);
+    assert.ok(proof.started.length >= 1, JSON.stringify(proof));
+    assert.equal(proof.exits.length, proof.started.length);
+    assert.equal(processIdentitiesMatch(proof.started[0], proof.exits[0]), true);
+    assert.equal(
+      proof.exits.some((exit) => processIdentitiesMatch(exit, recorded.cleanup.worker)),
+      true,
+    );
+    assertOwnedUnfenced(await readClaim(isolated));
+    const events = await readEvents(isolated);
+    const completed = eventNamed(events, "runtime_turn_completed");
+    assert.equal(completed[0].selected_model, recorded.selected_model);
+    assert.equal(completed[0].current_model, recorded.current_model);
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the lifecycle proof.
+    }
+  }
+});
+
+test("pinned public runtime surviving unsupported-close peer stays fenced", {
+  timeout: 240_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async () => {
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const tracker = createProcessLifecycleTracker();
+  const { runtime } = await createUnsupportedCloseRuntime(isolated, workspace, {
+    processLifecycle: tracker.processLifecycle,
+    survive: true,
+  });
+  const originalClose = runtime.close.bind(runtime);
+  runtime.close = async () => {
+    const error = unsupportedCloseError();
+    throw error;
+  };
+  try {
+    await assert.rejects(
+      () => recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, runtime, {
+        processLifecycleTracker: tracker,
+        workerExitWaitMs: 250,
+        mode: "persistent",
+      })),
+      (error) => isUnsupportedBackendSessionClose(error),
+    );
+    assertFencedClaim(await readClaim(isolated));
+    const proof = tracker.snapshotOwned(HOST.session);
+    assert.ok(proof.started.length >= 1, JSON.stringify(proof));
+    assert.equal(proof.exits.length, 0);
+    const events = await readEvents(isolated);
+    const completed = eventNamed(events, "runtime_turn_completed");
+    const unknown = eventNamed(events, "cleanup_unknown");
+    assert.equal(typeof completed[0].selected_model, "string");
+    assert.equal(completed[0].selected_model, completed[0].current_model);
+    assert.equal(unknown[0].backendSessionDiscard, "unsupported");
+    assert.equal(unknown[0].replacement_blocked, true);
+    assert.equal(adapterAvailable(), false);
+  } finally {
+    runtime.close = originalClose;
+    try {
+      await runtime.shutdown();
+    } catch {
+      // Shutdown must not hide the fence proof.
+    }
+    for (const started of tracker.ownedSpawned(HOST.session)) {
+      try { process.kill(started.pid, "SIGKILL"); } catch {}
     }
   }
 });

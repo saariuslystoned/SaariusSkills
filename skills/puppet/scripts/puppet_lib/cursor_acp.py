@@ -16,8 +16,9 @@ import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .caller import caller_projection, make_blocker
 from .errors import IdentityError, UnsupportedError, ValidationError
@@ -86,6 +87,8 @@ SYNTHETIC_AGENT = "candidate"
 CURSOR_ROUTE_BINDING_SCHEMA = "puppet.cursor-acp-route-binding/v1"
 SESSION_MODE_ONESHOT = "oneshot"
 SESSION_MODE_PERSISTENT = "persistent"
+WORKER_EXIT_WAIT_MS = 10_000
+UNSUPPORTED_BACKEND_CLOSE_CODE = "ACP_BACKEND_UNSUPPORTED_CONTROL"
 FINISH_POLICY_DISCARD = "discard"
 FINISH_POLICY_RETAIN = "retain"
 FINISH_POLICY_LOCAL_RELEASE = "local_release"
@@ -1298,6 +1301,136 @@ def require_unsupported_permission_outcome(permission: Mapping[str, Any]) -> Dic
     }
 
 
+def is_unsupported_backend_session_close(error: BaseException) -> bool:
+    code = getattr(error, "code", "")
+    if code != UNSUPPORTED_BACKEND_CLOSE_CODE:
+        return False
+    return bool(re.search(r"session/close", str(error), re.I))
+
+
+def launch_scopes_match(left: Any, right: Any) -> bool:
+    if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+        return False
+    if left.get("kind") != right.get("kind"):
+        return False
+    if left.get("kind") == "runtime-session":
+        return left.get("sessionKey") == right.get("sessionKey")
+    if left.get("kind") == "runtime-probe":
+        return left.get("agent") == right.get("agent")
+    return left.get("kind") == "client"
+
+
+def process_identities_match(left: Any, right: Any) -> bool:
+    if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+        return False
+    left_pid = left.get("pid")
+    right_pid = right.get("pid")
+    if (
+        not isinstance(left_pid, int)
+        or isinstance(left_pid, bool)
+        or left_pid <= 0
+        or left_pid != right_pid
+    ):
+        return False
+    if not isinstance(left.get("startedAt"), str) or not left.get("startedAt"):
+        return False
+    if left.get("startedAt") != right.get("startedAt"):
+        return False
+    if not isinstance(left.get("launchId"), str) or not left.get("launchId"):
+        return False
+    if left.get("launchId") != right.get("launchId"):
+        return False
+    return launch_scopes_match(left.get("scope"), right.get("scope"))
+
+
+def is_owned_session_process(process: Any, session_key: Any) -> bool:
+    if not isinstance(process, Mapping) or not isinstance(session_key, str) or not session_key:
+        return False
+    scope = process.get("scope")
+    return (
+        isinstance(scope, Mapping)
+        and scope.get("kind") == "runtime-session"
+        and scope.get("sessionKey") == session_key
+    )
+
+
+def public_worker_identity(process: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(process, Mapping):
+        return None
+    identity: Dict[str, Any] = {
+        "pid": process.get("pid"),
+        "startedAt": process.get("startedAt"),
+        "launchId": process.get("launchId"),
+        "scope": dict(process["scope"]) if isinstance(process.get("scope"), Mapping) else {},
+    }
+    if "signal" in process:
+        identity["signal"] = process["signal"]
+    for key in ("exitCode", "exitedAt"):
+        if key in process:
+            identity[key] = process[key]
+    return identity
+
+
+class ProcessLifecycleTracker:
+    """Session-scoped owned worker start/exit evidence. Not helper PID tracking."""
+
+    def __init__(self) -> None:
+        self.spawned: List[Dict[str, Any]] = []
+        self.exits: List[Dict[str, Any]] = []
+
+    @property
+    def process_lifecycle(self) -> Dict[str, Any]:
+        return {
+            "onSpawned": self.on_spawned,
+            "onExit": self.on_exit,
+        }
+
+    def on_spawned(self, process: Mapping[str, Any]) -> None:
+        self.spawned.append(dict(process))
+
+    def on_exit(self, exit_record: Mapping[str, Any]) -> None:
+        self.exits.append(dict(exit_record))
+
+    def owned_spawned(self, session_key: str) -> List[Dict[str, Any]]:
+        return [process for process in self.spawned if is_owned_session_process(process, session_key)]
+
+    def matching_exit(self, started: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        for exit_record in self.exits:
+            if process_identities_match(started, exit_record):
+                return exit_record
+        return None
+
+    def snapshot_owned(self, session_key: str) -> Dict[str, Any]:
+        started = self.owned_spawned(session_key)
+        observed = [exit_record for exit_record in (self.matching_exit(item) for item in started) if exit_record]
+        return {"started": started, "exits": observed}
+
+    def snapshot(self) -> Dict[str, Any]:
+        return {
+            "started": [public_worker_identity(item) for item in self.spawned],
+            "exits": [public_worker_identity(item) for item in self.exits],
+        }
+
+    def wait_for_owned_exit(
+        self,
+        session_key: str,
+        *,
+        timeout_ms: int = WORKER_EXIT_WAIT_MS,
+    ) -> Dict[str, Any]:
+        deadline = time.time() + (timeout_ms / 1000)
+        while True:
+            snapshot = self.snapshot_owned(session_key)
+            if snapshot["started"] and len(snapshot["exits"]) == len(snapshot["started"]):
+                return {"status": "exited", **snapshot}
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return {
+                    "status": "pending" if snapshot["started"] else "none",
+                    **snapshot,
+                }
+            time.sleep(min(0.05, remaining))
+
+
 def observation_from_runtime_turn(
     *,
     host_session: str,
@@ -1344,6 +1477,9 @@ class CursorAcpSyntheticRuntime:
         permission: Optional[Mapping[str, Any]] = None,
         question: Optional[Mapping[str, Any]] = None,
         set_model_supported: bool = True,
+        unsupported_backend_close: bool = False,
+        process_lifecycle_tracker: Optional[ProcessLifecycleTracker] = None,
+        worker_exit_mode: str = "matched",
     ):
         self.handle = dict(handle)
         self.models = dict(models)
@@ -1353,6 +1489,12 @@ class CursorAcpSyntheticRuntime:
         self.permission = None if permission is None else dict(permission)
         self.question = None if question is None else dict(question)
         self.set_model_supported = set_model_supported
+        self.unsupported_backend_close = unsupported_backend_close
+        self.process_lifecycle_tracker = process_lifecycle_tracker
+        if worker_exit_mode not in {"matched", "none", "helper_only", "mismatched"}:
+            raise ValidationError("synthetic worker exit mode is invalid")
+        self.worker_exit_mode = worker_exit_mode
+        self._started_worker: Optional[Dict[str, Any]] = None
         self.agent = SYNTHETIC_AGENT
         self.ensure_calls: list[Dict[str, Any]] = []
         self.status_calls: list[Dict[str, Any]] = []
@@ -1363,6 +1505,17 @@ class CursorAcpSyntheticRuntime:
     def ensure_session(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         reject_runtime_conversation_params(payload, label="ensureSession")
         self.ensure_calls.append(dict(payload))
+        if self.process_lifecycle_tracker is not None and self.worker_exit_mode != "helper_only":
+            self._started_worker = {
+                "pid": 4242,
+                "startedAt": "2026-09-21T00:00:00.000Z",
+                "launchId": "launch-owned-1",
+                "scope": {
+                    "kind": "runtime-session",
+                    "sessionKey": payload.get("sessionKey") or self.handle.get("sessionKey"),
+                },
+            }
+            self.process_lifecycle_tracker.on_spawned(self._started_worker)
         return dict(self.handle)
 
     def get_status(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1403,9 +1556,56 @@ class CursorAcpSyntheticRuntime:
             "result": dict(self.result),
         }
 
+    def wait_for_owned_worker_exit(
+        self,
+        session_key: str,
+        *,
+        timeout_ms: int = WORKER_EXIT_WAIT_MS,
+    ) -> Optional[Dict[str, Any]]:
+        if self.process_lifecycle_tracker is None:
+            return None
+        proof = self.process_lifecycle_tracker.wait_for_owned_exit(
+            session_key, timeout_ms=timeout_ms
+        )
+        if proof.get("status") != "exited":
+            return None
+        exits = proof.get("exits") or []
+        return dict(exits[0]) if exits else None
+
     def close(self, payload: Mapping[str, Any]) -> None:
         reject_runtime_conversation_params(payload, label="close")
         self.close_calls.append(dict(payload))
+        if self.process_lifecycle_tracker is not None:
+            if self.worker_exit_mode == "matched" and self._started_worker is not None:
+                self.process_lifecycle_tracker.on_exit(
+                    {**self._started_worker, "exitCode": 0}
+                )
+            elif self.worker_exit_mode == "helper_only":
+                self.process_lifecycle_tracker.on_exit(
+                    {
+                        "pid": 59286,
+                        "startedAt": "2026-09-21T00:00:00.000Z",
+                        "launchId": "launch-helper-1",
+                        "scope": {"kind": "client"},
+                        "exitCode": 0,
+                    }
+                )
+            elif self.worker_exit_mode == "mismatched" and self._started_worker is not None:
+                self.process_lifecycle_tracker.on_exit(
+                    {
+                        **self._started_worker,
+                        "pid": 4343,
+                        "launchId": "launch-other-1",
+                        "exitCode": 0,
+                    }
+                )
+        if self.unsupported_backend_close:
+            error = RuntimeError(
+                "Agent does not support session/close for %s."
+                % (payload.get("handle") or {}).get("sessionKey", "owned-session")
+            )
+            error.code = UNSUPPORTED_BACKEND_CLOSE_CODE  # type: ignore[attr-defined]
+            raise error
         if self.close_error is not None:
             raise self.close_error
 
@@ -1423,6 +1623,8 @@ class CursorAcpNodeRuntime:
         executable: Optional[Path] = None,
         agent: str = "cursor",
         candidate_args: Optional[Sequence[str]] = None,
+        synthetic_peer_script: Optional[str] = None,
+        synthetic_peer_survive: bool = False,
     ):
         if synthetic_peer and executable is not None:
             raise ValidationError("synthetic peer injection cannot carry a candidate executable")
@@ -1438,12 +1640,18 @@ class CursorAcpNodeRuntime:
             text=True,
             cwd=str(repo_root),
         )
+        self.last_process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
+        self._shutdown_complete = False
         payload: Dict[str, Any] = {
             "cwd": str(workspace),
             "isolatedRoot": str(isolated_root),
             "syntheticPeer": True if synthetic_peer else False,
             "agent": self.agent,
         }
+        if synthetic_peer and synthetic_peer_script:
+            payload["syntheticPeerScript"] = synthetic_peer_script
+        if synthetic_peer and synthetic_peer_survive:
+            payload["syntheticPeerSurvive"] = True
         if not synthetic_peer:
             payload["candidate"] = {
                 "kind": CANDIDATE_RUNTIME_KIND,
@@ -1476,9 +1684,38 @@ class CursorAcpNodeRuntime:
     def close(self, payload: Mapping[str, Any]) -> None:
         self._rpc("close", dict(payload))
 
+    def wait_for_owned_worker_exit(
+        self,
+        session_key: str,
+        *,
+        timeout_ms: int = WORKER_EXIT_WAIT_MS,
+    ) -> Optional[Dict[str, Any]]:
+        proof = self._rpc(
+            "waitForOwnedExit",
+            {"sessionKey": session_key, "timeoutMs": timeout_ms},
+        )
+        if proof.get("status") != "exited":
+            return None
+        exits = proof.get("exits") or []
+        if not isinstance(exits, list) or not exits:
+            return None
+        first = exits[0]
+        return dict(first) if isinstance(first, Mapping) else None
+
+    def process_lifecycle_snapshot(self, session_key: str) -> Dict[str, Any]:
+        if self._shutdown_complete:
+            return dict(self.last_process_lifecycle)
+        snapshot = self._rpc("processLifecycleSnapshot", {"sessionKey": session_key})
+        self.last_process_lifecycle = dict(snapshot) if snapshot else {"started": [], "exits": []}
+        return dict(self.last_process_lifecycle)
+
     def shutdown(self) -> None:
         try:
-            self._rpc("shutdown", {})
+            result = self._rpc("shutdown", {})
+            lifecycle = result.get("process_lifecycle")
+            if isinstance(lifecycle, Mapping):
+                self.last_process_lifecycle = dict(lifecycle)
+            self._shutdown_complete = True
         finally:
             if self._proc.stdin is not None:
                 self._proc.stdin.close()
@@ -1503,7 +1740,10 @@ class CursorAcpNodeRuntime:
             code = response.get("code")
             if code in {"OWNER_MISMATCH", "SESSION_MISMATCH", "WORKSPACE_MISMATCH", "IDENTITY_MISMATCH"}:
                 _raise_identity("identity_mismatch", str(detail))
-            raise ValidationError(str(detail))
+            error = ValidationError(str(detail))
+            if isinstance(code, str) and code:
+                error.code = code  # type: ignore[attr-defined]
+            raise error
         value = response.get("value")
         return {} if value is None else dict(value)
 
@@ -1563,6 +1803,16 @@ class CursorAcpRuntimeRunner:
         self.local_release = False
         self.persistent_state = "absent"
         self.final_discard = False
+        self.backend_discard = "closed"
+        self.selected_model: Optional[str] = None
+        self.current_model: Optional[str] = None
+        self.owned_worker: Optional[Dict[str, Any]] = None
+        self.cleanup_receipt: Optional[Dict[str, Any]] = None
+        self.process_lifecycle: Dict[str, Any] = {"started": [], "exits": []}
+        self.worker_termination = "unknown"
+        self.cleanup_uncertain = False
+        self.replacement_blocked = False
+        self.worker_exit_wait_ms = WORKER_EXIT_WAIT_MS
         self._mark_cleanup_unknown: Any = None
 
     def bind_task_text(self, text: Any) -> str:
@@ -1592,15 +1842,146 @@ class CursorAcpRuntimeRunner:
         self._mark_cleanup_unknown = mark_cleanup_unknown
         return load_isolated_root(self.isolated_root)
 
-    def _fence_cleanup(self) -> None:
+    def _fence_cleanup(self, extras: Optional[Mapping[str, Any]] = None) -> None:
         if self._mark_cleanup_unknown is None:
             from cursor_acpx import mark_cleanup_unknown
 
             self._mark_cleanup_unknown = mark_cleanup_unknown
         try:
-            self._mark_cleanup_unknown(self.isolated_root)
+            self._mark_cleanup_unknown(self.isolated_root, extras)
         except Exception:
             pass
+
+    def _model_receipt_fields(self) -> Dict[str, str]:
+        fields: Dict[str, str] = {}
+        if self.selected_model:
+            fields["selected_model"] = self.selected_model
+        if self.current_model:
+            fields["current_model"] = self.current_model
+        return fields
+
+    def _persist_turn_models(self) -> None:
+        if not self.selected_model or not self.current_model:
+            return
+        try:
+            from cursor_acpx import persist_turn_models
+
+            persist_turn_models(
+                self.isolated_root,
+                session=self.session,
+                conversation_id=self.conversation_id,
+                selected_model=self.selected_model,
+                current_model=self.current_model,
+            )
+        except Exception:
+            pass
+
+    def _persist_cleanup_receipt(
+        self,
+        *,
+        status: str,
+        observed: str,
+        extras: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        payload = {
+            "observed": observed,
+            **self._model_receipt_fields(),
+        }
+        if extras:
+            payload.update(dict(extras))
+        if self.owned_worker and "worker" not in payload:
+            payload["worker"] = self.owned_worker
+        if self.backend_discard and self.backend_discard != "closed":
+            payload.setdefault("backendSessionDiscard", self.backend_discard)
+        payload["worker_termination"] = self.worker_termination
+        payload["cleanup_uncertain"] = self.cleanup_uncertain
+        payload["replacement_blocked"] = self.replacement_blocked
+        payload["process_lifecycle"] = self.process_lifecycle
+        self.cleanup_receipt = {
+            "status": status,
+            **payload,
+        }
+        try:
+            from cursor_acpx import persist_cleanup_receipt
+
+            persist_cleanup_receipt(
+                self.isolated_root,
+                status=status,
+                observed=observed,
+                extras=payload,
+            )
+        except Exception:
+            pass
+
+    def _wait_for_owned_worker_exit(self, handle: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+        session_key = handle.get("sessionKey")
+        if not isinstance(session_key, str) or not session_key:
+            return None
+        waiter = getattr(self.runtime, "wait_for_owned_worker_exit", None)
+        if callable(waiter):
+            observed = waiter(session_key, timeout_ms=self.worker_exit_wait_ms)
+            return dict(observed) if isinstance(observed, Mapping) else None
+        tracker = getattr(self.runtime, "process_lifecycle_tracker", None)
+        if tracker is None:
+            return None
+        proof = tracker.wait_for_owned_exit(session_key, timeout_ms=self.worker_exit_wait_ms)
+        if proof.get("status") != "exited":
+            return None
+        exits = proof.get("exits") or []
+        return dict(exits[0]) if exits else None
+
+    def _snapshot_process_lifecycle(self, handle: Mapping[str, Any]) -> Dict[str, Any]:
+        session_key = handle.get("sessionKey")
+        runtime_snapshotter = getattr(self.runtime, "process_lifecycle_snapshot", None)
+        tracker = getattr(self.runtime, "process_lifecycle_tracker", None)
+        if callable(runtime_snapshotter) and isinstance(session_key, str):
+            snapshotter = lambda: runtime_snapshotter(session_key)
+        else:
+            snapshotter = getattr(tracker, "snapshot", None) if tracker is not None else None
+        if isinstance(session_key, str) and callable(snapshotter):
+            try:
+                snapshot = snapshotter()
+            except Exception:
+                snapshot = None
+            if isinstance(snapshot, Mapping):
+                self.process_lifecycle = {
+                    "started": [
+                        public_worker_identity(item)
+                        for item in snapshot.get("started", [])
+                        if isinstance(item, Mapping)
+                    ],
+                    "exits": [
+                        public_worker_identity(item)
+                        for item in snapshot.get("exits", [])
+                        if isinstance(item, Mapping)
+                    ],
+                }
+        return self.process_lifecycle
+
+    def _derive_worker_termination(self, handle: Mapping[str, Any]) -> str:
+        session_key = handle.get("sessionKey")
+        if not isinstance(session_key, str) or not session_key:
+            return "unknown"
+        started = [
+            item
+            for item in self.process_lifecycle.get("started", [])
+            if is_owned_session_process(item, session_key)
+        ]
+        exits = self.process_lifecycle.get("exits", [])
+        if started and all(
+            any(process_identities_match(item, exit_record) for exit_record in exits)
+            for item in started
+        ):
+            return "proven"
+        return "unknown"
+
+    def _admit_close(self, *, discard_persistent_state: bool) -> None:
+        if discard_persistent_state:
+            self.final_discard = True
+            self.persistent_state = "discarded"
+        else:
+            self.local_release = True
+            self.persistent_state = "retained"
 
     def _owned_close(
         self,
@@ -1610,6 +1991,7 @@ class CursorAcpRuntimeRunner:
         discard_persistent_state: bool = True,
         reason: str = "cursor-acp-owned-close",
     ) -> None:
+        self._persist_turn_models()
         try:
             self.runtime.close(
                 reject_runtime_conversation_params(
@@ -1621,17 +2003,86 @@ class CursorAcpRuntimeRunner:
                     label="close",
                 )
             )
-        except Exception:
-            self._fence_cleanup()
+            self._snapshot_process_lifecycle(handle)
+            self.backend_discard = "closed"
+            self.worker_termination = self._derive_worker_termination(handle)
+            self.cleanup_uncertain = False
+            self.replacement_blocked = False
+            self._admit_close(discard_persistent_state=discard_persistent_state)
+            self._persist_cleanup_receipt(
+                status="completed",
+                observed="runtime_close_returned",
+            )
+        except BaseException as exc:
+            if is_unsupported_backend_session_close(exc):
+                observed_exit = self._wait_for_owned_worker_exit(handle)
+                if observed_exit is not None:
+                    self.backend_discard = "unsupported"
+                    self.owned_worker = public_worker_identity(observed_exit)
+                    self._snapshot_process_lifecycle(handle)
+                    self.worker_termination = "proven"
+                    self.cleanup_uncertain = False
+                    self.replacement_blocked = False
+                    self._admit_close(discard_persistent_state=discard_persistent_state)
+                    self._persist_cleanup_receipt(
+                        status="completed",
+                        observed="local_worker_terminated_backend_session_discard_unsupported",
+                        extras={
+                            "message": (
+                                "local worker termination observed; "
+                                "backend session discard unsupported"
+                            ),
+                            "backendSessionDiscard": "unsupported",
+                            "worker": self.owned_worker,
+                        },
+                    )
+                    if primary is not None:
+                        raise primary
+                    return
+                self.backend_discard = "unsupported"
+                self._snapshot_process_lifecycle(handle)
+                self.worker_termination = "unknown"
+                self.cleanup_uncertain = True
+                self.replacement_blocked = True
+                self._persist_cleanup_receipt(
+                    status="uncertain",
+                    observed="runtime_close_failed",
+                    extras={"backendSessionDiscard": "unsupported"},
+                )
+                self._fence_cleanup(
+                    {
+                        "observed": "runtime_close_failed",
+                        "backendSessionDiscard": "unsupported",
+                        "worker_termination": self.worker_termination,
+                        "cleanup_uncertain": self.cleanup_uncertain,
+                        "replacement_blocked": self.replacement_blocked,
+                        "process_lifecycle": self.process_lifecycle,
+                        **self._model_receipt_fields(),
+                    }
+                )
+            else:
+                self.worker_termination = "unknown"
+                self.cleanup_uncertain = True
+                self.replacement_blocked = True
+                self._persist_cleanup_receipt(
+                    status="uncertain",
+                    observed="runtime_close_failed",
+                )
+                self._fence_cleanup(
+                    {
+                        "observed": "runtime_close_failed",
+                        "worker_termination": self.worker_termination,
+                        "cleanup_uncertain": self.cleanup_uncertain,
+                        "replacement_blocked": self.replacement_blocked,
+                        "process_lifecycle": self.process_lifecycle,
+                        **self._model_receipt_fields(),
+                    }
+                )
             if primary is not None:
                 raise primary
             raise
-        if discard_persistent_state:
-            self.final_discard = True
-            self.persistent_state = "discarded"
-        else:
-            self.local_release = True
-            self.persistent_state = "retained"
+        if primary is not None:
+            raise primary
 
     def _reject_conflated_ids(self, handle: Mapping[str, str]) -> None:
         foreign = {
@@ -1718,6 +2169,8 @@ class CursorAcpRuntimeRunner:
         self._catalog = (
             self._supplied_catalog if self._supplied_catalog is not None else resolved_catalog
         )
+        self.selected_model = mapped["selected_model"]
+        self.current_model = mapped["current_model"]
         turn = self.runtime.start_turn(
             reject_runtime_conversation_params(
                 {
@@ -1803,6 +2256,8 @@ class CursorAcpRuntimeRunner:
         try:
             handle = self._ensure_owned_handle()
             observation = self._run_turn(handle)
+            self._observation = validate_cursor_acp_observation(observation)
+            self._persist_turn_models()
             self._apply_finish_policy(handle)
             return observation
         except BaseException as exc:
@@ -1840,6 +2295,7 @@ class CursorAcpRuntimeRunner:
         self.require_halt = False
         observation = self._run_turn(self.handle)
         self._observation = validate_cursor_acp_observation(observation)
+        self._persist_turn_models()
         return self._observation
 
     def finish(self, *, discard_persistent_state: bool = True) -> Dict[str, str]:
@@ -1859,11 +2315,25 @@ class CursorAcpRuntimeRunner:
                 else "cursor-acp-local-release"
             ),
         )
-        return {
+        closed = {
             "local_release": self.local_release,
             "persistent_state": self.persistent_state,
             "final_discard": self.final_discard,
+            "backend_discard": self.backend_discard,
+            "worker_termination": self.worker_termination,
+            "cleanup_uncertain": self.cleanup_uncertain,
+            "replacement_blocked": self.replacement_blocked,
+            "process_lifecycle": dict(self.process_lifecycle),
         }
+        if self.owned_worker is not None:
+            closed["worker"] = dict(self.owned_worker)
+        if self.cleanup_receipt is not None:
+            closed["cleanup"] = dict(self.cleanup_receipt)
+        if self.selected_model is not None:
+            closed["selected_model"] = self.selected_model
+        if self.current_model is not None:
+            closed["current_model"] = self.current_model
+        return closed
 
 
 class CursorAcpController:

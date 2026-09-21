@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import {
   ACPX_CANDIDATE_RUNTIME_ROOT,
+  createProcessLifecycleTracker,
   createVerifiedCandidateAcpRuntime,
   discardCandidateTurnEvents,
   materializeVerifiedCandidateAcpx,
@@ -11,6 +12,10 @@ import {
 } from "../puppet-adapter.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const ALLOWED_SYNTHETIC_PEERS = new Set([
+  "candidate-peer.mjs",
+  "unsupported-close-peer.mjs",
+]);
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
 
 function memorySessionStore() {
@@ -27,6 +32,7 @@ function memorySessionStore() {
 }
 
 let runtime;
+let processLifecycleTracker;
 
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -51,13 +57,25 @@ async function candidateRegistry(payload) {
   });
 }
 
-function syntheticRegistry() {
+function resolveSyntheticPeer(payload) {
+  const requested = payload?.syntheticPeerScript;
+  if (requested == null || requested === "") return PEER;
+  const name = path.basename(String(requested));
+  if (name !== requested || !ALLOWED_SYNTHETIC_PEERS.has(name)) {
+    throw new Error("synthetic peer script is not a local test peer");
+  }
+  return fileURLToPath(new URL(`./${name}`, import.meta.url));
+}
+
+function syntheticRegistry(payload) {
+  const peer = resolveSyntheticPeer(payload);
+  const survive = payload?.syntheticPeerSurvive === true;
   return {
     resolve(agentName) {
       if (agentName !== "candidate") {
         throw new Error(`Failed to spawn agent command: ${agentName}`);
       }
-      return [process.execPath, PEER];
+      return survive ? [process.execPath, peer, "--survive"] : [process.execPath, peer];
     },
     list() {
       return ["candidate"];
@@ -70,8 +88,9 @@ async function create(payload) {
     throw new Error("synthetic peer injection cannot carry a candidate executable");
   }
   const agentRegistry = payload.syntheticPeer === true
-    ? syntheticRegistry()
+    ? syntheticRegistry(payload)
     : await candidateRegistry(payload);
+  processLifecycleTracker = createProcessLifecycleTracker();
   const created = await createVerifiedCandidateAcpRuntime({
     cwd: payload.cwd,
     sessionStore: memorySessionStore(),
@@ -79,6 +98,7 @@ async function create(payload) {
     fs: false,
     terminal: false,
     timeoutMs: 30_000,
+    processLifecycle: processLifecycleTracker.processLifecycle,
   }, {
     runtimeRoot: path.join(REPO_ROOT, ACPX_CANDIDATE_RUNTIME_ROOT),
     isolatedRoot: payload.isolatedRoot,
@@ -139,10 +159,27 @@ async function handle(message) {
     await current.close(rejectCandidateRuntimeConversationParams(payload, "close"));
     return {};
   }
+  if (op === "waitForOwnedExit") {
+    if (!processLifecycleTracker) {
+      throw new Error("processLifecycle tracker is missing");
+    }
+    return processLifecycleTracker.waitForOwnedExit(payload.sessionKey, {
+      timeoutMs: payload.timeoutMs,
+    });
+  }
+  if (op === "processLifecycleSnapshot") {
+    if (!processLifecycleTracker) {
+      throw new Error("processLifecycle tracker is missing");
+    }
+    return processLifecycleTracker.snapshotOwned(payload.sessionKey);
+  }
   if (op === "shutdown") {
+    const process_lifecycle = processLifecycleTracker?.snapshot() ?? { started: [], exits: [] };
     await current.shutdown();
+    const settled_process_lifecycle = processLifecycleTracker?.snapshot() ?? process_lifecycle;
     runtime = undefined;
-    return {};
+    processLifecycleTracker = undefined;
+    return { process_lifecycle: settled_process_lifecycle };
   }
   throw new Error(`unsupported controller runtime driver op ${op}`);
 }
