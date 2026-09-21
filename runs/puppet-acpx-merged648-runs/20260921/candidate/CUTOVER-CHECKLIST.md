@@ -18,6 +18,7 @@ This candidate is experimental and unreleased. Ordinary route behavior stays
 - [x] Materialize exact artifact under task-owned runtime root only
 - [x] Exercise actual public `createAcpRuntime` with a synthetic ACP peer
 - [x] Prove one bounded completion without durable prompt/response bodies
+- [x] Keep binary artifact out of the review diff; retain exact local digest proof
 - [x] No public PR
 - [x] No shared-plugin or production-pin change
 

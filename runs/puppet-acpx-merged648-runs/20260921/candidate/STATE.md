@@ -28,6 +28,7 @@
 - artifact SHA-256: `fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29`
 - candidate runtime root: `runs/puppet-acpx-merged648-runs/20260921/runtime`
 - candidate runtime module: `runs/puppet-acpx-merged648-runs/20260921/runtime/node_modules/acpx/dist/runtime.js`
+- artifact_in_pr: false; binary retained only in task-owned local proof input
 - real-runtime proof: actual `createAcpRuntime` completed one synthetic-peer turn
 
 Integrity is the tarball digest, not a hash of descriptive metadata.

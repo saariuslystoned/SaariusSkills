@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, chmod, readFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   ACPX_ARTIFACT_SHA256,
+  ACPX_ARTIFACT_PATH,
   ACPX_CANDIDATE_RUNTIME_MODULE,
   ACPX_CANDIDATE_RUNTIME_ROOT,
   ACPX_QUALIFICATION,
@@ -22,6 +24,7 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PEER = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
 const TEST_PROMPT = "candidate runtime proof ping";
+const LOCAL_ARTIFACT = path.join(REPO_ROOT, ACPX_ARTIFACT_PATH);
 
 function memorySessionStore() {
   const sessions = new Map();
@@ -108,7 +111,10 @@ test("candidate runtime helper stays unavailable and omits prompt bodies", async
   );
 });
 
-test("verified candidate acpx runtime completes one isolated turn", { timeout: 180_000 }, async () => {
+test("verified candidate acpx runtime completes one isolated turn", {
+  timeout: 180_000,
+  skip: !existsSync(LOCAL_ARTIFACT),
+}, async () => {
   const { isolated, workspace } = await privateRoot();
   const capabilitiesPath = path.join(isolated, "callback-capabilities.json");
   process.env.PUPPET_ACPX_CANDIDATE_PEER_CAPABILITIES = capabilitiesPath;

@@ -32,7 +32,7 @@ qualification, a production pin, or a public PR.
 | published npm | `acpx@0.18.0` does **not** contain the merge |
 | candidate package version | `0.18.0` local exact-source tarball |
 | ordinary production pin | `acpx@0.16.0` |
-| artifact | `runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz` |
+| artifact | task-owned local `runs/puppet-acpx-merged648-runs/20260921/artifacts/acpx-0.18.0.tgz` |
 | artifact SHA-256 / integrity | `fe9ba256bc562b01bff007a2e63017a28daebb2dbc460806a6e7ad0f58d32d29` |
 
 Integrity is the tarball digest. A SHA-256 of descriptive metadata is
@@ -67,6 +67,12 @@ The real public `createAcpRuntime` then completed one synthetic-peer turn with
 
 The peer records only callback capability booleans. Durable ownership/events
 artifacts contain no prompt, response, or transcript body.
+
+The binary tarball is intentionally excluded from the PR because the official
+review rail rejects unreviewable binary changes. The accepted local artifact is
+retained in the task-owned proof directory and its exact SHA-256 is recorded
+above; a clean checkout skips the real-runtime test until that proof input is
+materialized.
 
 ## Checks
 
