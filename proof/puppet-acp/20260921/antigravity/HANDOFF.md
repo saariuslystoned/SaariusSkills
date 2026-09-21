@@ -6,6 +6,25 @@ contains the task-only v3 lifecycle repair produced in the execution checkout
 Product source, ordinary Antigravity availability, plugin pins, and the
 candidate-only `live_antigravity_acp_claimed:false` behavior are unchanged.
 
+## Ownership and review state
+
+```text
+owner task       01a0c107-05e0-7a11-b6b2-93a524b63e98
+execution branch codex/puppet-antigravity-controller-proof-20260921
+execution tree   /Users/bobbybones/Developer/worktrees/puppet-antigravity-controller-proof-20260921
+publication branch codex/puppet-antigravity-proof-checkpoint-20260921
+publication tree   /Users/bobbybones/Developer/worktrees/puppet-antigravity-proof-checkpoint-20260921
+prerequisite     https://github.com/saariuslystoned/SaariusSkills/pull/61
+checkpoint       https://github.com/saariuslystoned/SaariusSkills/pull/63
+```
+
+v2 has independent offline approval: 10 focused tests plus 1 public-runtime
+synthetic test passed. v3 has owner-run evidence: 14 focused tests plus 1
+public-runtime synthetic test passed. Independent delta review of v3 remains
+pending. The user-authorized live allocation is unconsumed; launch awaits
+parent technical acceptance of v3, so no coordinator should re-request that
+authorization.
+
 ## Frozen provenance
 
 ```text
@@ -44,7 +63,8 @@ provider call occurred.
 The v3 driver ran 14 focused tests and the public-runtime synthetic lifecycle
 test successfully. Fixture baseline/after checks passed with exact changed set
 `{bin/normalize-lines.mjs}`; live refusals exit 2 before process start. Useful
-edit ability remains unproven because the provider turn was not authorized.
+edit ability remains unproven because the user-authorized live allocation is
+unconsumed; launch awaits parent technical acceptance of v3.
 
 ## Live-command safety boundary
 
