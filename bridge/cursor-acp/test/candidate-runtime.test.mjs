@@ -18,6 +18,9 @@ import {
   ACPX_SOURCE_TREE,
   HISTORICAL_ACPX_CANDIDATE_RUNTIME_ROOT,
   AdapterError,
+  CANDIDATE_TURN_OBSERVED_TYPE_BOUND,
+  CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND,
+  CANDIDATE_TURN_UNKNOWN_TYPE,
   CursorAcpxAdapter,
   adapterAvailable,
   auditDurableArtifacts,
@@ -209,6 +212,68 @@ function assertFencedClaim(claim) {
 
 function eventNamed(events, name) {
   return events.filter((item) => item.event === name);
+}
+
+function candidateEventStream({
+  count,
+  type = "text_delta",
+  extra = [],
+  body = "candidate-ack",
+  throwAfter,
+  throwError,
+  onReturn,
+} = {}) {
+  let index = 0;
+  let closed = false;
+  const total = count + extra.length;
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          if (closed || index >= total) return { done: true, value: undefined };
+          if (throwError && index === throwAfter) throw throwError;
+          const current = index;
+          index += 1;
+          if (current < count) {
+            return {
+              done: false,
+              value: { type, text: body, prompt: body, content: body },
+            };
+          }
+          return { done: false, value: extra[current - count] };
+        },
+        async return() {
+          closed = true;
+          onReturn?.({ consumed: index });
+          return { done: true, value: undefined };
+        },
+      };
+    },
+  };
+}
+
+function assertBoundedDiscardSummary(summary, {
+  observer = "ended",
+  eventCount,
+  truncated,
+  types,
+} = {}) {
+  assert.equal(summary.observer, observer);
+  assert.equal(summary.body_retained, false);
+  assert.equal(summary.event_count, eventCount);
+  assert.equal(summary.observed_types_truncated, truncated);
+  assert.ok(summary.observed_types.length <= CANDIDATE_TURN_OBSERVED_TYPE_BOUND);
+  assert.ok(summary.observed_types.every((label) => (
+    typeof label === "string" && label.length <= CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND
+  )));
+  if (types) {
+    assert.deepEqual(summary.observed_types, types);
+  }
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes("candidate-ack"), false);
+  assert.equal(serialized.includes('"prompt"'), false);
+  assert.equal(serialized.includes('"transcript"'), false);
+  assert.ok(serialized.length < 4_096);
 }
 
 test("owned runtime path rejects symlink escape and accepts contained roots", async () => {
@@ -1083,6 +1148,8 @@ test("actual public runtime replays acknowledged mode and config on reconnect", 
   timeout: 240_000,
   skip: REAL_ARTIFACT_SKIP,
 }, async () => {
+  // Static synthetic-peer catalog only. This does not claim #675
+  // changing-catalog or #666 generic-mode behavior.
   const { isolated, workspace } = await privateRoot();
   const sessionStore = memorySessionStore();
   const first = await createCandidateRuntime(isolated, workspace, { sessionStore });
@@ -1180,6 +1247,137 @@ test("actual public runtime replays acknowledged mode and config on reconnect", 
   }
 });
 
+test("discardCandidateTurnEvents retains a bounded type summary independent of event count", async () => {
+  const overflow = CANDIDATE_TURN_OBSERVED_TYPE_BOUND + 4;
+  const extraTypes = Array.from({ length: overflow }, (_, index) => ({
+    type: `unique_${index}`,
+    text: `body-${index}`,
+    prompt: "candidate-ack",
+  }));
+  const unknowns = [
+    null,
+    { type: 1, text: "candidate-ack" },
+    { noType: true, prompt: "candidate-ack" },
+    "text_delta",
+    { type: "" },
+    { type: "x".repeat(CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND + 8), text: "candidate-ack" },
+  ];
+  const manyCount = 100_000;
+  const many = await discardCandidateTurnEvents({
+    events: candidateEventStream({
+      count: manyCount,
+      extra: [...unknowns, ...extraTypes],
+    }),
+  });
+  const expectedCount = manyCount + unknowns.length + extraTypes.length;
+  const expectedTypes = [
+    "text_delta",
+    CANDIDATE_TURN_UNKNOWN_TYPE,
+    "x".repeat(CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND),
+    ...Array.from({ length: CANDIDATE_TURN_OBSERVED_TYPE_BOUND - 3 }, (_, index) => `unique_${index}`),
+  ];
+  assertBoundedDiscardSummary(many, {
+    eventCount: expectedCount,
+    truncated: true,
+    types: expectedTypes,
+  });
+  assert.equal(many.observed_types.includes(`unique_${CANDIDATE_TURN_OBSERVED_TYPE_BOUND - 3}`), false);
+  assert.equal(many.observed_types.length, CANDIDATE_TURN_OBSERVED_TYPE_BOUND);
+
+  const smaller = await discardCandidateTurnEvents({
+    events: candidateEventStream({ count: 1_000 }),
+  });
+  assertBoundedDiscardSummary(smaller, {
+    eventCount: 1_000,
+    truncated: false,
+    types: ["text_delta"],
+  });
+  assert.deepEqual(smaller.observed_types, ["text_delta"]);
+  assert.notEqual(smaller.event_count, many.event_count);
+  assert.equal(JSON.stringify(smaller.observed_types), JSON.stringify(["text_delta"]));
+
+  let drained = 0;
+  const drain = await discardCandidateTurnEvents({
+    events: {
+      async *[Symbol.asyncIterator]() {
+        for (let index = 0; index < 1_000; index += 1) {
+          drained += 1;
+          yield { type: "text_delta", text: "candidate-ack" };
+        }
+      },
+    },
+  });
+  assert.equal(drained, 1_000);
+  assertBoundedDiscardSummary(drain, {
+    eventCount: 1_000,
+    truncated: false,
+    types: ["text_delta"],
+  });
+
+  let returned = false;
+  let consumedAtReturn;
+  const ended = await discardCandidateTurnEvents({
+    events: candidateEventStream({
+      count: 10_000,
+      extra: [{ type: "tool_call", text: "candidate-ack" }],
+      onReturn({ consumed }) {
+        returned = true;
+        consumedAtReturn = consumed;
+      },
+    }),
+  }, { limit: 1 });
+  assert.equal(returned, true);
+  assert.equal(consumedAtReturn, 1);
+  assertBoundedDiscardSummary(ended, {
+    eventCount: 1,
+    truncated: false,
+    types: ["text_delta"],
+  });
+
+  const { isolated, workspace } = await privateRoot();
+  await claimHost(isolated);
+  const successRuntime = new FakePublicRuntime();
+  const originalSuccessStart = successRuntime.startTurn.bind(successRuntime);
+  successRuntime.startTurn = (input) => {
+    const turn = originalSuccessStart(input);
+    turn.events = candidateEventStream({ count: manyCount });
+    return turn;
+  };
+  const recorded = await recordBoundCandidateTurn(boundTurnOptions(isolated, workspace, successRuntime));
+  assert.equal(recorded.result.status, "completed");
+  assert.equal(recorded.result.body_retained, false);
+  assert.equal(recorded.body_retained, false);
+  assert.equal(recorded.closed, true);
+  assert.equal(successRuntime.closeCalls.length, 1);
+  assertOwnedUnfenced(await readClaim(isolated));
+  const completed = eventNamed(await readEvents(isolated), "runtime_turn_completed");
+  assert.equal(completed.length, 1);
+  assert.equal(JSON.stringify(completed[0]).includes("candidate-ack"), false);
+
+  const failedRoot = await privateRoot();
+  await claimHost(failedRoot.isolated);
+  const originalError = new Error("candidate event iterator failed");
+  const failedRuntime = new FakePublicRuntime();
+  const originalFailedStart = failedRuntime.startTurn.bind(failedRuntime);
+  failedRuntime.startTurn = (input) => {
+    const turn = originalFailedStart(input);
+    turn.events = candidateEventStream({
+      count: 32,
+      throwAfter: 4,
+      throwError: originalError,
+    });
+    return turn;
+  };
+  await assert.rejects(
+    () => recordBoundCandidateTurn(boundTurnOptions(failedRoot.isolated, failedRoot.workspace, failedRuntime)),
+    (error) => error === originalError,
+  );
+  assert.equal(failedRuntime.closeCalls.length, 1);
+  assertOwnedUnfenced(await readClaim(failedRoot.isolated));
+  assert.deepEqual(eventNamed(await readEvents(failedRoot.isolated), "runtime_turn_completed"), []);
+  assert.equal(adapterAvailable(), false);
+});
+
 test("actual public runtime discards turn events without retaining bodies", {
   timeout: 240_000,
   skip: REAL_ARTIFACT_SKIP,
@@ -1205,6 +1403,9 @@ test("actual public runtime discards turn events without retaining bodies", {
     assert.equal(successEvents.observer, "ended");
     assert.equal(successEvents.body_retained, false);
     assert.ok(successEvents.observed_types.includes("text_delta"));
+    assert.ok(successEvents.event_count >= 1);
+    assert.ok(successEvents.observed_types.length <= CANDIDATE_TURN_OBSERVED_TYPE_BOUND);
+    assert.equal(successEvents.observed_types_truncated, false);
     const successResult = await success.result;
     assert.equal(successResult.status, "completed");
 
@@ -1230,6 +1431,8 @@ test("actual public runtime discards turn events without retaining bodies", {
     assert.equal(ended.observer, "ended");
     assert.equal(ended.body_retained, false);
     assert.ok(ended.observed_types.length >= 1);
+    assert.equal(ended.event_count, 1);
+    assert.ok(ended.observed_types.length <= CANDIDATE_TURN_OBSERVED_TYPE_BOUND);
     const observerResult = await observer.result;
     assert.equal(observerResult.status, "completed");
 

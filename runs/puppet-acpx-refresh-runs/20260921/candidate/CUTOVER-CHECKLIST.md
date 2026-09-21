@@ -17,7 +17,12 @@
 - [ ] Live Cursor/AGY candidate qualification, if that route is later authorized
 - [ ] Ordinary broker/plugin pin change
 - [ ] Controller/native-view/default enablement
-- [ ] Public PR and human merge
+- [x] Draft public PR #60 exists
+- [ ] Human merge
+
+Reconnect proof remains static-catalog only. Do not treat it as `#675`
+changing-catalog or `#666` generic-mode evidence. This P2 repair used a
+provider job and is not LIVE CANDIDATE qualification.
 
 Until those gates close, published `acpx@0.18.0` remains a stale npm
 identity and this slice stays candidate-only.

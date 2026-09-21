@@ -100,6 +100,9 @@ export const PUBLIC_RUNTIME_OPTIONS = Object.freeze([
   "processLifecycle",
   "probeAgent",
 ]);
+export const CANDIDATE_TURN_OBSERVED_TYPE_BOUND = 16;
+export const CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND = 64;
+export const CANDIDATE_TURN_UNKNOWN_TYPE = "unknown";
 
 export class AdapterError extends Error {
   constructor(code, message) {
@@ -683,23 +686,49 @@ export function boundedCandidateTurnResult(value) {
   };
 }
 
+function emptyDiscardedTurnEvents(observer) {
+  return {
+    observer,
+    observed_types: [],
+    event_count: 0,
+    observed_types_truncated: false,
+    body_retained: false,
+  };
+}
+
+function observedTurnEventType(event) {
+  if (!event || typeof event !== "object" || typeof event.type !== "string" || event.type.length === 0) {
+    return CANDIDATE_TURN_UNKNOWN_TYPE;
+  }
+  if (event.type.length > CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND) {
+    return event.type.slice(0, CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND);
+  }
+  return event.type;
+}
+
 export async function discardCandidateTurnEvents(turn, { limit } = {}) {
   if (!turn || typeof turn !== "object") {
     throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn is missing");
   }
   const events = turn.events;
   if (events == null) {
-    return { observer: "absent", observed_types: [], body_retained: false };
+    return emptyDiscardedTurnEvents("absent");
   }
   if (typeof events[Symbol.asyncIterator] !== "function") {
     throw new AdapterError("INVALID_TURN_EVIDENCE", "runtime turn events are not iterable");
   }
   const observed = [];
   let count = 0;
+  let truncated = false;
   try {
     for await (const event of events) {
-      if (event && typeof event === "object" && typeof event.type === "string") {
-        observed.push(event.type);
+      const label = observedTurnEventType(event);
+      if (!observed.includes(label)) {
+        if (observed.length < CANDIDATE_TURN_OBSERVED_TYPE_BOUND) {
+          observed.push(label);
+        } else {
+          truncated = true;
+        }
       }
       count += 1;
       if (Number.isInteger(limit) && limit > 0 && count >= limit) {
@@ -708,11 +737,14 @@ export async function discardCandidateTurnEvents(turn, { limit } = {}) {
     }
   } finally {
     // Upstream #672 releases queued events only after iteration ends. This
-    // does not prove never-started or indefinitely slow observers.
+    // does not prove never-started or indefinitely slow observers. A metadata
+    // cap must not break this loop; only an explicit consume limit may.
   }
   return {
     observer: "ended",
     observed_types: observed,
+    event_count: count,
+    observed_types_truncated: truncated,
     body_retained: false,
   };
 }

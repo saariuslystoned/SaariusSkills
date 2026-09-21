@@ -15,3 +15,8 @@ matrix does not create upstream issues and does not claim they are adopted.
 `#672` is already in the frozen merged source. Treat it as event-iterator
 cleanup after iteration ends only. It does not prove never-started or
 indefinitely slow observers.
+
+Discarded-event metadata is now a fixed-bound unique-type summary plus an
+honest count. That does not adopt `#674`. Reconnect proof stays on the
+static synthetic-peer catalog and does not claim changing-catalog or
+generic-mode behavior.

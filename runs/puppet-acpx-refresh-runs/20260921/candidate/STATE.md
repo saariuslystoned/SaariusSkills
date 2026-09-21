@@ -9,8 +9,10 @@
 - available: false
 - ordinary_launch: unavailable
 - qualification: synthetic_only
-- live_or_provider_action: none
+- live_or_provider_action: none; this repair is a provider job only
+- live_candidate_qualification: none
 - public_pr: https://github.com/saariuslystoned/SaariusSkills/pull/60 (draft)
+- reconnect_limit: static synthetic-peer catalog only; not #675 or #666
 - production_enabled: false
 
 ## Provenance
@@ -33,8 +35,11 @@
 ## Owner verification
 
 - implementation commit: `4a560197607197a45abfeb537f5f841457a73db2`
-- Python: 23 passed, 0 skipped
-- bridge: 64 passed, 0 skipped
-- artifact digest and upstream #672 head/base/merge tuple reverified
+- P2 repair: bounded discarded-event metadata; retained type summary is
+  independent of event count. Unknown types are `unknown`. Default path
+  still drains; explicit `limit` keeps iterator `return()`.
+- repair job: `80c22421-0e7a-488e-bf0f-53a5eabb55c3`
+- Python and bridge checks are recorded in `PROOF.md` after this repair.
+- artifact digest and upstream #672 head/base/merge tuple remain frozen
 
 Integrity is the tarball digest, not a hash of descriptive metadata.
