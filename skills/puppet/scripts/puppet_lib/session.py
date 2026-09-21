@@ -3042,7 +3042,13 @@ def _prove_recorded_process_birth_gone(process: Dict[str, Any]) -> None:
                 "recorded Grok process state is ambiguous"
             ) from probe_exc
         # A typed ProcessVanished while the PID remains is not terminal proof.
-        if _positively_observed_terminal_process(pid):
+        # Only that executable-disappearance class plus a later positive Z/X
+        # sample may fall through. Generic IdentityError, exec-transition
+        # samples, malformed birth metadata, and permission-denied identity
+        # failures stay fail-closed even when ps reports Z/X.
+        if isinstance(exc, ProcessVanished) and _positively_observed_terminal_process(
+            pid
+        ):
             return
         raise IdentityError("recorded Grok process state is ambiguous") from exc
     if observed == process:

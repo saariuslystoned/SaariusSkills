@@ -1125,6 +1125,23 @@ class GrokDeadLeaseProcessBirthProofTests(unittest.TestCase):
             ):
                 _prove_recorded_process_birth_gone(process)
 
+    def test_process_birth_proof_rejects_generic_identity_error_with_terminal_state(
+        self,
+    ):
+        process = self._recorded_process()
+        for state in ("Z", "X"):
+            with (
+                self.subTest(state=state),
+                patch("puppet_lib.session.os.kill", return_value=None),
+                patch(
+                    "puppet_lib.session.process_birth_identity",
+                    side_effect=IdentityError("malformed birth metadata"),
+                ),
+                patch("puppet_lib.session._process_kernel_stat", return_value=state),
+                self.assertRaisesRegex(IdentityError, "ambiguous"),
+            ):
+                _prove_recorded_process_birth_gone(process)
+
     def test_process_birth_proof_rejects_unknown_live_and_denied_samples(self):
         process = self._recorded_process()
         vanished = ProcessVanished(
