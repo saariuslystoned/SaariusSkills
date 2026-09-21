@@ -55,6 +55,21 @@ Parent review, then a fresh verified d5 execution checkout and one parent-issued
 - Released budget: one session, at most two prompts of 300000 ms each, actual runtime timeout 30000 ms, no retry or replacement session.
 - Released execution must use a fresh d5 checkout and the exact reviewed driver hash above. This archival branch remains a checkpoint only; it is not the live execution checkout.
 
+## Released live attempt outcome
+
+- Execution worktree: `/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-live-20260921`; branch `codex/puppet-cursor-controller-live-20260921`; exact d5/tree938ef948 verified.
+- Session: `cursor-proof-v3-live-20260921-oneshot`; the one released session was consumed exactly once. No retry, replacement session, or second prompt.
+- Result: blocked before the first task turn during `_cursor_acp_structured_launch.require_observation` / `ensureSession`.
+- Exact sanitized error: `ValidationError: Failed to spawn agent command: candidate. The agent process could not start because a required executable, interpreter, working directory, or other launch path was not found.`
+- No candidate backend incarnation, provider turn, useful agent output, or live PASS was established. Fixture `changed_paths=[]`; implementation/protected-test hashes stayed at the frozen baseline. Workspace/state were retained; no cleanup fence was required.
+- Budget used: 1 session, 0 completed prompts; allocation was 1 session, max 2 prompts of 300000 ms each, actual runtime timeout 30000 ms, no retry.
+- Sanitized outcome receipt: `live-outcome/live-failure.json`, SHA-256 `93270b1f5b1369510a25786c51cf03340e9a0d8bb779ddb4e551f9e32e24e9fc`.
+- The blocker is now the route/runtime launch environment resolving the backend command as `candidate`, not product source or fixture behavior.
+
+## Attribution
+
+Implementation was delegated through Cursor ACP; orchestration, review, evidence normalization, and release gating were performed by Codex.
+
 ## Review recovery
 
 - Prerequisite controller work is tracked in [PR #61](https://github.com/saariuslystoned/SaariusSkills/pull/61).
