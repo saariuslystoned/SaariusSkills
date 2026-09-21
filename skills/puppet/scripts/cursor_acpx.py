@@ -734,23 +734,124 @@ def load_isolated_root(isolated_root: Path) -> Dict[str, Any]:
     return validate_ownership(read_json(path))
 
 
-def mark_cleanup_unknown(isolated_root: Path) -> Dict[str, Any]:
+def _public_worker_identity(process: Mapping[str, Any]) -> Dict[str, Any]:
+    identity = {
+        "pid": process.get("pid"),
+        "startedAt": process.get("startedAt"),
+        "launchId": process.get("launchId"),
+        "scope": dict(process["scope"]) if isinstance(process.get("scope"), Mapping) else {},
+    }
+    for key in ("signal", "exitCode", "exitedAt"):
+        if key in process:
+            identity[key] = process[key]
+    return identity
+
+
+def _cleanup_receipt_fields(
+    extras: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    if extras is None:
+        return {}
+    _reject_body_keys(extras, "cleanup extras")
+    fields: Dict[str, Any] = {}
+    observed = extras.get("observed")
+    if isinstance(observed, str) and observed:
+        fields["observed"] = observed
+    message = extras.get("message")
+    if isinstance(message, str) and message:
+        fields["message"] = message
+    discard = extras.get("backendSessionDiscard") or extras.get("backend_session_discard")
+    if isinstance(discard, str) and discard:
+        fields["backendSessionDiscard"] = discard
+    worker = extras.get("worker")
+    if isinstance(worker, Mapping):
+        fields["worker"] = dict(worker)
+    selected = extras.get("selected_model")
+    current = extras.get("current_model")
+    if isinstance(selected, str) and selected:
+        fields["selected_model"] = selected
+    if isinstance(current, str) and current:
+        fields["current_model"] = current
+    worker_termination = extras.get("worker_termination")
+    if worker_termination in {"proven", "unknown"}:
+        fields["worker_termination"] = worker_termination
+    for key in ("cleanup_uncertain", "replacement_blocked"):
+        if isinstance(extras.get(key), bool):
+            fields[key] = extras[key]
+    lifecycle = extras.get("process_lifecycle")
+    if isinstance(lifecycle, Mapping):
+        fields["process_lifecycle"] = {
+            "started": [_public_worker_identity(item) for item in lifecycle.get("started", []) if isinstance(item, Mapping)],
+            "exits": [_public_worker_identity(item) for item in lifecycle.get("exits", []) if isinstance(item, Mapping)],
+        }
+    return fields
+
+
+def mark_cleanup_unknown(
+    isolated_root: Path,
+    extras: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     root = _require_private_root(isolated_root)
     with exclusive_lock(_lock_path(root)):
         current = validate_ownership(read_json(_ownership_path(root)))
         current["cleanup"] = "unknown"
         current["replacement_blocked"] = True
         atomic_write_json(_ownership_path(root), current)
-        _write_event(
-            root,
-            {
-                "event": "cleanup_unknown",
-                "session": current["session"],
-                "conversation_id": current["conversation_id"],
-                "replacement_blocked": True,
-            },
-        )
+        event = {
+            "event": "cleanup_unknown",
+            "session": current["session"],
+            "conversation_id": current["conversation_id"],
+            "replacement_blocked": True,
+        }
+        event.update(_cleanup_receipt_fields(extras))
+        _write_event(root, event)
         return current
+
+
+def persist_turn_models(
+    isolated_root: Path,
+    *,
+    session: str,
+    conversation_id: str,
+    selected_model: str,
+    current_model: str,
+) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    event = {
+        "event": "runtime_models_observed",
+        "session": validate_identifier(session, "cursor-acp session"),
+        "conversation_id": validate_identifier(
+            conversation_id, "cursor-acp conversation"
+        ),
+        "selected_model": selected_model,
+        "current_model": current_model,
+        "body_retained": False,
+    }
+    _write_event(root, event)
+    return event
+
+
+def persist_cleanup_receipt(
+    isolated_root: Path,
+    *,
+    status: str,
+    observed: str,
+    extras: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    root = _require_private_root(isolated_root)
+    current = validate_ownership(read_json(_ownership_path(root)))
+    if status not in {"completed", "uncertain"}:
+        raise ValidationError("cleanup receipt status is invalid")
+    event = {
+        "event": "cleanup_completed" if status == "completed" else "cleanup_uncertain",
+        "session": current["session"],
+        "conversation_id": current["conversation_id"],
+        "observed": observed,
+        "replacement_blocked": status != "completed",
+    }
+    event.update(_cleanup_receipt_fields(extras))
+    _write_event(root, event)
+    return event
 
 
 def persist_evidence(isolated_root: Path, evidence: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1283,6 +1384,8 @@ __all__ = [
     "fixture_runtime",
     "load_isolated_root",
     "mark_cleanup_unknown",
+    "persist_cleanup_receipt",
+    "persist_turn_models",
     "prove_local_artifact",
     "public_runtime_boundary",
     "validate_acpx_dependency_identity",

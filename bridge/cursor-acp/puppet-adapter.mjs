@@ -129,6 +129,7 @@ export const PUBLIC_RUNTIME_OPTIONS = Object.freeze([
 export const CANDIDATE_TURN_OBSERVED_TYPE_BOUND = 16;
 export const CANDIDATE_TURN_OBSERVED_TYPE_LABEL_BOUND = 64;
 export const CANDIDATE_TURN_UNKNOWN_TYPE = "unknown";
+export const WORKER_EXIT_WAIT_MS = 10_000;
 
 export class AdapterError extends Error {
   constructor(code, message) {
@@ -136,6 +137,132 @@ export class AdapterError extends Error {
     this.name = "AdapterError";
     this.code = code;
   }
+}
+
+export function isUnsupportedBackendSessionClose(error) {
+  if (!error || typeof error !== "object") return false;
+  if (error.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") return false;
+  return /session\/close/i.test(String(error.message ?? ""));
+}
+
+export function launchScopesMatch(left, right) {
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === "runtime-session") return left.sessionKey === right.sessionKey;
+  if (left.kind === "runtime-probe") return left.agent === right.agent;
+  return left.kind === "client";
+}
+
+export function processIdentitiesMatch(left, right) {
+  if (!left || !right) return false;
+  if (!Number.isInteger(left.pid) || left.pid <= 0 || left.pid !== right.pid) return false;
+  if (typeof left.startedAt !== "string" || !left.startedAt || left.startedAt !== right.startedAt) {
+    return false;
+  }
+  if (typeof left.launchId !== "string" || !left.launchId || left.launchId !== right.launchId) {
+    return false;
+  }
+  return launchScopesMatch(left.scope, right.scope);
+}
+
+export function isOwnedSessionProcess(process, sessionKey) {
+  return Boolean(
+    process &&
+      typeof sessionKey === "string" &&
+      sessionKey &&
+      process.scope?.kind === "runtime-session" &&
+      process.scope.sessionKey === sessionKey,
+  );
+}
+
+export function publicWorkerIdentity(process) {
+  if (!process) return undefined;
+  return {
+    pid: process.pid,
+    startedAt: process.startedAt,
+    launchId: process.launchId,
+    scope: process.scope,
+    ...(process.signal !== undefined ? { signal: process.signal } : {}),
+    ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
+  };
+}
+
+export function publicProcessLifecycleSnapshot(snapshot) {
+  const started = Array.isArray(snapshot?.started) ? snapshot.started : [];
+  const exits = Array.isArray(snapshot?.exits) ? snapshot.exits : [];
+  return {
+    started: started.map(publicWorkerIdentity).filter(Boolean),
+    exits: exits.map(publicWorkerIdentity).filter(Boolean),
+  };
+}
+
+export function createProcessLifecycleTracker() {
+  const spawned = [];
+  const exits = [];
+  const waiters = new Set();
+
+  function notify() {
+    for (const wake of waiters) wake();
+  }
+
+  function ownedSpawned(sessionKey) {
+    return spawned.filter((process) => isOwnedSessionProcess(process, sessionKey));
+  }
+
+  function matchingExit(started) {
+    return exits.find((exit) => processIdentitiesMatch(started, exit));
+  }
+
+  function snapshotOwned(sessionKey) {
+    const started = ownedSpawned(sessionKey);
+    const observed = started.map(matchingExit).filter(Boolean);
+    return { started, exits: observed };
+  }
+
+  return {
+    processLifecycle: {
+      onSpawned(process) {
+        spawned.push(process);
+        notify();
+      },
+      onExit(exit) {
+        exits.push(exit);
+        notify();
+      },
+    },
+    spawned,
+    exits,
+    ownedSpawned,
+    matchingExit,
+    snapshotOwned,
+    snapshot() {
+      return publicProcessLifecycleSnapshot({ started: spawned, exits });
+    },
+    async waitForOwnedExit(sessionKey, { timeoutMs = WORKER_EXIT_WAIT_MS } = {}) {
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        const snapshot = snapshotOwned(sessionKey);
+        if (snapshot.started.length > 0 && snapshot.exits.length === snapshot.started.length) {
+          return { status: "exited", ...snapshot };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          return { status: snapshot.started.length > 0 ? "pending" : "none", ...snapshot };
+        }
+        await new Promise((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            waiters.delete(done);
+            clearTimeout(timer);
+            resolve();
+          };
+          const timer = setTimeout(done, Math.min(50, remaining));
+          waiters.add(done);
+        });
+      }
+    },
+  };
 }
 
 function canonicalJson(value) {
@@ -815,6 +942,8 @@ export async function recordBoundCandidateTurn(options = {}) {
     agent = "candidate",
     mode = "oneshot",
     text,
+    processLifecycleTracker,
+    workerExitWaitMs = WORKER_EXIT_WAIT_MS,
   } = options;
   const root = await requirePrivateRoot(isolatedRoot);
   requireIdentityString(owner, "host owner identity");
@@ -910,6 +1039,7 @@ export async function recordBoundCandidateTurn(options = {}) {
       }
       lastRequestId = afterStatus.lastRequestId;
     }
+    const models = projectObservedRuntimeModels(afterStatus);
 
     const terminal = {
       event: "runtime_turn_completed",
@@ -919,6 +1049,7 @@ export async function recordBoundCandidateTurn(options = {}) {
         status: bounded.status,
         stopReason: bounded.stopReason,
       },
+      ...models,
     };
     if (lastRequestId !== undefined) {
       terminal.status = { lastRequestId };
@@ -926,11 +1057,16 @@ export async function recordBoundCandidateTurn(options = {}) {
     rejectBodyKeys(terminal, "runtime turn");
     await appendEvent(root, terminal);
 
+    let cleanup;
     try {
-      await closeOwnedCandidateSession(runtime, handle);
+      cleanup = await closeOwnedCandidateSession(runtime, handle, {
+        isolatedRoot: root,
+        processLifecycleTracker,
+        models,
+        workerExitWaitMs,
+      });
       settled = true;
     } catch (error) {
-      await persistCleanupUnknownBestEffort(root);
       settled = true;
       throw error;
     }
@@ -945,6 +1081,8 @@ export async function recordBoundCandidateTurn(options = {}) {
       },
       result: bounded,
       status: lastRequestId === undefined ? {} : { lastRequestId },
+      ...models,
+      cleanup,
       closed: true,
       body_retained: false,
       available: adapterAvailable(),
@@ -953,7 +1091,11 @@ export async function recordBoundCandidateTurn(options = {}) {
   } catch (error) {
     if (!settled) {
       try {
-        await closeOwnedCandidateSession(runtime, handle);
+        await closeOwnedCandidateSession(runtime, handle, {
+          isolatedRoot: root,
+          processLifecycleTracker,
+          workerExitWaitMs,
+        });
       } catch {
         await persistCleanupUnknownBestEffort(root);
       }
@@ -1176,11 +1318,12 @@ function requireOwnedCandidateHandle(handle, { hostSession, workspaceRoot }) {
   return runtimeHandle;
 }
 
-export async function markCleanupUnknown(isolatedRoot) {
+export async function markCleanupUnknown(isolatedRoot, extras = {}) {
   const root = await requirePrivateRoot(isolatedRoot);
   const ownershipPath = path.join(root, "ownership.json");
   const current = JSON.parse(await readFile(ownershipPath, "utf8"));
   rejectBodyKeys(current, "ownership");
+  rejectBodyKeys(extras, "cleanup extras");
   if (current.acpx) {
     validateAcpxDependencyIdentity(current.acpx);
   }
@@ -1192,24 +1335,150 @@ export async function markCleanupUnknown(isolatedRoot) {
     session: current.session,
     conversation_id: current.conversation_id,
     replacement_blocked: true,
+    ...cleanupReceiptFields(extras),
   });
   return current;
 }
 
-async function persistCleanupUnknownBestEffort(isolatedRoot) {
+function projectObservedRuntimeModels(status) {
+  const current = status?.models?.currentModelId;
+  if (typeof current !== "string" || !current) return {};
+  return {
+    selected_model: current,
+    current_model: current,
+  };
+}
+
+function cleanupReceiptFields(extras = {}) {
+  const fields = {};
+  if (typeof extras.observed === "string" && extras.observed) {
+    fields.observed = extras.observed;
+  }
+  if (typeof extras.message === "string" && extras.message) {
+    fields.message = extras.message;
+  }
+  if (typeof extras.backendSessionDiscard === "string" && extras.backendSessionDiscard) {
+    fields.backendSessionDiscard = extras.backendSessionDiscard;
+  }
+  if (extras.worker && typeof extras.worker === "object") {
+    fields.worker = publicWorkerIdentity(extras.worker) ?? extras.worker;
+  }
+  if (extras.selected_model) fields.selected_model = extras.selected_model;
+  if (extras.current_model) fields.current_model = extras.current_model;
+  if (extras.worker_termination === "proven" || extras.worker_termination === "unknown") {
+    fields.worker_termination = extras.worker_termination;
+  }
+  if (typeof extras.cleanup_uncertain === "boolean") {
+    fields.cleanup_uncertain = extras.cleanup_uncertain;
+  }
+  if (typeof extras.replacement_blocked === "boolean") {
+    fields.replacement_blocked = extras.replacement_blocked;
+  }
+  if (extras.process_lifecycle && typeof extras.process_lifecycle === "object") {
+    fields.process_lifecycle = publicProcessLifecycleSnapshot(extras.process_lifecycle);
+  }
+  return fields;
+}
+
+async function persistCleanupReceipt(isolatedRoot, extras = {}) {
+  const root = await requirePrivateRoot(isolatedRoot);
+  const current = JSON.parse(await readFile(path.join(root, "ownership.json"), "utf8"));
+  rejectBodyKeys(current, "ownership");
+  rejectBodyKeys(extras, "cleanup receipt");
+  await appendEvent(root, {
+    event: extras.status === "completed" ? "cleanup_completed" : "cleanup_uncertain",
+    session: current.session,
+    conversation_id: current.conversation_id,
+    replacement_blocked: extras.status !== "completed",
+    ...cleanupReceiptFields(extras),
+  });
+}
+
+async function persistCleanupReceiptBestEffort(isolatedRoot, extras = {}) {
   try {
-    await markCleanupUnknown(isolatedRoot);
+    await persistCleanupReceipt(isolatedRoot, extras);
+  } catch {
+    // Keep the admitted close even if the body-free receipt cannot be persisted.
+  }
+}
+
+async function persistCleanupUnknownBestEffort(isolatedRoot, extras = {}) {
+  try {
+    await markCleanupUnknown(isolatedRoot, extras);
   } catch {
     // Keep the original failure when the existing claim fence cannot be persisted.
   }
 }
 
-function closeOwnedCandidateSession(runtime, handle) {
-  return runtime.close({
-    handle,
-    reason: "candidate-runtime-bound-close",
-    discardPersistentState: true,
-  });
+export async function closeOwnedCandidateSession(runtime, handle, options = {}) {
+  const {
+    isolatedRoot,
+    processLifecycleTracker,
+    models = {},
+    workerExitWaitMs = WORKER_EXIT_WAIT_MS,
+  } = options;
+  const sessionKey = handle?.sessionKey;
+  try {
+    await runtime.close({
+      handle,
+      reason: "candidate-runtime-bound-close",
+      discardPersistentState: true,
+    });
+    const cleanup = {
+      status: "completed",
+      observed: "runtime_close_returned",
+      worker_termination: "unknown",
+      cleanup_uncertain: false,
+      replacement_blocked: false,
+      ...(processLifecycleTracker ? { process_lifecycle: processLifecycleTracker.snapshot() } : {}),
+    };
+    if (isolatedRoot) {
+      await persistCleanupReceiptBestEffort(isolatedRoot, { ...cleanup, ...models });
+    }
+    return cleanup;
+  } catch (error) {
+    const unsupported = isUnsupportedBackendSessionClose(error);
+    let observedExit;
+    if (unsupported && processLifecycleTracker && sessionKey) {
+      const proof = await processLifecycleTracker.waitForOwnedExit(sessionKey, {
+        timeoutMs: workerExitWaitMs,
+      });
+      if (proof.status === "exited") {
+        observedExit = proof.exits[0];
+      }
+    }
+    if (observedExit) {
+      const processLifecycle = processLifecycleTracker.snapshot();
+      const cleanup = {
+        status: "completed",
+        observed: "local_worker_terminated_backend_session_discard_unsupported",
+        message: "local worker termination observed; backend session discard unsupported",
+        backendSessionDiscard: "unsupported",
+        worker: publicWorkerIdentity(observedExit),
+        worker_termination: "proven",
+        cleanup_uncertain: false,
+        replacement_blocked: false,
+        process_lifecycle: processLifecycle,
+        ...models,
+      };
+      if (isolatedRoot) {
+        await persistCleanupReceiptBestEffort(isolatedRoot, cleanup);
+      }
+      return cleanup;
+    }
+    if (isolatedRoot) {
+      await persistCleanupUnknownBestEffort(isolatedRoot, {
+        observed: "runtime_close_failed",
+        ...(unsupported ? { backendSessionDiscard: "unsupported" } : {}),
+        worker_termination: "unknown",
+        cleanup_uncertain: true,
+        replacement_blocked: true,
+        ...(processLifecycleTracker ? { process_lifecycle: processLifecycleTracker.snapshot() } : {}),
+        ...models,
+      });
+    }
+    throw error;
+  }
 }
 
 export async function bindCandidateRuntime({
