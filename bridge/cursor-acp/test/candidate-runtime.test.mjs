@@ -124,6 +124,52 @@ test("installed candidate runtime bytes are bound and cache drift fails closed",
   }
 });
 
+test("installed candidate imported chunk bytes are bound and cache drift fails closed", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "puppet-acpx-chunk-"));
+  try {
+    const payloadDir = path.join(fixture, "package", "dist");
+    await mkdir(payloadDir, { recursive: true });
+    const chunkName = "ipc-B0t1qnI2.js";
+    const chunkSource = "export const marker = \"archive-chunk\";\n";
+    const expectedSource = [
+      `import { marker } from "./${chunkName}";`,
+      "export function createAcpRuntime() { return { fixture: true, marker }; }",
+      "",
+    ].join("\n");
+    await writeFile(path.join(payloadDir, "runtime.js"), expectedSource);
+    await writeFile(path.join(payloadDir, chunkName), chunkSource);
+    const artifact = path.join(fixture, "acpx-fixture.tgz");
+    await execFile("tar", ["-czf", artifact, "package"], { cwd: fixture });
+
+    const moduleDir = path.join(fixture, "runtime", "node_modules", "acpx", "dist");
+    const modulePath = path.join(moduleDir, "runtime.js");
+    const chunkPath = path.join(moduleDir, chunkName);
+    await mkdir(moduleDir, { recursive: true });
+    await writeFile(modulePath, expectedSource);
+    await writeFile(chunkPath, chunkSource);
+    const proved = await proveInstalledCandidateModule({
+      modulePath,
+      artifactPath: artifact,
+    });
+    assert.equal(proved.module_sha256, createHash("sha256").update(expectedSource).digest("hex"));
+    assert.deepEqual(proved.imported_chunks, [{
+      artifact_entry: `package/dist/${chunkName}`,
+      sha256: createHash("sha256").update(chunkSource).digest("hex"),
+    }]);
+
+    await writeFile(chunkPath, `${chunkSource}// stale chunk review marker\n`);
+    await assert.rejects(
+      () => proveInstalledCandidateModule({
+        modulePath,
+        artifactPath: artifact,
+      }),
+      (error) => error instanceof AdapterError && /installed candidate imported chunk digest drifted/.test(error.message),
+    );
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("candidate runtime rejects bridge, shared modules, and arbitrary roots", async () => {
   await assert.rejects(
     () => materializeVerifiedCandidateAcpx({

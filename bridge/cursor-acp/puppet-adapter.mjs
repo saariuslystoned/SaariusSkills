@@ -368,6 +368,111 @@ async function readArtifactEntry(artifactPath, entryName) {
   return stdout;
 }
 
+function relativeImportSpecifiers(source) {
+  const specifiers = new Set();
+  const pattern = /(?:from\s+|import\s*\(\s*|import\s+)["'](\.\/[^"']+)["']/g;
+  for (const match of String(source).matchAll(pattern)) {
+    specifiers.add(match[1]);
+  }
+  return specifiers;
+}
+
+function resolveImportedArtifactEntry(entryName, specifier) {
+  if (
+    typeof specifier !== "string"
+    || !specifier.startsWith("./")
+    || specifier.includes("\\")
+    || specifier.includes("\0")
+    || specifier.includes("..")
+  ) {
+    throw new AdapterError("IDENTITY_MISMATCH", "installed candidate imported chunk specifier is invalid");
+  }
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entryName), specifier));
+  if (
+    resolved === ".."
+    || resolved.startsWith("../")
+    || !resolved.startsWith("package/")
+    || resolved.includes("..")
+  ) {
+    throw new AdapterError("IDENTITY_MISMATCH", "installed candidate imported chunk escapes the artifact");
+  }
+  return resolved;
+}
+
+async function proveInstalledRegularFile({
+  filePath,
+  artifactPath,
+  entryName,
+  label,
+}) {
+  let info;
+  try {
+    info = await lstat(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new AdapterError("IDENTITY_MISMATCH", `${label} is missing`);
+    }
+    throw error;
+  }
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new AdapterError("IDENTITY_MISMATCH", `${label} is not a regular file`);
+  }
+  const installed = await readFile(filePath);
+  let expected;
+  try {
+    expected = await readArtifactEntry(artifactPath, entryName);
+  } catch {
+    throw new AdapterError("IDENTITY_MISMATCH", `${label} is missing from the artifact`);
+  }
+  const installedDigest = createHash("sha256").update(installed).digest("hex");
+  const expectedDigest = createHash("sha256").update(expected).digest("hex");
+  if (installedDigest !== expectedDigest) {
+    throw new AdapterError("IDENTITY_MISMATCH", `${label} digest drifted`);
+  }
+  return { bytes: expected, digest: installedDigest };
+}
+
+async function proveInstalledCandidateImportedChunks({
+  modulePath,
+  artifactPath,
+  entryName,
+  source,
+}) {
+  const pending = [{ filePath: modulePath, entryName, source }];
+  const seen = new Set([entryName]);
+  const imported = [];
+  const moduleDir = path.dirname(modulePath);
+  while (pending.length) {
+    const current = pending.shift();
+    for (const specifier of relativeImportSpecifiers(current.source)) {
+      const nextEntry = resolveImportedArtifactEntry(current.entryName, specifier);
+      if (seen.has(nextEntry)) continue;
+      seen.add(nextEntry);
+      const nextPath = path.resolve(path.dirname(current.filePath), specifier);
+      if (!isContainedPath(moduleDir, nextPath)) {
+        throw new AdapterError("IDENTITY_MISMATCH", "installed candidate imported chunk escapes the module directory");
+      }
+      const proved = await proveInstalledRegularFile({
+        filePath: nextPath,
+        artifactPath,
+        entryName: nextEntry,
+        label: "installed candidate imported chunk",
+      });
+      imported.push({
+        artifact_entry: nextEntry,
+        sha256: proved.digest,
+      });
+      pending.push({
+        filePath: nextPath,
+        entryName: nextEntry,
+        source: proved.bytes,
+      });
+    }
+  }
+  imported.sort((left, right) => left.artifact_entry.localeCompare(right.artifact_entry));
+  return imported;
+}
+
 export async function proveInstalledCandidateModule({
   modulePath,
   artifactPath,
@@ -395,10 +500,17 @@ export async function proveInstalledCandidateModule({
   if (installedDigest !== expectedDigest) {
     throw new AdapterError("IDENTITY_MISMATCH", "installed candidate runtime digest drifted");
   }
+  const importedChunks = await proveInstalledCandidateImportedChunks({
+    modulePath,
+    artifactPath,
+    entryName,
+    source: expected,
+  });
   return {
     modulePath,
     module_sha256: installedDigest,
     artifact_entry: entryName,
+    imported_chunks: importedChunks,
   };
 }
 
