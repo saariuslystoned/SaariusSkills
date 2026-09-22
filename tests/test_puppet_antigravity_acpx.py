@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -20,6 +21,7 @@ from antigravity_acpx import (
     claim_isolated_root,
     load_isolated_root,
     mark_cleanup_unknown,
+    persist_turn_receipt,
     require_antigravity_acp_target,
     validate_ownership,
 )
@@ -124,6 +126,187 @@ class AntigravityAcpxOwnershipTests(unittest.TestCase):
             drifted["qualification"] = "qualified"
             with self.assertRaisesRegex(ValidationError, "live qualification"):
                 validate_ownership(drifted)
+
+    def test_turn_receipt_sink_drops_non_enum_permission_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            claim_isolated_root(
+                isolated,
+                owner="puppet-owner",
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+            )
+            persist_turn_receipt(
+                isolated,
+                session="agy-acp-session",
+                conversation_id="conv-agy-acp-1",
+                request_id="req-agy-acp-1",
+                extras={
+                    "status": "completed",
+                    "stop_reason": "end_turn",
+                    "permission": {
+                        "schema": "puppet.antigravity-acp-host-permission/v1",
+                        "outcome": "allow_once",
+                        "permission_id": "edit",
+                        "permission_kind": "edit",
+                        "kind": "edit",
+                        "kind_source": "standardized",
+                        "id_class": "opaque",
+                        "path_source": "raw_input",
+                        "path_cardinality": "one",
+                        "path_class": "intended",
+                        "reason": "granted_once",
+                        "offered_option_kinds": [
+                            "allow_once",
+                            "reject_once",
+                            "allow_once",
+                            "approve_all",
+                            "rm -rf /tmp",
+                            "/secret/bin/normalize-lines.mjs",
+                            "allow_always",
+                            "reject_always",
+                            "yes",
+                            "allow_once",
+                        ],
+                        "grant_count": 1,
+                        "allowed": True,
+                        "persisted": False,
+                        "approve_all": False,
+                        "os_sandbox": False,
+                        "fs": False,
+                        "terminal": False,
+                        "ordinary_launch": "unavailable",
+                        "body_retained": False,
+                        "invented_decision": None,
+                        "title": "write /secret/bin/normalize-lines.mjs",
+                        "path": "/secret/bin/normalize-lines.mjs",
+                        "label": "Delete production",
+                        "command": "cat /etc/passwd",
+                        "input": {"path": "/secret/token"},
+                        "decisions": [
+                            {
+                                "outcome": "allow_once",
+                                "permission_kind": "edit",
+                                "kind": "edit",
+                                "kind_source": "inferred",
+                                "id_class": "tool-call-id-abc",
+                                "path_source": "/Users/bobbybones/.env",
+                                "path_cardinality": "one",
+                                "path_class": "non_intended",
+                                "reason": "cat /etc/shadow",
+                                "offered_option_kinds": [
+                                    "allow_always",
+                                    "allow_always",
+                                    "yes",
+                                    "allow_once",
+                                    "curl http://evil.example",
+                                ],
+                                "title": "evil title",
+                                "command": "curl http://evil.example",
+                                "label": "secret-label",
+                            },
+                            {
+                                "outcome": "denied",
+                                "permission_kind": "denied",
+                                "kind": "execute; rm -rf /",
+                                "kind_source": "standardized",
+                                "id_class": "opaque",
+                                "path_source": "locations",
+                                "path_cardinality": "one",
+                                "path_class": "intended",
+                                "reason": "non_intended_path",
+                                "offered_option_kinds": ["reject_once", "reject_once"],
+                            },
+                        ],
+                    },
+                },
+            )
+            events = [
+                json.loads(line)
+                for line in (isolated / "ownership.events.jsonl").read_text().splitlines()
+            ]
+            turn_events = [
+                item for item in events if item.get("event") == "runtime_turn_observed"
+            ]
+            self.assertEqual(len(turn_events), 1)
+            receipt = turn_events[0]
+            permission = receipt["permission"]
+            self.assertEqual(receipt["status"], "completed")
+            self.assertEqual(receipt["stop_reason"], "end_turn")
+            self.assertEqual(permission["outcome"], "allow_once")
+            self.assertEqual(permission["permission_kind"], "edit")
+            self.assertEqual(permission["kind"], "edit")
+            self.assertEqual(permission["kind_source"], "standardized")
+            self.assertEqual(permission["id_class"], "opaque")
+            self.assertEqual(permission["path_source"], "raw_input")
+            self.assertEqual(permission["path_cardinality"], "one")
+            self.assertEqual(permission["path_class"], "intended")
+            self.assertEqual(permission["reason"], "granted_once")
+            self.assertEqual(
+                permission["offered_option_kinds"],
+                ["allow_once", "reject_once", "allow_always", "reject_always"],
+            )
+            self.assertFalse(permission["approve_all"])
+            self.assertEqual(permission["grant_count"], 1)
+            self.assertEqual(len(permission["decisions"]), 2)
+            first = permission["decisions"][0]
+            self.assertEqual(first["outcome"], "allow_once")
+            self.assertEqual(first["permission_kind"], "edit")
+            self.assertEqual(first["kind"], "edit")
+            self.assertEqual(first["kind_source"], "inferred")
+            self.assertNotIn("id_class", first)
+            self.assertNotIn("path_source", first)
+            self.assertEqual(first["path_cardinality"], "one")
+            self.assertEqual(first["path_class"], "non_intended")
+            self.assertNotIn("reason", first)
+            self.assertEqual(first["offered_option_kinds"], ["allow_always", "allow_once"])
+            self.assertNotIn("title", first)
+            self.assertNotIn("command", first)
+            second = permission["decisions"][1]
+            self.assertEqual(second["outcome"], "denied")
+            self.assertEqual(second["permission_kind"], "denied")
+            self.assertNotIn("kind", second)
+            self.assertEqual(second["kind_source"], "standardized")
+            self.assertEqual(second["id_class"], "opaque")
+            self.assertEqual(second["path_source"], "locations")
+            self.assertEqual(second["reason"], "non_intended_path")
+            self.assertEqual(second["offered_option_kinds"], ["reject_once"])
+            dumped = json.dumps(receipt)
+            self.assertNotIn("/secret/", dumped)
+            self.assertNotIn("/etc/passwd", dumped)
+            self.assertNotIn("/etc/shadow", dumped)
+            self.assertNotIn(".env", dumped)
+            self.assertNotIn("approve_all", permission["offered_option_kinds"])
+            self.assertNotIn("tool-call-id-abc", dumped)
+            self.assertNotIn("evil title", dumped)
+            self.assertNotIn("Delete production", dumped)
+            self.assertNotIn("http://evil.example", dumped)
+            self.assertNotIn("rm -rf", dumped)
+            self.assertNotIn("write /secret", dumped)
+            with self.assertRaisesRegex(ValidationError, "body-bearing field"):
+                persist_turn_receipt(
+                    isolated,
+                    session="agy-acp-session",
+                    conversation_id="conv-agy-acp-1",
+                    request_id="req-agy-acp-2",
+                    extras={
+                        "status": "completed",
+                        "permission": {
+                            "outcome": "denied",
+                            "grant_count": 0,
+                            "allowed": False,
+                            "persisted": False,
+                            "approve_all": False,
+                            "os_sandbox": False,
+                            "fs": False,
+                            "terminal": False,
+                            "ordinary_launch": "unavailable",
+                            "body_retained": False,
+                            "invented_decision": None,
+                            "rawInput": {"path": "/secret/bin/normalize-lines.mjs"},
+                        },
+                    },
+                )
 
 
 if __name__ == "__main__":

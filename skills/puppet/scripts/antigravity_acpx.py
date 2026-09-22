@@ -55,6 +55,64 @@ _TURN_STOP_REASONS = frozenset(
     }
 )
 _TURN_SECRET_CODE_PARTS = ("token", "secret", "password", "prompt", "credential")
+_TURN_PERMISSION_ACP_KINDS = frozenset(
+    {
+        "read",
+        "edit",
+        "delete",
+        "move",
+        "search",
+        "execute",
+        "think",
+        "fetch",
+        "switch_mode",
+        "other",
+        "absent",
+    }
+)
+_TURN_PERMISSION_KIND_SOURCES = frozenset({"standardized", "inferred", "absent"})
+_TURN_PERMISSION_ID_CLASSES = frozenset({"opaque", "interaction", "absent"})
+_TURN_PERMISSION_PATH_SOURCES = frozenset(
+    {"raw_input", "locations", "both", "absent", "multiple", "conflicting"}
+)
+_TURN_PERMISSION_PATH_CARDINALITIES = frozenset({"zero", "one", "multiple"})
+_TURN_PERMISSION_PATH_CLASSES = frozenset(
+    {"intended", "non_intended", "absent", "ambiguous"}
+)
+_TURN_PERMISSION_OPTION_KINDS = (
+    "allow_once",
+    "allow_always",
+    "reject_once",
+    "reject_always",
+)
+_TURN_PERMISSION_OPTION_KIND_SET = frozenset(_TURN_PERMISSION_OPTION_KINDS)
+_TURN_PERMISSION_REASONS = frozenset(
+    {
+        "granted_once",
+        "replay",
+        "absent_kind",
+        "other_kind",
+        "inferred_kind_only",
+        "absent_path",
+        "multiple_paths",
+        "conflicting_paths",
+        "non_intended_path",
+        "absent_allow_once",
+        "interaction",
+        "elicitation",
+        "ambiguous",
+        "missing_session",
+    }
+)
+_TURN_PERMISSION_DIAGNOSTIC_ENUMS = (
+    ("kind", _TURN_PERMISSION_ACP_KINDS),
+    ("kind_source", _TURN_PERMISSION_KIND_SOURCES),
+    ("id_class", _TURN_PERMISSION_ID_CLASSES),
+    ("path_source", _TURN_PERMISSION_PATH_SOURCES),
+    ("path_cardinality", _TURN_PERMISSION_PATH_CARDINALITIES),
+    ("path_class", _TURN_PERMISSION_PATH_CLASSES),
+    ("reason", _TURN_PERMISSION_REASONS),
+)
 
 OWNERSHIP_KEYS = frozenset(
     {
@@ -365,6 +423,30 @@ def mark_cleanup_unknown(
         return current
 
 
+def _bound_receipt_option_kinds(value: Any) -> list:
+    if not isinstance(value, list):
+        return []
+    bounded = []
+    for item in value:
+        if item in _TURN_PERMISSION_OPTION_KIND_SET and item not in bounded:
+            bounded.append(item)
+        if len(bounded) >= len(_TURN_PERMISSION_OPTION_KIND_SET):
+            break
+    return bounded
+
+
+def _bound_receipt_permission_diagnostics(item: Mapping[str, Any]) -> Dict[str, Any]:
+    bounded: Dict[str, Any] = {}
+    for key, allowed in _TURN_PERMISSION_DIAGNOSTIC_ENUMS:
+        candidate = item.get(key)
+        if candidate in allowed:
+            bounded[key] = candidate
+    offered = item.get("offered_option_kinds")
+    if isinstance(offered, list):
+        bounded["offered_option_kinds"] = _bound_receipt_option_kinds(offered)
+    return bounded
+
+
 def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
     _reject_body_keys(value, "turn receipt")
     fields: Dict[str, Any] = {}
@@ -426,58 +508,22 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
                 "body_retained": False,
                 "invented_decision": None,
             }
-            for key in (
-                "kind",
-                "kind_source",
-                "id_class",
-                "path_source",
-                "path_cardinality",
-                "path_class",
-                "reason",
-            ):
-                value = permission.get(key)
-                if isinstance(value, str) and value:
-                    fields["permission"][key] = value
-            offered = permission.get("offered_option_kinds")
-            if isinstance(offered, list):
-                fields["permission"]["offered_option_kinds"] = [
-                    item for item in offered if isinstance(item, str) and item
-                ]
+            fields["permission"].update(_bound_receipt_permission_diagnostics(permission))
             decisions = permission.get("decisions")
             if isinstance(decisions, list):
-                fields["permission"]["decisions"] = [
-                    {
+                bounded_decisions = []
+                for item in decisions:
+                    if not isinstance(item, Mapping):
+                        continue
+                    if item.get("outcome") not in {"allow_once", "denied", "cancelled"}:
+                        continue
+                    decision = {
                         "outcome": item.get("outcome"),
                         "permission_kind": item.get("permission_kind"),
-                        **{
-                            key: item.get(key)
-                            for key in (
-                                "kind",
-                                "kind_source",
-                                "id_class",
-                                "path_source",
-                                "path_cardinality",
-                                "path_class",
-                                "reason",
-                            )
-                            if isinstance(item.get(key), str) and item.get(key)
-                        },
-                        **(
-                            {
-                                "offered_option_kinds": [
-                                    option
-                                    for option in item.get("offered_option_kinds")
-                                    if isinstance(option, str) and option
-                                ]
-                            }
-                            if isinstance(item.get("offered_option_kinds"), list)
-                            else {}
-                        ),
                     }
-                    for item in decisions
-                    if isinstance(item, Mapping)
-                    and item.get("outcome") in {"allow_once", "denied", "cancelled"}
-                ]
+                    decision.update(_bound_receipt_permission_diagnostics(item))
+                    bounded_decisions.append(decision)
+                fields["permission"]["decisions"] = bounded_decisions
     return fields
 
 
