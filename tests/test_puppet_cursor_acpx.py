@@ -139,8 +139,19 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         self.assertEqual(pin["pr_base"], ACPX_PR_BASE)
         self.assertEqual(pin["npm_git_head"], ACPX_NPM_GIT_HEAD)
         self.assertEqual(pin["candidate_package_version"], ACPX_CANDIDATE_PACKAGE_VERSION)
-        self.assertEqual(pin["published_npm_version"], "0.18.0")
+        self.assertEqual(pin["published_npm_version"], "0.19.0")
         self.assertFalse(pin["published_npm_contains_merge"])
+        lock = json.loads((ROOT / "bridge" / "cursor-acp" / "package-lock.json").read_text(encoding="utf-8"))
+        published = lock["packages"]["node_modules/acpx"]
+        self.assertEqual(published["version"], "0.19.0")
+        self.assertEqual(
+            published["integrity"],
+            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+        )
+        self.assertEqual(
+            pin["artifact_sha256"],
+            "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614",
+        )
         self.assertEqual(pin["artifact_path"], ACPX_ARTIFACT_PATH)
         self.assertNotEqual(pin["merge_commit"], HISTORICAL_ACPX_MERGE_COMMIT)
         self.assertNotEqual(pin["artifact_sha256"], HISTORICAL_ACPX_ARTIFACT_SHA256)
@@ -172,7 +183,7 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(IdentityError, "descriptive metadata"):
             validate_acpx_dependency_identity(metadata_integrity)
         published_merge = dict(pin, published_npm_contains_merge=True)
-        with self.assertRaisesRegex(IdentityError, "does not contain the merge"):
+        with self.assertRaisesRegex(IdentityError, "not the candidate merge tarball"):
             validate_acpx_dependency_identity(published_merge)
         live = dict(pin, qualification="live")
         with self.assertRaisesRegex(ValidationError, "live qualification"):
@@ -265,7 +276,7 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         gates = validate_cutover_safeguards()
         self.assertFalse(gates["available"])
         self.assertEqual(gates["ordinary_launch"], "unavailable")
-        self.assertEqual(gates["ordinary_pinned_package"], "0.16.0")
+        self.assertEqual(gates["ordinary_pinned_package"], "0.19.0")
         self.assertEqual(gates["candidate_package_version"], "0.18.0")
         self.assertFalse(gates["released"])
         self.assertFalse(gates["published_npm_contains_merge"])

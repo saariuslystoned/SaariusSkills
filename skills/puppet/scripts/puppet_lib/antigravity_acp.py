@@ -58,7 +58,16 @@ REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071"
 RUNTIME_ID = "antigravity-acp"
 RUNTIME_VERSION = "1.1.1"
 ACPX_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84"
-ACPX_RELEASE = "0.17.1"
+ACPX_RELEASE = "0.19.0"
+ACPX_NPM_INTEGRITY = (
+    "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q=="
+)
+ACPX_TARBALL_SHA256 = (
+    "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d"
+)
+ACPX_RUNTIME_JS_SHA256 = (
+    "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b"
+)
 
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-high"
 ADVERTISED_ANTIGRAVITY_MODELS = (
@@ -167,7 +176,16 @@ _CONTRACT_KEYS = frozenset(
     }
 )
 _RUNTIME_KEYS = frozenset(
-    {"id", "version", "registry_revision", "acpx_source_commit", "acpx_release"}
+    {
+        "id",
+        "version",
+        "registry_revision",
+        "acpx_source_commit",
+        "acpx_release",
+        "acpx_npm_integrity",
+        "acpx_tarball_sha256",
+        "acpx_runtime_js_sha256",
+    }
 )
 _AUTH_POLICY_KEYS = frozenset(
     {
@@ -691,6 +709,9 @@ def candidate_contract() -> Dict[str, Any]:
             "registry_revision": REGISTRY_REVISION,
             "acpx_source_commit": ACPX_SOURCE_COMMIT,
             "acpx_release": ACPX_RELEASE,
+            "acpx_npm_integrity": ACPX_NPM_INTEGRITY,
+            "acpx_tarball_sha256": ACPX_TARBALL_SHA256,
+            "acpx_runtime_js_sha256": ACPX_RUNTIME_JS_SHA256,
         },
         "auth_policy": {
             "mode": "oauth-personal",

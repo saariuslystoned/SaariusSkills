@@ -106,6 +106,19 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         self.assertFalse(contract["available"])
         self.assertFalse(AntigravityAcpController.available())
         self.assertFalse(transport_is_available(TRANSPORT_ID))
+        self.assertEqual(contract["runtime"]["acpx_release"], "0.19.0")
+        self.assertEqual(
+            contract["runtime"]["acpx_npm_integrity"],
+            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+        )
+        self.assertEqual(
+            contract["runtime"]["acpx_tarball_sha256"],
+            "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d",
+        )
+        self.assertEqual(
+            contract["runtime"]["acpx_source_commit"],
+            "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+        )
 
     def test_contract_rejects_generic_acp_or_pin_drift(self):
         generic = candidate_contract()

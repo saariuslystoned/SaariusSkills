@@ -1,7 +1,7 @@
 # Local Cursor ACP delegation
 
 This repository now carries an experimental local-only bridge for Codex. The
-bridge exposes a small stdio MCP server and uses the pinned `acpx@0.16.0`
+bridge exposes a small stdio MCP server and uses the pinned `acpx@0.19.0`
 runtime to open an ACP session with the explicit local Cursor executable:
 
 ```text
@@ -121,7 +121,7 @@ ACP qualification.
 
 ## Active-turn steering
 
-The pinned acpx 0.16.0 runtime serializes turns within a session. Its `steer`
+The pinned acpx 0.19.0 runtime serializes turns within a session. Its `steer`
 mode does not interrupt the current turn. The bridge refuses steering with
 `STEERING_UNSUPPORTED` before starting another turn, so completion and
 cancellation cannot lose ownership of queued work. After the canonical job

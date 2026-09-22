@@ -104,7 +104,7 @@ test("disabled surface pins merged unreleased acpx identity and does not change 
   assert.doesNotMatch(disabled, /permissionMode:\s*"approve-all"/);
   assert.doesNotMatch(disabled, /mcpServers:\s*\[/);
   assert.doesNotMatch(ordinary, /createCursorAcpxAdapter|puppet-adapter/);
-  assert.match(ordinary, /acpx 0\.16\.0/);
+  assert.match(ordinary, /acpx 0\.19\.0/);
 });
 
 test("merged unreleased provenance stays exact and fail-closed", () => {
@@ -151,7 +151,7 @@ test("merged unreleased provenance stays exact and fail-closed", () => {
   );
   assert.throws(
     () => validateAcpxDependencyIdentity({ ...pin, published_npm_contains_merge: true }),
-    (error) => error instanceof AdapterError && /does not contain the merge/.test(error.message),
+    (error) => error instanceof AdapterError && /not the candidate merge tarball/.test(error.message),
   );
   assert.throws(
     () => validateAcpxDependencyIdentity({
@@ -225,7 +225,7 @@ test("cutover safeguards keep ordinary route disabled", () => {
   const gates = validateCutoverSafeguards();
   assert.equal(gates.available, false);
   assert.equal(gates.ordinary_launch, "unavailable");
-  assert.equal(gates.ordinary_pinned_package, "0.16.0");
+  assert.equal(gates.ordinary_pinned_package, "0.19.0");
   assert.equal(gates.candidate_package_version, "0.18.0");
   assert.equal(gates.released, false);
   assert.equal(gates.production_enabled, false);

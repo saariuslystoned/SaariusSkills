@@ -4,8 +4,13 @@ import { homedir } from "node:os";
 export const RUNTIME_ID = "antigravity-acp";
 export const RUNTIME_VERSION = "1.1.1";
 export const REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071";
+// 50a47ad is the last independently inspected 0.17.1 source. Published
+// acpx@0.19.0 does not include gitHead; the current pin is version + integrity.
 export const ACPX_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84";
-export const ACPX_RELEASE = "0.17.1";
+export const ACPX_RELEASE = "0.19.0";
+export const ACPX_NPM_INTEGRITY = "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==";
+export const ACPX_TARBALL_SHA256 = "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d";
+export const ACPX_RUNTIME_JS_SHA256 = "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b";
 export const PROFILE_ENV = "GEMINI_HOME";
 export const AUTH_MODE = "oauth-personal";
 export const DEFAULT_STATE_DIR_NAME = "antigravity-acp-delegation";
@@ -17,6 +22,9 @@ export const RUNTIME_PIN = Object.freeze({
   registryRevision: REGISTRY_REVISION,
   acpxSourceCommit: ACPX_SOURCE_COMMIT,
   acpxRelease: ACPX_RELEASE,
+  acpxNpmIntegrity: ACPX_NPM_INTEGRITY,
+  acpxTarballSha256: ACPX_TARBALL_SHA256,
+  acpxRuntimeJsSha256: ACPX_RUNTIME_JS_SHA256,
 });
 
 export const PLATFORM_COMMANDS = Object.freeze({

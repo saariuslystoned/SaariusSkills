@@ -57,6 +57,13 @@ class AntigravityAcpxOwnershipTests(unittest.TestCase):
             ACPX_ARTIFACT_PATH,
             "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz",
         )
+        lock = json.loads((ROOT / "bridge" / "antigravity-acp" / "package-lock.json").read_text(encoding="utf-8"))
+        published = lock["packages"]["node_modules/acpx"]
+        self.assertEqual(published["version"], "0.19.0")
+        self.assertEqual(
+            published["integrity"],
+            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+        )
         self.assertEqual(DEFAULT_TRANSPORT, "tmux")
         self.assertEqual(bind_run_transport()["id"], "tmux")
         self.assertFalse(transport_is_available(TRANSPORT_ID))
