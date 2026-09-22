@@ -1271,8 +1271,101 @@ def prove_antigravity_acp_observation(
 
 HOST_PERMISSION_OUTCOMES = frozenset({"allow_once", "denied", "cancelled"})
 HOST_PERMISSION_KINDS = frozenset(
-    {"fs_write_file", "denied", "interaction", "elicitation", "ambiguous", "host"}
+    {"edit", "denied", "interaction", "elicitation", "ambiguous", "host"}
 )
+HOST_PERMISSION_DECISION_LIMIT = 32
+HOST_PERMISSION_ACP_KINDS = frozenset(
+    {
+        "read",
+        "edit",
+        "delete",
+        "move",
+        "search",
+        "execute",
+        "think",
+        "fetch",
+        "switch_mode",
+        "other",
+        "absent",
+    }
+)
+HOST_PERMISSION_KIND_SOURCES = frozenset({"standardized", "inferred", "absent"})
+HOST_PERMISSION_ID_CLASSES = frozenset({"opaque", "interaction", "absent"})
+HOST_PERMISSION_PATH_SOURCES = frozenset(
+    {"raw_input", "locations", "both", "absent", "multiple", "conflicting"}
+)
+HOST_PERMISSION_PATH_CARDINALITIES = frozenset({"zero", "one", "multiple"})
+HOST_PERMISSION_PATH_CLASSES = frozenset(
+    {"intended", "non_intended", "absent", "ambiguous"}
+)
+HOST_PERMISSION_OPTION_KINDS = frozenset(
+    {"allow_once", "allow_always", "reject_once", "reject_always"}
+)
+HOST_PERMISSION_REASONS = frozenset(
+    {
+        "granted_once",
+        "replay",
+        "absent_kind",
+        "other_kind",
+        "inferred_kind_only",
+        "absent_path",
+        "multiple_paths",
+        "conflicting_paths",
+        "non_intended_path",
+        "absent_allow_once",
+        "interaction",
+        "elicitation",
+        "ambiguous",
+        "missing_session",
+    }
+)
+
+
+def _enum_member(value: Any, allowed: frozenset) -> bool:
+    return isinstance(value, str) and value in allowed
+
+
+def _bound_host_option_kinds(value: Any) -> list:
+    if not isinstance(value, list):
+        return []
+    bounded = []
+    for option in value:
+        if _enum_member(option, HOST_PERMISSION_OPTION_KINDS) and option not in bounded:
+            bounded.append(option)
+        if len(bounded) >= len(HOST_PERMISSION_OPTION_KINDS):
+            break
+    return bounded
+
+
+def _bound_host_permission_diagnostics(item: Mapping[str, Any]) -> Dict[str, Any]:
+    """Copy allowlisted body-free permission classifications only."""
+
+    bounded: Dict[str, Any] = {}
+    kind = item.get("kind")
+    if _enum_member(kind, HOST_PERMISSION_ACP_KINDS):
+        bounded["kind"] = kind
+    kind_source = item.get("kind_source")
+    if _enum_member(kind_source, HOST_PERMISSION_KIND_SOURCES):
+        bounded["kind_source"] = kind_source
+    id_class = item.get("id_class")
+    if _enum_member(id_class, HOST_PERMISSION_ID_CLASSES):
+        bounded["id_class"] = id_class
+    path_source = item.get("path_source")
+    if _enum_member(path_source, HOST_PERMISSION_PATH_SOURCES):
+        bounded["path_source"] = path_source
+    path_cardinality = item.get("path_cardinality")
+    if _enum_member(path_cardinality, HOST_PERMISSION_PATH_CARDINALITIES):
+        bounded["path_cardinality"] = path_cardinality
+    path_class = item.get("path_class")
+    if _enum_member(path_class, HOST_PERMISSION_PATH_CLASSES):
+        bounded["path_class"] = path_class
+    offered = item.get("offered_option_kinds")
+    if isinstance(offered, list):
+        bounded["offered_option_kinds"] = _bound_host_option_kinds(offered)
+    reason = item.get("reason")
+    if _enum_member(reason, HOST_PERMISSION_REASONS):
+        bounded["reason"] = reason
+    return bounded
 
 
 def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1283,10 +1376,10 @@ def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, 
     if permission.get("schema") not in {HOST_PERMISSION_SCHEMA, None}:
         raise ValidationError("host permission schema is invalid")
     outcome = permission.get("outcome")
-    if outcome not in HOST_PERMISSION_OUTCOMES:
+    if not _enum_member(outcome, HOST_PERMISSION_OUTCOMES):
         raise ValidationError("host permission outcome is invalid")
     grant_count = permission.get("grant_count", 1 if outcome == "allow_once" else 0)
-    if grant_count not in {0, 1}:
+    if not isinstance(grant_count, int) or isinstance(grant_count, bool) or grant_count not in {0, 1}:
         raise ValidationError("host permission grant must stay one-time")
     if permission.get("allowed") is True and grant_count != 1:
         raise ValidationError("host permission must not mark a non-grant as allowed")
@@ -1307,12 +1400,20 @@ def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, 
     if permission.get("body_retained") is not False:
         raise ValidationError("host permission receipt retained a body")
     kind = permission.get("permission_kind") or permission.get("permission_id") or "host"
-    if kind not in HOST_PERMISSION_KINDS:
+    if not _enum_member(kind, HOST_PERMISSION_KINDS):
         raise ValidationError("host permission kind is invalid")
     decisions = permission.get("decisions")
     bounded_decisions = []
     if decisions is None:
-        bounded_decisions = [{"outcome": outcome, "permission_kind": kind}]
+        bounded_decisions = [
+            {
+                "outcome": outcome,
+                "permission_kind": kind,
+                **_bound_host_permission_diagnostics(permission),
+            }
+        ]
+        decision_count = 1
+        decisions_truncated = False
     elif not isinstance(decisions, list):
         raise ValidationError("host permission decisions are invalid")
     else:
@@ -1323,15 +1424,34 @@ def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, 
             item_kind = item.get("permission_kind")
             if item_outcome == "allow_always" or item.get("kind") == "allow_always":
                 raise ValidationError("host permission must not persist allow-always")
-            if item_outcome not in HOST_PERMISSION_OUTCOMES:
+            if not _enum_member(item_outcome, HOST_PERMISSION_OUTCOMES):
                 raise ValidationError("host permission decision outcome is invalid")
-            if item_kind not in HOST_PERMISSION_KINDS:
+            if not _enum_member(item_kind, HOST_PERMISSION_KINDS):
                 raise ValidationError("host permission decision kind is invalid")
             if item.get("allowed") is True and item_outcome != "allow_once":
                 raise ValidationError("host permission must not mark a non-grant as allowed")
             bounded_decisions.append(
-                {"outcome": item_outcome, "permission_kind": item_kind}
+                {
+                    "outcome": item_outcome,
+                    "permission_kind": item_kind,
+                    **_bound_host_permission_diagnostics(item),
+                }
             )
+        reported = permission.get("decision_count")
+        if (
+            isinstance(reported, int)
+            and not isinstance(reported, bool)
+            and reported >= len(decisions)
+        ):
+            decision_count = reported
+        else:
+            decision_count = len(decisions)
+        decisions_truncated = permission.get("decisions_truncated") is True
+        if len(bounded_decisions) > HOST_PERMISSION_DECISION_LIMIT:
+            bounded_decisions = bounded_decisions[-HOST_PERMISSION_DECISION_LIMIT:]
+            decisions_truncated = True
+        if decision_count > len(bounded_decisions):
+            decisions_truncated = True
     if any(
         item.get("outcome") == "allow_always"
         or item.get("kind") == "allow_always"
@@ -1339,13 +1459,15 @@ def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, 
         if isinstance(item, Mapping)
     ):
         raise ValidationError("host permission must not persist allow-always")
-    return {
+    receipt = {
         "schema": HOST_PERMISSION_SCHEMA,
         "state": outcome,
         "outcome": outcome,
         "permission_id": kind,
         "permission_kind": kind,
         "decisions": bounded_decisions,
+        "decision_count": decision_count,
+        "decisions_truncated": decisions_truncated,
         "grant_count": grant_count,
         "allowed": grant_count == 1,
         "persisted": False,
@@ -1357,6 +1479,8 @@ def require_host_permission_outcome(permission: Mapping[str, Any]) -> Dict[str, 
         "body_retained": False,
         "invented_decision": None,
     }
+    receipt.update(_bound_host_permission_diagnostics(permission))
+    return receipt
 
 
 def fixture_observation(**changes: Any) -> Dict[str, Any]:
@@ -2514,6 +2638,7 @@ __all__ = [
     "DEFAULT_ROUTE",
     "FALLBACK_OR_DEFAULT_MODEL_IDS",
     "GENERIC_ACP_ID",
+    "HOST_PERMISSION_DECISION_LIMIT",
     "HOST_PERMISSION_SCHEMA",
     "MODEL_CATALOG_SCHEMA",
     "OBSERVATION_SCHEMA",

@@ -1886,7 +1886,15 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             {
                 "schema": HOST_PERMISSION_SCHEMA,
                 "outcome": "allow_once",
-                "permission_kind": "fs_write_file",
+                "permission_kind": "edit",
+                "kind": "edit",
+                "kind_source": "standardized",
+                "id_class": "opaque",
+                "path_source": "raw_input",
+                "path_cardinality": "one",
+                "path_class": "intended",
+                "offered_option_kinds": ["allow_once", "reject_once"],
+                "reason": "granted_once",
                 "grant_count": 1,
                 "allowed": True,
                 "persisted": False,
@@ -1897,18 +1905,36 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 "ordinary_launch": "unavailable",
                 "body_retained": False,
                 "invented_decision": None,
+                "title": "write bin/normalize-lines.mjs",
+                "rawInput": {"path": "/secret/bin/normalize-lines.mjs"},
+                "toolCallId": "call_should_not_retain",
             }
         )
         self.assertEqual(allowed["outcome"], "allow_once")
+        self.assertEqual(allowed["permission_kind"], "edit")
+        self.assertEqual(allowed["kind"], "edit")
+        self.assertEqual(allowed["kind_source"], "standardized")
+        self.assertEqual(allowed["id_class"], "opaque")
+        self.assertEqual(allowed["path_source"], "raw_input")
+        self.assertEqual(allowed["reason"], "granted_once")
         self.assertTrue(allowed["allowed"])
         self.assertFalse(allowed["os_sandbox"])
+        self.assertEqual(allowed["decision_count"], 1)
+        self.assertFalse(allowed["decisions_truncated"])
         self.assertNotIn("options", allowed)
+        self.assertNotIn("title", allowed)
+        self.assertNotIn("rawInput", allowed)
+        self.assertNotIn("toolCallId", allowed)
+        serialized = json.dumps(allowed)
+        self.assertNotIn("/secret/", serialized)
+        self.assertNotIn("call_should_not_retain", serialized)
+        self.assertNotIn("write bin/normalize-lines.mjs", serialized)
         with self.assertRaisesRegex(ValidationError, "allow-always"):
             require_host_permission_outcome(
                 {
                     "schema": HOST_PERMISSION_SCHEMA,
                     "outcome": "allow_once",
-                    "permission_kind": "fs_write_file",
+                    "permission_kind": "edit",
                     "grant_count": 1,
                     "allowed": True,
                     "persisted": False,
@@ -1919,7 +1945,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     "ordinary_launch": "unavailable",
                     "body_retained": False,
                     "invented_decision": None,
-                    "decisions": [{"outcome": "allow_always", "permission_kind": "fs_write_file"}],
+                    "decisions": [{"outcome": "allow_always", "permission_kind": "edit"}],
                 }
             )
         with self.assertRaisesRegex(ValidationError, "OS sandbox"):
@@ -1984,8 +2010,21 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 self.assertEqual(runner.permission_outcome["outcome"], "allow_once")
                 self.assertTrue(runner.permission_outcome["allowed"])
                 self.assertEqual(runner.permission_outcome["grant_count"], 1)
+                self.assertEqual(runner.permission_outcome["permission_kind"], "edit")
+                self.assertEqual(runner.permission_outcome["kind"], "edit")
+                self.assertEqual(runner.permission_outcome["kind_source"], "standardized")
+                self.assertEqual(runner.permission_outcome["id_class"], "opaque")
+                self.assertEqual(runner.permission_outcome["path_source"], "raw_input")
+                self.assertEqual(runner.permission_outcome["path_class"], "intended")
+                self.assertEqual(runner.permission_outcome["reason"], "granted_once")
                 self.assertFalse(runner.permission_outcome["os_sandbox"])
                 self.assertFalse(runner.permission_outcome["persisted"])
+                self.assertFalse(runner.permission_outcome["fs"])
+                self.assertFalse(runner.permission_outcome["terminal"])
+                permission_dump = json.dumps(runner.permission_outcome)
+                self.assertNotIn("rawInput", permission_dump)
+                self.assertNotIn(str(workspace / "bin" / "normalize-lines.mjs"), permission_dump)
+                self.assertNotIn("call_", permission_dump)
                 self.assertEqual(
                     hashlib.sha256(
                         (workspace / "bin" / "normalize-lines.mjs").read_bytes()
@@ -2019,10 +2058,151 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     item for item in events if item.get("event") == "runtime_turn_observed"
                 ]
                 self.assertEqual(turn_events[-1]["permission"]["outcome"], "allow_once")
+                self.assertEqual(turn_events[-1]["permission"]["path_source"], "raw_input")
                 self.assertNotIn("options", json.dumps(turn_events[-1]))
                 self.assertNotIn("prompt", json.dumps(turn_events[-1]))
+                self.assertNotIn("rawInput", json.dumps(turn_events[-1]))
             finally:
                 runtime.shutdown()
+
+    def test_actual_public_runtime_host_permission_locations_path_edits_once(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        template = (
+            ROOT
+            / "proof"
+            / "puppet-acp"
+            / "20260921"
+            / "antigravity"
+            / "inputs"
+            / "v2-fixture"
+            / "normalize-lines-fixture"
+        )
+        intended = (
+            ROOT
+            / "proof"
+            / "puppet-acp"
+            / "20260921"
+            / "antigravity"
+            / "inputs"
+            / "v2-fixture"
+            / "intended"
+            / "bin"
+            / "normalize-lines.mjs"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "fixture"
+            shutil.copytree(template, workspace)
+            intended_digest = hashlib.sha256(intended.read_bytes()).hexdigest()
+            runtime = AntigravityAcpNodeRuntime(
+                workspace=workspace,
+                isolated_root=isolated,
+                repo_root=ROOT,
+                synthetic_peer=True,
+                synthetic_peer_script="permission-peer.mjs",
+                synthetic_peer_permission="locations_path",
+            )
+            try:
+                runner = self._runner(
+                    isolated,
+                    workspace,
+                    runtime,
+                    session_mode=SESSION_MODE_PERSISTENT,
+                    finish_policy=FINISH_POLICY_RETAIN,
+                )
+                runner.observation()
+                self.assertEqual(runner.permission_outcome["outcome"], "allow_once")
+                self.assertEqual(runner.permission_outcome["path_source"], "locations")
+                self.assertEqual(runner.permission_outcome["id_class"], "opaque")
+                self.assertEqual(runner.permission_outcome["reason"], "granted_once")
+                self.assertFalse(runner.permission_outcome["fs"])
+                self.assertFalse(runner.permission_outcome["terminal"])
+                self.assertEqual(
+                    hashlib.sha256(
+                        (workspace / "bin" / "normalize-lines.mjs").read_bytes()
+                    ).hexdigest(),
+                    intended_digest,
+                )
+                self.assertNotIn(
+                    str(workspace / "bin" / "normalize-lines.mjs"),
+                    json.dumps(runner.permission_outcome),
+                )
+            finally:
+                runtime.shutdown()
+
+    def test_actual_public_runtime_host_permission_fails_closed_without_fixture_edit(self):
+        artifact = ROOT / ACPX_ARTIFACT_PATH
+        if not artifact.is_file():
+            self.skipTest("exact local acpx artifact is task-owned proof input")
+        template = (
+            ROOT
+            / "proof"
+            / "puppet-acp"
+            / "20260921"
+            / "antigravity"
+            / "inputs"
+            / "v2-fixture"
+            / "normalize-lines-fixture"
+        )
+        for mode, reason in (
+            ("deny_protected", "non_intended_path"),
+            ("absent_path", "absent_path"),
+            ("multiple_paths", "multiple_paths"),
+            ("conflicting_paths", "conflicting_paths"),
+            ("absent_kind", "absent_kind"),
+            ("other_kind", "other_kind"),
+            ("absent_allow_once", "absent_allow_once"),
+            ("title_only", "inferred_kind_only"),
+            ("interaction", "interaction"),
+            ("elicitation", "elicitation"),
+            ("ambiguous", "absent_path"),
+        ):
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory() as temporary:
+                    isolated = _private_root(temporary)
+                    workspace = Path(temporary).resolve() / "fixture"
+                    shutil.copytree(template, workspace)
+                    protected = workspace / "test" / "normalize-lines.test.mjs"
+                    protected_before = hashlib.sha256(protected.read_bytes()).hexdigest()
+                    runtime = AntigravityAcpNodeRuntime(
+                        workspace=workspace,
+                        isolated_root=isolated,
+                        repo_root=ROOT,
+                        synthetic_peer=True,
+                        synthetic_peer_script="permission-peer.mjs",
+                        synthetic_peer_permission=mode,
+                    )
+                    try:
+                        runner = self._runner(
+                            isolated,
+                            workspace,
+                            runtime,
+                            session_mode=SESSION_MODE_PERSISTENT,
+                            finish_policy=FINISH_POLICY_RETAIN,
+                        )
+                        runner.observation()
+                        if runner.permission_outcome is None:
+                            self.assertEqual(mode, "elicitation")
+                        else:
+                            self.assertNotEqual(runner.permission_outcome["outcome"], "allow_once")
+                            self.assertFalse(runner.permission_outcome["allowed"])
+                            self.assertEqual(runner.permission_outcome["reason"], reason)
+                            self.assertFalse(runner.permission_outcome["os_sandbox"])
+                            self.assertFalse(runner.permission_outcome["fs"])
+                            self.assertFalse(runner.permission_outcome["terminal"])
+                            dump = json.dumps(runner.permission_outcome)
+                            self.assertNotIn("rawInput", dump)
+                            self.assertNotIn(str(workspace), dump)
+                            self.assertNotIn("write bin/normalize-lines.mjs", dump)
+                        self.assertFalse((workspace / "bin" / "normalize-lines.mjs").exists())
+                        self.assertEqual(
+                            hashlib.sha256(protected.read_bytes()).hexdigest(),
+                            protected_before,
+                        )
+                    finally:
+                        runtime.shutdown()
 
 
 if __name__ == "__main__":

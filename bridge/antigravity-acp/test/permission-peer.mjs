@@ -18,8 +18,16 @@ const DEFAULT_INTENDED_SOURCE = path.resolve(
 );
 const ALLOWED_PERMISSION_MODES = new Set([
   "fs_write_file",
+  "locations_path",
   "fs_write_twice",
   "deny_protected",
+  "absent_path",
+  "multiple_paths",
+  "conflicting_paths",
+  "absent_kind",
+  "other_kind",
+  "absent_allow_once",
+  "title_only",
   "interaction",
   "elicitation",
   "ambiguous",
@@ -36,6 +44,7 @@ if (!ALLOWED_PERMISSION_MODES.has(permissionMode)) {
 const sessions = new Map();
 const pending = new Map();
 let nextRequestId = 1000;
+let nextOpaqueId = 1;
 let workspaceCwd = process.cwd();
 
 function createSession(sessionId) {
@@ -74,6 +83,10 @@ function request(method, params) {
   });
 }
 
+function nextToolCallId() {
+  return `call_${nextOpaqueId++}`;
+}
+
 function permissionOptions() {
   return [
     { optionId: "allow-once", kind: "allow_once", name: "Allow once" },
@@ -81,17 +94,28 @@ function permissionOptions() {
   ];
 }
 
-function requestPermission(sessionId, toolCallId, filePath, title = "write") {
+function requestPermission(sessionId, {
+  toolCallId = nextToolCallId(),
+  kind,
+  filePath,
+  locations,
+  title = "write",
+  options = permissionOptions(),
+} = {}) {
+  const toolCall = {
+    toolCallId,
+    title,
+    status: "pending",
+  };
+  if (kind !== undefined) toolCall.kind = kind;
+  if (filePath !== undefined) {
+    toolCall.rawInput = filePath ? { path: filePath } : {};
+  }
+  if (locations !== undefined) toolCall.locations = locations;
   return request("session/request_permission", {
     sessionId,
-    toolCall: {
-      toolCallId,
-      title,
-      kind: toolCallId === "fs_write_file" ? "edit" : "other",
-      status: "pending",
-      rawInput: filePath ? { path: filePath } : {},
-    },
-    options: permissionOptions(),
+    toolCall,
+    options,
   });
 }
 
@@ -112,10 +136,20 @@ async function writeTamper(workspace) {
   await writeFile(target, "tampered-by-second-grant\n");
 }
 
+async function maybeWriteIntended(sessionId, workspace, requestArgs) {
+  const response = await requestPermission(sessionId, requestArgs);
+  if (selectedAllowOnce(response)) {
+    await writeIntended(workspace);
+  }
+  return response;
+}
+
 async function handlePrompt(sessionId) {
   const workspace = workspaceCwd;
+  const intended = path.join(workspace, INTENDED_RELATIVE);
+  const protectedPath = path.join(workspace, PROTECTED_RELATIVE);
   if (permissionMode === "interaction") {
-    await requestPermission(sessionId, "interaction_choose");
+    await requestPermission(sessionId, { toolCallId: "interaction_choose" });
   } else if (permissionMode === "elicitation") {
     await request("elicitation/create", {
       mode: "form",
@@ -123,36 +157,69 @@ async function handlePrompt(sessionId) {
       sessionId,
       requestedSchema: { type: "object", properties: {} },
     });
-  } else if (permissionMode === "ambiguous") {
-    await requestPermission(sessionId, "fs_write_file");
+  } else if (permissionMode === "ambiguous" || permissionMode === "absent_path") {
+    await requestPermission(sessionId, { kind: "edit" });
+  } else if (permissionMode === "multiple_paths") {
+    await requestPermission(sessionId, {
+      kind: "edit",
+      locations: [{ path: intended }, { path: protectedPath }],
+    });
+  } else if (permissionMode === "conflicting_paths") {
+    await requestPermission(sessionId, {
+      kind: "edit",
+      filePath: intended,
+      locations: [{ path: protectedPath }],
+    });
+  } else if (permissionMode === "absent_kind") {
+    await requestPermission(sessionId, { title: "", filePath: intended });
+  } else if (permissionMode === "other_kind") {
+    await requestPermission(sessionId, { kind: "execute", filePath: intended });
+  } else if (permissionMode === "absent_allow_once") {
+    await requestPermission(sessionId, {
+      kind: "edit",
+      filePath: intended,
+      options: [
+        { optionId: "allow-always", kind: "allow_always", name: "Allow always" },
+        { optionId: "reject-once", kind: "reject_once", name: "Reject once" },
+      ],
+    });
+  } else if (permissionMode === "title_only") {
+    await requestPermission(sessionId, {
+      title: "write bin/normalize-lines.mjs",
+      filePath: intended,
+    });
   } else if (permissionMode === "deny_protected") {
-    const first = await requestPermission(
-      sessionId,
-      "fs_write_file",
-      path.join(workspace, PROTECTED_RELATIVE),
-    );
+    const first = await requestPermission(sessionId, {
+      kind: "edit",
+      filePath: protectedPath,
+    });
     if (selectedAllowOnce(first)) {
       await writeTamper(workspace);
     }
   } else if (permissionMode === "fs_write_twice") {
-    const intended = path.join(workspace, INTENDED_RELATIVE);
-    const first = await requestPermission(sessionId, "fs_write_file", intended);
-    if (selectedAllowOnce(first)) {
-      await writeIntended(workspace);
-    }
-    const second = await requestPermission(sessionId, "fs_write_file", intended);
-    if (selectedAllowOnce(second)) {
+    const first = await maybeWriteIntended(sessionId, workspace, {
+      kind: "edit",
+      filePath: intended,
+    });
+    const second = await requestPermission(sessionId, {
+      kind: "edit",
+      filePath: intended,
+    });
+    if (selectedAllowOnce(second) && selectedAllowOnce(first)) {
+      await writeTamper(workspace);
+    } else if (selectedAllowOnce(second)) {
       await writeTamper(workspace);
     }
+  } else if (permissionMode === "locations_path") {
+    await maybeWriteIntended(sessionId, workspace, {
+      kind: "edit",
+      locations: [{ path: intended }],
+    });
   } else {
-    const first = await requestPermission(
-      sessionId,
-      "fs_write_file",
-      path.join(workspace, INTENDED_RELATIVE),
-    );
-    if (selectedAllowOnce(first)) {
-      await writeIntended(workspace);
-    }
+    await maybeWriteIntended(sessionId, workspace, {
+      kind: "edit",
+      filePath: intended,
+    });
   }
   notify("session/update", {
     sessionId,

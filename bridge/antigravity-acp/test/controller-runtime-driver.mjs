@@ -43,8 +43,16 @@ const ALLOWED_SYNTHETIC_PEERS = new Set([
 ]);
 const ALLOWED_PEER_PERMISSION_MODES = new Set([
   "fs_write_file",
+  "locations_path",
   "fs_write_twice",
   "deny_protected",
+  "absent_path",
+  "multiple_paths",
+  "conflicting_paths",
+  "absent_kind",
+  "other_kind",
+  "absent_allow_once",
+  "title_only",
   "interaction",
   "elicitation",
   "ambiguous",

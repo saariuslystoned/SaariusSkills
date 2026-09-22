@@ -55,6 +55,70 @@ _TURN_STOP_REASONS = frozenset(
     }
 )
 _TURN_SECRET_CODE_PARTS = ("token", "secret", "password", "prompt", "credential")
+_TURN_PERMISSION_ACP_KINDS = frozenset(
+    {
+        "read",
+        "edit",
+        "delete",
+        "move",
+        "search",
+        "execute",
+        "think",
+        "fetch",
+        "switch_mode",
+        "other",
+        "absent",
+    }
+)
+_TURN_PERMISSION_KIND_SOURCES = frozenset({"standardized", "inferred", "absent"})
+_TURN_PERMISSION_ID_CLASSES = frozenset({"opaque", "interaction", "absent"})
+_TURN_PERMISSION_PATH_SOURCES = frozenset(
+    {"raw_input", "locations", "both", "absent", "multiple", "conflicting"}
+)
+_TURN_PERMISSION_PATH_CARDINALITIES = frozenset({"zero", "one", "multiple"})
+_TURN_PERMISSION_PATH_CLASSES = frozenset(
+    {"intended", "non_intended", "absent", "ambiguous"}
+)
+_TURN_PERMISSION_SCHEMA = "puppet.antigravity-acp-host-permission/v1"
+_TURN_PERMISSION_OUTCOMES = frozenset({"allow_once", "denied", "cancelled"})
+_TURN_PERMISSION_KINDS = frozenset(
+    {"edit", "denied", "interaction", "elicitation", "ambiguous", "host"}
+)
+_TURN_PERMISSION_OPTION_KINDS = (
+    "allow_once",
+    "allow_always",
+    "reject_once",
+    "reject_always",
+)
+_TURN_PERMISSION_OPTION_KIND_SET = frozenset(_TURN_PERMISSION_OPTION_KINDS)
+_TURN_PERMISSION_DECISION_LIMIT = 32
+_TURN_PERMISSION_REASONS = frozenset(
+    {
+        "granted_once",
+        "replay",
+        "absent_kind",
+        "other_kind",
+        "inferred_kind_only",
+        "absent_path",
+        "multiple_paths",
+        "conflicting_paths",
+        "non_intended_path",
+        "absent_allow_once",
+        "interaction",
+        "elicitation",
+        "ambiguous",
+        "missing_session",
+    }
+)
+_TURN_PERMISSION_DIAGNOSTIC_ENUMS = (
+    ("kind", _TURN_PERMISSION_ACP_KINDS),
+    ("kind_source", _TURN_PERMISSION_KIND_SOURCES),
+    ("id_class", _TURN_PERMISSION_ID_CLASSES),
+    ("path_source", _TURN_PERMISSION_PATH_SOURCES),
+    ("path_cardinality", _TURN_PERMISSION_PATH_CARDINALITIES),
+    ("path_class", _TURN_PERMISSION_PATH_CLASSES),
+    ("reason", _TURN_PERMISSION_REASONS),
+)
 
 OWNERSHIP_KEYS = frozenset(
     {
@@ -365,6 +429,77 @@ def mark_cleanup_unknown(
         return current
 
 
+def _enum_member(value: Any, allowed: frozenset) -> bool:
+    return isinstance(value, str) and value in allowed
+
+
+def _bound_receipt_option_kinds(value: Any) -> list:
+    if not isinstance(value, list):
+        return []
+    bounded = []
+    for item in value:
+        if _enum_member(item, _TURN_PERMISSION_OPTION_KIND_SET) and item not in bounded:
+            bounded.append(item)
+        if len(bounded) >= len(_TURN_PERMISSION_OPTION_KINDS):
+            break
+    return bounded
+
+
+def _bound_receipt_permission_diagnostics(item: Mapping[str, Any]) -> Dict[str, Any]:
+    bounded: Dict[str, Any] = {}
+    for key, allowed in _TURN_PERMISSION_DIAGNOSTIC_ENUMS:
+        candidate = item.get(key)
+        if _enum_member(candidate, allowed):
+            bounded[key] = candidate
+    offered = item.get("offered_option_kinds")
+    if isinstance(offered, list):
+        bounded["offered_option_kinds"] = _bound_receipt_option_kinds(offered)
+    return bounded
+
+
+def _bound_permission_kind(value: Any) -> Optional[str]:
+    if _enum_member(value, _TURN_PERMISSION_KINDS):
+        return value
+    return None
+
+
+def _decision_count(value: Any, observed: int) -> int:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= observed:
+        return value
+    return observed
+
+
+def _bound_receipt_decisions(permission: Mapping[str, Any]) -> Dict[str, Any]:
+    decisions = permission.get("decisions")
+    if not isinstance(decisions, list):
+        return {}
+    bounded_decisions = []
+    for item in decisions:
+        if not isinstance(item, Mapping):
+            continue
+        outcome = item.get("outcome")
+        if not _enum_member(outcome, _TURN_PERMISSION_OUTCOMES):
+            continue
+        decision = {"outcome": outcome}
+        permission_kind = _bound_permission_kind(item.get("permission_kind"))
+        if permission_kind is not None:
+            decision["permission_kind"] = permission_kind
+        decision.update(_bound_receipt_permission_diagnostics(item))
+        bounded_decisions.append(decision)
+    truncated = permission.get("decisions_truncated") is True
+    if len(bounded_decisions) > _TURN_PERMISSION_DECISION_LIMIT:
+        bounded_decisions = bounded_decisions[-_TURN_PERMISSION_DECISION_LIMIT:]
+        truncated = True
+    total = _decision_count(permission.get("decision_count"), len(decisions))
+    if total > len(bounded_decisions):
+        truncated = True
+    return {
+        "decisions": bounded_decisions,
+        "decision_count": total,
+        "decisions_truncated": truncated,
+    }
+
+
 def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
     _reject_body_keys(value, "turn receipt")
     fields: Dict[str, Any] = {}
@@ -398,7 +533,7 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
         outcome = permission.get("outcome")
         grant_count = permission.get("grant_count")
         if (
-            outcome in {"allow_once", "denied", "cancelled"}
+            _enum_member(outcome, _TURN_PERMISSION_OUTCOMES)
             and permission.get("persisted") is False
             and permission.get("approve_all") is False
             and permission.get("os_sandbox") is False
@@ -407,14 +542,13 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
             and permission.get("ordinary_launch") == "unavailable"
             and permission.get("body_retained") is False
             and permission.get("invented_decision") is None
+            and isinstance(grant_count, int)
+            and not isinstance(grant_count, bool)
             and grant_count in {0, 1}
         ):
             fields["permission"] = {
-                "schema": permission.get("schema"),
                 "state": outcome,
                 "outcome": outcome,
-                "permission_id": permission.get("permission_id"),
-                "permission_kind": permission.get("permission_kind"),
                 "grant_count": grant_count,
                 "allowed": permission.get("allowed") is True,
                 "persisted": False,
@@ -426,17 +560,16 @@ def _turn_receipt_fields(value: Mapping[str, Any]) -> Dict[str, Any]:
                 "body_retained": False,
                 "invented_decision": None,
             }
-            decisions = permission.get("decisions")
-            if isinstance(decisions, list):
-                fields["permission"]["decisions"] = [
-                    {
-                        "outcome": item.get("outcome"),
-                        "permission_kind": item.get("permission_kind"),
-                    }
-                    for item in decisions
-                    if isinstance(item, Mapping)
-                    and item.get("outcome") in {"allow_once", "denied", "cancelled"}
-                ]
+            if permission.get("schema") == _TURN_PERMISSION_SCHEMA:
+                fields["permission"]["schema"] = _TURN_PERMISSION_SCHEMA
+            permission_id = _bound_permission_kind(permission.get("permission_id"))
+            if permission_id is not None:
+                fields["permission"]["permission_id"] = permission_id
+            permission_kind = _bound_permission_kind(permission.get("permission_kind"))
+            if permission_kind is not None:
+                fields["permission"]["permission_kind"] = permission_kind
+            fields["permission"].update(_bound_receipt_permission_diagnostics(permission))
+            fields["permission"].update(_bound_receipt_decisions(permission))
     return fields
 
 
