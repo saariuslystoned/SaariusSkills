@@ -7,7 +7,7 @@ description: Use the separately named antigravity-acp MCP lane to diagnose offic
 
 Use the `antigravity-acp` MCP server as an optional experimental local worker
 route for one bounded implementation or verification slice. This lane talks to
-Google's official Antigravity ACP runtime through pinned `acpx@0.17.1`. It is
+Google's official Antigravity ACP runtime through pinned `acpx@0.19.0`. It is
 not the Cursor ACP lane, not native `agy --print`, and not a Puppet transport.
 
 ## Discovery and setup
@@ -31,8 +31,10 @@ and all six tools. It does not download, install, or update the official
 `antigravity-acp` 1.1.1 runtime/helper, open a login, or send a model turn.
 
 The pinned runtime is `antigravity-acp` 1.1.1 at registry revision
-`81bf71b55e15f630c4fb8a86d20d3088071d2071`, launched through `acpx` 0.17.1
-(`50a47ad10a75431cbc276ec9b555d11fe1f69c84`). Setup reports the exact platform
+`81bf71b55e15f630c4fb8a86d20d3088071d2071`, launched through `acpx` 0.19.0
+(published npm integrity, tarball hash, and `runtime.js` hash; `acpxSourceCommit`
+is null because that release has no gitHead; `50a47ad` is only
+`lastInspectedSourceCommit` for the 0.17.1 watch identity). Setup reports the exact platform
 archive, helper name, and `GEMINI_HOME` personal-OAuth repair actions. Do not
 silently install those binaries.
 

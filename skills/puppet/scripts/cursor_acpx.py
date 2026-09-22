@@ -5,8 +5,9 @@ launch, native defaults, MCP broker policy, and live qualification stay
 unchanged and unavailable. The public-runtime boundary is the documented
 ``createAcpRuntime`` options from openclaw/acpx merged main
 ``2e05de525dd1ab62e9e74bf02d91e3638920fcf3`` (through ``#689``). That
-commit is exact-source proof only; published ``acpx@0.18.0`` does not
-contain it. Historical ``#648``, refresh ``ce8c3689...``, and prior
+commit is exact-source proof only; the ordinary native pin is published
+``acpx@0.19.0``, and neither that release nor published ``acpx@0.18.0``
+is the candidate merge tarball. Historical ``#648``, refresh ``ce8c3689...``, and prior
 controller ``f8883645...`` identities remain rejected fences. Private
 internals are not imported. The existing ``cursor-acp`` controller
 consumes runtime-derived observations; this adapter keeps ownership, pin,
@@ -75,9 +76,18 @@ ACPX_PR_HEAD = "27e58b7dba7aa4e6e4bc0cc175ad6cdbc00587c7"
 ACPX_PR_BASE = "d4916ce050582c7415632c4e7cf84d285d268fa9"
 ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58"
 ACPX_STATUS = "merged_unreleased"
-ACPX_ORDINARY_PINNED_PACKAGE = "0.16.0"
+ACPX_ORDINARY_PINNED_PACKAGE = "0.19.0"
 ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0"
-ACPX_PUBLISHED_NPM_VERSION = "0.18.0"
+ACPX_PUBLISHED_NPM_VERSION = "0.19.0"
+ACPX_PUBLISHED_NPM_INTEGRITY = (
+    "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q=="
+)
+ACPX_PUBLISHED_TARBALL_SHA256 = (
+    "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d"
+)
+ACPX_PUBLISHED_RUNTIME_JS_SHA256 = (
+    "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b"
+)
 ACPX_ARTIFACT_SHA256 = (
     "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614"
 )
@@ -294,6 +304,8 @@ def acpx_dependency_identity() -> Dict[str, Any]:
         "ordinary_pinned_package": ACPX_ORDINARY_PINNED_PACKAGE,
         "candidate_package_version": ACPX_CANDIDATE_PACKAGE_VERSION,
         "published_npm_version": ACPX_PUBLISHED_NPM_VERSION,
+        # Candidate-artifact inequality only: published npm is not the local
+        # 0.18.0 merge tarball. Not a published-package gitHead/source claim.
         "published_npm_contains_merge": False,
         "ordinary_route_unchanged": True,
         "qualification": ACPX_QUALIFICATION,
@@ -338,12 +350,12 @@ def validate_acpx_dependency_identity(value: Any) -> Dict[str, Any]:
     if value.get("published_npm_contains_merge") is True:
         _raise_identity(
             "identity_mismatch",
-            "published npm acpx@0.18.0 does not contain the merge",
+            "published npm acpx@0.19.0 is not the candidate merge tarball",
         )
     if value.get("ordinary_pinned_package") != ACPX_ORDINARY_PINNED_PACKAGE:
         _raise_identity(
             "identity_mismatch",
-            "ordinary production pin must stay 0.16.0",
+            "ordinary production pin must stay 0.19.0",
         )
     if value.get("candidate_package_version") != ACPX_CANDIDATE_PACKAGE_VERSION:
         _raise_identity(

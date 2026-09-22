@@ -462,9 +462,15 @@ registered in transport dispatch. Its focused tests prove pin drift,
 credential fallback, model substitution, question auto-answering, and body
 retention all fail closed.
 
-Primary watch sources: [acpx v0.17.1](https://github.com/openclaw/acpx/releases/tag/v0.17.1),
-[acpx Antigravity guide](https://github.com/openclaw/acpx/blob/50a47ad10a75431cbc276ec9b555d11fe1f69c84/agents/Antigravity.md),
+Primary watch sources: [acpx v0.19.0](https://github.com/openclaw/acpx/releases/tag/v0.19.0),
+the last independently inspected [acpx Antigravity guide at the 0.17.1 source](https://github.com/openclaw/acpx/blob/50a47ad10a75431cbc276ec9b555d11fe1f69c84/agents/Antigravity.md),
 and the [official ACP registry entry](https://github.com/agentclientprotocol/registry/blob/81bf71b55e15f630c4fb8a86d20d3088071d2071/antigravity-acp/agent.json).
+Machine-readable `RUNTIME_PIN.acpxSourceCommit` / `candidate_contract().runtime.acpx_source_commit`
+are explicit `null` because published `acpx@0.19.0` has no gitHead. The 0.17.1
+SHA lives only in `lastInspectedSourceCommit` / `last_inspected_source_commit`
+with `lastInspectedSourceRelease` / `last_inspected_source_release` `0.17.1`.
+Exact npm version, integrity, tarball hash, and `runtime.js` hash remain
+authoritative for 0.19.0.
 
 ## Transcript blindness
 

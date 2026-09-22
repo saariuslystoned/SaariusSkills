@@ -4,8 +4,15 @@ import { homedir } from "node:os";
 export const RUNTIME_ID = "antigravity-acp";
 export const RUNTIME_VERSION = "1.1.1";
 export const REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071";
-export const ACPX_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84";
-export const ACPX_RELEASE = "0.17.1";
+// Published acpx@0.19.0 has no gitHead. Do not publish the last independently
+// inspected 0.17.1 watch identity as the 0.19.0 source commit.
+export const ACPX_SOURCE_COMMIT = null;
+export const ACPX_LAST_INSPECTED_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84";
+export const ACPX_LAST_INSPECTED_SOURCE_RELEASE = "0.17.1";
+export const ACPX_RELEASE = "0.19.0";
+export const ACPX_NPM_INTEGRITY = "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==";
+export const ACPX_TARBALL_SHA256 = "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d";
+export const ACPX_RUNTIME_JS_SHA256 = "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b";
 export const PROFILE_ENV = "GEMINI_HOME";
 export const AUTH_MODE = "oauth-personal";
 export const DEFAULT_STATE_DIR_NAME = "antigravity-acp-delegation";
@@ -16,8 +23,48 @@ export const RUNTIME_PIN = Object.freeze({
   version: RUNTIME_VERSION,
   registryRevision: REGISTRY_REVISION,
   acpxSourceCommit: ACPX_SOURCE_COMMIT,
+  lastInspectedSourceCommit: ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+  lastInspectedSourceRelease: ACPX_LAST_INSPECTED_SOURCE_RELEASE,
   acpxRelease: ACPX_RELEASE,
+  acpxNpmIntegrity: ACPX_NPM_INTEGRITY,
+  acpxTarballSha256: ACPX_TARBALL_SHA256,
+  acpxRuntimeJsSha256: ACPX_RUNTIME_JS_SHA256,
 });
+
+export function validateRuntimePin(value = RUNTIME_PIN) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Antigravity ACP runtime pin is invalid");
+  }
+  if (value.acpxSourceCommit !== null) {
+    throw new Error("published acpx@0.19.0 source commit is unknown");
+  }
+  if (value.lastInspectedSourceRelease === ACPX_RELEASE) {
+    throw new Error("last inspected 0.17.1 source is not the published 0.19.0 release");
+  }
+  if (value.lastInspectedSourceCommit !== ACPX_LAST_INSPECTED_SOURCE_COMMIT) {
+    throw new Error("last inspected Antigravity source commit drifted");
+  }
+  if (value.lastInspectedSourceRelease !== ACPX_LAST_INSPECTED_SOURCE_RELEASE) {
+    throw new Error("last inspected Antigravity source release drifted");
+  }
+  if (
+    value.acpxRelease !== ACPX_RELEASE
+    || value.acpxNpmIntegrity !== ACPX_NPM_INTEGRITY
+    || value.acpxTarballSha256 !== ACPX_TARBALL_SHA256
+    || value.acpxRuntimeJsSha256 !== ACPX_RUNTIME_JS_SHA256
+    || value.id !== RUNTIME_ID
+    || value.version !== RUNTIME_VERSION
+    || value.registryRevision !== REGISTRY_REVISION
+  ) {
+    throw new Error("Antigravity ACP runtime pin drifted");
+  }
+  const expectedKeys = Object.keys(RUNTIME_PIN);
+  const actualKeys = Object.keys(value);
+  if (expectedKeys.length !== actualKeys.length || expectedKeys.some((key) => !actualKeys.includes(key))) {
+    throw new Error("Antigravity ACP runtime pin drifted");
+  }
+  return RUNTIME_PIN;
+}
 
 export const PLATFORM_COMMANDS = Object.freeze({
   "darwin-aarch64": {

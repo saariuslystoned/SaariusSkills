@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -10,6 +12,9 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.antigravity_acp import (  # noqa: E402
+    ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+    ACPX_LAST_INSPECTED_SOURCE_RELEASE,
+    ACPX_SOURCE_COMMIT,
     CANDIDATE_SCHEMA,
     DEFAULT_ROUTE,
     OBSERVATION_SCHEMA,
@@ -106,6 +111,30 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         self.assertFalse(contract["available"])
         self.assertFalse(AntigravityAcpController.available())
         self.assertFalse(transport_is_available(TRANSPORT_ID))
+        self.assertEqual(contract["runtime"]["acpx_release"], "0.19.0")
+        self.assertEqual(
+            contract["runtime"]["acpx_npm_integrity"],
+            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+        )
+        self.assertEqual(
+            contract["runtime"]["acpx_tarball_sha256"],
+            "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d",
+        )
+        self.assertIsNone(contract["runtime"]["acpx_source_commit"])
+        self.assertIsNone(ACPX_SOURCE_COMMIT)
+        self.assertEqual(
+            contract["runtime"]["last_inspected_source_commit"],
+            ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+        )
+        self.assertEqual(
+            contract["runtime"]["last_inspected_source_commit"],
+            "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+        )
+        self.assertEqual(
+            contract["runtime"]["last_inspected_source_release"],
+            ACPX_LAST_INSPECTED_SOURCE_RELEASE,
+        )
+        self.assertEqual(contract["runtime"]["last_inspected_source_release"], "0.17.1")
 
     def test_contract_rejects_generic_acp_or_pin_drift(self):
         generic = candidate_contract()
@@ -122,6 +151,56 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         qualified["qualification"] = "qualified"
         with self.assertRaisesRegex(ValidationError, "cannot claim qualification"):
             validate_candidate_contract(qualified)
+
+        claimed_source = candidate_contract()
+        claimed_source["runtime"]["acpx_source_commit"] = ACPX_LAST_INSPECTED_SOURCE_COMMIT
+        with self.assertRaisesRegex(ValidationError, "source commit is unknown"):
+            validate_candidate_contract(claimed_source)
+
+        relabeled_release = candidate_contract()
+        relabeled_release["runtime"]["last_inspected_source_release"] = "0.19.0"
+        with self.assertRaisesRegex(ValidationError, "not the published 0.19.0 release"):
+            validate_candidate_contract(relabeled_release)
+
+    def test_js_runtime_pin_keeps_published_source_unknown(self):
+        script = (
+            "import { RUNTIME_PIN, validateRuntimePin } "
+            "from './bridge/antigravity-acp/contract.mjs'; "
+            "process.stdout.write(JSON.stringify(validateRuntimePin(RUNTIME_PIN)))"
+        )
+        raw = subprocess.check_output(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+        )
+        pin = json.loads(raw)
+        runtime = candidate_contract()["runtime"]
+        self.assertIsNone(pin["acpxSourceCommit"])
+        self.assertIsNone(runtime["acpx_source_commit"])
+        self.assertEqual(
+            pin["lastInspectedSourceCommit"],
+            runtime["last_inspected_source_commit"],
+        )
+        self.assertEqual(pin["lastInspectedSourceRelease"], "0.17.1")
+        self.assertEqual(pin["acpxRelease"], runtime["acpx_release"])
+        self.assertEqual(pin["acpxNpmIntegrity"], runtime["acpx_npm_integrity"])
+        self.assertEqual(pin["acpxTarballSha256"], runtime["acpx_tarball_sha256"])
+        self.assertEqual(pin["acpxRuntimeJsSha256"], runtime["acpx_runtime_js_sha256"])
+        claimed = dict(pin, acpxSourceCommit=ACPX_LAST_INSPECTED_SOURCE_COMMIT)
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess.check_output(
+                [
+                    "node",
+                    "--input-type=module",
+                    "-e",
+                    (
+                        "import { validateRuntimePin } from './bridge/antigravity-acp/contract.mjs'; "
+                        "validateRuntimePin(%s)"
+                    )
+                    % json.dumps(claimed),
+                ],
+                cwd=ROOT,
+                stderr=subprocess.STDOUT,
+            )
 
     def test_auth_rejects_every_fallback_and_ambiguous_state(self):
         for changes, message in (

@@ -2,13 +2,19 @@
 
 This repository carries an experimental local-only bridge for Codex, separate
 from the Cursor ACP lane. The bridge exposes a small stdio MCP server named
-`antigravity-acp` and uses pinned `acpx@0.17.1` to open an ACP session with
+`antigravity-acp` and uses pinned `acpx@0.19.0` to open an ACP session with
 Google's official Antigravity runtime:
 
 ```text
 antigravity-acp 1.1.1
 registry revision 81bf71b55e15f630c4fb8a86d20d3088071d2071
-acpx 0.17.1 / 50a47ad10a75431cbc276ec9b555d11fe1f69c84
+acpx 0.19.0
+acpxSourceCommit null (published package has no gitHead)
+lastInspectedSourceCommit 50a47ad10a75431cbc276ec9b555d11fe1f69c84
+lastInspectedSourceRelease 0.17.1
+npm integrity sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==
+tarball sha256 5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d
+runtime.js sha256 88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b
 ```
 
 The runtime binary and matching `localharness_external` helper are a separate

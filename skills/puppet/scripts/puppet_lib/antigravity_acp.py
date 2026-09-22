@@ -57,8 +57,21 @@ OWNERSHIP_SCHEMA = "puppet.antigravity-acpx-ownership/v1"
 REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071"
 RUNTIME_ID = "antigravity-acp"
 RUNTIME_VERSION = "1.1.1"
-ACPX_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84"
-ACPX_RELEASE = "0.17.1"
+# Published acpx@0.19.0 has no gitHead. The 0.17.1 SHA is a historical watch
+# identity only and must not machine-read as the published package source.
+ACPX_SOURCE_COMMIT = None
+ACPX_LAST_INSPECTED_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84"
+ACPX_LAST_INSPECTED_SOURCE_RELEASE = "0.17.1"
+ACPX_RELEASE = "0.19.0"
+ACPX_NPM_INTEGRITY = (
+    "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q=="
+)
+ACPX_TARBALL_SHA256 = (
+    "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d"
+)
+ACPX_RUNTIME_JS_SHA256 = (
+    "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b"
+)
 
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-high"
 ADVERTISED_ANTIGRAVITY_MODELS = (
@@ -167,7 +180,18 @@ _CONTRACT_KEYS = frozenset(
     }
 )
 _RUNTIME_KEYS = frozenset(
-    {"id", "version", "registry_revision", "acpx_source_commit", "acpx_release"}
+    {
+        "id",
+        "version",
+        "registry_revision",
+        "acpx_source_commit",
+        "last_inspected_source_commit",
+        "last_inspected_source_release",
+        "acpx_release",
+        "acpx_npm_integrity",
+        "acpx_tarball_sha256",
+        "acpx_runtime_js_sha256",
+    }
 )
 _AUTH_POLICY_KEYS = frozenset(
     {
@@ -690,7 +714,12 @@ def candidate_contract() -> Dict[str, Any]:
             "version": RUNTIME_VERSION,
             "registry_revision": REGISTRY_REVISION,
             "acpx_source_commit": ACPX_SOURCE_COMMIT,
+            "last_inspected_source_commit": ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+            "last_inspected_source_release": ACPX_LAST_INSPECTED_SOURCE_RELEASE,
             "acpx_release": ACPX_RELEASE,
+            "acpx_npm_integrity": ACPX_NPM_INTEGRITY,
+            "acpx_tarball_sha256": ACPX_TARBALL_SHA256,
+            "acpx_runtime_js_sha256": ACPX_RUNTIME_JS_SHA256,
         },
         "auth_policy": {
             "mode": "oauth-personal",
@@ -739,6 +768,14 @@ def validate_candidate_contract(value: Any) -> Dict[str, Any]:
         raise ValidationError("candidate contract requires explicit activation")
 
     runtime = _exact_mapping(contract.get("runtime"), _RUNTIME_KEYS, "runtime pin")
+    if runtime.get("acpx_source_commit") is not None:
+        raise ValidationError("published acpx@0.19.0 source commit is unknown")
+    if runtime.get("last_inspected_source_release") == ACPX_RELEASE:
+        raise ValidationError("last inspected 0.17.1 source is not the published 0.19.0 release")
+    if runtime.get("last_inspected_source_commit") != ACPX_LAST_INSPECTED_SOURCE_COMMIT:
+        raise ValidationError("last inspected Antigravity source commit drifted")
+    if runtime.get("last_inspected_source_release") != ACPX_LAST_INSPECTED_SOURCE_RELEASE:
+        raise ValidationError("last inspected Antigravity source release drifted")
     expected_runtime = candidate_contract()["runtime"]
     if dict(runtime) != expected_runtime:
         raise ValidationError("Antigravity ACP runtime pin drifted")
@@ -2632,6 +2669,8 @@ class AntigravityAcpController:
 
 
 __all__ = [
+    "ACPX_LAST_INSPECTED_SOURCE_COMMIT",
+    "ACPX_LAST_INSPECTED_SOURCE_RELEASE",
     "ACPX_RELEASE",
     "ACPX_SOURCE_COMMIT",
     "ADAPTER_ID",

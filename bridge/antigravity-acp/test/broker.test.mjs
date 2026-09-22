@@ -238,7 +238,13 @@ test("readiness proves advertised models without a turn", async () => {
   const report = await broker.discover({ workspace });
   assert.equal(report.ready, true);
   assert.equal(report.pin.version, "1.1.1");
-  assert.equal(report.pin.acpxRelease, "0.17.1");
+  assert.equal(report.pin.acpxRelease, "0.19.0");
+  assert.equal(report.pin.acpxSourceCommit, null);
+  assert.equal(
+    report.pin.lastInspectedSourceCommit,
+    "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+  );
+  assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
   assert.equal(report.model.availableModelCount, fixtureCatalog.availableModelIds.length);
   assert.equal(report.auth.mode, "oauth-personal");
   assert.equal(report.ultraAttribution, "unclaimed");
