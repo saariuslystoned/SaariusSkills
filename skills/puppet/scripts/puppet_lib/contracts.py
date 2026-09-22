@@ -36,6 +36,7 @@ PROCESS_IDENTITY_FIELDS = frozenset(
     }
 )
 ALLOWED_MODES = frozenset({"read", "test", "mutate", "local_commit"})
+INTENDED_WRITE_RELATIVE_MAX = 200
 MANDATORY_HARD_GATES = frozenset(
     {
         "merge",
@@ -77,6 +78,7 @@ class Contract:
     supervisor_root: Optional[Path]
     candidate_root: Optional[Path]
     transport: str
+    intended_write_relative: Optional[str]
     raw: Dict[str, Any]
 
     @classmethod
@@ -105,6 +107,7 @@ class Contract:
             "nonce",
             "proof_path_prefixes",
             "transport",
+            "intended_write_relative",
         }
         unknown = set(value) - allowed
         if unknown:
@@ -154,6 +157,10 @@ class Contract:
             raise ValidationError("invalid requested effort")
         if transport == "antigravity-acp" and requested_effort is not None:
             raise ValidationError("antigravity-acp does not support requested effort")
+        intended_write_relative = value.get("intended_write_relative")
+        if intended_write_relative is not None:
+            intended_write_relative = require_intended_write_relative(intended_write_relative)
+            normalized_raw["intended_write_relative"] = intended_write_relative
         max_helpers = value.get("max_helpers", 0)
         if isinstance(max_helpers, bool) or not isinstance(max_helpers, int) or not 0 <= max_helpers <= 32:
             raise ValidationError("max_helpers must be an integer from zero to 32")
@@ -258,6 +265,7 @@ class Contract:
             supervisor_root=supervisor_root,
             candidate_root=candidate_root,
             transport=transport,
+            intended_write_relative=intended_write_relative,
             raw=normalized_raw,
         )
 
@@ -268,6 +276,33 @@ class Contract:
     @property
     def fingerprint(self) -> str:
         return sha256_bytes(canonical_json_bytes(self.raw))
+
+
+def require_intended_write_relative(
+    value: Any, *, label: str = "intended write relative"
+) -> str:
+    """Require one unique relative edit path. Fail closed on ambiguity."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("%s is missing" % label)
+    relative = value.strip()
+    if (
+        len(relative) > INTENDED_WRITE_RELATIVE_MAX
+        or relative.startswith("/")
+        or "\\" in relative
+        or any(character in relative for character in "\x00\n\r")
+    ):
+        raise ValidationError("invalid %s" % label)
+    parsed = PurePosixPath(relative)
+    if (
+        parsed.is_absolute()
+        or relative.endswith("/")
+        or not parsed.parts
+        or any(part in {"", ".", ".."} for part in relative.split("/"))
+        or any(part in {"", ".", ".."} for part in parsed.parts)
+    ):
+        raise ValidationError("invalid %s" % label)
+    return parsed.as_posix()
 
 
 def assert_controller(contract: Contract, actor: str) -> None:

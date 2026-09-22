@@ -119,6 +119,17 @@ class ContractTests(unittest.TestCase):
             raw["target"] = "agy"
             contract = Contract.from_dict(raw)
             self.assertEqual(contract.transport, "antigravity-acp")
+            self.assertIsNone(contract.intended_write_relative)
+            raw["intended_write_relative"] = "src/owned.mjs"
+            contract = Contract.from_dict(raw)
+            self.assertEqual(contract.intended_write_relative, "src/owned.mjs")
+            raw["intended_write_relative"] = "../escape.mjs"
+            with self.assertRaisesRegex(ValidationError, "invalid intended write relative"):
+                Contract.from_dict(raw)
+            raw["intended_write_relative"] = "/abs/owned.mjs"
+            with self.assertRaisesRegex(ValidationError, "invalid intended write relative"):
+                Contract.from_dict(raw)
+            raw["intended_write_relative"] = "src/owned.mjs"
             raw["requested_effort"] = "high"
             with self.assertRaisesRegex(ValidationError, "does not support requested effort"):
                 Contract.from_dict(raw)

@@ -38,6 +38,7 @@ from .cursor_acp import (
     require_unsupported_permission_outcome,
     require_unsupported_question_outcome,
 )
+from .contracts import require_intended_write_relative
 from .errors import IdentityError, UnsupportedError, ValidationError
 from .safety import validate_identifier
 
@@ -1845,6 +1846,7 @@ class AntigravityAcpRuntimeRunner:
         session_mode: str = SESSION_MODE_ONESHOT,
         finish_policy: str = FINISH_POLICY_DISCARD,
         prompt_timeout_ms: int = CANDIDATE_PROMPT_TIMEOUT_MS,
+        intended_write_relative: Optional[str] = None,
     ):
         self.runtime = runtime
         self.isolated_root = Path(isolated_root)
@@ -1894,6 +1896,11 @@ class AntigravityAcpRuntimeRunner:
         self.worker_exit_wait_ms = WORKER_EXIT_WAIT_MS
         self.prompt_timeout_ms = require_bounded_timeout_ms(
             prompt_timeout_ms, "candidate prompt"
+        )
+        self.intended_write_relative = (
+            None
+            if intended_write_relative is None
+            else require_intended_write_relative(intended_write_relative)
         )
         self._mark_cleanup_unknown: Any = None
 
@@ -2275,6 +2282,9 @@ class AntigravityAcpRuntimeRunner:
                     "mode": "prompt",
                     "requestId": self.request_id,
                     "timeoutMs": self.prompt_timeout_ms,
+                    "intendedRelativePath": require_intended_write_relative(
+                        self.intended_write_relative
+                    ),
                 },
                 label="startTurn",
             )
@@ -2662,6 +2672,7 @@ __all__ = [
     "prove_antigravity_acp_observation",
     "require_antigravity_acp_target",
     "require_host_permission_outcome",
+    "require_intended_write_relative",
     "session_record_from_observation",
     "validate_antigravity_acp_catalog",
     "validate_auth_observation",
@@ -2731,6 +2742,9 @@ def build_antigravity_acp_candidate_runner(
 
     text = require_runtime_task_text(prompt)
     owner = validate_identifier(contract.controller, "controller")
+    intended_write_relative = require_intended_write_relative(
+        getattr(contract, "intended_write_relative", None)
+    )
     host_conversation = conversation_id or ("conv-%s" % session)
     host_request = request_id or ("%s-turn-1" % session)
     isolated = (
@@ -2785,4 +2799,5 @@ def build_antigravity_acp_candidate_runner(
         halt=halt,
         session_mode=session_mode,
         finish_policy=finish_policy,
+        intended_write_relative=intended_write_relative,
     )

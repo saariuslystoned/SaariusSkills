@@ -14,6 +14,7 @@ import {
 import {
   createHostPermissionContractRegistry,
   rejectCallerTurnPermissionHooks,
+  requireIntendedRelativePath,
 } from "../host-permission-contract.mjs";
 
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -282,15 +283,19 @@ async function handle(message) {
     const timeoutMs = requireBoundedTimeoutMs(payload.timeoutMs, "candidate prompt");
     const sessionKey = payload.handle?.sessionKey;
     const workspaceRoot = payload.handle?.cwd;
+    const intendedRelativePath = requireIntendedRelativePath(payload.intendedRelativePath);
     if (!hostPermissionContracts) {
       throw new Error("host permission contract registry is missing");
     }
     const contract = hostPermissionContracts.forSession({
       sessionKey,
       workspaceRoot,
+      intendedRelativePath,
     });
+    const runtimePayload = { ...payload };
+    delete runtimePayload.intendedRelativePath;
     const turn = current.startTurn({
-      ...rejectCandidateRuntimeConversationParams(payload, "startTurn"),
+      ...rejectCandidateRuntimeConversationParams(runtimePayload, "startTurn"),
       timeoutMs,
       onPermissionRequest: contract.onPermissionRequest,
       onElicitation: contract.onElicitation,

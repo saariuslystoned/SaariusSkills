@@ -67,6 +67,7 @@ from puppet_lib.transport import bind_run_transport
 
 CALLER_TASK_TEXT = "caller task: inspect the owned workspace without echoing bodies"
 SECOND_TURN_TEXT = "caller follow-up: continue the same owned session"
+FIXTURE_OWNED_RELATIVE = "bin/normalize-lines.mjs"
 GEMINI_MODELS = {
     "currentModelId": DEFAULT_ANTIGRAVITY_MODEL,
     "availableModelIds": [
@@ -204,6 +205,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             "requested_model": DEFAULT_ANTIGRAVITY_MODEL,
             "text": CALLER_TASK_TEXT,
             "catalog": verified_antigravity_acp_catalog(),
+            "intended_write_relative": FIXTURE_OWNED_RELATIVE,
         }
         values.update(overrides)
         if "workspace" not in overrides and isolated.joinpath("ownership.json").exists():
@@ -498,6 +500,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             with mock.patch(
                 "puppet_lib.session._workspace_snapshot",
                 return_value={
@@ -524,6 +527,10 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(len(runtime.ensure_calls), 1)
             self.assertEqual(len(runtime.start_calls), 1)
             self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertEqual(
+                runtime.start_calls[0]["intendedRelativePath"],
+                FIXTURE_OWNED_RELATIVE,
+            )
             self.assertNotIn(CALLER_TASK_TEXT, str(launched))
             self.assertNotEqual(
                 runner.handle["backendSessionId"],
@@ -683,6 +690,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                 text=CALLER_TASK_TEXT,
                 catalog=verified_antigravity_acp_catalog(),
+                intended_write_relative=FIXTURE_OWNED_RELATIVE,
             )
             controller = AntigravityAcpController(Path(temporary), runner=runner)
             with self.assertRaisesRegex(IdentityError, "before session or prompt"):
@@ -720,6 +728,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                 ).observation()
 
     def test_unsupported_backend_close_without_worker_proof_fences(self):
@@ -863,6 +872,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     halt=True,
                 )
                 controller = AntigravityAcpController(Path(temporary), runner=runner)
@@ -955,6 +965,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch(
                 "puppet_lib.session._workspace_snapshot",
@@ -977,6 +988,10 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             runner = holder["runner"]
             self.assertTrue(launched["ok"])
             self.assertEqual(runtime.start_calls[0]["text"], CALLER_TASK_TEXT)
+            self.assertEqual(
+                runtime.start_calls[0]["intendedRelativePath"],
+                FIXTURE_OWNED_RELATIVE,
+            )
             self.assertEqual(runtime.set_model_calls[0]["model"], DEFAULT_ANTIGRAVITY_MODEL)
             self.assertEqual(runtime.ensure_calls[0]["mode"], SESSION_MODE_PERSISTENT)
             self.assertEqual(len(runtime.close_calls), 0)
@@ -1040,6 +1055,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             try:
                 with mock.patch(
@@ -1126,6 +1142,98 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                 binding["helper"],
             )
 
+    def test_factory_requires_task_owned_relative_path_from_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            isolated = _private_root(temporary)
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            runtime = AntigravityAcpSyntheticRuntime(
+                handle=_handle(workspace),
+                models=GEMINI_MODELS,
+            )
+            missing = type("Contract", (), {})()
+            missing.repo = workspace
+            missing.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            missing.target = "agy"
+            missing.controller = "puppet-owner"
+            with self.assertRaisesRegex(ValidationError, "intended write relative is missing"):
+                build_antigravity_acp_candidate_runner(
+                    runtime=runtime,
+                    isolated_root=isolated,
+                    session="agy-acp-session",
+                    contract=missing,
+                    state_root=Path(temporary),
+                    prompt=CALLER_TASK_TEXT,
+                    requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                    expected_workspace=_workspace(workspace),
+                )
+            owned = "src/owned.mjs"
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            contract.intended_write_relative = owned
+            runner = build_antigravity_acp_candidate_runner(
+                runtime=runtime,
+                isolated_root=isolated,
+                session="agy-acp-session",
+                contract=contract,
+                state_root=Path(temporary),
+                prompt=CALLER_TASK_TEXT,
+                requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                expected_workspace=_workspace(workspace),
+            )
+            runner.observation()
+            self.assertEqual(runtime.start_calls[0]["intendedRelativePath"], owned)
+            self.assertNotEqual(owned, FIXTURE_OWNED_RELATIVE)
+
+    def _assert_factory_rejects_intended_write_relative_before_side_effects(
+        self, *, intended_write_relative, error_regex
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            if intended_write_relative is not None:
+                contract.intended_write_relative = intended_write_relative
+            isolated = Path(temporary) / "agy-acp-session" / "acp-isolated"
+            with mock.patch(
+                "puppet_lib.antigravity_acp.claim_antigravity_acp_isolated_root"
+            ) as claim, mock.patch(
+                "puppet_lib.antigravity_acp.AntigravityAcpNodeRuntime"
+            ) as runtime_cls:
+                with self.assertRaisesRegex(ValidationError, error_regex):
+                    build_antigravity_acp_candidate_runner(
+                        session="agy-acp-session",
+                        contract=contract,
+                        state_root=Path(temporary),
+                        prompt=CALLER_TASK_TEXT,
+                        requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                        expected_workspace=_workspace(workspace),
+                        synthetic_peer=True,
+                    )
+            claim.assert_not_called()
+            runtime_cls.assert_not_called()
+            self.assertFalse(isolated.exists())
+            self.assertFalse((isolated / "ownership.json").exists())
+
+    def test_factory_rejects_missing_intended_write_relative_before_claim_or_runtime(self):
+        self._assert_factory_rejects_intended_write_relative_before_side_effects(
+            intended_write_relative=None,
+            error_regex="intended write relative is missing",
+        )
+
+    def test_factory_rejects_invalid_intended_write_relative_before_claim_or_runtime(self):
+        self._assert_factory_rejects_intended_write_relative_before_side_effects(
+            intended_write_relative="../escape.mjs",
+            error_regex="invalid intended write relative",
+        )
+
     def test_default_factory_rejects_arbitrary_executable_and_env(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve() / "workspace"
@@ -1134,6 +1242,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = "gemini-3.1-pro"
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with self.assertRaisesRegex(ValidationError, "arbitrary executable"):
                 build_antigravity_acp_candidate_runner(
@@ -1158,6 +1267,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = "gemini-3.1-pro"
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch(
                 "puppet_lib.antigravity_acp.build_antigravity_acp_candidate_runner",
@@ -1253,6 +1363,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = "gemini-3.1-pro"
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch(
                 "puppet_lib.session._workspace_snapshot",
@@ -1347,6 +1458,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = "gemini-3.1-pro"
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch(
                 "puppet_lib.session._workspace_snapshot",
@@ -1394,6 +1506,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = "gemini-3.1-pro"
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch(
                 "puppet_lib.session._workspace_snapshot",
@@ -1551,6 +1664,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             contract.repo = workspace
             contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
             contract.target = "agy"
+            contract.intended_write_relative = FIXTURE_OWNED_RELATIVE
             contract.controller = "puppet-owner"
             with mock.patch.dict(os.environ, ambient, clear=False):
                 runner = build_antigravity_acp_candidate_runner(
@@ -1613,6 +1727,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model="gemini-3.1-pro",
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     session_mode=SESSION_MODE_PERSISTENT,
                     finish_policy=FINISH_POLICY_RETAIN,
                 )
@@ -1643,6 +1758,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model="gemini-3.1-pro",
                     text=SECOND_TURN_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     session_mode=SESSION_MODE_PERSISTENT,
                     finish_policy=FINISH_POLICY_RETAIN,
                 )
@@ -1699,6 +1815,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     halt=True,
                 )
                 observation = runner.observation()
@@ -1780,6 +1897,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     session_mode=SESSION_MODE_PERSISTENT,
                     finish_policy=FINISH_POLICY_DISCARD,
                 )
@@ -1852,6 +1970,7 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
                     requested_model=DEFAULT_ANTIGRAVITY_MODEL,
                     text=CALLER_TASK_TEXT,
                     catalog=verified_antigravity_acp_catalog(),
+                    intended_write_relative=FIXTURE_OWNED_RELATIVE,
                     session_mode=SESSION_MODE_PERSISTENT,
                     finish_policy=FINISH_POLICY_RETAIN,
                     prompt_timeout_ms=1_000,
