@@ -1919,6 +1919,8 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(allowed["reason"], "granted_once")
         self.assertTrue(allowed["allowed"])
         self.assertFalse(allowed["os_sandbox"])
+        self.assertEqual(allowed["decision_count"], 1)
+        self.assertFalse(allowed["decisions_truncated"])
         self.assertNotIn("options", allowed)
         self.assertNotIn("title", allowed)
         self.assertNotIn("rawInput", allowed)

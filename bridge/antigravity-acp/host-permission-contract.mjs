@@ -54,6 +54,7 @@ export const OPTION_KINDS = Object.freeze([
   "reject_once",
   "reject_always",
 ]);
+export const HOST_PERMISSION_DECISION_LIMIT = 32;
 export const PERMISSION_REASONS = Object.freeze([
   "granted_once",
   "replay",
@@ -76,7 +77,11 @@ const ACP_KIND_SET = new Set(ACP_TOOL_KINDS);
 const OPTION_KIND_SET = new Set(OPTION_KINDS);
 
 function pickEnum(value, allowed, fallback) {
-  return allowed.includes(value) ? value : fallback;
+  return typeof value === "string" && allowed.includes(value) ? value : fallback;
+}
+
+function isRuntimeOutcome(value) {
+  return typeof value === "string" && RUNTIME_OUTCOMES.has(value);
 }
 
 function requestRaw(request) {
@@ -235,9 +240,11 @@ export function offeredOptionKinds(request) {
     : (Array.isArray(raw?.params?.options) ? raw.params.options : []);
   const kinds = [];
   for (const option of options) {
-    if (OPTION_KIND_SET.has(option?.kind) && !kinds.includes(option.kind)) {
-      kinds.push(option.kind);
+    const kind = option?.kind;
+    if (typeof kind === "string" && OPTION_KIND_SET.has(kind) && !kinds.includes(kind)) {
+      kinds.push(kind);
     }
+    if (kinds.length >= OPTION_KINDS.length) break;
   }
   return kinds;
 }
@@ -272,11 +279,18 @@ function receiptOutcome(decision) {
 
 function boundOfferedOptionKinds(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((kind) => OPTION_KIND_SET.has(kind)))];
+  const kinds = [];
+  for (const kind of value) {
+    if (typeof kind === "string" && OPTION_KIND_SET.has(kind) && !kinds.includes(kind)) {
+      kinds.push(kind);
+    }
+    if (kinds.length >= OPTION_KINDS.length) break;
+  }
+  return kinds;
 }
 
 export function boundPermissionDecision(decision) {
-  if (!RUNTIME_OUTCOMES.has(decision?.outcome)) {
+  if (!isRuntimeOutcome(decision?.outcome)) {
     throw new Error("host permission decision is invalid");
   }
   return {
@@ -357,10 +371,28 @@ export function decideHostPermission(request, state) {
   return decisionWith("allow_once", "edit", "granted_once", diagnostics);
 }
 
+function boundPermissionHistory(source) {
+  const valid = [];
+  if (Array.isArray(source)) {
+    for (const decision of source) {
+      if (!isRuntimeOutcome(decision?.outcome)) continue;
+      valid.push(boundPermissionDecision(decision));
+    }
+  }
+  const truncated = valid.length > HOST_PERMISSION_DECISION_LIMIT;
+  return {
+    decisions: truncated
+      ? valid.slice(valid.length - HOST_PERMISSION_DECISION_LIMIT)
+      : valid,
+    decision_count: valid.length,
+    decisions_truncated: truncated,
+    grant_count: valid.filter((decision) => decision.outcome === "allow_once").length,
+  };
+}
+
 export function bodyFreePermissionReceipt(state) {
-  const decisions = (state?.decisions ?? []).map((decision) => boundPermissionDecision(decision));
-  const last = decisions[decisions.length - 1];
-  const grantCount = decisions.filter((decision) => decision.outcome === "allow_once").length;
+  const history = boundPermissionHistory(state?.decisions);
+  const last = history.decisions[history.decisions.length - 1];
   const outcome = last?.outcome ?? "cancelled";
   return {
     schema: HOST_PERMISSION_SCHEMA,
@@ -376,9 +408,11 @@ export function bodyFreePermissionReceipt(state) {
     path_class: last?.path_class ?? "absent",
     offered_option_kinds: last?.offered_option_kinds ?? [],
     reason: last?.reason ?? "ambiguous",
-    decisions,
-    grant_count: grantCount,
-    allowed: grantCount === 1 && decisions.some((decision) => decision.outcome === "allow_once"),
+    decisions: history.decisions,
+    decision_count: history.decision_count,
+    decisions_truncated: history.decisions_truncated,
+    grant_count: history.grant_count,
+    allowed: history.grant_count === 1,
     persisted: false,
     approve_all: false,
     os_sandbox: false,

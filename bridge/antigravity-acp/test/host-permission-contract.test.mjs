@@ -14,6 +14,8 @@ import {
   materializeVerifiedCandidateAcpx,
 } from "../../cursor-acp/puppet-adapter.mjs";
 import {
+  HOST_PERMISSION_DECISION_LIMIT,
+  HOST_PERMISSION_KINDS,
   HOST_PERMISSION_SCHEMA,
   INTENDED_WRITE_RELATIVE,
   OPTION_KINDS,
@@ -339,7 +341,163 @@ test("host contract isolates one-time grants across sessions and keeps receipts 
     const empty = bodyFreePermissionReceipt({ sessionKey: "none", decisions: [] });
     assert.equal(empty.outcome, "cancelled");
     assert.equal(empty.allowed, false);
+    assert.equal(empty.permission_id, "host");
+    assert.equal(empty.permission_kind, "ambiguous");
+    assert.equal(empty.decision_count, 0);
+    assert.equal(empty.decisions_truncated, false);
+    assert.equal(receipt.decision_count, 2);
+    assert.equal(receipt.decisions_truncated, false);
+    assert.equal(HOST_PERMISSION_KINDS.includes(receipt.permission_kind), true);
   });
+});
+
+function historyDecision(overrides = {}) {
+  return {
+    outcome: "reject_once",
+    permission_kind: "denied",
+    kind: "edit",
+    kind_source: "standardized",
+    id_class: "opaque",
+    path_source: "raw_input",
+    path_cardinality: "one",
+    path_class: "non_intended",
+    offered_option_kinds: ["reject_once"],
+    reason: "non_intended_path",
+    ...overrides,
+  };
+}
+
+test("receipt omits list and object diagnostic values and keeps valid option order", () => {
+  const receipt = bodyFreePermissionReceipt({
+    sessionKey: "session-a",
+    decisions: [
+      historyDecision({
+        outcome: "allow_once",
+        permission_kind: ["edit"],
+        kind: { name: "edit" },
+        kind_source: ["standardized"],
+        id_class: { class: "opaque" },
+        path_source: ["raw_input"],
+        path_cardinality: ["one"],
+        path_class: { class: "intended" },
+        reason: ["granted_once"],
+        offered_option_kinds: [
+          ["allow_once"],
+          { kind: "allow_once" },
+          "reject_once",
+          "allow_once",
+          "approve_all",
+          "allow_once",
+          "reject_always",
+        ],
+      }),
+      historyDecision({
+        outcome: ["denied"],
+        permission_kind: { kind: "denied" },
+        offered_option_kinds: { 0: "allow_once" },
+      }),
+      historyDecision({
+        outcome: "reject_once",
+        permission_kind: "denied",
+        offered_option_kinds: ["reject_once", "reject_once", "yes"],
+      }),
+    ],
+  });
+  assert.equal(receipt.body_retained, false);
+  assert.equal(receipt.decisions.length, 2);
+  assert.equal(receipt.decision_count, 2);
+  assert.equal(receipt.decisions_truncated, false);
+  assert.equal(receipt.permission_kind, "denied");
+  assert.equal(HOST_PERMISSION_KINDS.includes(receipt.permission_kind), true);
+  assert.equal(receipt.kind, "edit");
+  assert.equal(receipt.kind_source, "standardized");
+  assert.equal(receipt.reason, "non_intended_path");
+  assert.deepEqual(receipt.offered_option_kinds, ["reject_once"]);
+  assert.equal(receipt.decisions[0].kind, "absent");
+  assert.equal(receipt.decisions[0].kind_source, "absent");
+  assert.equal(receipt.decisions[0].id_class, "absent");
+  assert.equal(receipt.decisions[0].path_source, "absent");
+  assert.equal(receipt.decisions[0].path_cardinality, "zero");
+  assert.equal(receipt.decisions[0].path_class, "absent");
+  assert.equal(receipt.decisions[0].reason, "ambiguous");
+  assert.deepEqual(receipt.decisions[0].offered_option_kinds, [
+    "reject_once",
+    "allow_once",
+    "reject_always",
+  ]);
+  assert.equal(receipt.decisions[0].permission_kind, "ambiguous");
+  assert.equal(receipt.decisions[1].permission_kind, "denied");
+  assert.equal(receipt.offered_option_kinds.includes("approve_all"), false);
+  assert.equal(receipt.decisions[0].offered_option_kinds.includes("approve_all"), false);
+  assert.equal(JSON.stringify(receipt).includes("yes"), false);
+});
+
+test("receipt bounds oversized decision history and cannot claim complete history", () => {
+  const decisions = Array.from({ length: 10_000 }, (_, index) => historyDecision({
+    outcome: index === 0 ? "allow_once" : "reject_once",
+    permission_kind: index === 0 ? "edit" : "denied",
+    reason: index === 0 ? "granted_once" : "non_intended_path",
+    path_class: index === 0 ? "intended" : "non_intended",
+  }));
+  const receipt = bodyFreePermissionReceipt({
+    sessionKey: "session-a",
+    decisions,
+  });
+  assert.equal(receipt.decision_count, 10_000);
+  assert.equal(receipt.decisions_truncated, true);
+  assert.equal(receipt.decisions.length, HOST_PERMISSION_DECISION_LIMIT);
+  assert.ok(receipt.decisions.length < receipt.decision_count);
+  assert.equal(receipt.grant_count, 1);
+  assert.equal(receipt.allowed, true);
+  assert.equal(receipt.outcome, "denied");
+  assert.equal(receipt.permission_kind, "denied");
+  assert.equal(receipt.decisions[0].outcome, "denied");
+  assert.equal(receipt.decisions[receipt.decisions.length - 1].outcome, "denied");
+  assert.equal(receipt.decisions.some((item) => item.outcome === "allow_once"), false);
+  assert.equal(receipt.body_retained, false);
+  assert.ok(!Object.hasOwn(receipt, "rawInput"));
+});
+
+test("receipt keeps valid permission kinds and remaps invalid kinds to the host contract", () => {
+  const valid = bodyFreePermissionReceipt({
+    sessionKey: "session-a",
+    decisions: [
+      historyDecision({
+        outcome: "allow_once",
+        permission_kind: "edit",
+        reason: "granted_once",
+        path_class: "intended",
+        offered_option_kinds: ["allow_once", "reject_once"],
+      }),
+      historyDecision({
+        outcome: "reject_once",
+        permission_kind: "denied",
+      }),
+    ],
+  });
+  assert.deepEqual(valid.decisions.map((item) => item.outcome), ["allow_once", "denied"]);
+  assert.deepEqual(valid.decisions.map((item) => item.permission_kind), ["edit", "denied"]);
+  assert.equal(valid.permission_id, "denied");
+  assert.equal(valid.permission_kind, "denied");
+  assert.equal(valid.grant_count, 1);
+  assert.equal(valid.allowed, true);
+  assert.equal(valid.decision_count, 2);
+  assert.equal(valid.decisions_truncated, false);
+  const invalid = bodyFreePermissionReceipt({
+    sessionKey: "session-a",
+    decisions: [
+      historyDecision({
+        outcome: "allow_once",
+        permission_kind: "fs_write_file",
+        reason: "granted_once",
+      }),
+    ],
+  });
+  assert.equal(invalid.permission_kind, "ambiguous");
+  assert.equal(invalid.permission_id, "ambiguous");
+  assert.equal(HOST_PERMISSION_KINDS.includes(invalid.permission_kind), true);
+  assert.equal(invalid.permission_kind === "fs_write_file", false);
+  assert.equal(invalid.decisions[0].permission_kind, "ambiguous");
 });
 
 test("caller turn permission hooks stay rejected as broker policy", () => {
