@@ -100,6 +100,7 @@ test("actual public runtime driver stays unavailable and maps gemini catalog", {
     mode: "prompt",
     requestId: "agy-acp-request-1",
     timeoutMs: 300_000,
+    intendedRelativePath: "bin/normalize-lines.mjs",
   });
   assert.equal(turn.requestId, "agy-acp-request-1");
   assert.equal(turn.timeoutMs, 300_000);
@@ -222,6 +223,31 @@ test("candidate startTurn rejects missing or unbounded timeout", {
   });
 });
 
+test("candidate startTurn fails closed without a task-owned relative path", {
+  timeout: 180_000,
+  skip: REAL_ARTIFACT_SKIP,
+}, async (t) => {
+  await withDriver(t, {}, async ({ client, workspace }) => {
+    const handle = await client.rpc("ensureSession", {
+      sessionKey: "agy-acp-session",
+      agent: "antigravity",
+      mode: "oneshot",
+      cwd: workspace,
+    });
+    await assert.rejects(
+      () => client.rpc("startTurn", {
+        handle,
+        text: "antigravity-acp-runtime-turn",
+        mode: "prompt",
+        requestId: "agy-acp-request-missing-path",
+        timeoutMs: 30_000,
+      }),
+      /intended relative path is missing/,
+    );
+    await client.rpc("shutdown");
+  });
+});
+
 test("actual public runtime binds the candidate prompt timeout and retains failure evidence", {
   timeout: 30_000,
   skip: REAL_ARTIFACT_SKIP,
@@ -240,6 +266,7 @@ test("actual public runtime binds the candidate prompt timeout and retains failu
       mode: "prompt",
       requestId: "agy-acp-request-timeout",
       timeoutMs: 1_000,
+      intendedRelativePath: "bin/normalize-lines.mjs",
     });
     const elapsed = Date.now() - startedAt;
     assert.equal(turn.timeoutMs, 1_000);
@@ -271,6 +298,7 @@ test("actual public runtime attributes a short-lived worker during startTurn", {
       mode: "prompt",
       requestId: "agy-acp-request-short-lived",
       timeoutMs: 300_000,
+      intendedRelativePath: "bin/normalize-lines.mjs",
     });
     assert.equal(turn.result.status, "completed");
     const started = turn.process_lifecycle.started;
@@ -318,6 +346,7 @@ test("actual public runtime rejects a surviving worker without helper-PID proof"
       mode: "prompt",
       requestId: "agy-acp-request-survivor",
       timeoutMs: 300_000,
+      intendedRelativePath: "bin/normalize-lines.mjs",
     });
     assert.equal(turn.result.status, "completed");
     assert.ok(turn.process_lifecycle.started.length >= 1, JSON.stringify(turn.process_lifecycle));

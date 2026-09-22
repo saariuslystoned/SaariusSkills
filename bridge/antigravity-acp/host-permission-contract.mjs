@@ -7,7 +7,9 @@
 import path from "node:path";
 
 export const HOST_PERMISSION_SCHEMA = "puppet.antigravity-acp-host-permission/v1";
+// Fixture path label only. Grants require an explicit task-owned relative path.
 export const INTENDED_WRITE_RELATIVE = "bin/normalize-lines.mjs";
+export const INTENDED_WRITE_RELATIVE_MAX = 200;
 export const FORBIDDEN_TURN_PERMISSION_KEYS = Object.freeze([
   "permissionMode",
   "nonInteractivePermissions",
@@ -97,11 +99,41 @@ export function isInteractionQuestion(request) {
   return classifyIdClass(requestToolCallId(request)) === "interaction";
 }
 
-export function intendedWritePath(workspaceRoot) {
+export function requireIntendedRelativePath(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("host permission intended relative path is missing");
+  }
+  const relative = value.trim();
+  const rawParts = relative.split("/");
+  if (
+    relative.length > INTENDED_WRITE_RELATIVE_MAX
+    || path.isAbsolute(relative)
+    || relative.startsWith("/")
+    || relative.includes("\\")
+    || /[\0\n\r]/.test(relative)
+    || rawParts.some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error("host permission intended relative path is invalid");
+  }
+  const normalized = path.posix.normalize(relative);
+  const parts = normalized.split("/");
+  if (
+    normalized === "."
+    || normalized.startsWith("..")
+    || path.posix.isAbsolute(normalized)
+    || normalized.endsWith("/")
+    || parts.some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error("host permission intended relative path is invalid");
+  }
+  return normalized;
+}
+
+export function intendedWritePath(workspaceRoot, intendedRelativePath) {
   if (typeof workspaceRoot !== "string" || !workspaceRoot) {
     throw new Error("host permission workspace is missing");
   }
-  return path.resolve(workspaceRoot, INTENDED_WRITE_RELATIVE);
+  return path.resolve(workspaceRoot, requireIntendedRelativePath(intendedRelativePath));
 }
 
 export function requestToolCallId(request) {
@@ -162,9 +194,9 @@ export function resolveWorkspacePath(workspaceRoot, supplied) {
   return path.isAbsolute(supplied) ? path.resolve(supplied) : path.resolve(workspaceRoot, supplied);
 }
 
-export function pathMatchesIntendedWrite(workspaceRoot, supplied) {
+export function pathMatchesIntendedWrite(workspaceRoot, supplied, intendedRelativePath) {
   const resolved = resolveWorkspacePath(workspaceRoot, supplied);
-  return resolved === intendedWritePath(workspaceRoot);
+  return resolved === intendedWritePath(workspaceRoot, intendedRelativePath);
 }
 
 export function rejectCallerTurnPermissionHooks(payload, label = "startTurn") {
@@ -311,6 +343,12 @@ export function decideHostPermission(request, state) {
   if (!state || typeof state.sessionKey !== "string" || !state.sessionKey) {
     return decisionWith("cancel", "ambiguous", "missing_session", emptyDiagnostics());
   }
+  let intendedRelativePath;
+  try {
+    intendedRelativePath = requireIntendedRelativePath(state.intendedRelativePath);
+  } catch {
+    return decisionWith("cancel", "ambiguous", "ambiguous", emptyDiagnostics());
+  }
   const toolCallId = requestToolCallId(request);
   const idClass = classifyIdClass(toolCallId);
   const classifiedKind = classifyKind(request);
@@ -346,7 +384,11 @@ export function decideHostPermission(request, state) {
   if (paths.path_cardinality !== "one") {
     return decisionWith("cancel", "ambiguous", "absent_path", diagnostics);
   }
-  const intended = pathMatchesIntendedWrite(state.workspaceRoot, paths.paths[0]);
+  const intended = pathMatchesIntendedWrite(
+    state.workspaceRoot,
+    paths.paths[0],
+    intendedRelativePath,
+  );
   diagnostics.path_class = intended ? "intended" : "non_intended";
   if (!intended) {
     return decisionWith(
@@ -424,16 +466,22 @@ export function bodyFreePermissionReceipt(state) {
   };
 }
 
-export function createHostPermissionContract({ sessionKey, workspaceRoot }) {
+export function createHostPermissionContract({
+  sessionKey,
+  workspaceRoot,
+  intendedRelativePath,
+}) {
   if (typeof sessionKey !== "string" || !sessionKey) {
     throw new Error("host permission contract sessionKey is missing");
   }
   if (typeof workspaceRoot !== "string" || !workspaceRoot) {
     throw new Error("host permission contract workspace is missing");
   }
+  const relative = requireIntendedRelativePath(intendedRelativePath);
   const state = {
     sessionKey,
     workspaceRoot: path.resolve(workspaceRoot),
+    intendedRelativePath: relative,
     grantedWriteOnce: false,
     decisions: [],
   };
@@ -447,7 +495,7 @@ export function createHostPermissionContract({ sessionKey, workspaceRoot }) {
   return {
     sessionKey,
     workspaceRoot: state.workspaceRoot,
-    intendedRelativePath: INTENDED_WRITE_RELATIVE,
+    intendedRelativePath: relative,
     persisted: false,
     approve_all: false,
     os_sandbox: false,
@@ -476,15 +524,23 @@ export function createHostPermissionContract({ sessionKey, workspaceRoot }) {
 export function createHostPermissionContractRegistry() {
   const contracts = new Map();
   return {
-    forSession({ sessionKey, workspaceRoot }) {
+    forSession({ sessionKey, workspaceRoot, intendedRelativePath }) {
+      const relative = requireIntendedRelativePath(intendedRelativePath);
       const existing = contracts.get(sessionKey);
       if (existing) {
         if (existing.workspaceRoot !== path.resolve(workspaceRoot)) {
           throw new Error("host permission contract workspace drifted");
         }
+        if (existing.intendedRelativePath !== relative) {
+          throw new Error("host permission contract path drifted");
+        }
         return existing;
       }
-      const created = createHostPermissionContract({ sessionKey, workspaceRoot });
+      const created = createHostPermissionContract({
+        sessionKey,
+        workspaceRoot,
+        intendedRelativePath: relative,
+      });
       contracts.set(sessionKey, created);
       return created;
     },

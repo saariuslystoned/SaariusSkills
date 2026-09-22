@@ -26,6 +26,7 @@ import {
   decideHostPermission,
   intendedWritePath,
   rejectCallerTurnPermissionHooks,
+  requireIntendedRelativePath,
 } from "../host-permission-contract.mjs";
 
 const DRIVER = fileURLToPath(new URL("./controller-runtime-driver.mjs", import.meta.url));
@@ -148,8 +149,19 @@ function freshState(workspace, extras = {}) {
   return {
     sessionKey: "session-a",
     workspaceRoot: workspace,
+    intendedRelativePath: INTENDED_WRITE_RELATIVE,
     grantedWriteOnce: false,
     decisions: [],
+    ...extras,
+  };
+}
+
+function ownedStartTurn(handle, extras = {}) {
+  return {
+    handle,
+    text: "antigravity-acp-runtime-turn",
+    mode: "prompt",
+    intendedRelativePath: INTENDED_WRITE_RELATIVE,
     ...extras,
   };
 }
@@ -168,7 +180,7 @@ function assertBodyFree(receipt, forbidden) {
 
 test("host contract allows the intended write once from official shapes and fails closed otherwise", () => {
   const workspace = "/tmp/agy-permission-fixture";
-  const intended = intendedWritePath(workspace);
+  const intended = intendedWritePath(workspace, INTENDED_WRITE_RELATIVE);
   const protectedPath = path.join(workspace, PROTECTED_RELATIVE);
   const rawInput = decideHostPermission(
     writeRequest(workspace, { toolCallId: "call_raw_1", filePath: intended }),
@@ -288,12 +300,87 @@ test("host contract allows the intended write once from official shapes and fail
   assert.equal(INTENDED_WRITE_RELATIVE, "bin/normalize-lines.mjs");
 });
 
+test("configured task-owned path grants once and denies a second path, missing path, and replay", () => {
+  const workspace = "/tmp/agy-owned-path-fixture";
+  const ownedRelative = "src/owned.mjs";
+  const owned = intendedWritePath(workspace, ownedRelative);
+  const other = path.join(workspace, "src/other.mjs");
+  const granted = decideHostPermission(
+    writeRequest(workspace, { filePath: owned }),
+    freshState(workspace, { intendedRelativePath: ownedRelative }),
+  );
+  assert.equal(granted.outcome, "allow_once");
+  assert.equal(granted.reason, "granted_once");
+  assert.equal(granted.path_class, "intended");
+  const secondPath = decideHostPermission(
+    writeRequest(workspace, { filePath: other }),
+    freshState(workspace, { intendedRelativePath: ownedRelative }),
+  );
+  assert.equal(secondPath.outcome, "reject_once");
+  assert.equal(secondPath.reason, "non_intended_path");
+  const missingPath = decideHostPermission(
+    writeRequest(workspace, {}),
+    freshState(workspace, { intendedRelativePath: ownedRelative }),
+  );
+  assert.equal(missingPath.outcome, "cancel");
+  assert.equal(missingPath.reason, "absent_path");
+  const replayState = freshState(workspace, { intendedRelativePath: ownedRelative });
+  decideHostPermission(writeRequest(workspace, { filePath: owned }), replayState);
+  const replay = decideHostPermission(writeRequest(workspace, { filePath: owned }), replayState);
+  assert.equal(replay.outcome, "reject_once");
+  assert.equal(replay.reason, "replay");
+  assert.equal(requireIntendedRelativePath(ownedRelative), ownedRelative);
+  assert.throws(
+    () => createHostPermissionContract({
+      sessionKey: "session-a",
+      workspaceRoot: workspace,
+    }),
+    /intended relative path is missing/,
+  );
+  assert.throws(
+    () => createHostPermissionContract({
+      sessionKey: "session-a",
+      workspaceRoot: workspace,
+      intendedRelativePath: "../escape.mjs",
+    }),
+    /intended relative path is invalid/,
+  );
+  const registry = createHostPermissionContractRegistry();
+  registry.forSession({
+    sessionKey: "session-owned",
+    workspaceRoot: workspace,
+    intendedRelativePath: ownedRelative,
+  });
+  assert.throws(
+    () => registry.forSession({
+      sessionKey: "session-owned",
+      workspaceRoot: workspace,
+      intendedRelativePath: "src/other.mjs",
+    }),
+    /path drifted/,
+  );
+  const fixtureGrant = decideHostPermission(
+    writeRequest(workspace, { filePath: intendedWritePath(workspace, INTENDED_WRITE_RELATIVE) }),
+    freshState(workspace, { intendedRelativePath: ownedRelative }),
+  );
+  assert.equal(fixtureGrant.outcome, "reject_once");
+  assert.equal(fixtureGrant.reason, "non_intended_path");
+});
+
 test("host contract isolates one-time grants across sessions and keeps receipts body-free", () => {
   const registry = createHostPermissionContractRegistry();
   const workspace = "/tmp/agy-permission-fixture";
-  const intended = intendedWritePath(workspace);
-  const first = registry.forSession({ sessionKey: "session-a", workspaceRoot: workspace });
-  const second = registry.forSession({ sessionKey: "session-b", workspaceRoot: workspace });
+  const intended = intendedWritePath(workspace, INTENDED_WRITE_RELATIVE);
+  const first = registry.forSession({
+    sessionKey: "session-a",
+    workspaceRoot: workspace,
+    intendedRelativePath: INTENDED_WRITE_RELATIVE,
+  });
+  const second = registry.forSession({
+    sessionKey: "session-b",
+    workspaceRoot: workspace,
+    intendedRelativePath: INTENDED_WRITE_RELATIVE,
+  });
   assert.equal(first.os_sandbox, false);
   assert.equal(first.approve_all, false);
   assert.equal(first.ordinary_launch, "unavailable");
@@ -552,11 +639,10 @@ test("public startTurn rejects caller permission hooks", {
     });
     await assert.rejects(
       () => client.rpc("startTurn", {
-        handle,
-        text: "antigravity-acp-runtime-turn",
-        mode: "prompt",
-        requestId: "agy-permission-reject-1",
-        timeoutMs: 30_000,
+        ...ownedStartTurn(handle, {
+          requestId: "agy-permission-reject-1",
+          timeoutMs: 30_000,
+        }),
         onPermissionRequest: { outcome: "allow_always" },
       }),
       (error) => error.code === "BROKER_POLICY",
@@ -589,13 +675,10 @@ test("pinned runtime allows the intended fixture write once and leaves the prote
       mode: "oneshot",
       cwd: workspace,
     });
-    const turn = await client.rpc("startTurn", {
-      handle,
-      text: "antigravity-acp-runtime-turn",
-      mode: "prompt",
+    const turn = await client.rpc("startTurn", ownedStartTurn(handle, {
       requestId: "agy-permission-allow-1",
       timeoutMs: 30_000,
-    });
+    }));
     assert.equal(turn.result.status, "completed");
     assert.equal(turn.permission.outcome, "allow_once");
     assert.equal(turn.permission.allowed, true);
@@ -649,13 +732,10 @@ test("pinned runtime allows the official locations path write once", {
       mode: "oneshot",
       cwd: workspace,
     });
-    const turn = await client.rpc("startTurn", {
-      handle,
-      text: "antigravity-acp-runtime-turn",
-      mode: "prompt",
+    const turn = await client.rpc("startTurn", ownedStartTurn(handle, {
       requestId: "agy-permission-locations-1",
       timeoutMs: 30_000,
-    });
+    }));
     assert.equal(turn.permission.outcome, "allow_once");
     assert.equal(turn.permission.path_source, "locations");
     assert.equal(turn.permission.id_class, "opaque");
@@ -697,13 +777,10 @@ test("denial, interaction, and elicitation perform no fixture edit", {
         mode: "oneshot",
         cwd: workspace,
       });
-      const turn = await client.rpc("startTurn", {
-        handle,
-        text: "antigravity-acp-runtime-turn",
-        mode: "prompt",
+      const turn = await client.rpc("startTurn", ownedStartTurn(handle, {
         requestId: `agy-permission-${mode}-1`,
         timeoutMs: 30_000,
-      });
+      }));
       assert.equal(turn.result.status, "completed", mode);
       assert.notEqual(turn.permission?.outcome, "allow_once", mode);
       assert.notEqual(turn.permission?.allowed, true, JSON.stringify(turn.permission));
@@ -744,13 +821,10 @@ test("one-time grant is consumed and sessions stay isolated", {
       mode: "oneshot",
       cwd: workspace,
     });
-    const first = await client.rpc("startTurn", {
-      handle: firstHandle,
-      text: "antigravity-acp-runtime-turn",
-      mode: "prompt",
+    const first = await client.rpc("startTurn", ownedStartTurn(firstHandle, {
       requestId: "agy-permission-session-a-1",
       timeoutMs: 30_000,
-    });
+    }));
     assert.deepEqual(first.permission.decisions.map((item) => item.outcome), [
       "allow_once",
       "denied",
@@ -770,13 +844,10 @@ test("one-time grant is consumed and sessions stay isolated", {
       mode: "oneshot",
       cwd: workspace,
     });
-    const second = await client.rpc("startTurn", {
-      handle: secondHandle,
-      text: "antigravity-acp-runtime-turn",
-      mode: "prompt",
+    const second = await client.rpc("startTurn", ownedStartTurn(secondHandle, {
       requestId: "agy-permission-session-b-1",
       timeoutMs: 30_000,
-    });
+    }));
     assert.equal(second.permission.grant_count, 1);
     assert.equal(second.permission.allowed, true);
     assert.equal(secondHandle.sessionKey, "agy-permission-session-b");
