@@ -8,10 +8,15 @@ import test from "node:test";
 import { createAcpRuntime } from "acpx/runtime";
 import { createAgentRegistry } from "acpx/agent-registry";
 import {
+  ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+  ACPX_LAST_INSPECTED_SOURCE_RELEASE,
   ACPX_NPM_INTEGRITY,
   ACPX_RELEASE,
   ACPX_RUNTIME_JS_SHA256,
+  ACPX_SOURCE_COMMIT,
   ACPX_TARBALL_SHA256,
+  RUNTIME_PIN,
+  validateRuntimePin,
 } from "../contract.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -37,6 +42,18 @@ test("native pin exercises published acpx 0.19.0 public runtime and agent-regist
   assert.equal(manifest.version, "0.19.0");
   assert.equal(manifest.version, ACPX_RELEASE);
   assert.equal(manifest.gitHead, undefined);
+  assert.equal(ACPX_SOURCE_COMMIT, null);
+  assert.equal(RUNTIME_PIN.acpxSourceCommit, null);
+  assert.equal(RUNTIME_PIN.lastInspectedSourceCommit, ACPX_LAST_INSPECTED_SOURCE_COMMIT);
+  assert.equal(RUNTIME_PIN.lastInspectedSourceRelease, ACPX_LAST_INSPECTED_SOURCE_RELEASE);
+  assert.equal(validateRuntimePin(RUNTIME_PIN).acpxSourceCommit, null);
+  assert.throws(
+    () => validateRuntimePin({
+      ...RUNTIME_PIN,
+      acpxSourceCommit: ACPX_LAST_INSPECTED_SOURCE_COMMIT,
+    }),
+    /source commit is unknown/,
+  );
   assert.equal(pinned.version, "0.19.0");
   assert.equal(pinned.integrity, ACPX_NPM_INTEGRITY);
   assert.equal(runtimeDigest, ACPX_RUNTIME_JS_SHA256);

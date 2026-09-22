@@ -309,6 +309,8 @@ export function acpxDependencyIdentity() {
     ordinary_pinned_package: ACPX_ORDINARY_PINNED_PACKAGE,
     candidate_package_version: ACPX_CANDIDATE_PACKAGE_VERSION,
     published_npm_version: ACPX_PUBLISHED_NPM_VERSION,
+    // Candidate-artifact inequality only: published npm is not the local
+    // 0.18.0 merge tarball. Not a published-package gitHead/source claim.
     published_npm_contains_merge: false,
     ordinary_route_unchanged: true,
     qualification: ACPX_QUALIFICATION,

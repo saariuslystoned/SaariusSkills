@@ -32,7 +32,9 @@ and all six tools. It does not download, install, or update the official
 
 The pinned runtime is `antigravity-acp` 1.1.1 at registry revision
 `81bf71b55e15f630c4fb8a86d20d3088071d2071`, launched through `acpx` 0.19.0
-(published npm integrity; no gitHead is published for that release). Setup reports the exact platform
+(published npm integrity, tarball hash, and `runtime.js` hash; `acpxSourceCommit`
+is null because that release has no gitHead; `50a47ad` is only
+`lastInspectedSourceCommit` for the 0.17.1 watch identity). Setup reports the exact platform
 archive, helper name, and `GEMINI_HOME` personal-OAuth repair actions. Do not
 silently install those binaries.
 
