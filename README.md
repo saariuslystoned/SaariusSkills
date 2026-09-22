@@ -3,6 +3,10 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
+The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
+[Cursor plugin](.cursor-plugin/plugin.json). Pick the install path for your
+harness in [Install](#install).
+
 ## Puppet
 
 The repository carries the historical [Puppet design packet](plans/puppet/README.md)
@@ -183,6 +187,10 @@ details.
 
 ## Install
 
+Use **Codex** or **Cursor** when you want the packaged skills (and bundled MCP
+servers on Cursor). Use **Google Antigravity (AGY)** when you want a path-based
+install from a checkout.
+
 ### Codex
 
 Add this repository as a Codex plugin marketplace, then install its plugin:
@@ -194,6 +202,32 @@ codex plugin add saarius-skills@saarius-skills
 
 Restart Codex if the newly installed skill does not appear. The commands follow
 the current [Codex plugin marketplace documentation](https://learn.chatgpt.com/docs/build-plugins#add-a-marketplace-from-the-cli).
+
+### Cursor
+
+SaariusSkills is not listed in the [official Cursor Marketplace](https://cursor.com/marketplace)
+yet. Install it as a **local Cursor plugin** from a real directory under
+`~/.cursor/plugins/local` (Cursor skips symlinks whose target lives outside that
+folder):
+
+```bash
+mkdir -p ~/.cursor/plugins/local
+git clone https://github.com/saariuslystoned/SaariusSkills.git \
+  ~/.cursor/plugins/local/saarius-skills
+```
+
+Run **Developer: Reload Window**, then open **Customize** and confirm the
+`saarius-skills` skills (and MCP servers, if enabled) appear. This follows
+[Cursor's local plugin development flow](https://cursor.com/docs/plugins#test-plugins-locally).
+
+To update an existing local install:
+
+```bash
+git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
+```
+
+For the optional local Cursor ACP bridge used by some skills, see
+[docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md).
 
 ### Google Antigravity (AGY)
 
