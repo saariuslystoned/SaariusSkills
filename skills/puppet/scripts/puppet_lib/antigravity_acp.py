@@ -2742,6 +2742,9 @@ def build_antigravity_acp_candidate_runner(
 
     text = require_runtime_task_text(prompt)
     owner = validate_identifier(contract.controller, "controller")
+    intended_write_relative = require_intended_write_relative(
+        getattr(contract, "intended_write_relative", None)
+    )
     host_conversation = conversation_id or ("conv-%s" % session)
     host_request = request_id or ("%s-turn-1" % session)
     isolated = (
@@ -2796,7 +2799,5 @@ def build_antigravity_acp_candidate_runner(
         halt=halt,
         session_mode=session_mode,
         finish_policy=finish_policy,
-        intended_write_relative=require_intended_write_relative(
-            getattr(contract, "intended_write_relative", None)
-        ),
+        intended_write_relative=intended_write_relative,
     )

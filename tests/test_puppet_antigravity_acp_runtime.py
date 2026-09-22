@@ -1188,6 +1188,52 @@ class AntigravityAcpRuntimeControllerTests(unittest.TestCase):
             self.assertEqual(runtime.start_calls[0]["intendedRelativePath"], owned)
             self.assertNotEqual(owned, FIXTURE_OWNED_RELATIVE)
 
+    def _assert_factory_rejects_intended_write_relative_before_side_effects(
+        self, *, intended_write_relative, error_regex
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve() / "workspace"
+            workspace.mkdir()
+            contract = type("Contract", (), {})()
+            contract.repo = workspace
+            contract.requested_model = DEFAULT_ANTIGRAVITY_MODEL
+            contract.target = "agy"
+            contract.controller = "puppet-owner"
+            if intended_write_relative is not None:
+                contract.intended_write_relative = intended_write_relative
+            isolated = Path(temporary) / "agy-acp-session" / "acp-isolated"
+            with mock.patch(
+                "puppet_lib.antigravity_acp.claim_antigravity_acp_isolated_root"
+            ) as claim, mock.patch(
+                "puppet_lib.antigravity_acp.AntigravityAcpNodeRuntime"
+            ) as runtime_cls:
+                with self.assertRaisesRegex(ValidationError, error_regex):
+                    build_antigravity_acp_candidate_runner(
+                        session="agy-acp-session",
+                        contract=contract,
+                        state_root=Path(temporary),
+                        prompt=CALLER_TASK_TEXT,
+                        requested_model=DEFAULT_ANTIGRAVITY_MODEL,
+                        expected_workspace=_workspace(workspace),
+                        synthetic_peer=True,
+                    )
+            claim.assert_not_called()
+            runtime_cls.assert_not_called()
+            self.assertFalse(isolated.exists())
+            self.assertFalse((isolated / "ownership.json").exists())
+
+    def test_factory_rejects_missing_intended_write_relative_before_claim_or_runtime(self):
+        self._assert_factory_rejects_intended_write_relative_before_side_effects(
+            intended_write_relative=None,
+            error_regex="intended write relative is missing",
+        )
+
+    def test_factory_rejects_invalid_intended_write_relative_before_claim_or_runtime(self):
+        self._assert_factory_rejects_intended_write_relative_before_side_effects(
+            intended_write_relative="../escape.mjs",
+            error_regex="invalid intended write relative",
+        )
+
     def test_default_factory_rejects_arbitrary_executable_and_env(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve() / "workspace"
