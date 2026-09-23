@@ -93,9 +93,10 @@ OpenClaw gateway, remote-host support, or issues #35/#37 complete. See the
 A second experimental stdio MCP bridge, named `antigravity-acp`, routes one
 bounded implementation slice through pinned `acpx@0.19.0` to Google's official
 `antigravity-acp` 1.1.1 runtime. It stays separate from the Cursor lane and
-from native `agy --print` / Puppet qualification. Exact advertised model IDs
-are required; personal OAuth lives under an explicit `GEMINI_HOME` profile;
-fixed-choice questions fail closed. See the
+from native `agy --print` / Puppet qualification. Omitting `model` uses the
+plugin default exact id `gemini-3.8-flash-high` when advertised; otherwise an
+exact advertised model ID is required. Personal OAuth lives under an explicit
+`GEMINI_HOME` profile; fixed-choice questions fail closed. See the
 [local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
 
 ## PhoneProof

@@ -567,7 +567,19 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: true", metadata)
         self.assertIn("antigravity_acp_readiness", skill)
         self.assertIn("exact advertised", skill)
+        self.assertIn("gemini-3.8-flash-high", skill)
+        self.assertIn("plugin default", skill)
         self.assertIn("GEMINI_HOME", skill)
+        contract = (ROOT / "bridge" / "antigravity-acp" / "contract.mjs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'PREFERRED_DEFAULT_MODEL_ID = "gemini-3.8-flash-high"',
+            contract,
+        )
+        cursor_mcp = (ROOT / ".cursor-plugin" / "mcp.json").read_text(encoding="utf-8")
+        self.assertNotIn("GEMINI_HOME", cursor_mcp)
+        self.assertNotIn("gemini-3.8-flash-high", cursor_mcp)
         self.assertIn("interaction_*", skill)
         self.assertIn("STEERING_UNSUPPORTED", skill)
         self.assertIn("agy-print", skill)
