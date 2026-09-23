@@ -9,11 +9,26 @@ import { CursorAcpBroker } from "../broker.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const script = path.join(root, "scripts/setup.mjs");
+const runtimeRoot = mkdtempSync(path.join(tmpdir(), "cursor-acp-runtime-store-test-"));
+const runtimeSetup = path.join(root, "../acp-runtime/prepare.mjs");
+let runtimeReady = false;
+function ensureRuntime() {
+  if (runtimeReady) return;
+  const result = spawnSync(process.execPath, [runtimeSetup, "--bridge", "cursor-acp"], {
+    encoding: "utf8",
+    timeout: 120_000,
+    env: { ...process.env, SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  runtimeReady = true;
+}
 const run = (target, args = ["--check"], extraEnv = {}) => spawnSync(process.execPath, [target, ...args], {
   encoding: "utf8",
   timeout: 25_000,
-  env: { ...process.env, ...extraEnv },
+  env: { ...process.env, SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot, ...extraEnv },
 });
+
+test.after(() => rmSync(runtimeRoot, { recursive: true, force: true }));
 
 test("copied plugin without dependencies reports its own exact repair path", () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "cursor-acp-uninstalled-test-"));
@@ -32,6 +47,7 @@ test("copied plugin without dependencies reports its own exact repair path", () 
 });
 
 test("installed setup initializes real MCP and lists six tools without Cursor", () => {
+  ensureRuntime();
   const result = run(script);
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
@@ -77,6 +93,7 @@ function writeEligibleDeadOwnerFixture(fixture, jobId, brokerId) {
 }
 
 test("setup --check uses isolated state and does not invalidate an eligible dead-owner fixture", async () => {
+  ensureRuntime();
   const fixture = mkdtempSync(path.join(tmpdir(), "cursor-acp-setup-job-"));
   const control = mkdtempSync(path.join(tmpdir(), "cursor-acp-setup-control-"));
   try {

@@ -143,10 +143,22 @@ async function main() {
     }, 2);
     return;
   }
+  const { findReady, setupCommand } = await import("../../acp-runtime/runtime-store.mjs");
+  const pluginRoot = path.resolve(root, "../..");
   const runtime = diagnoseLockedRuntime();
   const auth = await diagnoseAuthPolicy();
+  if (!(await findReady({ pluginRoot, bridge: "antigravity-acp" }))) {
+    report({
+      ok: false,
+      code: "RUNTIME_SETUP_REQUIRED",
+      repair: [setupCommand("antigravity-acp")],
+      runtime,
+      auth,
+      note: "Prepare the shared persistent ACP runtime after installing or refreshing the plugin; MCP startup does not install dependencies.",
+    }, 2);
+    return;
+  }
   const client = new Client({ name: "antigravity-acp-setup", version: "1.0.0" });
-  const pluginRoot = path.resolve(root, "../..");
   const config = JSON.parse(await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"))
     .mcpServers["antigravity-acp"];
   if (!config) {
@@ -169,6 +181,7 @@ async function main() {
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "",
       ...config.env,
+      ...(process.env.SAARIUS_ACP_RUNTIME_ROOT ? { SAARIUS_ACP_RUNTIME_ROOT: process.env.SAARIUS_ACP_RUNTIME_ROOT } : {}),
       SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
     },
     stderr: "pipe",

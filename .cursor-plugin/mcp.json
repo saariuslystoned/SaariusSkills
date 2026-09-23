@@ -2,7 +2,7 @@
   "mcpServers": {
     "antigravity-acp": {
       "command": "node",
-      "args": ["${CURSOR_PLUGIN_ROOT}/bridge/antigravity-acp/server.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"]
     }
   }
 }

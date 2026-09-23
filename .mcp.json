@@ -2,7 +2,7 @@
   "mcpServers": {
     "cursor-acp": {
       "command": "node",
-      "args": ["bridge/cursor-acp/server.mjs"],
+      "args": ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
       "cwd": ".",
       "env": {
         "CURSOR_AGENT_EXECUTABLE": "/Users/bobbybones/.local/bin/cursor-agent"
@@ -10,7 +10,7 @@
     },
     "antigravity-acp": {
       "command": "node",
-      "args": ["bridge/antigravity-acp/server.mjs"],
+      "args": ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
       "cwd": ".",
       "env": {
         "GEMINI_HOME": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp/gemini-home"
