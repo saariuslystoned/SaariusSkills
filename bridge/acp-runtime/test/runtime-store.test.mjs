@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { prepareRuntime } from "../runtime-store.mjs";
+import { findReady, prepareRuntime } from "../runtime-store.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const bridges = ["cursor-acp", "antigravity-acp"];
@@ -15,7 +16,7 @@ const expectedTools = {
   "antigravity-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `antigravity_acp_${name}`),
 };
 
-async function makePluginSnapshot(bridge) {
+async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   const pluginRoot = await mkdtemp(path.join(tmpdir(), `saarius-${bridge}-snapshot-`));
   const sourceRoot = path.join(repoRoot, "bridge", bridge);
   const targetRoot = path.join(pluginRoot, "bridge", bridge);
@@ -23,17 +24,36 @@ async function makePluginSnapshot(bridge) {
   for (const relativePath of ["package.json", "package-lock.json", "server.mjs", "broker.mjs", ...(bridge === "antigravity-acp" ? ["contract.mjs"] : [])]) {
     await cp(path.join(sourceRoot, relativePath), path.join(targetRoot, relativePath));
   }
+  if (includeLauncher) {
+    await mkdir(path.join(targetRoot, "scripts"), { recursive: true });
+    await cp(path.join(sourceRoot, "scripts", "setup.mjs"), path.join(targetRoot, "scripts", "setup.mjs"));
+    const runtimeTarget = path.join(pluginRoot, "bridge", "acp-runtime");
+    await mkdir(runtimeTarget, { recursive: true });
+    for (const relativePath of ["runtime-store.mjs", "launcher.mjs", "prepare.mjs"]) {
+      await cp(path.join(repoRoot, "bridge", "acp-runtime", relativePath), path.join(runtimeTarget, relativePath));
+    }
+    await cp(path.join(repoRoot, ".mcp.json"), path.join(pluginRoot, ".mcp.json"));
+    await mkdir(path.join(pluginRoot, ".cursor-plugin"), { recursive: true });
+    await cp(path.join(repoRoot, ".cursor-plugin", "mcp.json"), path.join(pluginRoot, ".cursor-plugin", "mcp.json"));
+  }
   return pluginRoot;
 }
 
-async function makeFakeNpm({ mode = "copy", delayMs = 0 } = {}) {
+async function makeFakeNpm({ mode = "copy", delayMs = 0, signalDelayMs = 0 } = {}) {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-fake-npm-"));
   const command = path.join(fixtureRoot, "npm");
   await writeFile(command, `#!/usr/bin/env node
-import { appendFile, cp } from "node:fs/promises";
+import { appendFile, cp, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const delayMs = Number(process.env.SAARIUS_TEST_NPM_DELAY_MS || ${delayMs});
+const signalDelayMs = Number(process.env.SAARIUS_TEST_NPM_SIGNAL_DELAY_MS || ${signalDelayMs});
+if (signalDelayMs > 0) process.once("SIGTERM", () => {
+  setTimeout(async () => {
+    if (process.env.SAARIUS_TEST_NPM_EXIT_MARKER) await writeFile(process.env.SAARIUS_TEST_NPM_EXIT_MARKER, "exited\\n");
+    process.exit(0);
+  }, signalDelayMs);
+});
 if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
 if (process.env.SAARIUS_TEST_NPM_COUNTER) await appendFile(process.env.SAARIUS_TEST_NPM_COUNTER, "1\\n");
 if (${JSON.stringify(mode)} === "fail") {
@@ -44,6 +64,19 @@ await cp(process.env.SAARIUS_TEST_NODE_MODULES, path.join(process.cwd(), "node_m
 `);
   await chmod(command, 0o755);
   return { command, fixtureRoot };
+}
+
+async function waitForFile(filePath, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await access(filePath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`timed out waiting for ${filePath}`);
 }
 
 async function countLines(filePath) {
@@ -150,32 +183,117 @@ test("source identity drift creates a new runtime and failed installs redact dia
   }
 });
 
-test("prepared dependency-free plugin sources launch both real MCP servers and list six tools", async () => {
-  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-mcp-"));
+test("dependency payload drift invalidates a prepared runtime even when package versions remain pinned", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-dependency-drift-"));
   const counterPath = path.join(fixtureRoot, "npm.count");
   const fake = await makeFakeNpm();
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
   try {
-    for (const bridge of bridges) {
-      await prepareSnapshot({
-        bridge,
-        pluginRoot: repoRoot,
-        runtimeRoot: fixtureRoot,
-        command: fake.command,
-        counterPath,
-      });
-      const setup = spawnSync(process.execPath, [path.join(repoRoot, "bridge", bridge, "scripts", "setup.mjs"), "--check"], {
-        cwd: repoRoot,
-        encoding: "utf8",
-        timeout: 30_000,
-        env: { ...process.env, SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot },
-      });
-      assert.equal(setup.status, 0, setup.stderr);
-      const report = JSON.parse(setup.stdout);
-      assert.equal(report.code, "MCP_READY");
-      assert.deepEqual(report.tools, expectedTools[bridge]);
+    const prepared = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath });
+    const runtimeFile = path.join(prepared.root, "bridge", "cursor-acp", "node_modules", "acpx", "dist", "runtime.js");
+    await writeFile(runtimeFile, "\n// dependency payload drift fixture\n", { flag: "a" });
+    assert.equal(await findReady({ pluginRoot, bridge: "cursor-acp", env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot } }), null);
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("dependency timeout waits for owned SIGTERM exit before staging cleanup", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-timeout-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const exitMarker = path.join(fixtureRoot, "npm-exited");
+  const fake = await makeFakeNpm({ signalDelayMs: 150 });
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const startedAt = Date.now();
+  try {
+    await assert.rejects(
+      () => prepareRuntime({
+        pluginRoot,
+        bridge: "cursor-acp",
+        env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot },
+        npmCommand: fake.command,
+        npmEnv: { ...npmEnv("cursor-acp", counterPath), SAARIUS_TEST_NPM_EXIT_MARKER: exitMarker },
+        timeoutMs: 1_000,
+        npmTerminationTimeoutMs: 500,
+      }),
+      (error) => error.code === "DEPENDENCY_INSTALL_TIMEOUT",
+    );
+    assert.ok(Date.now() - startedAt >= 1_100, "preparation returned before the owned installer exited");
+    await waitForFile(exitMarker);
+    assert.deepEqual(await readdir(path.join(fixtureRoot, ".staging")), []);
+  } finally {
+    await waitForFile(exitMarker);
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("separate dependency-free plugin snapshots launch both manifest paths from an external cwd", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-mcp-"));
+  const externalCwd = await mkdtemp(path.join(tmpdir(), "saarius-acp-external-cwd-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm();
+  const requireFromBridge = createRequire(path.join(repoRoot, "bridge/cursor-acp/package.json"));
+  const { Client } = requireFromBridge("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = requireFromBridge("@modelcontextprotocol/sdk/client/stdio.js");
+  try {
+    const launchCases = [
+      { bridge: "cursor-acp", manifest: ".mcp.json", server: "cursor-acp", stateEnv: "SAARIUS_CURSOR_ACP_STATE_DIR" },
+      { bridge: "antigravity-acp", manifest: ".cursor-plugin/mcp.json", server: "antigravity-acp", stateEnv: "SAARIUS_ANTIGRAVITY_ACP_STATE_DIR" },
+    ];
+    for (const { bridge, manifest, server, stateEnv } of launchCases) {
+      const pluginRoot = await makePluginSnapshot(bridge, { includeLauncher: true });
+      try {
+        const setup = spawnSync(process.execPath, [path.join(pluginRoot, "bridge", bridge, "scripts", "setup.mjs"), "--install"], {
+          cwd: externalCwd,
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            ...npmEnv(bridge, counterPath),
+            PATH: `${fake.fixtureRoot}:${process.env.PATH ?? ""}`,
+            SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+          },
+        });
+        assert.equal(setup.status, 0, setup.stderr || setup.stdout);
+        assert.equal(JSON.parse(setup.stdout).code, "MCP_READY");
+        await assert.rejects(() => readFile(path.join(pluginRoot, "bridge", bridge, "node_modules")), { code: "ENOENT" });
+        const manifestRoot = JSON.parse(await readFile(path.join(pluginRoot, manifest), "utf8"));
+        const config = manifestRoot.mcpServers[server];
+        const launcherPath = path.join(pluginRoot, "bridge", "acp-runtime", "launcher.mjs");
+        const stateRoot = await mkdtemp(path.join(tmpdir(), `${bridge}-mcp-state-`));
+        const transport = new StdioClientTransport({
+          command: config.command,
+          args: [launcherPath, ...config.args.slice(1)],
+          cwd: externalCwd,
+          env: {
+            PATH: process.env.PATH ?? "",
+            HOME: process.env.HOME ?? "",
+            ...config.env,
+            [stateEnv]: stateRoot,
+            SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+          },
+          stderr: "pipe",
+        });
+        transport.stderr?.resume();
+        const client = new Client({ name: "acp-runtime-store-test", version: "1.0.0" });
+        try {
+          await client.connect(transport);
+          assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), expectedTools[bridge]);
+        } finally {
+          await client.close();
+        }
+      } finally {
+        await rm(pluginRoot, { recursive: true, force: true });
+      }
     }
+    assert.equal(await countLines(counterPath), 2);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(externalCwd, { recursive: true, force: true });
     await rm(fake.fixtureRoot, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RUNTIME_ROOT = path.join(homedir(), ".local", "state", "saarius-skills", "acp-runtime");
 const NPM_TIMEOUT_MS = 120_000;
-const READY_SCHEMA = "saarius.acp.runtime.v1";
+const NPM_TERMINATION_TIMEOUT_MS = 5_000;
+const READY_SCHEMA = "saarius.acp.runtime.v2";
+const DEPENDENCY_SCHEMA = "saarius.acp.dependencies.v1";
 
 const BRIDGES = Object.freeze({
   "cursor-acp": Object.freeze({
@@ -22,6 +24,8 @@ const BRIDGES = Object.freeze({
 const REQUIRED_IMPORTS = Object.freeze([
   "node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js",
   "node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js",
+  "node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js",
+  "node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js",
   "node_modules/acpx/dist/runtime.js",
   "node_modules/zod/index.js",
 ]);
@@ -56,6 +60,34 @@ function hashBytes(bytes) {
 
 async function hashFile(filePath) {
   return hashBytes(await readFile(filePath));
+}
+
+async function dependencyInventory(root) {
+  const entries = [];
+  const nodeModules = path.join(root, "node_modules");
+  async function visit(directory, relativeDirectory) {
+    const children = (await readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const child of children) {
+      const relativePath = path.join(relativeDirectory, child.name).split(path.sep).join("/");
+      const absolutePath = path.join(directory, child.name);
+      if (child.isSymbolicLink()) {
+        entries.push({ path: relativePath, type: "symlink", target: await readlink(absolutePath) });
+      } else if (child.isDirectory()) {
+        await visit(absolutePath, relativePath);
+      } else if (child.isFile()) {
+        entries.push({ path: relativePath, type: "file", sha256: await hashFile(absolutePath) });
+      } else {
+        throw new RuntimeStoreError("DEPENDENCY_INTEGRITY_UNSUPPORTED", `unsupported dependency entry: ${relativePath}`);
+      }
+    }
+  }
+  await visit(nodeModules, "node_modules");
+  return entries;
+}
+
+function dependencyDigest(inventory) {
+  return hashBytes(Buffer.from(JSON.stringify(inventory)));
 }
 
 function stableDigest(entries) {
@@ -160,10 +192,15 @@ async function validateTree(root, descriptor, requireReady) {
     if (entries.find((entry) => entry.path === "package.json").sha256 !== descriptor.packageDigest) return false;
     if (entries.find((entry) => entry.path === "package-lock.json").sha256 !== descriptor.lockDigest) return false;
     if (stableDigest(entries.filter((entry) => !["package.json", "package-lock.json"].includes(entry.path))) !== descriptor.sourceDigest) return false;
+    const dependencyRecord = JSON.parse(await readFile(path.join(root, "DEPENDENCIES.json"), "utf8"));
+    if (dependencyRecord.schema !== DEPENDENCY_SCHEMA || dependencyRecord.identity !== descriptor.identity) return false;
+    if (dependencyRecord.digest !== dependencyDigest(dependencyRecord.files)) return false;
+    if (JSON.stringify(await dependencyInventory(sourceRoot)) !== JSON.stringify(dependencyRecord.files)) return false;
     if (requireReady) {
       const ready = JSON.parse(await readFile(path.join(root, "READY.json"), "utf8"));
       if (ready.schema !== READY_SCHEMA || ready.identity !== descriptor.identity) return false;
       if (JSON.stringify(ready.platform) !== JSON.stringify(descriptor.platform)) return false;
+      if (ready.dependencyDigest !== dependencyRecord.digest) return false;
     }
     return true;
   } catch {
@@ -187,9 +224,11 @@ function sanitizeStderr(value) {
     .slice(0, 800);
 }
 
-function runNpm({ cwd, npmCommand = "npm", npmEnv = {}, timeoutMs = NPM_TIMEOUT_MS }) {
+function runNpm({ cwd, npmCommand = "npm", npmEnv = {}, timeoutMs = NPM_TIMEOUT_MS, terminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS, stagingRoot }) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let terminationTimer;
+    let timedOut = false;
     const child = spawn(npmCommand, ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
       cwd,
       env: { ...process.env, ...npmEnv, npm_config_ignore_scripts: "true" },
@@ -200,25 +239,36 @@ function runNpm({ cwd, npmCommand = "npm", npmEnv = {}, timeoutMs = NPM_TIMEOUT_
     child.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-8_000); });
     const timer = setTimeout(() => {
       if (settled) return;
-      settled = true;
+      timedOut = true;
       child.kill("SIGTERM");
-      reject(new RuntimeStoreError("DEPENDENCY_INSTALL_TIMEOUT", "locked dependency setup exceeded its bounded timeout"));
+      terminationTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new RuntimeStoreError("DEPENDENCY_INSTALL_TERMINATION_UNCERTAIN", "locked dependency setup did not confirm termination", {
+          cleanupSafe: false,
+          pid: child.pid,
+          stagingRoot,
+        }));
+      }, terminationTimeoutMs);
     }, timeoutMs);
     child.once("error", (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(terminationTimer);
       reject(new RuntimeStoreError("DEPENDENCY_INSTALL_FAILED", "locked dependency setup could not start", { cause: error.code }));
     });
     child.once("exit", (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new RuntimeStoreError("DEPENDENCY_INSTALL_FAILED", "locked dependency setup failed", {
+      clearTimeout(terminationTimer);
+      if (!timedOut && code === 0) resolve();
+      else reject(new RuntimeStoreError(timedOut ? "DEPENDENCY_INSTALL_TIMEOUT" : "DEPENDENCY_INSTALL_FAILED", timedOut ? "locked dependency setup exceeded its bounded timeout" : "locked dependency setup failed", {
         exitCode: code,
         signal,
         stderr: sanitizeStderr(stderr),
+        cleanupSafe: true,
       }));
     });
   });
@@ -236,7 +286,7 @@ async function copySource(descriptor, stagingRoot) {
   }
 }
 
-export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS }) {
+export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS }) {
   const descriptor = await describeSource({ pluginRoot, bridge });
   const root = runtimePath(runtimeRoot(env), descriptor);
   if (await validateTree(root, descriptor, true)) return { descriptor, root, reused: true };
@@ -249,7 +299,15 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
   const stagingRoot = path.join(runtimeRoot(env), ".staging", `${descriptor.bridge}-${descriptor.identity}-${randomUUID()}`);
   try {
     await copySource(descriptor, stagingRoot);
-    await runNpm({ cwd: copiedSourceRoot(stagingRoot, descriptor), npmCommand, npmEnv, timeoutMs });
+    await runNpm({ cwd: copiedSourceRoot(stagingRoot, descriptor), npmCommand, npmEnv, timeoutMs, terminationTimeoutMs: npmTerminationTimeoutMs, stagingRoot });
+    const inventory = await dependencyInventory(copiedSourceRoot(stagingRoot, descriptor));
+    const dependencyRecord = {
+      schema: DEPENDENCY_SCHEMA,
+      identity: descriptor.identity,
+      digest: dependencyDigest(inventory),
+      files: inventory,
+    };
+    await writeFile(path.join(stagingRoot, "DEPENDENCIES.json"), `${JSON.stringify(dependencyRecord, null, 2)}\n`, { mode: 0o644 });
     if (!(await validateTree(stagingRoot, descriptor, false))) {
       throw new RuntimeStoreError("READY_INTEGRITY_MISMATCH", "installed runtime failed source or dependency integrity validation");
     }
@@ -261,6 +319,7 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
       packageDigest: descriptor.packageDigest,
       lockDigest: descriptor.lockDigest,
       sourceDigest: descriptor.sourceDigest,
+      dependencyDigest: dependencyRecord.digest,
       platform: descriptor.platform,
     }, null, 2)}\n`, { mode: 0o644 });
     await mkdir(path.dirname(root), { recursive: true });
@@ -276,6 +335,7 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
       throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "another runtime with the same identity is invalid");
     }
   } catch (error) {
+    if (error?.details?.cleanupSafe === false) throw error;
     await rm(stagingRoot, { recursive: true, force: true });
     throw error instanceof RuntimeStoreError
       ? error
