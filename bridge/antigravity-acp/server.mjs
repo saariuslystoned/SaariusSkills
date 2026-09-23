@@ -40,7 +40,7 @@ server.registerTool(
   "antigravity_acp_readiness",
   {
     description:
-      "Diagnose the pinned official Antigravity ACP runtime/helper, GEMINI_HOME personal OAuth policy, advertised models, and setup repair actions without sending a model turn.",
+      "Diagnose the pinned official Antigravity ACP runtime/helper, GEMINI_HOME personal OAuth policy, advertised models, and setup repair actions without sending a model turn. When model is omitted, readiness selects the plugin default gemini-3.8-flash-high if that exact id is advertised; it does not treat runtime current as the wished default.",
     inputSchema: {
       workspace: z.string().optional(),
       model: z.string().optional(),
@@ -54,11 +54,11 @@ server.registerTool(
   "antigravity_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task to official Antigravity ACP in exactly one absolute workspace with an exact advertised model id; returns a stable job ID.",
+      "Submit one bounded implementation task to official Antigravity ACP in exactly one absolute workspace. Omit model to use the plugin default gemini-3.8-flash-high when that exact id is advertised; otherwise pass an exact advertised model id. Returns a stable job ID.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),
-      model: z.string(),
+      model: z.string().optional(),
       timeoutMs: z.number().int().min(1_000).max(1_800_000).optional(),
       effort: z.any().optional(),
     },

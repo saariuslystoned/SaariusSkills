@@ -8,6 +8,7 @@ import { createAcpRuntime, createAgentRegistry } from "acpx/runtime";
 import {
   AUTH_MODE,
   BODY_KEYS,
+  PREFERRED_DEFAULT_MODEL_ID,
   PROFILE_ENV,
   RUNTIME_PIN,
   authRepair,
@@ -283,6 +284,42 @@ export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+export function isOmittedAntigravityModel(requestedModel) {
+  return requestedModel === undefined || requestedModel === null;
+}
+
+export function preferredDefaultAdvertised(availableModelIds) {
+  const advertised = Array.isArray(availableModelIds) ? availableModelIds : [];
+  return advertised.filter((modelId) => modelId === PREFERRED_DEFAULT_MODEL_ID).length === 1;
+}
+
+export function resolvePreferredDefaultAntigravityModel(availableModelIds) {
+  const advertised = Array.isArray(availableModelIds) ? availableModelIds : [];
+  try {
+    return resolveRequestedAntigravityModel(PREFERRED_DEFAULT_MODEL_ID, advertised);
+  } catch (error) {
+    if (error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE") {
+      throw new BridgeError(
+        "MODEL_REQUIRED",
+        `plugin default ${PREFERRED_DEFAULT_MODEL_ID} is not advertised; pass an exact advertised model id`,
+        {
+          preferredDefaultModelId: PREFERRED_DEFAULT_MODEL_ID,
+          availableModelCount: advertised.length,
+          availableModelIds: advertised.slice(0, 20),
+        },
+      );
+    }
+    throw error;
+  }
+}
+
+export function resolveAntigravityModelChoice(requestedModel, availableModelIds) {
+  if (isOmittedAntigravityModel(requestedModel)) {
+    return resolvePreferredDefaultAntigravityModel(availableModelIds);
+  }
+  return resolveRequestedAntigravityModel(requestedModel, availableModelIds);
+}
+
 export function resolveRequestedAntigravityModel(requestedModel, availableModelIds) {
   if (typeof requestedModel !== "string" || requestedModel.trim().length === 0) {
     throw new BridgeError(
@@ -499,11 +536,14 @@ function modelSnapshot(status) {
 }
 
 function publicModel(model) {
+  const advertised = Array.isArray(model.availableModelIds) ? model.availableModelIds : [];
   return {
     requestedModel: model.requestedModel ?? null,
     selectedModelId: model.selectedModelId ?? null,
     currentModelId: model.currentModelId,
-    availableModelCount: model.availableModelIds.length,
+    preferredDefaultModelId: PREFERRED_DEFAULT_MODEL_ID,
+    preferredDefaultAvailable: preferredDefaultAdvertised(advertised),
+    availableModelCount: advertised.length,
     matchingModelIds: model.selectedModelId ? [model.selectedModelId] : [],
     effort: null,
     effortPolicy: "unsupported_until_acp_proof",
@@ -1159,7 +1199,9 @@ export class AntigravityAcpBroker {
         mode: "oneshot",
         cwd: targetWorkspace,
       });
-      const models = await this.verifyModel(handle, targetWorkspace, model);
+      const models = await this.verifyModel(handle, targetWorkspace, model, {
+        requireSelection: !isOmittedAntigravityModel(model),
+      });
       return {
         ready: true,
         route: routeSummary(launch, models.selectedModelId ?? model ?? null),
@@ -1200,17 +1242,18 @@ export class AntigravityAcpBroker {
     }
   }
 
-  async verifyModel(handle, workspace, requestedModel) {
+  async verifyModel(handle, workspace, requestedModel, { requireSelection = true } = {}) {
     const runtime = this.ensureRuntime();
     if (typeof runtime.getStatus !== "function") {
       throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
     }
     let status = await runtime.getStatus({ handle });
     let models = modelSnapshot(status);
-    if (requestedModel === undefined) {
+    const omitted = isOmittedAntigravityModel(requestedModel);
+    if (omitted && !requireSelection && !preferredDefaultAdvertised(models.availableModelIds)) {
       return { ...models, requestedModel: null, selectedModelId: null, workspace };
     }
-    const selectedModelId = resolveRequestedAntigravityModel(requestedModel, models.availableModelIds);
+    const selectedModelId = resolveAntigravityModelChoice(requestedModel, models.availableModelIds);
     if (models.currentModelId !== selectedModelId && typeof runtime.setModel === "function") {
       await runtime.setModel({ handle, model: selectedModelId });
       status = await runtime.getStatus({ handle });
@@ -1221,13 +1264,19 @@ export class AntigravityAcpBroker {
         "MODEL_SELECTION_UNCONFIRMED",
         `Antigravity ACP did not confirm exact model ${selectedModelId}`,
         {
-          requestedModel,
+          requestedModel: omitted ? null : requestedModel,
+          preferredDefaultModelId: PREFERRED_DEFAULT_MODEL_ID,
           currentModelId: models.currentModelId,
           availableModelIds: models.availableModelIds,
         },
       );
     }
-    return { ...models, requestedModel, selectedModelId, workspace };
+    return {
+      ...models,
+      requestedModel: omitted ? null : requestedModel,
+      selectedModelId,
+      workspace,
+    };
   }
 
   async delegate({ workspace, prompt, model, effort, timeoutMs } = {}) {
@@ -1236,7 +1285,9 @@ export class AntigravityAcpBroker {
     const targetWorkspace = await requireDirectory(workspace, "workspace");
     await this.assertWorkspaceAdmissible(targetWorkspace);
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
-    const requestedModel = resolveRequestedAntigravityModel(model, [model]);
+    const requestedModel = isOmittedAntigravityModel(model)
+      ? undefined
+      : resolveRequestedAntigravityModel(model, [model]);
     const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
     const launch = await this.resolveLaunch();
     const auth = await this.diagnoseAuth();
@@ -1302,6 +1353,7 @@ export class AntigravityAcpBroker {
       job.handle = publicHandle(handle);
       const model = await this.verifyModel(handle, job.workspace, requestedModel);
       job.model = model;
+      job.route = { ...job.route, model: model.selectedModelId };
       await this.saveJob(job);
       await this.recordEvent(job, "model_confirmed", {
         currentModelId: model.currentModelId,

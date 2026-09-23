@@ -16,11 +16,19 @@ import {
   needsCleanupFence,
   processIdentitiesMatch,
   redactSensitive,
+  resolveAntigravityModelChoice,
+  resolvePreferredDefaultAntigravityModel,
   resolveRequestedAntigravityModel,
   shouldRecoverCleanupFence,
   shouldRecoverOwnedJob,
 } from "../broker.mjs";
-import { currentPlatformId, defaultRuntimeDir, platformLaunch, settingsPath } from "../contract.mjs";
+import {
+  PREFERRED_DEFAULT_MODEL_ID,
+  currentPlatformId,
+  defaultRuntimeDir,
+  platformLaunch,
+  settingsPath,
+} from "../contract.mjs";
 
 const fixtureCatalog = JSON.parse(
   await readFile(new URL("../fixtures/model-catalog.json", import.meta.url), "utf8"),
@@ -246,6 +254,9 @@ test("readiness proves advertised models without a turn", async () => {
   );
   assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
   assert.equal(report.model.availableModelCount, fixtureCatalog.availableModelIds.length);
+  assert.equal(report.model.preferredDefaultModelId, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(report.model.preferredDefaultAvailable, true);
+  assert.equal(report.model.selectedModelId, PREFERRED_DEFAULT_MODEL_ID);
   assert.equal(report.auth.mode, "oauth-personal");
   assert.equal(report.ultraAttribution, "unclaimed");
   assert.equal(runtime.turns.length, 0);
@@ -264,6 +275,43 @@ test("exact advertised model selection fails closed on unknown, ambiguous, or su
   );
   assert.throws(
     () => resolveRequestedAntigravityModel("gemini-3.8-flash-high", [
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-high",
+    ]),
+    (error) => error instanceof BridgeError && error.code === "MODEL_AMBIGUOUS",
+  );
+});
+
+test("omitted model prefers exact advertised gemini-3.8-flash-high and does not use 3.7", () => {
+  assert.equal(PREFERRED_DEFAULT_MODEL_ID, "gemini-3.8-flash-high");
+  assert.equal(
+    resolveAntigravityModelChoice(undefined, [
+      "gemini-3.7-flash-high",
+      "gemini-3.8-flash-high",
+    ]),
+    "gemini-3.8-flash-high",
+  );
+  assert.equal(
+    resolvePreferredDefaultAntigravityModel([
+      "gemini-3.7-flash-high",
+      "gemini-3.8-flash-high",
+    ]),
+    "gemini-3.8-flash-high",
+  );
+  assert.throws(
+    () => resolveAntigravityModelChoice(undefined, ["gemini-3.7-flash-high"]),
+    (error) =>
+      error instanceof BridgeError &&
+      error.code === "MODEL_REQUIRED" &&
+      error.message.includes("gemini-3.8-flash-high") &&
+      !error.message.includes("gemini-3.7-flash-high is advertised"),
+  );
+  assert.throws(
+    () => resolvePreferredDefaultAntigravityModel(["gemini-3.7-flash-high"]),
+    (error) => error instanceof BridgeError && error.code === "MODEL_REQUIRED",
+  );
+  assert.throws(
+    () => resolveAntigravityModelChoice(undefined, [
       "gemini-3.8-flash-high",
       "gemini-3.8-flash-high",
     ]),
@@ -300,10 +348,6 @@ test("relative workspace and missing model fail closed before a turn", async () 
     (error) => error instanceof BridgeError && error.code === "INVALID_WORKSPACE",
   );
   await assert.rejects(
-    () => broker.delegate({ workspace: broker.defaultWorkspace, prompt: "no" }),
-    (error) => error instanceof BridgeError && error.code === "MODEL_REQUIRED",
-  );
-  await assert.rejects(
     () => broker.delegate({
       workspace: broker.defaultWorkspace,
       model: FIXTURE_MODEL,
@@ -312,6 +356,57 @@ test("relative workspace and missing model fail closed before a turn", async () 
     }),
     (error) => error instanceof BridgeError && error.code === "EFFORT_UNSUPPORTED",
   );
+  await broker.close();
+});
+
+test("omitted model uses plugin default when advertised even if current is 3.7", async () => {
+  const { broker, runtime, workspace } = await makeBroker({
+    runtimeOptions: {
+      model: "gemini-3.7-flash-high",
+      available: ["gemini-3.7-flash-high", PREFERRED_DEFAULT_MODEL_ID],
+    },
+  });
+  const readiness = await broker.discover({ workspace });
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.model.currentModelId, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(readiness.model.selectedModelId, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(readiness.model.preferredDefaultAvailable, true);
+  assert.equal(runtime.turns.length, 0);
+  const submitted = await broker.delegate({
+    workspace,
+    prompt: "Make the smallest bounded implementation change and report the handoff.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.model, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(completed.route.model, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(runtime.model, PREFERRED_DEFAULT_MODEL_ID);
+  await broker.close();
+});
+
+test("omitted model fails closed when plugin default is not advertised", async () => {
+  const { broker, runtime, workspace } = await makeBroker({
+    runtimeOptions: {
+      model: "gemini-3.7-flash-high",
+      available: ["gemini-3.7-flash-high"],
+    },
+  });
+  const readiness = await broker.discover({ workspace });
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.model.currentModelId, "gemini-3.7-flash-high");
+  assert.equal(readiness.model.selectedModelId, null);
+  assert.equal(readiness.model.preferredDefaultModelId, PREFERRED_DEFAULT_MODEL_ID);
+  assert.equal(readiness.model.preferredDefaultAvailable, false);
+  assert.equal(runtime.turns.length, 0);
+  const submitted = await broker.delegate({
+    workspace,
+    prompt: "This must not run on a 3.7 fallback.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "failed");
+  assert.equal(completed.error.code, "MODEL_REQUIRED");
+  assert.match(completed.error.message, /gemini-3\.8-flash-high/);
+  assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
 

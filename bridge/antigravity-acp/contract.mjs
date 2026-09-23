@@ -17,6 +17,9 @@ export const PROFILE_ENV = "GEMINI_HOME";
 export const AUTH_MODE = "oauth-personal";
 export const DEFAULT_STATE_DIR_NAME = "antigravity-acp-delegation";
 export const DEFAULT_PROFILE_DIR_NAME = "gemini-home";
+// Plugin-wide omitted-model default. Exact advertised ACP id only. Not
+// GEMINI_HOME, not settings.json, and not a machine-local MCP env override.
+export const PREFERRED_DEFAULT_MODEL_ID = "gemini-3.8-flash-high";
 
 export const RUNTIME_PIN = Object.freeze({
   id: RUNTIME_ID,

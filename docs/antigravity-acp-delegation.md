@@ -31,12 +31,20 @@ native MCP readiness discovers it without shell-only environment overrides:
 `ANTIGRAVITY_ACP_RUNTIME_DIR`, `ANTIGRAVITY_ACP_SERVER`, and
 `ANTIGRAVITY_HARNESS_PATH` remain explicit overrides for non-default layouts.
 
-The requested model must be an exact advertised ACP model id. The bridge fails
-closed when the runtime/helper is missing, personal OAuth is not already
-configured under the explicit `GEMINI_HOME` profile, API-key or Cloud fallback
-variables are present, overage is not proven disabled/never, the model id is
-unknown, ambiguous, or substituted, or a fixed-choice `interaction_*` question
-appears. Effort is not inferred from labels.
+When the caller omits `model`, the plugin default is the exact advertised id
+`gemini-3.8-flash-high`. That default is defined in the plugin contract
+(`PREFERRED_DEFAULT_MODEL_ID` in `bridge/antigravity-acp/contract.mjs`) and
+applied by readiness and delegate. It is not a `GEMINI_HOME` setting, not a
+machine `settings.json` field, and not a Bobby-only MCP env. If that id is not
+advertised, omit-model fails closed and an exact advertised id is required. The
+bridge never treats runtime `currentModelId` or `gemini-3.7-flash-high` as the
+wished default. An explicit requested model must still be an exact advertised
+ACP id. The bridge fails closed when the runtime/helper is missing, personal
+OAuth is not already configured under the explicit `GEMINI_HOME` profile,
+API-key or Cloud fallback variables are present, overage is not proven
+disabled/never, the model id is unknown, ambiguous, or substituted, or a
+fixed-choice `interaction_*` question appears. Effort is not inferred from
+labels.
 
 ## Local development
 

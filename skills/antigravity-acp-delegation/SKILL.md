@@ -1,6 +1,6 @@
 ---
 name: antigravity-acp-delegation
-description: Use the separately named antigravity-acp MCP lane to diagnose official Google Antigravity ACP setup or delegate one bounded implementation slice with an exact advertised model. Distinct from cursor-acp and from native agy-print or Puppet qualification.
+description: Use the separately named antigravity-acp MCP lane to diagnose official Google Antigravity ACP setup or delegate one bounded implementation slice. Plugin default is exact advertised id gemini-3.8-flash-high. Distinct from cursor-acp and from native agy-print or Puppet qualification.
 ---
 
 # Antigravity ACP delegation
@@ -50,13 +50,21 @@ the user explicitly authorizes that alternative.
 - Start with `antigravity_acp_readiness` for the exact workspace when the route
   has not been checked in the current task. Require the official
   `antigravity-acp` runtime/helper pin, an explicit `GEMINI_HOME` personal
-  OAuth profile, and advertised model discovery. Never silently fall back to
+  OAuth profile, and advertised model discovery. Readiness selects the plugin
+  default exact id `gemini-3.8-flash-high` when advertised; it does not treat
+  runtime `currentModelId` as the wished default. Never silently fall back to
   `agy --print`, generic `acp`, an API key, a Cloud project, an alternate
   account, paid credits, or overage.
-- Use `antigravity_acp_delegate` with one absolute workspace path, one exact
-  advertised model id, one bounded prompt, and a bounded timeout. Do not infer
-  ACP effort from a label; effort selection is unsupported until proved.
-  Prefer an isolated worktree for source mutations.
+- Use `antigravity_acp_delegate` with one absolute workspace path, one bounded
+  prompt, and a bounded timeout. Omit `model` to use the plugin default exact
+  id `gemini-3.8-flash-high` when that id is advertised. That default ships in
+  the plugin contract (skill, broker, readiness). Do not take it from
+  `GEMINI_HOME`, `settings.json`, a machine MCP env, or readiness
+  `currentModelId`. If `gemini-3.8-flash-high` is not advertised, pass an exact
+  advertised model id; do not silently use `gemini-3.7-flash-high` or any other
+  current id as the wished default. Do not infer ACP effort from a label;
+  effort selection is unsupported until proved. Prefer an isolated worktree
+  for source mutations.
 - Save the returned job ID. Use `antigravity_acp_status` for progress and
   `antigravity_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, or progress event is not task success.

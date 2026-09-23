@@ -1,6 +1,6 @@
 interface:
   display_name: "Antigravity ACP Delegation"
   short_description: "Delegate bounded work to official Antigravity ACP."
-  default_prompt: "Use $antigravity-acp-delegation to diagnose the official Antigravity ACP lane or send one bounded implementation slice with an exact advertised model."
+  default_prompt: "Use $antigravity-acp-delegation to diagnose the official Antigravity ACP lane or send one bounded implementation slice. Omit model for the plugin default gemini-3.8-flash-high when advertised."
 policy:
   allow_implicit_invocation: true
