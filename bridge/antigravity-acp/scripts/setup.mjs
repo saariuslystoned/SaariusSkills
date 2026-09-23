@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 // Installation health check; no Antigravity session or model turn is started.
-import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   PROFILE_ENV,
   RUNTIME_PIN,
@@ -111,28 +110,10 @@ async function main() {
     report({ ok: false, code: "INVALID_ARGUMENT", usage: "setup.mjs [--check|--install]" }, 2);
     return;
   }
-  if (args.includes("--install")) {
-    const install = spawnSync("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
-      cwd: root, timeout: 120_000, stdio: "ignore",
-    });
-    if (install.status !== 0) {
-      report({
-        ok: false,
-        code: "DEPENDENCY_INSTALL_FAILED",
-        exitCode: install.status,
-        pin: RUNTIME_PIN,
-        repair: ["npm ci --ignore-scripts --no-audit --no-fund"],
-        runtimeRepair: runtimeRepair(),
-      }, 2);
-      return;
-    }
-  }
-  let Client, StdioClientTransport;
+  const pluginRoot = path.resolve(root, "../..");
+  let runtimeStore;
   try {
-    ({ Client } = await import("@modelcontextprotocol/sdk/client/index.js"));
-    ({ StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js"));
-    await import("acpx/runtime");
-    await import("zod");
+    runtimeStore = await import("../../acp-runtime/runtime-store.mjs");
   } catch {
     report({
       ok: false,
@@ -143,10 +124,54 @@ async function main() {
     }, 2);
     return;
   }
+  const { findReady, prepareRuntime, setupCommand } = runtimeStore;
+  let ready = await findReady({ pluginRoot, bridge: "antigravity-acp" });
+  if (args.includes("--install")) {
+    try {
+      ready = await prepareRuntime({ pluginRoot, bridge: "antigravity-acp" });
+    } catch (error) {
+      report({
+        ok: false,
+        code: error?.code ?? "DEPENDENCY_INSTALL_FAILED",
+        details: error?.details,
+        pin: RUNTIME_PIN,
+        runtimeRepair: runtimeRepair(),
+        repair: [setupCommand("antigravity-acp")],
+      }, 2);
+      return;
+    }
+  }
   const runtime = diagnoseLockedRuntime();
   const auth = await diagnoseAuthPolicy();
+  if (!ready) {
+    report({
+      ok: false,
+      code: "RUNTIME_SETUP_REQUIRED",
+      repair: [setupCommand("antigravity-acp")],
+      runtime,
+      auth,
+      note: "Prepare the shared persistent ACP runtime after installing or refreshing the plugin; MCP startup does not install dependencies.",
+    }, 2);
+    return;
+  }
+  const runtimeBridgeRoot = path.join(ready.root, "bridge", "antigravity-acp");
+  let Client, StdioClientTransport;
+  try {
+    ({ Client } = await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js")).href));
+    ({ StdioClientTransport } = await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js")).href));
+    await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/acpx/dist/runtime.js")).href);
+    await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/zod/index.js")).href);
+  } catch {
+    report({
+      ok: false,
+      code: "RUNTIME_SETUP_REQUIRED",
+      repair: [setupCommand("antigravity-acp")],
+      pin: RUNTIME_PIN,
+      runtimeRepair: runtimeRepair(),
+    }, 2);
+    return;
+  }
   const client = new Client({ name: "antigravity-acp-setup", version: "1.0.0" });
-  const pluginRoot = path.resolve(root, "../..");
   const config = JSON.parse(await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"))
     .mcpServers["antigravity-acp"];
   if (!config) {
@@ -169,6 +194,7 @@ async function main() {
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "",
       ...config.env,
+      ...(process.env.SAARIUS_ACP_RUNTIME_ROOT ? { SAARIUS_ACP_RUNTIME_ROOT: process.env.SAARIUS_ACP_RUNTIME_ROOT } : {}),
       SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
     },
     stderr: "pipe",

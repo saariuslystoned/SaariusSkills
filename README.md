@@ -99,6 +99,18 @@ exact advertised model ID is required. Personal OAuth lives under an explicit
 `GEMINI_HOME` profile; fixed-choice questions fail closed. See the
 [local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
 
+Both local MCP bridges use a shared per-user persistent dependency store outside
+the Codex plugin cache. After installing or updating the plugin, prepare the
+bridges explicitly from the installed plugin root:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
+```
+
+The launchers reuse compatible prepared trees and keep MCP stdout reserved for
+protocol frames. They never perform a network install during MCP initialization.
+
 ## PhoneProof
 
 PhoneProof closes the gap between a green mobile build and the UI a human

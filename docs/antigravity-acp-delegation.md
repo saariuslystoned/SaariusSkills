@@ -89,20 +89,25 @@ codex plugin add saarius-skills@saarius-skills
 
 Installing/updating the plugin copies source; it does not install this
 bridge's Node dependencies or the Google runtime. After each install/update,
-resolve the active plugin root from the installed skill location and run:
+resolve the active plugin root from the installed skill location and prepare
+the persistent runtime store:
 
 ```bash
-node "$SAARIUS_PLUGIN_ROOT/bridge/antigravity-acp/scripts/setup.mjs" --install
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
 ```
 
 Set `SAARIUS_PLUGIN_ROOT` to that absolute installed plugin directory, not a
-development checkout. `--install` runs locked `npm ci` with lifecycle scripts
-disabled, then initializes the MCP server and verifies all six tools.
-`--check` does only the health check and prints the locked runtime/helper pin
-plus exact repair actions. Neither opens Antigravity nor sends a model turn.
-`DEPENDENCIES_MISSING` prints an exact repair command; `MCP_READY` establishes
-server health, not that an existing Codex task has refreshed its tool
-inventory.
+development checkout. Preparation runs locked `npm ci` with lifecycle scripts
+disabled in a per-user, content-addressed runtime store outside the ephemeral
+plugin cache. The MCP launcher reuses that store and performs no network install
+during MCP initialization. Run the analogous Cursor command when that lane is
+enabled. `setup.mjs --check` remains a dependency/MCP health check and does not
+install, download the Google runtime, or send a model turn.
+
+The shared store is keyed by bridge source, package lock, OS/architecture, and
+Node compatibility. Cursor and Antigravity never reuse each other's runtime
+trees. A failed or incomplete preparation never becomes launchable; diagnostics
+are emitted on stderr so MCP stdout remains protocol-only.
 
 Reload Codex or start a fresh task after repair. Verify the native
 `antigravity_acp_readiness` call before delegating. The Codex orchestrator

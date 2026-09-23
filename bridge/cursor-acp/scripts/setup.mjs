@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // Installation health check; no Cursor session or model turn is started.
-import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const script = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(script), "..");
@@ -21,27 +20,45 @@ async function main() {
     report({ ok: false, code: "INVALID_ARGUMENT", usage: "setup.mjs [--check|--install]" }, 2);
     return;
   }
-  if (args.includes("--install")) {
-    const install = spawnSync("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
-      cwd: root, timeout: 120_000, stdio: "ignore",
-    });
-    if (install.status !== 0) {
-      report({ ok: false, code: "DEPENDENCY_INSTALL_FAILED", exitCode: install.status }, 2);
-      return;
-    }
-  }
-  let Client, StdioClientTransport;
+  const pluginRoot = path.resolve(root, "../..");
+  let runtimeStore;
   try {
-    ({ Client } = await import("@modelcontextprotocol/sdk/client/index.js"));
-    ({ StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js"));
-    await import("acpx/runtime");
-    await import("zod");
+    runtimeStore = await import("../../acp-runtime/runtime-store.mjs");
   } catch {
     report({ ok: false, code: "DEPENDENCIES_MISSING", repair: [process.execPath, script, "--install"] }, 2);
     return;
   }
+  const { findReady, prepareRuntime, setupCommand } = runtimeStore;
+  let ready = await findReady({ pluginRoot, bridge: "cursor-acp" });
+  if (args.includes("--install")) {
+    try {
+      ready = await prepareRuntime({ pluginRoot, bridge: "cursor-acp" });
+    } catch (error) {
+      report({ ok: false, code: error?.code ?? "DEPENDENCY_INSTALL_FAILED", details: error?.details, repair: [setupCommand("cursor-acp")] }, 2);
+      return;
+    }
+  }
+  if (!ready) {
+    report({
+      ok: false,
+      code: "RUNTIME_SETUP_REQUIRED",
+      repair: [setupCommand("cursor-acp")],
+      note: "Prepare the shared persistent ACP runtime after installing or refreshing the plugin; MCP startup does not install dependencies.",
+    }, 2);
+    return;
+  }
+  const runtimeBridgeRoot = path.join(ready.root, "bridge", "cursor-acp");
+  let Client, StdioClientTransport;
+  try {
+    ({ Client } = await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js")).href));
+    ({ StdioClientTransport } = await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js")).href));
+    await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/acpx/dist/runtime.js")).href);
+    await import(pathToFileURL(path.join(runtimeBridgeRoot, "node_modules/zod/index.js")).href);
+  } catch {
+    report({ ok: false, code: "RUNTIME_SETUP_REQUIRED", repair: [setupCommand("cursor-acp")] }, 2);
+    return;
+  }
   const client = new Client({ name: "cursor-acp-setup", version: "1.0.0" });
-  const pluginRoot = path.resolve(root, "../..");
   const config = JSON.parse(await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"))
     .mcpServers["cursor-acp"];
   const stateRoot = await mkdtemp(path.join(tmpdir(), "cursor-acp-setup-"));
@@ -49,7 +66,13 @@ async function main() {
     command: config.command,
     args: config.args,
     cwd: path.resolve(pluginRoot, config.cwd ?? "."),
-    env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...config.env, SAARIUS_CURSOR_ACP_STATE_DIR: stateRoot },
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      ...config.env,
+      ...(process.env.SAARIUS_ACP_RUNTIME_ROOT ? { SAARIUS_ACP_RUNTIME_ROOT: process.env.SAARIUS_ACP_RUNTIME_ROOT } : {}),
+      SAARIUS_CURSOR_ACP_STATE_DIR: stateRoot,
+    },
     stderr: "pipe",
   });
   // Do not copy server diagnostics or potential payloads into setup output.

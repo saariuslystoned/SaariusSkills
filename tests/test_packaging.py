@@ -586,13 +586,17 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("antigravity-acp", plugin["keywords"])
         self.assertIn("antigravity-acp", mcp["mcpServers"])
         self.assertIn("cursor-acp", mcp["mcpServers"])
+        acp_runtime = ROOT / "bridge" / "acp-runtime"
+        self.assertTrue((acp_runtime / "launcher.mjs").is_file())
+        self.assertTrue((acp_runtime / "prepare.mjs").is_file())
+        self.assertTrue((acp_runtime / "runtime-store.mjs").is_file())
         self.assertEqual(
             mcp["mcpServers"]["antigravity-acp"]["args"],
-            ["bridge/antigravity-acp/server.mjs"],
+            ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
         )
         self.assertEqual(
             mcp["mcpServers"]["cursor-acp"]["args"],
-            ["bridge/cursor-acp/server.mjs"],
+            ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
         )
         cursor_broker = (ROOT / "bridge" / "cursor-acp" / "broker.mjs").read_text(
             encoding="utf-8"
@@ -653,7 +657,7 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(server["command"], "node")
         self.assertEqual(
             server["args"],
-            ["${CURSOR_PLUGIN_ROOT}/bridge/antigravity-acp/server.mjs"],
+            ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
         )
         self.assertNotIn("env", server)
         self.assertNotIn("GEMINI_HOME", cursor_mcp_text)
@@ -677,11 +681,11 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(marketplace["plugins"][0]["source"]["path"], "./")
         self.assertEqual(
             codex_mcp["mcpServers"]["antigravity-acp"]["args"],
-            ["bridge/antigravity-acp/server.mjs"],
+            ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
         )
         self.assertEqual(
             codex_mcp["mcpServers"]["cursor-acp"]["args"],
-            ["bridge/cursor-acp/server.mjs"],
+            ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
         )
 
 
