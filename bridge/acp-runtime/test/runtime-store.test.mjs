@@ -231,6 +231,42 @@ test("dependency timeout waits for owned SIGTERM exit before staging cleanup", a
   }
 });
 
+test("unconfirmed dependency termination preserves the staging fence until the writer exits", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-timeout-uncertain-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const exitMarker = path.join(fixtureRoot, "npm-exited");
+  const fake = await makeFakeNpm({ signalDelayMs: 1_000 });
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  let stagingRoot;
+  try {
+    await assert.rejects(
+      () => prepareRuntime({
+        pluginRoot,
+        bridge: "cursor-acp",
+        env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot },
+        npmCommand: fake.command,
+        npmEnv: { ...npmEnv("cursor-acp", counterPath), SAARIUS_TEST_NPM_EXIT_MARKER: exitMarker },
+        timeoutMs: 1_000,
+        npmTerminationTimeoutMs: 50,
+      }),
+      (error) => {
+        assert.equal(error.code, "DEPENDENCY_INSTALL_TERMINATION_UNCERTAIN");
+        stagingRoot = error.details.stagingRoot;
+        assert.equal(error.details.cleanupSafe, false);
+        return true;
+      },
+    );
+    await access(stagingRoot);
+    await waitForFile(exitMarker);
+    await rm(stagingRoot, { recursive: true, force: true });
+  } finally {
+    await waitForFile(exitMarker);
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("separate dependency-free plugin snapshots launch both manifest paths from an external cwd", async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-mcp-"));
   const externalCwd = await mkdtemp(path.join(tmpdir(), "saarius-acp-external-cwd-"));
