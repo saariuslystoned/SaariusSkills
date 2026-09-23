@@ -26,7 +26,7 @@ test("copied plugin without dependencies reports its own exact repair path", () 
     assert.equal(report.code, "DEPENDENCIES_MISSING");
     assert.deepEqual(report.repair, [process.execPath, realpathSync(target), "--install"]);
     assert.equal(report.pin.version, "1.1.1");
-    assert.equal(report.pin.acpxRelease, "0.19.0");
+    assert.equal(report.pin.acpxRelease, "0.19.1");
     assert.equal(report.pin.acpxSourceCommit, null);
     assert.equal(
       report.pin.lastInspectedSourceCommit,
@@ -35,7 +35,7 @@ test("copied plugin without dependencies reports its own exact repair path", () 
     assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
     assert.equal(
       report.pin.acpxNpmIntegrity,
-      "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+      "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
     );
     assert.ok(Array.isArray(report.runtimeRepair));
   } finally {

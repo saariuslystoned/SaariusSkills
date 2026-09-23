@@ -8,10 +8,19 @@ import test from "node:test";
 import { createAcpRuntime } from "acpx/runtime";
 import { createAgentRegistry } from "acpx/agent-registry";
 import {
+  ACPX_ARTIFACT_PATH,
+  ACPX_ARTIFACT_SHA256,
+  ACPX_CANDIDATE_PACKAGE_VERSION,
+  ACPX_MERGE_COMMIT,
+  ACPX_OPENCLAW_EXTENSIONS_PACKAGE,
+  ACPX_OPENCLAW_MAIN_COMMIT,
+  ACPX_ORDINARY_PINNED_PACKAGE,
+  ACPX_PUBLISHED_AGENT_REGISTRY_JS_SHA256,
   ACPX_PUBLISHED_NPM_INTEGRITY,
   ACPX_PUBLISHED_NPM_VERSION,
   ACPX_PUBLISHED_RUNTIME_JS_SHA256,
   ACPX_PUBLISHED_TARBALL_SHA256,
+  ACPX_PUBLISHED_TARBALL_URL,
   ACPX_QUALIFICATION,
   createProcessLifecycleTracker,
   discardCandidateTurnEvents,
@@ -20,34 +29,90 @@ import {
 const root = fileURLToPath(new URL("../", import.meta.url));
 const installedPackage = path.join(root, "node_modules/acpx/package.json");
 const installedRuntime = path.join(root, "node_modules/acpx/dist/runtime.js");
+const installedRegistry = path.join(root, "node_modules/acpx/dist/agent-registry.js");
 const lockfile = path.join(root, "package-lock.json");
+const HISTORICAL_PUBLISHED_NPM_VERSION = "0.19.0";
+const HISTORICAL_PUBLISHED_NPM_INTEGRITY =
+  "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==";
+const HISTORICAL_PUBLISHED_TARBALL_SHA256 =
+  "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d";
+const HISTORICAL_PUBLISHED_RUNTIME_JS_SHA256 =
+  "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b";
+const EXPECTED_EXPORTS = {
+  ".": "./dist/cli.js",
+  "./runtime": "./dist/runtime.js",
+  "./flows": "./dist/flows.js",
+  "./dist/*": "./dist/*",
+  "./package.json": "./package.json",
+  "./agent-registry": "./dist/agent-registry.js",
+};
+const EXPECTED_DECLARED_DEPENDENCIES = {
+  "@agentclientprotocol/sdk": "^1.4.0",
+  "@openclaw/fs-safe": "^0.12.0",
+  commander: "^15.0.0",
+  skillflag: "^0.2.1",
+  tsx: "^4.23.13",
+  zod: "^4.6.2",
+};
+const EXPECTED_DEPENDENCY_VERSIONS = {
+  "@agentclientprotocol/sdk": "1.4.0",
+  "@openclaw/fs-safe": "0.12.0",
+  commander: "15.0.0",
+  skillflag: "0.2.1",
+  tsx: "4.23.13",
+  zod: "4.6.5",
+};
 
 function requirePublishedInstall() {
   assert.equal(
     existsSync(installedPackage),
     true,
-    "published acpx@0.19.0 must be installed by local npm ci in this bridge",
+    "published acpx@0.19.1 must be installed by local npm ci in this bridge",
   );
 }
 
-test("native pin exercises published acpx 0.19.0 public runtime and agent-registry exports", async () => {
+test("native pin exercises published acpx 0.19.1 public runtime and agent-registry exports", async () => {
   requirePublishedInstall();
   const manifest = JSON.parse(readFileSync(installedPackage, "utf8"));
   const lock = JSON.parse(readFileSync(lockfile, "utf8"));
   const pinned = lock.packages["node_modules/acpx"];
   const runtimeDigest = createHash("sha256").update(readFileSync(installedRuntime)).digest("hex");
+  const registryDigest = createHash("sha256").update(readFileSync(installedRegistry)).digest("hex");
 
-  assert.equal(manifest.version, "0.19.0");
+  assert.equal(manifest.version, "0.19.1");
   assert.equal(manifest.version, ACPX_PUBLISHED_NPM_VERSION);
+  assert.equal(ACPX_ORDINARY_PINNED_PACKAGE, "0.19.1");
   assert.equal(manifest.gitHead, undefined);
-  assert.equal(pinned.version, "0.19.0");
+  assert.equal(manifest.engines.node, ">=22.13.0");
+  assert.deepEqual(manifest.exports, EXPECTED_EXPORTS);
+  assert.equal(pinned.version, "0.19.1");
+  assert.equal(pinned.resolved, ACPX_PUBLISHED_TARBALL_URL);
   assert.equal(pinned.integrity, ACPX_PUBLISHED_NPM_INTEGRITY);
   assert.equal(
     pinned.integrity,
-    "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+    "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
   );
   assert.equal(runtimeDigest, ACPX_PUBLISHED_RUNTIME_JS_SHA256);
-  assert.equal(ACPX_PUBLISHED_TARBALL_SHA256, "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d");
+  assert.equal(registryDigest, ACPX_PUBLISHED_AGENT_REGISTRY_JS_SHA256);
+  assert.equal(ACPX_PUBLISHED_TARBALL_SHA256, "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0");
+  assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
+  assert.equal(ACPX_MERGE_COMMIT, "2e05de525dd1ab62e9e74bf02d91e3638920fcf3");
+  assert.notEqual(ACPX_PUBLISHED_NPM_VERSION, ACPX_CANDIDATE_PACKAGE_VERSION);
+  assert.notEqual(ACPX_PUBLISHED_TARBALL_SHA256, ACPX_ARTIFACT_SHA256);
+  assert.match(ACPX_ARTIFACT_PATH, /acpx-0\.18\.0\.tgz$/);
+  assert.notEqual(ACPX_PUBLISHED_NPM_VERSION, HISTORICAL_PUBLISHED_NPM_VERSION);
+  assert.notEqual(pinned.integrity, HISTORICAL_PUBLISHED_NPM_INTEGRITY);
+  assert.notEqual(ACPX_PUBLISHED_TARBALL_SHA256, HISTORICAL_PUBLISHED_TARBALL_SHA256);
+  assert.notEqual(runtimeDigest, HISTORICAL_PUBLISHED_RUNTIME_JS_SHA256);
+  assert.equal(ACPX_OPENCLAW_MAIN_COMMIT, "482a4b2c499a053b173c5d36d78cf67b9137e013");
+  assert.equal(ACPX_OPENCLAW_EXTENSIONS_PACKAGE, "2026.9.7");
+  assert.notEqual(ACPX_OPENCLAW_MAIN_COMMIT, ACPX_MERGE_COMMIT);
+  for (const [name, range] of Object.entries(EXPECTED_DECLARED_DEPENDENCIES)) {
+    assert.equal(manifest.dependencies[name], range, name);
+  }
+  for (const [name, version] of Object.entries(EXPECTED_DEPENDENCY_VERSIONS)) {
+    assert.equal(lock.packages[`node_modules/${name}`].version, version, name);
+  }
   assert.equal(typeof createAcpRuntime, "function");
   assert.equal(typeof createAgentRegistry, "function");
   assert.equal(ACPX_QUALIFICATION, "synthetic_only");
@@ -56,7 +121,7 @@ test("native pin exercises published acpx 0.19.0 public runtime and agent-regist
     overrides: { cursor: [process.execPath, "--version"] },
   });
   const sessions = new Map();
-  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0190-cursor-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0191-cursor-"));
   const runtime = createAcpRuntime({
     cwd,
     sessionStore: {
@@ -80,15 +145,15 @@ test("native pin exercises published acpx 0.19.0 public runtime and agent-regist
   await runtime.shutdown();
 });
 
-test("installed acpx 0.19.0 Cursor runtime completes a local synthetic-peer turn and retires the owned child", {
+test("installed acpx 0.19.1 Cursor runtime completes a local synthetic-peer turn and retires the owned child", {
   timeout: 60_000,
 }, async () => {
   requirePublishedInstall();
   const peer = fileURLToPath(new URL("./candidate-peer.mjs", import.meta.url));
-  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0190-cursor-lifecycle-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0191-cursor-lifecycle-"));
   const tracker = createProcessLifecycleTracker();
   const sessions = new Map();
-  const sessionKey = "cursor-acp-published-0190";
+  const sessionKey = "cursor-acp-published-0191";
   const registry = createAgentRegistry({
     overrides: { cursor: [process.execPath, peer] },
   });
@@ -120,7 +185,7 @@ test("installed acpx 0.19.0 Cursor runtime completes a local synthetic-peer turn
       handle,
       text: "published runtime proof ping",
       mode: "prompt",
-      requestId: "published-0190-turn",
+      requestId: "published-0191-turn",
     });
     const discarded = await discardCandidateTurnEvents(turn);
     assert.equal(discarded.body_retained, false);
@@ -128,7 +193,7 @@ test("installed acpx 0.19.0 Cursor runtime completes a local synthetic-peer turn
     assert.equal(result.status, "completed");
     await runtime.close({
       handle,
-      reason: "published-0190-lifecycle-complete",
+      reason: "published-0191-lifecycle-complete",
       discardPersistentState: true,
     });
     const proof = await tracker.waitForOwnedExit(sessionKey, { timeoutMs: 10_000 });
@@ -158,4 +223,5 @@ test("installed acpx 0.19.0 Cursor runtime completes a local synthetic-peer turn
     );
   }
   assert.equal(ACPX_QUALIFICATION, "synthetic_only");
+  assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
 });

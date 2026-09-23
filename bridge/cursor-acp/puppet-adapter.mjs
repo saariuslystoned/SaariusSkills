@@ -17,12 +17,19 @@ export const ACPX_PR_HEAD = "27e58b7dba7aa4e6e4bc0cc175ad6cdbc00587c7";
 export const ACPX_PR_BASE = "d4916ce050582c7415632c4e7cf84d285d268fa9";
 export const ACPX_NPM_GIT_HEAD = "8699be1b6428fa7584acc6f07d87f5aec8945f58";
 export const ACPX_STATUS = "merged_unreleased";
-export const ACPX_ORDINARY_PINNED_PACKAGE = "0.19.0";
+export const ACPX_ORDINARY_PINNED_PACKAGE = "0.19.1";
 export const ACPX_CANDIDATE_PACKAGE_VERSION = "0.18.0";
-export const ACPX_PUBLISHED_NPM_VERSION = "0.19.0";
-export const ACPX_PUBLISHED_NPM_INTEGRITY = "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==";
-export const ACPX_PUBLISHED_TARBALL_SHA256 = "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d";
-export const ACPX_PUBLISHED_RUNTIME_JS_SHA256 = "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b";
+export const ACPX_PUBLISHED_NPM_VERSION = "0.19.1";
+export const ACPX_PUBLISHED_NPM_INTEGRITY = "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==";
+export const ACPX_PUBLISHED_TARBALL_URL = "https://registry.npmjs.org/acpx/-/acpx-0.19.1.tgz";
+export const ACPX_PUBLISHED_TARBALL_SHA256 = "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0";
+export const ACPX_PUBLISHED_RUNTIME_JS_SHA256 = "5dfd93c5345bd039f9ab8f50afdf1b621e7ba46c41575d07c2637aa31dea546e";
+export const ACPX_PUBLISHED_AGENT_REGISTRY_JS_SHA256 = "bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f81c18f48c";
+// Verified OpenClaw main that depends on published acpx@0.19.1.
+// Not a published-package gitHead, not the 0.18.0 Puppet candidate,
+// and not a live qualification or VM/provider migration.
+export const ACPX_OPENCLAW_MAIN_COMMIT = "482a4b2c499a053b173c5d36d78cf67b9137e013";
+export const ACPX_OPENCLAW_EXTENSIONS_PACKAGE = "2026.9.7";
 export const ACPX_ARTIFACT_SHA256 = "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614";
 export const ACPX_ARTIFACT_PATH = "runs/puppet-dual-acp-controller-runs/20260921/artifacts-refresh-2e05de52/acpx-0.18.0.tgz";
 export const ACPX_CANDIDATE_RUNTIME_ROOT = "runs/puppet-dual-acp-controller-runs/20260921/runtime-refresh-2e05de52";
@@ -347,10 +354,10 @@ export function validateAcpxDependencyIdentity(value) {
     throw new AdapterError("IDENTITY_MISMATCH", "cursor-acpx cannot claim live qualification");
   }
   if (value.published_npm_contains_merge === true) {
-    throw new AdapterError("IDENTITY_MISMATCH", "published npm acpx@0.19.0 is not the candidate merge tarball");
+    throw new AdapterError("IDENTITY_MISMATCH", "published npm acpx@0.19.1 is not the candidate merge tarball");
   }
   if (value.ordinary_pinned_package !== ACPX_ORDINARY_PINNED_PACKAGE) {
-    throw new AdapterError("IDENTITY_MISMATCH", "ordinary production pin must stay 0.19.0");
+    throw new AdapterError("IDENTITY_MISMATCH", "ordinary production pin must stay 0.19.1");
   }
   if (value.candidate_package_version !== ACPX_CANDIDATE_PACKAGE_VERSION) {
     throw new AdapterError("IDENTITY_MISMATCH", "candidate package version drifted");

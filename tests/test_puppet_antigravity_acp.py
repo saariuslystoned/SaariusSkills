@@ -12,8 +12,11 @@ SCRIPTS = ROOT / "skills" / "puppet" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from puppet_lib.antigravity_acp import (  # noqa: E402
+    ACPX_AGENT_REGISTRY_JS_SHA256,
     ACPX_LAST_INSPECTED_SOURCE_COMMIT,
     ACPX_LAST_INSPECTED_SOURCE_RELEASE,
+    ACPX_OPENCLAW_EXTENSIONS_PACKAGE,
+    ACPX_OPENCLAW_MAIN_COMMIT,
     ACPX_SOURCE_COMMIT,
     CANDIDATE_SCHEMA,
     DEFAULT_ROUTE,
@@ -111,14 +114,28 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
         self.assertFalse(contract["available"])
         self.assertFalse(AntigravityAcpController.available())
         self.assertFalse(transport_is_available(TRANSPORT_ID))
-        self.assertEqual(contract["runtime"]["acpx_release"], "0.19.0")
+        self.assertEqual(contract["runtime"]["acpx_release"], "0.19.1")
         self.assertEqual(
             contract["runtime"]["acpx_npm_integrity"],
-            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+            "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
         )
         self.assertEqual(
             contract["runtime"]["acpx_tarball_sha256"],
-            "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d",
+            "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0",
+        )
+        self.assertEqual(
+            contract["runtime"]["acpx_runtime_js_sha256"],
+            "5dfd93c5345bd039f9ab8f50afdf1b621e7ba46c41575d07c2637aa31dea546e",
+        )
+        self.assertEqual(
+            ACPX_AGENT_REGISTRY_JS_SHA256,
+            "bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f81c18f48c",
+        )
+        self.assertEqual(ACPX_OPENCLAW_MAIN_COMMIT, "482a4b2c499a053b173c5d36d78cf67b9137e013")
+        self.assertEqual(ACPX_OPENCLAW_EXTENSIONS_PACKAGE, "2026.9.7")
+        self.assertNotEqual(
+            ACPX_OPENCLAW_MAIN_COMMIT,
+            ACPX_LAST_INSPECTED_SOURCE_COMMIT,
         )
         self.assertIsNone(contract["runtime"]["acpx_source_commit"])
         self.assertIsNone(ACPX_SOURCE_COMMIT)
@@ -158,8 +175,8 @@ class AntigravityAcpCandidateTests(unittest.TestCase):
             validate_candidate_contract(claimed_source)
 
         relabeled_release = candidate_contract()
-        relabeled_release["runtime"]["last_inspected_source_release"] = "0.19.0"
-        with self.assertRaisesRegex(ValidationError, "not the published 0.19.0 release"):
+        relabeled_release["runtime"]["last_inspected_source_release"] = "0.19.1"
+        with self.assertRaisesRegex(ValidationError, "not the published 0.19.1 release"):
             validate_candidate_contract(relabeled_release)
 
     def test_js_runtime_pin_keeps_published_source_unknown(self):
