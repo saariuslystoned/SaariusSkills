@@ -2,19 +2,22 @@
 
 This repository carries an experimental local-only bridge for Codex, separate
 from the Cursor ACP lane. The bridge exposes a small stdio MCP server named
-`antigravity-acp` and uses pinned `acpx@0.19.0` to open an ACP session with
+`antigravity-acp` and uses pinned `acpx@0.19.1` to open an ACP session with
 Google's official Antigravity runtime:
 
 ```text
 antigravity-acp 1.1.1
 registry revision 81bf71b55e15f630c4fb8a86d20d3088071d2071
-acpx 0.19.0
+acpx 0.19.1
 acpxSourceCommit null (published package has no gitHead)
 lastInspectedSourceCommit 50a47ad10a75431cbc276ec9b555d11fe1f69c84
 lastInspectedSourceRelease 0.17.1
-npm integrity sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==
-tarball sha256 5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d
-runtime.js sha256 88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b
+OpenClaw main 482a4b2c499a053b173c5d36d78cf67b9137e013 depends on acpx 0.19.1
+@openclaw/acpx 2026.9.7
+npm integrity sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==
+tarball sha256 f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0
+runtime.js sha256 5dfd93c5345bd039f9ab8f50afdf1b621e7ba46c41575d07c2637aa31dea546e
+agent-registry.js sha256 bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f81c18f48c
 ```
 
 The runtime binary and matching `localharness_external` helper are a separate

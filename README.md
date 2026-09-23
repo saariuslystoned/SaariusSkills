@@ -77,7 +77,7 @@ for all harnesses.
 
 The repository also carries an additive, experimental [Cursor ACP delegation
 skill](skills/cursor-acp-delegation/SKILL.md) and stdio MCP bridge. It routes
-one bounded implementation slice through pinned `acpx@0.19.0` to Bobby's
+one bounded implementation slice through pinned `acpx@0.19.1` to Bobby's
 explicit local `/Users/bobbybones/.local/bin/cursor-agent acp` executable,
 resolves the requested Cursor Grok 4.6 selector against the live ACP model
 catalog, and exposes readiness, delegation, status/result, and
@@ -91,7 +91,7 @@ OpenClaw gateway, remote-host support, or issues #35/#37 complete. See the
 ## Local Antigravity ACP
 
 A second experimental stdio MCP bridge, named `antigravity-acp`, routes one
-bounded implementation slice through pinned `acpx@0.19.0` to Google's official
+bounded implementation slice through pinned `acpx@0.19.1` to Google's official
 `antigravity-acp` 1.1.1 runtime. It stays separate from the Cursor lane and
 from native `agy --print` / Puppet qualification. Exact advertised model IDs
 are required; personal OAuth lives under an explicit `GEMINI_HOME` profile;

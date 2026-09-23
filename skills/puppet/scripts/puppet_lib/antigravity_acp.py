@@ -57,21 +57,30 @@ OWNERSHIP_SCHEMA = "puppet.antigravity-acpx-ownership/v1"
 REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071"
 RUNTIME_ID = "antigravity-acp"
 RUNTIME_VERSION = "1.1.1"
-# Published acpx@0.19.0 has no gitHead. The 0.17.1 SHA is a historical watch
+# Published acpx@0.19.1 has no gitHead. The 0.17.1 SHA is a historical watch
 # identity only and must not machine-read as the published package source.
 ACPX_SOURCE_COMMIT = None
 ACPX_LAST_INSPECTED_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84"
 ACPX_LAST_INSPECTED_SOURCE_RELEASE = "0.17.1"
-ACPX_RELEASE = "0.19.0"
+ACPX_RELEASE = "0.19.1"
 ACPX_NPM_INTEGRITY = (
-    "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q=="
+    "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow=="
 )
+ACPX_TARBALL_URL = "https://registry.npmjs.org/acpx/-/acpx-0.19.1.tgz"
 ACPX_TARBALL_SHA256 = (
-    "5a61820401cfed668ce3ad77a2feaebdd9e496a037ba28b2afca3224e7505c6d"
+    "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0"
 )
 ACPX_RUNTIME_JS_SHA256 = (
-    "88a9799088146a191360a297bec94fb9006853a4420bef6257635a6b10520e1b"
+    "5dfd93c5345bd039f9ab8f50afdf1b621e7ba46c41575d07c2637aa31dea546e"
 )
+ACPX_AGENT_REGISTRY_JS_SHA256 = (
+    "bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f81c18f48c"
+)
+# Verified OpenClaw main that depends on published acpx@0.19.1.
+# Not a published-package gitHead, not the 0.18.0 Puppet candidate,
+# and not a live qualification or VM/provider migration.
+ACPX_OPENCLAW_MAIN_COMMIT = "482a4b2c499a053b173c5d36d78cf67b9137e013"
+ACPX_OPENCLAW_EXTENSIONS_PACKAGE = "2026.9.7"
 
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash-high"
 ADVERTISED_ANTIGRAVITY_MODELS = (
@@ -769,9 +778,9 @@ def validate_candidate_contract(value: Any) -> Dict[str, Any]:
 
     runtime = _exact_mapping(contract.get("runtime"), _RUNTIME_KEYS, "runtime pin")
     if runtime.get("acpx_source_commit") is not None:
-        raise ValidationError("published acpx@0.19.0 source commit is unknown")
+        raise ValidationError("published acpx@0.19.1 source commit is unknown")
     if runtime.get("last_inspected_source_release") == ACPX_RELEASE:
-        raise ValidationError("last inspected 0.17.1 source is not the published 0.19.0 release")
+        raise ValidationError("last inspected 0.17.1 source is not the published 0.19.1 release")
     if runtime.get("last_inspected_source_commit") != ACPX_LAST_INSPECTED_SOURCE_COMMIT:
         raise ValidationError("last inspected Antigravity source commit drifted")
     if runtime.get("last_inspected_source_release") != ACPX_LAST_INSPECTED_SOURCE_RELEASE:
@@ -2669,8 +2678,11 @@ class AntigravityAcpController:
 
 
 __all__ = [
+    "ACPX_AGENT_REGISTRY_JS_SHA256",
     "ACPX_LAST_INSPECTED_SOURCE_COMMIT",
     "ACPX_LAST_INSPECTED_SOURCE_RELEASE",
+    "ACPX_OPENCLAW_EXTENSIONS_PACKAGE",
+    "ACPX_OPENCLAW_MAIN_COMMIT",
     "ACPX_RELEASE",
     "ACPX_SOURCE_COMMIT",
     "ADAPTER_ID",

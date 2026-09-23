@@ -24,9 +24,17 @@ from cursor_acpx import (
     ACPX_HEAD,
     ACPX_MERGE_COMMIT,
     ACPX_NPM_GIT_HEAD,
+    ACPX_OPENCLAW_EXTENSIONS_PACKAGE,
+    ACPX_OPENCLAW_MAIN_COMMIT,
     ACPX_ORDINARY_PINNED_PACKAGE,
     ACPX_PR_BASE,
     ACPX_PR_HEAD,
+    ACPX_PUBLISHED_AGENT_REGISTRY_JS_SHA256,
+    ACPX_PUBLISHED_NPM_INTEGRITY,
+    ACPX_PUBLISHED_NPM_VERSION,
+    ACPX_PUBLISHED_RUNTIME_JS_SHA256,
+    ACPX_PUBLISHED_TARBALL_SHA256,
+    ACPX_PUBLISHED_TARBALL_URL,
     ACPX_SOURCE,
     ACPX_SOURCE_COMMIT,
     ACPX_SOURCE_TREE,
@@ -139,15 +147,41 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         self.assertEqual(pin["pr_base"], ACPX_PR_BASE)
         self.assertEqual(pin["npm_git_head"], ACPX_NPM_GIT_HEAD)
         self.assertEqual(pin["candidate_package_version"], ACPX_CANDIDATE_PACKAGE_VERSION)
-        self.assertEqual(pin["published_npm_version"], "0.19.0")
+        self.assertEqual(pin["published_npm_version"], "0.19.1")
+        self.assertEqual(pin["published_npm_version"], ACPX_PUBLISHED_NPM_VERSION)
+        self.assertEqual(pin["ordinary_pinned_package"], "0.19.1")
+        self.assertEqual(pin["candidate_package_version"], "0.18.0")
+        self.assertNotEqual(pin["published_npm_version"], pin["candidate_package_version"])
         self.assertFalse(pin["published_npm_contains_merge"])
         lock = json.loads((ROOT / "bridge" / "cursor-acp" / "package-lock.json").read_text(encoding="utf-8"))
         published = lock["packages"]["node_modules/acpx"]
-        self.assertEqual(published["version"], "0.19.0")
+        self.assertEqual(published["version"], "0.19.1")
+        self.assertEqual(published["resolved"], ACPX_PUBLISHED_TARBALL_URL)
         self.assertEqual(
+            published["integrity"],
+            "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
+        )
+        self.assertEqual(published["integrity"], ACPX_PUBLISHED_NPM_INTEGRITY)
+        self.assertEqual(
+            ACPX_PUBLISHED_TARBALL_SHA256,
+            "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0",
+        )
+        self.assertEqual(
+            ACPX_PUBLISHED_RUNTIME_JS_SHA256,
+            "5dfd93c5345bd039f9ab8f50afdf1b621e7ba46c41575d07c2637aa31dea546e",
+        )
+        self.assertEqual(
+            ACPX_PUBLISHED_AGENT_REGISTRY_JS_SHA256,
+            "bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f81c18f48c",
+        )
+        self.assertNotEqual(ACPX_PUBLISHED_TARBALL_SHA256, ACPX_ARTIFACT_SHA256)
+        self.assertNotEqual(
             published["integrity"],
             "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
         )
+        self.assertEqual(ACPX_OPENCLAW_MAIN_COMMIT, "482a4b2c499a053b173c5d36d78cf67b9137e013")
+        self.assertEqual(ACPX_OPENCLAW_EXTENSIONS_PACKAGE, "2026.9.7")
+        self.assertNotEqual(ACPX_OPENCLAW_MAIN_COMMIT, ACPX_MERGE_COMMIT)
         self.assertEqual(
             pin["artifact_sha256"],
             "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614",
@@ -276,7 +310,7 @@ class CursorAcpxAdapterTests(unittest.TestCase):
         gates = validate_cutover_safeguards()
         self.assertFalse(gates["available"])
         self.assertEqual(gates["ordinary_launch"], "unavailable")
-        self.assertEqual(gates["ordinary_pinned_package"], "0.19.0")
+        self.assertEqual(gates["ordinary_pinned_package"], "0.19.1")
         self.assertEqual(gates["candidate_package_version"], "0.18.0")
         self.assertFalse(gates["released"])
         self.assertFalse(gates["published_npm_contains_merge"])

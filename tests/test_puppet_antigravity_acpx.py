@@ -59,11 +59,16 @@ class AntigravityAcpxOwnershipTests(unittest.TestCase):
         )
         lock = json.loads((ROOT / "bridge" / "antigravity-acp" / "package-lock.json").read_text(encoding="utf-8"))
         published = lock["packages"]["node_modules/acpx"]
-        self.assertEqual(published["version"], "0.19.0")
+        self.assertEqual(published["version"], "0.19.1")
+        self.assertEqual(
+            published["resolved"],
+            "https://registry.npmjs.org/acpx/-/acpx-0.19.1.tgz",
+        )
         self.assertEqual(
             published["integrity"],
-            "sha512-sgG0CkhuvVxgfiksXjIPEl9hsHZW0CpxywPdQeoIP5D31gwZE4nrnddLUUqaSCLb1UIM7LFPBL5qdvy15/+B6Q==",
+            "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
         )
+        self.assertIn("acpx-0.18.0.tgz", ACPX_ARTIFACT_PATH)
         self.assertEqual(DEFAULT_TRANSPORT, "tmux")
         self.assertEqual(bind_run_transport()["id"], "tmux")
         self.assertFalse(transport_is_available(TRANSPORT_ID))
