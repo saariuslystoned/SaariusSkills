@@ -29,6 +29,13 @@ identity, so a restart is a new owner and cannot rebind an old conversation
 binding; set `SAARIUS_ACP_BINDER_ID` consistently when continuity across
 processes or restarts is required. Concurrent claims, active prior jobs, and
 prior jobs without proven cleanup are rejected fail-closed.
+Admission writes the durable job record, including exact broker ownership,
+before publishing the conversation binding. A crash at that boundary leaves a
+readable job. Only confirmed unstarted or released admissions can be replaced
+by the same owner; once worker startup is attempted, the admission stays
+fenced until cleanup is explicitly proven. A binding whose job cannot be read
+remains fail-closed. There is no automatic retry or
+deletion of uncertain ownership.
 When `SAARIUS_ACP_HOST_CONVERSATION_ID` or a broker default is configured, an
 explicit request label must match it; with no trusted host context, the explicit
 label is required but is only an identity label, not an authentication proof.

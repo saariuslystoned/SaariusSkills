@@ -22,8 +22,15 @@ import {
   settingsPath,
 } from "./contract.mjs";
 import {
+  ADMISSION_STATE_BOUND,
+  ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTING,
+  ADMISSION_STATE_STARTED,
+  ADMISSION_STATE_UNSTARTED,
   HostPolicyError,
   claimConversationBind,
+  classifyConversationAdmission,
+  decideConversationRebind,
   isPermissionPromptUnavailable,
   livePermissionDecision,
   permissionPromptUnavailableError,
@@ -77,19 +84,23 @@ export function isTerminalStatus(status) {
 }
 
 async function inspectConversationRebind(broker, existing) {
-  if (broker.active.has(existing.jobId)) {
-    return { ok: false, reason: "previous_job_active" };
-  }
+  const isActive = broker.active.has(existing.jobId);
   let job;
   try {
     job = await broker.getJob(existing.jobId);
   } catch {
-    return { ok: false, reason: "previous_job_unreadable" };
+    return decideConversationRebind({
+      classification: { kind: "unreadable" },
+      isActive,
+    });
   }
-  if (!isCanonicalComplete(job)) {
-    return { ok: false, reason: "previous_job_cleanup_unproven" };
-  }
-  return { ok: true, reason: "previous_job_terminal_cleanup_complete" };
+  return decideConversationRebind({
+    classification: classifyConversationAdmission(job),
+    isActive,
+    ownerState: classifyOwnerIdentity(job.owner, await broker.probeOwner(job.owner)),
+    jobTerminal: isTerminalStatus(job.status),
+    cleanupComplete: isCanonicalComplete(job),
+  });
 }
 
 function isSafeOwnerId(brokerId) {
@@ -141,7 +152,8 @@ export function isCleanupObservedComplete(cleanup) {
 export function isCleanupReady(job) {
   if (!job) return false;
   if (isCleanupObservedComplete(job.cleanup)) return true;
-  return isTerminalStatus(job.status) && !job.handle && !job.cleanup;
+  if (!isTerminalStatus(job.status) || job.handle || job.cleanup) return false;
+  return ![ADMISSION_STATE_STARTING, ADMISSION_STATE_STARTED].includes(job.admission?.state);
 }
 
 export function isCanonicalComplete(job) {
@@ -766,6 +778,7 @@ export class AntigravityAcpBroker {
     this.workerExitWaitMs = Number.isInteger(options.workerExitWaitMs) && options.workerExitWaitMs >= 0
       ? options.workerExitWaitMs
       : WORKER_EXIT_WAIT_MS;
+    this.onAdmissionBoundary = options.onAdmissionBoundary;
     this.active = new Map();
     this.changeWaiters = new Map();
     this.initPromise = null;
@@ -831,6 +844,79 @@ export class AntigravityAcpBroker {
       await this.waitForOwnedWorkerExit(handle.sessionKey);
     } catch {
       // Same as readiness: do not hide the primary diagnostic.
+    }
+  }
+
+  async persistAdmission(job, state) {
+    job.admission = {
+      ...(job.admission ?? {}),
+      state,
+    };
+    await this.saveJob(job);
+    if (typeof this.onAdmissionBoundary === "function") {
+      await this.onAdmissionBoundary(state, job);
+    }
+  }
+
+  async confirmAdmissionWorkerReleased(handle, reason, startupAttempted = false) {
+    if (!handle) return !startupAttempted;
+    const runtime = this.ensureRuntime();
+    if (typeof runtime?.close !== "function") return false;
+    try {
+      await runtime.close({
+        handle,
+        reason,
+        discardPersistentState: true,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async releaseAdmission(job, handle, cause) {
+    const startupAttempted = [ADMISSION_STATE_STARTING, ADMISSION_STATE_STARTED]
+      .includes(job?.admission?.state);
+    const released = await this.confirmAdmissionWorkerReleased(
+      handle,
+      "delegate admission failed",
+      startupAttempted,
+    );
+    if (!job?.jobId) return;
+    let current;
+    try {
+      current = await this.getJob(job.jobId);
+    } catch {
+      return;
+    }
+    current.error = {
+      code: cause?.code ?? "ADMISSION_FAILED",
+      message: safeMessage(cause?.message ?? "ACP admission failed before the job became runnable"),
+    };
+    if (!released) {
+      await this.saveJob(current).catch(() => undefined);
+      return;
+    }
+    current.status = "failed";
+    current.admission = {
+      ...(current.admission ?? job.admission ?? {}),
+      state: ADMISSION_STATE_RELEASED,
+      releasedAt: this.now(),
+    };
+    current.cleanup = {
+      status: "completed",
+      observed: handle ? "admission_handle_closed" : "admission_unstarted",
+    };
+    delete current.handle;
+    try {
+      await this.saveJob(current);
+      if (current.proof?.events) {
+        await this.recordEvent(current, "admission_released", {
+          observed: current.cleanup.observed,
+        });
+      }
+    } catch {
+      // Leave the already-durable job/bind records for the next owner probe.
     }
   }
 
@@ -1406,8 +1492,48 @@ export class AntigravityAcpBroker {
     const sessionKey = `antigravity-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
     const runtime = this.ensureRuntime();
+    const job = {
+      schema: "saarius.antigravity-acp.job.v1",
+      jobId,
+      status: "admitted",
+      createdAt: this.now(),
+      updatedAt: this.now(),
+      route: routeSummary(launch, null),
+      workspace: targetWorkspace,
+      timeoutMs: boundedTimeout,
+      owner: this.ownerIdentity(),
+      admission: {
+        state: ADMISSION_STATE_UNSTARTED,
+        hostConversationId: conversation.hostConversationId,
+        binderId: conversation.binderId,
+      },
+      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      auth: publicAuth(auth),
+      sessionKey,
+      runDir,
+      proof: {
+        state: path.join(runDir, "STATE.md"),
+        events: path.join(runDir, "events.jsonl"),
+        proof: path.join(runDir, "PROOF.md"),
+      },
+    };
+    await mkdir(runDir, { recursive: true, mode: 0o700 });
     let handle;
     try {
+      await this.persistAdmission(job, ADMISSION_STATE_UNSTARTED);
+      await this.recordEvent(job, "admitted", {
+        hostConversationId: conversation.hostConversationId,
+        binderId: conversation.binderId,
+        workspace: targetWorkspace,
+      });
+      const binding = await this.bindConversation({
+        ...conversation,
+        jobId,
+        workspace: targetWorkspace,
+      });
+      job.binding = binding;
+      await this.persistAdmission(job, ADMISSION_STATE_BOUND);
+      await this.persistAdmission(job, ADMISSION_STATE_STARTING);
       handle = await runtime.ensureSession({
         sessionKey,
         agent: "antigravity",
@@ -1420,36 +1546,11 @@ export class AntigravityAcpBroker {
       const models = await this.verifyModel(handle, targetWorkspace, requestedModel, {
         requireSelection: true,
       });
-      const binding = await this.bindConversation({
-        ...conversation,
-        jobId,
-        workspace: targetWorkspace,
-      });
-      const job = {
-        schema: "saarius.antigravity-acp.job.v1",
-        jobId,
-        status: "submitted",
-        createdAt: this.now(),
-        updatedAt: this.now(),
-        route: routeSummary(launch, models.selectedModelId),
-        workspace: targetWorkspace,
-        timeoutMs: boundedTimeout,
-        owner: this.ownerIdentity(),
-        binding,
-        request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
-        auth: publicAuth(auth),
-        model: models,
-        handle: publicHandle(handle),
-        sessionKey,
-        runDir,
-        proof: {
-          state: path.join(runDir, "STATE.md"),
-          events: path.join(runDir, "events.jsonl"),
-          proof: path.join(runDir, "PROOF.md"),
-        },
-      };
-      await mkdir(runDir, { recursive: true, mode: 0o700 });
-      await this.saveJob(job);
+      job.route = routeSummary(launch, models.selectedModelId);
+      job.model = models;
+      job.handle = publicHandle(handle);
+      job.status = "submitted";
+      await this.persistAdmission(job, ADMISSION_STATE_STARTED);
       await this.recordEvent(job, "submitted", {
         promptSha256: job.request.promptSha256,
         workspace: targetWorkspace,
@@ -1463,7 +1564,7 @@ export class AntigravityAcpBroker {
       this.active.set(jobId, { promise, handle });
       return this.publicJob(job);
     } catch (error) {
-      await this.closeAdmissionHandle(handle, "delegate admission failed");
+      await this.releaseAdmission(job, handle, error);
       throw toBridgeError(error);
     }
   }
@@ -1481,6 +1582,7 @@ export class AntigravityAcpBroker {
       await this.saveAndRecord(job, "running", { workspace: job.workspace });
       const runtime = this.ensureRuntime();
       if (!handle) {
+        await this.persistAdmission(job, ADMISSION_STATE_STARTING);
         handle = await runtime.ensureSession({
           sessionKey: job.sessionKey,
           agent: "antigravity",
