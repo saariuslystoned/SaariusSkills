@@ -149,6 +149,8 @@ test("broker cleanup becomes ready only after exact owned worker-exit proof", { 
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: "conv-cleanup-compat",
+    defaultBinderId: "test-owner",
   });
   const fixturePids = [];
   try {
@@ -208,6 +210,8 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: null,
+    defaultBinderId: "test-owner",
     runtimeFactory: (options) => {
       const runtime = createDefaultRuntime(options);
       runtime.close = async () => {
@@ -224,6 +228,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     await broker.init();
     const submitted = await broker.delegate({
       workspace: harness.workspace,
+      hostConversationId: "conv-cleanup-compat",
       model,
       prompt: "Leave the owned worker alive after injected unsupported close.",
       timeoutMs: 30_000,
@@ -241,6 +246,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     await assert.rejects(
       () => broker.delegate({
         workspace: harness.workspace,
+        hostConversationId: "conv-cleanup-compat",
         model,
         prompt: "Same-workspace replacement must stay fenced.",
         timeoutMs: 30_000,
@@ -249,6 +255,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     );
     const independent = await broker.delegate({
       workspace: harness.independentWorkspace,
+      hostConversationId: "conv-cleanup-compat-independent",
       model,
       prompt: "Independent workspace remains admissible while another is fenced.",
       timeoutMs: 30_000,
@@ -272,6 +279,8 @@ test("readiness close does not leak the exact owned probe worker", { timeout: 60
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: "conv-cleanup-compat",
+    defaultBinderId: "test-owner",
   });
   const fixturePids = [];
   try {

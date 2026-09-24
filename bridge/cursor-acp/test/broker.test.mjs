@@ -23,13 +23,20 @@ const FIXTURE_MODEL = fixtureCatalog.currentModelId;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class FixtureRuntime {
-  constructor({ model = FIXTURE_MODEL, available = fixtureCatalog.availableModelIds, delayMs = 10 } = {}) {
+  constructor({
+    model = FIXTURE_MODEL,
+    available = fixtureCatalog.availableModelIds,
+    delayMs = 10,
+    permissionRequest = null,
+  } = {}) {
     this.model = model;
     this.available = available;
     this.delayMs = delayMs;
+    this.permissionRequest = permissionRequest;
     this.ensureCalls = [];
     this.turns = [];
     this.closed = [];
+    this.permissionDecisions = [];
   }
 
   async ensureSession(input) {
@@ -91,8 +98,29 @@ class FixtureRuntime {
       closeStream: async () => undefined,
     };
     this.turns.push({ input, turn });
-    setTimeout(() => {
-      if (!state.cancelled) finish({ status: "completed", stopReason: "fixture complete" });
+    setTimeout(async () => {
+      if (state.cancelled) return;
+      if (this.permissionRequest && input.onPermissionRequest) {
+        try {
+          const decision = await input.onPermissionRequest(this.permissionRequest);
+          this.permissionDecisions.push(decision);
+          if (decision === undefined || decision?.outcome === "cancel") {
+            finish({
+              status: "completed",
+              stopReason: "fixture permission denied by runtime policy",
+            });
+            return;
+          }
+        } catch (error) {
+          this.permissionDecisions.push({ outcome: "failed", code: error.code });
+          finish({
+            status: "failed",
+            error: { code: error.code ?? "PERMISSION_PROMPT_UNAVAILABLE", message: error.message },
+          });
+          return;
+        }
+      }
+      finish({ status: "completed", stopReason: "fixture complete" });
     }, this.delayMs);
     return turn;
   }
@@ -117,6 +145,8 @@ async function makeBroker(options = {}) {
     cursorExecutable: executable,
     runtime,
     execFile: async () => ({ stdout: "2026.08.11-e8db854\n", stderr: "" }),
+    defaultHostConversationId: options.defaultHostConversationId ?? `conv-${path.basename(root)}`,
+    defaultBinderId: options.defaultBinderId ?? "test-owner",
     ...options,
   });
   await broker.init();
@@ -179,6 +209,24 @@ test("delegation binds one workspace and exact model, then returns a bounded han
   await broker.close();
 });
 
+test("non-interaction write permission stays under pinned runtime policy", async () => {
+  const { broker, runtime, workspace } = await makeBroker({
+    runtimeOptions: {
+      delayMs: 20,
+      permissionRequest: { raw: { toolCall: { toolCallId: "fs_write_file" } } },
+    },
+  });
+  const submitted = await broker.delegate({
+    workspace,
+    prompt: "Make a bounded implementation change with permission.",
+  });
+  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  assert.equal(completed.status, "completed");
+  assert.equal(runtime.permissionDecisions.length, 1);
+  assert.equal(runtime.permissionDecisions[0], undefined);
+  await broker.close();
+});
+
 test("steering fails closed before starting an unowned queued turn", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: { delayMs: 100 },
@@ -214,10 +262,10 @@ test("model mismatch fails closed instead of silently falling back", async () =>
   const { broker, workspace } = await makeBroker({
     runtimeOptions: { available: ["cursor-grok-4.6-medium"], model: "cursor-grok-4.6-medium" },
   });
-  const submitted = await broker.delegate({ workspace, prompt: "This must not run." });
-  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "MODEL_UNAVAILABLE");
+  await assert.rejects(
+    () => broker.delegate({ workspace, prompt: "This must not run." }),
+    (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
+  );
   await broker.close();
 });
 

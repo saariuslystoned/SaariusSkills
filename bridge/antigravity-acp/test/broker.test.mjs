@@ -145,8 +145,28 @@ class FixtureRuntime {
     setTimeout(async () => {
       if (state.cancelled) return;
       if (this.permissionRequest && input.onPermissionRequest) {
-        const decision = await input.onPermissionRequest(this.permissionRequest);
-        this.permissionDecisions.push(decision);
+        try {
+          const decision = await input.onPermissionRequest(this.permissionRequest);
+          this.permissionDecisions.push(decision);
+          if (decision?.outcome === "cancel" && this.permissionRequest?.raw?.toolCall?.toolCallId?.startsWith("interaction_")) {
+            finish({ status: "completed", stopReason: "fixture complete" });
+            return;
+          }
+          if (decision === undefined || decision?.outcome === "cancel") {
+            finish({
+              status: "completed",
+              stopReason: "fixture permission denied by runtime policy",
+            });
+            return;
+          }
+        } catch (error) {
+          this.permissionDecisions.push({ outcome: "failed", code: error.code });
+          finish({
+            status: "failed",
+            error: { code: error.code ?? "PERMISSION_PROMPT_UNAVAILABLE", message: error.message },
+          });
+          return;
+        }
       }
       if (this.failWith === "auth-turn") {
         finish({
@@ -215,6 +235,8 @@ async function makeBroker(options = {}) {
     runtime,
     processLifecycleTracker,
     workerExitWaitMs: options.workerExitWaitMs ?? 100,
+    defaultHostConversationId: options.defaultHostConversationId ?? `conv-${path.basename(root)}`,
+    defaultBinderId: options.defaultBinderId ?? "test-owner",
     ...options,
   });
   await broker.init();
@@ -398,14 +420,16 @@ test("omitted model fails closed when plugin default is not advertised", async (
   assert.equal(readiness.model.preferredDefaultModelId, PREFERRED_DEFAULT_MODEL_ID);
   assert.equal(readiness.model.preferredDefaultAvailable, false);
   assert.equal(runtime.turns.length, 0);
-  const submitted = await broker.delegate({
-    workspace,
-    prompt: "This must not run on a 3.7 fallback.",
-  });
-  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "MODEL_REQUIRED");
-  assert.match(completed.error.message, /gemini-3\.8-flash-high/);
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      prompt: "This must not run on a 3.7 fallback.",
+    }),
+    (error) =>
+      error instanceof BridgeError &&
+      error.code === "MODEL_REQUIRED" &&
+      /gemini-3\.8-flash-high/.test(error.message),
+  );
   assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
@@ -414,14 +438,15 @@ test("substituted current model fails closed instead of accepting a fallback", a
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: { model: "gemini-3.1-pro", available: ["gemini-3.1-pro"] },
   });
-  const submitted = await broker.delegate({
-    workspace,
-    model: FIXTURE_MODEL,
-    prompt: "This must not run.",
-  });
-  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "MODEL_UNAVAILABLE");
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      model: FIXTURE_MODEL,
+      prompt: "This must not run.",
+    }),
+    (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
+  );
+  assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
 
@@ -488,7 +513,7 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
   await broker.close();
 });
 
-test("non-interaction permission requests delegate and record allow_once", async () => {
+test("non-interaction write permission stays under pinned runtime policy", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: {
       delayMs: 20,
@@ -502,9 +527,8 @@ test("non-interaction permission requests delegate and record allow_once", async
   });
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(completed.status, "completed");
-  assert.equal(completed.complete, true);
   assert.equal(runtime.permissionDecisions.length, 1);
-  assert.equal(runtime.permissionDecisions[0]?.outcome, "allow_once");
+  assert.equal(runtime.permissionDecisions[0], undefined);
   await broker.close();
 });
 
@@ -576,7 +600,7 @@ test("a live owner's in-flight job survives another broker and remains cancellab
     model: FIXTURE_MODEL,
     prompt: "Hold until the bridge restarts.",
   });
-  await waitUntil(() => first.broker.getJob(submitted.jobId).then((job) => job.status === "running"));
+  await waitUntil(() => first.broker.active.get(submitted.jobId)?.turn);
   const secondRuntime = new FixtureRuntime();
   const second = new AntigravityAcpBroker({
     stateRoot: first.broker.stateRoot,
@@ -671,8 +695,14 @@ test("result keeps task completion separate while terminal cleanup is pending", 
 test("failed terminal cleanup fences replacement in one workspace but not another", async () => {
   const { broker, runtime, workspace, root } = await makeBroker({
     runtimeOptions: { closeError: "injected close failure" },
+    defaultHostConversationId: null,
   });
-  const submitted = await broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Complete with failed cleanup." });
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Complete with failed cleanup.",
+    hostConversationId: "conv-fenced-workspace",
+  });
   const failedCleanup = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(failedCleanup.status, "completed");
   assert.equal(failedCleanup.taskComplete, true);
@@ -681,7 +711,12 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
   assert.equal(failedCleanup.cleanup.status, "uncertain");
   assert.equal(broker.active.size, 0);
   await assert.rejects(
-    () => broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Do not replace an uncleared session." }),
+    () => broker.delegate({
+      workspace,
+      model: FIXTURE_MODEL,
+      prompt: "Do not replace an uncleared session.",
+      hostConversationId: "conv-fenced-workspace",
+    }),
     (error) => error instanceof BridgeError &&
       error.code === "WORKSPACE_CLEANUP_PENDING" &&
       error.details?.jobId === submitted.jobId,
@@ -693,6 +728,7 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
     workspace: independentWorkspace,
     model: FIXTURE_MODEL,
     prompt: "Independent workspace remains admissible.",
+    hostConversationId: "conv-independent-workspace",
   });
   const independentResult = await broker.result({ jobId: independent.jobId, waitMs: 1_000 });
   assert.equal(independentResult.status, "completed");
@@ -700,11 +736,15 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
 });
 
 test("a second broker observes the shared cleanup fence while its owner remains live", async () => {
-  const first = await makeBroker({ runtimeOptions: { closeError: "injected close failure" } });
+  const first = await makeBroker({
+    runtimeOptions: { closeError: "injected close failure" },
+    defaultHostConversationId: null,
+  });
   const submitted = await first.broker.delegate({
     workspace: first.workspace,
     model: FIXTURE_MODEL,
     prompt: "Leave a cleanup fence for a second broker to observe.",
+    hostConversationId: "conv-shared-fence",
   });
   const failedCleanup = await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(failedCleanup.cleanup.status, "uncertain");
@@ -715,10 +755,17 @@ test("a second broker observes the shared cleanup fence while its owner remains 
     geminiHome: first.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     runtime: new FixtureRuntime(),
+    defaultHostConversationId: first.broker.defaultHostConversationId,
+    defaultBinderId: first.broker.defaultBinderId,
   });
   await second.init();
   await assert.rejects(
-    () => second.delegate({ workspace: first.workspace, model: FIXTURE_MODEL, prompt: "Blocked by shared cleanup." }),
+    () => second.delegate({
+      workspace: first.workspace,
+      model: FIXTURE_MODEL,
+      prompt: "Blocked by shared cleanup.",
+      hostConversationId: "conv-shared-fence",
+    }),
     (error) => error instanceof BridgeError && error.code === "WORKSPACE_CLEANUP_PENDING",
   );
 
@@ -728,6 +775,7 @@ test("a second broker observes the shared cleanup fence while its owner remains 
     workspace: independentWorkspace,
     model: FIXTURE_MODEL,
     prompt: "Run independently while another workspace is fenced.",
+    hostConversationId: "conv-second-broker-independent",
   });
   const independentResult = await second.result({ jobId: independent.jobId, waitMs: 1_000 });
   assert.equal(independentResult.status, "completed");

@@ -56,9 +56,14 @@ the user explicitly authorizes that alternative.
   default exact id `gemini-3.8-flash-high` when advertised; it does not treat
   runtime `currentModelId` as the wished default. Never silently fall back to
   `agy --print`, generic `acp`, an API key, a Cloud project, an alternate
-  account, paid credits, or overage.
-- Use `antigravity_acp_delegate` with one absolute workspace path, one bounded
-  prompt, and a bounded timeout. Omit `model` to use the plugin default exact
+  account, paid credits, or overage. `antigravity_acp_delegate` hard-refuses
+  when that readiness is red (runtime / auth / model / workspace). Do not treat
+  a red readiness report as advice and submit anyway.
+- Use `antigravity_acp_delegate` with one absolute workspace path, one parent
+  conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
+  one bounded prompt, and a bounded timeout. One parent conversation owns one
+  worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
+  not exclusive. Omit `model` to use the plugin default exact
   id `gemini-3.8-flash-high` when that id is advertised. That default ships in
   the plugin contract (skill, broker, readiness). Do not take it from
   `GEMINI_HOME`, `settings.json`, a machine MCP env, or readiness
@@ -82,12 +87,14 @@ the user explicitly authorizes that alternative.
   Use `antigravity_acp_cancel` when the parent decision changes. A missing
   active session is fail-closed, not a reason to create a replacement session.
 - Treat `completed`, `failed`, `cancelled`, and `needs-input` as distinct
-  outcomes. The bridge grants one-time permission for tool calls in the exact
-  delegated workspace, matching the bounded Cursor ACP lane; it never grants
-  reusable `allow_always` approval. Fixed-choice `interaction_*` questions and
-  elicitation still fail closed as `needs-input` or `cancelled`; never
-  auto-answer them. Escalate `needs-input` to the user with the bounded reason;
-  do not invent a login flow, entitlement proof, or hidden approval.
+  outcomes. The live MCP default is `approve-reads` plus fail on a write or
+  exec that would prompt. It does not grant one-path `allow_once`.
+  `SAARIUS_ACP_PERMISSION_MODE=approve-all` is an explicit break-glass, not the
+  everyday default. The candidate Puppet controller one-path contract stays
+  separate. Fixed-choice `interaction_*` questions and elicitation still fail
+  closed as `needs-input` or `cancelled`; never auto-answer them. Escalate
+  `needs-input` to the user with the bounded reason; do not invent a login
+  flow, entitlement proof, or hidden approval.
 - Do not claim Google AI Ultra quota attribution from this route. Missing
   login or overage-disabled proof is a setup/input result, not a reason to
   switch accounts or enable billing.

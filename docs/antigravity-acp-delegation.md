@@ -47,7 +47,30 @@ OAuth is not already configured under the explicit `GEMINI_HOME` profile,
 API-key or Cloud fallback variables are present, overage is not proven
 disabled/never, the model id is unknown, ambiguous, or substituted, or a
 fixed-choice `interaction_*` question appears. Effort is not inferred from
-labels.
+labels. Live `antigravity_acp_delegate` refuses when readiness is red, defaults
+to `approve-reads` plus fail on write/exec that would prompt (`approve-all` is
+an explicit `SAARIUS_ACP_PERMISSION_MODE` break-glass), and binds one parent
+conversation to one worker with owner-gated rebind. It does not lock cwd and
+does not use one-path `allow_once`. The candidate Puppet controller contract
+stays separate.
+
+Conversation ownership is host-controlled. `hostConversationId` identifies the
+parent conversation; a request `binderId` is only an assertion and must match
+the host-controlled `SAARIUS_ACP_BINDER_ID` value or the broker's configured
+default. It cannot select an arbitrary owner or use `system` as an exemption.
+When no stable binder is configured, the broker uses its generated process
+identity, so a restart is a new owner and cannot rebind an old conversation
+binding; set `SAARIUS_ACP_BINDER_ID` consistently when continuity across
+processes or restarts is required. Concurrent claims, active prior jobs, and
+prior jobs without proven cleanup are rejected fail-closed.
+When `SAARIUS_ACP_HOST_CONVERSATION_ID` or a broker default is configured, an
+explicit request label must match it; with no trusted host context, the explicit
+label is required but is only an identity label, not an authentication proof.
+Conversation-claim locks carry broker PID/start-time metadata. A crashed lock is
+reclaimed only when that exact owner is proven missing or its PID is proven reused;
+live or uncertain locks remain busy. An existing reclaim fence is preserved and
+returns a recovery-required error; it is never auto-deleted after an interrupted
+recovery attempt.
 
 ## Local development
 

@@ -49,9 +49,18 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   `cursor-grok-4.6-high` selector resolved to one advertised ACP model ID
   (currently the live install reports `grok-4.6[effort=high,fast=true]`). Never
   silently fall back to another executable, provider, model, or workspace.
-- Use `cursor_acp_delegate` with one absolute workspace path, one bounded
-  prompt, and a bounded timeout. Prefer an isolated worktree for source
-  mutations. One worker owns one source slice; do not fan out by default.
+  `cursor_acp_delegate` hard-refuses when that readiness is red (runtime /
+  auth / model / workspace). Do not treat a red readiness report as advice and
+  submit anyway.
+- Use `cursor_acp_delegate` with one absolute workspace path, one parent
+  conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
+  one bounded prompt, and a bounded timeout. One parent conversation owns one
+  worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
+  not exclusive. Prefer an isolated worktree for source mutations. Do not fan
+  out by default. Live MCP permissions default to `approve-reads` plus fail on
+  write/exec that would prompt. `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
+  explicit break-glass. Do not use one-path `allow_once` on this live MCP
+  lane.
 - Save the returned job ID. Use `cursor_acp_status` for progress and
   `cursor_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, or progress event is not task success.

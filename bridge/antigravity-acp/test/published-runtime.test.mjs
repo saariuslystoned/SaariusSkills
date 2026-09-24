@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,9 +20,12 @@ import {
   ACPX_TARBALL_SHA256,
   ACPX_TARBALL_URL,
   RUNTIME_PIN,
+  currentPlatformId,
+  platformLaunch,
+  settingsPath,
   validateRuntimePin,
 } from "../contract.mjs";
-import { createProcessLifecycleTracker } from "../broker.mjs";
+import { AntigravityAcpBroker, createProcessLifecycleTracker } from "../broker.mjs";
 import {
   ACPX_ARTIFACT_PATH,
   ACPX_ARTIFACT_SHA256,
@@ -244,4 +247,83 @@ test("installed acpx 0.19.1 Antigravity runtime completes a local synthetic-peer
   }
   assert.equal(ACPX_SOURCE_COMMIT, null);
   assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
+});
+
+test("broker delegates runtime permissions and keeps questions fail-closed", {
+  timeout: 60_000,
+  skip: !existsSync(installedPackage),
+}, async () => {
+  const runCase = async (permissionMode, peerPermission, expectedStatus) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), `acpx-0191-broker-permission-${peerPermission}-`));
+  const stateRoot = path.join(rootDir, "state");
+  const workspace = path.join(rootDir, "workspace");
+  const runtimeDir = path.join(rootDir, "runtime");
+  const geminiHome = path.join(rootDir, "gemini-home");
+  mkdirSync(workspace, { recursive: true });
+  mkdirSync(runtimeDir, { recursive: true });
+  mkdirSync(path.dirname(settingsPath(geminiHome)), { recursive: true });
+  const launch = platformLaunch(currentPlatformId());
+  writeFileSync(path.join(runtimeDir, path.basename(launch.runtimeCommand)), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  writeFileSync(path.join(runtimeDir, path.basename(launch.helper)), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  writeFileSync(settingsPath(geminiHome), JSON.stringify({ auth: { type: "oauth-personal" }, useG1Credits: false }));
+
+  const peer = fileURLToPath(new URL("./permission-peer.mjs", import.meta.url));
+  const registry = createAgentRegistry({
+    overrides: { antigravity: [process.execPath, peer, "--permission", peerPermission] },
+  });
+  const sessions = new Map();
+  const runtime = createAcpRuntime({
+    cwd: stateRoot,
+    sessionStore: {
+      async load(id) {
+        const record = sessions.get(id);
+        return record === undefined ? undefined : structuredClone(record);
+      },
+      async save(record) {
+        sessions.set(record.acpxRecordId, structuredClone(record));
+      },
+    },
+    agentRegistry: registry,
+    fs: false,
+    terminal: false,
+    permissionMode,
+    nonInteractivePermissions: "fail",
+    timeoutMs: 30_000,
+  });
+  const broker = new AntigravityAcpBroker({
+    stateRoot,
+    runtimeDir,
+    geminiHome,
+    processEnv: { PATH: process.env.PATH ?? "" },
+    runtime,
+    defaultHostConversationId: "conv-pinned-permission",
+    defaultBinderId: "test-owner",
+  });
+  try {
+    await broker.init();
+    const submitted = await broker.delegate({
+      workspace,
+      model: "gemini-3.8-flash-high",
+      prompt: "Ask the synthetic peer to perform its bounded permission probe.",
+    });
+    let job;
+    const deadline = Date.now() + 30_000;
+    do {
+      job = await broker.getJob(submitted.jobId);
+      if (job.status === "completed" || job.status === "failed" || job.status === "needs-input") break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    } while (Date.now() < deadline);
+    assert.equal(job.status, expectedStatus, JSON.stringify(job));
+    if (expectedStatus === "completed") assert.equal(job.error, undefined);
+    if (expectedStatus === "failed") assert.equal(job.error?.code, "PERMISSION_PROMPT_UNAVAILABLE");
+    if (expectedStatus === "needs-input") assert.equal(job.error?.code, "INPUT_REQUIRED");
+  } finally {
+    await broker.close().catch(() => {});
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+  };
+  await runCase("approve-reads", "fs_read_file", "completed");
+  await runCase("approve-reads", "fs_write_file", "failed");
+  await runCase("approve-reads", "interaction", "needs-input");
+  await runCase("approve-all", "fs_write_file", "completed");
 });
