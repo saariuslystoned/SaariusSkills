@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const LIVE_PERMISSION_MODE = "approve-reads";
@@ -202,33 +202,79 @@ async function inspectConversationLock(lockPath) {
   }
 }
 
-async function reclaimDeadConversationLock(lockPath, inspectOwner) {
-  if (typeof inspectOwner !== "function") return false;
-  const observed = await inspectConversationLock(lockPath);
-  if (observed.status !== "readable") return false;
-  let probe;
-  try {
-    probe = await inspectOwner(observed.owner);
-  } catch {
-    return false;
+async function tryAcquireConversationReclaim(reclaimPath, owner, inspectOwner) {
+  if (!isCompleteLockOwner(owner) || typeof inspectOwner !== "function") return false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const uniquePath = `${reclaimPath}.${randomUUID()}`;
+    await mkdir(uniquePath, { mode: 0o700 });
+    await writeFile(path.join(uniquePath, "owner.json"), `${JSON.stringify(owner)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    try {
+      await rename(uniquePath, reclaimPath);
+      return true;
+    } catch {
+      await rm(uniquePath, { recursive: true, force: true });
+    }
+    const existing = await inspectConversationLock(reclaimPath);
+    if (existing.status !== "readable") return false;
+    let probe;
+    try {
+      probe = await inspectOwner(existing.owner);
+    } catch {
+      return false;
+    }
+    const dead = probe?.status === "missing" ||
+      (probe?.status === "alive" && probe.startTime !== existing.owner.startTime);
+    if (!dead) return false;
+    const current = await inspectConversationLock(reclaimPath);
+    if (current.status !== "readable" || !lockOwnersMatch(current.owner, existing.owner)) return false;
+    let confirmed;
+    try {
+      confirmed = await inspectOwner(current.owner);
+    } catch {
+      return false;
+    }
+    const stillDead = confirmed?.status === "missing" ||
+      (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
+    if (!stillDead) return false;
+    await rm(reclaimPath, { recursive: true, force: true });
   }
-  const provenDead = probe?.status === "missing" ||
-    (probe?.status === "alive" && probe.startTime !== observed.owner.startTime);
-  if (!provenDead) return false;
+  return false;
+}
 
-  const current = await inspectConversationLock(lockPath);
-  if (current.status !== "readable" || !lockOwnersMatch(current.owner, observed.owner)) return false;
-  let confirmed;
+async function reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspectOwner) {
+  if (!(await tryAcquireConversationReclaim(reclaimPath, owner, inspectOwner))) return false;
   try {
-    confirmed = await inspectOwner(current.owner);
-  } catch {
-    return false;
+    const observed = await inspectConversationLock(lockPath);
+    if (observed.status !== "readable") return false;
+    let probe;
+    try {
+      probe = await inspectOwner(observed.owner);
+    } catch {
+      return false;
+    }
+    const provenDead = probe?.status === "missing" ||
+      (probe?.status === "alive" && probe.startTime !== observed.owner.startTime);
+    if (!provenDead) return false;
+
+    const current = await inspectConversationLock(lockPath);
+    if (current.status !== "readable" || !lockOwnersMatch(current.owner, observed.owner)) return false;
+    let confirmed;
+    try {
+      confirmed = await inspectOwner(current.owner);
+    } catch {
+      return false;
+    }
+    const stillDead = confirmed?.status === "missing" ||
+      (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
+    if (!stillDead) return false;
+    await rm(lockPath, { recursive: true, force: true });
+    return true;
+  } finally {
+    await rm(reclaimPath, { recursive: true, force: true });
   }
-  const stillDead = confirmed?.status === "missing" ||
-    (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
-  if (!stillDead) return false;
-  await rm(lockPath, { recursive: true, force: true });
-  return true;
 }
 
 export async function claimConversationBind(
@@ -238,6 +284,7 @@ export async function claimConversationBind(
 ) {
   const target = conversationBindPath(bindingsRoot, record.hostConversationId);
   const lockPath = `${target}.lock`;
+  const reclaimPath = `${lockPath}.reclaim`;
   let acquired = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -256,7 +303,7 @@ export async function claimConversationBind(
         throw error;
       }
       if (error?.code !== "EEXIST") throw error;
-      if (!(await reclaimDeadConversationLock(lockPath, inspectOwner))) {
+      if (!(await reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspectOwner))) {
         throw new HostPolicyError(
           "CONVERSATION_BIND_BUSY",
           "The conversation binding is being claimed by another worker; retry after its claim completes",

@@ -221,3 +221,53 @@ test("conversation claim recovers only a lock owned by a provably dead process",
     (error) => error instanceof HostPolicyError && error.code === "CONVERSATION_BIND_BUSY",
   );
 });
+
+test("overlapping stale-lock reclaimers serialize before deleting the canonical lock", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-host-policy-reclaim-race-"));
+  const bindingsRoot = path.join(root, "bindings");
+  await mkdir(bindingsRoot, { recursive: true });
+  const hostConversationId = "conv-reclaim-race";
+  const target = conversationBindPath(bindingsRoot, hostConversationId);
+  const lockPath = `${target}.lock`;
+  const deadOwner = { brokerId: "dead-owner", pid: 525252, startTime: "old-start" };
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify(deadOwner)}\n`);
+
+  let releaseFirstProbe;
+  let firstProbeEntered;
+  const firstProbe = new Promise((resolve) => { firstProbeEntered = resolve; });
+  const release = new Promise((resolve) => { releaseFirstProbe = resolve; });
+  let firstDeadProbe = true;
+  const inspectOwner = async (owner) => {
+    if (owner.brokerId === deadOwner.brokerId && firstDeadProbe) {
+      firstDeadProbe = false;
+      firstProbeEntered();
+      await release;
+    }
+    return owner.brokerId === deadOwner.brokerId
+      ? { status: "missing" }
+      : { status: "alive", startTime: owner.startTime };
+  };
+  const claim = (binderId, brokerId, jobId) => claimConversationBind(bindingsRoot, {
+    hostConversationId,
+    binderId,
+    jobId,
+    workspace: "/tmp/reclaim-race",
+  }, {
+    owner: { brokerId, pid: brokerId === "new-a" ? 525253 : 525254, startTime: brokerId },
+    inspectOwner,
+  });
+
+  const first = claim("owner-a", "new-a", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+  await firstProbe;
+  const second = claim("owner-b", "new-b", "cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+  const settledPromise = Promise.allSettled([first, second]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  releaseFirstProbe();
+  const settled = await settledPromise;
+  assert.equal(settled.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(
+    settled.filter((item) => item.status === "rejected")[0].reason.code,
+    "CONVERSATION_BIND_BUSY",
+  );
+});
