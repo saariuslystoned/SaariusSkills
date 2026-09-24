@@ -21,6 +21,15 @@ import {
   runtimeRepair,
   settingsPath,
 } from "./contract.mjs";
+import {
+  HostPolicyError,
+  claimConversationBind,
+  isPermissionPromptUnavailable,
+  livePermissionDecision,
+  permissionPromptUnavailableError,
+  resolveConversationIdentity,
+  resolveLivePermissionMode,
+} from "./host-policy.mjs";
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_TIMEOUT_MS = 30 * 60 * 1000;
@@ -53,6 +62,14 @@ export class BridgeError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+export function toBridgeError(error) {
+  if (error instanceof BridgeError) return error;
+  if (error instanceof HostPolicyError) {
+    return new BridgeError(error.code, error.message, error.details);
+  }
+  return error;
 }
 
 export function isTerminalStatus(status) {
@@ -581,8 +598,16 @@ function classifyFailure(error, interaction) {
       },
     };
   }
+  if (interaction?.permissionDenied || isPermissionPromptUnavailable(error) || safe.code === "PERMISSION_PROMPT_UNAVAILABLE") {
+    return {
+      status: "failed",
+      error: {
+        code: "PERMISSION_PROMPT_UNAVAILABLE",
+        message: "Live MCP approve-reads failed a write or exec that would prompt. approve-all is an explicit break-glass, not the default.",
+      },
+    };
+  }
   if (
-    interaction?.permissionDenied ||
     interaction?.elicitation ||
     lower.includes("elicitation") ||
     lower.includes("login") ||
@@ -654,6 +679,7 @@ export function createDefaultRuntime({
     overrides: { antigravity: [launch.command, ...launch.args] },
   });
   const sessions = new Map();
+  const permission = resolveLivePermissionMode(processEnv);
   const runtime = createAcpRuntime({
     cwd: stateRoot,
     sessionStore: {
@@ -670,12 +696,11 @@ export function createDefaultRuntime({
       geminiHome,
       helperPath: launch.helper,
     }),
-    // Match the Cursor ACP lane's bounded worker behavior: every tool request
-    // is approved once for this exact delegated session. Fixed-choice questions
-    // and elicitation remain fail-closed below; no permission is persisted as
-    // allow-always and the bridge never forwards a reusable approval.
-    permissionMode: "approve-all",
-    nonInteractivePermissions: "fail",
+    // Live MCP copies OpenClaw's ACP-host default: approve-reads + fail.
+    // approve-all is an explicit SAARIUS_ACP_PERMISSION_MODE break-glass.
+    // One-path allow_once stays on the candidate Puppet controller, not here.
+    permissionMode: permission.permissionMode,
+    nonInteractivePermissions: permission.nonInteractivePermissions,
     timeoutMs,
     processLifecycle,
   });
@@ -697,6 +722,9 @@ export class AntigravityAcpBroker {
     this.jobsRoot = path.join(this.stateRoot, "jobs");
     this.runsRoot = path.join(this.stateRoot, "runs");
     this.ownersRoot = path.join(this.stateRoot, "owners");
+    this.bindingsRoot = path.join(this.stateRoot, "bindings");
+    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
+    this.defaultBinderId = options.defaultBinderId ?? null;
     this.brokerId = options.brokerId ?? randomUUID();
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
@@ -732,12 +760,54 @@ export class AntigravityAcpBroker {
     return { brokerId: this.brokerId, pid: this.pid, startTime: this.startTime };
   }
 
+  conversationIdentity(input = {}) {
+    try {
+      return resolveConversationIdentity(input, this.processEnv, {
+        defaultHostConversationId: this.defaultHostConversationId,
+        defaultBinderId: this.defaultBinderId,
+      });
+    } catch (error) {
+      throw toBridgeError(error);
+    }
+  }
+
+  async bindConversation({ hostConversationId, binderId, jobId, workspace }) {
+    try {
+      return await claimConversationBind(
+        this.bindingsRoot,
+        { hostConversationId, binderId, jobId, workspace },
+        { now: this.now, atomicWrite },
+      );
+    } catch (error) {
+      throw toBridgeError(error);
+    }
+  }
+
+  async closeAdmissionHandle(handle, reason) {
+    if (!handle || !this.ensureRuntime()?.close) return;
+    try {
+      await this.ensureRuntime().close({
+        handle,
+        reason,
+        discardPersistentState: true,
+      });
+    } catch {
+      // Admission failures must not hide the readiness refusal.
+    }
+    try {
+      await this.waitForOwnedWorkerExit(handle.sessionKey);
+    } catch {
+      // Same as readiness: do not hide the primary diagnostic.
+    }
+  }
+
   async init() {
     if (!this.initPromise) {
       this.initPromise = (async () => {
         await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.ownersRoot, { recursive: true, mode: 0o700 });
+        await mkdir(this.bindingsRoot, { recursive: true, mode: 0o700 });
         if (this.startTime == null) {
           const self = await this.inspectProcess(this.pid);
           if (self.status === "alive" && self.startTime) this.startTime = self.startTime;
@@ -1279,58 +1349,94 @@ export class AntigravityAcpBroker {
     };
   }
 
-  async delegate({ workspace, prompt, model, effort, timeoutMs } = {}) {
+  async delegate({ workspace, prompt, model, effort, timeoutMs, hostConversationId, binderId } = {}) {
     await this.init();
     assertEffortUnsupported(effort);
     const targetWorkspace = await requireDirectory(workspace, "workspace");
+    const conversation = this.conversationIdentity({ hostConversationId, binderId });
     await this.assertWorkspaceAdmissible(targetWorkspace);
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
     const requestedModel = isOmittedAntigravityModel(model)
       ? undefined
       : resolveRequestedAntigravityModel(model, [model]);
     const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
-    const launch = await this.resolveLaunch();
-    const auth = await this.diagnoseAuth();
+    let launch;
+    let auth;
+    try {
+      launch = await this.resolveLaunch();
+      auth = await this.diagnoseAuth();
+    } catch (error) {
+      throw toBridgeError(error);
+    }
 
     const jobId = this.idFactory();
+    const sessionKey = `antigravity-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
-    const job = {
-      schema: "saarius.antigravity-acp.job.v1",
-      jobId,
-      status: "submitted",
-      createdAt: this.now(),
-      updatedAt: this.now(),
-      route: routeSummary(launch, requestedModel),
-      workspace: targetWorkspace,
-      timeoutMs: boundedTimeout,
-      owner: this.ownerIdentity(),
-      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
-      auth: publicAuth(auth),
-      sessionKey: `antigravity-acp:${jobId}`,
-      runDir,
-      proof: {
-        state: path.join(runDir, "STATE.md"),
-        events: path.join(runDir, "events.jsonl"),
-        proof: path.join(runDir, "PROOF.md"),
-      },
-    };
-    await mkdir(runDir, { recursive: true, mode: 0o700 });
-    await this.saveJob(job);
-    await this.recordEvent(job, "submitted", {
-      promptSha256: job.request.promptSha256,
-      workspace: targetWorkspace,
-      requestedModel,
-    });
-
-    const promise = Promise.resolve()
-      .then(() => this.runJob(job, taskPrompt, requestedModel))
-      .catch(() => undefined);
-    this.active.set(jobId, { promise });
-    return this.publicJob(job);
+    const runtime = this.ensureRuntime();
+    let handle;
+    try {
+      handle = await runtime.ensureSession({
+        sessionKey,
+        agent: "antigravity",
+        mode: "persistent",
+        cwd: targetWorkspace,
+        sessionOptions: {
+          systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
+        },
+      });
+      const models = await this.verifyModel(handle, targetWorkspace, requestedModel, {
+        requireSelection: true,
+      });
+      const binding = await this.bindConversation({
+        ...conversation,
+        jobId,
+        workspace: targetWorkspace,
+      });
+      const job = {
+        schema: "saarius.antigravity-acp.job.v1",
+        jobId,
+        status: "submitted",
+        createdAt: this.now(),
+        updatedAt: this.now(),
+        route: routeSummary(launch, models.selectedModelId),
+        workspace: targetWorkspace,
+        timeoutMs: boundedTimeout,
+        owner: this.ownerIdentity(),
+        binding,
+        request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+        auth: publicAuth(auth),
+        model: models,
+        handle: publicHandle(handle),
+        sessionKey,
+        runDir,
+        proof: {
+          state: path.join(runDir, "STATE.md"),
+          events: path.join(runDir, "events.jsonl"),
+          proof: path.join(runDir, "PROOF.md"),
+        },
+      };
+      await mkdir(runDir, { recursive: true, mode: 0o700 });
+      await this.saveJob(job);
+      await this.recordEvent(job, "submitted", {
+        promptSha256: job.request.promptSha256,
+        workspace: targetWorkspace,
+        requestedModel,
+        hostConversationId: binding.hostConversationId,
+        binderId: binding.binderId,
+      });
+      const promise = Promise.resolve()
+        .then(() => this.runJob(job, taskPrompt, requestedModel, { handle }))
+        .catch(() => undefined);
+      this.active.set(jobId, { promise, handle });
+      return this.publicJob(job);
+    } catch (error) {
+      await this.closeAdmissionHandle(handle, "delegate admission failed");
+      throw toBridgeError(error);
+    }
   }
 
-  async runJob(job, taskPrompt, requestedModel) {
-    let handle;
+  async runJob(job, taskPrompt, requestedModel, prepared = {}) {
+    let handle = prepared.handle;
     let turn;
     const interaction = { permissionDenied: false, elicitation: false, question: false };
     let finalText = "";
@@ -1341,23 +1447,27 @@ export class AntigravityAcpBroker {
       job.startedAt = this.now();
       await this.saveAndRecord(job, "running", { workspace: job.workspace });
       const runtime = this.ensureRuntime();
-      handle = await runtime.ensureSession({
-        sessionKey: job.sessionKey,
-        agent: "antigravity",
-        mode: "persistent",
-        cwd: job.workspace,
-        sessionOptions: {
-          systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
-        },
-      });
-      job.handle = publicHandle(handle);
-      const model = await this.verifyModel(handle, job.workspace, requestedModel);
-      job.model = model;
-      job.route = { ...job.route, model: model.selectedModelId };
+      if (!handle) {
+        handle = await runtime.ensureSession({
+          sessionKey: job.sessionKey,
+          agent: "antigravity",
+          mode: "persistent",
+          cwd: job.workspace,
+          sessionOptions: {
+            systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
+          },
+        });
+        job.handle = publicHandle(handle);
+        const model = await this.verifyModel(handle, job.workspace, requestedModel, {
+          requireSelection: true,
+        });
+        job.model = model;
+        job.route = { ...job.route, model: model.selectedModelId };
+      }
       await this.saveJob(job);
       await this.recordEvent(job, "model_confirmed", {
-        currentModelId: model.currentModelId,
-        availableModelCount: model.availableModelIds.length,
+        currentModelId: job.model.currentModelId,
+        availableModelCount: job.model.availableModelIds.length,
       });
 
       turn = runtime.startTurn({
@@ -1367,11 +1477,13 @@ export class AntigravityAcpBroker {
         requestId: job.jobId,
         timeoutMs: job.timeoutMs,
         onPermissionRequest: async (request) => {
-          if (isInteractionQuestion(request)) {
+          const decision = livePermissionDecision(request, { isInteractionQuestion });
+          if (decision.outcome === "cancel") {
             interaction.question = true;
             return { outcome: "cancel" };
           }
-          return { outcome: "allow_once" };
+          interaction.permissionDenied = true;
+          throw permissionPromptUnavailableError("live MCP does not grant one-path allow_once");
         },
         onElicitation: async () => {
           interaction.elicitation = true;
@@ -1405,11 +1517,19 @@ export class AntigravityAcpBroker {
         };
         job.question = { state: "cancelled", humanRequired: true, outcome: "cancelled" };
         await this.saveAndRecord(job, "needs-input", { eventCount, toolCallCount, question: "cancelled" });
-      } else if (interaction.permissionDenied || interaction.elicitation) {
+      } else if (interaction.permissionDenied) {
+        const failure = classifyFailure(
+          permissionPromptUnavailableError("live MCP does not grant one-path allow_once"),
+          interaction,
+        );
+        job.status = failure.status;
+        job.error = failure.error;
+        await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
+      } else if (interaction.elicitation) {
         job.status = "needs-input";
         job.error = {
           code: "INPUT_REQUIRED",
-          message: "Antigravity ACP required a permission or elicitation; the bridge cancelled it and will not auto-approve.",
+          message: "Antigravity ACP required an elicitation; the bridge cancelled it and will not auto-approve.",
         };
         await this.saveAndRecord(job, "needs-input", { eventCount, toolCallCount });
       } else if (result?.status === "completed") {
@@ -1626,6 +1746,7 @@ export class AntigravityAcpBroker {
       startedAt: job.startedAt,
       timeoutMs: job.timeoutMs,
       model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      binding: job.binding,
       cleanup: job.cleanup,
       proof: job.proof,
     };

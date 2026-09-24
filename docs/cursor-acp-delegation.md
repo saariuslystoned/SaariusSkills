@@ -14,7 +14,11 @@ install the unique matching ACP ID is
 `grok-4.6[effort=high,fast=true]`. The bridge fails closed when the executable
 is missing, the existing Cursor login cannot open a session, there is no unique
 matching advertised model ID, or the selected model is not confirmed by
-session status.
+session status. Live `cursor_acp_delegate` refuses when readiness is red,
+defaults to `approve-reads` plus fail on write/exec that would prompt
+(`approve-all` is an explicit `SAARIUS_ACP_PERMISSION_MODE` break-glass), and
+binds one parent conversation to one worker with owner-gated rebind. It does
+not lock cwd and does not use one-path `allow_once`.
 
 ## Local development
 

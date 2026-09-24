@@ -87,6 +87,8 @@ async function main() {
 
     const completionJob = await broker.delegate({
       workspace,
+      hostConversationId: "conv-cursor-live-smoke",
+      binderId: "smoke-owner",
       timeoutMs: 180_000,
       prompt: [
         "Perform a read-only binding check in the supplied workspace.",
@@ -112,6 +114,8 @@ async function main() {
 
     const steeringJob = await broker.delegate({
       workspace,
+      hostConversationId: "conv-cursor-live-smoke",
+      binderId: "smoke-owner",
       timeoutMs: 180_000,
       prompt: [
         "Run the local command sleep 12 in the supplied workspace.",
@@ -149,6 +153,8 @@ async function main() {
 
     const cancellationJob = await broker.delegate({
       workspace,
+      hostConversationId: "conv-cursor-live-smoke",
+      binderId: "smoke-owner",
       timeoutMs: 180_000,
       prompt: [
         "Run the local command sleep 30 in the supplied workspace.",

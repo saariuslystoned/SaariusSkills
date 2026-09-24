@@ -47,7 +47,12 @@ OAuth is not already configured under the explicit `GEMINI_HOME` profile,
 API-key or Cloud fallback variables are present, overage is not proven
 disabled/never, the model id is unknown, ambiguous, or substituted, or a
 fixed-choice `interaction_*` question appears. Effort is not inferred from
-labels.
+labels. Live `antigravity_acp_delegate` refuses when readiness is red, defaults
+to `approve-reads` plus fail on write/exec that would prompt (`approve-all` is
+an explicit `SAARIUS_ACP_PERMISSION_MODE` break-glass), and binds one parent
+conversation to one worker with owner-gated rebind. It does not lock cwd and
+does not use one-path `allow_once`. The candidate Puppet controller contract
+stays separate.
 
 ## Local development
 

@@ -14,10 +14,10 @@ const DEPENDENCY_SCHEMA = "saarius.acp.dependencies.v1";
 
 const BRIDGES = Object.freeze({
   "cursor-acp": Object.freeze({
-    files: ["server.mjs", "broker.mjs"],
+    files: ["server.mjs", "broker.mjs", "host-policy.mjs"],
   }),
   "antigravity-acp": Object.freeze({
-    files: ["server.mjs", "broker.mjs", "contract.mjs"],
+    files: ["server.mjs", "broker.mjs", "contract.mjs", "host-policy.mjs"],
   }),
 });
 

@@ -100,7 +100,9 @@ test("disabled surface pins merged unreleased acpx identity and does not change 
   assert.equal(CursorAcpxAdapter.available(), false);
   const ordinary = await readFile(new URL("../broker.mjs", import.meta.url), "utf8");
   const disabled = await readFile(new URL("../puppet-adapter.mjs", import.meta.url), "utf8");
-  assert.match(ordinary, /permissionMode: "approve-all"/);
+  assert.match(ordinary, /permissionMode: permission\.permissionMode/);
+  assert.match(ordinary, /SAARIUS_ACP_PERMISSION_MODE/);
+  assert.doesNotMatch(ordinary, /permissionMode:\s*"approve-all"/);
   assert.doesNotMatch(disabled, /permissionMode:\s*"approve-all"/);
   assert.doesNotMatch(disabled, /mcpServers:\s*\[/);
   assert.doesNotMatch(ordinary, /createCursorAcpxAdapter|puppet-adapter/);

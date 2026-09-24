@@ -123,6 +123,8 @@ test("owner broker death does not recover unresolved cleanup or lift the same-wo
       runtimeDir: runtime2,
       geminiHome,
       processEnv: { PATH: process.env.PATH ?? "" },
+      defaultHostConversationId: "conv-owner-death",
+      defaultBinderId: "test-owner",
     });
     await second.init();
     const recovered = await second.result({ jobId: ownerRecord.jobId, waitMs: 0 });

@@ -9,6 +9,15 @@ import {
   createAcpRuntime,
   createAgentRegistry,
 } from "acpx/runtime";
+import {
+  HostPolicyError,
+  claimConversationBind,
+  isPermissionPromptUnavailable,
+  livePermissionDecision,
+  permissionPromptUnavailableError,
+  resolveConversationIdentity,
+  resolveLivePermissionMode,
+} from "./host-policy.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -44,6 +53,14 @@ export class BridgeError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+export function toBridgeError(error) {
+  if (error instanceof BridgeError) return error;
+  if (error instanceof HostPolicyError) {
+    return new BridgeError(error.code, error.message, error.details);
+  }
+  return error;
 }
 
 export function isTerminalStatus(status) {
@@ -371,6 +388,15 @@ function safeError(error, fallbackCode = "BRIDGE_ERROR") {
 function classifyFailure(error, interaction) {
   const safe = safeError(error);
   const lower = `${safe.code} ${safe.message}`.toLowerCase();
+  if (interaction?.permissionDenied || isPermissionPromptUnavailable(error) || safe.code === "PERMISSION_PROMPT_UNAVAILABLE") {
+    return {
+      status: "failed",
+      error: {
+        code: "PERMISSION_PROMPT_UNAVAILABLE",
+        message: "Live MCP approve-reads failed a write or exec that would prompt. approve-all is an explicit break-glass, not the default.",
+      },
+    };
+  }
   if (
     interaction?.elicitation ||
     lower.includes("elicitation") ||
@@ -397,7 +423,7 @@ function classifyFailure(error, interaction) {
   return { status: "failed", error: safe };
 }
 
-export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs }) {
+export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs, processEnv = process.env }) {
   const registry = createAgentRegistry({
     overrides: { cursor: [cursorExecutable, "acp"] },
   });
@@ -410,6 +436,7 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
   // contract is applied by status/result observations of a nonterminal job;
   // there is no generic periodic recovery service.
   const sessions = new Map();
+  const permission = resolveLivePermissionMode(processEnv);
   const runtime = createAcpRuntime({
     cwd: stateRoot,
     sessionStore: {
@@ -422,8 +449,11 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs })
       },
     },
     agentRegistry: registry,
-    permissionMode: "approve-all",
-    nonInteractivePermissions: "fail",
+    // Live MCP copies OpenClaw's ACP-host default: approve-reads + fail.
+    // approve-all is an explicit SAARIUS_ACP_PERMISSION_MODE break-glass.
+    // One-path allow_once stays on the candidate Puppet controller, not here.
+    permissionMode: permission.permissionMode,
+    nonInteractivePermissions: permission.nonInteractivePermissions,
     timeoutMs,
   });
   const shutdown = runtime.shutdown.bind(runtime);
@@ -440,6 +470,10 @@ export class CursorAcpBroker {
     this.jobsRoot = path.join(this.stateRoot, "jobs");
     this.runsRoot = path.join(this.stateRoot, "runs");
     this.ownersRoot = path.join(this.stateRoot, "owners");
+    this.bindingsRoot = path.join(this.stateRoot, "bindings");
+    this.processEnv = options.processEnv ?? process.env;
+    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
+    this.defaultBinderId = options.defaultBinderId ?? null;
     this.brokerId = options.brokerId ?? randomUUID();
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
@@ -466,11 +500,13 @@ export class CursorAcpBroker {
             cursorExecutable: this.cursorExecutable,
             model: this.model,
             timeoutMs: this.timeoutMs,
+            processEnv: this.processEnv,
           })
         : createDefaultRuntime({
             stateRoot: this.stateRoot,
             cursorExecutable: this.cursorExecutable,
             timeoutMs: this.timeoutMs,
+            processEnv: options.processEnv ?? process.env,
           }));
     this.active = new Map();
     this.changeWaiters = new Map();
@@ -486,12 +522,49 @@ export class CursorAcpBroker {
     };
   }
 
+  conversationIdentity(input = {}) {
+    try {
+      return resolveConversationIdentity(input, this.processEnv, {
+        defaultHostConversationId: this.defaultHostConversationId,
+        defaultBinderId: this.defaultBinderId,
+      });
+    } catch (error) {
+      throw toBridgeError(error);
+    }
+  }
+
+  async bindConversation({ hostConversationId, binderId, jobId, workspace }) {
+    try {
+      return await claimConversationBind(
+        this.bindingsRoot,
+        { hostConversationId, binderId, jobId, workspace },
+        { now: this.now, atomicWrite },
+      );
+    } catch (error) {
+      throw toBridgeError(error);
+    }
+  }
+
+  async closeAdmissionHandle(handle, reason) {
+    if (!handle || !this.runtime?.close) return;
+    try {
+      await this.runtime.close({
+        handle,
+        reason,
+        discardPersistentState: true,
+      });
+    } catch {
+      // Admission failures must not hide the readiness refusal.
+    }
+  }
+
   async init() {
     if (!this.initPromise) {
       this.initPromise = (async () => {
         await mkdir(this.jobsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.runsRoot, { recursive: true, mode: 0o700 });
         await mkdir(this.ownersRoot, { recursive: true, mode: 0o700 });
+        await mkdir(this.bindingsRoot, { recursive: true, mode: 0o700 });
         if (this.startTime == null) {
           const self = await this.inspectProcess(this.pid);
           if (self.status === "alive" && self.startTime) this.startTime = self.startTime;
@@ -734,52 +807,83 @@ export class CursorAcpBroker {
     return { ...models, requestedModel: this.model, selectedModelId, workspace };
   }
 
-  async delegate({ workspace, prompt, timeoutMs } = {}) {
+  async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace");
+    const conversation = this.conversationIdentity({ hostConversationId, binderId });
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
     const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
-    await this.checkExecutable();
+    try {
+      await this.checkExecutable();
+    } catch (error) {
+      throw toBridgeError(error);
+    }
 
     const jobId = this.idFactory();
+    const sessionKey = `cursor-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
-    const job = {
-      schema: "saarius.cursor-acp.job.v1",
-      jobId,
-      status: "submitted",
-      createdAt: this.now(),
-      updatedAt: this.now(),
-      route: routeSummary(this.cursorExecutable, this.model),
-      workspace: targetWorkspace,
-      timeoutMs: boundedTimeout,
-      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
-      owner: this.ownerIdentity(),
-      sessionKey: `cursor-acp:${jobId}`,
-      runDir,
-      proof: {
-        state: path.join(runDir, "STATE.md"),
-        events: path.join(runDir, "events.jsonl"),
-        proof: path.join(runDir, "PROOF.md"),
-      },
-    };
-    await mkdir(runDir, { recursive: true, mode: 0o700 });
-    await this.saveJob(job);
-    await this.recordEvent(job, "submitted", {
-      promptSha256: job.request.promptSha256,
-      workspace: targetWorkspace,
-    });
-
-    const promise = Promise.resolve()
-      .then(() => this.runJob(job, taskPrompt))
-      .catch(() => undefined);
-    this.active.set(jobId, { promise });
-    return this.publicJob(job);
+    let handle;
+    try {
+      handle = await this.runtime.ensureSession({
+        sessionKey,
+        agent: "cursor",
+        mode: "persistent",
+        cwd: targetWorkspace,
+        sessionOptions: {
+          systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
+        },
+      });
+      const models = await this.verifyModel(handle, targetWorkspace);
+      const binding = await this.bindConversation({
+        ...conversation,
+        jobId,
+        workspace: targetWorkspace,
+      });
+      const job = {
+        schema: "saarius.cursor-acp.job.v1",
+        jobId,
+        status: "submitted",
+        createdAt: this.now(),
+        updatedAt: this.now(),
+        route: routeSummary(this.cursorExecutable, models.selectedModelId ?? this.model),
+        workspace: targetWorkspace,
+        timeoutMs: boundedTimeout,
+        request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+        owner: this.ownerIdentity(),
+        binding,
+        model: models,
+        handle: publicHandle(handle),
+        sessionKey,
+        runDir,
+        proof: {
+          state: path.join(runDir, "STATE.md"),
+          events: path.join(runDir, "events.jsonl"),
+          proof: path.join(runDir, "PROOF.md"),
+        },
+      };
+      await mkdir(runDir, { recursive: true, mode: 0o700 });
+      await this.saveJob(job);
+      await this.recordEvent(job, "submitted", {
+        promptSha256: job.request.promptSha256,
+        workspace: targetWorkspace,
+        hostConversationId: binding.hostConversationId,
+        binderId: binding.binderId,
+      });
+      const promise = Promise.resolve()
+        .then(() => this.runJob(job, taskPrompt, { handle }))
+        .catch(() => undefined);
+      this.active.set(jobId, { promise, handle });
+      return this.publicJob(job);
+    } catch (error) {
+      await this.closeAdmissionHandle(handle, "delegate admission failed");
+      throw toBridgeError(error);
+    }
   }
 
-  async runJob(job, taskPrompt) {
-    let handle;
+  async runJob(job, taskPrompt, prepared = {}) {
+    let handle = prepared.handle;
     let turn;
-    const interaction = { permission: false, elicitation: false };
+    const interaction = { permission: false, elicitation: false, permissionDenied: false };
     let finalText = "";
     let eventCount = 0;
     let toolCallCount = 0;
@@ -787,22 +891,23 @@ export class CursorAcpBroker {
       job.status = "running";
       job.startedAt = this.now();
       await this.saveAndRecord(job, "running", { workspace: job.workspace });
-      handle = await this.runtime.ensureSession({
-        sessionKey: job.sessionKey,
-        agent: "cursor",
-        mode: "persistent",
-        cwd: job.workspace,
-        sessionOptions: {
-          systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
-        },
-      });
-      job.handle = publicHandle(handle);
-      const model = await this.verifyModel(handle, job.workspace);
-      job.model = model;
+      if (!handle) {
+        handle = await this.runtime.ensureSession({
+          sessionKey: job.sessionKey,
+          agent: "cursor",
+          mode: "persistent",
+          cwd: job.workspace,
+          sessionOptions: {
+            systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
+          },
+        });
+        job.handle = publicHandle(handle);
+        job.model = await this.verifyModel(handle, job.workspace);
+      }
       await this.saveJob(job);
       await this.recordEvent(job, "model_confirmed", {
-        currentModelId: model.currentModelId,
-        availableModelIds: model.availableModelIds,
+        currentModelId: job.model.currentModelId,
+        availableModelIds: job.model.availableModelIds,
       });
 
       turn = this.runtime.startTurn({
@@ -811,9 +916,14 @@ export class CursorAcpBroker {
         mode: "prompt",
         requestId: jobIdFrom(job),
         timeoutMs: job.timeoutMs,
-        onPermissionRequest: async () => {
-          interaction.permission = true;
-          return { outcome: "allow_once" };
+        onPermissionRequest: async (request) => {
+          const decision = livePermissionDecision(request);
+          if (decision.outcome === "cancel") {
+            interaction.permission = true;
+            return { outcome: "cancel" };
+          }
+          interaction.permissionDenied = true;
+          throw permissionPromptUnavailableError("live MCP does not grant one-path allow_once");
         },
         onElicitation: async () => {
           interaction.elicitation = true;
@@ -1212,6 +1322,7 @@ export class CursorAcpBroker {
       startedAt: job.startedAt,
       timeoutMs: job.timeoutMs,
       model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      binding: job.binding,
       proof: job.proof,
     };
     if (job.status === "completed" || job.status === "cancelled") result.handoff = job.handoff;

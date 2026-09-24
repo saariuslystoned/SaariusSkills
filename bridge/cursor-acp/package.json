@@ -13,7 +13,7 @@
     "start": "node server.mjs",
     "setup-runtime": "node ../acp-runtime/prepare.mjs --bridge cursor-acp",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check broker.mjs && node --check server.mjs && node --check puppet-adapter.mjs && node --check ../acp-runtime/launcher.mjs && npm test && node --test ../acp-runtime/test/*.test.mjs",
+    "check": "node --check host-policy.mjs && node --check broker.mjs && node --check server.mjs && node --check puppet-adapter.mjs && node --check ../acp-runtime/launcher.mjs && npm test && node --test ../acp-runtime/test/*.test.mjs",
     "smoke": "node scripts/live-smoke.mjs"
   },
   "dependencies": {

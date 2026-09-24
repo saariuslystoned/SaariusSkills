@@ -8,6 +8,8 @@ const broker = new AntigravityAcpBroker({
   runtimeDir,
   geminiHome,
   processEnv: { PATH: process.env.PATH ?? "" },
+  defaultHostConversationId: "conv-owner-death",
+  defaultBinderId: "test-owner",
   runtimeFactory: (options) => {
     const runtime = createDefaultRuntime(options);
     runtime.close = async () => {

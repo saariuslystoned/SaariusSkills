@@ -149,6 +149,8 @@ test("broker cleanup becomes ready only after exact owned worker-exit proof", { 
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: "conv-cleanup-compat",
+    defaultBinderId: "test-owner",
   });
   const fixturePids = [];
   try {
@@ -208,6 +210,8 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: "conv-cleanup-compat",
+    defaultBinderId: "test-owner",
     runtimeFactory: (options) => {
       const runtime = createDefaultRuntime(options);
       runtime.close = async () => {
@@ -272,6 +276,8 @@ test("readiness close does not leak the exact owned probe worker", { timeout: 60
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
+    defaultHostConversationId: "conv-cleanup-compat",
+    defaultBinderId: "test-owner",
   });
   const fixturePids = [];
   try {

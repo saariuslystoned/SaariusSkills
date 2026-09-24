@@ -145,8 +145,28 @@ class FixtureRuntime {
     setTimeout(async () => {
       if (state.cancelled) return;
       if (this.permissionRequest && input.onPermissionRequest) {
-        const decision = await input.onPermissionRequest(this.permissionRequest);
-        this.permissionDecisions.push(decision);
+        try {
+          const decision = await input.onPermissionRequest(this.permissionRequest);
+          this.permissionDecisions.push(decision);
+          if (decision?.outcome === "cancel" && this.permissionRequest?.raw?.toolCall?.toolCallId?.startsWith("interaction_")) {
+            finish({ status: "completed", stopReason: "fixture complete" });
+            return;
+          }
+          if (decision?.outcome !== "allow_once") {
+            finish({
+              status: "failed",
+              error: { code: "PERMISSION_PROMPT_UNAVAILABLE", message: "fixture write/exec would prompt" },
+            });
+            return;
+          }
+        } catch (error) {
+          this.permissionDecisions.push({ outcome: "failed", code: error.code });
+          finish({
+            status: "failed",
+            error: { code: error.code ?? "PERMISSION_PROMPT_UNAVAILABLE", message: error.message },
+          });
+          return;
+        }
       }
       if (this.failWith === "auth-turn") {
         finish({
@@ -215,6 +235,8 @@ async function makeBroker(options = {}) {
     runtime,
     processLifecycleTracker,
     workerExitWaitMs: options.workerExitWaitMs ?? 100,
+    defaultHostConversationId: options.defaultHostConversationId ?? `conv-${path.basename(root)}`,
+    defaultBinderId: options.defaultBinderId ?? "test-owner",
     ...options,
   });
   await broker.init();
@@ -398,14 +420,16 @@ test("omitted model fails closed when plugin default is not advertised", async (
   assert.equal(readiness.model.preferredDefaultModelId, PREFERRED_DEFAULT_MODEL_ID);
   assert.equal(readiness.model.preferredDefaultAvailable, false);
   assert.equal(runtime.turns.length, 0);
-  const submitted = await broker.delegate({
-    workspace,
-    prompt: "This must not run on a 3.7 fallback.",
-  });
-  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "MODEL_REQUIRED");
-  assert.match(completed.error.message, /gemini-3\.8-flash-high/);
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      prompt: "This must not run on a 3.7 fallback.",
+    }),
+    (error) =>
+      error instanceof BridgeError &&
+      error.code === "MODEL_REQUIRED" &&
+      /gemini-3\.8-flash-high/.test(error.message),
+  );
   assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
@@ -414,14 +438,15 @@ test("substituted current model fails closed instead of accepting a fallback", a
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: { model: "gemini-3.1-pro", available: ["gemini-3.1-pro"] },
   });
-  const submitted = await broker.delegate({
-    workspace,
-    model: FIXTURE_MODEL,
-    prompt: "This must not run.",
-  });
-  const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "MODEL_UNAVAILABLE");
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      model: FIXTURE_MODEL,
+      prompt: "This must not run.",
+    }),
+    (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
+  );
+  assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
 
@@ -488,7 +513,7 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
   await broker.close();
 });
 
-test("non-interaction permission requests delegate and record allow_once", async () => {
+test("non-interaction write permission fails instead of granting allow_once", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: {
       delayMs: 20,
@@ -501,10 +526,10 @@ test("non-interaction permission requests delegate and record allow_once", async
     prompt: "Make a bounded implementation change with permission.",
   });
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "completed");
-  assert.equal(completed.complete, true);
+  assert.equal(completed.status, "failed");
+  assert.equal(completed.error.code, "PERMISSION_PROMPT_UNAVAILABLE");
   assert.equal(runtime.permissionDecisions.length, 1);
-  assert.equal(runtime.permissionDecisions[0]?.outcome, "allow_once");
+  assert.notEqual(runtime.permissionDecisions[0]?.outcome, "allow_once");
   await broker.close();
 });
 
@@ -715,6 +740,8 @@ test("a second broker observes the shared cleanup fence while its owner remains 
     geminiHome: first.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     runtime: new FixtureRuntime(),
+    defaultHostConversationId: first.broker.defaultHostConversationId,
+    defaultBinderId: first.broker.defaultBinderId,
   });
   await second.init();
   await assert.rejects(
