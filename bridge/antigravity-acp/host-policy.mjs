@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const LIVE_PERMISSION_MODE = "approve-reads";
@@ -204,48 +204,23 @@ async function inspectConversationLock(lockPath) {
 
 async function tryAcquireConversationReclaim(reclaimPath, owner, inspectOwner) {
   if (!isCompleteLockOwner(owner) || typeof inspectOwner !== "function") return false;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const uniquePath = `${reclaimPath}.${randomUUID()}`;
-    await mkdir(uniquePath, { mode: 0o700 });
-    await writeFile(path.join(uniquePath, "owner.json"), `${JSON.stringify(owner)}\n`, {
+  try {
+    await mkdir(reclaimPath, { mode: 0o700 });
+    await writeFile(path.join(reclaimPath, "owner.json"), `${JSON.stringify(owner)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
-    try {
-      await rename(uniquePath, reclaimPath);
-      return true;
-    } catch {
-      await rm(uniquePath, { recursive: true, force: true });
-    }
-    const existing = await inspectConversationLock(reclaimPath);
-    if (existing.status !== "readable") return false;
-    let probe;
-    try {
-      probe = await inspectOwner(existing.owner);
-    } catch {
-      return false;
-    }
-    const dead = probe?.status === "missing" ||
-      (probe?.status === "alive" && probe.startTime !== existing.owner.startTime);
-    if (!dead) return false;
-    const current = await inspectConversationLock(reclaimPath);
-    if (current.status !== "readable" || !lockOwnersMatch(current.owner, existing.owner)) return false;
-    let confirmed;
-    try {
-      confirmed = await inspectOwner(current.owner);
-    } catch {
-      return false;
-    }
-    const stillDead = confirmed?.status === "missing" ||
-      (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
-    if (!stillDead) return false;
-    await rm(reclaimPath, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (error?.code === "EEXIST") return { recoveryRequired: true };
+    throw error;
   }
-  return false;
 }
 
 async function reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspectOwner) {
-  if (!(await tryAcquireConversationReclaim(reclaimPath, owner, inspectOwner))) return false;
+  const fence = await tryAcquireConversationReclaim(reclaimPath, owner, inspectOwner);
+  if (fence?.recoveryRequired) return fence;
+  if (!fence) return false;
   try {
     const observed = await inspectConversationLock(lockPath);
     if (observed.status !== "readable") return false;
@@ -303,7 +278,15 @@ export async function claimConversationBind(
         throw error;
       }
       if (error?.code !== "EEXIST") throw error;
-      if (!(await reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspectOwner))) {
+      const reclaim = await reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspectOwner);
+      if (reclaim?.recoveryRequired) {
+        throw new HostPolicyError(
+          "CONVERSATION_BIND_RECOVERY_REQUIRED",
+          "Conversation lock recovery is already fenced by another or interrupted reclaimer; owner recovery is required",
+          { hostConversationId: record.hostConversationId, reclaimPath },
+        );
+      }
+      if (!reclaim) {
         throw new HostPolicyError(
           "CONVERSATION_BIND_BUSY",
           "The conversation binding is being claimed by another worker; retry after its claim completes",

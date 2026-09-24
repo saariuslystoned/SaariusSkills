@@ -68,7 +68,9 @@ explicit request label must match it; with no trusted host context, the explicit
 label is required but is only an identity label, not an authentication proof.
 Conversation-claim locks carry broker PID/start-time metadata. A crashed lock is
 reclaimed only when that exact owner is proven missing or its PID is proven reused;
-live or uncertain locks remain busy.
+live or uncertain locks remain busy. An existing reclaim fence is preserved and
+returns a recovery-required error; it is never auto-deleted after an interrupted
+recovery attempt.
 
 ## Local development
 

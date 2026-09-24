@@ -268,6 +268,38 @@ test("overlapping stale-lock reclaimers serialize before deleting the canonical 
   assert.equal(settled.filter((item) => item.status === "fulfilled").length, 1);
   assert.equal(
     settled.filter((item) => item.status === "rejected")[0].reason.code,
-    "CONVERSATION_BIND_BUSY",
+    "CONVERSATION_BIND_RECOVERY_REQUIRED",
+  );
+});
+
+test("an existing reclaim fence is preserved and requires owner recovery", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-host-policy-reclaim-fence-"));
+  const bindingsRoot = path.join(root, "bindings");
+  await mkdir(bindingsRoot, { recursive: true });
+  const hostConversationId = "conv-reclaim-fence";
+  const target = conversationBindPath(bindingsRoot, hostConversationId);
+  const lockPath = `${target}.lock`;
+  const reclaimPath = `${lockPath}.reclaim`;
+  const deadOwner = { brokerId: "dead-owner", pid: 626262, startTime: "old-start" };
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify(deadOwner)}\n`);
+  await mkdir(reclaimPath, { mode: 0o700 });
+  await writeFile(path.join(reclaimPath, "owner.json"), `${JSON.stringify(deadOwner)}\n`);
+
+  await assert.rejects(
+    () => claimConversationBind(bindingsRoot, {
+      hostConversationId,
+      binderId: "owner-a",
+      jobId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      workspace: "/tmp/reclaim-fence",
+    }, {
+      owner: { brokerId: "new-owner", pid: 626263, startTime: "new-start" },
+      inspectOwner: async () => ({ status: "missing" }),
+    }),
+    (error) => error instanceof HostPolicyError && error.code === "CONVERSATION_BIND_RECOVERY_REQUIRED",
+  );
+  await assert.rejects(
+    () => mkdir(reclaimPath),
+    (error) => error?.code === "EEXIST",
   );
 });
