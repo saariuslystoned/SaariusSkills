@@ -50,7 +50,7 @@ server.registerTool(
   "cursor_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task to Cursor Grok 4.6 in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. Returns a stable job ID.",
+      "Submit one bounded implementation task to Cursor Grok 4.6 in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),

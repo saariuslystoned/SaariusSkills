@@ -54,7 +54,7 @@ server.registerTool(
   "antigravity_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task to official Antigravity ACP in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. Omit model to use the plugin default gemini-3.8-flash-high when that exact id is advertised; otherwise pass an exact advertised model id. Returns a stable job ID.",
+      "Submit one bounded implementation task to official Antigravity ACP in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Omit model to use the plugin default gemini-3.8-flash-high when that exact id is advertised; otherwise pass an exact advertised model id. Returns a stable job ID.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),

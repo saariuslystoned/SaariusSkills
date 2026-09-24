@@ -20,6 +20,16 @@ defaults to `approve-reads` plus fail on write/exec that would prompt
 binds one parent conversation to one worker with owner-gated rebind. It does
 not lock cwd and does not use one-path `allow_once`.
 
+Conversation ownership is host-controlled. `hostConversationId` identifies the
+parent conversation; a request `binderId` is only an assertion and must match
+the host-controlled `SAARIUS_ACP_BINDER_ID` value or the broker's configured
+default. It cannot select an arbitrary owner or use `system` as an exemption.
+When no stable binder is configured, the broker uses its generated process
+identity, so a restart is a new owner and cannot rebind an old conversation
+binding; set `SAARIUS_ACP_BINDER_ID` consistently when continuity across
+processes or restarts is required. Concurrent claims, active prior jobs, and
+prior jobs without proven cleanup are rejected fail-closed.
+
 ## Local development
 
 From the repository worktree:
