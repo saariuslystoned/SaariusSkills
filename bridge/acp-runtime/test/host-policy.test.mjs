@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  ADMISSION_STATE_BOUND,
+  ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTED,
+  ADMISSION_STATE_UNSTARTED,
   BREAK_GLASS_PERMISSION_MODE,
   BINDER_ENV,
   HostPolicyError,
@@ -12,7 +16,9 @@ import {
   LIVE_PERMISSION_MODE,
   canRebindConversation,
   claimConversationBind,
+  classifyConversationAdmission,
   conversationBindPath,
+  decideConversationRebind,
   isReadinessRed,
   livePermissionDecision,
   refuseUnlessReady,
@@ -301,5 +307,116 @@ test("an existing reclaim fence is preserved and requires owner recovery", async
   await assert.rejects(
     () => mkdir(reclaimPath),
     (error) => error?.code === "EEXIST",
+  );
+});
+
+test("conversation admission classification keeps unstarted, released, and started distinct", () => {
+  assert.deepEqual(classifyConversationAdmission(null), { kind: "unreadable" });
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      admission: { state: ADMISSION_STATE_UNSTARTED },
+    }),
+    { kind: "unstarted" },
+  );
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      admission: { state: ADMISSION_STATE_BOUND },
+    }),
+    { kind: "unstarted" },
+  );
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      admission: { state: ADMISSION_STATE_RELEASED },
+    }),
+    { kind: "released" },
+  );
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      admission: { state: ADMISSION_STATE_STARTED },
+      handle: { sessionKey: "worker" },
+    }),
+    { kind: "started" },
+  );
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      status: "completed",
+    }),
+    { kind: "legacy_terminal" },
+  );
+});
+
+test("rebind stays fail-closed for live, unobservable, or started workers", () => {
+  assert.deepEqual(
+    decideConversationRebind({ classification: { kind: "unreadable" } }),
+    { ok: false, reason: "previous_job_unreadable" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "unstarted" },
+      ownerState: "live",
+    }),
+    { ok: false, reason: "previous_admission_in_progress" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "unstarted" },
+      ownerState: "unknown",
+    }),
+    { ok: false, reason: "previous_admission_owner_unobservable" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "started" },
+      ownerState: "dead",
+      jobTerminal: false,
+    }),
+    { ok: false, reason: "previous_job_nonterminal" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "started" },
+      isActive: true,
+      ownerState: "dead",
+      jobTerminal: true,
+      cleanupComplete: true,
+    }),
+    { ok: false, reason: "previous_job_active" },
+  );
+});
+
+test("confirmed unstarted or released admissions can rebind without guessing", () => {
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "released" },
+      ownerState: "live",
+    }),
+    { ok: true, reason: "previous_admission_released" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "unstarted" },
+      ownerState: "dead",
+    }),
+    { ok: true, reason: "previous_admission_unstarted_owner_gone" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "unstarted" },
+      ownerState: "reused",
+    }),
+    { ok: true, reason: "previous_admission_unstarted_owner_gone" },
+  );
+  assert.deepEqual(
+    decideConversationRebind({
+      classification: { kind: "started" },
+      jobTerminal: true,
+      cleanupComplete: true,
+    }),
+    { ok: true, reason: "previous_job_terminal_cleanup_complete" },
   );
 });

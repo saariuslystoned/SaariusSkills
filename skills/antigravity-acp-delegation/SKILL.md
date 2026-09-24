@@ -82,6 +82,10 @@ the user explicitly authorizes that alternative.
   workspace. The bridge returns `WORKSPACE_CLEANUP_PENDING` with bounded job,
   workspace, owner, and cleanup identity; wait for observed cleanup or the
   owner-specific recovery path. Independent workspaces remain admissible.
+  Conversation admission persists the job, including exact broker ownership,
+  before the binding is published. Confirmed unstarted or released admissions
+  may be replaced by the same owner; live or unobservable workers stay fenced.
+  Do not retry or delete uncertain ownership.
 - `antigravity_acp_steer` fails closed with `STEERING_UNSUPPORTED`. Wait for
   the canonical terminal result, then explicitly delegate a bounded follow-up.
   Use `antigravity_acp_cancel` when the parent decision changes. A missing

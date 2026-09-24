@@ -10,6 +10,10 @@ export const HOST_CONVERSATION_ENV = "SAARIUS_ACP_HOST_CONVERSATION_ID";
 export const BINDER_ENV = "SAARIUS_ACP_BINDER_ID";
 export const SYSTEM_BINDER_ID = "system";
 export const CONVERSATION_BIND_SCHEMA = "saarius.acp.conversation-bind.v1";
+export const ADMISSION_STATE_UNSTARTED = "unstarted";
+export const ADMISSION_STATE_BOUND = "bound";
+export const ADMISSION_STATE_STARTED = "started";
+export const ADMISSION_STATE_RELEASED = "released";
 export const IDENTITY_MAX_CHARS = 120;
 export const IDENTITY_PATTERN = /^[0-9A-Za-z_.:@-]+$/;
 
@@ -336,6 +340,52 @@ export async function claimConversationBind(
   } finally {
     await rm(lockPath, { recursive: true, force: true });
   }
+}
+
+const STARTED_JOB_STATUSES = new Set(["submitted", "running"]);
+const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "needs-input"]);
+
+export function classifyConversationAdmission(job) {
+  if (!job || typeof job !== "object" || typeof job.jobId !== "string" || job.jobId.length === 0) {
+    return { kind: "unreadable" };
+  }
+  const state = job.admission?.state;
+  if (state === ADMISSION_STATE_RELEASED) return { kind: "released" };
+  const hasWorker = Boolean(job.handle) || state === ADMISSION_STATE_STARTED;
+  if (!hasWorker && (state === ADMISSION_STATE_UNSTARTED || state === ADMISSION_STATE_BOUND)) {
+    return { kind: "unstarted" };
+  }
+  if (hasWorker || STARTED_JOB_STATUSES.has(job.status)) return { kind: "started" };
+  if (TERMINAL_JOB_STATUSES.has(job.status)) return { kind: "legacy_terminal" };
+  return { kind: "uncertain" };
+}
+
+export function decideConversationRebind({
+  classification,
+  isActive = false,
+  ownerState = "unknown",
+  jobTerminal = false,
+  cleanupComplete = false,
+} = {}) {
+  if (isActive) return { ok: false, reason: "previous_job_active" };
+  const kind = classification?.kind;
+  if (!kind || kind === "unreadable") return { ok: false, reason: "previous_job_unreadable" };
+  if (kind === "released") return { ok: true, reason: "previous_admission_released" };
+  if (kind === "unstarted") {
+    if (ownerState === "dead" || ownerState === "reused") {
+      return { ok: true, reason: "previous_admission_unstarted_owner_gone" };
+    }
+    if (ownerState === "live") return { ok: false, reason: "previous_admission_in_progress" };
+    return { ok: false, reason: "previous_admission_owner_unobservable" };
+  }
+  if (jobTerminal && cleanupComplete) {
+    return { ok: true, reason: "previous_job_terminal_cleanup_complete" };
+  }
+  if (kind === "started" && !jobTerminal) return { ok: false, reason: "previous_job_nonterminal" };
+  if (kind === "started" || kind === "legacy_terminal") {
+    return { ok: false, reason: "previous_job_cleanup_unproven" };
+  }
+  return { ok: false, reason: "previous_admission_uncertain" };
 }
 
 export function isReadinessRed(report) {

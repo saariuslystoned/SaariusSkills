@@ -60,7 +60,10 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   out by default. Live MCP permissions default to `approve-reads` plus fail on
   write/exec that would prompt. `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
   explicit break-glass. Do not use one-path `allow_once` on this live MCP
-  lane.
+  lane. Conversation admission persists the job, including exact broker
+  ownership, before the binding is published. Confirmed unstarted or released
+  admissions may be replaced by the same owner; live or unobservable workers
+  stay fenced. Do not retry or delete uncertain ownership.
 - Save the returned job ID. Use `cursor_acp_status` for progress and
   `cursor_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, or progress event is not task success.

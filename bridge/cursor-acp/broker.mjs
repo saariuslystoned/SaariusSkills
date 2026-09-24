@@ -10,8 +10,14 @@ import {
   createAgentRegistry,
 } from "acpx/runtime";
 import {
+  ADMISSION_STATE_BOUND,
+  ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTED,
+  ADMISSION_STATE_UNSTARTED,
   HostPolicyError,
   claimConversationBind,
+  classifyConversationAdmission,
+  decideConversationRebind,
   isPermissionPromptUnavailable,
   livePermissionDecision,
   permissionPromptUnavailableError,
@@ -78,22 +84,23 @@ function isCanonicalComplete(job) {
 }
 
 async function inspectConversationRebind(broker, existing) {
-  if (broker.active.has(existing.jobId)) {
-    return { ok: false, reason: "previous_job_active" };
-  }
+  const isActive = broker.active.has(existing.jobId);
   let job;
   try {
     job = await broker.getJob(existing.jobId);
   } catch {
-    return { ok: false, reason: "previous_job_unreadable" };
+    return decideConversationRebind({
+      classification: { kind: "unreadable" },
+      isActive,
+    });
   }
-  if (!isTerminalStatus(job.status)) {
-    return { ok: false, reason: "previous_job_nonterminal" };
-  }
-  if (!isCleanupReady(job)) {
-    return { ok: false, reason: "previous_job_cleanup_unproven" };
-  }
-  return { ok: true, reason: "previous_job_terminal_cleanup_complete" };
+  return decideConversationRebind({
+    classification: classifyConversationAdmission(job),
+    isActive,
+    ownerState: classifyOwnerIdentity(job.owner, await broker.probeOwner(job.owner)),
+    jobTerminal: isTerminalStatus(job.status),
+    cleanupComplete: isCanonicalComplete(job),
+  });
 }
 
 function sleep(ms) {
@@ -510,6 +517,7 @@ export class CursorAcpBroker {
       : null;
     this.inspectProcess = options.inspectProcess ?? inspectProcessIdentity;
     this.onJobLockPrepared = options.onJobLockPrepared ?? null;
+    this.onAdmissionBoundary = options.onAdmissionBoundary;
     this.cursorExecutable = path.resolve(
       options.cursorExecutable ??
         process.env.CURSOR_AGENT_EXECUTABLE ??
@@ -601,6 +609,72 @@ export class CursorAcpBroker {
       });
     } catch {
       // Admission failures must not hide the readiness refusal.
+    }
+  }
+
+  async persistAdmission(job, state) {
+    job.admission = {
+      ...(job.admission ?? {}),
+      state,
+    };
+    await this.saveJob(job);
+    if (typeof this.onAdmissionBoundary === "function") {
+      await this.onAdmissionBoundary(state, job);
+    }
+  }
+
+  async confirmAdmissionWorkerReleased(handle, reason) {
+    if (!handle) return true;
+    if (typeof this.runtime?.close !== "function") return false;
+    try {
+      await this.runtime.close({
+        handle,
+        reason,
+        discardPersistentState: true,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async releaseAdmission(job, handle, cause) {
+    const released = await this.confirmAdmissionWorkerReleased(handle, "delegate admission failed");
+    if (!job?.jobId) return;
+    let current;
+    try {
+      current = await this.getJob(job.jobId);
+    } catch {
+      return;
+    }
+    current.error = {
+      code: cause?.code ?? "ADMISSION_FAILED",
+      message: safeMessage(cause?.message ?? "ACP admission failed before the job became runnable"),
+    };
+    if (!released) {
+      await this.saveJob(current).catch(() => undefined);
+      return;
+    }
+    current.status = "failed";
+    current.admission = {
+      ...(current.admission ?? job.admission ?? {}),
+      state: ADMISSION_STATE_RELEASED,
+      releasedAt: this.now(),
+    };
+    current.cleanup = {
+      status: "completed",
+      observed: handle ? "admission_handle_closed" : "admission_unstarted",
+    };
+    delete current.handle;
+    try {
+      await this.saveJob(current);
+      if (current.proof?.events) {
+        await this.recordEvent(current, "admission_released", {
+          observed: current.cleanup.observed,
+        });
+      }
+    } catch {
+      // Leave the already-durable job/bind records for the next owner probe.
     }
   }
 
@@ -868,8 +942,46 @@ export class CursorAcpBroker {
     const jobId = this.idFactory();
     const sessionKey = `cursor-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
+    const job = {
+      schema: "saarius.cursor-acp.job.v1",
+      jobId,
+      status: "admitted",
+      createdAt: this.now(),
+      updatedAt: this.now(),
+      route: routeSummary(this.cursorExecutable, this.model),
+      workspace: targetWorkspace,
+      timeoutMs: boundedTimeout,
+      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      owner: this.ownerIdentity(),
+      admission: {
+        state: ADMISSION_STATE_UNSTARTED,
+        hostConversationId: conversation.hostConversationId,
+        binderId: conversation.binderId,
+      },
+      sessionKey,
+      runDir,
+      proof: {
+        state: path.join(runDir, "STATE.md"),
+        events: path.join(runDir, "events.jsonl"),
+        proof: path.join(runDir, "PROOF.md"),
+      },
+    };
+    await mkdir(runDir, { recursive: true, mode: 0o700 });
     let handle;
     try {
+      await this.persistAdmission(job, ADMISSION_STATE_UNSTARTED);
+      await this.recordEvent(job, "admitted", {
+        hostConversationId: conversation.hostConversationId,
+        binderId: conversation.binderId,
+        workspace: targetWorkspace,
+      });
+      const binding = await this.bindConversation({
+        ...conversation,
+        jobId,
+        workspace: targetWorkspace,
+      });
+      job.binding = binding;
+      await this.persistAdmission(job, ADMISSION_STATE_BOUND);
       handle = await this.runtime.ensureSession({
         sessionKey,
         agent: "cursor",
@@ -880,35 +992,11 @@ export class CursorAcpBroker {
         },
       });
       const models = await this.verifyModel(handle, targetWorkspace);
-      const binding = await this.bindConversation({
-        ...conversation,
-        jobId,
-        workspace: targetWorkspace,
-      });
-      const job = {
-        schema: "saarius.cursor-acp.job.v1",
-        jobId,
-        status: "submitted",
-        createdAt: this.now(),
-        updatedAt: this.now(),
-        route: routeSummary(this.cursorExecutable, models.selectedModelId ?? this.model),
-        workspace: targetWorkspace,
-        timeoutMs: boundedTimeout,
-        request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
-        owner: this.ownerIdentity(),
-        binding,
-        model: models,
-        handle: publicHandle(handle),
-        sessionKey,
-        runDir,
-        proof: {
-          state: path.join(runDir, "STATE.md"),
-          events: path.join(runDir, "events.jsonl"),
-          proof: path.join(runDir, "PROOF.md"),
-        },
-      };
-      await mkdir(runDir, { recursive: true, mode: 0o700 });
-      await this.saveJob(job);
+      job.route = routeSummary(this.cursorExecutable, models.selectedModelId ?? this.model);
+      job.model = models;
+      job.handle = publicHandle(handle);
+      job.status = "submitted";
+      await this.persistAdmission(job, ADMISSION_STATE_STARTED);
       await this.recordEvent(job, "submitted", {
         promptSha256: job.request.promptSha256,
         workspace: targetWorkspace,
@@ -921,7 +1009,7 @@ export class CursorAcpBroker {
       this.active.set(jobId, { promise, handle });
       return this.publicJob(job);
     } catch (error) {
-      await this.closeAdmissionHandle(handle, "delegate admission failed");
+      await this.releaseAdmission(job, handle, error);
       throw toBridgeError(error);
     }
   }
