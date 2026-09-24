@@ -1101,14 +1101,16 @@ export class CursorAcpBroker {
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && !isCanonicalComplete(job)) {
+    if (boundedWait > 0 && !isTerminalStatus(job.status)) {
       await this.waitForTerminal(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
     return {
       ...this.publicJob(job),
-      complete: isCanonicalComplete(job),
-      waitExpired: !isCanonicalComplete(job) && boundedWait > 0,
+      taskComplete: isTerminalStatus(job.status),
+      cleanupReady: isCleanupReady(job),
+      complete: isTerminalStatus(job.status),
+      waitExpired: !isTerminalStatus(job.status) && boundedWait > 0,
     };
   }
 
@@ -1427,7 +1429,7 @@ export class CursorAcpBroker {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       const job = await this.observeJob(jobId);
-      if (isCanonicalComplete(job)) return;
+      if (isTerminalStatus(job.status)) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       const slice = this.active.has(jobId)

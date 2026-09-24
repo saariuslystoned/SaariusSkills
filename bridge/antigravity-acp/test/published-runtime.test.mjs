@@ -249,11 +249,12 @@ test("installed acpx 0.19.1 Antigravity runtime completes a local synthetic-peer
   assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
 });
 
-test("broker leaves explicit approve-all permission decisions to the pinned runtime", {
+test("broker delegates runtime permissions and keeps questions fail-closed", {
   timeout: 60_000,
   skip: !existsSync(installedPackage),
 }, async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "acpx-0191-broker-permission-"));
+  const runCase = async (permissionMode, peerPermission, expectedStatus) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), `acpx-0191-broker-permission-${peerPermission}-`));
   const stateRoot = path.join(rootDir, "state");
   const workspace = path.join(rootDir, "workspace");
   const runtimeDir = path.join(rootDir, "runtime");
@@ -268,7 +269,7 @@ test("broker leaves explicit approve-all permission decisions to the pinned runt
 
   const peer = fileURLToPath(new URL("./permission-peer.mjs", import.meta.url));
   const registry = createAgentRegistry({
-    overrides: { antigravity: [process.execPath, peer, "--permission", "fs_write_file"] },
+    overrides: { antigravity: [process.execPath, peer, "--permission", peerPermission] },
   });
   const sessions = new Map();
   const runtime = createAcpRuntime({
@@ -285,7 +286,7 @@ test("broker leaves explicit approve-all permission decisions to the pinned runt
     agentRegistry: registry,
     fs: false,
     terminal: false,
-    permissionMode: "approve-all",
+    permissionMode,
     nonInteractivePermissions: "fail",
     timeoutMs: 30_000,
   });
@@ -312,10 +313,16 @@ test("broker leaves explicit approve-all permission decisions to the pinned runt
       if (job.status === "completed" || job.status === "failed") break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     } while (Date.now() < deadline);
-    assert.equal(job.status, "completed", JSON.stringify(job));
-    assert.equal(job.error, undefined);
+    assert.equal(job.status, expectedStatus, JSON.stringify(job));
+    if (expectedStatus === "completed") assert.equal(job.error, undefined);
+    if (expectedStatus === "failed") assert.equal(job.error?.code, "PERMISSION_PROMPT_UNAVAILABLE");
+    if (expectedStatus === "needs-input") assert.equal(job.error?.code, "INPUT_REQUIRED");
   } finally {
     await broker.close().catch(() => {});
     rmSync(rootDir, { recursive: true, force: true });
   }
+  };
+  await runCase("approve-reads", "fs_write_file", "failed");
+  await runCase("approve-reads", "interaction", "needs-input");
+  await runCase("approve-all", "fs_write_file", "completed");
 });
