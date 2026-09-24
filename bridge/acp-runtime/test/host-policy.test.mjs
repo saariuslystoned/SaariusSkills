@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   ADMISSION_STATE_BOUND,
   ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTING,
   ADMISSION_STATE_STARTED,
   ADMISSION_STATE_UNSTARTED,
   BREAK_GLASS_PERMISSION_MODE,
@@ -338,6 +339,13 @@ test("conversation admission classification keeps unstarted, released, and start
       jobId: "11111111-1111-4111-8111-111111111111",
       admission: { state: ADMISSION_STATE_STARTED },
       handle: { sessionKey: "worker" },
+    }),
+    { kind: "started" },
+  );
+  assert.deepEqual(
+    classifyConversationAdmission({
+      jobId: "11111111-1111-4111-8111-111111111111",
+      admission: { state: ADMISSION_STATE_STARTING },
     }),
     { kind: "started" },
   );

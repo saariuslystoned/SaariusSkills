@@ -12,6 +12,7 @@ export const SYSTEM_BINDER_ID = "system";
 export const CONVERSATION_BIND_SCHEMA = "saarius.acp.conversation-bind.v1";
 export const ADMISSION_STATE_UNSTARTED = "unstarted";
 export const ADMISSION_STATE_BOUND = "bound";
+export const ADMISSION_STATE_STARTING = "starting";
 export const ADMISSION_STATE_STARTED = "started";
 export const ADMISSION_STATE_RELEASED = "released";
 export const IDENTITY_MAX_CHARS = 120;
@@ -351,7 +352,9 @@ export function classifyConversationAdmission(job) {
   }
   const state = job.admission?.state;
   if (state === ADMISSION_STATE_RELEASED) return { kind: "released" };
-  const hasWorker = Boolean(job.handle) || state === ADMISSION_STATE_STARTED;
+  const hasWorker = Boolean(job.handle) ||
+    state === ADMISSION_STATE_STARTING ||
+    state === ADMISSION_STATE_STARTED;
   if (!hasWorker && (state === ADMISSION_STATE_UNSTARTED || state === ADMISSION_STATE_BOUND)) {
     return { kind: "unstarted" };
   }

@@ -24,6 +24,7 @@ import {
 import {
   ADMISSION_STATE_BOUND,
   ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTING,
   ADMISSION_STATE_STARTED,
   ADMISSION_STATE_UNSTARTED,
   HostPolicyError,
@@ -151,7 +152,8 @@ export function isCleanupObservedComplete(cleanup) {
 export function isCleanupReady(job) {
   if (!job) return false;
   if (isCleanupObservedComplete(job.cleanup)) return true;
-  return isTerminalStatus(job.status) && !job.handle && !job.cleanup;
+  if (!isTerminalStatus(job.status) || job.handle || job.cleanup) return false;
+  return ![ADMISSION_STATE_STARTING, ADMISSION_STATE_STARTED].includes(job.admission?.state);
 }
 
 export function isCanonicalComplete(job) {
@@ -856,8 +858,8 @@ export class AntigravityAcpBroker {
     }
   }
 
-  async confirmAdmissionWorkerReleased(handle, reason) {
-    if (!handle) return true;
+  async confirmAdmissionWorkerReleased(handle, reason, startupAttempted = false) {
+    if (!handle) return !startupAttempted;
     const runtime = this.ensureRuntime();
     if (typeof runtime?.close !== "function") return false;
     try {
@@ -873,7 +875,13 @@ export class AntigravityAcpBroker {
   }
 
   async releaseAdmission(job, handle, cause) {
-    const released = await this.confirmAdmissionWorkerReleased(handle, "delegate admission failed");
+    const startupAttempted = [ADMISSION_STATE_STARTING, ADMISSION_STATE_STARTED]
+      .includes(job?.admission?.state);
+    const released = await this.confirmAdmissionWorkerReleased(
+      handle,
+      "delegate admission failed",
+      startupAttempted,
+    );
     if (!job?.jobId) return;
     let current;
     try {
@@ -1525,6 +1533,7 @@ export class AntigravityAcpBroker {
       });
       job.binding = binding;
       await this.persistAdmission(job, ADMISSION_STATE_BOUND);
+      await this.persistAdmission(job, ADMISSION_STATE_STARTING);
       handle = await runtime.ensureSession({
         sessionKey,
         agent: "antigravity",
@@ -1573,6 +1582,7 @@ export class AntigravityAcpBroker {
       await this.saveAndRecord(job, "running", { workspace: job.workspace });
       const runtime = this.ensureRuntime();
       if (!handle) {
+        await this.persistAdmission(job, ADMISSION_STATE_STARTING);
         handle = await runtime.ensureSession({
           sessionKey: job.sessionKey,
           agent: "antigravity",

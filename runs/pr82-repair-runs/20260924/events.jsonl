@@ -1,0 +1,3 @@
+{"event":"started","scope":"pr82-repair","base":"7b5c88a7656c29a098aecd570a9404ac0de04cf7","worktree":"/Users/bobbybones/Developer/worktrees/saariusskills-pr82-repair-live-20260924"}
+{"event":"focused_tests","cursor":7,"antigravity":7,"host_policy":14}
+{"event":"full_bridge_tests","cursor":{"passed":73,"skipped":11},"antigravity":{"passed":55,"skipped":12}}

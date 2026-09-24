@@ -6,6 +6,7 @@ import test from "node:test";
 import { AntigravityAcpBroker, BridgeError, createProcessLifecycleTracker } from "../broker.mjs";
 import {
   ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTING,
   ADMISSION_STATE_STARTED,
   ADMISSION_STATE_UNSTARTED,
   CONVERSATION_BIND_SCHEMA,
@@ -81,7 +82,7 @@ async function harness(options = {}) {
     settingsPath(path.join(root, "gemini-home")),
     JSON.stringify({ auth: { type: "oauth-personal" }, useG1Credits: false }),
   );
-  const runtime = new Runtime(options.runtimeOptions);
+  const runtime = options.runtime ?? new Runtime(options.runtimeOptions);
   const ids = options.jobIds ?? [];
   let nextId = 0;
   const broker = new AntigravityAcpBroker({
@@ -369,4 +370,175 @@ test("started or unreadable previous jobs stay fenced", async () => {
       error.details?.reason === "previous_job_unreadable",
   );
   await broker.close();
+});
+
+test("worker startup intent is durable before ensureSession and fences unknown startup after restart", async () => {
+  const runtime = new Runtime();
+  let broker;
+  let observed;
+  runtime.ensureSession = async () => {
+    observed = await readJob(broker, FIRST_JOB);
+    throw new BridgeError("RUNTIME_START_FAILED", "simulated failure after startup side effect");
+  };
+  const h = await harness({ runtime, jobIds: [FIRST_JOB] });
+  broker = h.broker;
+  await assert.rejects(
+    () => broker.delegate({
+      workspace: h.workspace,
+      model: FIXTURE_MODEL,
+      prompt: "startup intent",
+      hostConversationId: "conv-starting",
+      binderId: "owner-a",
+    }),
+    (error) => error instanceof BridgeError && error.code === "RUNTIME_START_FAILED",
+  );
+  assert.equal(observed.admission.state, ADMISSION_STATE_STARTING);
+  assert.equal(runtime.closed.length, 0);
+  const failed = await readJob(broker, FIRST_JOB);
+  assert.equal(failed.admission.state, ADMISSION_STATE_STARTING);
+  assert.equal(failed.status, "admitted");
+  assert.equal(failed.error.code, "RUNTIME_START_FAILED");
+  await assert.rejects(
+    () => broker.bindConversation({
+      hostConversationId: "conv-starting",
+      binderId: "owner-a",
+      jobId: SECOND_JOB,
+      workspace: h.workspace,
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "CONVERSATION_REBIND_UNSAFE" &&
+      error.details?.reason === "previous_job_nonterminal",
+  );
+
+  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" };
+  const restarted = await writeCrashAdmission(broker, {
+    jobId: SECOND_JOB,
+    hostConversationId: "conv-restarted-starting",
+    workspace: h.workspace,
+    owner: deadOwner,
+    admissionState: ADMISSION_STATE_STARTING,
+    status: "failed",
+  });
+  restarted.error = { code: "BRIDGE_RESTARTED", message: "owner disappeared during startup" };
+  await writeFile(
+    path.join(broker.jobsRoot, `${SECOND_JOB}.json`),
+    `${JSON.stringify(restarted, null, 2)}\n`,
+  );
+  await assert.rejects(
+    () => broker.bindConversation({
+      hostConversationId: "conv-restarted-starting",
+      binderId: "owner-a",
+      jobId: FIRST_JOB,
+      workspace: h.workspace,
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "WORKSPACE_CLEANUP_PENDING" &&
+      error.details?.reason === "previous_job_cleanup_unproven",
+  );
+  await broker.close();
+});
+
+test("BRIDGE_RESTARTED with an unknown worker handle stays fenced until cleanup is recorded", async () => {
+  const { broker, workspace } = await harness({
+    inspectProcess: async (pid) => pid === DEAD_PID ? { status: "missing" } : { status: "alive", startTime: "live-start" },
+  });
+  const restarted = await writeCrashAdmission(broker, {
+    jobId: FIRST_JOB,
+    hostConversationId: "conv-restarted-handle",
+    workspace,
+    owner: { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" },
+    admissionState: ADMISSION_STATE_STARTED,
+    status: "failed",
+    handle: { sessionKey: "antigravity-acp:unknown", backend: "fixture" },
+  });
+  restarted.error = { code: "BRIDGE_RESTARTED", message: "owner disappeared" };
+  await writeFile(path.join(broker.jobsRoot, `${FIRST_JOB}.json`), `${JSON.stringify(restarted, null, 2)}\n`);
+  await assert.rejects(
+    () => broker.bindConversation({
+      hostConversationId: "conv-restarted-handle",
+      binderId: "owner-a",
+      jobId: SECOND_JOB,
+      workspace,
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "WORKSPACE_CLEANUP_PENDING" &&
+      error.details?.reason === "previous_job_cleanup_unproven",
+  );
+  restarted.cleanup = { status: "completed", observed: "runtime_close_returned" };
+  await writeFile(path.join(broker.jobsRoot, `${FIRST_JOB}.json`), `${JSON.stringify(restarted, null, 2)}\n`);
+  const rebound = await broker.bindConversation({
+    hostConversationId: "conv-restarted-handle",
+    binderId: "owner-a",
+    jobId: SECOND_JOB,
+    workspace,
+  });
+  assert.equal(rebound.replacedJobId, FIRST_JOB);
+  await broker.close();
+});
+
+test("model verification releases a returned handle only after cleanup succeeds", async () => {
+  const successfulRuntime = new Runtime();
+  successfulRuntime.getStatus = async () => {
+    throw new BridgeError("MODEL_CHECK_FAILED", "simulated model verification failure");
+  };
+  const successful = await harness({ runtime: successfulRuntime, jobIds: [FIRST_JOB, SECOND_JOB] });
+  await assert.rejects(
+    () => successful.broker.delegate({
+      workspace: successful.workspace,
+      model: FIXTURE_MODEL,
+      prompt: "model failure with cleanup",
+      hostConversationId: "conv-model-cleanup",
+      binderId: "owner-a",
+    }),
+    (error) => error instanceof BridgeError && error.code === "MODEL_CHECK_FAILED",
+  );
+  const released = await readJob(successful.broker, FIRST_JOB);
+  assert.equal(released.admission.state, ADMISSION_STATE_RELEASED);
+  assert.equal(released.cleanup.status, "completed");
+  delete successfulRuntime.getStatus;
+  const rebound = await successful.broker.delegate({
+    workspace: successful.workspace,
+    model: FIXTURE_MODEL,
+    prompt: "replacement after cleanup",
+    hostConversationId: "conv-model-cleanup",
+    binderId: "owner-a",
+  });
+  assert.equal(rebound.binding.replacedJobId, FIRST_JOB);
+  await successful.broker.close();
+
+  const fencedRuntime = new Runtime();
+  fencedRuntime.getStatus = async () => {
+    throw new BridgeError("MODEL_CHECK_FAILED", "simulated model verification failure");
+  };
+  fencedRuntime.close = async (input) => {
+    fencedRuntime.closed.push(input);
+    throw new Error("simulated cleanup failure");
+  };
+  const fenced = await harness({ runtime: fencedRuntime, jobIds: [FIRST_JOB, SECOND_JOB] });
+  await assert.rejects(
+    () => fenced.broker.delegate({
+      workspace: fenced.workspace,
+      model: FIXTURE_MODEL,
+      prompt: "model failure without cleanup",
+      hostConversationId: "conv-model-fenced",
+      binderId: "owner-a",
+    }),
+    (error) => error instanceof BridgeError && error.code === "MODEL_CHECK_FAILED",
+  );
+  const uncertain = await readJob(fenced.broker, FIRST_JOB);
+  assert.equal(uncertain.admission.state, ADMISSION_STATE_STARTING);
+  assert.equal(uncertain.status, "admitted");
+  assert.equal(fencedRuntime.closed.length, 1);
+  await assert.rejects(
+    () => fenced.broker.bindConversation({
+      hostConversationId: "conv-model-fenced",
+      binderId: "owner-a",
+      jobId: SECOND_JOB,
+      workspace: fenced.workspace,
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "CONVERSATION_REBIND_UNSAFE" &&
+      error.details?.reason === "previous_job_nonterminal",
+  );
+  await fenced.broker.close();
 });

@@ -12,6 +12,7 @@ import {
 import {
   ADMISSION_STATE_BOUND,
   ADMISSION_STATE_RELEASED,
+  ADMISSION_STATE_STARTING,
   ADMISSION_STATE_STARTED,
   ADMISSION_STATE_UNSTARTED,
   HostPolicyError,
@@ -99,7 +100,7 @@ async function inspectConversationRebind(broker, existing) {
     isActive,
     ownerState: classifyOwnerIdentity(job.owner, await broker.probeOwner(job.owner)),
     jobTerminal: isTerminalStatus(job.status),
-    cleanupComplete: isCanonicalComplete(job),
+    cleanupComplete: isCleanupReady(job),
   });
 }
 
@@ -623,8 +624,8 @@ export class CursorAcpBroker {
     }
   }
 
-  async confirmAdmissionWorkerReleased(handle, reason) {
-    if (!handle) return true;
+  async confirmAdmissionWorkerReleased(handle, reason, startupAttempted = false) {
+    if (!handle) return !startupAttempted;
     if (typeof this.runtime?.close !== "function") return false;
     try {
       await this.runtime.close({
@@ -639,7 +640,13 @@ export class CursorAcpBroker {
   }
 
   async releaseAdmission(job, handle, cause) {
-    const released = await this.confirmAdmissionWorkerReleased(handle, "delegate admission failed");
+    const startupAttempted = [ADMISSION_STATE_STARTING, ADMISSION_STATE_STARTED]
+      .includes(job?.admission?.state);
+    const released = await this.confirmAdmissionWorkerReleased(
+      handle,
+      "delegate admission failed",
+      startupAttempted,
+    );
     if (!job?.jobId) return;
     let current;
     try {
@@ -982,6 +989,7 @@ export class CursorAcpBroker {
       });
       job.binding = binding;
       await this.persistAdmission(job, ADMISSION_STATE_BOUND);
+      await this.persistAdmission(job, ADMISSION_STATE_STARTING);
       handle = await this.runtime.ensureSession({
         sessionKey,
         agent: "cursor",
@@ -1026,6 +1034,7 @@ export class CursorAcpBroker {
       job.startedAt = this.now();
       await this.saveAndRecord(job, "running", { workspace: job.workspace });
       if (!handle) {
+        await this.persistAdmission(job, ADMISSION_STATE_STARTING);
         handle = await this.runtime.ensureSession({
           sessionKey: job.sessionKey,
           agent: "cursor",
