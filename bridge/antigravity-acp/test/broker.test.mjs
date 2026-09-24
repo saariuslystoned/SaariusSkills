@@ -152,10 +152,10 @@ class FixtureRuntime {
             finish({ status: "completed", stopReason: "fixture complete" });
             return;
           }
-          if (decision?.outcome !== "allow_once") {
+          if (decision === undefined || decision?.outcome === "cancel") {
             finish({
-              status: "failed",
-              error: { code: "PERMISSION_PROMPT_UNAVAILABLE", message: "fixture write/exec would prompt" },
+              status: "completed",
+              stopReason: "fixture permission denied by runtime policy",
             });
             return;
           }
@@ -513,7 +513,7 @@ test("fixed-choice interaction questions cancel and never persist options", asyn
   await broker.close();
 });
 
-test("non-interaction write permission fails instead of granting allow_once", async () => {
+test("non-interaction write permission stays under pinned runtime policy", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: {
       delayMs: 20,
@@ -526,10 +526,9 @@ test("non-interaction write permission fails instead of granting allow_once", as
     prompt: "Make a bounded implementation change with permission.",
   });
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "PERMISSION_PROMPT_UNAVAILABLE");
+  assert.equal(completed.status, "completed");
   assert.equal(runtime.permissionDecisions.length, 1);
-  assert.notEqual(runtime.permissionDecisions[0]?.outcome, "allow_once");
+  assert.equal(runtime.permissionDecisions[0], undefined);
   await broker.close();
 });
 
@@ -601,7 +600,7 @@ test("a live owner's in-flight job survives another broker and remains cancellab
     model: FIXTURE_MODEL,
     prompt: "Hold until the bridge restarts.",
   });
-  await waitUntil(() => first.broker.getJob(submitted.jobId).then((job) => job.status === "running"));
+  await waitUntil(() => first.broker.active.get(submitted.jobId)?.turn);
   const secondRuntime = new FixtureRuntime();
   const second = new AntigravityAcpBroker({
     stateRoot: first.broker.stateRoot,
@@ -718,6 +717,7 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
     workspace: independentWorkspace,
     model: FIXTURE_MODEL,
     prompt: "Independent workspace remains admissible.",
+    hostConversationId: "conv-independent-workspace",
   });
   const independentResult = await broker.result({ jobId: independent.jobId, waitMs: 1_000 });
   assert.equal(independentResult.status, "completed");
@@ -755,6 +755,7 @@ test("a second broker observes the shared cleanup fence while its owner remains 
     workspace: independentWorkspace,
     model: FIXTURE_MODEL,
     prompt: "Run independently while another workspace is fenced.",
+    hostConversationId: "conv-second-broker-independent",
   });
   const independentResult = await second.result({ jobId: independent.jobId, waitMs: 1_000 });
   assert.equal(independentResult.status, "completed");

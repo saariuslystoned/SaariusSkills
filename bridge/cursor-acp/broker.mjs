@@ -67,6 +67,35 @@ export function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
 
+function isCleanupReady(job) {
+  return job?.cleanup?.status === "completed";
+}
+
+function isCanonicalComplete(job) {
+  return isTerminalStatus(job?.status) && (
+    isCleanupReady(job) || job?.error?.code === "BRIDGE_RESTARTED"
+  );
+}
+
+async function inspectConversationRebind(broker, existing) {
+  if (broker.active.has(existing.jobId)) {
+    return { ok: false, reason: "previous_job_active" };
+  }
+  let job;
+  try {
+    job = await broker.getJob(existing.jobId);
+  } catch {
+    return { ok: false, reason: "previous_job_unreadable" };
+  }
+  if (!isTerminalStatus(job.status)) {
+    return { ok: false, reason: "previous_job_nonterminal" };
+  }
+  if (!isCleanupReady(job)) {
+    return { ok: false, reason: "previous_job_cleanup_unproven" };
+  }
+  return { ok: true, reason: "previous_job_terminal_cleanup_complete" };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -472,9 +501,9 @@ export class CursorAcpBroker {
     this.ownersRoot = path.join(this.stateRoot, "owners");
     this.bindingsRoot = path.join(this.stateRoot, "bindings");
     this.processEnv = options.processEnv ?? process.env;
-    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
-    this.defaultBinderId = options.defaultBinderId ?? null;
     this.brokerId = options.brokerId ?? randomUUID();
+    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
+    this.defaultBinderId = options.defaultBinderId ?? this.brokerId;
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
       ? options.startTime.trim()
@@ -538,9 +567,24 @@ export class CursorAcpBroker {
       return await claimConversationBind(
         this.bindingsRoot,
         { hostConversationId, binderId, jobId, workspace },
-        { now: this.now, atomicWrite },
+        {
+          now: this.now,
+          atomicWrite,
+          inspectExisting: (existing) => inspectConversationRebind(this, existing),
+        },
       );
     } catch (error) {
+      if (
+        error?.code === "CONVERSATION_REBIND_UNSAFE" &&
+        error.details?.reason === "previous_job_cleanup_unproven" &&
+        error.details?.workspace === workspace
+      ) {
+        throw new BridgeError(
+          "WORKSPACE_CLEANUP_PENDING",
+          "A prior job in this workspace still has unresolved terminal cleanup; wait for observed cleanup or owner-controlled recovery before replacing the session.",
+          error.details,
+        );
+      }
       throw toBridgeError(error);
     }
   }
@@ -922,8 +966,11 @@ export class CursorAcpBroker {
             interaction.permission = true;
             return { outcome: "cancel" };
           }
-          interaction.permissionDenied = true;
-          throw permissionPromptUnavailableError("live MCP does not grant one-path allow_once");
+          // Returning undefined delegates the non-interaction decision to the
+          // pinned runtime's configured approve-reads/approve-all policy.
+          // The bridge must not turn a runtime-managed permission result into
+          // a synthetic prompt-unavailable failure.
+          return undefined;
         },
         onElicitation: async () => {
           interaction.elicitation = true;
@@ -984,17 +1031,42 @@ export class CursorAcpBroker {
         toolCallCount,
       });
     } finally {
-      if (handle && job.status === "failed" && this.runtime.close) {
-        try {
-          await this.runtime.close({ handle, reason: "job failed", discardPersistentState: false });
-        } catch {
-          // Preserve the primary job result; runtime cleanup is best effort.
-        }
-      }
+      if (handle && isTerminalStatus(job.status)) await this.closeRuntimeSession(job, handle);
       this.notifyChange(job.jobId);
       if (isTerminalStatus(job.status)) this.active.delete(job.jobId);
     }
     return this.publicJob(job);
+  }
+
+  async closeRuntimeSession(job, handle) {
+    job.cleanup = {
+      status: "pending",
+      observed: "runtime_close_started",
+      at: this.now(),
+    };
+    await this.saveJob(job);
+    if (!this.runtime?.close) {
+      job.cleanup = { ...job.cleanup, status: "completed", observed: "no_runtime_close", at: this.now() };
+      await this.saveJob(job);
+      return;
+    }
+    try {
+      await this.runtime.close({
+        handle,
+        reason: `job ${job.status} terminal cleanup`,
+        discardPersistentState: true,
+      });
+      job.cleanup = { ...job.cleanup, status: "completed", observed: "runtime_close_returned", at: this.now() };
+    } catch (error) {
+      job.cleanup = {
+        ...job.cleanup,
+        status: "uncertain",
+        observed: "runtime_close_failed",
+        message: safeMessage(error?.message),
+        at: this.now(),
+      };
+    }
+    await this.saveJob(job);
   }
 
   async consumeEvents(events, onEvent) {
@@ -1029,14 +1101,14 @@ export class CursorAcpBroker {
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && !isTerminalStatus(job.status)) {
+    if (boundedWait > 0 && !isCanonicalComplete(job)) {
       await this.waitForTerminal(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
     return {
       ...this.publicJob(job),
-      complete: isTerminalStatus(job.status),
-      waitExpired: !isTerminalStatus(job.status) && boundedWait > 0,
+      complete: isCanonicalComplete(job),
+      waitExpired: !isCanonicalComplete(job) && boundedWait > 0,
     };
   }
 
@@ -1328,6 +1400,7 @@ export class CursorAcpBroker {
     if (job.status === "completed" || job.status === "cancelled") result.handoff = job.handoff;
     if (job.error) result.error = job.error;
     if (job.stopReason) result.stopReason = job.stopReason;
+    if (job.cleanup) result.cleanup = job.cleanup;
     if (job.cancelRequested) result.cancelRequested = true;
     return result;
   }
@@ -1354,7 +1427,7 @@ export class CursorAcpBroker {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       const job = await this.observeJob(jobId);
-      if (isTerminalStatus(job.status)) return;
+      if (isCanonicalComplete(job)) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       const slice = this.active.has(jobId)

@@ -90,7 +90,7 @@ async function harness(options = {}) {
     processLifecycleTracker: createProcessLifecycleTracker(),
     workerExitWaitMs: 50,
     defaultHostConversationId: options.defaultHostConversationId ?? null,
-    defaultBinderId: options.defaultBinderId ?? null,
+    defaultBinderId: options.defaultBinderId ?? "owner-a",
   });
   await broker.init();
   return { broker, runtime, workspace, root };
@@ -195,7 +195,7 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
       hostConversationId: "conv-parent",
       binderId: "owner-b",
     }),
-    (error) => error instanceof BridgeError && error.code === "CONVERSATION_REBIND_FORBIDDEN",
+    (error) => error instanceof BridgeError && error.code === "BINDER_ID_NOT_HOST_CONTROLLED",
   );
 
   const rebound = await first.broker.delegate({
@@ -215,7 +215,7 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
     model: FIXTURE_MODEL,
     prompt: "other conversation may share no cwd lock",
     hostConversationId: "conv-other",
-    binderId: "owner-b",
+    binderId: "owner-a",
   });
   assert.equal(otherConversation.binding.hostConversationId, "conv-other");
   assert.equal(otherConversation.workspace, otherWorkspace);

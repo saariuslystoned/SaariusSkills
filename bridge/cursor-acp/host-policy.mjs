@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const LIVE_PERMISSION_MODE = "approve-reads";
@@ -78,8 +78,20 @@ export function resolveHostConversationId(explicit, env = process.env, fallback)
 }
 
 export function resolveBinderId(explicit, env = process.env, fallback) {
-  const value = firstNonEmpty(explicit, env?.[BINDER_ENV], fallback, env?.USER, "local");
-  return normalizeHostIdentity(value, "binderId", "INVALID_BINDER");
+  const hostValue = firstNonEmpty(env?.[BINDER_ENV], fallback, env?.USER, "local");
+  const hostBinderId = normalizeHostIdentity(hostValue, "binderId", "INVALID_BINDER");
+  const requested = firstNonEmpty(explicit);
+  if (requested) {
+    const requestedBinderId = normalizeHostIdentity(requested, "binderId", "INVALID_BINDER");
+    if (requestedBinderId !== hostBinderId) {
+      throw new HostPolicyError(
+        "BINDER_ID_NOT_HOST_CONTROLLED",
+        "The request binderId must match the host-controlled binder identity",
+        { binderId: requestedBinderId, hostBinderId },
+      );
+    }
+  }
+  return hostBinderId;
 }
 
 export function resolveConversationIdentity(input = {}, env = process.env, defaults = {}) {
@@ -95,7 +107,7 @@ export function resolveConversationIdentity(input = {}, env = process.env, defau
 
 export function canRebindConversation(existing, binderId) {
   if (!existing) return { ok: true, reason: "unbound" };
-  if (existing.binderId === SYSTEM_BINDER_ID || existing.binderId === binderId) {
+  if (existing.binderId === binderId) {
     return { ok: true, reason: "owner" };
   }
   return {
@@ -138,23 +150,59 @@ export async function loadConversationBind(bindingsRoot, conversationId) {
   }
 }
 
-export async function claimConversationBind(bindingsRoot, record, { now, atomicWrite } = {}) {
-  const existing = await loadConversationBind(bindingsRoot, record.hostConversationId);
-  assertRebindAllowed(existing, record.binderId);
-  const next = {
-    schema: CONVERSATION_BIND_SCHEMA,
-    hostConversationId: record.hostConversationId,
-    binderId: record.binderId,
-    jobId: record.jobId,
-    workspace: record.workspace,
-    boundAt: typeof now === "function" ? now() : new Date().toISOString(),
-    replacedJobId: existing?.jobId,
-  };
-  const serialized = `${JSON.stringify(next, null, 2)}\n`;
+export async function claimConversationBind(
+  bindingsRoot,
+  record,
+  { now, atomicWrite, inspectExisting } = {},
+) {
   const target = conversationBindPath(bindingsRoot, record.hostConversationId);
-  if (atomicWrite) await atomicWrite(target, serialized);
-  else await writeFile(target, serialized, { encoding: "utf8", mode: 0o600 });
-  return next;
+  const lockPath = `${target}.lock`;
+  try {
+    await mkdir(lockPath, { mode: 0o700 });
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      throw new HostPolicyError(
+        "CONVERSATION_BIND_BUSY",
+        "The conversation binding is being claimed by another worker; retry after its claim completes",
+        { hostConversationId: record.hostConversationId },
+      );
+    }
+    throw error;
+  }
+  try {
+    const existing = await loadConversationBind(bindingsRoot, record.hostConversationId);
+    assertRebindAllowed(existing, record.binderId);
+    if (existing && typeof inspectExisting === "function") {
+      const decision = await inspectExisting(existing);
+      if (!decision?.ok) {
+        throw new HostPolicyError(
+          "CONVERSATION_REBIND_UNSAFE",
+          "The previous conversation worker is still active or its cleanup is not proven complete",
+          {
+            hostConversationId: record.hostConversationId,
+            jobId: existing.jobId,
+            workspace: existing.workspace,
+            reason: decision?.reason ?? "unknown",
+          },
+        );
+      }
+    }
+    const next = {
+      schema: CONVERSATION_BIND_SCHEMA,
+      hostConversationId: record.hostConversationId,
+      binderId: record.binderId,
+      jobId: record.jobId,
+      workspace: record.workspace,
+      boundAt: typeof now === "function" ? now() : new Date().toISOString(),
+      replacedJobId: existing?.jobId,
+    };
+    const serialized = `${JSON.stringify(next, null, 2)}\n`;
+    if (atomicWrite) await atomicWrite(target, serialized);
+    else await writeFile(target, serialized, { encoding: "utf8", mode: 0o600 });
+    return next;
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
 }
 
 export function isReadinessRed(report) {

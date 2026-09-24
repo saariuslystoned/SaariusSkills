@@ -104,10 +104,10 @@ class FixtureRuntime {
         try {
           const decision = await input.onPermissionRequest(this.permissionRequest);
           this.permissionDecisions.push(decision);
-          if (decision?.outcome !== "allow_once") {
+          if (decision === undefined || decision?.outcome === "cancel") {
             finish({
-              status: "failed",
-              error: { code: "PERMISSION_PROMPT_UNAVAILABLE", message: "fixture write/exec would prompt" },
+              status: "completed",
+              stopReason: "fixture permission denied by runtime policy",
             });
             return;
           }
@@ -209,7 +209,7 @@ test("delegation binds one workspace and exact model, then returns a bounded han
   await broker.close();
 });
 
-test("non-interaction write permission fails instead of granting allow_once", async () => {
+test("non-interaction write permission stays under pinned runtime policy", async () => {
   const { broker, runtime, workspace } = await makeBroker({
     runtimeOptions: {
       delayMs: 20,
@@ -221,10 +221,9 @@ test("non-interaction write permission fails instead of granting allow_once", as
     prompt: "Make a bounded implementation change with permission.",
   });
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
-  assert.equal(completed.status, "failed");
-  assert.equal(completed.error.code, "PERMISSION_PROMPT_UNAVAILABLE");
+  assert.equal(completed.status, "completed");
   assert.equal(runtime.permissionDecisions.length, 1);
-  assert.notEqual(runtime.permissionDecisions[0]?.outcome, "allow_once");
+  assert.equal(runtime.permissionDecisions[0], undefined);
   await broker.close();
 });
 

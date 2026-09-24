@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   BREAK_GLASS_PERMISSION_MODE,
+  BINDER_ENV,
   HostPolicyError,
   LIVE_NON_INTERACTIVE_PERMISSIONS,
   LIVE_PERMISSION_MODE,
@@ -108,4 +109,56 @@ test("conversation bind is owner-gated and does not lock cwd", async () => {
   });
   assert.equal(other.hostConversationId, "conv-other");
   assert.equal(other.workspace, "/tmp/two");
+});
+
+test("binder labels cannot override host authority and unsafe rebinds fail closed", async () => {
+  assert.throws(
+    () => resolveBinderId("system", { [BINDER_ENV]: "host-owner" }),
+    (error) => error instanceof HostPolicyError && error.code === "BINDER_ID_NOT_HOST_CONTROLLED",
+  );
+  assert.equal(canRebindConversation({ binderId: "system" }, "other-owner").ok, false);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-host-policy-rebind-"));
+  const bindingsRoot = path.join(root, "bindings");
+  await mkdir(bindingsRoot, { recursive: true });
+  await claimConversationBind(bindingsRoot, {
+    hostConversationId: "conv-active",
+    binderId: "host-owner",
+    jobId: "55555555-5555-4555-8555-555555555555",
+    workspace: "/tmp/one",
+  });
+  await assert.rejects(
+    () => claimConversationBind(bindingsRoot, {
+      hostConversationId: "conv-active",
+      binderId: "host-owner",
+      jobId: "66666666-6666-4666-8666-666666666666",
+      workspace: "/tmp/two",
+    }, { inspectExisting: async () => ({ ok: false, reason: "active" }) }),
+    (error) => error instanceof HostPolicyError && error.code === "CONVERSATION_REBIND_UNSAFE",
+  );
+});
+
+test("conversation claims serialize across concurrent callers", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-host-policy-race-"));
+  const bindingsRoot = path.join(root, "bindings");
+  await mkdir(bindingsRoot, { recursive: true });
+  const record = (jobId) => ({
+    hostConversationId: "conv-race",
+    binderId: "host-owner",
+    jobId,
+    workspace: "/tmp/race",
+  });
+  const first = claimConversationBind(bindingsRoot, record("77777777-7777-4777-8777-777777777777"), {
+    atomicWrite: async (target, serialized) => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      await writeFile(target, serialized);
+    },
+  });
+  const second = claimConversationBind(bindingsRoot, record("88888888-8888-4888-8888-888888888888"));
+  const settled = await Promise.allSettled([first, second]);
+  assert.equal(settled.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(
+    settled.filter((item) => item.status === "rejected")[0].reason.code,
+    "CONVERSATION_BIND_BUSY",
+  );
 });

@@ -153,6 +153,7 @@ test("owner broker death does not recover unresolved cleanup or lift the same-wo
 
     const independent = await second.delegate({
       workspace: independentWorkspace,
+      hostConversationId: "conv-owner-death-independent",
       model,
       prompt: "Independent workspace remains admissible after owner death.",
       timeoutMs: 30_000,

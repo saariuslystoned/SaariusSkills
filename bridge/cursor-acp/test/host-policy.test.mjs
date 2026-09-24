@@ -67,7 +67,7 @@ async function harness(options = {}) {
     execFile: async () => ({ stdout: "2026.08.11-e8db854\n", stderr: "" }),
     processEnv: options.processEnv ?? { PATH: process.env.PATH ?? "" },
     defaultHostConversationId: options.defaultHostConversationId ?? null,
-    defaultBinderId: options.defaultBinderId ?? null,
+    defaultBinderId: options.defaultBinderId ?? "owner-a",
   });
   await broker.init();
   return { broker, runtime, workspace, root, executable };
@@ -143,7 +143,7 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
       hostConversationId: "conv-parent",
       binderId: "owner-b",
     }),
-    (error) => error instanceof BridgeError && error.code === "CONVERSATION_REBIND_FORBIDDEN",
+    (error) => error instanceof BridgeError && error.code === "BINDER_ID_NOT_HOST_CONTROLLED",
   );
 
   const rebound = await broker.delegate({
@@ -161,7 +161,7 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
     workspace: otherWorkspace,
     prompt: "second conversation",
     hostConversationId: "conv-other",
-    binderId: "owner-b",
+    binderId: "owner-a",
   });
   assert.equal(other.binding.hostConversationId, "conv-other");
   await broker.close();

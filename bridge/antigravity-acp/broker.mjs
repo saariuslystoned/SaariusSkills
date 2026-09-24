@@ -76,6 +76,22 @@ export function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
 
+async function inspectConversationRebind(broker, existing) {
+  if (broker.active.has(existing.jobId)) {
+    return { ok: false, reason: "previous_job_active" };
+  }
+  let job;
+  try {
+    job = await broker.getJob(existing.jobId);
+  } catch {
+    return { ok: false, reason: "previous_job_unreadable" };
+  }
+  if (!isCanonicalComplete(job)) {
+    return { ok: false, reason: "previous_job_cleanup_unproven" };
+  }
+  return { ok: true, reason: "previous_job_terminal_cleanup_complete" };
+}
+
 function isSafeOwnerId(brokerId) {
   return typeof brokerId === "string" &&
     brokerId.length > 0 &&
@@ -723,9 +739,9 @@ export class AntigravityAcpBroker {
     this.runsRoot = path.join(this.stateRoot, "runs");
     this.ownersRoot = path.join(this.stateRoot, "owners");
     this.bindingsRoot = path.join(this.stateRoot, "bindings");
-    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
-    this.defaultBinderId = options.defaultBinderId ?? null;
     this.brokerId = options.brokerId ?? randomUUID();
+    this.defaultHostConversationId = options.defaultHostConversationId ?? null;
+    this.defaultBinderId = options.defaultBinderId ?? this.brokerId;
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
       ? options.startTime.trim()
@@ -776,9 +792,24 @@ export class AntigravityAcpBroker {
       return await claimConversationBind(
         this.bindingsRoot,
         { hostConversationId, binderId, jobId, workspace },
-        { now: this.now, atomicWrite },
+        {
+          now: this.now,
+          atomicWrite,
+          inspectExisting: (existing) => inspectConversationRebind(this, existing),
+        },
       );
     } catch (error) {
+      if (
+        error?.code === "CONVERSATION_REBIND_UNSAFE" &&
+        error.details?.reason === "previous_job_cleanup_unproven" &&
+        error.details?.workspace === workspace
+      ) {
+        throw new BridgeError(
+          "WORKSPACE_CLEANUP_PENDING",
+          "A prior job in this workspace still has unresolved terminal cleanup; wait for observed cleanup or owner-controlled recovery before replacing the session.",
+          error.details,
+        );
+      }
       throw toBridgeError(error);
     }
   }
@@ -1482,8 +1513,9 @@ export class AntigravityAcpBroker {
             interaction.question = true;
             return { outcome: "cancel" };
           }
-          interaction.permissionDenied = true;
-          throw permissionPromptUnavailableError("live MCP does not grant one-path allow_once");
+          // Returning undefined lets the pinned runtime apply its configured
+          // approve-reads/approve-all policy for ordinary permissions.
+          return undefined;
         },
         onElicitation: async () => {
           interaction.elicitation = true;

@@ -245,6 +245,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     await assert.rejects(
       () => broker.delegate({
         workspace: harness.workspace,
+        hostConversationId: "conv-cleanup-compat",
         model,
         prompt: "Same-workspace replacement must stay fenced.",
         timeoutMs: 30_000,
@@ -253,6 +254,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     );
     const independent = await broker.delegate({
       workspace: harness.independentWorkspace,
+      hostConversationId: "conv-cleanup-compat-independent",
       model,
       prompt: "Independent workspace remains admissible while another is fenced.",
       timeoutMs: 30_000,
