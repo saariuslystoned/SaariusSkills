@@ -695,8 +695,14 @@ test("result keeps task completion separate while terminal cleanup is pending", 
 test("failed terminal cleanup fences replacement in one workspace but not another", async () => {
   const { broker, runtime, workspace, root } = await makeBroker({
     runtimeOptions: { closeError: "injected close failure" },
+    defaultHostConversationId: null,
   });
-  const submitted = await broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Complete with failed cleanup." });
+  const submitted = await broker.delegate({
+    workspace,
+    model: FIXTURE_MODEL,
+    prompt: "Complete with failed cleanup.",
+    hostConversationId: "conv-fenced-workspace",
+  });
   const failedCleanup = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(failedCleanup.status, "completed");
   assert.equal(failedCleanup.taskComplete, true);
@@ -705,7 +711,12 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
   assert.equal(failedCleanup.cleanup.status, "uncertain");
   assert.equal(broker.active.size, 0);
   await assert.rejects(
-    () => broker.delegate({ workspace, model: FIXTURE_MODEL, prompt: "Do not replace an uncleared session." }),
+    () => broker.delegate({
+      workspace,
+      model: FIXTURE_MODEL,
+      prompt: "Do not replace an uncleared session.",
+      hostConversationId: "conv-fenced-workspace",
+    }),
     (error) => error instanceof BridgeError &&
       error.code === "WORKSPACE_CLEANUP_PENDING" &&
       error.details?.jobId === submitted.jobId,
@@ -725,11 +736,15 @@ test("failed terminal cleanup fences replacement in one workspace but not anothe
 });
 
 test("a second broker observes the shared cleanup fence while its owner remains live", async () => {
-  const first = await makeBroker({ runtimeOptions: { closeError: "injected close failure" } });
+  const first = await makeBroker({
+    runtimeOptions: { closeError: "injected close failure" },
+    defaultHostConversationId: null,
+  });
   const submitted = await first.broker.delegate({
     workspace: first.workspace,
     model: FIXTURE_MODEL,
     prompt: "Leave a cleanup fence for a second broker to observe.",
+    hostConversationId: "conv-shared-fence",
   });
   const failedCleanup = await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(failedCleanup.cleanup.status, "uncertain");
@@ -745,7 +760,12 @@ test("a second broker observes the shared cleanup fence while its owner remains 
   });
   await second.init();
   await assert.rejects(
-    () => second.delegate({ workspace: first.workspace, model: FIXTURE_MODEL, prompt: "Blocked by shared cleanup." }),
+    () => second.delegate({
+      workspace: first.workspace,
+      model: FIXTURE_MODEL,
+      prompt: "Blocked by shared cleanup.",
+      hostConversationId: "conv-shared-fence",
+    }),
     (error) => error instanceof BridgeError && error.code === "WORKSPACE_CLEANUP_PENDING",
   );
 

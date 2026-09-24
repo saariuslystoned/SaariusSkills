@@ -210,7 +210,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     geminiHome: harness.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     processLifecycleTracker: tracker,
-    defaultHostConversationId: "conv-cleanup-compat",
+    defaultHostConversationId: null,
     defaultBinderId: "test-owner",
     runtimeFactory: (options) => {
       const runtime = createDefaultRuntime(options);
@@ -228,6 +228,7 @@ test("surviving peer or injected unsupported close stays uncertain and fenced", 
     await broker.init();
     const submitted = await broker.delegate({
       workspace: harness.workspace,
+      hostConversationId: "conv-cleanup-compat",
       model,
       prompt: "Leave the owned worker alive after injected unsupported close.",
       timeoutMs: 30_000,

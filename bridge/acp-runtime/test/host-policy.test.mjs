@@ -12,6 +12,7 @@ import {
   LIVE_PERMISSION_MODE,
   canRebindConversation,
   claimConversationBind,
+  conversationBindPath,
   isReadinessRed,
   livePermissionDecision,
   refuseUnlessReady,
@@ -111,6 +112,23 @@ test("conversation bind is owner-gated and does not lock cwd", async () => {
   assert.equal(other.workspace, "/tmp/two");
 });
 
+test("configured host conversation identity cannot be overridden by a request label", () => {
+  assert.equal(resolveHostConversationId("conv-explicit", {}, null), "conv-explicit");
+  assert.equal(resolveHostConversationId(undefined, {}, "conv-default"), "conv-default");
+  assert.equal(
+    resolveHostConversationId("conv-host", { SAARIUS_ACP_HOST_CONVERSATION_ID: "conv-host" }, null),
+    "conv-host",
+  );
+  assert.throws(
+    () => resolveHostConversationId("conv-foreign", { SAARIUS_ACP_HOST_CONVERSATION_ID: "conv-host" }, null),
+    (error) => error instanceof HostPolicyError && error.code === "HOST_CONVERSATION_NOT_HOST_CONTROLLED",
+  );
+  assert.throws(
+    () => resolveHostConversationId("conv-foreign", {}, "conv-host"),
+    (error) => error instanceof HostPolicyError && error.code === "HOST_CONVERSATION_NOT_HOST_CONTROLLED",
+  );
+});
+
 test("binder labels cannot override host authority and unsafe rebinds fail closed", async () => {
   assert.throws(
     () => resolveBinderId("system", { [BINDER_ENV]: "host-owner" }),
@@ -160,5 +178,46 @@ test("conversation claims serialize across concurrent callers", async () => {
   assert.equal(
     settled.filter((item) => item.status === "rejected")[0].reason.code,
     "CONVERSATION_BIND_BUSY",
+  );
+});
+
+test("conversation claim recovers only a lock owned by a provably dead process", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-host-policy-crash-recovery-"));
+  const bindingsRoot = path.join(root, "bindings");
+  await mkdir(bindingsRoot, { recursive: true });
+  const hostConversationId = "conv-crash-recovery";
+  const target = conversationBindPath(bindingsRoot, hostConversationId);
+  const lockPath = `${target}.lock`;
+  const deadOwner = { brokerId: "dead-owner", pid: 424242, startTime: "old-start" };
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify(deadOwner)}\n`);
+
+  const recovered = await claimConversationBind(bindingsRoot, {
+    hostConversationId,
+    binderId: "owner-a",
+    jobId: "99999999-9999-4999-8999-999999999999",
+    workspace: "/tmp/recovered",
+  }, {
+    owner: { brokerId: "new-owner", pid: 424243, startTime: "new-start" },
+    inspectOwner: async (owner) => owner.brokerId === deadOwner.brokerId
+      ? { status: "missing" }
+      : { status: "alive", startTime: owner.startTime },
+  });
+  assert.equal(recovered.jobId, "99999999-9999-4999-8999-999999999999");
+
+  await mkdir(lockPath, { mode: 0o700 });
+  const liveOwner = { brokerId: "live-owner", pid: 424244, startTime: "live-start" };
+  await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify(liveOwner)}\n`);
+  await assert.rejects(
+    () => claimConversationBind(bindingsRoot, {
+      hostConversationId,
+      binderId: "owner-a",
+      jobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      workspace: "/tmp/live-lock",
+    }, {
+      owner: { brokerId: "new-owner", pid: 424243, startTime: "new-start" },
+      inspectOwner: async () => ({ status: "alive", startTime: liveOwner.startTime }),
+    }),
+    (error) => error instanceof HostPolicyError && error.code === "CONVERSATION_BIND_BUSY",
   );
 });

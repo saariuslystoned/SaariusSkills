@@ -67,7 +67,21 @@ export function resolveLivePermissionMode(env = process.env) {
 }
 
 export function resolveHostConversationId(explicit, env = process.env, fallback) {
-  const value = firstNonEmpty(explicit, env?.[HOST_CONVERSATION_ENV], fallback);
+  const requested = firstNonEmpty(explicit);
+  const configured = firstNonEmpty(env?.[HOST_CONVERSATION_ENV], fallback);
+  if (requested && configured) {
+    const requestedId = normalizeHostIdentity(requested, "hostConversationId", "INVALID_HOST_CONVERSATION");
+    const configuredId = normalizeHostIdentity(configured, "hostConversationId", "INVALID_HOST_CONVERSATION");
+    if (requestedId !== configuredId) {
+      throw new HostPolicyError(
+        "HOST_CONVERSATION_NOT_HOST_CONTROLLED",
+        "The request hostConversationId must match the host-controlled conversation identity",
+        { hostConversationId: requestedId, hostConfiguredConversationId: configuredId },
+      );
+    }
+    return configuredId;
+  }
+  const value = requested ?? configured;
   if (!value) {
     throw new HostPolicyError(
       "HOST_CONVERSATION_REQUIRED",
@@ -150,24 +164,113 @@ export async function loadConversationBind(bindingsRoot, conversationId) {
   }
 }
 
+function isCompleteLockOwner(owner) {
+  return Boolean(
+    owner &&
+      typeof owner.brokerId === "string" &&
+      owner.brokerId.length > 0 &&
+      owner.brokerId.length <= IDENTITY_MAX_CHARS &&
+      IDENTITY_PATTERN.test(owner.brokerId) &&
+      Number.isInteger(owner.pid) &&
+      owner.pid > 0 &&
+      typeof owner.startTime === "string" &&
+      owner.startTime.trim().length > 0,
+  );
+}
+
+function lockOwnersMatch(left, right) {
+  return isCompleteLockOwner(left) && isCompleteLockOwner(right) &&
+    left.brokerId === right.brokerId &&
+    left.pid === right.pid &&
+    left.startTime === right.startTime;
+}
+
+async function inspectConversationLock(lockPath) {
+  try {
+    const raw = await readFile(path.join(lockPath, "owner.json"), "utf8");
+    try {
+      const owner = JSON.parse(raw);
+      return isCompleteLockOwner(owner)
+        ? { status: "readable", owner }
+        : { status: "unreadable" };
+    } catch {
+      return { status: "unreadable" };
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "unknown" };
+    return { status: "unknown" };
+  }
+}
+
+async function reclaimDeadConversationLock(lockPath, inspectOwner) {
+  if (typeof inspectOwner !== "function") return false;
+  const observed = await inspectConversationLock(lockPath);
+  if (observed.status !== "readable") return false;
+  let probe;
+  try {
+    probe = await inspectOwner(observed.owner);
+  } catch {
+    return false;
+  }
+  const provenDead = probe?.status === "missing" ||
+    (probe?.status === "alive" && probe.startTime !== observed.owner.startTime);
+  if (!provenDead) return false;
+
+  const current = await inspectConversationLock(lockPath);
+  if (current.status !== "readable" || !lockOwnersMatch(current.owner, observed.owner)) return false;
+  let confirmed;
+  try {
+    confirmed = await inspectOwner(current.owner);
+  } catch {
+    return false;
+  }
+  const stillDead = confirmed?.status === "missing" ||
+    (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
+  if (!stillDead) return false;
+  await rm(lockPath, { recursive: true, force: true });
+  return true;
+}
+
 export async function claimConversationBind(
   bindingsRoot,
   record,
-  { now, atomicWrite, inspectExisting } = {},
+  { now, atomicWrite, inspectExisting, owner, inspectOwner } = {},
 ) {
   const target = conversationBindPath(bindingsRoot, record.hostConversationId);
   const lockPath = `${target}.lock`;
-  try {
-    await mkdir(lockPath, { mode: 0o700 });
-  } catch (error) {
-    if (error?.code === "EEXIST") {
-      throw new HostPolicyError(
-        "CONVERSATION_BIND_BUSY",
-        "The conversation binding is being claimed by another worker; retry after its claim completes",
-        { hostConversationId: record.hostConversationId },
-      );
+  let acquired = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+      acquired = true;
+      if (owner) {
+        await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify(owner)}\n`, {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+      }
+      break;
+    } catch (error) {
+      if (acquired) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      if (error?.code !== "EEXIST") throw error;
+      if (!(await reclaimDeadConversationLock(lockPath, inspectOwner))) {
+        throw new HostPolicyError(
+          "CONVERSATION_BIND_BUSY",
+          "The conversation binding is being claimed by another worker; retry after its claim completes",
+          { hostConversationId: record.hostConversationId },
+        );
+      }
     }
-    throw error;
+  }
+  if (!acquired) {
+    throw new HostPolicyError(
+      "CONVERSATION_BIND_BUSY",
+      "The conversation binding is being claimed by another worker; retry after its claim completes",
+      { hostConversationId: record.hostConversationId },
+    );
   }
   try {
     const existing = await loadConversationBind(bindingsRoot, record.hostConversationId);

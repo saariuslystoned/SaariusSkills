@@ -94,6 +94,20 @@ test("default live runtime uses approve-reads, not approve-all", () => {
   assert.equal(runtime.options.nonInteractivePermissions, "fail");
 });
 
+test("configured host conversation identity cannot be overridden by a request label", async () => {
+  const { broker, workspace } = await harness({ defaultHostConversationId: "conv-configured" });
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      prompt: "foreign conversation label",
+      hostConversationId: "conv-foreign",
+      binderId: "owner-a",
+    }),
+    (error) => error instanceof BridgeError && error.code === "HOST_CONVERSATION_NOT_HOST_CONTROLLED",
+  );
+  await broker.close();
+});
+
 test("delegate refuses when readiness is red", async () => {
   const missing = await harness();
   await assert.rejects(

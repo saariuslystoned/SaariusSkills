@@ -29,6 +29,12 @@ identity, so a restart is a new owner and cannot rebind an old conversation
 binding; set `SAARIUS_ACP_BINDER_ID` consistently when continuity across
 processes or restarts is required. Concurrent claims, active prior jobs, and
 prior jobs without proven cleanup are rejected fail-closed.
+When `SAARIUS_ACP_HOST_CONVERSATION_ID` or a broker default is configured, an
+explicit request label must match it; with no trusted host context, the explicit
+label is required but is only an identity label, not an authentication proof.
+Conversation-claim locks carry broker PID/start-time metadata. A crashed lock is
+reclaimed only when that exact owner is proven missing or its PID is proven reused;
+live or uncertain locks remain busy.
 
 ## Local development
 

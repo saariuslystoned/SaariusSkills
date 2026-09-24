@@ -795,6 +795,8 @@ export class AntigravityAcpBroker {
         {
           now: this.now,
           atomicWrite,
+          owner: this.ownerIdentity(),
+          inspectOwner: (owner) => this.inspectProcess(owner.pid),
           inspectExisting: (existing) => inspectConversationRebind(this, existing),
         },
       );

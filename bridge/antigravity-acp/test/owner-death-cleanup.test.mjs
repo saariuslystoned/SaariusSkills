@@ -123,7 +123,7 @@ test("owner broker death does not recover unresolved cleanup or lift the same-wo
       runtimeDir: runtime2,
       geminiHome,
       processEnv: { PATH: process.env.PATH ?? "" },
-      defaultHostConversationId: "conv-owner-death",
+      defaultHostConversationId: null,
       defaultBinderId: "test-owner",
     });
     await second.init();
@@ -137,6 +137,7 @@ test("owner broker death does not recover unresolved cleanup or lift the same-wo
     await assert.rejects(
       () => second.delegate({
         workspace,
+        hostConversationId: "conv-owner-death",
         model,
         prompt: "Same-workspace replacement must stay fenced after owner death.",
         timeoutMs: 30_000,
