@@ -310,7 +310,7 @@ test("broker delegates runtime permissions and keeps questions fail-closed", {
     const deadline = Date.now() + 30_000;
     do {
       job = await broker.getJob(submitted.jobId);
-      if (job.status === "completed" || job.status === "failed") break;
+      if (job.status === "completed" || job.status === "failed" || job.status === "needs-input") break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     } while (Date.now() < deadline);
     assert.equal(job.status, expectedStatus, JSON.stringify(job));
@@ -322,6 +322,7 @@ test("broker delegates runtime permissions and keeps questions fail-closed", {
     rmSync(rootDir, { recursive: true, force: true });
   }
   };
+  await runCase("approve-reads", "fs_read_file", "completed");
   await runCase("approve-reads", "fs_write_file", "failed");
   await runCase("approve-reads", "interaction", "needs-input");
   await runCase("approve-all", "fs_write_file", "completed");

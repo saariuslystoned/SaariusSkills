@@ -17,6 +17,7 @@ const DEFAULT_INTENDED_SOURCE = path.resolve(
   "../../../proof/puppet-acp/20260921/antigravity/inputs/v2-fixture/intended/bin/normalize-lines.mjs",
 );
 const ALLOWED_PERMISSION_MODES = new Set([
+  "fs_read_file",
   "fs_write_file",
   "locations_path",
   "fs_write_twice",
@@ -150,6 +151,11 @@ async function handlePrompt(sessionId) {
   const protectedPath = path.join(workspace, PROTECTED_RELATIVE);
   if (permissionMode === "interaction") {
     await requestPermission(sessionId, { toolCallId: "interaction_choose" });
+  } else if (permissionMode === "fs_read_file") {
+    await requestPermission(sessionId, {
+      kind: "read",
+      filePath: intended,
+    });
   } else if (permissionMode === "elicitation") {
     await request("elicitation/create", {
       mode: "form",

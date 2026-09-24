@@ -73,6 +73,16 @@ async function harness(options = {}) {
   return { broker, runtime, workspace, root, executable };
 }
 
+async function waitForCleanup(broker, jobId, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await broker.getJob(jobId);
+    if (job.cleanup?.status === "completed" && !broker.active.has(jobId)) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`cleanup did not complete for ${jobId}`);
+}
+
 test("default live runtime uses approve-reads, not approve-all", () => {
   const runtime = createDefaultRuntime({
     stateRoot: "/tmp",
@@ -135,6 +145,7 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
   });
   assert.equal(submitted.binding.hostConversationId, "conv-parent");
   await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  await waitForCleanup(broker, submitted.jobId);
 
   await assert.rejects(
     () => broker.delegate({
