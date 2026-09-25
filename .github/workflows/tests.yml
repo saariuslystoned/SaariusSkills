@@ -1,10 +1,7 @@
 name: Tests
-# Default CI is hermetic: unit and packaging suites, compileall, and --help
-# smokes only. No job launches a harness, authenticates or probes a
-# subscription, or performs live-host census. Live census and subscription
-# probes are operator-run, explicitly opt-in flows documented in
-# skills/puppet/references/qualification-contract.md; they must never be
-# added to default CI.
+# Default CI is hermetic: unit and packaging suites and --help smokes only.
+# No job launches a harness, authenticates or probes a subscription, or
+# performs live-host census; those flows must never be added to default CI.
 
 on:
   pull_request:
@@ -42,30 +39,10 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install tmux
-        shell: bash
-        run: |
-          if command -v tmux >/dev/null 2>&1; then
-            tmux -V
-          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
-            brew install tmux
-          else
-            sudo apt-get update
-            sudo apt-get install --yes tmux
-          fi
-
       - name: Run test suite
         run: python -m unittest discover -s tests -q
-
-      - name: Compile agent scripts
-        run: python -m compileall -q skills/puppet/scripts skills/herdr-puppet/scripts
 
       - name: Smoke command surfaces
         run: |
           python skills/grilltrack/scripts/grilltrack_ledger.py --help
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
-          python skills/puppet/scripts/puppet.py --help
-          python skills/puppet/scripts/adapter_lab.py --help
-          python skills/puppet/scripts/puppet_launch.py --help
-          python skills/puppet/scripts/puppet_launch.py checkpoint --help
-          python skills/herdr-puppet/scripts/herdr_puppet.py --help

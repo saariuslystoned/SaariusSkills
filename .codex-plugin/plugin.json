@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
-  "version": "0.3.4",
-  "description": "Experimental agent supervision, Herdr transport, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes.",
+  "version": "0.4.0",
+  "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -12,11 +12,8 @@
   "keywords": [
     "agent-skills",
     "grilltrack",
-    "puppet",
     "agent-orchestration",
     "product-development",
-    "herdr",
-    "agent-transport",
     "cursor-acp",
     "antigravity-acp",
     "grok-acp",
@@ -26,8 +23,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Saarius Skills",
-    "shortDescription": "Agent supervision plus local Cursor, Antigravity, and Grok ACP delegation.",
-    "longDescription": "Experimental Agent Skills for transcript-blind agent supervision, exact-identity Herdr transport, cumulative product decisions, bounded implementation, verification, honest closeout, and additive local Cursor ACP, official Antigravity ACP, and local Grok CLI ACP routes.",
+    "shortDescription": "Product decisions plus local Cursor, Antigravity, and Grok ACP delegation.",
+    "longDescription": "Experimental Agent Skills for cumulative product decisions, bounded implementation, verification, honest closeout, phone UI proof, and additive local Cursor ACP, official Antigravity ACP, and local Grok CLI ACP delegation routes.",
     "developerName": "Saariusly Stoned",
     "category": "Productivity",
     "capabilities": [
@@ -37,7 +34,6 @@
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
       "Help me decide and build the next product slice with GrillTrack.",
-      "Use Puppet to concurrently supervise my selected mix of qualified regular harnesses.",
       "Use Cursor ACP to delegate one bounded implementation slice to local Grok 4.6.",
       "Use Antigravity ACP to diagnose official Google Antigravity setup or delegate one bounded slice. Plugin default is exact advertised gemini-3.8-flash-high.",
       "Use Grok ACP to delegate one bounded implementation slice to local grok agent stdio. Plugin default is exact advertised grok-4.7."
