@@ -3,8 +3,9 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
-The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
-[Cursor plugin](.cursor-plugin/plugin.json). Pick the install path for your
+The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json), a
+[Cursor plugin](.cursor-plugin/plugin.json), and a
+[Claude Code plugin](.claude-plugin/plugin.json). Pick the install path for your
 harness in [Install](#install).
 
 ## Archived: Puppet and Herdr-Puppet
@@ -43,8 +44,8 @@ exact advertised model ID is required. Personal OAuth lives under an explicit
 [local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
 
 Both local MCP bridges use a shared per-user persistent dependency store outside
-the Codex plugin cache. After installing or updating the plugin, prepare the
-bridges explicitly from the installed plugin root:
+the Codex and Claude Code plugin caches. After installing or updating the plugin,
+prepare the bridges explicitly from the installed plugin root:
 
 ```bash
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
@@ -146,8 +147,8 @@ details.
 
 ## Install
 
-Use **Codex** or **Cursor** when you want the packaged skills (and bundled MCP
-servers on Cursor). Use **Google Antigravity (AGY)** when you want a path-based
+Use **Codex**, **Cursor**, or **Claude Code** when you want the packaged skills
+and bundled ACP MCP servers. Use **Google Antigravity (AGY)** when you want a path-based
 install from a checkout.
 
 ### Codex
@@ -187,6 +188,34 @@ git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 
 For the optional local Cursor ACP bridge used by some skills, see
 [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md).
+
+### Claude Code
+
+Add this repository as a Claude Code plugin marketplace, then install its
+plugin:
+
+```bash
+claude plugin marketplace add saariuslystoned/SaariusSkills
+claude plugin install saarius-skills@saarius-skills
+```
+
+Inside a session, `/plugin marketplace add saariuslystoned/SaariusSkills` and
+`/plugin install saarius-skills@saarius-skills` do the same. The
+[Claude Code manifest](.claude-plugin/plugin.json) registers the `cursor-acp`
+(Cursor Grok) and `antigravity-acp` delegation servers through
+`${CLAUDE_PLUGIN_ROOT}`, with no machine-specific paths; each bridge keeps its own
+defaults for the Cursor executable and `GEMINI_HOME`. Prepare both bridge
+runtimes once per plugin version, as described in
+[Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
+stderr names the exact `prepare.mjs` command for the installed copy. Then start a
+fresh session and confirm with `/mcp`. Puppet and Herdr-Puppet are archived and
+not installed.
+
+For a checkout-based trial without installing:
+
+```bash
+claude --plugin-dir /path/to/SaariusSkills
+```
 
 ### Google Antigravity (AGY)
 

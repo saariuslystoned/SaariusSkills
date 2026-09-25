@@ -298,5 +298,56 @@ class PackagingTests(unittest.TestCase):
         )
 
 
+    def test_claude_plugin_manifest_packages_skills_and_acp_mcp(self) -> None:
+        claude_text = (ROOT / ".claude-plugin" / "plugin.json").read_text(
+            encoding="utf-8"
+        )
+        claude = json.loads(claude_text)
+        market = json.loads(
+            (ROOT / ".claude-plugin" / "marketplace.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        codex = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        root_mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        packaged = {
+            path.name
+            for path in (ROOT / "skills").iterdir()
+            if path.is_dir() and (path / "SKILL.md").is_file()
+        }
+
+        self.assertEqual(claude["name"], "saarius-skills")
+        self.assertEqual(claude["version"], codex["version"])
+        # Claude Code always scans skills/; archived skills must not be there.
+        self.assertNotIn("skills", claude)
+        self.assertNotIn("puppet", packaged)
+        self.assertNotIn("herdr-puppet", packaged)
+        self.assertIn("cursor-acp-delegation", packaged)
+        self.assertIn("antigravity-acp-delegation", packaged)
+
+        # Claude Code also loads the root .mcp.json; every server it declares
+        # must be overridden here so no relative, cwd-bound entry leaks in.
+        servers = claude["mcpServers"]
+        self.assertEqual(set(servers), set(root_mcp["mcpServers"]))
+        self.assertEqual(set(servers), {"cursor-acp", "antigravity-acp"})
+        for name, server in servers.items():
+            self.assertEqual(server["command"], "node")
+            self.assertEqual(
+                server["args"],
+                ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", name],
+            )
+            self.assertNotIn("cwd", server)
+            self.assertNotIn("env", server)
+        self.assertNotIn("/Users/", claude_text)
+
+        self.assertEqual(market["name"], "saarius-skills")
+        self.assertIn("name", market["owner"])
+        self.assertEqual(len(market["plugins"]), 1)
+        self.assertEqual(market["plugins"][0]["name"], claude["name"])
+        self.assertEqual(market["plugins"][0]["source"], "./")
+
+
 if __name__ == "__main__":
     unittest.main()

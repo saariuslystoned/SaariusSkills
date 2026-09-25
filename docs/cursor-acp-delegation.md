@@ -86,6 +86,15 @@ codex plugin marketplace add "$PWD/.agents/plugins"
 codex plugin add saarius-skills@saarius-skills
 ```
 
+For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
+registers both ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
+machine-specific paths:
+
+```bash
+claude plugin marketplace add "$PWD"
+claude plugin install saarius-skills@saarius-skills
+```
+
 Installing/updating the plugin copies source; it does not install this bridge's
 Node dependencies. After each install/update, resolve the active plugin root
 from the installed skill location and prepare the persistent runtime store:
