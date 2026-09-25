@@ -30,10 +30,12 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-test("both live bridges ship the same host-policy module", async () => {
+test("all live bridges ship the same host-policy module", async () => {
   const left = await readFile(path.join(here, "../../antigravity-acp/host-policy.mjs"), "utf8");
   const right = await readFile(path.join(here, "../../cursor-acp/host-policy.mjs"), "utf8");
+  const grok = await readFile(path.join(here, "../../grok-acp/host-policy.mjs"), "utf8");
   assert.equal(left, right);
+  assert.equal(left, grok);
 });
 
 test("live permission default is approve-reads + fail; approve-all is break-glass only", () => {

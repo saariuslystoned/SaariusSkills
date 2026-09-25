@@ -5,7 +5,7 @@ Public, experimental Agent Skills maintained by
 
 The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
 [Cursor plugin](.cursor-plugin/plugin.json). Host either, then delegate over
-ACP to Cursor or Antigravity. Published install is this plugin, not a
+ACP to Cursor, Antigravity, or Grok. Published install is this plugin, not a
 hand-written `~/.cursor/mcp.json`. Pick the install path for your harness in
 [Install](#install).
 
@@ -79,9 +79,9 @@ for all harnesses.
 
 SaariusSkills is the host policy for one local ACP contract. ACpx is the
 local client. ACP is the wire. Host the plugin in **Codex** or **Cursor**,
-then delegate one bounded slice to a **Cursor** or **Antigravity** worker.
-The Cursor plugin starts `antigravity-acp`. The Codex plugin starts both
-`antigravity-acp` and `cursor-acp`.
+then delegate one bounded slice to a **Cursor**, **Antigravity**, or **Grok**
+worker. The Cursor plugin starts `antigravity-acp` and `grok-acp`. The Codex
+plugin starts `antigravity-acp`, `cursor-acp`, and `grok-acp`.
 
 The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
 `cancel`) run in three proven placements. **Gateway** (was A2) — a
@@ -96,8 +96,9 @@ Former aliases: Local was L; Always-on was A1; Hop was B.
 | **Always-on** | Always-on box | Same box | CP-1: [proof/a1-live-dogfood/RECEIPT.md](proof/a1-live-dogfood/RECEIPT.md) ([hello.mjs](proof/a1-live-dogfood/hello.mjs); `approve-reads` fail-closed job in same receipt). |
 | **Hop** | Carry laptop | Another machine | MacBook → CP-1: [proof/b-live-dogfood/RECEIPT.md](proof/b-live-dogfood/RECEIPT.md) ([hello.mjs](proof/b-live-dogfood/hello.mjs); hop wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83)). |
 
-Those hello.mjs jobs used the Antigravity worker. The Cursor worker lane is
-source-landed (Codex → local `cursor-agent acp`) and is not those jobs.
+Those hello.mjs jobs used the Antigravity worker. The Cursor and Grok worker
+lanes are source-landed and are not those jobs. There is no committed
+`proof/*/RECEIPT.md` for Grok Local / Always-on / Hop until one lands.
 
 Host policy on `main` ([#80](https://github.com/saariuslystoned/SaariusSkills/pull/80),
 [#82](https://github.com/saariuslystoned/SaariusSkills/pull/82)): readiness
@@ -137,13 +138,24 @@ model ID is required. Personal OAuth lives under an explicit `GEMINI_HOME`
 profile; fixed-choice questions fail closed. See the
 [Antigravity setup and hop guide](docs/antigravity-acp-delegation.md).
 
-Both bridges use a shared per-user persistent dependency store outside
+### Grok worker (`grok-acp`)
+
+The `grok-acp` bridge routes one bounded slice through pinned `acpx@0.19.1`
+to ACpx's built-in `grok-build` agent (`grok agent stdio`). It exposes the
+same six tools, stays separate from Cursor ACP (`cursor-agent acp`), from
+Puppet's grok tmux harness, and from any Grok Bot computer. Plugin default
+is the exact advertised id `grok-4.7`. The child is `GROK_EXECUTABLE` or
+`grok` on `PATH`; manifests do not ship a machine path. See the
+[Grok setup and reload guide](docs/grok-acp-delegation.md).
+
+All bridges use a shared per-user persistent dependency store outside
 the Codex plugin cache. After installing or updating the plugin, prepare
 the bridges explicitly from the installed plugin root:
 
 ```bash
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
 ```
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved
@@ -280,10 +292,12 @@ To update an existing local install:
 git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 ```
 
-The Cursor plugin MCP entry is hop-free and ships no machine paths. Hop,
-when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the
-optional Codex → Cursor worker bridge, see
-[docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md).
+The Cursor plugin MCP entries are hop-free and ship no machine paths. Hop,
+when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the optional
+Cursor, Antigravity, and Grok worker bridges, see
+[docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md),
+[docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md), and
+[docs/grok-acp-delegation.md](docs/grok-acp-delegation.md).
 
 ### Google Antigravity (AGY)
 
@@ -346,6 +360,10 @@ invocation, but it is never required when the user's intent is already clear.
 - [`skills/antigravity-acp-delegation/SKILL.md`](skills/antigravity-acp-delegation/SKILL.md):
   the official Antigravity ACP MCP lane (proven Local / Always-on / Hop), separate from
   Cursor ACP and native AGY.
+- [`skills/grok-acp-delegation/SKILL.md`](skills/grok-acp-delegation/SKILL.md):
+  the local Grok CLI ACP MCP lane (`grok agent stdio`), same six-tool contract,
+  separate from Cursor ACP and from Puppet grok; no committed Local / Always-on /
+  Hop receipt yet.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

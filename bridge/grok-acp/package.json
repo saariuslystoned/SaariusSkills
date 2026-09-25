@@ -1,0 +1,24 @@
+{
+  "name": "@saarius-skills/grok-acp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental local stdio MCP bridge from Codex to Grok ACP through acpx.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs --install",
+    "doctor": "node scripts/setup.mjs --check",
+    "start": "node server.mjs",
+    "setup-runtime": "node ../acp-runtime/prepare.mjs --bridge grok-acp",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check host-policy.mjs && node --check broker.mjs && node --check server.mjs && node --check ../acp-runtime/launcher.mjs && node --check ../acp-runtime/hop.mjs && npm test",
+    "smoke": "node scripts/live-smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "acpx": "0.19.1",
+    "zod": "4.6.5"
+  }
+}

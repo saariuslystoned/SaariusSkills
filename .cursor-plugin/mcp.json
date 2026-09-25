@@ -3,6 +3,10 @@
     "antigravity-acp": {
       "command": "node",
       "args": ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"]
+    },
+    "grok-acp": {
+      "command": "node",
+      "args": ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"]
     }
   }
 }

@@ -3061,6 +3061,7 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(executable.call_count, 2)
 
         with (
+            patch.object(campaign_module.sys, "platform", "darwin"),
             patch.object(
                 campaign_module,
                 "process_executable_identity",
@@ -3072,6 +3073,11 @@ class ProbeTests(unittest.TestCase):
                 ],
             ),
             patch.object(campaign_module, "_pid_still_exists", return_value=True),
+            patch.object(
+                campaign_module,
+                "darwin_process_text_vnodes",
+                side_effect=IdentityError("unreadable live Darwin row"),
+            ),
             patch.object(campaign_module.time, "sleep"),
             self.assertRaisesRegex(
                 IdentityError,

@@ -10,10 +10,11 @@ import test from "node:test";
 import { findReady, prepareRuntime } from "../runtime-store.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const bridges = ["cursor-acp", "antigravity-acp"];
+const bridges = ["cursor-acp", "antigravity-acp", "grok-acp"];
 const expectedTools = {
   "cursor-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `cursor_acp_${name}`),
   "antigravity-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `antigravity_acp_${name}`),
+  "grok-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `grok_acp_${name}`),
 };
 
 async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
@@ -21,7 +22,7 @@ async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   const sourceRoot = path.join(repoRoot, "bridge", bridge);
   const targetRoot = path.join(pluginRoot, "bridge", bridge);
   await mkdir(targetRoot, { recursive: true });
-  for (const relativePath of ["package.json", "package-lock.json", "server.mjs", "broker.mjs", "host-policy.mjs", ...(bridge === "antigravity-acp" ? ["contract.mjs"] : [])]) {
+  for (const relativePath of ["package.json", "package-lock.json", "server.mjs", ...(bridge === "grok-acp" ? ["server-errors.mjs"] : []), "broker.mjs", "host-policy.mjs", ...(bridge === "antigravity-acp" ? ["contract.mjs"] : [])]) {
     await cp(path.join(sourceRoot, relativePath), path.join(targetRoot, relativePath));
   }
   if (includeLauncher) {
@@ -104,7 +105,7 @@ async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, count
   });
 }
 
-test("clean plugin snapshots prepare both bridges and reuse without reinstalling", async () => {
+test("clean plugin snapshots prepare each bridge and reuse without reinstalling", async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-clean-snapshot-"));
   const counterPath = path.join(fixtureRoot, "npm.count");
   const fake = await makeFakeNpm();
@@ -119,7 +120,7 @@ test("clean plugin snapshots prepare both bridges and reuse without reinstalling
       assert.equal(second.reused, true);
       await rm(pluginRoot, { recursive: true, force: true });
     }
-    assert.equal(await countLines(counterPath), 2);
+    assert.equal(await countLines(counterPath), bridges.length);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
     await rm(fake.fixtureRoot, { recursive: true, force: true });
@@ -267,7 +268,7 @@ test("unconfirmed dependency termination preserves the staging fence until the w
   }
 });
 
-test("separate dependency-free plugin snapshots launch both manifest paths from an external cwd", async () => {
+test("separate dependency-free plugin snapshots launch each manifest path from an external cwd", async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-mcp-"));
   const externalCwd = await mkdtemp(path.join(tmpdir(), "saarius-acp-external-cwd-"));
   const counterPath = path.join(fixtureRoot, "npm.count");
@@ -279,6 +280,7 @@ test("separate dependency-free plugin snapshots launch both manifest paths from 
     const launchCases = [
       { bridge: "cursor-acp", manifest: ".mcp.json", server: "cursor-acp", stateEnv: "SAARIUS_CURSOR_ACP_STATE_DIR" },
       { bridge: "antigravity-acp", manifest: ".cursor-plugin/mcp.json", server: "antigravity-acp", stateEnv: "SAARIUS_ANTIGRAVITY_ACP_STATE_DIR" },
+      { bridge: "grok-acp", manifest: ".cursor-plugin/mcp.json", server: "grok-acp", stateEnv: "SAARIUS_GROK_ACP_STATE_DIR" },
     ];
     for (const { bridge, manifest, server, stateEnv } of launchCases) {
       const pluginRoot = await makePluginSnapshot(bridge, { includeLauncher: true });
@@ -326,7 +328,7 @@ test("separate dependency-free plugin snapshots launch both manifest paths from 
         await rm(pluginRoot, { recursive: true, force: true });
       }
     }
-    assert.equal(await countLines(counterPath), 2);
+    assert.equal(await countLines(counterPath), launchCases.length);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
     await rm(externalCwd, { recursive: true, force: true });
