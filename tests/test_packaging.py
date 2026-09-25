@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "grilltrack"
 PHONE_PROOF_SKILL = ROOT / "skills" / "phone-proof"
 ANTIGRAVITY_SKILL = ROOT / "skills" / "antigravity-acp-delegation"
+GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 
 
 class PackagingTests(unittest.TestCase):
@@ -192,6 +193,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("antigravity-acp", plugin["keywords"])
         self.assertIn("antigravity-acp", mcp["mcpServers"])
         self.assertIn("cursor-acp", mcp["mcpServers"])
+        self.assertIn("grok-acp", mcp["mcpServers"])
+        self.assertIn("grok-acp", plugin["keywords"])
         acp_runtime = ROOT / "bridge" / "acp-runtime"
         self.assertTrue((acp_runtime / "launcher.mjs").is_file())
         self.assertTrue((acp_runtime / "hop.mjs").is_file())
@@ -206,6 +209,10 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(
             mcp["mcpServers"]["cursor-acp"]["args"],
             ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
+        )
+        self.assertEqual(
+            mcp["mcpServers"]["grok-acp"]["args"],
+            ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
         )
         cursor_broker = (ROOT / "bridge" / "cursor-acp" / "broker.mjs").read_text(
             encoding="utf-8"
@@ -254,6 +261,7 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(cursor["skills"], expected_skills)
         self.assertNotIn(f"./skills/{omitted}/", cursor["skills"])
         self.assertIn("./skills/antigravity-acp-delegation/", cursor["skills"])
+        self.assertIn("./skills/grok-acp-delegation/", cursor["skills"])
         self.assertIn("./skills/pstack-playbooks/", cursor["skills"])
         for skill in cursor["skills"]:
             self.assertTrue((ROOT / skill / "SKILL.md").is_file(), skill)
@@ -261,16 +269,24 @@ class PackagingTests(unittest.TestCase):
         self.assertNotEqual(cursor, root_plugin)
         self.assertNotEqual(cursor, codex)
 
-        self.assertEqual(set(cursor_mcp["mcpServers"]), {"antigravity-acp"})
+        self.assertEqual(set(cursor_mcp["mcpServers"]), {"antigravity-acp", "grok-acp"})
         server = cursor_mcp["mcpServers"]["antigravity-acp"]
         self.assertEqual(server["command"], "node")
         self.assertEqual(
             server["args"],
             ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
         )
+        grok_server = cursor_mcp["mcpServers"]["grok-acp"]
+        self.assertEqual(grok_server["command"], "node")
+        self.assertEqual(
+            grok_server["args"],
+            ["${CURSOR_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"],
+        )
         self.assertNotIn("env", server)
+        self.assertNotIn("env", grok_server)
         self.assertNotIn("GEMINI_HOME", cursor_mcp_text)
         self.assertNotIn("CURSOR_AGENT_EXECUTABLE", cursor_mcp_text)
+        self.assertNotIn("GROK_EXECUTABLE", cursor_mcp_text)
         self.assertNotIn("/Users/", cursor_mcp_text)
         self.assertNotIn("${PLUGIN_ROOT}", cursor_mcp_text)
         self.assertNotIn("cursor-acp", cursor_mcp["mcpServers"])
@@ -296,6 +312,41 @@ class PackagingTests(unittest.TestCase):
             codex_mcp["mcpServers"]["cursor-acp"]["args"],
             ["bridge/acp-runtime/launcher.mjs", "cursor-acp"],
         )
+        self.assertEqual(
+            codex_mcp["mcpServers"]["grok-acp"]["args"],
+            ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
+        )
+        self.assertNotIn("GROK_EXECUTABLE", json.dumps(codex_mcp["mcpServers"]["grok-acp"]))
+
+    def test_grok_acp_skill_and_mcp_server_are_packaged(self) -> None:
+        skill = (GROK_SKILL / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (GROK_SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        plugin = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        mcp = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
+        broker = (ROOT / "bridge" / "grok-acp" / "broker.mjs").read_text(
+            encoding="utf-8"
+        )
+        self.assertLessEqual(len(skill.splitlines()), 500)
+        self.assertIn("$grok-acp-delegation", metadata)
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("grok_acp_readiness", skill)
+        self.assertIn("grok agent stdio", skill)
+        self.assertIn("grok-build", skill)
+        self.assertIn("grok-4.7", skill)
+        self.assertIn("plugin default", skill)
+        self.assertIn("GROK_EXECUTABLE", skill)
+        self.assertIn("STEERING_UNSUPPORTED", skill)
+        self.assertIn("cursor-agent acp", skill)
+        self.assertIn("Grok Bot", skill)
+        self.assertIn('DEFAULT_GROK_MODEL = "grok-4.7"', broker)
+        self.assertIn('ACPX_GROK_AGENT = "grok-build"', broker)
+        self.assertNotIn("/Users/bobbybones", broker)
+        self.assertIn("grok-acp", plugin["keywords"])
+        self.assertIn("grok-acp", mcp["mcpServers"])
+        self.assertNotIn("GROK_EXECUTABLE", json.dumps(mcp["mcpServers"]["grok-acp"]))
+        self.assertNotIn("/Users/", json.dumps(mcp["mcpServers"]["grok-acp"]))
 
 
 if __name__ == "__main__":

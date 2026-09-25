@@ -1,0 +1,6 @@
+interface:
+  display_name: "Grok ACP Delegation"
+  short_description: "Delegate bounded work to local Grok CLI ACP."
+  default_prompt: "Use $grok-acp-delegation to send one bounded implementation slice to local grok agent stdio and review its handoff."
+policy:
+  allow_implicit_invocation: true
