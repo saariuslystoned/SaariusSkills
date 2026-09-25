@@ -38,9 +38,9 @@ Former aliases: Local was L; Always-on was A1; Hop was B.
 
 | Product | Parent | Worker | What it is | Proven |
 | --- | --- | --- | --- | --- |
-| **Local** | This machine | This machine | Parent and worker are local children of the plugin host. | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). After [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80), job `a8c3cbbf` admitted then fail-closed write/exec that would prompt. |
-| **Always-on** | Always-on box | Same box | Local pointed at a different machine. Attach to that box; the plugin, ACpx, and Antigravity stay local there. | CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job `43190be6` fail-closed on `approve-reads`. |
-| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV` before ACpx starts. ACpx stays a local child on the worker. | MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
+| **Local** | This machine | This machine | Parent and worker are local children of the plugin host. | [proof/l-live-dogfood/RECEIPT.md](../proof/l-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/l-live-dogfood/hello.mjs); [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80) fail-closed). |
+| **Always-on** | Always-on box | Same box | Local pointed at a different machine. Attach to that box; the plugin, ACpx, and Antigravity stay local there. | [proof/a1-live-dogfood/RECEIPT.md](../proof/a1-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/a1-live-dogfood/hello.mjs); `approve-reads` fail-closed in receipt). |
+| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV` before ACpx starts. ACpx stays a local child on the worker. | [proof/b-live-dogfood/RECEIPT.md](../proof/b-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/b-live-dogfood/hello.mjs); [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83)). |
 
 Those hello.mjs jobs used the Antigravity worker. A cloud Cursor Project
 chat still cannot call `antigravity_acp_*`.
@@ -223,12 +223,15 @@ qualification.
 
 ## Hop
 
-Hop is proven. The parent launcher places the same six-tool server on another
-machine without changing tool names or turning ACpx into an SSH client.
-Live proof: MacBook parent → CP-1 worker, job `69b134e9`,
-`proof/b-live-dogfood/hello.mjs` (`B_READY`, exit 0), after
-[#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). ACpx stayed
-a local child on CP-1. Workspace was worker-absolute.
+Hop is proven on the MacBook → CP-1 dogfood path. The parent launcher places
+the same six-tool server on another machine without changing tool names or
+turning ACpx into an SSH client. Durable receipt:
+[proof/b-live-dogfood/RECEIPT.md](../proof/b-live-dogfood/RECEIPT.md)
+([hello.mjs](../proof/b-live-dogfood/hello.mjs), `B_READY`, exit 0; hop
+wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83);
+[`bridge/acp-runtime/test/hop.test.mjs`](../bridge/acp-runtime/test/hop.test.mjs)).
+ACpx stayed a local child on CP-1. Workspace was worker-absolute. Live MCP
+job folders are operator-local; use the receipt for full job UUIDs.
 
 Set `SAARIUS_ACP_HOP_ARGV` on the **parent** attach to a JSON array that
 execs the worker launcher over stdio (`ssh -T …`, `docker exec -i …`). The

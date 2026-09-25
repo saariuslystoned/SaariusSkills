@@ -118,8 +118,9 @@ the user explicitly authorizes that alternative.
   launcher) is Hop: same six tools; ACpx stays a local child on the worker;
   `workspace` is worker-absolute. Do not hop with `acpx --agent`. Do not
   treat hop-process exit as remote worker death. Prepare, official 1.1.1,
-  and personal OAuth stay on the worker. Hop is proven (MacBook → CP-1 job
-  `69b134e9`). A later hopped delegate still needs an isolated worktree,
+  and personal OAuth stay on the worker. Hop is proven on the MacBook → CP-1
+  path; receipt `proof/b-live-dogfood/RECEIPT.md` (see repo root). A later
+  hopped delegate still needs an isolated worktree,
   one intended path, and a stated budget.
 
 ## Scope boundary

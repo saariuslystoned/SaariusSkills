@@ -92,9 +92,9 @@ Former aliases: Local was L; Always-on was A1; Hop was B.
 
 | Product | Parent | Worker | Proven |
 | --- | --- | --- | --- |
-| **Local** | Same machine | Same machine | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). Later #80 default fail-closed write/exec that would prompt (job `a8c3cbbf`). |
-| **Always-on** | Always-on box | Same box | Same local contract on CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job fail-closed on `approve-reads`. |
-| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV`; ACpx stays a local child on the worker. MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
+| **Local** | Same machine | Same machine | MacBook desktop Agent chat: [proof/l-live-dogfood/RECEIPT.md](proof/l-live-dogfood/RECEIPT.md) ([hello.mjs](proof/l-live-dogfood/hello.mjs) + [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80) fail-closed receipt). |
+| **Always-on** | Always-on box | Same box | CP-1: [proof/a1-live-dogfood/RECEIPT.md](proof/a1-live-dogfood/RECEIPT.md) ([hello.mjs](proof/a1-live-dogfood/hello.mjs); `approve-reads` fail-closed job in same receipt). |
+| **Hop** | Carry laptop | Another machine | MacBook → CP-1: [proof/b-live-dogfood/RECEIPT.md](proof/b-live-dogfood/RECEIPT.md) ([hello.mjs](proof/b-live-dogfood/hello.mjs); hop wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83)). |
 
 Those hello.mjs jobs used the Antigravity worker. The Cursor worker lane is
 source-landed (Codex → local `cursor-agent acp`) and is not those jobs.
