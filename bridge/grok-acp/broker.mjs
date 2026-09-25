@@ -186,6 +186,10 @@ export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+export function defaultBinderIdForStateRoot(stateRoot) {
+  return `state-${hashText(path.resolve(stateRoot)).slice(0, 32)}`;
+}
+
 function hasNonEmptyEnvironmentValue(env, key) {
   return typeof env?.[key] === "string" && env[key].trim().length > 0;
 }
@@ -522,7 +526,7 @@ export class GrokAcpBroker {
     this.processEnv = options.processEnv ?? process.env;
     this.brokerId = options.brokerId ?? randomUUID();
     this.defaultHostConversationId = options.defaultHostConversationId ?? null;
-    this.defaultBinderId = options.defaultBinderId ?? this.brokerId;
+    this.defaultBinderId = options.defaultBinderId ?? defaultBinderIdForStateRoot(this.stateRoot);
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
       ? options.startTime.trim()

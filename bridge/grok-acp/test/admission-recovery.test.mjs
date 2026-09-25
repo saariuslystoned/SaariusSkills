@@ -106,6 +106,7 @@ async function writeCrashAdmission(broker, {
   hostConversationId,
   workspace,
   owner,
+  binderId = "owner-a",
   admissionState = ADMISSION_STATE_UNSTARTED,
   status = "admitted",
   handle,
@@ -126,7 +127,7 @@ async function writeCrashAdmission(broker, {
     admission: {
       state: admissionState,
       hostConversationId,
-      binderId: "owner-a",
+      binderId,
     },
     request: { promptSha256: "synthetic", promptChars: 9 },
     sessionKey: `grok-acp:${jobId}`,
@@ -144,7 +145,7 @@ async function writeCrashAdmission(broker, {
     `${JSON.stringify({
       schema: CONVERSATION_BIND_SCHEMA,
       hostConversationId,
-      binderId: "owner-a",
+      binderId,
       jobId,
       workspace,
       boundAt: "2026-09-24T00:00:00.000Z",
@@ -291,6 +292,56 @@ test("crash after bind with a dead owner is recoverable; live and unobservable o
   );
   await broker.close();
   await unknownBroker.broker.close();
+});
+
+test("stable default binder does not bypass active or unknown cleanup fences", async () => {
+  const active = await harness({
+    stableDefaultBinder: true,
+    inspectProcess: async () => ({ status: "alive", startTime: "active-start" }),
+  });
+  await writeCrashAdmission(active.broker, {
+    jobId: FIRST_JOB,
+    hostConversationId: "conv-stable-active",
+    workspace: active.workspace,
+    owner: { brokerId: "active-owner", pid: process.pid, startTime: "active-start" },
+    binderId: active.broker.defaultBinderId,
+    admissionState: ADMISSION_STATE_UNSTARTED,
+  });
+  await assert.rejects(
+    () => active.broker.delegate({
+      workspace: active.workspace,
+      prompt: "stable binder must not steal active admission",
+      hostConversationId: "conv-stable-active",
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "CONVERSATION_REBIND_UNSAFE" &&
+      error.details?.reason === "previous_admission_in_progress",
+  );
+  await active.broker.close();
+
+  const unknown = await harness({
+    stableDefaultBinder: true,
+    inspectProcess: async () => ({ status: "unknown" }),
+  });
+  await writeCrashAdmission(unknown.broker, {
+    jobId: SECOND_JOB,
+    hostConversationId: "conv-stable-unknown",
+    workspace: unknown.workspace,
+    owner: { brokerId: "unknown-owner", pid: DEAD_PID, startTime: "unknown-start" },
+    binderId: unknown.broker.defaultBinderId,
+    admissionState: ADMISSION_STATE_UNSTARTED,
+  });
+  await assert.rejects(
+    () => unknown.broker.delegate({
+      workspace: unknown.workspace,
+      prompt: "stable binder must not guess unknown owner",
+      hostConversationId: "conv-stable-unknown",
+    }),
+    (error) => error instanceof BridgeError &&
+      error.code === "CONVERSATION_REBIND_UNSAFE" &&
+      error.details?.reason === "previous_admission_owner_unobservable",
+  );
+  await unknown.broker.close();
 });
 
 test("started or unreadable previous jobs stay fenced", async () => {

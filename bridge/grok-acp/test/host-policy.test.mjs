@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { BridgeError, GrokAcpBroker, createDefaultRuntime } from "../broker.mjs";
+import { BridgeError, GrokAcpBroker, createDefaultRuntime, defaultBinderIdForStateRoot } from "../broker.mjs";
 import { LIVE_PERMISSION_MODE } from "../host-policy.mjs";
 
 const fixtureCatalog = JSON.parse(
@@ -61,13 +61,13 @@ async function harness(options = {}) {
   await chmod(executable, 0o700);
   const runtime = options.runtime ?? new Runtime(options.runtimeOptions);
   const broker = new GrokAcpBroker({
-    stateRoot: path.join(root, "state"),
+    stateRoot: options.stateRoot ?? path.join(root, "state"),
     grokExecutable: executable,
     runtime,
     execFile: async () => ({ stdout: "2026.08.11-e8db854\n", stderr: "" }),
     processEnv: options.processEnv ?? { PATH: process.env.PATH ?? "" },
     defaultHostConversationId: options.defaultHostConversationId ?? null,
-    defaultBinderId: options.defaultBinderId ?? "owner-a",
+    ...(options.stableDefaultBinder ? {} : { defaultBinderId: options.defaultBinderId ?? "owner-a" }),
   });
   await broker.init();
   return { broker, runtime, workspace, root, executable };
@@ -190,4 +190,40 @@ test("one conversation owns one worker; foreign rebind is refused; cwd is not ex
   });
   assert.equal(other.binding.hostConversationId, "conv-other");
   await broker.close();
+});
+
+test("default binder survives a cleaned restart while foreign binders stay rejected", async () => {
+  const first = await harness({ stableDefaultBinder: true });
+  const submitted = await first.broker.delegate({
+    workspace: first.workspace,
+    prompt: "first restart-bound worker",
+    hostConversationId: "conv-restart-default",
+  });
+  await first.broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
+  await waitForCleanup(first.broker, submitted.jobId);
+  const stableBinderId = first.broker.defaultBinderId;
+  assert.equal(stableBinderId, defaultBinderIdForStateRoot(first.broker.stateRoot));
+  await first.broker.close();
+
+  const second = await harness({
+    stableDefaultBinder: true,
+    stateRoot: path.join(first.root, "state"),
+  });
+  assert.equal(second.broker.defaultBinderId, stableBinderId);
+  const rebound = await second.broker.delegate({
+    workspace: second.workspace,
+    prompt: "rebind after restart cleanup",
+    hostConversationId: "conv-restart-default",
+  });
+  assert.equal(rebound.binding.replacedJobId, submitted.jobId);
+  await assert.rejects(
+    () => second.broker.delegate({
+      workspace: second.workspace,
+      prompt: "foreign binder",
+      hostConversationId: "conv-foreign-default",
+      binderId: "foreign-owner",
+    }),
+    (error) => error instanceof BridgeError && error.code === "BINDER_ID_NOT_HOST_CONTROLLED",
+  );
+  await second.broker.close();
 });
