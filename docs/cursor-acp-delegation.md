@@ -1,8 +1,9 @@
 # Cursor ACP delegation
 
 This is the Codex → Cursor worker lane. Host the plugin in Codex, then
-delegate one bounded slice over ACP to a local Cursor agent. Live L / A1 /
-B hello.mjs proof is the Antigravity worker, not this lane. See
+delegate one bounded slice over ACP to a local Cursor agent. Live Local /
+Always-on / Hop hello.mjs proof is the Antigravity worker, not this lane.
+Former aliases: Local was L; Always-on was A1; Hop was B. See
 [docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
 Published install is the plugin, not a hand-written `~/.cursor/mcp.json`.
 
@@ -156,10 +157,10 @@ left for audit or removed only as an explicitly approved, exact-path cleanup;
 the bridge never deletes it automatically.
 
 This slice is distinct from Puppet issues #35 and #37. It does not claim a
-transport-neutral controller, A2, a second gateway, OpenClaw gateway, or
+transport-neutral controller, Gateway (was A2), OpenClaw gateway, or
 formal ACP qualification. The shared launcher honors optional
 `SAARIUS_ACP_HOP_ARGV` the same way as the Antigravity hop; ACpx still
-stays a local child on the worker. Cursor-worker B is source-landed, not
+stays a local child on the worker. Cursor-worker Hop is source-landed, not
 the proven MacBook → CP-1 hello.mjs job. See the hop section in
 [docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
 

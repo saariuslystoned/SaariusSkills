@@ -28,16 +28,19 @@ The runtime binary and matching `localharness_external` helper are a separate
 download. This package does not install or update them. Native `agy --print`
 and Puppet qualification stay on their own routes.
 
-## Placements (L / A1 / B)
+## Placements (Local / Always-on / Hop)
 
-The same six tools run in three proven placements. **A2** (a SaariusSkills
-chat gateway that owns phone or browser chat and spawns ACP) stays off.
+The same six tools run in three proven placements. **Gateway** (was A2) — a
+SaariusSkills chat process that owns phone or browser chat and spawns ACP —
+stays off. Do not build it.
 
-| Id | Parent | Worker | What it is | Proven |
+Former aliases: Local was L; Always-on was A1; Hop was B.
+
+| Product | Parent | Worker | What it is | Proven |
 | --- | --- | --- | --- | --- |
-| **L** | This machine | This machine | Parent and worker are local children of the plugin host. | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). After [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80), job `a8c3cbbf` admitted then fail-closed write/exec that would prompt. |
-| **A1** | Always-on box | Same box | L pointed at a different machine. Attach to that box; the plugin, ACpx, and Antigravity stay local there. | CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job `43190be6` fail-closed on `approve-reads`. |
-| **B** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV` before ACpx starts. ACpx stays a local child on the worker. | MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
+| **Local** | This machine | This machine | Parent and worker are local children of the plugin host. | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). After [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80), job `a8c3cbbf` admitted then fail-closed write/exec that would prompt. |
+| **Always-on** | Always-on box | Same box | Local pointed at a different machine. Attach to that box; the plugin, ACpx, and Antigravity stay local there. | CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job `43190be6` fail-closed on `approve-reads`. |
+| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV` before ACpx starts. ACpx stays a local child on the worker. | MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
 
 Those hello.mjs jobs used the Antigravity worker. A cloud Cursor Project
 chat still cannot call `antigravity_acp_*`.
@@ -215,12 +218,12 @@ may be left for audit or removed only as an explicitly approved, exact-path
 cleanup.
 
 This slice is distinct from Puppet issues #35, #37, and #38. It does not claim
-a transport-neutral controller, A2, a second gateway, or formal ACP
+a transport-neutral controller, Gateway (was A2), or formal ACP
 qualification.
 
-## Host hop (B)
+## Hop
 
-B is proven. The parent launcher places the same six-tool server on another
+Hop is proven. The parent launcher places the same six-tool server on another
 machine without changing tool names or turning ACpx into an SSH client.
 Live proof: MacBook parent → CP-1 worker, job `69b134e9`,
 `proof/b-live-dogfood/hello.mjs` (`B_READY`, exit 0), after
@@ -241,7 +244,7 @@ config. Do not put a Bobby hostname in the plugin manifests. Do not treat
 bare `ssh` as the laptop login user as the proven hop identity. Do not hop
 with `acpx --agent ssh`.
 
-Unset keeps the local L/A1 path. A set-but-invalid value fails closed and
+Unset keeps the Local / Always-on path. A set-but-invalid value fails closed and
 does not spawn a local ACpx child.
 
 The launcher uses `--worker` to establish worker mode inside the worker's own
@@ -258,17 +261,17 @@ does not need a local AGY runtime for a hopped job. Hop-process exit is
 transport death, not proof the remote worker is gone. The hop command
 must die with the parent (no `ssh -f`, no `ControlPersist`).
 
-A later B turn still needs an isolated worktree, one intended path, and a
+A later Hop turn still needs an isolated worktree, one intended path, and a
 stated budget. This document does not authorize a new model turn.
 
 ## Not claimed
 
 - A cloud Cursor Project chat can call `antigravity_acp_*`.
 - Google AI Ultra / quota entitlement.
-- A2, a second gateway, Parallels, or `acpx --agent ssh`.
+- Gateway (was A2), Parallels, or `acpx --agent ssh`.
 - Bare `ssh` as the laptop login user to the always-on box.
 - `~/.cursor/mcp.json` as the published install.
-- Cursor-worker hello.mjs jobs (L/A1/B live proof is this Antigravity lane).
+- Cursor-worker hello.mjs jobs (Local / Always-on / Hop live proof is this Antigravity lane).
 
 ## Active-turn steering
 

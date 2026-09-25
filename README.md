@@ -84,14 +84,17 @@ The Cursor plugin starts `antigravity-acp`. The Codex plugin starts both
 `antigravity-acp` and `cursor-acp`.
 
 The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
-`cancel`) run in three proven placements. **A2** (a SaariusSkills process
-that owns phone or browser chat and spawns ACP) stays off.
+`cancel`) run in three proven placements. **Gateway** (was A2) — a
+SaariusSkills process that owns phone or browser chat and spawns ACP —
+stays off. Do not build it.
 
-| Id | Parent | Worker | Proven |
+Former aliases: Local was L; Always-on was A1; Hop was B.
+
+| Product | Parent | Worker | Proven |
 | --- | --- | --- | --- |
-| **L** | Same machine | Same machine | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). Later #80 default fail-closed write/exec that would prompt (job `a8c3cbbf`). |
-| **A1** | Always-on box | Same box | Same local contract on CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job fail-closed on `approve-reads`. |
-| **B** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV`; ACpx stays a local child on the worker. MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
+| **Local** | Same machine | Same machine | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). Later #80 default fail-closed write/exec that would prompt (job `a8c3cbbf`). |
+| **Always-on** | Always-on box | Same box | Same local contract on CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job fail-closed on `approve-reads`. |
+| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV`; ACpx stays a local child on the worker. MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
 
 Those hello.mjs jobs used the Antigravity worker. The Cursor worker lane is
 source-landed (Codex → local `cursor-agent acp`) and is not those jobs.
@@ -103,7 +106,7 @@ write/exec that would prompt; `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
 break-glass on the attach, not a tool argument; one parent conversation
 owns one worker (cwd is not exclusive).
 
-This plugin does not claim Google AI Ultra, a second gateway, Parallels,
+This plugin does not claim Google AI Ultra, Gateway (was A2), Parallels,
 `acpx --agent ssh`, or that a cloud Cursor Project chat can call
 `antigravity_acp_*`. Hop argv is parent-attach config, not a hostname in
 the published manifests. Bare `ssh` as the laptop login user is not the
@@ -145,7 +148,8 @@ node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved
 for protocol frames. They never perform a network install during MCP
-initialization. Unset `SAARIUS_ACP_HOP_ARGV` is L or A1. Set hop is B.
+initialization. Unset `SAARIUS_ACP_HOP_ARGV` is Local or Always-on. Set
+hop is Hop.
 
 ## PhoneProof
 
@@ -340,7 +344,7 @@ invocation, but it is never required when the user's intent is already clear.
   display inventory and structurally validated screenshot helper.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
 - [`skills/antigravity-acp-delegation/SKILL.md`](skills/antigravity-acp-delegation/SKILL.md):
-  the official Antigravity ACP MCP lane (proven L / A1 / B), separate from
+  the official Antigravity ACP MCP lane (proven Local / Always-on / Hop), separate from
   Cursor ACP and native AGY.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
