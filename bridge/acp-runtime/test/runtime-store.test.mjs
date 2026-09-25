@@ -29,7 +29,7 @@ async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
     await cp(path.join(sourceRoot, "scripts", "setup.mjs"), path.join(targetRoot, "scripts", "setup.mjs"));
     const runtimeTarget = path.join(pluginRoot, "bridge", "acp-runtime");
     await mkdir(runtimeTarget, { recursive: true });
-    for (const relativePath of ["runtime-store.mjs", "launcher.mjs", "prepare.mjs"]) {
+    for (const relativePath of ["runtime-store.mjs", "launcher.mjs", "hop.mjs", "prepare.mjs"]) {
       await cp(path.join(repoRoot, "bridge", "acp-runtime", relativePath), path.join(runtimeTarget, relativePath));
     }
     await cp(path.join(repoRoot, ".mcp.json"), path.join(pluginRoot, ".mcp.json"));
@@ -328,6 +328,62 @@ test("separate dependency-free plugin snapshots launch both manifest paths from 
     }
     assert.equal(await countLines(counterPath), 2);
   } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(externalCwd, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("parent hop argv lists the same six tools through a worker launcher", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-hop-mcp-"));
+  const externalCwd = await mkdtemp(path.join(tmpdir(), "saarius-acp-hop-cwd-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm();
+  const requireFromBridge = createRequire(path.join(repoRoot, "bridge/cursor-acp/package.json"));
+  const { Client } = requireFromBridge("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = requireFromBridge("@modelcontextprotocol/sdk/client/stdio.js");
+  const pluginRoot = await makePluginSnapshot("antigravity-acp", { includeLauncher: true });
+  try {
+    const setup = spawnSync(process.execPath, [path.join(pluginRoot, "bridge", "antigravity-acp", "scripts", "setup.mjs"), "--install"], {
+      cwd: externalCwd,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: {
+        ...process.env,
+        ...npmEnv("antigravity-acp", counterPath),
+        PATH: `${fake.fixtureRoot}:${process.env.PATH ?? ""}`,
+        SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+      },
+    });
+    assert.equal(setup.status, 0, setup.stderr || setup.stdout);
+    const launcherPath = path.join(pluginRoot, "bridge", "acp-runtime", "launcher.mjs");
+    const stateRoot = await mkdtemp(path.join(tmpdir(), "antigravity-acp-hop-state-"));
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [launcherPath, "antigravity-acp"],
+      cwd: externalCwd,
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
+        SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+        SAARIUS_ACP_HOP_ARGV: JSON.stringify([process.execPath, launcherPath, "antigravity-acp"]),
+      },
+      stderr: "pipe",
+    });
+    transport.stderr?.resume();
+    const client = new Client({ name: "acp-hop-test", version: "1.0.0" });
+    try {
+      await client.connect(transport);
+      assert.deepEqual(
+        (await client.listTools()).tools.map((tool) => tool.name).sort(),
+        expectedTools["antigravity-acp"],
+      );
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });
     await rm(externalCwd, { recursive: true, force: true });
     await rm(fake.fixtureRoot, { recursive: true, force: true });

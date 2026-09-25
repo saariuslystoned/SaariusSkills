@@ -588,8 +588,11 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("cursor-acp", mcp["mcpServers"])
         acp_runtime = ROOT / "bridge" / "acp-runtime"
         self.assertTrue((acp_runtime / "launcher.mjs").is_file())
+        self.assertTrue((acp_runtime / "hop.mjs").is_file())
         self.assertTrue((acp_runtime / "prepare.mjs").is_file())
         self.assertTrue((acp_runtime / "runtime-store.mjs").is_file())
+        self.assertIn("SAARIUS_ACP_HOP_ARGV", skill)
+        self.assertIn("worker-absolute", skill)
         self.assertEqual(
             mcp["mcpServers"]["antigravity-acp"]["args"],
             ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],

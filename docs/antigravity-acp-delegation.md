@@ -189,8 +189,42 @@ may be left for audit or removed only as an explicitly approved, exact-path
 cleanup.
 
 This slice is distinct from Puppet issues #35, #37, and #38. It does not claim
-a transport-neutral controller, remote swarm route, or formal ACP
+a transport-neutral controller, a second gateway, or formal ACP
 qualification.
+
+## Host hop (B)
+
+The parent launcher can place the same six-tool server on another machine
+without changing tool names or turning ACpx into an SSH client.
+
+Set `SAARIUS_ACP_HOP_ARGV` on the **parent** attach to a JSON array that
+execs the worker launcher over stdio (`ssh -T …`, `docker exec -i …`). The
+worker launcher command must include the explicit `--worker` entry flag, for
+example:
+
+```json
+["ssh", "-T", "worker.example", "node", "/opt/saarius-skills/bridge/acp-runtime/launcher.mjs", "antigravity-acp", "--worker"]
+```
+
+Unset keeps today's local L/A1 path. A set-but-invalid value fails closed and
+does not spawn a local ACpx child.
+
+The launcher uses `--worker` to establish worker mode inside the worker's own
+environment; this is the transport contract and does not depend on SSH or
+Docker forwarding arbitrary environment variables. The local child is also
+started with the hop env stripped and `SAARIUS_ACP_HOP_ROLE=worker` as
+defense-in-depth. Nested hop argv is refused. `acpx` or
+`--agent` in the hop argv is refused. Token-shaped argv entries are
+refused. Published plugin manifests stay hop-free.
+
+`workspace` is an absolute path on the worker. Prepare, the official
+1.1.1 runtime, `GEMINI_HOME`, and job state stay on that box. The laptop
+does not need a local AGY runtime for a hopped job. Hop-process exit is
+transport death, not proof the remote worker is gone. The hop command
+must die with the parent (no `ssh -f`, no `ControlPersist`).
+
+A live hopped coding turn still needs an isolated worktree, one intended
+path, and a stated budget. This document does not authorize a model turn.
 
 ## Active-turn steering
 
