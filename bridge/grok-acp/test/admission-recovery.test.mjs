@@ -79,7 +79,7 @@ async function harness(options = {}) {
     execFile: async () => ({ stdout: "2026.08.11-e8db854\n", stderr: "" }),
     processEnv: options.processEnv ?? { PATH: process.env.PATH ?? "" },
     defaultHostConversationId: options.defaultHostConversationId ?? null,
-    defaultBinderId: options.defaultBinderId ?? "owner-a",
+    ...(options.stableDefaultBinder ? {} : { defaultBinderId: options.defaultBinderId ?? "owner-a" }),
     brokerId: options.brokerId,
     pid: options.pid,
     startTime: options.startTime,
