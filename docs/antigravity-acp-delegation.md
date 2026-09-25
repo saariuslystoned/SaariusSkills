@@ -131,8 +131,9 @@ It will not start a login or send a live request from this follow-up worker.
 
 ## MCP connection
 
-The root `.codex-plugin/plugin.json` declares `.mcp.json`, which now has two
-separately named stdio servers: `cursor-acp` and `antigravity-acp`. Both use
+The root `.codex-plugin/plugin.json` declares `.mcp.json`, which now has three
+separately named stdio servers: `cursor-acp`, `antigravity-acp`, and `grok-acp`.
+All use
 `cwd: "."`, which Codex resolves against the installed plugin root. This
 legacy `.codex-plugin` format does not expand `${PLUGIN_ROOT}` in arguments.
 
@@ -143,7 +144,16 @@ codex plugin marketplace add "$PWD/.agents/plugins"
 codex plugin add saarius-skills@saarius-skills
 ```
 
-Published install is the Codex or Cursor plugin. A machine-local
+For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
+registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
+machine-specific paths:
+
+```bash
+claude plugin marketplace add "$PWD"
+claude plugin install saarius-skills@saarius-skills
+```
+
+Published install is the Codex, Cursor, or Claude Code plugin. A machine-local
 `~/.cursor/mcp.json` attach is operator config, not the product install.
 
 Installing/updating the plugin copies source; it does not install this

@@ -3,11 +3,13 @@
 Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
-The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
-[Cursor plugin](.cursor-plugin/plugin.json). Host either, then delegate over
-ACP to Cursor, Antigravity, or Grok. Published install is this plugin, not a
-hand-written `~/.cursor/mcp.json`. Pick the install path for your harness in
-[Install](#install).
+The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json), a
+[Cursor plugin](.cursor-plugin/plugin.json), and a
+[Claude Code plugin](.claude-plugin/plugin.json). Pick the install path for your
+harness in [Install](#install).
+Host the plugin in Codex, Cursor, or Claude Code, then delegate over ACP to
+Cursor, Antigravity, or Grok. Published install is this plugin, not a
+hand-written `~/.cursor/mcp.json`.
 
 ## Archived: Puppet and Herdr-Puppet
 
@@ -92,7 +94,7 @@ is the exact advertised id `grok-4.7`. The child is `GROK_EXECUTABLE` or
 [Grok setup and reload guide](docs/grok-acp-delegation.md).
 
 All bridges use a shared per-user persistent dependency store outside
-the Codex plugin cache. After installing or updating the plugin, prepare
+the Codex and Claude Code plugin caches. After installing or updating the plugin, prepare
 the bridges explicitly from the installed plugin root:
 
 ```bash
@@ -195,10 +197,10 @@ details.
 
 ## Install
 
-Use **Codex** or **Cursor** when you want the packaged skills and the ACP
-bridges. Published install is this plugin. Do not treat a hand-written
-`~/.cursor/mcp.json` as the product install. Use **Google Antigravity
-(AGY)** when you want a path-based install from a checkout.
+Use **Codex**, **Cursor**, or **Claude Code** when you want the packaged skills
+and bundled ACP MCP servers. Published install is this plugin; do not treat a
+hand-written `~/.cursor/mcp.json` as the product install. Use **Google
+Antigravity (AGY)** when you want a path-based install from a checkout.
 
 ### Codex
 
@@ -241,6 +243,34 @@ Cursor, Antigravity, and Grok worker bridges, see
 [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md),
 [docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md), and
 [docs/grok-acp-delegation.md](docs/grok-acp-delegation.md).
+
+### Claude Code
+
+Add this repository as a Claude Code plugin marketplace, then install its
+plugin:
+
+```bash
+claude plugin marketplace add saariuslystoned/SaariusSkills
+claude plugin install saarius-skills@saarius-skills
+```
+
+Inside a session, `/plugin marketplace add saariuslystoned/SaariusSkills` and
+`/plugin install saarius-skills@saarius-skills` do the same. The
+[Claude Code manifest](.claude-plugin/plugin.json) registers the `cursor-acp`
+(Cursor Grok), `antigravity-acp`, and `grok-acp` delegation servers through
+`${CLAUDE_PLUGIN_ROOT}`, with no machine-specific paths; each bridge keeps its own
+defaults for the Cursor executable, Grok executable, and `GEMINI_HOME`. Prepare
+the bridge runtimes once per plugin version, as described in
+[Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
+stderr names the exact `prepare.mjs` command for the installed copy. Then start a
+fresh session and confirm with `/mcp`. Puppet and Herdr-Puppet are archived and
+not installed.
+
+For a checkout-based trial without installing:
+
+```bash
+claude --plugin-dir /path/to/SaariusSkills
+```
 
 ### Google Antigravity (AGY)
 

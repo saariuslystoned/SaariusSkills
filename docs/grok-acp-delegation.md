@@ -65,8 +65,9 @@ change accounts, or use an API-key fallback.
 
 ## MCP connection
 
-Codex `.mcp.json` and Cursor `.cursor-plugin/mcp.json` both start the shared
-launcher with bridge name `grok-acp`. After each plugin install/update,
+Codex `.mcp.json`, Cursor `.cursor-plugin/mcp.json`, and the Claude Code
+manifest all start the shared launcher with bridge name `grok-acp`. After each
+plugin install/update,
 prepare the persistent runtime store from the installed plugin root:
 
 ```bash

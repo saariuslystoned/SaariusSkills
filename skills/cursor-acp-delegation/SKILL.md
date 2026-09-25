@@ -1,6 +1,6 @@
 ---
 name: cursor-acp-delegation
-description: Use Cursor ACP MCP to delegate bounded implementation or verification to local Cursor Grok 4.6, or diagnose missing Cursor ACP tools. Applies with any Codex orchestrator model, including Luna. Developing Puppet does not make Puppet the worker transport.
+description: Use Cursor ACP MCP to delegate bounded implementation or verification to local Cursor Grok 4.6, or diagnose missing Cursor ACP tools. Applies with any Codex or Claude Code orchestrator model, including Luna. Developing Puppet does not make Puppet the worker transport.
 ---
 
 # Cursor ACP delegation
@@ -13,8 +13,8 @@ external action.
 
 ## Discovery and setup
 
-The orchestrator model does not select the transport: Luna High and other Codex
-models use the same installed MCP tools. Tool names may have a plugin/server
+The orchestrator model does not select the transport: Luna High, other Codex
+models, and Claude Code use the same installed MCP tools. Tool names may have a plugin/server
 prefix. Search the available/deferred tool catalog for `cursor_acp_readiness`
 before concluding it is unavailable; a short initial tool list is not proof.
 
@@ -33,7 +33,8 @@ with lifecycle scripts disabled and verifies MCP initialization and all six
 tools, without opening Cursor or sending a model turn. Run it after every plugin
 install/update: copying the plugin does not install its Node dependencies.
 
-After repair, reload the Codex app or start a fresh task so its native tool
+After repair, reload the Codex app or start a fresh task (in Claude Code, a
+fresh session; confirm with `/mcp`) so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it; verify a native readiness tool call in the fresh task.
 If still unavailable, report `MCP_UNAVAILABLE` with the setup result and the

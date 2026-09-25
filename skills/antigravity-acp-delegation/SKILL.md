@@ -47,7 +47,8 @@ qualification). Setup reports the exact platform
 archive, helper name, and `GEMINI_HOME` personal-OAuth repair actions. Do not
 silently install those binaries.
 
-After repair, reload the Codex app or start a fresh task so its native tool
+After repair, reload the Codex app or start a fresh task (in Claude Code, a
+fresh session; confirm with `/mcp`) so its native tool
 inventory is rebuilt. `MCP_READY` proves server startup, not that the current
 task has reloaded it. If still unavailable, report `MCP_UNAVAILABLE` with the
 setup result and the specific reload/registration action needed. Do not replace
