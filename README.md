@@ -99,13 +99,24 @@ exact advertised model ID is required. Personal OAuth lives under an explicit
 `GEMINI_HOME` profile; fixed-choice questions fail closed. See the
 [local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
 
-Both local MCP bridges use a shared per-user persistent dependency store outside
+## Local Grok ACP
+
+A third experimental stdio MCP bridge, named `grok-acp`, routes one bounded
+implementation slice through pinned `acpx@0.19.1` to ACpx's built-in
+`grok-build` agent (`grok agent stdio`). It stays separate from Cursor ACP
+(`cursor-agent acp`), from Puppet's grok tmux harness, and from any Grok Bot
+computer. Plugin default is the exact advertised id `grok-4.7`. The child is
+`GROK_EXECUTABLE` or `grok` on `PATH`; manifests do not ship a machine path.
+See the [local Grok setup and reload guide](docs/grok-acp-delegation.md).
+
+The local MCP bridges use a shared per-user persistent dependency store outside
 the Codex plugin cache. After installing or updating the plugin, prepare the
 bridges explicitly from the installed plugin root:
 
 ```bash
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp
 ```
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved for
@@ -242,8 +253,10 @@ To update an existing local install:
 git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 ```
 
-For the optional local Cursor ACP bridge used by some skills, see
-[docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md).
+For the optional local Cursor, Antigravity, and Grok ACP bridges used by some
+skills, see [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md),
+[docs/antigravity-acp-delegation.md](docs/antigravity-acp-delegation.md), and
+[docs/grok-acp-delegation.md](docs/grok-acp-delegation.md).
 
 ### Google Antigravity (AGY)
 
@@ -305,6 +318,9 @@ invocation, but it is never required when the user's intent is already clear.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
 - [`skills/antigravity-acp-delegation/SKILL.md`](skills/antigravity-acp-delegation/SKILL.md):
   the official Antigravity ACP MCP lane, separate from Cursor ACP and native AGY.
+- [`skills/grok-acp-delegation/SKILL.md`](skills/grok-acp-delegation/SKILL.md):
+  the local Grok CLI ACP MCP lane (`grok agent stdio`), separate from Cursor ACP
+  and from Puppet grok.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require

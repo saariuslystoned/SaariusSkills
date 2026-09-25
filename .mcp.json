@@ -15,6 +15,11 @@
       "env": {
         "GEMINI_HOME": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp/gemini-home"
       }
+    },
+    "grok-acp": {
+      "command": "node",
+      "args": ["bridge/acp-runtime/launcher.mjs", "grok-acp"],
+      "cwd": "."
     }
   }
 }
