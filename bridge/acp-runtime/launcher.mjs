@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { findReady, pluginRootFromModule, setupCommand, RuntimeStoreError } from "./runtime-store.mjs";
-import { HopError, resolveHop, spawnStdioChild } from "./hop.mjs";
+import { HOP_WORKER_FLAG, HopError, resolveHop, spawnStdioChild } from "./hop.mjs";
 
 const bridge = process.argv[2];
+const workerMode = process.argv.slice(3).includes(HOP_WORKER_FLAG);
 const pluginRoot = pluginRootFromModule();
 
 function fail(error) {
@@ -28,7 +29,7 @@ if (!bridge) {
   fail(new RuntimeStoreError("INVALID_ARGUMENT", "bridge name is required"));
 } else {
   try {
-    const hop = resolveHop({ env: process.env, bridge });
+    const hop = resolveHop({ env: process.env, bridge, workerMode });
     if (hop.mode === "hop") {
       process.stderr.write(`${JSON.stringify({
         status: "hop",

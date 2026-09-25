@@ -5,6 +5,7 @@ import path from "node:path";
 export const HOP_ARGV_ENV = "SAARIUS_ACP_HOP_ARGV";
 export const HOP_ROLE_ENV = "SAARIUS_ACP_HOP_ROLE";
 export const HOP_WORKER_ROLE = "worker";
+export const HOP_WORKER_FLAG = "--worker";
 export const MAX_HOP_ARGS = 32;
 export const MAX_HOP_ARG_CHARS = 4_096;
 
@@ -26,7 +27,12 @@ function configuredHopArgv(env) {
   return typeof raw === "string" && raw.trim().length > 0 ? raw : "";
 }
 
-function hopRole(env) {
+function argvRequestsWorker(argv) {
+  return Array.isArray(argv) && argv.includes(HOP_WORKER_FLAG);
+}
+
+function hopRole(env, argv) {
+  if (argvRequestsWorker(argv)) return HOP_WORKER_ROLE;
   const role = env[HOP_ROLE_ENV];
   return typeof role === "string" ? role.trim() : "";
 }
@@ -79,9 +85,9 @@ export function workerHopEnv(env = process.env) {
   return childEnv;
 }
 
-export function resolveHop({ env = process.env, bridge } = {}) {
+export function resolveHop({ env = process.env, bridge, workerMode = false } = {}) {
   const raw = configuredHopArgv(env);
-  const role = hopRole(env);
+  const role = workerMode ? HOP_WORKER_ROLE : hopRole(env);
   if (role === HOP_WORKER_ROLE && raw) {
     throw new HopError("HOP_NESTED", "worker hop refused: SAARIUS_ACP_HOP_ARGV cannot be set on the worker side", {
       bridge,
@@ -94,7 +100,7 @@ export function resolveHop({ env = process.env, bridge } = {}) {
     argv,
     childEnv: workerHopEnv(env),
     identity: hopIdentity(argv),
-    role: role || "parent",
+    role: role === HOP_WORKER_ROLE || argvRequestsWorker(argv) ? HOP_WORKER_ROLE : role || "parent",
   };
 }
 

@@ -1,0 +1,5 @@
+{"event":"started","scope":"pr83-repair","sourceHead":"483dd9cb4ca2c607c9c99df23516d56d0b98198e","worktree":"/Users/bobbybones/Developer/worktrees/saariusskills-pr83-repair-20260925","branch":"codex/pr83-repair-20260925"}
+{"event":"cursor_route","status":"ready","model":"grok-4.6[effort=high,fast=true]","job":"fc10a2bd-81b8-4144-9e15-66e757aba716","outcome":"timeout_without_edits"}
+{"event":"focused_tests","sharedLauncher":12}
+{"event":"full_bridge_tests","cursor":{"passed":75,"skipped":11},"antigravity":{"passed":57,"skipped":12},"sharedRuntime":{"passed":34,"skipped":0}}
+{"event":"packaging_tests","passed":14}

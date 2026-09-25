@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   HOP_ARGV_ENV,
   HOP_ROLE_ENV,
+  HOP_WORKER_FLAG,
   HOP_WORKER_ROLE,
   HopError,
   resolveHop,
@@ -195,4 +196,34 @@ test("launcher refuses an acpx hop argv before spawn", () => {
   });
   assert.equal(launched.status, 2);
   assert.match(launched.stderr, /HOP_ACPX_REFUSED/);
+});
+
+test("launcher worker mode survives an independent transport environment", () => {
+  const nested = [process.execPath, "-e", "console.log('NESTED_HOP_EXECUTED')"];
+  const transport = [
+    "const { spawnSync } = require('node:child_process');",
+    `const result = spawnSync(process.execPath, ${JSON.stringify([launcher, "antigravity-acp", HOP_WORKER_FLAG])}, {`,
+    "  encoding: 'utf8',",
+    "  env: {",
+    `    PATH: ${JSON.stringify(process.env.PATH ?? "")},`,
+    `    HOME: ${JSON.stringify(tmpdir())},`,
+    `    ${JSON.stringify(HOP_ARGV_ENV)}: ${JSON.stringify(JSON.stringify(nested))},`,
+    "  },",
+    "});",
+    "process.stdout.write(result.stdout);",
+    "process.stderr.write(result.stderr);",
+    "process.exitCode = result.status;",
+  ].join("\n");
+  const launched = spawnSync(process.execPath, [launcher, "antigravity-acp"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: tmpdir(),
+      [HOP_ARGV_ENV]: JSON.stringify([process.execPath, "-e", transport]),
+    },
+  });
+  assert.equal(launched.status, 2, launched.stderr || launched.stdout);
+  assert.match(launched.stderr, /HOP_NESTED/);
+  assert.doesNotMatch(launched.stdout, /NESTED_HOP_EXECUTED/);
 });
