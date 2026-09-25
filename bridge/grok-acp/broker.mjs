@@ -186,6 +186,20 @@ export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function hasNonEmptyEnvironmentValue(env, key) {
+  return typeof env?.[key] === "string" && env[key].trim().length > 0;
+}
+
+function assertNoAmbientGrokApiKey(processEnv) {
+  if (hasNonEmptyEnvironmentValue(processEnv, "XAI_API_KEY") ||
+      hasNonEmptyEnvironmentValue(process.env, "XAI_API_KEY")) {
+    throw new BridgeError(
+      "AMBIENT_API_KEY_BLOCKED",
+      "Grok ACP requires local login; ambient XAI_API_KEY is not permitted",
+    );
+  }
+}
+
 function isExecutableRegularFile(candidate) {
   try {
     const info = statSync(candidate);
@@ -456,6 +470,7 @@ function classifyFailure(error, interaction) {
 }
 
 export function createDefaultRuntime({ stateRoot, grokExecutable, timeoutMs, processEnv = process.env }) {
+  assertNoAmbientGrokApiKey(processEnv);
   const registry = createAgentRegistry({
     overrides: { "grok-build": [grokExecutable, "agent", "stdio"] },
   });
@@ -486,6 +501,7 @@ export function createDefaultRuntime({ stateRoot, grokExecutable, timeoutMs, pro
     // One-path allow_once stays on the candidate Puppet controller, not here.
     permissionMode: permission.permissionMode,
     nonInteractivePermissions: permission.nonInteractivePermissions,
+    agentProcessEnv: { XAI_API_KEY: "" },
     timeoutMs,
   });
   const shutdown = runtime.shutdown.bind(runtime);

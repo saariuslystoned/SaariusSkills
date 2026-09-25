@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,26 @@ const fixtureCatalog = JSON.parse(
 const FIXTURE_MODEL = fixtureCatalog.currentModelId;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function runNode(source, env = process.env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", source], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({
+      code,
+      signal,
+      stdout: Buffer.concat(stdout).toString("utf8"),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    }));
+  });
+}
 
 class FixtureRuntime {
   constructor({
@@ -439,4 +460,76 @@ test("default runtime session store never writes conversation records to disk", 
   await runtime.shutdown();
   assert.equal(await runtime.options.sessionStore.load(record.acpxRecordId), undefined);
   await restarted.shutdown();
+});
+
+test("ambient XAI_API_KEY is rejected before native runtime creation", async () => {
+  const brokerModule = new URL("../broker.mjs", import.meta.url).href;
+  const result = await runNode(`
+    import { createDefaultRuntime } from ${JSON.stringify(brokerModule)};
+    try {
+      createDefaultRuntime({
+        stateRoot: process.cwd(),
+        grokExecutable: process.execPath,
+        processEnv: process.env,
+      });
+      process.stdout.write(JSON.stringify({ ok: true }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ code: error?.code, message: error?.message }));
+    }
+  `, { ...process.env, XAI_API_KEY: "synthetic-xai-sentinel" });
+  assert.equal(result.code, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.code, "AMBIENT_API_KEY_BLOCKED");
+  assert.doesNotMatch(report.message, /synthetic-xai-sentinel/);
+});
+
+test("pinned acpx runtime gives a synthetic Grok child an empty XAI_API_KEY", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-grok-env-"));
+  const observedPath = path.join(root, "observed.json");
+  const brokerModule = new URL("../broker.mjs", import.meta.url).href;
+  const peer = new URL("../../cursor-acp/test/candidate-peer.mjs", import.meta.url).href;
+  const wrapper = `#!${process.execPath}
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(observedPath)}, JSON.stringify({
+  present: Object.hasOwn(process.env, "XAI_API_KEY"),
+  value: process.env.XAI_API_KEY ?? null,
+}));
+await import(${JSON.stringify(peer)});
+`;
+  const scenario = `
+    import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+    import os from "node:os";
+    import path from "node:path";
+    import { createDefaultRuntime } from ${JSON.stringify(brokerModule)};
+    const root = await mkdtemp(path.join(os.tmpdir(), "saarius-grok-runtime-"));
+    const executable = path.join(root, "grok");
+    await writeFile(executable, ${JSON.stringify(wrapper)}, { mode: 0o700 });
+    await chmod(executable, 0o700);
+    const runtime = createDefaultRuntime({
+      stateRoot: path.join(root, "state"),
+      grokExecutable: executable,
+      timeoutMs: 30_000,
+      processEnv: process.env,
+    });
+    const handle = await runtime.ensureSession({
+      sessionKey: "synthetic-grok-env",
+      agent: "grok-build",
+      mode: "persistent",
+      cwd: root,
+    });
+    await runtime.close({ handle, reason: "synthetic-env-complete", discardPersistentState: true });
+    await runtime.shutdown();
+  `;
+  const sanitizedEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key !== "XAI_API_KEY"),
+  );
+  try {
+    const result = await runNode(scenario, sanitizedEnv);
+    assert.equal(result.code, 0, result.stderr);
+    const observed = JSON.parse(await readFile(observedPath, "utf8"));
+    assert.equal(observed.present, true);
+    assert.equal(observed.value, "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
