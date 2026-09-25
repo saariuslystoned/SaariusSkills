@@ -99,10 +99,13 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
 
 ## Scope boundary
 
-This is an experimental local MCP slice. It does not qualify Puppet's ACP
-transport, implement issues #35/#37 wholesale, connect to OpenClaw or
-SwarmHerdr, operate remote hosts, or authorize deployment, publication,
-external sends, spending, account/security changes, or destructive cleanup.
+This is the Codex → Cursor worker lane. Shared `SAARIUS_ACP_HOP_ARGV` can
+hop the launcher; ACpx still stays a local child on the worker.
+`workspace` is worker-absolute. Live L/A1/B hello.mjs proof is the
+Antigravity lane. This slice does not qualify Puppet's ACP transport,
+implement issues #35/#37 wholesale, connect to OpenClaw or SwarmHerdr,
+open A2, or authorize deployment, publication, external sends, spending,
+account/security changes, or destructive cleanup.
 
 Cursor's proprietary `ask_question` and `create_plan` requests are not claimed
 as supported native surfaces here. If one blocks a task, report the explicit

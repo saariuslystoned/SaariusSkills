@@ -4,8 +4,10 @@ Public, experimental Agent Skills maintained by
 [Saariusly Stoned](https://github.com/saariuslystoned).
 
 The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
-[Cursor plugin](.cursor-plugin/plugin.json). Pick the install path for your
-harness in [Install](#install).
+[Cursor plugin](.cursor-plugin/plugin.json). Host either, then delegate over
+ACP to Cursor or Antigravity. Published install is this plugin, not a
+hand-written `~/.cursor/mcp.json`. Pick the install path for your harness in
+[Install](#install).
 
 ## Puppet
 
@@ -73,46 +75,77 @@ implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
 The run remains experimental, and these outcomes are not a universal PASS claim
 for all harnesses.
 
-## Local Cursor ACP
+## ACP delegation
 
-The repository also carries an additive, experimental [Cursor ACP delegation
-skill](skills/cursor-acp-delegation/SKILL.md) and stdio MCP bridge. It routes
-one bounded implementation slice through pinned `acpx@0.19.1` to Bobby's
-explicit local `/Users/bobbybones/.local/bin/cursor-agent acp` executable,
-resolves the requested Cursor Grok 4.6 selector against the live ACP model
-catalog, and exposes readiness, delegation, status/result, and
-cancellation tools. Job state and compact proof live outside the mutating
-workspace.
+SaariusSkills is the host policy for one local ACP contract. ACpx is the
+local client. ACP is the wire. Host the plugin in **Codex** or **Cursor**,
+then delegate one bounded slice to a **Cursor** or **Antigravity** worker.
+The Cursor plugin starts `antigravity-acp`. The Codex plugin starts both
+`antigravity-acp` and `cursor-acp`.
 
-This local experiment does not claim Puppet's transport-neutral controller,
-OpenClaw gateway, remote-host support, or issues #35/#37 complete. See the
-[local setup and rollback guide](docs/cursor-acp-delegation.md).
+The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
+`cancel`) run in three proven placements. **A2** (a SaariusSkills process
+that owns phone or browser chat and spawns ACP) stays off.
 
-## Local Antigravity ACP
+| Id | Parent | Worker | Proven |
+| --- | --- | --- | --- |
+| **L** | Same machine | Same machine | MacBook desktop Agent chat: readiness plus `proof/l-live-dogfood/hello.mjs` (job `38a1c9e7`). Later #80 default fail-closed write/exec that would prompt (job `a8c3cbbf`). |
+| **A1** | Always-on box | Same box | Same local contract on CP-1: readiness plus `proof/a1-live-dogfood/hello.mjs` (job `9028cc7a`). First live job fail-closed on `approve-reads`. |
+| **B** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV`; ACpx stays a local child on the worker. MacBook → CP-1 job `69b134e9` wrote `proof/b-live-dogfood/hello.mjs` after [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83). |
 
-A second experimental stdio MCP bridge, named `antigravity-acp`, routes one
-bounded implementation slice through pinned `acpx@0.19.1` to Google's official
-`antigravity-acp` 1.1.1 runtime. It stays separate from the Cursor lane and
-from native `agy --print` / Puppet qualification. Omitting `model` uses the
-plugin default exact id `gemini-3.8-flash-high` when advertised; otherwise an
-exact advertised model ID is required. Personal OAuth lives under an explicit
-`GEMINI_HOME` profile; fixed-choice questions fail closed. See the
-[local Antigravity setup and reload guide](docs/antigravity-acp-delegation.md).
+Those hello.mjs jobs used the Antigravity worker. The Cursor worker lane is
+source-landed (Codex → local `cursor-agent acp`) and is not those jobs.
 
-Both local MCP bridges use a shared per-user persistent dependency store outside
-the Codex plugin cache. After installing or updating the plugin, prepare the
-bridges explicitly from the installed plugin root:
+Host policy on `main` ([#80](https://github.com/saariuslystoned/SaariusSkills/pull/80),
+[#82](https://github.com/saariuslystoned/SaariusSkills/pull/82)): readiness
+gates `delegate`; everyday permission is `approve-reads` plus fail on
+write/exec that would prompt; `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
+break-glass on the attach, not a tool argument; one parent conversation
+owns one worker (cwd is not exclusive).
+
+This plugin does not claim Google AI Ultra, a second gateway, Parallels,
+`acpx --agent ssh`, or that a cloud Cursor Project chat can call
+`antigravity_acp_*`. Hop argv is parent-attach config, not a hostname in
+the published manifests. Bare `ssh` as the laptop login user is not the
+proven hop identity.
+
+### Cursor worker (`cursor-acp`)
+
+The [Cursor ACP delegation skill](skills/cursor-acp-delegation/SKILL.md)
+and stdio MCP bridge route one bounded slice through pinned `acpx@0.19.1`
+to Bobby's explicit local `/Users/bobbybones/.local/bin/cursor-agent acp`
+executable, resolve the requested Cursor Grok 4.6 selector against the
+live ACP model catalog, and expose the six tools. Job state and compact
+proof live outside the mutating workspace.
+
+This lane does not claim Puppet's transport-neutral controller, an
+OpenClaw gateway, or issues #35/#37 complete. Shared hop is documented
+with the Antigravity lane. See the
+[Cursor setup and rollback guide](docs/cursor-acp-delegation.md).
+
+### Antigravity worker (`antigravity-acp`)
+
+The `antigravity-acp` bridge routes one bounded slice through pinned
+`acpx@0.19.1` to Google's official `antigravity-acp` 1.1.1 runtime. It
+stays separate from the Cursor worker lane and from native `agy --print`
+/ Puppet qualification. Omitting `model` uses the plugin default exact id
+`gemini-3.8-flash-high` when advertised; otherwise an exact advertised
+model ID is required. Personal OAuth lives under an explicit `GEMINI_HOME`
+profile; fixed-choice questions fail closed. See the
+[Antigravity setup and hop guide](docs/antigravity-acp-delegation.md).
+
+Both bridges use a shared per-user persistent dependency store outside
+the Codex plugin cache. After installing or updating the plugin, prepare
+the bridges explicitly from the installed plugin root:
 
 ```bash
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp
 node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp
 ```
 
-The launchers reuse compatible prepared trees and keep MCP stdout reserved for
-protocol frames. They never perform a network install during MCP initialization.
-An optional parent-only `SAARIUS_ACP_HOP_ARGV` hops that same launcher onto
-another machine; ACpx stays a local child there. See the hop section in the
-[Antigravity setup guide](docs/antigravity-acp-delegation.md).
+The launchers reuse compatible prepared trees and keep MCP stdout reserved
+for protocol frames. They never perform a network install during MCP
+initialization. Unset `SAARIUS_ACP_HOP_ARGV` is L or A1. Set hop is B.
 
 ## PhoneProof
 
@@ -203,9 +236,10 @@ details.
 
 ## Install
 
-Use **Codex** or **Cursor** when you want the packaged skills (and bundled MCP
-servers on Cursor). Use **Google Antigravity (AGY)** when you want a path-based
-install from a checkout.
+Use **Codex** or **Cursor** when you want the packaged skills and the ACP
+bridges. Published install is this plugin. Do not treat a hand-written
+`~/.cursor/mcp.json` as the product install. Use **Google Antigravity
+(AGY)** when you want a path-based install from a checkout.
 
 ### Codex
 
@@ -242,7 +276,9 @@ To update an existing local install:
 git -C ~/.cursor/plugins/local/saarius-skills pull --ff-only
 ```
 
-For the optional local Cursor ACP bridge used by some skills, see
+The Cursor plugin MCP entry is hop-free and ships no machine paths. Hop,
+when used, is `SAARIUS_ACP_HOP_ARGV` on the parent attach. For the
+optional Codex → Cursor worker bridge, see
 [docs/cursor-acp-delegation.md](docs/cursor-acp-delegation.md).
 
 ### Google Antigravity (AGY)
@@ -304,7 +340,8 @@ invocation, but it is never required when the user's intent is already clear.
   display inventory and structurally validated screenshot helper.
 - `skills/phone-proof/references/`: display-ID and visual-proof contracts.
 - [`skills/antigravity-acp-delegation/SKILL.md`](skills/antigravity-acp-delegation/SKILL.md):
-  the official Antigravity ACP MCP lane, separate from Cursor ACP and native AGY.
+  the official Antigravity ACP MCP lane (proven L / A1 / B), separate from
+  Cursor ACP and native AGY.
 
 GrillTrack never treats a decision lock as permission to commit, push, open or
 merge a pull request, deploy, spend, or change an account. Those actions require
