@@ -40,3 +40,41 @@ export function createLiveSmokeBroker(options = {}) {
   });
   return { broker, ...identity };
 }
+
+export async function waitForCleanup(broker, jobId, { timeoutMs = 15_000, pollMs = 100 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    let job;
+    try {
+      job = await broker.getJob(jobId);
+    } catch (error) {
+      return {
+        ready: false,
+        code: "CLEANUP_STATE_UNAVAILABLE",
+        message: "Smoke could not observe the terminal job cleanup state.",
+        error,
+      };
+    }
+    const active = typeof broker.active?.has === "function" && broker.active.has(jobId);
+    if (job.cleanup?.status === "completed" && !active) {
+      return { ready: true, job };
+    }
+    if (job.cleanup?.status === "uncertain") {
+      return {
+        ready: false,
+        code: "CLEANUP_UNCERTAIN",
+        message: "Smoke will not rebind a conversation while terminal cleanup is uncertain.",
+        job,
+      };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        ready: false,
+        code: "CLEANUP_TIMEOUT",
+        message: "Smoke timed out waiting for terminal cleanup before the next conversation turn.",
+        job,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - Date.now()))));
+  }
+}

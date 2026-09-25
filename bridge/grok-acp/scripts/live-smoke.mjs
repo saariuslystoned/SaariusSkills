@@ -5,7 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactSensitive } from "../broker.mjs";
-import { createLiveSmokeBroker, requireLiveSmokePermission } from "./live-smoke-policy.mjs";
+import {
+  createLiveSmokeBroker,
+  requireLiveSmokePermission,
+  waitForCleanup,
+} from "./live-smoke-policy.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
@@ -43,6 +47,19 @@ async function waitForActive(broker, jobId, timeoutMs = 15_000) {
     await sleep(100);
   }
   return false;
+}
+
+async function requireCleanupReady(broker, jobId, label) {
+  const cleanup = await waitForCleanup(broker, jobId);
+  if (!cleanup.ready) {
+    throw Object.assign(new StopSmoke(), {
+      smokeFailure: {
+        code: cleanup.code,
+        message: `${label}: ${cleanup.message}`,
+      },
+    });
+  }
+  return cleanup.job;
 }
 
 async function main() {
@@ -116,6 +133,12 @@ async function main() {
       failure = completion.error ?? { code: completion.status, message: "completion did not finish" };
       throw new StopSmoke();
     }
+    const completionCleanup = await requireCleanupReady(
+      broker,
+      completionJob.jobId,
+      "completion cleanup",
+    );
+    evidence.completion.cleanupReady = completionCleanup.cleanup;
 
     const steeringJob = await broker.delegate({
       workspace,
@@ -155,6 +178,12 @@ async function main() {
       failure = steeringResult.error ?? { code: "STEER_REFUSAL_FAILED", message: "steering refusal/completion proof failed" };
       throw new StopSmoke();
     }
+    const steeringCleanup = await requireCleanupReady(
+      broker,
+      steeringJob.jobId,
+      "steering cleanup",
+    );
+    evidence.steering.cleanupReady = steeringCleanup.cleanup;
 
     const cancellationJob = await broker.delegate({
       workspace,
@@ -185,9 +214,22 @@ async function main() {
     if (cancellationResult.status !== "cancelled") {
       outcome = "blocked";
       failure = cancellationResult.error ?? { code: "CANCEL_FAILED", message: "cancellation proof failed" };
+    } else {
+      const cancellationCleanup = await requireCleanupReady(
+        broker,
+        cancellationJob.jobId,
+        "cancellation cleanup",
+      );
+      evidence.cancellation.cleanupReady = cancellationCleanup.cleanup;
     }
   } catch (error) {
-    if (!(error instanceof StopSmoke)) {
+    if (error instanceof StopSmoke) {
+      outcome = "blocked";
+      failure = error.smokeFailure ?? failure ?? {
+        code: "LIVE_SMOKE_BLOCKED",
+        message: "Smoke stopped before its bounded proof completed.",
+      };
+    } else {
       outcome = "blocked";
       failure = { code: error?.code ?? "LIVE_SMOKE_FAILED", message: safe(error?.message ?? error) };
       await event("smoke_error", failure);

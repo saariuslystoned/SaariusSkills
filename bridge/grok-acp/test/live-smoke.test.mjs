@@ -8,6 +8,7 @@ import {
 import {
   createLiveSmokeBroker,
   requireLiveSmokePermission,
+  waitForCleanup,
 } from "../scripts/live-smoke-policy.mjs";
 
 const fakeRuntime = { shutdown: async () => undefined };
@@ -58,4 +59,35 @@ test("permission preflight reports the explicit break-glass requirement", () => 
     (error) => error instanceof HostPolicyError &&
       error.message.includes(`${PERMISSION_MODE_ENV}=${BREAK_GLASS_PERMISSION_MODE}`),
   );
+});
+
+test("cleanup wait gates a same-conversation followup until close is observed", async () => {
+  let cleanupStatus = "pending";
+  const broker = { active: new Map(), getJob: async () => ({ cleanup: { status: cleanupStatus } }) };
+  let followupCalled = false;
+  setTimeout(() => { cleanupStatus = "completed"; }, 5);
+  const cleanup = await waitForCleanup(broker, "job-1", { timeoutMs: 100, pollMs: 1 });
+  if (cleanup.ready) followupCalled = true;
+  assert.equal(cleanup.ready, true);
+  assert.equal(followupCalled, true);
+});
+
+test("cleanup timeout and uncertainty block followups", async () => {
+  let followupCalls = 0;
+  const pending = { active: new Map(), getJob: async () => ({ cleanup: { status: "pending" } }) };
+  const timedOut = await waitForCleanup(pending, "job-2", { timeoutMs: 5, pollMs: 1 });
+  if (timedOut.ready) followupCalls += 1;
+  assert.deepEqual({ ready: timedOut.ready, code: timedOut.code }, {
+    ready: false,
+    code: "CLEANUP_TIMEOUT",
+  });
+
+  const uncertain = { active: new Map(), getJob: async () => ({ cleanup: { status: "uncertain" } }) };
+  const blocked = await waitForCleanup(uncertain, "job-3", { timeoutMs: 100, pollMs: 1 });
+  if (blocked.ready) followupCalls += 1;
+  assert.deepEqual({ ready: blocked.ready, code: blocked.code }, {
+    ready: false,
+    code: "CLEANUP_UNCERTAIN",
+  });
+  assert.equal(followupCalls, 0);
 });
