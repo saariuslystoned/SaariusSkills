@@ -187,6 +187,9 @@ hand-composed Herdr mutations when the script owns the operation.
    proven native assistant marker: exactly one leading U+2022 bullet plus
    horizontal separation. It does not normalize bullets for shell checks or
    other harnesses.
+   AGY's status footer may persistently read `AI: Out of credits`; this is
+   cosmetic, not real usage, and is never a blocker or `ACTION_REQUIRED`
+   cause. Diagnose a real stall from AGY's actual behavior, not the footer.
    `qualification-send` rejects an assembled token before mutation so a
    TUI-rendered user prompt cannot satisfy the output watcher. The command returns
    only the checkpoint class and hashes, never pane text. Use
@@ -210,7 +213,11 @@ hand-composed Herdr mutations when the script owns the operation.
 11. Preserve the owned tab with `lease-preserve` at a superseded route,
     operator stop, or a terminal checkpoint reported outside the waiter.
     Preservation changes only the controller lease and rejects further
-    submissions; it does not close the tab.
+    submissions; it does not close the tab. After a cleared `human_gate` or
+    `operator_stop` preservation, `lease-resume` re-verifies structural status
+    and flips `preserved` -> `active` so sends continue at the existing
+    `next_seq`; the other three reasons are terminal (fresh row instead).
+    `cleanup-preserved-tab` remains the path for a finished tab.
 12. Run `maintenance-checkpoint` at every milestone boundary and before
     leaving the run. Inventory only
     exact run-owned resources already joined by the lease or named in
@@ -264,8 +271,7 @@ python3 scripts/harness_census.py \
   --host <remote-host> \
   --profile-root <dedicated-remote-user-home> \
   --worktree <exact-remote-worktree> > <private-census.json>
-# AGY rows also require: --model gemini-3.7-flash-high
-# For Claude, bind the native lifecycle:
+# AGY rows also require: --model gemini-3.7-flash-high. For Claude, bind the native lifecycle:
 python3 scripts/harness_census.py \
   --harness claude \
   --host <remote-host> \
@@ -282,8 +288,7 @@ python3 scripts/harness_census.py \
   --worktree <exact-remote-worktree> \
   --output <exact-create-only-remote-census.json> \
   --checkpoint-nonce <unique-census-status-nonce>
-# For AGY add --model gemini-3.7-flash-high; for Claude add the lineage flags:
-# --run-id <run-id> --claude-hook-root <exact-absent-marker-root>
+# For AGY add --model gemini-3.7-flash-high; for Claude add --run-id <run-id> --claude-hook-root <exact-absent-marker-root>
 python3 scripts/herdr_puppet.py harness-binding-create \
   --census-json <private-census.json> \
   --repo <owner/repo> \
@@ -333,8 +338,7 @@ python3 scripts/herdr_puppet.py harness-census-verify \
   --harness-binding-json <private-binding.json> \
   --census-json <in-row-census.json> \
   --run-root <run-root>
-# Repeat once for each of the eight exact marker names in the qualification
-# contract, before launching Claude:
+# Repeat once for each of the eight exact marker names in the qualification contract, before launching Claude:
 python3 scripts/herdr_puppet.py remote-task-file-register \
   --lease-json <lease.json> \
   --remote-path </exact/claude-hook-root/one-exact-marker-name.json> \
@@ -347,12 +351,8 @@ python3 scripts/herdr_puppet.py qualification-harness-launch \
   --seq <next-seq> \
   --run-root <run-root> \
   --allow-live-qualification
-# Claude only: generate the source-bound, pre-execution-verified observe command.
-# Execute the returned argv/shell_command without alteration over the exact
-# leased SSH target, copy only the sanitized JSON locally, and
-# record `armed` before readiness. Repeat as `initial` after the first send and
-# `steering` after the second send. This route is operational provenance, not
-# cryptographic proof of remote origin.
+# Claude only: generate the source-bound, pre-execution-verified observe command. Execute the returned argv/shell_command without alteration over the exact leased SSH target, copy only the sanitized JSON locally, and record `armed` before readiness.
+# Repeat as `initial` after the first send and `steering` after the second send. This route is operational provenance, not cryptographic proof of remote origin.
 python3 scripts/herdr_puppet.py qualification-claude-receipt-command \
   --lease-json <lease.json> > <private-receipt-command.json>
 python3 scripts/herdr_puppet.py qualification-claude-lifecycle-observe \
@@ -397,16 +397,14 @@ python3 scripts/herdr_puppet.py qualification-beacon-wait \
   --lease-json <lease.json> --nonce <agy-checkpoint-nonce|non-claude-initial-status-nonce> --lines 80 \
   --timeout-ms 480000 --timeout-seconds 510 --run-root <run-root> \
   --allow-live-qualification
-# Then send one steering turn: non-Claude rows require that STATUS; Claude
-# instead requires its bound initial lifecycle receipt.
+# Then send one steering turn: non-Claude rows require that STATUS; Claude instead requires its bound initial lifecycle receipt.
 python3 scripts/herdr_puppet.py qualification-send \
   --lease-json <lease.json> \
   --seq <next-seq> \
   --text-file <steering-file> \
   --run-root <run-root> \
   --allow-live-qualification
-# Only for an exact pending/unknown non-Claude steering reservation whose
-# application is independently proven. This performs no Herdr mutation.
+# Only for an exact pending/unknown non-Claude steering reservation whose application is independently proven. This performs no Herdr mutation.
 python3 scripts/herdr_puppet.py qualification-reconcile-send \
   --lease-json <lease.json> \
   --seq <same-pending-seq> \
@@ -439,6 +437,8 @@ python3 scripts/herdr_puppet.py remote-task-file-register \
 python3 scripts/herdr_puppet.py lease-preserve \
   --lease-json <lease.json> \
   --reason <checkpoint_failed|human_gate|route_superseded|milestone_complete|operator_stop>
+python3 scripts/herdr_puppet.py lease-resume \
+  --lease-json <lease.json> --run-root <run-root> --allow-live-qualification
 python3 scripts/herdr_puppet.py maintenance-checkpoint \
   --lease-json <lease.json> \
   --run-root <run-root> \
