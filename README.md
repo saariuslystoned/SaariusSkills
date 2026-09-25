@@ -7,71 +7,14 @@ The same skillpack ships as a [Codex plugin](.codex-plugin/plugin.json) and a
 [Cursor plugin](.cursor-plugin/plugin.json). Pick the install path for your
 harness in [Install](#install).
 
-## Puppet
+## Archived: Puppet and Herdr-Puppet
 
-The repository carries the historical [Puppet design packet](plans/puppet/README.md)
-and the bootstrap [`puppet` skill](skills/puppet/SKILL.md), a standard-library
-Python lifecycle controller for supervising real agent harnesses through
-durable, transcript-blind checkpoints.
-
-> Puppet uses agents like puppets to build Puppet—the skill that uses agents
-> like puppets.
-
-> **Mandatory warning:** Puppet live execution is YOLO-only. It requires the
-> target harness's unrestricted/always-approve mode and disables its sandbox
-> wherever that control exists. Prompted or sandboxed live launches are
-> unsupported. Delivery, external effects, accounts, security, secrets,
-> spending, and destructive actions remain separately gated.
-
-The bootstrap source implements the bounded CLI, strict contracts, atomic and
-append-only state, doctor-only adapter census, source and conformance handoffs,
-controller-only verdicts, immutable-supervisor checks, sanitized status, and
-exact-target transport boundaries. Enabled manifests additionally require a
-goal-bound, current-identity-checked real-harness receipt included in a fixed,
-checkout-independent controller ledger. This remains cooperative same-UID
-coordination, not hostile-code containment; see the
-[`YOLO contract`](skills/puppet/references/yolo-contract.md). It is not yet fully
-runtime-qualified: every live
-adapter remains hard-disabled until its exact current CLI passes the shared
-real-harness conformance probe, and no self-hosting promotion is claimed.
-
-## Herdr-Puppet
-
-Herdr-Puppet is the experimental transport skill growing beside Puppet. It
-binds an explicit operator capability to one newly created Herdr tab, exact
-tab/pane/terminal/SSH identity, a sequence-checked lease, and a transcript-blind
-controller journal.
-
-Ordinary AGY turns use plain messages. `/teamwork-preview` is reserved for an
-explicitly requested, separately qualified 4-20-helper fan-out; it is not the
-default steering prefix.
-
-The scaffold implements Herdr 0.7.3 doctor, source-only plan, structural status,
-append-only dogfood journals, gated qualification tab creation,
-sequence-checked input, partial-send reconciliation, and a bounded exact-nonce
-wait with strict `STATUS` / `ACTION_REQUIRED` / `DONE` checkpoint
-classification. Pane input receipts explicitly do not claim harness readiness
-or task submission. Waits have an independent controller hard timeout,
-terminal checkpoints preserve the lease automatically, and
-`maintenance-checkpoint` inventories exact run-owned structure without closing
-anything. Separately authorized `cleanup-preserved-tab` closes only an exact
-confirmed preserved tab and verifies tab, pane, and foreground-SSH-PID absence.
-Ordinary status never reads pane text.
-Parent-session mutation, pre-existing-tab adoption, generic transcript capture,
-halt, and recovery remain disabled.
-
-Current status is tracked by a five-row, transcript-blind qualification bundle at
-implementation head `8ee87d8ed9882043762ca1877e54cb844072d685` in
-`plans/puppet/herdr-puppet-proof.md`:
-
-- AGY: PASS
-- Cursor: BLOCKED_LOGIN_ENROLLMENT
-- Grok: PASS
-- Claude Code: FAIL
-- Codex CLI: FAIL
-
-The run remains experimental, and these outcomes are not a universal PASS claim
-for all harnesses.
+The `puppet` and `herdr-puppet` skills are archived. The local Cursor ACP and
+Antigravity ACP delegation lanes below replace them, and no plugin manifest
+installs them any more. Their final source, tests, and fixtures are preserved at
+the [`puppet-archive-20260925`](https://github.com/saariuslystoned/SaariusSkills/tree/puppet-archive-20260925)
+tag. The historical [Puppet design packet](plans/puppet/README.md) and dated
+proof and run records remain in `plans/`, `proof/`, and `runs/`.
 
 ## Local Cursor ACP
 
@@ -268,18 +211,6 @@ invocation, but it is never required when the user's intent is already clear.
 
 ## What ships
 
-- [`skills/puppet/SKILL.md`](skills/puppet/SKILL.md): the YOLO-only,
-  transcript-blind cross-harness operating workflow.
-- `skills/puppet/scripts/puppet.py`: the bootstrap lifecycle and acceptance CLI.
-- `skills/puppet/scripts/puppet_launch.py`: one-request warm catalog, campaign
-  preparation, single-owner mutation routing, explicit concurrent checkpoint
-  collection, and lifecycle entrypoint for any one-to-five-target mix.
-- `skills/puppet/scripts/puppet_fanout.py`: concurrent launch, status, native
-  view, and exact halt for any operator-selected one-to-five-harness mix.
-- `skills/puppet/scripts/adapter_lab.py`: zero-agent census, real-harness
-  probe/recovery, receipt verification, and qualification tooling.
-- `skills/puppet/references/`: operating, adapter, prompt, provenance, trust,
-  qualification, subscription-profile, and campaign-recovery contracts.
 - [`skills/grilltrack/SKILL.md`](skills/grilltrack/SKILL.md): the portable,
   intent-aware core workflow.
 - `skills/grilltrack/scripts/grilltrack_ledger.py`: a standard-library CLI for
@@ -292,12 +223,6 @@ invocation, but it is never required when the user's intent is already clear.
   guidance.
 - `fixtures/`: small public evaluation inputs.
 - `tests/`: protocol, state, packaging, and safety regression tests.
-- [`skills/herdr-puppet/SKILL.md`](skills/herdr-puppet/SKILL.md): the
-  exact-identity Herdr transport and dogfood workflow.
-- `skills/herdr-puppet/scripts/herdr_puppet.py`: a standard-library controller
-  for doctor, plan, status, journals, and gated qualification operations.
-- `skills/herdr-puppet/references/`: authority, transport, qualification,
-  desktop-observation fallback, and versioned JSON-schema contracts.
 - [`skills/phone-proof/SKILL.md`](skills/phone-proof/SKILL.md): the
   build-install-look-fix-look mobile UI workflow.
 - `skills/phone-proof/scripts/phone_proof.py`: a standard-library Android
@@ -319,11 +244,6 @@ Run the complete local verification:
 python3 -m unittest discover -s tests -v
 python3 skills/grilltrack/scripts/grilltrack_ledger.py --help
 python3 skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
-python3 skills/puppet/scripts/puppet.py --help
-python3 skills/puppet/scripts/puppet_launch.py --help
-python3 skills/puppet/scripts/puppet_fanout.py --help
-python3 skills/puppet/scripts/adapter_lab.py --help
-python3 skills/herdr-puppet/scripts/herdr_puppet.py --help
 python3 skills/phone-proof/scripts/phone_proof.py --help
 ```
 
