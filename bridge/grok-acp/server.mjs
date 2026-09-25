@@ -3,7 +3,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { BridgeError, GrokAcpBroker } from "./broker.mjs";
+import { GrokAcpBroker } from "./broker.mjs";
+import { serializeFailure } from "./server-errors.mjs";
 
 const broker = await new GrokAcpBroker().init();
 const server = new McpServer({
@@ -21,9 +22,7 @@ const failure = (error) => ({
     type: "text",
     text: JSON.stringify({
       status: "error",
-      error: error instanceof BridgeError
-        ? { code: error.code, message: error.message, details: error.details }
-        : { code: "BRIDGE_ERROR", message: error?.message ?? String(error) },
+      error: serializeFailure(error),
     }),
   }],
 });

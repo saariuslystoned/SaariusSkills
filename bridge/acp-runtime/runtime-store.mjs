@@ -20,7 +20,7 @@ const BRIDGES = Object.freeze({
     files: ["server.mjs", "broker.mjs", "contract.mjs", "host-policy.mjs"],
   }),
   "grok-acp": Object.freeze({
-    files: ["server.mjs", "broker.mjs", "host-policy.mjs"],
+    files: ["server.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs"],
   }),
 });
 
