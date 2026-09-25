@@ -19,6 +19,9 @@ const BRIDGES = Object.freeze({
   "antigravity-acp": Object.freeze({
     files: ["server.mjs", "broker.mjs", "contract.mjs", "host-policy.mjs"],
   }),
+  "grok-acp": Object.freeze({
+    files: ["server.mjs", "server-errors.mjs", "broker.mjs", "host-policy.mjs"],
+  }),
 });
 
 const REQUIRED_IMPORTS = Object.freeze([

@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "description": "Saarius Skills for Claude Code: agent skills plus local Cursor and Antigravity ACP delegation.",
+  "description": "Saarius Skills for Claude Code: agent skills plus local Cursor, Antigravity, and Grok ACP delegation.",
   "owner": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -9,7 +9,7 @@
     {
       "name": "saarius-skills",
       "source": "./",
-      "description": "Experimental agent skills, product decisions, and local Cursor plus Antigravity ACP delegation routes."
+      "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes."
     }
   ]
 }

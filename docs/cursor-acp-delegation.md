@@ -1,8 +1,14 @@
-# Local Cursor ACP delegation
+# Cursor ACP delegation
 
-This repository now carries an experimental local-only bridge for Codex. The
-bridge exposes a small stdio MCP server and uses the pinned `acpx@0.19.1`
-runtime to open an ACP session with the explicit local Cursor executable:
+This is the Codex → Cursor worker lane. Host the plugin in Codex, then
+delegate one bounded slice over ACP to a local Cursor agent. Live Local /
+Always-on / Hop hello.mjs proof is the Antigravity worker, not this lane.
+Former aliases: Local was L; Always-on was A1; Hop was B. See
+[docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
+Published install is the plugin, not a hand-written `~/.cursor/mcp.json`.
+
+The bridge exposes a small stdio MCP server and uses pinned `acpx@0.19.1`
+to open an ACP session with the explicit local Cursor executable:
 
 ```text
 /Users/bobbybones/.local/bin/cursor-agent acp
@@ -87,7 +93,7 @@ codex plugin add saarius-skills@saarius-skills
 ```
 
 For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
-registers both ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
+registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
 machine-specific paths:
 
 ```bash
@@ -160,10 +166,11 @@ left for audit or removed only as an explicitly approved, exact-path cleanup;
 the bridge never deletes it automatically.
 
 This slice is distinct from Puppet issues #35 and #37. It does not claim a
-transport-neutral controller, a second gateway, OpenClaw gateway, or formal
-ACP qualification. The shared launcher honors optional `SAARIUS_ACP_HOP_ARGV`
-the same way as the Antigravity hop; ACpx still stays a local child on the
-worker. See the hop section in
+transport-neutral controller, Gateway (was A2), OpenClaw gateway, or
+formal ACP qualification. The shared launcher honors optional
+`SAARIUS_ACP_HOP_ARGV` the same way as the Antigravity hop; ACpx still
+stays a local child on the worker. Cursor-worker Hop is source-landed, not
+the proven MacBook → CP-1 hello.mjs job. See the hop section in
 [docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
 
 ## Active-turn steering

@@ -1,7 +1,7 @@
 {
   "name": "saarius-skills",
   "version": "0.4.0",
-  "description": "Experimental agent skills, product decisions, and local Cursor plus Antigravity ACP delegation routes.",
+  "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",
     "url": "https://github.com/saariuslystoned"
@@ -15,6 +15,7 @@
     "product-development",
     "cursor-acp",
     "antigravity-acp",
+    "grok-acp",
     "bounded-delegation"
   ],
   "mcpServers": {
@@ -25,6 +26,10 @@
     "antigravity-acp": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"]
+    },
+    "grok-acp": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"]
     }
   }
 }

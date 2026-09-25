@@ -1,9 +1,13 @@
-# Local Antigravity ACP delegation
+# Antigravity ACP delegation
 
-This repository carries an experimental local-only bridge for Codex, separate
-from the Cursor ACP lane. The bridge exposes a small stdio MCP server named
-`antigravity-acp` and uses pinned `acpx@0.19.1` to open an ACP session with
-Google's official Antigravity runtime:
+Host this plugin in Codex or Cursor, then delegate one bounded slice over
+ACP to Google's official Antigravity runtime. The bridge is a stdio MCP
+server named `antigravity-acp`. ACpx is the local client. SaariusSkills is
+the host policy. Published install is the plugin, not a hand-written
+`~/.cursor/mcp.json`.
+
+This lane is separate from the Cursor worker (`cursor-acp`) and from native
+`agy --print` / Puppet qualification. It uses pinned `acpx@0.19.1`:
 
 ```text
 antigravity-acp 1.1.1
@@ -23,6 +27,28 @@ agent-registry.js sha256 bbc57d4f195f93ceb93b4a71fa9c0d51e9717867d728623e97c8e8f
 The runtime binary and matching `localharness_external` helper are a separate
 download. This package does not install or update them. Native `agy --print`
 and Puppet qualification stay on their own routes.
+
+## Placements (Local / Always-on / Hop)
+
+The same six tools run in three proven placements. **Gateway** (was A2) — a
+SaariusSkills chat process that owns phone or browser chat and spawns ACP —
+stays off. Do not build it.
+
+Former aliases: Local was L; Always-on was A1; Hop was B.
+
+| Product | Parent | Worker | What it is | Proven |
+| --- | --- | --- | --- | --- |
+| **Local** | This machine | This machine | Parent and worker are local children of the plugin host. | [proof/l-live-dogfood/RECEIPT.md](../proof/l-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/l-live-dogfood/hello.mjs); [#80](https://github.com/saariuslystoned/SaariusSkills/pull/80) fail-closed). |
+| **Always-on** | Always-on box | Same box | Local pointed at a different machine. Attach to that box; the plugin, ACpx, and Antigravity stay local there. | [proof/a1-live-dogfood/RECEIPT.md](../proof/a1-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/a1-live-dogfood/hello.mjs); `approve-reads` fail-closed in receipt). |
+| **Hop** | Carry laptop | Another machine | Parent hops stdio with `SAARIUS_ACP_HOP_ARGV` before ACpx starts. ACpx stays a local child on the worker. | [proof/b-live-dogfood/RECEIPT.md](../proof/b-live-dogfood/RECEIPT.md) ([hello.mjs](../proof/b-live-dogfood/hello.mjs); [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83)). |
+
+Those hello.mjs jobs used the Antigravity worker. A cloud Cursor Project
+chat still cannot call `antigravity_acp_*`.
+
+Host policy on `main` ([#80](https://github.com/saariuslystoned/SaariusSkills/pull/80),
+[#82](https://github.com/saariuslystoned/SaariusSkills/pull/82)): readiness
+gates `delegate`; everyday permission is `approve-reads` plus fail;
+`approve-all` is break-glass; one parent conversation owns one worker.
 
 When the pinned runtime is installed at the documented default location,
 native MCP readiness discovers it without shell-only environment overrides:
@@ -105,8 +131,9 @@ It will not start a login or send a live request from this follow-up worker.
 
 ## MCP connection
 
-The root `.codex-plugin/plugin.json` declares `.mcp.json`, which now has two
-separately named stdio servers: `cursor-acp` and `antigravity-acp`. Both use
+The root `.codex-plugin/plugin.json` declares `.mcp.json`, which now has three
+separately named stdio servers: `cursor-acp`, `antigravity-acp`, and `grok-acp`.
+All use
 `cwd: "."`, which Codex resolves against the installed plugin root. This
 legacy `.codex-plugin` format does not expand `${PLUGIN_ROOT}` in arguments.
 
@@ -118,13 +145,16 @@ codex plugin add saarius-skills@saarius-skills
 ```
 
 For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
-registers both ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
+registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
 machine-specific paths:
 
 ```bash
 claude plugin marketplace add "$PWD"
 claude plugin install saarius-skills@saarius-skills
 ```
+
+Published install is the Codex, Cursor, or Claude Code plugin. A machine-local
+`~/.cursor/mcp.json` attach is operator config, not the product install.
 
 Installing/updating the plugin copies source; it does not install this
 bridge's Node dependencies or the Google runtime. After each install/update,
@@ -198,13 +228,20 @@ may be left for audit or removed only as an explicitly approved, exact-path
 cleanup.
 
 This slice is distinct from Puppet issues #35, #37, and #38. It does not claim
-a transport-neutral controller, a second gateway, or formal ACP
+a transport-neutral controller, Gateway (was A2), or formal ACP
 qualification.
 
-## Host hop (B)
+## Hop
 
-The parent launcher can place the same six-tool server on another machine
-without changing tool names or turning ACpx into an SSH client.
+Hop is proven on the MacBook → CP-1 dogfood path. The parent launcher places
+the same six-tool server on another machine without changing tool names or
+turning ACpx into an SSH client. Durable receipt:
+[proof/b-live-dogfood/RECEIPT.md](../proof/b-live-dogfood/RECEIPT.md)
+([hello.mjs](../proof/b-live-dogfood/hello.mjs), `B_READY`, exit 0; hop
+wrapper [#83](https://github.com/saariuslystoned/SaariusSkills/pull/83);
+[`bridge/acp-runtime/test/hop.test.mjs`](../bridge/acp-runtime/test/hop.test.mjs)).
+ACpx stayed a local child on CP-1. Workspace was worker-absolute. Live MCP
+job folders are operator-local; use the receipt for full job UUIDs.
 
 Set `SAARIUS_ACP_HOP_ARGV` on the **parent** attach to a JSON array that
 execs the worker launcher over stdio (`ssh -T …`, `docker exec -i …`). The
@@ -215,7 +252,12 @@ example:
 ["ssh", "-T", "worker.example", "node", "/opt/saarius-skills/bridge/acp-runtime/launcher.mjs", "antigravity-acp", "--worker"]
 ```
 
-Unset keeps today's local L/A1 path. A set-but-invalid value fails closed and
+That example is the shape, not a published hostname. Hop argv is operator
+config. Do not put a Bobby hostname in the plugin manifests. Do not treat
+bare `ssh` as the laptop login user as the proven hop identity. Do not hop
+with `acpx --agent ssh`.
+
+Unset keeps the Local / Always-on path. A set-but-invalid value fails closed and
 does not spawn a local ACpx child.
 
 The launcher uses `--worker` to establish worker mode inside the worker's own
@@ -232,8 +274,17 @@ does not need a local AGY runtime for a hopped job. Hop-process exit is
 transport death, not proof the remote worker is gone. The hop command
 must die with the parent (no `ssh -f`, no `ControlPersist`).
 
-A live hopped coding turn still needs an isolated worktree, one intended
-path, and a stated budget. This document does not authorize a model turn.
+A later Hop turn still needs an isolated worktree, one intended path, and a
+stated budget. This document does not authorize a new model turn.
+
+## Not claimed
+
+- A cloud Cursor Project chat can call `antigravity_acp_*`.
+- Google AI Ultra / quota entitlement.
+- Gateway (was A2), Parallels, or `acpx --agent ssh`.
+- Bare `ssh` as the laptop login user to the always-on box.
+- `~/.cursor/mcp.json` as the published install.
+- Cursor-worker hello.mjs jobs (Local / Always-on / Hop live proof is this Antigravity lane).
 
 ## Active-turn steering
 
