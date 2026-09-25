@@ -51,6 +51,11 @@ static const char *arg_after(int argc, char **argv, const char *flag) {
     return NULL;
 }
 
+static int minimal_init_requested(void) {
+    const char *flag = getenv("PUPPET_AGY_TEST_MINIMAL_INIT");
+    return flag != NULL && strcmp(flag, "1") == 0;
+}
+
 int main(int argc, char **argv) {
     int index;
     const char *model;
@@ -95,13 +100,17 @@ int main(int argc, char **argv) {
     if (getcwd(cwd, sizeof cwd) == NULL) {
         return 1;
     }
-    printf(
-        "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"%s\",\"session_id\":\"%s\",\"conversation_id\":\"%s\",\"cwd\":\"%s\"}\n",
-        model,
-        session,
-        conversation,
-        cwd
-    );
+    if (minimal_init_requested()) {
+        printf("{\"type\":\"system\",\"subtype\":\"init\"}\n");
+    } else {
+        printf(
+            "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"%s\",\"session_id\":\"%s\",\"conversation_id\":\"%s\",\"cwd\":\"%s\"}\n",
+            model,
+            session,
+            conversation,
+            cwd
+        );
+    }
     fflush(stdout);
     (void)fgets(line, sizeof line, stdin);
     printf(
@@ -267,22 +276,15 @@ class AgyPrintRuntimeTests(unittest.TestCase):
                 requested_model="gemini-3.7-flash-high",
                 environment=env,
             )
-        broken = self.root / "mute-agy"
-        broken.write_text(
-            "#!/bin/sh\n"
-            "printf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}'\n"
-            "IFS= read -r _\n"
-            "printf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\"}'\n",
-            encoding="utf-8",
-        )
-        broken.chmod(broken.stat().st_mode | stat.S_IXUSR)
-        mute = AgyPrintController(self.root, executable=broken)
+        selector_only_env = {**os.environ, "PUPPET_AGY_TEST_MINIMAL_INIT": "1"}
+        mute = AgyPrintController(self.root, executable=self.executable)
         with self.assertRaisesRegex(IdentityError, "requested selector"):
             mute.start(
                 session="agy-print-session",
                 prompt="bounded task",
                 expected_workspace=_workspace(self.workspace),
                 requested_model="gemini-3.7-flash-high",
+                environment=selector_only_env,
             )
 
     def test_resume_requires_exact_conversation_and_refuses_continue(self):
