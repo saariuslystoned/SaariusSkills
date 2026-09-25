@@ -50,9 +50,13 @@ it does not contact Grok or run a model turn.
 The bounded live smoke test is opt-in:
 
 ```bash
-npm run smoke
+SAARIUS_ACP_PERMISSION_MODE=approve-all npm run smoke
 ```
 
+The explicit `SAARIUS_ACP_PERMISSION_MODE=approve-all` is required as a
+break-glass precondition because this smoke intentionally exercises local
+`pwd`/`sleep` exec. Unset or default `approve-reads` refuses before runtime or
+provider startup; the command does not automatically escalate permissions.
 It uses the installed Grok login, `grok agent stdio`, plugin default
 `grok-4.7`, a disposable workspace, and a run directory outside that
 workspace. It proves readiness/model selection, workspace binding, completion,

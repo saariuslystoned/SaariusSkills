@@ -4,7 +4,8 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GrokAcpBroker, redactSensitive } from "../broker.mjs";
+import { redactSensitive } from "../broker.mjs";
+import { createLiveSmokeBroker, requireLiveSmokePermission } from "./live-smoke-policy.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
@@ -45,6 +46,9 @@ async function waitForActive(broker, jobId, timeoutMs = 15_000) {
 }
 
 async function main() {
+  // Refuse before creating a broker/runtime. Live smoke exercises write/exec
+  // approval and therefore requires the explicit break-glass environment flag.
+  requireLiveSmokePermission(process.env);
   await mkdir(proofRoot, { recursive: true, mode: 0o700 });
   await writeFile(liveEvents, "", { encoding: "utf8", mode: 0o600 });
   await writeFile(
@@ -63,10 +67,11 @@ async function main() {
   await event("smoke_started", { proofRoot });
 
   const workspace = await mkdtemp(path.join(os.tmpdir(), "grok-acp-live-"));
-  const broker = new GrokAcpBroker({
+  const smoke = createLiveSmokeBroker({
     stateRoot: path.join(proofRoot, "state"),
     defaultWorkspace: workspace,
   });
+  const { broker, hostConversationId, binderId } = smoke;
   const evidence = { workspace, route: broker.grokExecutable, model: broker.model };
   let outcome = "passed";
   let failure = null;
@@ -87,8 +92,8 @@ async function main() {
 
     const completionJob = await broker.delegate({
       workspace,
-      hostConversationId: "conv-grok-live-smoke",
-      binderId: "smoke-owner",
+      hostConversationId,
+      binderId,
       timeoutMs: 180_000,
       prompt: [
         "Perform a read-only binding check in the supplied workspace.",
@@ -114,8 +119,8 @@ async function main() {
 
     const steeringJob = await broker.delegate({
       workspace,
-      hostConversationId: "conv-grok-live-smoke",
-      binderId: "smoke-owner",
+      hostConversationId,
+      binderId,
       timeoutMs: 180_000,
       prompt: [
         "Run the local command sleep 12 in the supplied workspace.",
@@ -153,8 +158,8 @@ async function main() {
 
     const cancellationJob = await broker.delegate({
       workspace,
-      hostConversationId: "conv-grok-live-smoke",
-      binderId: "smoke-owner",
+      hostConversationId,
+      binderId,
       timeoutMs: 180_000,
       prompt: [
         "Run the local command sleep 30 in the supplied workspace.",
