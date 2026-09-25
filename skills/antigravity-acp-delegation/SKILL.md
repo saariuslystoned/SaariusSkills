@@ -107,10 +107,18 @@ the user explicitly authorizes that alternative.
 - Review changed files, tests, and proof independently. Keep the worker
   handoff compact. Do not request or expose thought streams, raw ACP
   transcripts, credential stores, auth logs, `.env` files, or tokens.
+- Optional host hop (`SAARIUS_ACP_HOP_ARGV` JSON argv on the parent
+  launcher): same six tools; ACpx stays a local child on the worker;
+  `workspace` is worker-absolute. Do not hop with `acpx --agent`. Do not
+  treat hop-process exit as remote worker death. Prepare, official 1.1.1,
+  and personal OAuth stay on the worker. A live hopped delegate still
+  needs an isolated worktree, one intended path, and a stated budget.
 
 ## Scope boundary
 
-This is an experimental local MCP slice. It does not qualify Puppet's
-Antigravity transport, replace native `agy-print`, implement issues
-#35/#37/#38 wholesale, or authorize deployment, publication, external sends,
-spending, account/security changes, or destructive cleanup.
+This is an experimental MCP slice. Local unset hop is L/A1. Set hop is B
+(host-owned SSH/container argv). It does not qualify Puppet's Antigravity
+transport, replace native `agy-print`, open a second gateway, implement
+issues #35/#37/#38 wholesale, or authorize deployment, publication,
+external sends, spending, account/security changes, or destructive
+cleanup.

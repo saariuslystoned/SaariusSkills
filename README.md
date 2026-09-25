@@ -110,6 +110,9 @@ node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-
 
 The launchers reuse compatible prepared trees and keep MCP stdout reserved for
 protocol frames. They never perform a network install during MCP initialization.
+An optional parent-only `SAARIUS_ACP_HOP_ARGV` hops that same launcher onto
+another machine; ACpx stays a local child there. See the hop section in the
+[Antigravity setup guide](docs/antigravity-acp-delegation.md).
 
 ## PhoneProof
 
