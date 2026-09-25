@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   GrokAcpBroker,
   classifyOwnerIdentity,
   createDefaultRuntime,
+  DEFAULT_GROK_COMMAND,
   DEFAULT_GROK_MODEL,
   redactSensitive,
   resolveGrokExecutable,
@@ -182,6 +183,62 @@ test("GROK_EXECUTABLE or PATH grok is resolved without a machine-specific defaul
   const missing = resolveGrokExecutable({ env: { PATH: "/tmp/empty-grok-path" } });
   assert.equal(missing, "grok");
   assert.equal(missing.includes("/Users/"), false);
+});
+
+test("PATH grok resolution accepts only executable regular files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "saarius-grok-path-"));
+  const command = process.platform === "win32" ? "grok.exe" : DEFAULT_GROK_COMMAND;
+  try {
+    const validDir = path.join(root, "valid");
+    const blockedFileDir = path.join(root, "blocked-file");
+    const blockedDirDir = path.join(root, "blocked-dir");
+    const laterDir = path.join(root, "later");
+    await mkdir(validDir);
+    await mkdir(blockedFileDir);
+    await mkdir(blockedDirDir);
+    await mkdir(laterDir);
+
+    const valid = path.join(validDir, command);
+    const later = path.join(laterDir, command);
+    await writeFile(valid, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    await chmod(valid, 0o755);
+    await writeFile(later, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    await chmod(later, 0o755);
+    await writeFile(path.join(blockedFileDir, command), "not executable\n", { mode: 0o644 });
+    await chmod(path.join(blockedFileDir, command), 0o644);
+    await mkdir(path.join(blockedDirDir, command));
+
+    assert.equal(resolveGrokExecutable({ env: { PATH: validDir } }), valid);
+    assert.equal(
+      resolveGrokExecutable({
+        env: { PATH: [blockedFileDir, laterDir].join(path.delimiter) },
+      }),
+      later,
+    );
+    assert.equal(
+      resolveGrokExecutable({
+        env: { PATH: [blockedDirDir, laterDir].join(path.delimiter) },
+      }),
+      later,
+    );
+
+    const explicitMissing = path.join(root, "explicit-missing-grok");
+    assert.equal(
+      resolveGrokExecutable({
+        env: { GROK_EXECUTABLE: explicitMissing, PATH: validDir },
+      }),
+      path.resolve(explicitMissing),
+    );
+    assert.equal(
+      resolveGrokExecutable({
+        grokExecutable: explicitMissing,
+        env: { PATH: validDir },
+      }),
+      path.resolve(explicitMissing),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("plugin default grok-4.7 is accepted only when advertised", () => {

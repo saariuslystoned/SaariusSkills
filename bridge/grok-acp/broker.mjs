@@ -1,4 +1,4 @@
-import { constants, existsSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { access, appendFile, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -186,6 +186,17 @@ export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function isExecutableRegularFile(candidate) {
+  try {
+    const info = statSync(candidate);
+    if (!info.isFile()) return false;
+    accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveGrokExecutable({ grokExecutable, env = process.env } = {}) {
   const configured = (grokExecutable ?? env.GROK_EXECUTABLE ?? "").trim();
   if (configured) return path.resolve(configured);
@@ -193,7 +204,7 @@ export function resolveGrokExecutable({ grokExecutable, env = process.env } = {}
   for (const dir of (env.PATH ?? "").split(path.delimiter)) {
     if (!dir) continue;
     const candidate = path.join(dir, command);
-    if (existsSync(candidate)) return candidate;
+    if (isExecutableRegularFile(candidate)) return candidate;
   }
   return DEFAULT_GROK_COMMAND;
 }
