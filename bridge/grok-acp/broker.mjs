@@ -31,6 +31,13 @@ const execFile = promisify(execFileCallback);
 export const DEFAULT_GROK_COMMAND = "grok";
 export const DEFAULT_GROK_ARGV = Object.freeze(["agent", "stdio"]);
 export const DEFAULT_GROK_MODEL = "grok-4.7";
+// Pin reasoning effort for delegated jobs so a user's interactive CLI default
+// (for example `xhigh` in ~/.grok/config.toml) does not leak into bounded work.
+export const DEFAULT_GROK_REASONING_EFFORT = "high";
+export const GROK_REASONING_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh"]);
+// `grok agent stdio` ignores the --reasoning-effort CLI flag; the effort is an
+// ACP session config option (id "reasoning_effort", category "thought_level").
+const REASONING_OPTION_ID = "reasoning_effort";
 export const ACPX_GROK_AGENT = "grok-build";
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_TIMEOUT_MS = 30 * 60 * 1000;
@@ -380,13 +387,29 @@ async function releaseOwnedLockFile(lockPath, token) {
   }
 }
 
-function routeSummary(executable, model) {
+// SAARIUS_GROK_ACP_REASONING_EFFORT: one of GROK_REASONING_EFFORTS, or
+// "inherit" to omit the flag and use the Grok CLI's own configured default.
+export function resolveReasoningEffort(env = process.env) {
+  const value = env.SAARIUS_GROK_ACP_REASONING_EFFORT?.trim().toLowerCase();
+  if (!value) return DEFAULT_GROK_REASONING_EFFORT;
+  if (value === "inherit") return null;
+  if (!GROK_REASONING_EFFORTS.includes(value)) {
+    throw new BridgeError(
+      "INVALID_CONFIG",
+      `SAARIUS_GROK_ACP_REASONING_EFFORT must be one of ${GROK_REASONING_EFFORTS.join(", ")} or inherit`,
+    );
+  }
+  return value;
+}
+
+function routeSummary(executable, model, reasoningEffort) {
   return {
     agent: "grok-build",
     transport: "acp",
     executable,
     argv: [executable, "agent", "stdio"],
     model,
+    reasoningEffort: reasoningEffort ?? "inherited",
   };
 }
 
@@ -411,8 +434,15 @@ function modelSnapshot(status) {
   };
 }
 
+function reasoningOption(status) {
+  const options = status?.details?.configOptions;
+  if (!Array.isArray(options)) return undefined;
+  return options.find((o) => o?.id === REASONING_OPTION_ID) ?? options.find((o) => o?.category === "thought_level");
+}
+
 function publicModel(model) {
   return {
+    reasoningEffort: model.reasoningEffort,
     requestedModel: model.requestedModel,
     selectedModelId: model.selectedModelId,
     currentModelId: model.currentModelId,
@@ -473,7 +503,12 @@ function classifyFailure(error, interaction) {
   return { status: "failed", error: safe };
 }
 
-export function createDefaultRuntime({ stateRoot, grokExecutable, timeoutMs, processEnv = process.env }) {
+export function createDefaultRuntime({
+  stateRoot,
+  grokExecutable,
+  timeoutMs,
+  processEnv = process.env,
+}) {
   assertNoAmbientGrokApiKey(processEnv);
   const registry = createAgentRegistry({
     overrides: { "grok-build": [grokExecutable, "agent", "stdio"] },
@@ -539,6 +574,9 @@ export class GrokAcpBroker {
       env: this.processEnv,
     });
     this.model = options.model ?? DEFAULT_GROK_MODEL;
+    this.reasoningEffort = options.reasoningEffort !== undefined
+      ? options.reasoningEffort
+      : resolveReasoningEffort(this.processEnv);
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.execFile = options.execFile ?? execFile;
@@ -551,6 +589,7 @@ export class GrokAcpBroker {
             stateRoot: this.stateRoot,
             grokExecutable: this.grokExecutable,
             model: this.model,
+            reasoningEffort: this.reasoningEffort,
             timeoutMs: this.timeoutMs,
             processEnv: this.processEnv,
           })
@@ -891,7 +930,7 @@ export class GrokAcpBroker {
       const models = await this.verifyModel(handle, targetWorkspace);
       return {
         ready: true,
-        route: routeSummary(this.grokExecutable, this.model),
+        route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
         executable,
         workspace: targetWorkspace,
         model: publicModel(models),
@@ -902,7 +941,7 @@ export class GrokAcpBroker {
       const failure = safeError(error, "READINESS_FAILED");
       return {
         ready: false,
-        route: routeSummary(this.grokExecutable, this.model),
+        route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
         executable,
         workspace: targetWorkspace,
         error: failure,
@@ -945,7 +984,42 @@ export class GrokAcpBroker {
         },
       );
     }
-    return { ...models, requestedModel: this.model, selectedModelId, workspace };
+    const reasoningEffort = await this.applyReasoningEffort(handle);
+    return { ...models, requestedModel: this.model, selectedModelId, workspace, reasoningEffort };
+  }
+
+  async applyReasoningEffort(handle) {
+    let option = reasoningOption(await this.runtime.getStatus({ handle }));
+    const available = Array.isArray(option?.options) ? option.options.map((o) => o?.value).filter(Boolean) : [];
+    if (!this.reasoningEffort) {
+      return { requested: "inherit", current: option?.currentValue ?? null, available };
+    }
+    if (!option) {
+      throw new BridgeError(
+        "REASONING_EFFORT_UNSUPPORTED",
+        "Grok ACP did not advertise a reasoning_effort option; set SAARIUS_GROK_ACP_REASONING_EFFORT=inherit to use the CLI default",
+      );
+    }
+    if (!available.includes(this.reasoningEffort)) {
+      throw new BridgeError("REASONING_EFFORT_UNAVAILABLE", `Grok ACP does not offer reasoning effort ${this.reasoningEffort}`, {
+        requested: this.reasoningEffort,
+        available,
+      });
+    }
+    if (option.currentValue !== this.reasoningEffort) {
+      if (typeof this.runtime.setConfigOption !== "function") {
+        throw new BridgeError("REASONING_EFFORT_UNCONFIRMED", "Runtime cannot set ACP session config options");
+      }
+      await this.runtime.setConfigOption({ handle, key: option.id, value: this.reasoningEffort });
+      option = reasoningOption(await this.runtime.getStatus({ handle }));
+    }
+    if (option?.currentValue !== this.reasoningEffort) {
+      throw new BridgeError("REASONING_EFFORT_UNCONFIRMED", `Grok ACP did not confirm reasoning effort ${this.reasoningEffort}`, {
+        requested: this.reasoningEffort,
+        current: option?.currentValue ?? null,
+      });
+    }
+    return { requested: this.reasoningEffort, current: option.currentValue, available };
   }
 
   async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId } = {}) {
@@ -969,7 +1043,7 @@ export class GrokAcpBroker {
       status: "admitted",
       createdAt: this.now(),
       updatedAt: this.now(),
-      route: routeSummary(this.grokExecutable, this.model),
+      route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
       request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
@@ -1014,7 +1088,7 @@ export class GrokAcpBroker {
         },
       });
       const models = await this.verifyModel(handle, targetWorkspace);
-      job.route = routeSummary(this.grokExecutable, models.selectedModelId ?? this.model);
+      job.route = routeSummary(this.grokExecutable, models.selectedModelId ?? this.model, this.reasoningEffort);
       job.model = models;
       job.handle = publicHandle(handle);
       job.status = "submitted";
@@ -1469,7 +1543,7 @@ export class GrokAcpBroker {
       "",
       `Status: ${job.status}`,
       `Workspace: ${job.workspace}`,
-      `Route: ${job.route.executable} agent stdio`,
+      `Route: ${(job.route.argv ?? [job.route.executable, "agent", "stdio"]).join(" ")}`,
       `Requested model: ${job.route.model}`,
       `Owner: ${job.owner?.brokerId ?? "unknown"}`,
       `Updated: ${job.updatedAt}`,

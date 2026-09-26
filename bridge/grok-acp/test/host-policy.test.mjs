@@ -32,10 +32,22 @@ class Runtime {
         availableModelIds: this.available,
         availableModels: this.available.map((modelId) => ({ modelId, name: modelId })),
       },
+      details: {
+        configOptions: [{
+          id: "reasoning_effort",
+          category: "thought_level",
+          type: "select",
+          currentValue: this.reasoningEffort ?? "xhigh",
+          options: ["xhigh", "high", "medium", "low"].map((value) => ({ value, name: value })),
+        }],
+      },
     };
   }
   async setModel({ model }) {
     if (this.available.includes(model)) this.model = model;
+  }
+  async setConfigOption({ key, value }) {
+    if (key === "reasoning_effort") this.reasoningEffort = value;
   }
   startTurn(input) {
     const turn = {

@@ -63,6 +63,20 @@ workspace. It proves readiness/model selection, workspace binding, completion,
 steering refusal, and cancellation. It does not push, deploy, send messages,
 change accounts, or use an API-key fallback.
 
+## Reasoning effort
+
+Delegated jobs pin Grok's ACP `reasoning_effort` session option to `high`.
+Without that, every job inherits the interactive CLI default from
+`~/.grok/config.toml` (`default_reasoning_effort`), and `xhigh` there made
+cockpit case-study jobs spend almost all of their 900 s budget reasoning
+(3 s of tool time in one 885 s run). The `grok agent stdio` CLI ignores the
+`--reasoning-effort` flag, so the bridge sets the ACP option after model
+selection and confirms it; readiness reports it under `model.reasoningEffort`.
+
+Set `SAARIUS_GROK_ACP_REASONING_EFFORT` to `low`, `medium`, `high` or `xhigh`
+to choose another level, or to `inherit` to keep the CLI default. An
+unadvertised, unavailable or unconfirmed effort fails closed.
+
 ## MCP connection
 
 Codex `.mcp.json`, Cursor `.cursor-plugin/mcp.json`, and the Claude Code
