@@ -24,15 +24,23 @@ async function walk(dir, base = dir) {
   return out.sort();
 }
 
-async function hashTree(root, rel) {
-  const target = path.join(root, rel);
+// Protected paths: every file the seed has under the path must still exist
+// with identical bytes. New files are allowed (briefs may invite extra tests);
+// edits and deletions of seed files are tampering.
+async function changedSeedFiles(seed, work, rel) {
+  const target = path.join(seed, rel);
   let files;
   try {
     files = (await stat(target)).isDirectory() ? (await walk(target)).map((f) => path.join(rel, f)) : [rel];
-  } catch { return "missing"; }
-  const h = createHash("sha256");
-  for (const f of files) h.update(f).update("\0").update(await readFile(path.join(root, f))).update("\0");
-  return h.digest("hex");
+  } catch { return []; }
+  const changed = [];
+  for (const f of files) {
+    let a, b;
+    try { a = await readFile(path.join(seed, f)); } catch { continue; }
+    try { b = await readFile(path.join(work, f)); } catch { changed.push(f); continue; }
+    if (createHash("sha256").update(a).digest("hex") !== createHash("sha256").update(b).digest("hex")) changed.push(f);
+  }
+  return changed;
 }
 
 function runTap(cwd, files) {
@@ -65,9 +73,7 @@ export async function grade(workspace, task) {
     await cp(workspace, work, { recursive: true, filter: (src) => !src.split(path.sep).includes(".git") && !src.split(path.sep).includes("node_modules") });
 
     const changedProtected = [];
-    for (const rel of task.protect ?? []) {
-      if (await hashTree(seed, rel) !== await hashTree(work, rel)) changedProtected.push(rel);
-    }
+    for (const rel of task.protect ?? []) changedProtected.push(...await changedSeedFiles(seed, work, rel));
 
     const syntaxErrors = [];
     for (const f of await walk(work)) {

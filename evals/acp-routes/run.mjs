@@ -11,7 +11,7 @@
 // not change any host configuration.
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFile, cp, mkdir, readdir, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,7 @@ export const ROUTES = Object.freeze({
 const TERMINAL = new Set(["completed", "failed", "cancelled", "needs-input"]);
 
 function parseArgs(argv) {
-  const a = { routes: Object.keys(ROUTES), tasks: null, repeats: 3, out: null, permission: null, dryRun: false };
+  const a = { routes: Object.keys(ROUTES), tasks: null, repeats: 3, out: null, permission: null, dryRun: false, regrade: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i], v = argv[i + 1];
     if (k === "--routes") { a.routes = v.split(","); i++; }
@@ -36,11 +36,12 @@ function parseArgs(argv) {
     else if (k === "--out") { a.out = path.resolve(v); i++; }
     else if (k === "--permission") { a.permission = v; i++; }
     else if (k === "--dry-run") a.dryRun = true;
+    else if (k === "--regrade") { a.regrade = path.resolve(v); i++; }
     else throw new Error(`unknown argument ${k}`);
   }
   for (const r of a.routes) if (!ROUTES[r]) throw new Error(`unknown route ${r}`);
   if (!Number.isInteger(a.repeats) || a.repeats < 1) throw new Error("--repeats must be a positive integer");
-  if (!a.dryRun && a.permission !== "approve-all") {
+  if (!a.dryRun && !a.regrade && a.permission !== "approve-all") {
     throw new Error("benchmark tasks write files: pass --permission approve-all (break-glass, scoped to this run's bridge processes)");
   }
   return a;
@@ -140,8 +141,25 @@ async function attempt({ route, task, repeat, runDir, env }) {
     record.totalWallMs = Date.now() - t0;
     await client.close();
   }
+  const counts = await jobStateMetrics(route, record.jobId);
+  record.toolCallCount ??= counts.toolCallCount ?? null;
+  record.eventCount ??= counts.eventCount ?? null;
   record.grade = await grade(workspace, task);
   return record;
+}
+
+// The result tool does not carry tool/event counts; the bridge's own job
+// record does. Read-only, and only the numeric counters are taken.
+async function jobStateMetrics(route, jobId) {
+  if (!jobId || !ROUTES[route]) return {};
+  const file = path.join(homedir(), ".local", "state", "saarius-skills", `${route}-acp-delegation`, "jobs", `${jobId}.json`);
+  try {
+    const job = JSON.parse(await readFile(file, "utf8"));
+    return {
+      toolCallCount: Number.isFinite(job.toolCallCount) ? job.toolCallCount : null,
+      eventCount: Number.isFinite(job.eventCount) ? job.eventCount : null,
+    };
+  } catch { return {}; }
 }
 
 function median(xs) {
@@ -181,6 +199,7 @@ export function renderMarkdown(meta, rows) {
     "",
     `Plugin commit \`${meta.pluginCommit}\`, host ${meta.host}, node ${meta.node}. Sequential, ${meta.repeats} repeat(s) per route × task.`,
     `Permission: \`${meta.permission}\` scoped to the runner's bridge processes. Scores are hidden-test pass fractions (0 when a gate fails).`,
+    ...(meta.regradedAt ? [`Regraded offline ${meta.regradedAt.slice(0, 10)} with grader \`${meta.graderCommit}\`; original grades are in results.original.jsonl.`] : []),
     "",
     "| Task | Route | Model | Solved | Mean score | Median job time | Median tool calls | Syntax fails | Protected edits | Non-completed |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -191,8 +210,35 @@ export function renderMarkdown(meta, rows) {
   return `${lines.join("\n")}\n`;
 }
 
+// Re-grade a finished run offline from its preserved workspaces with the
+// current graders. Worker attempts are untouched; the original grades are kept
+// in results.original.jsonl and every record notes when it was regraded.
+async function regrade(runDir) {
+  const lines = (await readFile(path.join(runDir, "results.jsonl"), "utf8")).split("\n").filter((l) => l.trim());
+  const records = lines.map((l) => JSON.parse(l));
+  const tasks = new Map();
+  for (const r of records) {
+    if (!tasks.has(r.task)) tasks.set(r.task, await loadTask(path.join(HERE, "tasks", r.task)));
+    r.originalGrade ??= r.grade;
+    const counts = await jobStateMetrics(r.route, r.jobId);
+    r.toolCallCount ??= counts.toolCallCount ?? null;
+    r.eventCount ??= counts.eventCount ?? null;
+    r.grade = await grade(r.workspace, tasks.get(r.task));
+    r.regradedAt = new Date().toISOString();
+  }
+  try { await rename(path.join(runDir, "results.jsonl"), path.join(runDir, "results.original.jsonl")); } catch { /* keep going */ }
+  await writeFile(path.join(runDir, "results.jsonl"), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const meta = JSON.parse(await readFile(path.join(runDir, "meta.json"), "utf8"));
+  meta.regradedAt = new Date().toISOString();
+  meta.graderCommit = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: PLUGIN_ROOT, encoding: "utf8" }).stdout.trim() || "unknown";
+  await writeFile(path.join(runDir, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
+  await writeFile(path.join(runDir, "SUMMARY.md"), renderMarkdown(meta, summarize(records)));
+  process.stderr.write(`regraded ${records.length} attempts: ${path.join(runDir, "SUMMARY.md")}\n`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.regrade) { await regrade(args.regrade); return; }
   const taskIds = args.tasks ?? (await readdir(path.join(HERE, "tasks"), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name).sort();
   const tasks = await Promise.all(taskIds.map((id) => loadTask(path.join(HERE, "tasks", id))));
   const startedAt = new Date().toISOString();

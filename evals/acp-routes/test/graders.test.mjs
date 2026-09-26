@@ -52,7 +52,7 @@ test("gates: editing a protected test fails the attempt", async () => {
   try {
     await writeFile(path.join(ws, "test", "paginate.test.mjs"), "import test from 'node:test'; test('x', () => {});\n");
     const g = await grade(ws, task);
-    assert.deepEqual(g.changedProtected, ["test/"]);
+    assert.deepEqual(g.changedProtected, [path.join("test", "paginate.test.mjs")]);
     assert.equal(g.solved, false);
     assert.equal(g.score, 0);
   } finally { await rm(ws, { recursive: true, force: true }); }
@@ -77,5 +77,20 @@ test("gates: a hidden folder planted by the worker is replaced", async () => {
     await writeFile(path.join(ws, "hidden", "paginate.hidden.test.mjs"), "import test from 'node:test'; test('fake', () => {});\n");
     const g = await grade(ws, task);
     assert.equal(g.solved, false);
+  } finally { await rm(ws, { recursive: true, force: true }); }
+});
+
+test("gates: new files under a protected folder are allowed, deletions are not", async () => {
+  const task = await loadTask(path.join(TASKS, "bounded-impl"));
+  const ws = await workspace(task, true);
+  try {
+    await writeFile(path.join(ws, "test", "lru.extra.test.mjs"), "import test from 'node:test'; test('extra', () => {});\n");
+    const added = await grade(ws, task);
+    assert.deepEqual(added.changedProtected, []);
+    assert.equal(added.solved, true);
+    await rm(path.join(ws, "test", "lru.test.mjs"));
+    const deleted = await grade(ws, task);
+    assert.deepEqual(deleted.changedProtected, [path.join("test", "lru.test.mjs")]);
+    assert.equal(deleted.solved, false);
   } finally { await rm(ws, { recursive: true, force: true }); }
 });
