@@ -1,0 +1,7 @@
+{
+  "id": "refactor",
+  "category": "Long refactor",
+  "timeoutMs": 900000,
+  "protect": ["test/", "package.json"],
+  "brief": "brief.md"
+}

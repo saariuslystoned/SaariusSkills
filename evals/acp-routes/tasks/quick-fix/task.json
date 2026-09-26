@@ -1,0 +1,7 @@
+{
+  "id": "quick-fix",
+  "category": "Quick fix",
+  "timeoutMs": 600000,
+  "protect": ["test/", "package.json"],
+  "brief": "brief.md"
+}

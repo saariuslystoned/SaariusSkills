@@ -1,0 +1,7 @@
+{
+  "id": "bounded-impl",
+  "category": "Bounded implementation",
+  "timeoutMs": 600000,
+  "protect": ["test/", "package.json"],
+  "brief": "brief.md"
+}

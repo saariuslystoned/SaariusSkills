@@ -1,0 +1,5 @@
+[
+  { "id": "a1", "route": "cursor", "model": "grok-4.6", "status": "completed", "durationMs": 224600 },
+  { "id": "b2", "route": "antigravity", "model": "gemini-3.8-flash-high", "status": "failed", "durationMs": 81000 },
+  { "id": "c3", "route": "grok", "model": "grok-4.7", "status": "completed", "durationMs": 26600 }
+]
