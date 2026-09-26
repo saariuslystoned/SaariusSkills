@@ -24,24 +24,36 @@ test("parseCsv returns kept rows only", async () => {
   ]);
 });
 
+// The brief asks for "the same numbers the current code computes", and the
+// original computes the rate as a percentage, so either a 0-1 fraction or a
+// 0-100 percentage is accepted, as long as aggregate() and formatMarkdown()
+// agree with each other.
+const ROWS = [
+  { date: "d", route: "z", status: "completed", durationMs: 10 },
+  { date: "d", route: "a", status: "failed", durationMs: 4 },
+  { date: "d", route: "a", status: "completed", durationMs: 1 },
+];
+
 test("aggregate computes totals, rate and median, sorted by route", async () => {
   const { aggregate } = await import("../src/aggregate.mjs");
-  const rows = [
-    { date: "d", route: "z", status: "completed", durationMs: 10 },
-    { date: "d", route: "a", status: "failed", durationMs: 4 },
-    { date: "d", route: "a", status: "completed", durationMs: 1 },
-  ];
-  assert.deepEqual(aggregate(rows), [
-    { route: "a", total: 2, completed: 1, successRate: 0.5, medianMs: 3 },
-    { route: "z", total: 1, completed: 1, successRate: 1, medianMs: 10 },
+  const out = aggregate(ROWS);
+  const scale = out[1]?.successRate === 100 ? 100 : 1;
+  assert.deepEqual(out, [
+    { route: "a", total: 2, completed: 1, successRate: 0.5 * scale, medianMs: 3 },
+    { route: "z", total: 1, completed: 1, successRate: 1 * scale, medianMs: 10 },
   ]);
 });
 
-test("formatMarkdown matches the original table", async () => {
+test("formatMarkdown matches the original table for aggregate's output", async () => {
+  const { aggregate } = await import("../src/aggregate.mjs");
   const { formatMarkdown } = await import("../src/format.mjs");
   assert.equal(formatMarkdown([]), "No data.");
+  const one = aggregate([
+    { date: "d", route: "cursor", status: "completed", durationMs: 1200 },
+    { date: "d", route: "cursor", status: "failed", durationMs: 1800 },
+  ]);
   assert.equal(
-    formatMarkdown([{ route: "cursor", total: 2, completed: 1, successRate: 0.5, medianMs: 1500 }]),
+    formatMarkdown(one),
     "| Route | Jobs | Success | Median |\n| --- | ---: | ---: | ---: |\n| cursor | 2 | 50.0% | 1.5 s |",
   );
 });
