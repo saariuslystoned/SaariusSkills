@@ -32,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.4.0")
+        self.assertEqual(plugin["version"], "0.4.1")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -299,7 +299,7 @@ class PackagingTests(unittest.TestCase):
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.4.0")
+        self.assertEqual(codex["version"], "0.4.1")
         self.assertEqual(codex["skills"], "./skills/")
         self.assertEqual(codex["mcpServers"], "./.mcp.json")
         self.assertEqual(marketplace["name"], "saarius-skills")
