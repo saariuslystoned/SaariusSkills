@@ -108,6 +108,21 @@ for protocol frames. They never perform a network install during MCP
 initialization. Unset `SAARIUS_ACP_HOP_ARGV` is Local or Always-on. Set
 hop is Hop.
 
+## Choosing an ACP route
+
+[`evals/acp-routes`](evals/acp-routes/README.md) is a small benchmark you can
+re-run on your own machine: five fixed tasks (quick fix, bounded
+implementation, refactor, UI slice, review), hidden-test grading, three
+repeats per route, one attempt at a time. The
+[`acp-route-lessons`](skills/acp-route-lessons/SKILL.md) skill turns that
+benchmark, case studies and everyday use into "use this route for this task
+because…" guidance, and only benchmark evidence may rank routes.
+
+The maintainer's [2026-09-26 baseline](proof/acp-route-evals/20260926/README.md):
+Cursor · grok-4.6 high and Antigravity · gemini-3.8-flash-high solved all 15
+tasks (Cursor fastest at 20–81 s per task), and Grok · grok-4.7 solved 13 of 15
+with three timeouts.
+
 ## PhoneProof
 
 PhoneProof closes the gap between a green mobile build and the UI a human
