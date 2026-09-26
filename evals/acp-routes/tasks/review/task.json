@@ -1,0 +1,7 @@
+{
+  "id": "review",
+  "category": "Verification / review",
+  "timeoutMs": 600000,
+  "protect": ["src/", "test/", "package.json"],
+  "brief": "brief.md"
+}

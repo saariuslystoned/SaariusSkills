@@ -1,6 +1,7 @@
 {
   "name": "saarius-skills",
   "skills": [
+    "./skills/acp-route-lessons/",
     "./skills/antigravity-acp-delegation/",
     "./skills/architect/",
     "./skills/automate-me/",

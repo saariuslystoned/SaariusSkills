@@ -32,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.4.0")
+        self.assertEqual(plugin["version"], "0.4.1")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -299,7 +299,7 @@ class PackagingTests(unittest.TestCase):
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.4.0")
+        self.assertEqual(codex["version"], "0.4.1")
         self.assertEqual(codex["skills"], "./skills/")
         self.assertEqual(codex["mcpServers"], "./.mcp.json")
         self.assertEqual(marketplace["name"], "saarius-skills")
@@ -399,6 +399,32 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(market["plugins"]), 1)
         self.assertEqual(market["plugins"][0]["name"], claude["name"])
         self.assertEqual(market["plugins"][0]["source"], "./")
+
+
+    def test_acp_route_lessons_skill_schema(self) -> None:
+        skill_dir = ROOT / "skills" / "acp-route-lessons"
+        skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("name: acp-route-lessons", skill)
+        self.assertIn("Only benchmark lessons may rank", skill)
+        lines = [
+            line
+            for line in (skill_dir / "references" / "lessons.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.strip()
+        ]
+        self.assertGreater(len(lines), 0)
+        for line in lines:
+            lesson = json.loads(line)
+            for key in ("at", "lane", "model", "category", "kind", "source", "n", "note", "evidence"):
+                self.assertIn(key, lesson, line)
+            self.assertIn(lesson["kind"], {"strength", "weakness", "tactic", "observation"})
+            self.assertIn(lesson["source"], {"benchmark", "case-study", "field"})
+            self.assertIsInstance(lesson["n"], int)
+            self.assertGreater(lesson["n"], 0)
+            self.assertTrue(lesson["evidence"].strip())
+        self.assertTrue((skill_dir / "scripts" / "distill.mjs").is_file())
+        self.assertTrue((ROOT / "evals" / "acp-routes" / "run.mjs").is_file())
 
 
 if __name__ == "__main__":

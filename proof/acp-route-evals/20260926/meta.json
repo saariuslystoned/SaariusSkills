@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-26T15:55:41.100Z",
+  "runDir": "~/.local/state/saarius-skills/acp-route-evals/2026-09-26T15-55-41-100Z",
+  "repeats": 3,
+  "routes": [
+    "cursor",
+    "antigravity",
+    "grok"
+  ],
+  "tasks": [
+    "bounded-impl",
+    "quick-fix",
+    "refactor",
+    "review",
+    "ui-slice"
+  ],
+  "permission": "approve-all",
+  "pluginCommit": "70c28b9",
+  "host": "darwin-arm64",
+  "node": "v24.19.0",
+  "regradedAt": "2026-09-26T18:25:03.318Z",
+  "graderCommit": "ae19e8c"
+}

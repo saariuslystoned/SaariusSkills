@@ -1,0 +1,7 @@
+{
+  "id": "ui-slice",
+  "category": "UI / design",
+  "timeoutMs": 600000,
+  "protect": ["test/", "package.json", "data/"],
+  "brief": "brief.md"
+}

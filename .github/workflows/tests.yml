@@ -42,6 +42,9 @@ jobs:
       - name: Run test suite
         run: python -m unittest discover -s tests -q
 
+      - name: Validate ACP route benchmark graders
+        run: node --test evals/acp-routes/test/*.test.mjs
+
       - name: Smoke command surfaces
         run: |
           python skills/grilltrack/scripts/grilltrack_ledger.py --help

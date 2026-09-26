@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",
