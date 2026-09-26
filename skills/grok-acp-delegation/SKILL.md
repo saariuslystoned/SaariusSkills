@@ -52,7 +52,9 @@ explicitly authorizes that alternative.
 - Start with `grok_acp_readiness` for the exact workspace when the route has
   not been checked in the current task. Require the local `grok agent stdio`
   child through ACpx `grok-build`, and the plugin default exact advertised id
-  `grok-4.7`. Never silently fall back to `cursor-agent acp`, generic `acp`,
+  `grok-4.7`, with the ACP `reasoning_effort` option pinned to `high`
+  (`SAARIUS_GROK_ACP_REASONING_EFFORT` overrides; `inherit` keeps the CLI
+  default). Never silently fall back to `cursor-agent acp`, generic `acp`,
   another executable, or another workspace. `grok_acp_delegate` hard-refuses
   when that readiness is red (runtime / auth / model / workspace). Do not treat
   a red readiness report as advice and submit anyway.
