@@ -1,0 +1,16 @@
+{
+  "cleanup_error_type": "ValidationError",
+  "cleanup_uncertain": true,
+  "fixture_deleted": false,
+  "fixture_dir": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-pr64-20260921",
+  "helper_exit_sufficient": false,
+  "helper_pid": 59286,
+  "owner_finish_only": true,
+  "reason": "owner.finish raised during driver-owned cleanup",
+  "replacement_blocked": true,
+  "schema": "puppet.cursor-live-capable-cleanup-fence/v3",
+  "session": "cursor-proof-v3-live-pr64-20260921",
+  "session_replaced": false,
+  "state_deleted": false,
+  "state_root": "/Users/bobbybones/Developer/worktrees/puppet-cursor-qualification-pr64-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-pr64-20260921"
+}
