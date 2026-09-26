@@ -32,6 +32,20 @@ recorded evidence rather than impressions.
 When no benchmark lesson covers the category, say so, and suggest running
 `node evals/acp-routes/run.mjs --permission approve-all --tasks <task> --repeats 3`.
 
+## Current evidence (baseline 2026-09-26)
+
+From [`proof/acp-route-evals/20260926`](../../proof/acp-route-evals/20260926/README.md),
+45 sequential attempts:
+
+| Route · model | Solved | Median time per task | Notes |
+| --- | --- | --- | --- |
+| cursor · grok-4.6 high | 15/15 | 20–81 s | fastest on every task |
+| antigravity · gemini-3.8-flash-high | 15/15 | 76 s–2 m 46 s | correct, about 1.5–4× Cursor's time |
+| grok · grok-4.7 (effort high) | 13/15 | 86 s–10 m 35 s | 3 timeouts (review, UI) |
+
+All three are correct on these five tasks, so the benchmark separates them on
+speed and cost, not quality. Re-run it after model or CLI upgrades.
+
 ## Drive the route
 
 Apply every `tactic` and `weakness` lesson for the chosen route. The
