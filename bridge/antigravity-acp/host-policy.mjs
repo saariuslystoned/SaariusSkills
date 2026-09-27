@@ -71,17 +71,22 @@ export function resolveLivePermissionMode(env = process.env) {
   };
 }
 
-// Readiness-facing view of the live permission policy. Never throws: an
-// invalid SAARIUS_ACP_PERMISSION_MODE is reported, not hidden, and
-// approve-reads stays green because it is the designed default.
+// Readiness- and receipt-facing view of the live permission policy. Never
+// throws: an invalid SAARIUS_ACP_PERMISSION_MODE is reported, not hidden, and
+// approve-reads stays green because it is the designed default. `source`
+// names the env variable when the host delivered a value and is "default"
+// when the bridge fell back to approve-reads on its own (issue #92).
+export const DEFAULT_PERMISSION_SOURCE = "default";
+
 export function describeLivePermissionMode(env = process.env) {
+  const source = firstNonEmpty(env?.[PERMISSION_MODE_ENV]) ? PERMISSION_MODE_ENV : DEFAULT_PERMISSION_SOURCE;
   try {
     const resolved = resolveLivePermissionMode(env);
     const description = {
       permissionMode: resolved.permissionMode,
       nonInteractivePermissions: resolved.nonInteractivePermissions,
       breakGlass: resolved.breakGlass,
-      source: PERMISSION_MODE_ENV,
+      source,
     };
     if (!resolved.breakGlass) {
       description.warning =
@@ -94,7 +99,7 @@ export function describeLivePermissionMode(env = process.env) {
       permissionMode: null,
       nonInteractivePermissions: LIVE_NON_INTERACTIVE_PERMISSIONS,
       breakGlass: false,
-      source: PERMISSION_MODE_ENV,
+      source,
       error: {
         code: error?.code ?? "INVALID_PERMISSION_MODE",
         message: error?.message ?? String(error),

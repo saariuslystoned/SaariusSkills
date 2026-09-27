@@ -32,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.4.1")
+        self.assertEqual(plugin["version"], "0.4.2")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -299,7 +299,7 @@ class PackagingTests(unittest.TestCase):
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.4.1")
+        self.assertEqual(codex["version"], "0.4.2")
         self.assertEqual(codex["skills"], "./skills/")
         self.assertEqual(codex["mcpServers"], "./.mcp.json")
         self.assertEqual(marketplace["name"], "saarius-skills")
@@ -402,6 +402,17 @@ class PackagingTests(unittest.TestCase):
                 self.assertTrue(value.startswith("${"), value)
         self.assertNotIn("/Users/", claude_text)
         self.assertNotIn('"approve-all"', claude_text)
+        # Issue #92 follow-up: the break-glass never ships in any manifest and
+        # only the Claude Code manifest names the policy variable, as a host
+        # passthrough. Codex reads .mcp.json and Cursor reads
+        # .cursor-plugin/mcp.json; both leave the mode to the bridge default.
+        for relative in (".mcp.json", ".cursor-plugin/mcp.json"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("SAARIUS_ACP_PERMISSION_MODE", text, relative)
+            self.assertNotIn("approve-all", text, relative)
+        # GEMINI_HOME is the antigravity bridge default; a .mcp.json env for it
+        # is dead under the Claude Code plugin and redundant under Codex.
+        self.assertNotIn("env", root_mcp["mcpServers"]["antigravity-acp"])
 
         self.assertEqual(market["name"], "saarius-skills")
         self.assertIn("name", market["owner"])

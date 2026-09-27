@@ -67,3 +67,25 @@ test("plugin.json never ships machine-specific paths or a break-glass default", 
   assert.doesNotMatch(text, /\/Users\//);
   assert.doesNotMatch(text, /"approve-all"/);
 });
+
+test("no shipped manifest carries the break-glass; only the Claude Code manifest names the policy variable", async () => {
+  // Issue #92 follow-up: the break-glass belongs in the host environment.
+  // Codex reads .mcp.json, Cursor reads .cursor-plugin/mcp.json, and the
+  // installed Claude Code plugin reads only .claude-plugin/plugin.json, whose
+  // env is a ${VAR:-approve-reads} passthrough. GEMINI_HOME is a bridge
+  // default, so .mcp.json must not carry a dead env block for it.
+  for (const relative of [".mcp.json", ".cursor-plugin/mcp.json", ".claude-plugin/plugin.json"]) {
+    const text = await readFile(path.join(repoRoot, relative), "utf8");
+    assert.doesNotMatch(text, /approve-all/, `${relative} must never ship ${BREAK_GLASS_PERMISSION_MODE}`);
+  }
+  for (const relative of [".mcp.json", ".cursor-plugin/mcp.json"]) {
+    const text = await readFile(path.join(repoRoot, relative), "utf8");
+    assert.doesNotMatch(text, new RegExp(PERMISSION_MODE_ENV), `${relative} leaves the mode to the bridge default`);
+  }
+  const codex = await readJson(".mcp.json");
+  assert.equal(
+    codex.mcpServers["antigravity-acp"].env,
+    undefined,
+    ".mcp.json antigravity-acp env is dead config: GEMINI_HOME is the bridge default",
+  );
+});

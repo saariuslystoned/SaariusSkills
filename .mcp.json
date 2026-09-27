@@ -11,10 +11,7 @@
     "antigravity-acp": {
       "command": "node",
       "args": ["bridge/acp-runtime/launcher.mjs", "antigravity-acp"],
-      "cwd": ".",
-      "env": {
-        "GEMINI_HOME": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp/gemini-home"
-      }
+      "cwd": "."
     },
     "grok-acp": {
       "command": "node",

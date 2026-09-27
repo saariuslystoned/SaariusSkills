@@ -65,7 +65,8 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   the bridge and defaults it to `approve-reads`; a plugin update plus a fresh
   Claude Code session is required before that takes effect.
   `cursor_acp_readiness` reports the resolved `permission.permissionMode` and a
-  `permission.warning` when it is `approve-reads`. Do not use one-path
+  `permission.warning` when it is `approve-reads`; `cursor_acp_delegate` echoes
+  the same `permission` object in its submission receipt. Do not use one-path
   `allow_once` on this live MCP lane. Conversation admission persists the
   job, including exact broker
   ownership, before the binding is published. Only confirmed unstarted or

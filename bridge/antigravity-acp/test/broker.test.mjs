@@ -269,6 +269,7 @@ test("readiness reports the resolved permission mode and warns on approve-reads 
   assert.equal(report.ready, true);
   assert.equal(report.permission.permissionMode, "approve-reads");
   assert.equal(report.permission.breakGlass, false);
+  assert.equal(report.permission.source, "default");
   assert.match(report.permission.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
   await everyday.broker.close();
 
@@ -277,7 +278,16 @@ test("readiness reports the resolved permission mode and warns on approve-reads 
   assert.equal(glassReport.ready, true);
   assert.equal(glassReport.permission.permissionMode, "approve-all");
   assert.equal(glassReport.permission.breakGlass, true);
+  assert.equal(glassReport.permission.source, "SAARIUS_ACP_PERMISSION_MODE");
   assert.equal(glassReport.permission.warning, undefined);
+  const glassJob = await glass.broker.delegate({ workspace: glass.workspace, model: FIXTURE_MODEL, prompt: "Write one bounded file and report." });
+  assert.equal(glassJob.permission.permissionMode, "approve-all");
+  assert.equal(glassJob.permission.breakGlass, true);
+  assert.equal(glassJob.permission.source, "SAARIUS_ACP_PERMISSION_MODE");
+  assert.equal(glassJob.permission.warning, undefined);
+  const glassDone = await glass.broker.result({ jobId: glassJob.jobId, waitMs: 1_000 });
+  assert.equal(glassDone.status, "completed");
+  assert.equal(glassDone.permission.permissionMode, "approve-all");
   await glass.broker.close();
 });
 
@@ -371,9 +381,14 @@ test("delegation binds one workspace and exact model, then returns a bounded han
   assert.equal(submitted.status, "submitted");
   assert.equal(submitted.workspace, workspace);
   assert.equal(submitted.route.model, FIXTURE_MODEL);
+  assert.equal(submitted.permission.permissionMode, "approve-reads");
+  assert.equal(submitted.permission.breakGlass, false);
+  assert.equal(submitted.permission.source, "default");
+  assert.match(submitted.permission.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(completed.status, "completed");
   assert.equal(completed.complete, true);
+  assert.equal(completed.permission.permissionMode, "approve-reads");
   assert.match(completed.handoff, /Changed files/);
   assert.equal(runtime.ensureCalls[0].cwd, workspace);
   assert.equal(runtime.turns[0].input.mode, "prompt");
