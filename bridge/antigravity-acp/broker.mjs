@@ -35,6 +35,7 @@ import {
   livePermissionDecision,
   permissionPromptUnavailableError,
   resolveConversationIdentity,
+  describeLivePermissionMode,
   resolveLivePermissionMode,
 } from "./host-policy.mjs";
 
@@ -1350,11 +1351,13 @@ export class AntigravityAcpBroker {
       defaultValue: this.defaultWorkspace,
     });
     const platformId = currentPlatformId();
+    const permission = describeLivePermissionMode(this.processEnv);
     const diagnosisBase = {
       ready: false,
       route: routeSummary({ platformId, command: null, args: [], helper: null }, model ?? null),
       workspace: targetWorkspace,
       pin: RUNTIME_PIN,
+      permission,
       effortPolicy: "unsupported_until_acp_proof",
       ultraAttribution: "unclaimed",
     };
@@ -1397,6 +1400,7 @@ export class AntigravityAcpBroker {
         workspace: targetWorkspace,
         pin: RUNTIME_PIN,
         auth: { ...publicAuth(auth), sessionOpened: true, accountState: "session-opened-unproven-entitlement" },
+        permission,
         model: publicModel(models),
         session: publicHandle(handle),
         effortPolicy: "unsupported_until_acp_proof",

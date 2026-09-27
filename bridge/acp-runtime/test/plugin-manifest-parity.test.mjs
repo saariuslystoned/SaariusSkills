@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import {
+  BREAK_GLASS_PERMISSION_MODE,
+  LIVE_PERMISSION_MODE,
+  PERMISSION_MODE_ENV,
+} from "../../antigravity-acp/host-policy.mjs";
+
+// Issue #92: Claude Code launches the bridges from the inline mcpServers block
+// in .claude-plugin/plugin.json, which replaces the same-named .mcp.json entry.
+// The two files must not drift: every route must reach the launcher with the
+// same policy env, and the shipped default must stay approve-reads.
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, "../../..");
+const EXPANSION = /^\$\{[A-Z0-9_]+(:-[^}]*)?\}$/;
+const POLICY_PASSTHROUGH = `\${${PERMISSION_MODE_ENV}:-${LIVE_PERMISSION_MODE}}`;
+
+async function readJson(relative) {
+  return JSON.parse(await readFile(path.join(repoRoot, relative), "utf8"));
+}
+
+function isMachineLocal(value) {
+  return typeof value === "string" && path.isAbsolute(value);
+}
+
+test("plugin.json and .mcp.json declare the same launcher routes", async () => {
+  const claude = await readJson(".claude-plugin/plugin.json");
+  const codex = await readJson(".mcp.json");
+  assert.deepEqual(Object.keys(claude.mcpServers).sort(), Object.keys(codex.mcpServers).sort());
+  for (const [name, server] of Object.entries(claude.mcpServers)) {
+    assert.equal(server.command, "node", name);
+    assert.deepEqual(server.args, ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", name]);
+    assert.deepEqual(codex.mcpServers[name].args, ["bridge/acp-runtime/launcher.mjs", name]);
+  }
+});
+
+test("every Claude Code route carries the policy env and mirrors portable .mcp.json env keys", async () => {
+  const claude = await readJson(".claude-plugin/plugin.json");
+  const codex = await readJson(".mcp.json");
+  for (const [name, server] of Object.entries(claude.mcpServers)) {
+    const env = server.env ?? {};
+    assert.equal(
+      env[PERMISSION_MODE_ENV],
+      POLICY_PASSTHROUGH,
+      `${name}: ${PERMISSION_MODE_ENV} must pass the host value through and default to ${LIVE_PERMISSION_MODE}`,
+    );
+    for (const [key, value] of Object.entries(env)) {
+      assert.match(value, EXPANSION, `${name}: plugin.json env ${key} must be a \${VAR} or \${VAR:-default} expansion`);
+      assert.doesNotMatch(value, /approve-all/, `${name}: ${BREAK_GLASS_PERMISSION_MODE} is break-glass, never a shipped default`);
+    }
+    // .mcp.json is the Codex install and may pin machine-local absolute paths
+    // (the bridges resolve those defaults themselves). Every portable key it
+    // declares must also reach the Claude Code launcher.
+    const codexEnv = codex.mcpServers[name].env ?? {};
+    const portable = Object.keys(codexEnv).filter((key) => !isMachineLocal(codexEnv[key])).sort();
+    const expected = [...new Set([...portable, PERMISSION_MODE_ENV])].sort();
+    assert.deepEqual(Object.keys(env).sort(), expected, `${name}: env keys drifted between plugin.json and .mcp.json`);
+  }
+});
+
+test("plugin.json never ships machine-specific paths or a break-glass default", async () => {
+  const text = await readFile(path.join(repoRoot, ".claude-plugin/plugin.json"), "utf8");
+  assert.doesNotMatch(text, /\/Users\//);
+  assert.doesNotMatch(text, /"approve-all"/);
+});

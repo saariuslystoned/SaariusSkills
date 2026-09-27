@@ -1,6 +1,6 @@
 {
   "name": "saarius-skills",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Experimental agent skills, product decisions, and local Cursor, Antigravity, and Grok ACP delegation routes.",
   "author": {
     "name": "Bobby Bones",
@@ -21,15 +21,33 @@
   "mcpServers": {
     "cursor-acp": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "cursor-acp"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
+        "cursor-acp"
+      ],
+      "env": {
+        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}"
+      }
     },
     "antigravity-acp": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "antigravity-acp"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
+        "antigravity-acp"
+      ],
+      "env": {
+        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}"
+      }
     },
     "grok-acp": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", "grok-acp"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs",
+        "grok-acp"
+      ],
+      "env": {
+        "SAARIUS_ACP_PERMISSION_MODE": "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}"
+      }
     }
   }
 }

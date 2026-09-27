@@ -259,7 +259,12 @@ Inside a session, `/plugin marketplace add saariuslystoned/SaariusSkills` and
 [Claude Code manifest](.claude-plugin/plugin.json) registers the `cursor-acp`
 (Cursor Grok), `antigravity-acp`, and `grok-acp` delegation servers through
 `${CLAUDE_PLUGIN_ROOT}`, with no machine-specific paths; each bridge keeps its own
-defaults for the Cursor executable, Grok executable, and `GEMINI_HOME`. Prepare
+defaults for the Cursor executable, Grok executable, and `GEMINI_HOME`. The
+manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's environment
+through to each bridge, defaulting to `approve-reads`; export
+`SAARIUS_ACP_PERMISSION_MODE=approve-all` (or set it under `env` in Claude
+Code `settings.json`) as the explicit break-glass, then start a fresh session
+and confirm `permission.permissionMode` in `*_acp_readiness`. Prepare
 the bridge runtimes once per plugin version, as described in
 [Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
 stderr names the exact `prepare.mjs` command for the installed copy. Then start a
