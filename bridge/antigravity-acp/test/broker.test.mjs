@@ -263,6 +263,24 @@ test("default runtime directory follows the pinned platform archive layout", () 
   );
 });
 
+test("readiness reports the resolved permission mode and warns on approve-reads (#92)", async () => {
+  const everyday = await makeBroker();
+  const report = await everyday.broker.discover({ workspace: everyday.workspace });
+  assert.equal(report.ready, true);
+  assert.equal(report.permission.permissionMode, "approve-reads");
+  assert.equal(report.permission.breakGlass, false);
+  assert.match(report.permission.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
+  await everyday.broker.close();
+
+  const glass = await makeBroker({ processEnv: { PATH: process.env.PATH ?? "", SAARIUS_ACP_PERMISSION_MODE: "approve-all" } });
+  const glassReport = await glass.broker.discover({ workspace: glass.workspace });
+  assert.equal(glassReport.ready, true);
+  assert.equal(glassReport.permission.permissionMode, "approve-all");
+  assert.equal(glassReport.permission.breakGlass, true);
+  assert.equal(glassReport.permission.warning, undefined);
+  await glass.broker.close();
+});
+
 test("readiness proves advertised models without a turn", async () => {
   const { broker, runtime, workspace } = await makeBroker();
   const report = await broker.discover({ workspace });

@@ -32,7 +32,7 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertEqual(root_plugin, expected_root)
         self.assertEqual(plugin["name"], "saarius-skills")
-        self.assertEqual(plugin["version"], "0.4.0")
+        self.assertEqual(plugin["version"], "0.4.1")
         self.assertEqual(plugin["skills"], "./skills/")
         self.assertNotEqual(plugin, root_plugin)
         self.assertEqual(plugin["name"], root_plugin["name"])
@@ -299,7 +299,7 @@ class PackagingTests(unittest.TestCase):
             },
         )
         self.assertEqual(codex["name"], "saarius-skills")
-        self.assertEqual(codex["version"], "0.4.0")
+        self.assertEqual(codex["version"], "0.4.1")
         self.assertEqual(codex["skills"], "./skills/")
         self.assertEqual(codex["mcpServers"], "./.mcp.json")
         self.assertEqual(marketplace["name"], "saarius-skills")
@@ -391,8 +391,17 @@ class PackagingTests(unittest.TestCase):
                 ["${CLAUDE_PLUGIN_ROOT}/bridge/acp-runtime/launcher.mjs", name],
             )
             self.assertNotIn("cwd", server)
-            self.assertNotIn("env", server)
+            # Issue #92: the inline block replaces the .mcp.json entry, so the
+            # policy env must ride here. Pass the host value through and keep
+            # approve-reads as the shipped default; approve-all is break-glass.
+            self.assertEqual(
+                server["env"]["SAARIUS_ACP_PERMISSION_MODE"],
+                "${SAARIUS_ACP_PERMISSION_MODE:-approve-reads}",
+            )
+            for value in server["env"].values():
+                self.assertTrue(value.startswith("${"), value)
         self.assertNotIn("/Users/", claude_text)
+        self.assertNotIn('"approve-all"', claude_text)
 
         self.assertEqual(market["name"], "saarius-skills")
         self.assertIn("name", market["owner"])

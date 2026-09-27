@@ -104,8 +104,15 @@ the user explicitly authorizes that alternative.
   outcomes. The live MCP default is `approve-reads` plus fail on a write or
   exec that would prompt. It does not grant one-path `allow_once`.
   `SAARIUS_ACP_PERMISSION_MODE=approve-all` is an explicit break-glass, not the
-  everyday default. The candidate Puppet controller one-path contract stays
-  separate. Fixed-choice `interaction_*` questions and elicitation still fail
+  everyday default. On a Claude Code host the plugin manifest passes
+  `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own environment (shell
+  export or `settings.json` `env`) through to the bridge and defaults it to
+  `approve-reads`; a plugin update plus a fresh Claude Code session is
+  required before that takes effect. `antigravity_acp_readiness` reports the
+  resolved `permission.permissionMode` and a `permission.warning` when it is
+  `approve-reads`; check it before submitting an implementation slice. The
+  candidate Puppet controller one-path contract stays separate. Fixed-choice
+  `interaction_*` questions and elicitation still fail
   closed as `needs-input` or `cancelled`; never auto-answer them. Escalate
   `needs-input` to the user with the bounded reason; do not invent a login
   flow, entitlement proof, or hidden approval.

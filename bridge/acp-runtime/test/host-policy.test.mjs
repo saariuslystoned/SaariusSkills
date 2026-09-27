@@ -20,6 +20,7 @@ import {
   classifyConversationAdmission,
   conversationBindPath,
   decideConversationRebind,
+  describeLivePermissionMode,
   isReadinessRed,
   livePermissionDecision,
   refuseUnlessReady,
@@ -52,6 +53,23 @@ test("live permission default is approve-reads + fail; approve-all is break-glas
     () => resolveLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: "allow_once" }),
     (error) => error instanceof HostPolicyError && error.code === "INVALID_PERMISSION_MODE",
   );
+});
+
+test("readiness permission description reports the resolved mode and warns on approve-reads", () => {
+  const everyday = describeLivePermissionMode({});
+  assert.equal(everyday.permissionMode, "approve-reads");
+  assert.equal(everyday.breakGlass, false);
+  assert.equal(everyday.source, "SAARIUS_ACP_PERMISSION_MODE");
+  assert.match(everyday.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
+  assert.match(everyday.warning, /SAARIUS_ACP_PERMISSION_MODE=approve-all/);
+  const glass = describeLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: BREAK_GLASS_PERMISSION_MODE });
+  assert.equal(glass.permissionMode, "approve-all");
+  assert.equal(glass.breakGlass, true);
+  assert.equal(glass.warning, undefined);
+  assert.equal(glass.error, undefined);
+  const invalid = describeLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: "allow_once" });
+  assert.equal(invalid.permissionMode, null);
+  assert.equal(invalid.error.code, "INVALID_PERMISSION_MODE");
 });
 
 test("live permission decision never grants one-path allow_once", () => {

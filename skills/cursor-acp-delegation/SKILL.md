@@ -60,8 +60,14 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   not exclusive. Prefer an isolated worktree for source mutations. Do not fan
   out by default. Live MCP permissions default to `approve-reads` plus fail on
   write/exec that would prompt. `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
-  explicit break-glass. Do not use one-path `allow_once` on this live MCP
-  lane. Conversation admission persists the job, including exact broker
+  explicit break-glass. On a Claude Code host the plugin manifest passes
+  `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own environment through to
+  the bridge and defaults it to `approve-reads`; a plugin update plus a fresh
+  Claude Code session is required before that takes effect.
+  `cursor_acp_readiness` reports the resolved `permission.permissionMode` and a
+  `permission.warning` when it is `approve-reads`. Do not use one-path
+  `allow_once` on this live MCP lane. Conversation admission persists the
+  job, including exact broker
   ownership, before the binding is published. Only confirmed unstarted or
   released admissions may be replaced by the same owner; once worker startup
   is attempted, the admission stays fenced until cleanup is explicitly proven.

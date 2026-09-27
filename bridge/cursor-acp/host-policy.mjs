@@ -71,6 +71,38 @@ export function resolveLivePermissionMode(env = process.env) {
   };
 }
 
+// Readiness-facing view of the live permission policy. Never throws: an
+// invalid SAARIUS_ACP_PERMISSION_MODE is reported, not hidden, and
+// approve-reads stays green because it is the designed default.
+export function describeLivePermissionMode(env = process.env) {
+  try {
+    const resolved = resolveLivePermissionMode(env);
+    const description = {
+      permissionMode: resolved.permissionMode,
+      nonInteractivePermissions: resolved.nonInteractivePermissions,
+      breakGlass: resolved.breakGlass,
+      source: PERMISSION_MODE_ENV,
+    };
+    if (!resolved.breakGlass) {
+      description.warning =
+        `${PERMISSION_MODE_ENV} resolved to ${LIVE_PERMISSION_MODE}: the first write or exec that would prompt fails with PERMISSION_PROMPT_UNAVAILABLE. ` +
+        `Set ${PERMISSION_MODE_ENV}=${BREAK_GLASS_PERMISSION_MODE} in the host MCP environment as an explicit break-glass before delegating an implementation slice.`;
+    }
+    return description;
+  } catch (error) {
+    return {
+      permissionMode: null,
+      nonInteractivePermissions: LIVE_NON_INTERACTIVE_PERMISSIONS,
+      breakGlass: false,
+      source: PERMISSION_MODE_ENV,
+      error: {
+        code: error?.code ?? "INVALID_PERMISSION_MODE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export function resolveHostConversationId(explicit, env = process.env, fallback) {
   const requested = firstNonEmpty(explicit);
   const configured = firstNonEmpty(env?.[HOST_CONVERSATION_ENV], fallback);

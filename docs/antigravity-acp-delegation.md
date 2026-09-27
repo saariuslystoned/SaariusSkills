@@ -146,7 +146,14 @@ codex plugin add saarius-skills@saarius-skills
 
 For Claude Code, the [Claude Code manifest](../.claude-plugin/plugin.json)
 registers all three ACP servers through `${CLAUDE_PLUGIN_ROOT}` with no
-machine-specific paths:
+machine-specific paths. Claude Code launches the bridge from that inline
+`mcpServers` block, which replaces the same-named `.mcp.json` entry, so the
+manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own
+environment through to the bridge and defaults it to `approve-reads`
+(issue #92). Export `SAARIUS_ACP_PERMISSION_MODE=approve-all` or set it under
+`env` in Claude Code `settings.json` as the explicit break-glass; it takes
+effect after a plugin update and a fresh session, and readiness reports the
+resolved `permission.permissionMode`:
 
 ```bash
 claude plugin marketplace add "$PWD"

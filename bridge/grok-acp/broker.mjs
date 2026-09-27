@@ -23,6 +23,7 @@ import {
   livePermissionDecision,
   permissionPromptUnavailableError,
   resolveConversationIdentity,
+  describeLivePermissionMode,
   resolveLivePermissionMode,
 } from "./host-policy.mjs";
 
@@ -918,6 +919,7 @@ export class GrokAcpBroker {
       defaultValue: this.defaultWorkspace,
     });
     const executable = await this.checkExecutable();
+    const permission = describeLivePermissionMode(this.processEnv);
     const sessionKey = `grok-acp-probe:${this.idFactory()}`;
     let handle;
     try {
@@ -933,6 +935,7 @@ export class GrokAcpBroker {
         route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
         executable,
         workspace: targetWorkspace,
+        permission,
         model: publicModel(models),
         session: publicHandle(handle),
         note: "Readiness opened and closed an ACP session without sending a model turn.",
@@ -944,6 +947,7 @@ export class GrokAcpBroker {
         route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
         executable,
         workspace: targetWorkspace,
+        permission,
         error: failure,
       };
     } finally {

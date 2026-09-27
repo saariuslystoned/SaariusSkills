@@ -23,6 +23,7 @@ import {
   livePermissionDecision,
   permissionPromptUnavailableError,
   resolveConversationIdentity,
+  describeLivePermissionMode,
   resolveLivePermissionMode,
 } from "./host-policy.mjs";
 
@@ -865,6 +866,7 @@ export class CursorAcpBroker {
       defaultValue: this.defaultWorkspace,
     });
     const executable = await this.checkExecutable();
+    const permission = describeLivePermissionMode(this.processEnv);
     const sessionKey = `cursor-acp-probe:${this.idFactory()}`;
     let handle;
     try {
@@ -880,6 +882,7 @@ export class CursorAcpBroker {
         route: routeSummary(this.cursorExecutable, this.model),
         executable,
         workspace: targetWorkspace,
+        permission,
         model: publicModel(models),
         session: publicHandle(handle),
         note: "Readiness opened and closed an ACP session without sending a model turn.",
@@ -891,6 +894,7 @@ export class CursorAcpBroker {
         route: routeSummary(this.cursorExecutable, this.model),
         executable,
         workspace: targetWorkspace,
+        permission,
         error: failure,
       };
     } finally {
