@@ -1512,6 +1512,9 @@ export class AntigravityAcpBroker {
         binderId: conversation.binderId,
       },
       request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      // Issue #92: the submission receipt carries the resolved permission
+      // policy so a cockpit sees approve-reads before the first write fails.
+      permission: describeLivePermissionMode(this.processEnv),
       auth: publicAuth(auth),
       sessionKey,
       runDir,
@@ -1557,6 +1560,7 @@ export class AntigravityAcpBroker {
       await this.persistAdmission(job, ADMISSION_STATE_STARTED);
       await this.recordEvent(job, "submitted", {
         promptSha256: job.request.promptSha256,
+        permissionMode: job.permission.permissionMode,
         workspace: targetWorkspace,
         requestedModel,
         hostConversationId: binding.hostConversationId,
@@ -1891,6 +1895,7 @@ export class AntigravityAcpBroker {
       proof: job.proof,
     };
     if (job.status === "completed" || job.status === "cancelled") result.handoff = job.handoff;
+    if (job.permission) result.permission = job.permission;
     if (job.error) result.error = job.error;
     if (job.stopReason) result.stopReason = job.stopReason;
     if (job.cancelRequested) result.cancelRequested = true;

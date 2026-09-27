@@ -59,17 +59,24 @@ test("readiness permission description reports the resolved mode and warns on ap
   const everyday = describeLivePermissionMode({});
   assert.equal(everyday.permissionMode, "approve-reads");
   assert.equal(everyday.breakGlass, false);
-  assert.equal(everyday.source, "SAARIUS_ACP_PERMISSION_MODE");
+  assert.equal(everyday.source, "default");
+  const explicit = describeLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: "approve-reads" });
+  assert.equal(explicit.permissionMode, "approve-reads");
+  assert.equal(explicit.breakGlass, false);
+  assert.equal(explicit.source, "SAARIUS_ACP_PERMISSION_MODE");
+  assert.match(explicit.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
   assert.match(everyday.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
   assert.match(everyday.warning, /SAARIUS_ACP_PERMISSION_MODE=approve-all/);
   const glass = describeLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: BREAK_GLASS_PERMISSION_MODE });
   assert.equal(glass.permissionMode, "approve-all");
   assert.equal(glass.breakGlass, true);
+  assert.equal(glass.source, "SAARIUS_ACP_PERMISSION_MODE");
   assert.equal(glass.warning, undefined);
   assert.equal(glass.error, undefined);
   const invalid = describeLivePermissionMode({ SAARIUS_ACP_PERMISSION_MODE: "allow_once" });
   assert.equal(invalid.permissionMode, null);
   assert.equal(invalid.error.code, "INVALID_PERMISSION_MODE");
+  assert.equal(invalid.source, "SAARIUS_ACP_PERMISSION_MODE");
 });
 
 test("live permission decision never grants one-path allow_once", () => {

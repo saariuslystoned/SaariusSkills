@@ -136,6 +136,10 @@ separately named stdio servers: `cursor-acp`, `antigravity-acp`, and `grok-acp`.
 All use
 `cwd: "."`, which Codex resolves against the installed plugin root. This
 legacy `.codex-plugin` format does not expand `${PLUGIN_ROOT}` in arguments.
+`.mcp.json` sets no `GEMINI_HOME`: the broker defaults it to
+`~/.local/state/saarius-skills/antigravity-acp/gemini-home` on every host, so
+an `env` edit there is never needed and, under the Claude Code plugin, never
+read.
 
 After reviewing the package, connect it to Codex from the repository worktree:
 
@@ -152,8 +156,9 @@ manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's own
 environment through to the bridge and defaults it to `approve-reads`
 (issue #92). Export `SAARIUS_ACP_PERMISSION_MODE=approve-all` or set it under
 `env` in Claude Code `settings.json` as the explicit break-glass; it takes
-effect after a plugin update and a fresh session, and readiness reports the
-resolved `permission.permissionMode`:
+effect after a plugin update and a fresh session; readiness reports the
+resolved `permission.permissionMode` and the `antigravity_acp_delegate`
+receipt echoes the same `permission` object:
 
 ```bash
 claude plugin marketplace add "$PWD"

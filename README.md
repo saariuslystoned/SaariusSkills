@@ -264,7 +264,13 @@ manifest passes `SAARIUS_ACP_PERMISSION_MODE` from Claude Code's environment
 through to each bridge, defaulting to `approve-reads`; export
 `SAARIUS_ACP_PERMISSION_MODE=approve-all` (or set it under `env` in Claude
 Code `settings.json`) as the explicit break-glass, then start a fresh session
-and confirm `permission.permissionMode` in `*_acp_readiness`. Prepare
+and confirm `permission.permissionMode` in `*_acp_readiness`; the
+`*_acp_delegate` receipt echoes the same `permission` object. Each host reads
+its own manifest: Codex reads [`.mcp.json`](.mcp.json) through
+`.codex-plugin/plugin.json`, Cursor reads `.cursor-plugin/mcp.json`, and the
+installed Claude Code plugin reads only the inline block above, so an `env`
+edit in `.mcp.json` never reaches a Claude Code plugin bridge, and no manifest
+ships the break-glass. Prepare
 the bridge runtimes once per plugin version, as described in
 [Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
 stderr names the exact `prepare.mjs` command for the installed copy. Then start a

@@ -110,7 +110,9 @@ the user explicitly authorizes that alternative.
   `approve-reads`; a plugin update plus a fresh Claude Code session is
   required before that takes effect. `antigravity_acp_readiness` reports the
   resolved `permission.permissionMode` and a `permission.warning` when it is
-  `approve-reads`; check it before submitting an implementation slice. The
+  `approve-reads`, and `antigravity_acp_delegate` echoes the same `permission`
+  object in its submission receipt; check readiness before submitting an
+  implementation slice. The
   candidate Puppet controller one-path contract stays separate. Fixed-choice
   `interaction_*` questions and elicitation still fail
   closed as `needs-input` or `cancelled`; never auto-answer them. Escalate
