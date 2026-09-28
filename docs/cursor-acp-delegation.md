@@ -167,10 +167,13 @@ node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp -
 `<runtime root>/.quarantine/<bridge>/<identity>-<timestamp>-<id>/`, writes a
 `.json` record of the failed check beside it, and prepares a fresh tree. It
 deletes nothing; remove quarantined trees yourself once they are no longer
-needed. A valid tree is reused unchanged. Restart the MCP client afterwards.
+needed. A valid tree is reused unchanged. If a concurrent recovery already
+replaced the tree, the tree that was moved is re-validated and put back rather
+than reinstalled. Restart the MCP client afterwards.
 
 | `check` | Meaning |
 | --- | --- |
+| `runtime_root` | The identity path is a symlink (even a dangling one), not a directory, or unreadable. |
 | `source_file` | A copied bridge source file is missing. |
 | `dependency_root` | `node_modules` is missing, not a directory, or a symlink; a prepared tree must own its dependencies. |
 | `required_import` | A module the bridge imports is missing. |
@@ -179,6 +182,7 @@ needed. A valid tree is reused unchanged. Restart the MCP client afterwards.
 | `dependency_record` | `DEPENDENCIES.json` is unreadable or does not match this identity. |
 | `dependency_inventory` | A file under `node_modules` was `changed`, `added` or `removed` after preparation. |
 | `ready_record` | `READY.json` is unreadable or does not match this identity or platform. |
+| `unexpected` | Validation itself hit an error; `kind` is the error code. |
 
 A known cause of `dependency_inventory` / `changed` on
 `node_modules/acpx/dist/runtime.js` is a trailing

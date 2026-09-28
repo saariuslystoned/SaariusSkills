@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, chmod, cp, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { findReady, inspectRuntime, prepareRuntime } from "../runtime-store.mjs";
+import { describeSource, findReady, inspectRuntime, prepareRuntime, quarantineTree } from "../runtime-store.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const bridges = ["cursor-acp", "antigravity-acp", "grok-acp"];
@@ -468,7 +468,17 @@ async function editJsonInsideFixture(fixtureRoot, filePath, change) {
   await writeFile(target, JSON.stringify(value));
 }
 
+async function replaceTreeWithDanglingLink(fixtureRoot, root) {
+  await rm(await fixturePath(fixtureRoot, root), { recursive: true, force: true });
+  await symlink(path.join(fixtureRoot, "no-such-runtime"), root);
+}
+
 const integrityCases = [
+  {
+    name: "dangling runtime root link",
+    mutate: ({ fixtureRoot, at }) => replaceTreeWithDanglingLink(fixtureRoot, at(".")),
+    expected: { check: "runtime_root", path: ".", kind: "symlink" },
+  },
   {
     name: "missing bridge source file",
     mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("bridge/cursor-acp/broker.mjs"))),
@@ -738,6 +748,70 @@ test("prepare.mjs and the launcher name the failing check for an invalid runtime
     await access(path.join(destination, ...driftedRuntimeFile.split("/")));
     await access(record);
     assert.equal((await inspectRuntime({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) })).state, "ready");
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("--replace-invalid repairs a dangling runtime root link instead of treating it as missing", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-dangling-root-"));
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const expected = { check: "runtime_root", path: ".", kind: "symlink" };
+  const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count"), nodeModules, ...options });
+  try {
+    const prepared = await prepare();
+    await replaceTreeWithDanglingLink(fixtureRoot, prepared.root);
+    await assert.rejects(() => prepare(), (error) => {
+      assert.equal(error.code, "RUNTIME_IDENTITY_CONFLICT");
+      assert.deepEqual({ check: error.details.check, path: error.details.path, kind: error.details.kind }, expected);
+      return true;
+    });
+    const replaced = await prepare({ replaceInvalid: true });
+    assert.equal(replaced.reused, false);
+    const { destination, record, ...failure } = replaced.quarantined;
+    assert.deepEqual(failure, expected);
+    assert.ok((await lstat(destination)).isSymbolicLink(), "the link itself is kept in quarantine");
+    assert.ok((await lstat(prepared.root)).isDirectory());
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) }));
+    await access(record);
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a slower recovery never quarantines a runtime another caller already made valid", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-recovery-race-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm({ delayMs: 50 });
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const env = await isolatedRuntimeEnv(fixtureRoot);
+  const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath, nodeModules, ...options });
+  try {
+    const prepared = await prepare();
+    // The slow caller saw an invalid tree earlier; by the time it moves the
+    // tree, a faster recovery has already replaced it with a valid one.
+    const descriptor = await describeSource({ pluginRoot, bridge: "cursor-acp" });
+    assert.deepEqual(await quarantineTree({ env, root: prepared.root, descriptor }), { reused: true });
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env }), "the valid runtime stays in place");
+    assert.deepEqual(await readdir(path.join(fixtureRoot, ".quarantine", "cursor-acp")), []);
+    assert.equal(await countLines(counterPath), 1, "no reinstall for a tree that was already valid");
+
+    await appendInsideFixture(fixtureRoot, path.join(prepared.root, ...driftedRuntimeFile.split("/")), `\n// ${CONTENT_MARKER}\n`);
+    const results = await Promise.all([prepare({ replaceInvalid: true }), prepare({ replaceInvalid: true })]);
+    assert.deepEqual(results.map((result) => result.root), [prepared.root, prepared.root]);
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env }));
+    const quarantine = await readdir(path.join(fixtureRoot, ".quarantine", "cursor-acp"));
+    assert.equal(quarantine.filter((name) => name.endsWith(".json")).length, 1, "only the invalid tree is quarantined");
+    assert.deepEqual(await readdir(path.join(fixtureRoot, ".staging")), []);
   } finally {
     await rm(pluginRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });

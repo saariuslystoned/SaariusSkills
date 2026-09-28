@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -217,8 +217,12 @@ async function runTreeChecks(root, descriptor, requireReady) {
   const bridgePath = (relativePath) => `bridge/${descriptor.bridge}/${relativePath}`;
   const fail = (check, relativePath, kind) => ({ ok: false, check, path: relativePath, kind });
   const sourceRoot = copiedSourceRoot(root, descriptor);
+  // Prepared trees are always real directories renamed out of staging, so a
+  // link here (dangling or not) is foreign and must stay recoverable.
   try {
-    if (!(await stat(root)).isDirectory()) return fail("runtime_root", ".", "not_directory");
+    const stats = await lstat(root);
+    if (stats.isSymbolicLink()) return fail("runtime_root", ".", "symlink");
+    if (!stats.isDirectory()) return fail("runtime_root", ".", "not_directory");
   } catch (error) {
     return fail("runtime_root", ".", error?.code === "ENOENT" ? "missing" : "unreadable");
   }
@@ -320,22 +324,38 @@ export async function findReady({ pluginRoot, bridge, env = process.env }) {
 
 // Moves an invalid same-identity tree aside so a fresh one can be prepared.
 // Never deletes: the tree keeps its bytes for forensics next to a small record.
-async function quarantineTree(env, root, descriptor, inspection) {
+// The tree actually moved is re-validated, because a concurrent recovery may
+// have replaced the invalid tree with a valid one since the caller looked; a
+// valid tree goes straight back and is reused, so it is never left missing.
+// Returns { quarantined }, { reused: true }, or null when nothing was there.
+export async function quarantineTree({ env = process.env, root, descriptor }) {
   const quarantineRoot = path.join(runtimeRoot(env), ".quarantine", descriptor.bridge);
   await mkdir(quarantineRoot, { recursive: true });
   const quarantinedAt = new Date().toISOString();
   const destination = path.join(quarantineRoot, `${descriptor.identity}-${quarantinedAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
-  const failure = { check: inspection.check, path: inspection.path, kind: inspection.kind };
   try {
     await rename(root, destination);
   } catch (error) {
-    // A concurrent --replace-invalid already moved it; prepare fresh below.
+    // A concurrent --replace-invalid already moved it; prepare fresh.
     if (error?.code === "ENOENT") return null;
     throw new RuntimeStoreError("RUNTIME_QUARANTINE_FAILED", "invalid runtime could not be moved to quarantine", {
       root,
       cause: error?.code ?? "unknown",
-      ...failure,
     });
+  }
+  const moved = await inspectTree(destination, descriptor, true);
+  let failure = { check: moved.check, path: moved.path, kind: moved.kind };
+  if (moved.ok) {
+    try {
+      await rename(destination, root);
+      return { reused: true };
+    } catch (error) {
+      if (!(["EEXIST", "ENOTEMPTY", "EISDIR", "ENOTDIR"].includes(error?.code))) throw error;
+      // Yet another caller filled the slot meanwhile; keep ours as a record.
+      const current = await inspectTree(root, descriptor, true);
+      if (!current.ok) throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "another runtime with the same identity is invalid", invalidDetails(root, current, descriptor.bridge));
+      failure = null;
+    }
   }
   await writeFile(`${destination}.json`, `${JSON.stringify({
     schema: QUARANTINE_SCHEMA,
@@ -344,8 +364,9 @@ async function quarantineTree(env, root, descriptor, inspection) {
     from: root,
     quarantinedAt,
     failure,
+    ...(failure ? {} : { superseded: true }),
   }, null, 2)}\n`, { mode: 0o644, flag: "wx" });
-  return { destination, record: `${destination}.json`, ...failure };
+  return failure ? { quarantined: { destination, record: `${destination}.json`, ...failure } } : { reused: true };
 }
 
 function sanitizeStderr(value) {
@@ -430,7 +451,9 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
     if (!replaceInvalid) {
       throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "existing runtime identity failed integrity validation", invalidDetails(root, existing, bridge));
     }
-    quarantined = await quarantineTree(env, root, descriptor, existing);
+    const moved = await quarantineTree({ env, root, descriptor });
+    if (moved?.reused) return { descriptor, root, reused: true };
+    quarantined = moved?.quarantined ?? null;
   }
   const replaced = quarantined ? { quarantined } : {};
   const stagingRoot = path.join(runtimeRoot(env), ".staging", `${descriptor.bridge}-${descriptor.identity}-${randomUUID()}`);
