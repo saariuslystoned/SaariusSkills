@@ -274,8 +274,11 @@ edit in `.mcp.json` never reaches a Claude Code plugin bridge, and no manifest
 ships the break-glass. Prepare
 the bridge runtimes once per plugin version, as described in
 [Local Antigravity ACP](#local-antigravity-acp). If a server fails to start, its
-stderr names the exact `prepare.mjs` command for the installed copy. Then start a
-fresh session and confirm with `/mcp`. Puppet and Herdr-Puppet are archived and
+stderr names the exact `prepare.mjs` command for the installed copy, and for an
+invalid prepared tree the first failing integrity check and a
+`--replace-invalid` recovery command (see
+[Runtime troubleshooting](docs/cursor-acp-delegation.md#runtime-troubleshooting)).
+Then start a fresh session and confirm with `/mcp`. Puppet and Herdr-Puppet are archived and
 not installed.
 
 For a checkout-based trial without installing:

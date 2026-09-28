@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -9,8 +9,12 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RUNTIME_ROOT = path.join(homedir(), ".local", "state", "saarius-skills", "acp-runtime");
 const NPM_TIMEOUT_MS = 120_000;
 const NPM_TERMINATION_TIMEOUT_MS = 5_000;
+const RECOVERY_LOCK_TIMEOUT_MS = NPM_TIMEOUT_MS + NPM_TERMINATION_TIMEOUT_MS + 30_000;
+const LOCK_OWNER_GRACE_MS = 5_000;
+const LOCK_POLL_MS = 100;
 const READY_SCHEMA = "saarius.acp.runtime.v2";
 const DEPENDENCY_SCHEMA = "saarius.acp.dependencies.v1";
+const QUARANTINE_SCHEMA = "saarius.acp.quarantine.v1";
 
 const BRIDGES = Object.freeze({
   "cursor-acp": Object.freeze({
@@ -81,7 +85,7 @@ async function dependencyInventory(root) {
       } else if (child.isFile()) {
         entries.push({ path: relativePath, type: "file", sha256: await hashFile(absolutePath) });
       } else {
-        throw new RuntimeStoreError("DEPENDENCY_INTEGRITY_UNSUPPORTED", `unsupported dependency entry: ${relativePath}`);
+        throw new RuntimeStoreError("DEPENDENCY_INTEGRITY_UNSUPPORTED", `unsupported dependency entry: ${relativePath}`, { path: relativePath });
       }
     }
   }
@@ -157,6 +161,7 @@ export async function describeSource({ pluginRoot, bridge }) {
     identity,
     sourceRoot,
     files,
+    fileDigests: Object.fromEntries(entries.map((entry) => [entry.path, entry.sha256])),
     dependencies: packageJson.dependencies ?? {},
   };
 }
@@ -178,43 +183,230 @@ async function versionAt(root, packageName) {
   }
 }
 
-async function validateTree(root, descriptor, requireReady) {
-  const sourceRoot = copiedSourceRoot(root, descriptor);
+// First differing inventory entry, in path order. Only paths and entry kinds
+// are reported; hashes and symlink targets stay inside the tree.
+function inventoryDifference(recorded, current) {
+  const before = new Map(recorded.map((entry) => [entry.path, JSON.stringify(entry)]));
+  const after = new Map(current.map((entry) => [entry.path, JSON.stringify(entry)]));
+  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  for (const entryPath of paths) {
+    if (!after.has(entryPath)) return { path: entryPath, kind: "removed" };
+    if (!before.has(entryPath)) return { path: entryPath, kind: "added" };
+    if (before.get(entryPath) !== after.get(entryPath)) return { path: entryPath, kind: "changed" };
+  }
+  return null;
+}
+
+async function readJson(filePath) {
   try {
-    for (const relativePath of descriptor.files) await access(path.join(sourceRoot, relativePath));
-    for (const relativePath of REQUIRED_IMPORTS) await access(path.join(sourceRoot, relativePath));
-    const packageJson = JSON.parse(await readFile(path.join(sourceRoot, "package.json"), "utf8"));
-    if (packageJson.version !== descriptor.packageVersion) return false;
-    for (const [name, expected] of Object.entries(descriptor.dependencies)) {
-      if (await versionAt(sourceRoot, name) !== expected) return false;
-    }
-    const entries = [];
-    for (const relativePath of descriptor.files) {
-      entries.push({ path: relativePath, sha256: await hashFile(path.join(sourceRoot, relativePath)) });
-    }
-    if (entries.find((entry) => entry.path === "package.json").sha256 !== descriptor.packageDigest) return false;
-    if (entries.find((entry) => entry.path === "package-lock.json").sha256 !== descriptor.lockDigest) return false;
-    if (stableDigest(entries.filter((entry) => !["package.json", "package-lock.json"].includes(entry.path))) !== descriptor.sourceDigest) return false;
-    const dependencyRecord = JSON.parse(await readFile(path.join(root, "DEPENDENCIES.json"), "utf8"));
-    if (dependencyRecord.schema !== DEPENDENCY_SCHEMA || dependencyRecord.identity !== descriptor.identity) return false;
-    if (dependencyRecord.digest !== dependencyDigest(dependencyRecord.files)) return false;
-    if (JSON.stringify(await dependencyInventory(sourceRoot)) !== JSON.stringify(dependencyRecord.files)) return false;
-    if (requireReady) {
-      const ready = JSON.parse(await readFile(path.join(root, "READY.json"), "utf8"));
-      if (ready.schema !== READY_SCHEMA || ready.identity !== descriptor.identity) return false;
-      if (JSON.stringify(ready.platform) !== JSON.stringify(descriptor.platform)) return false;
-      if (ready.dependencyDigest !== dependencyRecord.digest) return false;
-    }
-    return true;
+    return JSON.parse(await readFile(filePath, "utf8"));
   } catch {
-    return false;
+    return null;
   }
 }
 
-export async function findReady({ pluginRoot, bridge, env = process.env }) {
+// Returns { ok: true } or the first failing check as { ok: false, check, path,
+// kind }, with `path` relative to the runtime tree root. Never file contents.
+// Like the boolean validator it replaced, it fails closed and never throws.
+async function inspectTree(root, descriptor, requireReady) {
+  try {
+    return await runTreeChecks(root, descriptor, requireReady);
+  } catch (error) {
+    return { ok: false, check: "unexpected", path: ".", kind: error?.code ?? "error" };
+  }
+}
+
+async function runTreeChecks(root, descriptor, requireReady) {
+  const bridgePath = (relativePath) => `bridge/${descriptor.bridge}/${relativePath}`;
+  const fail = (check, relativePath, kind) => ({ ok: false, check, path: relativePath, kind });
+  const sourceRoot = copiedSourceRoot(root, descriptor);
+  // Prepared trees are always real directories renamed out of staging, so a
+  // link here (dangling or not) is foreign and must stay recoverable.
+  try {
+    const stats = await lstat(root);
+    if (stats.isSymbolicLink()) return fail("runtime_root", ".", "symlink");
+    if (!stats.isDirectory()) return fail("runtime_root", ".", "not_directory");
+  } catch (error) {
+    return fail("runtime_root", ".", error?.code === "ENOENT" ? "missing" : "unreadable");
+  }
+  for (const relativePath of descriptor.files) {
+    try {
+      await access(path.join(sourceRoot, relativePath));
+    } catch {
+      return fail("source_file", bridgePath(relativePath), "missing");
+    }
+  }
+  // A prepared tree owns its dependencies; a linked node_modules points outside
+  // the content-addressed store and lets writes escape it.
+  try {
+    const stats = await lstat(path.join(sourceRoot, "node_modules"));
+    if (stats.isSymbolicLink()) return fail("dependency_root", bridgePath("node_modules"), "symlink");
+    if (!stats.isDirectory()) return fail("dependency_root", bridgePath("node_modules"), "not_directory");
+  } catch {
+    return fail("dependency_root", bridgePath("node_modules"), "missing");
+  }
+  for (const relativePath of REQUIRED_IMPORTS) {
+    try {
+      await access(path.join(sourceRoot, relativePath));
+    } catch {
+      return fail("required_import", bridgePath(relativePath), "missing");
+    }
+  }
+  const packageJson = await readJson(path.join(sourceRoot, "package.json"));
+  if (!packageJson) return fail("package_version", bridgePath("package.json"), "unreadable");
+  if (packageJson.version !== descriptor.packageVersion) return fail("package_version", bridgePath("package.json"), "mismatch");
+  for (const [name, expected] of Object.entries(descriptor.dependencies)) {
+    if (await versionAt(sourceRoot, name) !== expected) return fail("dependency_version", bridgePath(`node_modules/${name}/package.json`), "mismatch");
+  }
+  for (const relativePath of descriptor.files) {
+    let sha256;
+    try {
+      sha256 = await hashFile(path.join(sourceRoot, relativePath));
+    } catch {
+      return fail("source_integrity", bridgePath(relativePath), "unreadable");
+    }
+    if (sha256 !== descriptor.fileDigests[relativePath]) return fail("source_integrity", bridgePath(relativePath), "changed");
+  }
+  const dependencyRecord = await readJson(path.join(root, "DEPENDENCIES.json"));
+  if (!dependencyRecord || !Array.isArray(dependencyRecord.files)) return fail("dependency_record", "DEPENDENCIES.json", "unreadable");
+  if (dependencyRecord.schema !== DEPENDENCY_SCHEMA) return fail("dependency_record", "DEPENDENCIES.json", "schema");
+  if (dependencyRecord.identity !== descriptor.identity) return fail("dependency_record", "DEPENDENCIES.json", "identity");
+  if (dependencyRecord.digest !== dependencyDigest(dependencyRecord.files)) return fail("dependency_record", "DEPENDENCIES.json", "digest");
+  let inventory;
+  try {
+    inventory = await dependencyInventory(sourceRoot);
+  } catch (error) {
+    return error?.details?.path
+      ? fail("dependency_inventory", bridgePath(error.details.path), "unsupported")
+      : fail("dependency_inventory", bridgePath("node_modules"), "unreadable");
+  }
+  if (JSON.stringify(inventory) !== JSON.stringify(dependencyRecord.files)) {
+    const difference = inventoryDifference(dependencyRecord.files, inventory) ?? { path: "node_modules", kind: "reordered" };
+    return fail("dependency_inventory", bridgePath(difference.path), difference.kind);
+  }
+  if (requireReady) {
+    const ready = await readJson(path.join(root, "READY.json"));
+    if (!ready) return fail("ready_record", "READY.json", "unreadable");
+    if (ready.schema !== READY_SCHEMA) return fail("ready_record", "READY.json", "schema");
+    if (ready.identity !== descriptor.identity) return fail("ready_record", "READY.json", "identity");
+    if (JSON.stringify(ready.platform) !== JSON.stringify(descriptor.platform)) return fail("ready_record", "READY.json", "platform");
+    if (ready.dependencyDigest !== dependencyRecord.digest) return fail("ready_record", "READY.json", "dependency_digest");
+  }
+  return { ok: true };
+}
+
+function isMissing(inspection) {
+  return inspection.check === "runtime_root" && inspection.kind === "missing";
+}
+
+function invalidDetails(root, inspection, bridge) {
+  return {
+    root,
+    check: inspection.check,
+    path: inspection.path,
+    kind: inspection.kind,
+    recovery: setupCommand(bridge, { replaceInvalid: true }),
+  };
+}
+
+// Reports whether the runtime for the current source and Node identity is
+// ready, missing, or present but invalid (with the first failing check).
+export async function inspectRuntime({ pluginRoot, bridge, env = process.env }) {
   const descriptor = await describeSource({ pluginRoot, bridge });
   const root = runtimePath(runtimeRoot(env), descriptor);
-  return (await validateTree(root, descriptor, true)) ? { descriptor, root, reused: true } : null;
+  const inspection = await inspectTree(root, descriptor, true);
+  if (inspection.ok) return { descriptor, root, state: "ready" };
+  if (isMissing(inspection)) return { descriptor, root, state: "missing" };
+  return { descriptor, root, state: "invalid", failure: { check: inspection.check, path: inspection.path, kind: inspection.kind } };
+}
+
+export async function findReady({ pluginRoot, bridge, env = process.env }) {
+  const inspection = await inspectRuntime({ pluginRoot, bridge, env });
+  return inspection.state === "ready" ? { descriptor: inspection.descriptor, root: inspection.root, reused: true } : null;
+}
+
+// Moves an invalid same-identity tree aside so a fresh one can be prepared.
+// Never deletes: the tree keeps its bytes for forensics next to a small record.
+// Callers hold the recovery lock and have just re-validated the tree.
+async function quarantineTree({ env, root, descriptor, failure }) {
+  const quarantineRoot = path.join(runtimeRoot(env), ".quarantine", descriptor.bridge);
+  await mkdir(quarantineRoot, { recursive: true });
+  const quarantinedAt = new Date().toISOString();
+  const destination = path.join(quarantineRoot, `${descriptor.identity}-${quarantinedAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
+  const recorded = { check: failure.check, path: failure.path, kind: failure.kind };
+  try {
+    await rename(root, destination);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new RuntimeStoreError("RUNTIME_QUARANTINE_FAILED", "invalid runtime could not be moved to quarantine", {
+      root,
+      cause: error?.code ?? "unknown",
+      ...recorded,
+    });
+  }
+  await writeFile(`${destination}.json`, `${JSON.stringify({
+    schema: QUARANTINE_SCHEMA,
+    bridge: descriptor.bridge,
+    identity: descriptor.identity,
+    from: root,
+    quarantinedAt,
+    failure: recorded,
+  }, null, 2)}\n`, { mode: 0o644, flag: "wx" });
+  return { destination, record: `${destination}.json`, ...recorded };
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+// Serializes recoveries per runtime identity. mkdir is the atomic claim. A
+// live holder is waited for; a dead holder's lock is left for the operator
+// (fail closed) rather than reclaimed, so two waiters can never both proceed.
+async function withRecoveryLock({ env, descriptor, timeoutMs }, action) {
+  const lock = path.join(runtimeRoot(env), ".locks", `${descriptor.bridge}-${descriptor.identity}.lock`);
+  await mkdir(path.dirname(lock), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await mkdir(lock);
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw new RuntimeStoreError("RUNTIME_RECOVERY_LOCK_FAILED", "runtime recovery lock could not be created", { lock, cause: error?.code ?? "unknown" });
+      }
+    }
+    const holder = await readJson(path.join(lock, "owner.json"));
+    let stale;
+    if (Number.isInteger(holder?.pid)) {
+      stale = !processAlive(holder.pid);
+    } else {
+      // A holder writes owner.json right after mkdir; allow it a moment.
+      try {
+        stale = Date.now() - (await lstat(lock)).mtimeMs > LOCK_OWNER_GRACE_MS;
+      } catch {
+        continue;
+      }
+    }
+    const details = { lock, pid: Number.isInteger(holder?.pid) ? holder.pid : null };
+    if (stale) {
+      throw new RuntimeStoreError("RUNTIME_RECOVERY_LOCK_STALE", "an earlier runtime recovery did not finish; remove its lock once no prepare is running", details);
+    }
+    if (Date.now() >= deadline) {
+      throw new RuntimeStoreError("RUNTIME_RECOVERY_BUSY", "another runtime recovery for this identity is still running", details);
+    }
+    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+  }
+  try {
+    await writeFile(path.join(lock, "owner.json"), `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, { mode: 0o644, flag: "wx" });
+    return await action();
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 function sanitizeStderr(value) {
@@ -289,16 +481,29 @@ async function copySource(descriptor, stagingRoot) {
   }
 }
 
-export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS }) {
+export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS, replaceInvalid = false, recoveryLockTimeoutMs = RECOVERY_LOCK_TIMEOUT_MS }) {
   const descriptor = await describeSource({ pluginRoot, bridge });
   const root = runtimePath(runtimeRoot(env), descriptor);
-  if (await validateTree(root, descriptor, true)) return { descriptor, root, reused: true };
-  try {
-    await access(root);
-    throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "existing runtime identity failed integrity validation");
-  } catch (error) {
-    if (error instanceof RuntimeStoreError) throw error;
+  const existing = await inspectTree(root, descriptor, true);
+  if (existing.ok) return { descriptor, root, reused: true };
+  const install = (replaced = {}) => installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeoutMs, npmTerminationTimeoutMs, replaced });
+  if (isMissing(existing)) return install();
+  if (!replaceInvalid) {
+    throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "existing runtime identity failed integrity validation", invalidDetails(root, existing, bridge));
   }
+  return withRecoveryLock({ env, descriptor, timeoutMs: recoveryLockTimeoutMs }, async () => {
+    // Re-validate under the lock: an earlier recovery may already have replaced
+    // the tree, and a valid runtime must never be moved, even briefly.
+    const current = await inspectTree(root, descriptor, true);
+    if (current.ok) return { descriptor, root, reused: true };
+    if (isMissing(current)) return install();
+    const quarantined = await quarantineTree({ env, root, descriptor, failure: current });
+    return install(quarantined ? { quarantined } : {});
+  });
+}
+
+async function installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeoutMs, npmTerminationTimeoutMs, replaced }) {
+  const { bridge } = descriptor;
   const stagingRoot = path.join(runtimeRoot(env), ".staging", `${descriptor.bridge}-${descriptor.identity}-${randomUUID()}`);
   try {
     await copySource(descriptor, stagingRoot);
@@ -311,8 +516,13 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
       files: inventory,
     };
     await writeFile(path.join(stagingRoot, "DEPENDENCIES.json"), `${JSON.stringify(dependencyRecord, null, 2)}\n`, { mode: 0o644 });
-    if (!(await validateTree(stagingRoot, descriptor, false))) {
-      throw new RuntimeStoreError("READY_INTEGRITY_MISMATCH", "installed runtime failed source or dependency integrity validation");
+    const staged = await inspectTree(stagingRoot, descriptor, false);
+    if (!staged.ok) {
+      throw new RuntimeStoreError("READY_INTEGRITY_MISMATCH", "installed runtime failed source or dependency integrity validation", {
+        check: staged.check,
+        path: staged.path,
+        kind: staged.kind,
+      });
     }
     await writeFile(path.join(stagingRoot, "READY.json"), `${JSON.stringify({
       schema: READY_SCHEMA,
@@ -328,14 +538,15 @@ export async function prepareRuntime({ pluginRoot, bridge, env = process.env, np
     await mkdir(path.dirname(root), { recursive: true });
     try {
       await rename(stagingRoot, root);
-      return { descriptor, root, reused: false };
+      return { descriptor, root, reused: false, ...replaced };
     } catch (error) {
       if (!(["EEXIST", "ENOTEMPTY", "EISDIR"].includes(error?.code))) throw error;
-      if (await validateTree(root, descriptor, true)) {
+      const concurrent = await inspectTree(root, descriptor, true);
+      if (concurrent.ok) {
         await rm(stagingRoot, { recursive: true, force: true });
-        return { descriptor, root, reused: true };
+        return { descriptor, root, reused: true, ...replaced };
       }
-      throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "another runtime with the same identity is invalid");
+      throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "another runtime with the same identity is invalid", invalidDetails(root, concurrent, bridge));
     }
   } catch (error) {
     if (error?.details?.cleanupSafe === false) throw error;
@@ -350,6 +561,6 @@ export function pluginRootFromModule() {
   return path.resolve(SCRIPT_DIR, "../..");
 }
 
-export function setupCommand(bridge) {
-  return `${process.execPath} ${path.join(SCRIPT_DIR, "prepare.mjs")} --bridge ${bridge}`;
+export function setupCommand(bridge, { replaceInvalid = false } = {}) {
+  return `${process.execPath} ${path.join(SCRIPT_DIR, "prepare.mjs")} --bridge ${bridge}${replaceInvalid ? " --replace-invalid" : ""}`;
 }
