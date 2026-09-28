@@ -113,8 +113,10 @@ hop the launcher; ACpx still stays a local child on the worker.
 proof is the Antigravity lane. Former aliases: Local was L; Always-on was
 A1; Hop was B. This slice does not qualify Puppet's ACP transport,
 implement issues #35/#37 wholesale, connect to OpenClaw or SwarmHerdr,
-open Gateway (was A2), or authorize deployment, publication, external
-sends, spending, account/security changes, or destructive cleanup.
+or authorize deployment, publication, external sends, spending,
+account/security changes, or destructive cleanup. A separate host that owns
+phone or browser chat (for example Swarm Intercom) may start this bridge as
+its parent; that host is not part of this plugin and is not proven here.
 
 Cursor's proprietary `ask_question` and `create_plan` requests are not claimed
 as supported native surfaces here. If one blocks a task, report the explicit

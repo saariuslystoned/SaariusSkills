@@ -29,9 +29,10 @@ worker. The Cursor plugin starts `antigravity-acp` and `grok-acp`. The Codex
 plugin starts `antigravity-acp`, `cursor-acp`, and `grok-acp`.
 
 The same six tools (`readiness`, `delegate`, `status`, `result`, `steer`,
-`cancel`) run in three proven placements. **Gateway** (was A2) — a
-SaariusSkills process that owns phone or browser chat and spawns ACP —
-stays off. Do not build it.
+`cancel`) run in three proven placements. A separate host that owns phone
+or browser chat (for example Swarm Intercom; earlier docs called this
+Gateway, was A2) may start the bridges as their parent. That host is not
+part of this plugin and is not proven here.
 
 Former aliases: Local was L; Always-on was A1; Hop was B.
 
@@ -52,8 +53,8 @@ write/exec that would prompt; `SAARIUS_ACP_PERMISSION_MODE=approve-all` is
 break-glass on the attach, not a tool argument; one parent conversation
 owns one worker (cwd is not exclusive).
 
-This plugin does not claim Google AI Ultra, Gateway (was A2), Parallels,
-`acpx --agent ssh`, or that a cloud Cursor Project chat can call
+This plugin does not claim Google AI Ultra, a proven chat-host parent,
+Parallels, `acpx --agent ssh`, or that a cloud Cursor Project chat can call
 `antigravity_acp_*`. Hop argv is parent-attach config, not a hostname in
 the published manifests. Bare `ssh` as the laptop login user is not the
 proven hop identity.

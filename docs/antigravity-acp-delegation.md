@@ -30,9 +30,10 @@ and Puppet qualification stay on their own routes.
 
 ## Placements (Local / Always-on / Hop)
 
-The same six tools run in three proven placements. **Gateway** (was A2) — a
-SaariusSkills chat process that owns phone or browser chat and spawns ACP —
-stays off. Do not build it.
+The same six tools run in three proven placements. A separate host that owns
+phone or browser chat (for example Swarm Intercom; earlier docs called this
+Gateway, was A2) may start the bridges as their parent. That host is not part
+of this plugin and is not proven here.
 
 Former aliases: Local was L; Always-on was A1; Hop was B.
 
@@ -240,7 +241,7 @@ may be left for audit or removed only as an explicitly approved, exact-path
 cleanup.
 
 This slice is distinct from Puppet issues #35, #37, and #38. It does not claim
-a transport-neutral controller, Gateway (was A2), or formal ACP
+a transport-neutral controller, a proven chat-host parent, or formal ACP
 qualification.
 
 ## Hop
@@ -293,7 +294,8 @@ stated budget. This document does not authorize a new model turn.
 
 - A cloud Cursor Project chat can call `antigravity_acp_*`.
 - Google AI Ultra / quota entitlement.
-- Gateway (was A2), Parallels, or `acpx --agent ssh`.
+- A chat host (for example Swarm Intercom) proven as the bridges' parent.
+- Parallels or `acpx --agent ssh`.
 - Bare `ssh` as the laptop login user to the always-on box.
 - `~/.cursor/mcp.json` as the published install.
 - Cursor-worker hello.mjs jobs (Local / Always-on / Hop live proof is this Antigravity lane).
