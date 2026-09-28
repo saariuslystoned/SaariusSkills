@@ -21,8 +21,10 @@ break-glass), and binds one parent conversation to one worker with
 owner-gated rebind. It does not lock cwd and does not use one-path
 `allow_once`.
 
-This is not `cursor-agent acp`, not a Grok Bot computer, not a gateway, and
-not an ACpx rebuild.
+This is not `cursor-agent acp`, not a Grok Bot computer, not a phone or
+browser chat host, and not an ACpx rebuild. A separate chat host (for example
+Swarm Intercom) may start this bridge as its parent. That host is not part of
+this plugin and is not proven here.
 
 Conversation ownership is host-controlled. `hostConversationId` identifies the
 parent conversation; a request `binderId` is only an assertion and must match

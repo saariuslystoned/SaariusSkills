@@ -10,8 +10,10 @@ ACP setup or delegate one bounded slice. Host the plugin in Codex or Cursor.
 The same six tools are **Local** (same-machine parent and worker),
 **Always-on** (same local contract on a box that stays up), or **Hop**
 (parent hops stdio with `SAARIUS_ACP_HOP_ARGV`; ACpx stays a local child
-on the worker). **Gateway** (was A2) stays off. Former aliases: Local was
-L; Always-on was A1; Hop was B. This lane talks to Google's official
+on the worker). A separate host that owns phone or browser chat (for
+example Swarm Intercom) may start the bridge as its parent; that host is not
+part of this plugin and is not proven here. Former aliases: Local was L;
+Always-on was A1; Hop was B. This lane talks to Google's official
 Antigravity ACP runtime through pinned `acpx@0.19.1`. It is not the Cursor
 ACP lane, not native `agy --print`, and not a Puppet transport. Published
 install is the plugin, not `~/.cursor/mcp.json`. A cloud Cursor Project
@@ -137,8 +139,8 @@ the user explicitly authorizes that alternative.
 
 Unset hop is Local or Always-on. Set hop is Hop (host-owned SSH/container
 argv). This lane does not qualify Puppet's Antigravity transport, replace
-native `agy-print`, open Gateway (was A2), implement issues #35/#37/#38
-wholesale, or authorize deployment, publication, external sends, spending,
-account/security changes, or destructive cleanup. It does not claim
-Google AI Ultra, Parallels, `acpx --agent ssh`, or that a cloud Project
-chat can call `antigravity_acp_*`.
+native `agy-print`, implement issues #35/#37/#38 wholesale, or authorize
+deployment, publication, external sends, spending, account/security
+changes, or destructive cleanup. It does not claim Google AI Ultra, a
+proven chat-host parent, Parallels, `acpx --agent ssh`, or that a cloud
+Project chat can call `antigravity_acp_*`.

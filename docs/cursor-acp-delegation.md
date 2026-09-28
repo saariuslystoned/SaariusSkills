@@ -166,8 +166,8 @@ left for audit or removed only as an explicitly approved, exact-path cleanup;
 the bridge never deletes it automatically.
 
 This slice is distinct from Puppet issues #35 and #37. It does not claim a
-transport-neutral controller, Gateway (was A2), OpenClaw gateway, or
-formal ACP qualification. The shared launcher honors optional
+transport-neutral controller, a proven chat-host parent, OpenClaw gateway,
+or formal ACP qualification. The shared launcher honors optional
 `SAARIUS_ACP_HOP_ARGV` the same way as the Antigravity hop; ACpx still
 stays a local child on the worker. Cursor-worker Hop is source-landed, not
 the proven MacBook → CP-1 hello.mjs job. See the hop section in

@@ -103,7 +103,9 @@ explicitly authorizes that alternative.
 ## Scope boundary
 
 This is an experimental local MCP slice. Local unset hop is L/A1. Set hop is B
-(host-owned SSH/container argv). It does not rebuild ACP or ACpx, open a
-gateway, start a Parallels/VM, reach a Grok Bot computer, qualify Puppet's
-grok harness, or authorize deployment, publication, external sends, spending,
-account/security changes, or destructive cleanup.
+(host-owned SSH/container argv). It does not rebuild ACP or ACpx, start a
+Parallels/VM, reach a Grok Bot computer, qualify Puppet's grok harness, or
+authorize deployment, publication, external sends, spending, account/security
+changes, or destructive cleanup. A separate host that owns phone or browser
+chat (for example Swarm Intercom) may start this bridge as its parent; that
+host is not part of this plugin and is not proven here.
