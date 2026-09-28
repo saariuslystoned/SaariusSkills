@@ -9,6 +9,9 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RUNTIME_ROOT = path.join(homedir(), ".local", "state", "saarius-skills", "acp-runtime");
 const NPM_TIMEOUT_MS = 120_000;
 const NPM_TERMINATION_TIMEOUT_MS = 5_000;
+const RECOVERY_LOCK_TIMEOUT_MS = NPM_TIMEOUT_MS + NPM_TERMINATION_TIMEOUT_MS + 30_000;
+const LOCK_OWNER_GRACE_MS = 5_000;
+const LOCK_POLL_MS = 100;
 const READY_SCHEMA = "saarius.acp.runtime.v2";
 const DEPENDENCY_SCHEMA = "saarius.acp.dependencies.v1";
 const QUARANTINE_SCHEMA = "saarius.acp.quarantine.v1";
@@ -324,38 +327,22 @@ export async function findReady({ pluginRoot, bridge, env = process.env }) {
 
 // Moves an invalid same-identity tree aside so a fresh one can be prepared.
 // Never deletes: the tree keeps its bytes for forensics next to a small record.
-// The tree actually moved is re-validated, because a concurrent recovery may
-// have replaced the invalid tree with a valid one since the caller looked; a
-// valid tree goes straight back and is reused, so it is never left missing.
-// Returns { quarantined }, { reused: true }, or null when nothing was there.
-export async function quarantineTree({ env = process.env, root, descriptor }) {
+// Callers hold the recovery lock and have just re-validated the tree.
+async function quarantineTree({ env, root, descriptor, failure }) {
   const quarantineRoot = path.join(runtimeRoot(env), ".quarantine", descriptor.bridge);
   await mkdir(quarantineRoot, { recursive: true });
   const quarantinedAt = new Date().toISOString();
   const destination = path.join(quarantineRoot, `${descriptor.identity}-${quarantinedAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
+  const recorded = { check: failure.check, path: failure.path, kind: failure.kind };
   try {
     await rename(root, destination);
   } catch (error) {
-    // A concurrent --replace-invalid already moved it; prepare fresh.
     if (error?.code === "ENOENT") return null;
     throw new RuntimeStoreError("RUNTIME_QUARANTINE_FAILED", "invalid runtime could not be moved to quarantine", {
       root,
       cause: error?.code ?? "unknown",
+      ...recorded,
     });
-  }
-  const moved = await inspectTree(destination, descriptor, true);
-  let failure = { check: moved.check, path: moved.path, kind: moved.kind };
-  if (moved.ok) {
-    try {
-      await rename(destination, root);
-      return { reused: true };
-    } catch (error) {
-      if (!(["EEXIST", "ENOTEMPTY", "EISDIR", "ENOTDIR"].includes(error?.code))) throw error;
-      // Yet another caller filled the slot meanwhile; keep ours as a record.
-      const current = await inspectTree(root, descriptor, true);
-      if (!current.ok) throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "another runtime with the same identity is invalid", invalidDetails(root, current, descriptor.bridge));
-      failure = null;
-    }
   }
   await writeFile(`${destination}.json`, `${JSON.stringify({
     schema: QUARANTINE_SCHEMA,
@@ -363,10 +350,63 @@ export async function quarantineTree({ env = process.env, root, descriptor }) {
     identity: descriptor.identity,
     from: root,
     quarantinedAt,
-    failure,
-    ...(failure ? {} : { superseded: true }),
+    failure: recorded,
   }, null, 2)}\n`, { mode: 0o644, flag: "wx" });
-  return failure ? { quarantined: { destination, record: `${destination}.json`, ...failure } } : { reused: true };
+  return { destination, record: `${destination}.json`, ...recorded };
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+// Serializes recoveries per runtime identity. mkdir is the atomic claim. A
+// live holder is waited for; a dead holder's lock is left for the operator
+// (fail closed) rather than reclaimed, so two waiters can never both proceed.
+async function withRecoveryLock({ env, descriptor, timeoutMs }, action) {
+  const lock = path.join(runtimeRoot(env), ".locks", `${descriptor.bridge}-${descriptor.identity}.lock`);
+  await mkdir(path.dirname(lock), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await mkdir(lock);
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw new RuntimeStoreError("RUNTIME_RECOVERY_LOCK_FAILED", "runtime recovery lock could not be created", { lock, cause: error?.code ?? "unknown" });
+      }
+    }
+    const holder = await readJson(path.join(lock, "owner.json"));
+    let stale;
+    if (Number.isInteger(holder?.pid)) {
+      stale = !processAlive(holder.pid);
+    } else {
+      // A holder writes owner.json right after mkdir; allow it a moment.
+      try {
+        stale = Date.now() - (await lstat(lock)).mtimeMs > LOCK_OWNER_GRACE_MS;
+      } catch {
+        continue;
+      }
+    }
+    const details = { lock, pid: Number.isInteger(holder?.pid) ? holder.pid : null };
+    if (stale) {
+      throw new RuntimeStoreError("RUNTIME_RECOVERY_LOCK_STALE", "an earlier runtime recovery did not finish; remove its lock once no prepare is running", details);
+    }
+    if (Date.now() >= deadline) {
+      throw new RuntimeStoreError("RUNTIME_RECOVERY_BUSY", "another runtime recovery for this identity is still running", details);
+    }
+    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+  }
+  try {
+    await writeFile(path.join(lock, "owner.json"), `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, { mode: 0o644, flag: "wx" });
+    return await action();
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 function sanitizeStderr(value) {
@@ -441,21 +481,29 @@ async function copySource(descriptor, stagingRoot) {
   }
 }
 
-export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS, replaceInvalid = false }) {
+export async function prepareRuntime({ pluginRoot, bridge, env = process.env, npmCommand, npmEnv, timeoutMs = NPM_TIMEOUT_MS, npmTerminationTimeoutMs = NPM_TERMINATION_TIMEOUT_MS, replaceInvalid = false, recoveryLockTimeoutMs = RECOVERY_LOCK_TIMEOUT_MS }) {
   const descriptor = await describeSource({ pluginRoot, bridge });
   const root = runtimePath(runtimeRoot(env), descriptor);
   const existing = await inspectTree(root, descriptor, true);
   if (existing.ok) return { descriptor, root, reused: true };
-  let quarantined = null;
-  if (!isMissing(existing)) {
-    if (!replaceInvalid) {
-      throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "existing runtime identity failed integrity validation", invalidDetails(root, existing, bridge));
-    }
-    const moved = await quarantineTree({ env, root, descriptor });
-    if (moved?.reused) return { descriptor, root, reused: true };
-    quarantined = moved?.quarantined ?? null;
+  const install = (replaced = {}) => installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeoutMs, npmTerminationTimeoutMs, replaced });
+  if (isMissing(existing)) return install();
+  if (!replaceInvalid) {
+    throw new RuntimeStoreError("RUNTIME_IDENTITY_CONFLICT", "existing runtime identity failed integrity validation", invalidDetails(root, existing, bridge));
   }
-  const replaced = quarantined ? { quarantined } : {};
+  return withRecoveryLock({ env, descriptor, timeoutMs: recoveryLockTimeoutMs }, async () => {
+    // Re-validate under the lock: an earlier recovery may already have replaced
+    // the tree, and a valid runtime must never be moved, even briefly.
+    const current = await inspectTree(root, descriptor, true);
+    if (current.ok) return { descriptor, root, reused: true };
+    if (isMissing(current)) return install();
+    const quarantined = await quarantineTree({ env, root, descriptor, failure: current });
+    return install(quarantined ? { quarantined } : {});
+  });
+}
+
+async function installRuntime({ descriptor, root, env, npmCommand, npmEnv, timeoutMs, npmTerminationTimeoutMs, replaced }) {
+  const { bridge } = descriptor;
   const stagingRoot = path.join(runtimeRoot(env), ".staging", `${descriptor.bridge}-${descriptor.identity}-${randomUUID()}`);
   try {
     await copySource(descriptor, stagingRoot);

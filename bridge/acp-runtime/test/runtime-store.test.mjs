@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { describeSource, findReady, inspectRuntime, prepareRuntime, quarantineTree } from "../runtime-store.mjs";
+import { findReady, inspectRuntime, prepareRuntime } from "../runtime-store.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const bridges = ["cursor-acp", "antigravity-acp", "grok-acp"];
@@ -135,7 +135,7 @@ function npmEnv(bridge, counterPath, nodeModules = path.join(repoRoot, "bridge",
   };
 }
 
-async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, counterPath, nodeModules, replaceInvalid }) {
+async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, counterPath, nodeModules, replaceInvalid, recoveryLockTimeoutMs }) {
   return prepareRuntime({
     pluginRoot,
     bridge,
@@ -143,6 +143,7 @@ async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, count
     npmCommand: command,
     npmEnv: npmEnv(bridge, counterPath, nodeModules),
     replaceInvalid,
+    recoveryLockTimeoutMs,
   });
 }
 
@@ -787,7 +788,7 @@ test("--replace-invalid repairs a dangling runtime root link instead of treating
   }
 });
 
-test("a slower recovery never quarantines a runtime another caller already made valid", async () => {
+test("concurrent recoveries are serialized and never take a valid runtime away", async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-recovery-race-"));
   const counterPath = path.join(fixtureRoot, "npm.count");
   const fake = await makeFakeNpm({ delayMs: 50 });
@@ -797,21 +798,136 @@ test("a slower recovery never quarantines a runtime another caller already made 
   const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath, nodeModules, ...options });
   try {
     const prepared = await prepare();
-    // The slow caller saw an invalid tree earlier; by the time it moves the
-    // tree, a faster recovery has already replaced it with a valid one.
-    const descriptor = await describeSource({ pluginRoot, bridge: "cursor-acp" });
-    assert.deepEqual(await quarantineTree({ env, root: prepared.root, descriptor }), { reused: true });
-    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env }), "the valid runtime stays in place");
-    assert.deepEqual(await readdir(path.join(fixtureRoot, ".quarantine", "cursor-acp")), []);
-    assert.equal(await countLines(counterPath), 1, "no reinstall for a tree that was already valid");
-
     await appendInsideFixture(fixtureRoot, path.join(prepared.root, ...driftedRuntimeFile.split("/")), `\n// ${CONTENT_MARKER}\n`);
-    const results = await Promise.all([prepare({ replaceInvalid: true }), prepare({ replaceInvalid: true })]);
-    assert.deepEqual(results.map((result) => result.root), [prepared.root, prepared.root]);
+
+    // Watch the runtime path the way a launcher would reach it: the drifted
+    // tree may leave once, but after that the path must never go missing.
+    let watching = true;
+    const presence = [];
+    const watcher = (async () => {
+      while (watching) {
+        let present;
+        try {
+          await lstat(path.join(prepared.root, "READY.json"));
+          present = true;
+        } catch {
+          present = false;
+        }
+        if (presence.at(-1) !== present) presence.push(present);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    })();
+    const results = await Promise.all([1, 2, 3].map(() => prepare({ replaceInvalid: true })));
+    watching = false;
+    await watcher;
+
+    assert.deepEqual(presence, [true, false, true], "the runtime path went missing after it held a valid tree");
+    assert.deepEqual(results.map((result) => result.root), [prepared.root, prepared.root, prepared.root]);
+    assert.deepEqual(results.map((result) => Boolean(result.quarantined)).sort(), [false, false, true]);
+    assert.equal(await countLines(counterPath), 2, "exactly one reinstall");
     assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env }));
     const quarantine = await readdir(path.join(fixtureRoot, ".quarantine", "cursor-acp"));
-    assert.equal(quarantine.filter((name) => name.endsWith(".json")).length, 1, "only the invalid tree is quarantined");
+    assert.equal(quarantine.filter((name) => name.endsWith(".json")).length, 1);
+    assert.deepEqual(await readdir(path.join(fixtureRoot, ".locks")), []);
     assert.deepEqual(await readdir(path.join(fixtureRoot, ".staging")), []);
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a held or abandoned recovery lock leaves the invalid runtime untouched", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-recovery-lock-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath, nodeModules, ...options });
+  try {
+    const prepared = await prepare();
+    const runtimeFile = path.join(prepared.root, ...driftedRuntimeFile.split("/"));
+    await appendInsideFixture(fixtureRoot, runtimeFile, `\n// ${CONTENT_MARKER}\n`);
+    const drifted = await readFile(runtimeFile);
+    const lock = path.join(fixtureRoot, ".locks", `cursor-acp-${prepared.descriptor.identity}.lock`);
+    await mkdir(lock, { recursive: true });
+
+    await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid }));
+    await assert.rejects(() => prepare({ replaceInvalid: true, recoveryLockTimeoutMs: 300 }), (error) => {
+      assert.equal(error.code, "RUNTIME_RECOVERY_BUSY");
+      assert.deepEqual(error.details, { lock, pid: process.pid });
+      return true;
+    });
+
+    await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: 8_888_888 }));
+    await assert.rejects(() => prepare({ replaceInvalid: true }), (error) => {
+      assert.equal(error.code, "RUNTIME_RECOVERY_LOCK_STALE");
+      assert.deepEqual(error.details, { lock, pid: 8_888_888 });
+      return true;
+    });
+    await access(lock);
+    assert.deepEqual(await readFile(runtimeFile), drifted, "no recovery ran while the lock was held");
+    await assert.rejects(() => readdir(path.join(fixtureRoot, ".quarantine")), { code: "ENOENT" });
+
+    await rm(lock, { recursive: true });
+    const replaced = await prepare({ replaceInvalid: true });
+    assert.ok(replaced.quarantined);
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) }));
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a waiting recovery re-validates under the lock and leaves a repaired runtime in place", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-recovery-wait-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const env = await isolatedRuntimeEnv(fixtureRoot);
+  const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath, nodeModules, ...options });
+  try {
+    const prepared = await prepare();
+    await appendInsideFixture(fixtureRoot, path.join(prepared.root, ...driftedRuntimeFile.split("/")), `\n// ${CONTENT_MARKER}\n`);
+    const lock = path.join(fixtureRoot, ".locks", `cursor-acp-${prepared.descriptor.identity}.lock`);
+    await mkdir(lock, { recursive: true });
+    await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid }));
+
+    // The slow recovery has already seen the invalid tree and now waits.
+    const slow = prepare({ replaceInvalid: true });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Meanwhile the lock holder repairs the runtime.
+    await rename(await fixturePath(fixtureRoot, prepared.root), path.join(fixtureRoot, "set-aside"));
+    assert.equal((await prepare()).reused, false);
+    const repairedReady = await readFile(path.join(prepared.root, "READY.json"));
+
+    let watching = true;
+    let wentMissing = false;
+    const watcher = (async () => {
+      while (watching) {
+        try {
+          await lstat(path.join(prepared.root, "READY.json"));
+        } catch {
+          wentMissing = true;
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    })();
+    await rm(lock, { recursive: true });
+    const result = await slow;
+    watching = false;
+    await watcher;
+
+    assert.equal(wentMissing, false, "the repaired runtime was moved away");
+    assert.deepEqual({ reused: result.reused, quarantined: result.quarantined }, { reused: true, quarantined: undefined });
+    assert.deepEqual(await readFile(path.join(prepared.root, "READY.json")), repairedReady);
+    assert.equal(await countLines(counterPath), 2, "the waiting recovery did not reinstall");
+    await assert.rejects(() => readdir(path.join(fixtureRoot, ".quarantine")), { code: "ENOENT" });
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env }));
   } finally {
     await rm(pluginRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });

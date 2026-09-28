@@ -167,9 +167,19 @@ node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp -
 `<runtime root>/.quarantine/<bridge>/<identity>-<timestamp>-<id>/`, writes a
 `.json` record of the failed check beside it, and prepares a fresh tree. It
 deletes nothing; remove quarantined trees yourself once they are no longer
-needed. A valid tree is reused unchanged. If a concurrent recovery already
-replaced the tree, the tree that was moved is re-validated and put back rather
-than reinstalled. Restart the MCP client afterwards.
+needed. A valid tree is reused unchanged. Restart the MCP client afterwards.
+
+Recoveries for one runtime identity are serialized by a lock at
+`<runtime root>/.locks/<bridge>-<identity>.lock/`. Each recovery re-validates
+the tree while holding the lock and moves it only if it is still invalid, so a
+runtime that another recovery already repaired is never taken away, even
+briefly. A second recovery waits for a live holder and then reports
+`RUNTIME_RECOVERY_BUSY` if the wait runs out. If the recorded holder process has
+exited (for example, the recovery was killed), recovery stops with
+`RUNTIME_RECOVERY_LOCK_STALE` and names the lock. Remove that directory once no
+`prepare.mjs` is running, then retry. If the fresh install fails after the
+invalid tree was quarantined, the identity is simply missing; rerun
+`prepare.mjs`.
 
 | `check` | Meaning |
 | --- | --- |
