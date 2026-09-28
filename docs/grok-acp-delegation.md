@@ -100,6 +100,17 @@ Cursor, Antigravity, and Grok never reuse each other's runtime trees.
 Reload the host or start a fresh task after repair. Verify the native
 `grok_acp_readiness` call before delegating.
 
+If the launcher reports `RUNTIME_SETUP_REQUIRED` or `prepare.mjs` reports
+`RUNTIME_IDENTITY_CONFLICT`, the error names the first failing integrity check.
+Follow the Cursor guide's
+[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting),
+which also covers Node version changes on PATH. The recovery command for this
+bridge is:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge grok-acp --replace-invalid
+```
+
 ## State, proof, and rollback
 
 Job state defaults to the plugin data directory when the host provides

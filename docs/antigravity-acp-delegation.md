@@ -196,6 +196,17 @@ model is independent of the Antigravity worker model. If native tools remain
 absent, diagnose registration/loading; changing models or switching to Cursor
 ACP, Puppet, or native `agy-print` does not repair this MCP installation.
 
+If the launcher reports `RUNTIME_SETUP_REQUIRED` or `prepare.mjs` reports
+`RUNTIME_IDENTITY_CONFLICT`, the error names the first failing integrity check.
+Follow the Cursor guide's
+[Runtime troubleshooting](cursor-acp-delegation.md#runtime-troubleshooting),
+which also covers Node version changes on PATH. The recovery command for this
+bridge is:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge antigravity-acp --replace-invalid
+```
+
 ## Auth and profile
 
 The MCP server uses an explicit `GEMINI_HOME` profile, defaulting to:

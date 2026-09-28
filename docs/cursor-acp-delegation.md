@@ -65,6 +65,12 @@ The package requires Node 22.13 or newer. `package-lock.json` pins the bridge's
 development dependencies. `npm test` uses protocol fixtures and a fake runtime;
 it does not contact Cursor or run a model turn.
 
+Tests need a real `node_modules` in the bridge directory (`npm ci`, or a copy).
+Never symlink it to a prepared runtime under
+`~/.local/state/saarius-skills/acp-runtime`: the runtime-store tests mutate
+their fixture's dependencies, and a linked `node_modules` carries those writes
+into the prepared runtime (see [Runtime troubleshooting](#runtime-troubleshooting)).
+
 The bounded live smoke test is opt-in:
 
 ```bash
@@ -127,6 +133,72 @@ Reload Codex or start a fresh task after repair. Verify the native
 (including GPT-5.6 Luna High) is independent of the Cursor worker model. If
 native tools remain absent, diagnose registration/loading; changing models or
 switching to Puppet does not repair the MCP installation.
+
+## Runtime troubleshooting
+
+This section covers all three bridges; substitute the bridge name. The launcher
+never installs anything. When it cannot start a bridge it writes one JSON line
+to stderr and exits 2, which MCP clients show as a failed or `CONNECTION_CLOSED`
+server. To read that line, run the launcher with stdin closed:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/launcher.mjs" cursor-acp </dev/null
+```
+
+`RUNTIME_SETUP_REQUIRED` carries `details.state`:
+
+- `missing`: nothing is prepared for this plugin source and Node runtime. Run
+  the `setup` command from the same line. `details.nodeVersion` and
+  `details.identity` show what the launcher looked for.
+- `invalid`: a tree with this identity exists but failed integrity validation.
+  `details.check`, `details.path` and `details.kind` name the first failing
+  check; `path` is relative to `details.root`. Only paths and kinds are
+  reported, never file contents.
+
+`prepare.mjs` reports the same fields under `RUNTIME_IDENTITY_CONFLICT` and
+stays fail-closed: it never overwrites or deletes an existing tree. After
+looking at what changed, move the invalid tree aside and prepare a fresh one:
+
+```bash
+node "$SAARIUS_PLUGIN_ROOT/bridge/acp-runtime/prepare.mjs" --bridge cursor-acp --replace-invalid
+```
+
+`--replace-invalid` renames the invalid tree to
+`<runtime root>/.quarantine/<bridge>/<identity>-<timestamp>-<id>/`, writes a
+`.json` record of the failed check beside it, and prepares a fresh tree. It
+deletes nothing; remove quarantined trees yourself once they are no longer
+needed. A valid tree is reused unchanged. Restart the MCP client afterwards.
+
+| `check` | Meaning |
+| --- | --- |
+| `source_file` | A copied bridge source file is missing. |
+| `dependency_root` | `node_modules` is missing, not a directory, or a symlink; a prepared tree must own its dependencies. |
+| `required_import` | A module the bridge imports is missing. |
+| `package_version`, `dependency_version` | The tree's bridge or pinned dependency version differs. |
+| `source_integrity` | A copied bridge source file differs from the plugin source. |
+| `dependency_record` | `DEPENDENCIES.json` is unreadable or does not match this identity. |
+| `dependency_inventory` | A file under `node_modules` was `changed`, `added` or `removed` after preparation. |
+| `ready_record` | `READY.json` is unreadable or does not match this identity or platform. |
+
+A known cause of `dependency_inventory` / `changed` on
+`node_modules/acpx/dist/runtime.js` is a trailing
+`// dependency payload drift fixture` line. That line comes from the
+runtime-store test suite, run from a checkout whose `node_modules` was symlinked
+into the store. Preparation now refuses a linked `node_modules`, and the tests
+refuse any fixture write that resolves outside their temp directory.
+
+### Node on PATH
+
+The runtime identity includes the Node version and module ABI. The MCP
+manifests launch `node` from PATH, so the `node` the MCP client resolves decides
+which identity the launcher looks up. Changing that Node makes every prepared
+runtime stale at once, and the launcher reports `state: "missing"`. This can
+happen without any SaariusSkills change: for example, when OpenClaw's bundled
+Node (`/Applications/OpenClaw.app/Contents/Resources/node-worker/arm64/bin/node`)
+is first on PATH, an OpenClaw update changes it. Check `command -v node` and
+`node -v` in the environment the MCP client uses. Then run the `setup` command
+from the launcher's error line. It names the exact Node binary, so the prepared
+identity matches. Trees for the previous Node stay in the store unused.
 
 ## State, proof, and rollback
 

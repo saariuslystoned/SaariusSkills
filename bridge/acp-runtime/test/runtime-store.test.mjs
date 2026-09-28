@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
-import { access, chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, chmod, cp, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { findReady, prepareRuntime } from "../runtime-store.mjs";
+import { findReady, inspectRuntime, prepareRuntime } from "../runtime-store.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const bridges = ["cursor-acp", "antigravity-acp", "grok-acp"];
@@ -16,6 +17,39 @@ const expectedTools = {
   "antigravity-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `antigravity_acp_${name}`),
   "grok-acp": ["cancel", "delegate", "readiness", "result", "status", "steer"].map((name) => `grok_acp_${name}`),
 };
+const defaultRuntimeRoot = path.join(homedir(), ".local", "state", "saarius-skills", "acp-runtime");
+
+// Every runtime these tests prepare must live in a fresh temp directory, never
+// the operator's store (the default root, or wherever it is linked from).
+async function isolatedRuntimeEnv(runtimeRoot) {
+  // Resolve through the nearest existing ancestor so a link cannot hide the target.
+  const requested = path.resolve(runtimeRoot);
+  let existing = requested;
+  for (;;) {
+    try {
+      await access(existing);
+      break;
+    } catch {
+      existing = path.dirname(existing);
+    }
+  }
+  const resolved = path.join(await realpath(existing), path.relative(existing, requested));
+  assert.ok(resolved.startsWith(`${await realpath(tmpdir())}${path.sep}`), `runtime root must be a temp fixture: ${runtimeRoot}`);
+  assert.ok(!resolved.startsWith(defaultRuntimeRoot), `runtime root must not be the default store: ${runtimeRoot}`);
+  return { SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot };
+}
+
+// Fixture mutations resolve through here: the real target must stay inside the
+// fixture, so a linked node_modules can never carry a write into a real store.
+async function fixturePath(fixtureRoot, filePath) {
+  const target = await realpath(filePath);
+  assert.ok(target.startsWith(`${await realpath(fixtureRoot)}${path.sep}`), `fixture write escapes ${fixtureRoot}: ${target}`);
+  return target;
+}
+
+async function appendInsideFixture(fixtureRoot, filePath, text) {
+  await writeFile(await fixturePath(fixtureRoot, filePath), text, { flag: "a" });
+}
 
 async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   const pluginRoot = await mkdtemp(path.join(tmpdir(), `saarius-${bridge}-snapshot-`));
@@ -44,7 +78,7 @@ async function makeFakeNpm({ mode = "copy", delayMs = 0, signalDelayMs = 0 } = {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-fake-npm-"));
   const command = path.join(fixtureRoot, "npm");
   await writeFile(command, `#!/usr/bin/env node
-import { appendFile, cp, writeFile } from "node:fs/promises";
+import { appendFile, cp, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const delayMs = Number(process.env.SAARIUS_TEST_NPM_DELAY_MS || ${delayMs});
@@ -61,7 +95,13 @@ if (${JSON.stringify(mode)} === "fail") {
   process.stderr.write("authorization=Bearer sk-test-token secret=do-not-leak\\n");
   process.exit(7);
 }
-await cp(process.env.SAARIUS_TEST_NODE_MODULES, path.join(process.cwd(), "node_modules"), { recursive: true });
+if (${JSON.stringify(mode)} === "link") {
+  await symlink(process.env.SAARIUS_TEST_NODE_MODULES, path.join(process.cwd(), "node_modules"));
+} else {
+  // Dereference: a checkout whose node_modules links into a prepared store must
+  // still yield a private copy, or fixture writes land in that store.
+  await cp(process.env.SAARIUS_TEST_NODE_MODULES, path.join(process.cwd(), "node_modules"), { recursive: true, dereference: true });
+}
 `);
   await chmod(command, 0o755);
   return { command, fixtureRoot };
@@ -88,21 +128,46 @@ async function countLines(filePath) {
   }
 }
 
-function npmEnv(bridge, counterPath) {
+function npmEnv(bridge, counterPath, nodeModules = path.join(repoRoot, "bridge", bridge, "node_modules")) {
   return {
-    SAARIUS_TEST_NODE_MODULES: path.join(repoRoot, "bridge", bridge, "node_modules"),
+    SAARIUS_TEST_NODE_MODULES: nodeModules,
     SAARIUS_TEST_NPM_COUNTER: counterPath,
   };
 }
 
-async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, counterPath }) {
+async function prepareSnapshot({ bridge, pluginRoot, runtimeRoot, command, counterPath, nodeModules, replaceInvalid }) {
   return prepareRuntime({
     pluginRoot,
     bridge,
-    env: { SAARIUS_ACP_RUNTIME_ROOT: runtimeRoot },
+    env: await isolatedRuntimeEnv(runtimeRoot),
     npmCommand: command,
-    npmEnv: npmEnv(bridge, counterPath),
+    npmEnv: npmEnv(bridge, counterPath, nodeModules),
+    replaceInvalid,
   });
+}
+
+// Minimal dependency tree with the pinned versions and the imports the store
+// requires; integrity tests need its shape, not the real packages.
+async function makeSyntheticNodeModules(bridge) {
+  const nodeModules = await mkdtemp(path.join(tmpdir(), `saarius-${bridge}-synthetic-modules-`));
+  const { dependencies } = JSON.parse(await readFile(path.join(repoRoot, "bridge", bridge, "package.json"), "utf8"));
+  for (const [name, version] of Object.entries(dependencies)) {
+    await mkdir(path.join(nodeModules, name), { recursive: true });
+    await writeFile(path.join(nodeModules, name, "package.json"), `${JSON.stringify({ name, version })}\n`);
+  }
+  for (const relativePath of [
+    "@modelcontextprotocol/sdk/dist/esm/server/mcp.js",
+    "@modelcontextprotocol/sdk/dist/esm/server/stdio.js",
+    "@modelcontextprotocol/sdk/dist/esm/client/index.js",
+    "@modelcontextprotocol/sdk/dist/esm/client/stdio.js",
+    "acpx/dist/runtime.js",
+    "acpx/README.md",
+    "zod/index.js",
+  ]) {
+    await mkdir(path.dirname(path.join(nodeModules, relativePath)), { recursive: true });
+    await writeFile(path.join(nodeModules, relativePath), "export {};\n");
+  }
+  return nodeModules;
 }
 
 test("clean plugin snapshots prepare each bridge and reuse without reinstalling", async () => {
@@ -155,17 +220,17 @@ test("source identity drift creates a new runtime and failed installs redact dia
   const pluginRoot = await makePluginSnapshot("cursor-acp");
   try {
     const first = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath });
-    await writeFile(path.join(pluginRoot, "bridge", "cursor-acp", "broker.mjs"), "\n// identity drift fixture\n", { flag: "a" });
+    await appendInsideFixture(pluginRoot, path.join(pluginRoot, "bridge", "cursor-acp", "broker.mjs"), "\n// identity drift fixture\n");
     const second = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath });
     assert.notEqual(first.root, second.root);
     assert.equal(await countLines(counterPath), 2);
 
     const failing = await makeFakeNpm({ mode: "fail" });
     await assert.rejects(
-      () => prepareRuntime({
+      async () => prepareRuntime({
         pluginRoot,
         bridge: "cursor-acp",
-        env: { SAARIUS_ACP_RUNTIME_ROOT: path.join(fixtureRoot, "failed") },
+        env: await isolatedRuntimeEnv(path.join(fixtureRoot, "failed")),
         npmCommand: failing.command,
         npmEnv: npmEnv("cursor-acp", path.join(fixtureRoot, "failed.count")),
       }),
@@ -192,8 +257,8 @@ test("dependency payload drift invalidates a prepared runtime even when package 
   try {
     const prepared = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath });
     const runtimeFile = path.join(prepared.root, "bridge", "cursor-acp", "node_modules", "acpx", "dist", "runtime.js");
-    await writeFile(runtimeFile, "\n// dependency payload drift fixture\n", { flag: "a" });
-    assert.equal(await findReady({ pluginRoot, bridge: "cursor-acp", env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot } }), null);
+    await appendInsideFixture(fixtureRoot, runtimeFile, "\n// dependency payload drift fixture\n");
+    assert.equal(await findReady({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) }), null);
   } finally {
     await rm(pluginRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });
@@ -210,10 +275,10 @@ test("dependency timeout waits for owned SIGTERM exit before staging cleanup", a
   const startedAt = Date.now();
   try {
     await assert.rejects(
-      () => prepareRuntime({
+      async () => prepareRuntime({
         pluginRoot,
         bridge: "cursor-acp",
-        env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot },
+        env: await isolatedRuntimeEnv(fixtureRoot),
         npmCommand: fake.command,
         npmEnv: { ...npmEnv("cursor-acp", counterPath), SAARIUS_TEST_NPM_EXIT_MARKER: exitMarker },
         timeoutMs: 1_000,
@@ -241,10 +306,10 @@ test("unconfirmed dependency termination preserves the staging fence until the w
   let stagingRoot;
   try {
     await assert.rejects(
-      () => prepareRuntime({
+      async () => prepareRuntime({
         pluginRoot,
         bridge: "cursor-acp",
-        env: { SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot },
+        env: await isolatedRuntimeEnv(fixtureRoot),
         npmCommand: fake.command,
         npmEnv: { ...npmEnv("cursor-acp", counterPath), SAARIUS_TEST_NPM_EXIT_MARKER: exitMarker },
         timeoutMs: 1_000,
@@ -293,7 +358,7 @@ test("separate dependency-free plugin snapshots launch each manifest path from a
             ...process.env,
             ...npmEnv(bridge, counterPath),
             PATH: `${fake.fixtureRoot}:${process.env.PATH ?? ""}`,
-            SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+            ...(await isolatedRuntimeEnv(fixtureRoot)),
           },
         });
         assert.equal(setup.status, 0, setup.stderr || setup.stdout);
@@ -312,7 +377,7 @@ test("separate dependency-free plugin snapshots launch each manifest path from a
             HOME: process.env.HOME ?? "",
             ...config.env,
             [stateEnv]: stateRoot,
-            SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+            ...(await isolatedRuntimeEnv(fixtureRoot)),
           },
           stderr: "pipe",
         });
@@ -354,7 +419,7 @@ test("parent hop argv lists the same six tools through a worker launcher", async
         ...process.env,
         ...npmEnv("antigravity-acp", counterPath),
         PATH: `${fake.fixtureRoot}:${process.env.PATH ?? ""}`,
-        SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+        ...(await isolatedRuntimeEnv(fixtureRoot)),
       },
     });
     assert.equal(setup.status, 0, setup.stderr || setup.stdout);
@@ -368,7 +433,7 @@ test("parent hop argv lists the same six tools through a worker launcher", async
         PATH: process.env.PATH ?? "",
         HOME: process.env.HOME ?? "",
         SAARIUS_ANTIGRAVITY_ACP_STATE_DIR: stateRoot,
-        SAARIUS_ACP_RUNTIME_ROOT: fixtureRoot,
+        ...(await isolatedRuntimeEnv(fixtureRoot)),
         SAARIUS_ACP_HOP_ARGV: JSON.stringify([process.execPath, launcherPath, "antigravity-acp"]),
       },
       stderr: "pipe",
@@ -388,6 +453,295 @@ test("parent hop argv lists the same six tools through a worker launcher", async
     await rm(pluginRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });
     await rm(externalCwd, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+// Planted in every mutation below; no diagnostic may echo it back.
+const CONTENT_MARKER = "saarius-content-marker-7f3a";
+const driftedRuntimeFile = "bridge/cursor-acp/node_modules/acpx/dist/runtime.js";
+
+async function editJsonInsideFixture(fixtureRoot, filePath, change) {
+  const target = await fixturePath(fixtureRoot, filePath);
+  const value = JSON.parse(await readFile(target, "utf8"));
+  change(value);
+  await writeFile(target, JSON.stringify(value));
+}
+
+const integrityCases = [
+  {
+    name: "missing bridge source file",
+    mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("bridge/cursor-acp/broker.mjs"))),
+    expected: { check: "source_file", path: "bridge/cursor-acp/broker.mjs", kind: "missing" },
+  },
+  {
+    name: "linked dependency root",
+    mutate: async ({ fixtureRoot, at }) => {
+      const outside = path.join(fixtureRoot, "linked-node_modules");
+      await rename(await fixturePath(fixtureRoot, at("bridge/cursor-acp/node_modules")), outside);
+      await symlink(outside, at("bridge/cursor-acp/node_modules"));
+    },
+    expected: { check: "dependency_root", path: "bridge/cursor-acp/node_modules", kind: "symlink" },
+  },
+  {
+    name: "missing required import",
+    mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("bridge/cursor-acp/node_modules/zod/index.js"))),
+    expected: { check: "required_import", path: "bridge/cursor-acp/node_modules/zod/index.js", kind: "missing" },
+  },
+  {
+    name: "bridge package version",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("bridge/cursor-acp/package.json"), (value) => { value.version = CONTENT_MARKER; }),
+    expected: { check: "package_version", path: "bridge/cursor-acp/package.json", kind: "mismatch" },
+  },
+  {
+    name: "pinned dependency version",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("bridge/cursor-acp/node_modules/acpx/package.json"), (value) => { value.version = CONTENT_MARKER; }),
+    expected: { check: "dependency_version", path: "bridge/cursor-acp/node_modules/acpx/package.json", kind: "mismatch" },
+  },
+  {
+    name: "bridge source bytes",
+    mutate: ({ fixtureRoot, at }) => appendInsideFixture(fixtureRoot, at("bridge/cursor-acp/broker.mjs"), `\n// ${CONTENT_MARKER}\n`),
+    expected: { check: "source_integrity", path: "bridge/cursor-acp/broker.mjs", kind: "changed" },
+  },
+  {
+    name: "missing dependency record",
+    mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("DEPENDENCIES.json"))),
+    expected: { check: "dependency_record", path: "DEPENDENCIES.json", kind: "unreadable" },
+  },
+  {
+    name: "dependency record identity",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("DEPENDENCIES.json"), (value) => { value.identity = CONTENT_MARKER; }),
+    expected: { check: "dependency_record", path: "DEPENDENCIES.json", kind: "identity" },
+  },
+  {
+    name: "dependency record digest",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("DEPENDENCIES.json"), (value) => { value.files.pop(); }),
+    expected: { check: "dependency_record", path: "DEPENDENCIES.json", kind: "digest" },
+  },
+  {
+    name: "garbled dependency record entries",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("DEPENDENCIES.json"), (value) => {
+      value.files = [null];
+      value.digest = createHash("sha256").update(JSON.stringify(value.files)).digest("hex");
+    }),
+    expected: { check: "unexpected", path: ".", kind: "error" },
+  },
+  {
+    name: "changed dependency payload",
+    mutate: ({ fixtureRoot, at }) => appendInsideFixture(fixtureRoot, at(driftedRuntimeFile), `\n// ${CONTENT_MARKER}\n`),
+    expected: { check: "dependency_inventory", path: driftedRuntimeFile, kind: "changed" },
+  },
+  {
+    name: "added dependency file",
+    mutate: async ({ fixtureRoot, at }) => writeFile(
+      path.join(await fixturePath(fixtureRoot, at("bridge/cursor-acp/node_modules/acpx/dist")), "extra.js"),
+      `// ${CONTENT_MARKER}\n`,
+    ),
+    expected: { check: "dependency_inventory", path: "bridge/cursor-acp/node_modules/acpx/dist/extra.js", kind: "added" },
+  },
+  {
+    name: "removed dependency file",
+    mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("bridge/cursor-acp/node_modules/acpx/README.md"))),
+    expected: { check: "dependency_inventory", path: "bridge/cursor-acp/node_modules/acpx/README.md", kind: "removed" },
+  },
+  {
+    name: "missing ready record",
+    mutate: async ({ fixtureRoot, at }) => rm(await fixturePath(fixtureRoot, at("READY.json"))),
+    expected: { check: "ready_record", path: "READY.json", kind: "unreadable" },
+  },
+  {
+    name: "ready record platform",
+    mutate: ({ fixtureRoot, at }) => editJsonInsideFixture(fixtureRoot, at("READY.json"), (value) => { value.platform.nodeVersion = CONTENT_MARKER; }),
+    expected: { check: "ready_record", path: "READY.json", kind: "platform" },
+  },
+];
+
+test("each integrity check names its first failure with a tree-relative path and no contents", async (t) => {
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  try {
+    const emptyRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-integrity-missing-"));
+    const missing = await inspectRuntime({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(emptyRoot) });
+    assert.equal(missing.state, "missing");
+    assert.equal(missing.failure, undefined);
+    await rm(emptyRoot, { recursive: true, force: true });
+
+    for (const { name, mutate, expected } of integrityCases) {
+      await t.test(name, async () => {
+        const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-integrity-check-"));
+        try {
+          const prepared = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count"), nodeModules });
+          await mutate({ fixtureRoot, at: (relativePath) => path.join(prepared.root, ...relativePath.split("/")) });
+          const inspection = await inspectRuntime({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) });
+          assert.equal(inspection.state, "invalid");
+          assert.equal(inspection.root, prepared.root);
+          assert.deepEqual(inspection.failure, expected);
+          assert.equal(await findReady({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) }), null);
+        } finally {
+          await rm(fixtureRoot, { recursive: true, force: true });
+        }
+      });
+    }
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a linked node_modules never becomes a runtime, so test writes cannot reach a real store", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-linked-modules-"));
+  const fake = await makeFakeNpm({ mode: "link" });
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const linkedFile = path.join(nodeModules, "acpx", "dist", "runtime.js");
+  try {
+    const before = await readFile(linkedFile);
+    await assert.rejects(
+      () => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count"), nodeModules }),
+      (error) => {
+        assert.equal(error.code, "READY_INTEGRITY_MISMATCH");
+        assert.deepEqual(error.details, { check: "dependency_root", path: "bridge/cursor-acp/node_modules", kind: "symlink" });
+        return true;
+      },
+    );
+    assert.equal((await inspectRuntime({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) })).state, "missing");
+    assert.deepEqual(await readdir(path.join(fixtureRoot, ".staging")), []);
+
+    const escape = path.join(fixtureRoot, "escape");
+    await symlink(nodeModules, escape);
+    await assert.rejects(() => appendInsideFixture(fixtureRoot, path.join(escape, "acpx", "dist", "runtime.js"), CONTENT_MARKER), /fixture write escapes/);
+    await assert.rejects(() => isolatedRuntimeEnv(defaultRuntimeRoot), /runtime root must be a temp fixture/);
+    assert.deepEqual(await readFile(linkedFile), before);
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("an invalid same-identity runtime fails closed until --replace-invalid quarantines it", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-replace-invalid-"));
+  const counterPath = path.join(fixtureRoot, "npm.count");
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp");
+  const expected = { check: "dependency_inventory", path: driftedRuntimeFile, kind: "changed" };
+  const prepare = (options = {}) => prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath, nodeModules, ...options });
+  try {
+    const prepared = await prepare();
+    const runtimeFile = path.join(prepared.root, ...driftedRuntimeFile.split("/"));
+    await appendInsideFixture(fixtureRoot, runtimeFile, `\n// ${CONTENT_MARKER}\n`);
+    const drifted = await readFile(runtimeFile);
+
+    await assert.rejects(() => prepare(), (error) => {
+      assert.equal(error.code, "RUNTIME_IDENTITY_CONFLICT");
+      const { recovery, ...details } = error.details;
+      assert.deepEqual(details, { root: prepared.root, ...expected });
+      assert.match(recovery, /prepare\.mjs --bridge cursor-acp --replace-invalid$/);
+      assert.doesNotMatch(JSON.stringify(error.details), new RegExp(CONTENT_MARKER));
+      return true;
+    });
+    assert.deepEqual(await readFile(runtimeFile), drifted, "fail-closed prepare must leave the invalid tree untouched");
+
+    const replaced = await prepare({ replaceInvalid: true });
+    assert.equal(replaced.reused, false);
+    assert.equal(replaced.root, prepared.root);
+    const { destination, record, ...failure } = replaced.quarantined;
+    assert.deepEqual(failure, expected);
+    assert.equal(path.dirname(destination), path.join(fixtureRoot, ".quarantine", "cursor-acp"));
+    assert.equal(record, `${destination}.json`);
+    assert.deepEqual(await readFile(path.join(destination, ...driftedRuntimeFile.split("/"))), drifted, "quarantine keeps the evidence byte-for-byte");
+    const quarantineRecord = JSON.parse(await readFile(record, "utf8"));
+    assert.equal(quarantineRecord.schema, "saarius.acp.quarantine.v1");
+    assert.equal(quarantineRecord.from, prepared.root);
+    assert.deepEqual(quarantineRecord.failure, expected);
+    assert.ok(await findReady({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) }));
+
+    const reused = await prepare({ replaceInvalid: true });
+    assert.equal(reused.reused, true);
+    assert.equal(reused.quarantined, undefined);
+    assert.equal((await readdir(path.join(fixtureRoot, ".quarantine", "cursor-acp"))).length, 2);
+    assert.equal(await countLines(counterPath), 2);
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
+    await rm(fake.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("prepare.mjs and the launcher name the failing check for an invalid runtime", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "saarius-acp-cli-invalid-"));
+  const fake = await makeFakeNpm();
+  const nodeModules = await makeSyntheticNodeModules("cursor-acp");
+  const pluginRoot = await makePluginSnapshot("cursor-acp", { includeLauncher: true });
+  const env = {
+    PATH: `${fake.fixtureRoot}:${process.env.PATH ?? ""}`,
+    HOME: process.env.HOME ?? "",
+    ...npmEnv("cursor-acp", path.join(fixtureRoot, "npm.count"), nodeModules),
+    ...(await isolatedRuntimeEnv(fixtureRoot)),
+  };
+  const run = (script, args) => spawnSync(process.execPath, [path.join(pluginRoot, "bridge", "acp-runtime", script), ...args], {
+    encoding: "utf8",
+    input: "",
+    timeout: 30_000,
+    env,
+  });
+  const expected = { check: "dependency_inventory", path: driftedRuntimeFile, kind: "changed" };
+  try {
+    const missing = run("launcher.mjs", ["cursor-acp"]);
+    assert.equal(missing.status, 2, missing.stderr);
+    const missingError = JSON.parse(missing.stderr);
+    assert.equal(missingError.code, "RUNTIME_SETUP_REQUIRED");
+    assert.equal(missingError.details.state, "missing");
+    assert.equal(missingError.details.nodeVersion, process.versions.node);
+    assert.match(missingError.details.identity, /^[0-9a-f]{64}$/);
+
+    const badArgs = run("prepare.mjs", ["--bridge", "cursor-acp", "--force"]);
+    assert.equal(badArgs.status, 2);
+    assert.equal(JSON.parse(badArgs.stdout).code, "INVALID_ARGUMENT");
+    assert.match(JSON.parse(badArgs.stdout).usage, /\[--replace-invalid\]$/);
+
+    const ready = run("prepare.mjs", ["--bridge", "cursor-acp"]);
+    assert.equal(ready.status, 0, ready.stdout);
+    const { root } = JSON.parse(ready.stdout);
+    await appendInsideFixture(fixtureRoot, path.join(root, ...driftedRuntimeFile.split("/")), `\n// ${CONTENT_MARKER}\n`);
+
+    const invalid = run("launcher.mjs", ["cursor-acp"]);
+    assert.equal(invalid.status, 2, invalid.stderr);
+    assert.doesNotMatch(invalid.stderr, new RegExp(CONTENT_MARKER));
+    const invalidError = JSON.parse(invalid.stderr);
+    assert.equal(invalidError.code, "RUNTIME_SETUP_REQUIRED");
+    const { recovery: launcherRecovery, ...launcherDetails } = invalidError.details;
+    assert.deepEqual(launcherDetails, { state: "invalid", root, ...expected });
+    assert.match(launcherRecovery, /prepare\.mjs --bridge cursor-acp --replace-invalid$/);
+
+    const conflict = run("prepare.mjs", ["--bridge", "cursor-acp"]);
+    assert.equal(conflict.status, 2, conflict.stdout);
+    assert.doesNotMatch(conflict.stdout, new RegExp(CONTENT_MARKER));
+    const conflictReport = JSON.parse(conflict.stdout);
+    assert.equal(conflictReport.code, "RUNTIME_IDENTITY_CONFLICT");
+    const { recovery, ...conflictDetails } = conflictReport.details;
+    assert.deepEqual(conflictDetails, { root, ...expected });
+    assert.equal(recovery, launcherRecovery);
+
+    const replaced = run("prepare.mjs", ["--bridge", "cursor-acp", "--replace-invalid"]);
+    assert.equal(replaced.status, 0, replaced.stdout);
+    const replacedReport = JSON.parse(replaced.stdout);
+    assert.equal(replacedReport.code, "RUNTIME_READY");
+    assert.equal(replacedReport.root, root);
+    const { destination, record, ...failure } = replacedReport.quarantined;
+    assert.deepEqual(failure, expected);
+    await access(path.join(destination, ...driftedRuntimeFile.split("/")));
+    await access(record);
+    assert.equal((await inspectRuntime({ pluginRoot, bridge: "cursor-acp", env: await isolatedRuntimeEnv(fixtureRoot) })).state, "ready");
+  } finally {
+    await rm(pluginRoot, { recursive: true, force: true });
+    await rm(fixtureRoot, { recursive: true, force: true });
+    await rm(nodeModules, { recursive: true, force: true });
     await rm(fake.fixtureRoot, { recursive: true, force: true });
   }
 });

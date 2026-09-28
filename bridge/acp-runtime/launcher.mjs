@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { findReady, pluginRootFromModule, setupCommand, RuntimeStoreError } from "./runtime-store.mjs";
+import { inspectRuntime, pluginRootFromModule, setupCommand, RuntimeStoreError } from "./runtime-store.mjs";
 import { HOP_WORKER_FLAG, HopError, resolveHop, spawnStdioChild } from "./hop.mjs";
 
 const bridge = process.argv[2];
@@ -48,9 +48,21 @@ if (!bridge) {
         identity: hop.identity,
       })));
     } else {
-      const ready = await findReady({ pluginRoot, bridge });
-      if (!ready) {
-        fail(new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "persistent bridge runtime is not prepared or failed integrity validation"));
+      const ready = await inspectRuntime({ pluginRoot, bridge });
+      if (ready.state === "missing") {
+        // Identity includes the Node version, so a Node upgrade lands here too.
+        fail(new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "persistent bridge runtime is not prepared for this plugin source and Node runtime", {
+          state: "missing",
+          identity: ready.descriptor.identity,
+          nodeVersion: ready.descriptor.platform.nodeVersion,
+        }));
+      } else if (ready.state === "invalid") {
+        fail(new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "persistent bridge runtime failed integrity validation", {
+          state: "invalid",
+          root: ready.root,
+          ...ready.failure,
+          recovery: setupCommand(bridge, { replaceInvalid: true }),
+        }));
       } else {
         const entry = path.join(ready.root, "bridge", bridge, "server.mjs");
         const child = spawnStdioChild({
