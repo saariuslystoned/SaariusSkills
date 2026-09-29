@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -224,6 +224,67 @@ test("release removes only its generation after canonical replacement", { timeou
   await broker.releaseLockReclaim(reclaimPath, olderFence);
   assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"))).brokerId, "broker-a");
   await broker.releaseLockReclaim(reclaimPath, newerFence);
+});
+
+test("an existing malformed reclaim generation stays fenced", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  const generationPath = `${reclaimPath}.generation`;
+  await mkdir(generationPath);
+  await writeFile(path.join(generationPath, "owner.json"), "{incomplete\n");
+  await symlink(generationPath, reclaimPath, "dir");
+  const broker = new GrokAcpBroker({
+    stateRoot: root,
+    runtime: {},
+    brokerId: "contender",
+    startTime: "contender",
+    inspectProcess: async () => ({ status: "missing" }),
+  });
+
+  assert.equal(await broker.tryAcquireLockReclaim(reclaimPath), null);
+  assert.equal(await readFile(path.join(generationPath, "owner.json"), "utf8"), "{incomplete\n");
+  assert.equal(await readFile(path.join(reclaimPath, "owner.json"), "utf8"), "{incomplete\n");
+});
+
+test("a reclaim probe error preserves the existing generation", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  const generationPath = `${reclaimPath}.generation`;
+  await mkdir(generationPath);
+  await writeFile(
+    path.join(generationPath, "owner.json"),
+    `${JSON.stringify({ brokerId: "owner", pid: 12345, startTime: "owner", reclaimToken: "owner-token" })}\n`,
+  );
+  await symlink(generationPath, reclaimPath, "dir");
+  const broker = new GrokAcpBroker({
+    stateRoot: root,
+    runtime: {},
+    brokerId: "contender",
+    startTime: "contender",
+    inspectProcess: async () => { throw new Error("probe unavailable"); },
+  });
+
+  assert.equal(await broker.tryAcquireLockReclaim(reclaimPath), null);
+  assert.equal(await lstat(generationPath).then((stats) => stats.isDirectory()), true);
+  assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8")).reclaimToken, "owner-token");
+});
+
+test("a genuinely dangling reclaim generation is cleaned", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  await symlink(`${reclaimPath}.missing`, reclaimPath, "dir");
+  const broker = new GrokAcpBroker({
+    stateRoot: root,
+    runtime: {},
+    brokerId: "contender",
+    startTime: "contender",
+    inspectProcess: async () => ({ status: "missing" }),
+  });
+
+  assert.equal(await broker.tryAcquireLockReclaim(reclaimPath), null);
+  const acquired = await broker.tryAcquireLockReclaim(reclaimPath);
+  assert.ok(acquired?.uniquePath);
+  await broker.releaseLockReclaim(reclaimPath, acquired);
 });
 
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {

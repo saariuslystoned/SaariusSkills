@@ -344,6 +344,24 @@ async function removeDetachedReclaim(detachedPath) {
   if (targetPath) await rm(targetPath, { recursive: true, force: true });
 }
 
+async function inspectReclaimTarget(reclaimPath) {
+  let targetPath;
+  try {
+    targetPath = await readlink(reclaimPath);
+  } catch (error) {
+    if (error?.code === "EINVAL" || error?.code === "ENOENT") return null;
+    throw error;
+  }
+  const resolvedTarget = path.resolve(path.dirname(reclaimPath), targetPath);
+  try {
+    await lstat(resolvedTarget);
+    return { exists: true, path: resolvedTarget };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { exists: false, path: resolvedTarget };
+    throw error;
+  }
+}
+
 async function inspectLockFile(lockPath) {
   try {
     const raw = await readFile(lockPath, "utf8");
@@ -1425,13 +1443,14 @@ export class CursorAcpBroker {
           holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
           state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
         } catch {
-          // Unreadable reclaim fences are fail-closed. A dangling generation is
-          // reclaimed only after it is isolated under the operation mutex.
+          // Unreadable reclaim fences are fail-closed. Only a symlink whose
+          // generation target is genuinely absent may be cleaned up here.
           try {
-            if ((await lstat(reclaimPath)).isSymbolicLink()) {
+            const target = await inspectReclaimTarget(reclaimPath);
+            if (target?.exists === false) {
               const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
               await rename(reclaimPath, detachedPath);
-              await removeDetachedReclaim(detachedPath);
+              await rm(detachedPath, { recursive: true, force: true });
             }
           } catch (error) {
             if (error?.code !== "ENOENT") throw error;
