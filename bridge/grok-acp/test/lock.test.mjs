@@ -287,6 +287,102 @@ test("a genuinely dangling reclaim generation is cleaned", { timeout: 10_000 }, 
   await broker.releaseLockReclaim(reclaimPath, acquired);
 });
 
+test("a killed reclaim mutex holder does not strand stale-lock recovery", { timeout: 15_000 }, async () => {
+  const { root, stateRoot } = await makeState();
+  const lockPath = path.join(stateRoot, "jobs", `${STALE_JOB}.json.lock`);
+  const reclaimPath = `${lockPath}.reclaim`;
+  const readyPath = path.join(root, "mutex-ready");
+  await writeFile(lockPath, JSON.stringify({ brokerId: "dead-owner", pid: DEAD_PID, startTime: "old" }));
+  const script = `
+import { writeFile } from "node:fs/promises";
+import { GrokAcpBroker } from ${JSON.stringify(brokerModule)};
+const broker = new GrokAcpBroker({ stateRoot: process.env.STATE_ROOT, runtime: {}, brokerId: "crashed-mutex-owner", startTime: "crashed" });
+const mutex = broker.acquireLockReclaimMutex(process.env.RECLAIM_PATH);
+if (!mutex) process.exit(2);
+await writeFile(process.env.READY_PATH, "locked\\n");
+await new Promise(() => {});
+`;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    env: {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      TMPDIR: os.tmpdir(),
+      HOME: os.homedir(),
+      STATE_ROOT: stateRoot,
+      RECLAIM_PATH: reclaimPath,
+      READY_PATH: readyPath,
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const stderr = [];
+  child.stderr.on("data", (chunk) => stderr.push(chunk));
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await readFile(readyPath);
+      break;
+    } catch {
+      await sleep(10);
+    }
+    if (attempt === 99) assert.fail(`child did not acquire reclaim mutex: ${Buffer.concat(stderr).toString("utf8")}`);
+  }
+  child.kill("SIGKILL");
+  const exit = await new Promise((resolve, reject) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("error", reject);
+  });
+  assert.equal(exit.signal, "SIGKILL");
+
+  const holdersDir = path.join(root, "post-crash-holders");
+  const resultDir = path.join(root, "post-crash-overlap");
+  const startPath = path.join(root, "post-crash-start");
+  await mkdir(holdersDir);
+  await mkdir(resultDir);
+  const contenderScript = `
+import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { GrokAcpBroker } from ${JSON.stringify(brokerModule)};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const broker = new GrokAcpBroker({ stateRoot: process.env.STATE_ROOT, runtime: {}, brokerId: process.env.BROKER_ID, grokExecutable: process.execPath });
+while (true) {
+  try { await access(process.env.START_PATH); break; } catch { await sleep(10); }
+}
+await broker.withJobLock(process.env.JOB_ID, async () => {
+  const marker = path.join(process.env.HOLDERS_DIR, String(process.pid));
+  await writeFile(marker, "1");
+  const holders = await readdir(process.env.HOLDERS_DIR);
+  await writeFile(path.join(process.env.RESULT_DIR, "overlap-" + process.pid), String(holders.length));
+  await sleep(200);
+  await rm(marker, { force: true });
+}, { timeoutMs: 8_000 });
+`;
+  const spawnContender = (brokerId) => spawn(process.execPath, ["--input-type=module", "-e", contenderScript], {
+    env: {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      TMPDIR: os.tmpdir(),
+      HOME: os.homedir(),
+      STATE_ROOT: stateRoot,
+      JOB_ID: STALE_JOB,
+      HOLDERS_DIR: holdersDir,
+      RESULT_DIR: resultDir,
+      START_PATH: startPath,
+      BROKER_ID: brokerId,
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const contenders = [spawnContender("broker-b"), spawnContender("broker-c")];
+  const failures = [];
+  for (const contender of contenders) contender.stderr.on("data", (chunk) => failures.push(chunk));
+  await writeFile(startPath, "go\n");
+  const exits = await Promise.all(contenders.map((contender) => new Promise((resolve, reject) => {
+    contender.once("exit", (code, signal) => resolve({ code, signal }));
+    contender.once("error", reject);
+  })));
+  const stderrText = Buffer.concat(failures).toString("utf8");
+  for (const exit of exits) assert.equal(exit.code, 0, stderrText);
+  const overlapFiles = (await readdir(resultDir)).filter((name) => name.startsWith("overlap-"));
+  assert.equal(overlapFiles.length, 2, stderrText);
+  for (const name of overlapFiles) assert.equal(await readFile(path.join(resultDir, name), "utf8"), "1", stderrText);
+});
+
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {
   const { root, stateRoot } = await makeState();
   const jobId = STALE_JOB;

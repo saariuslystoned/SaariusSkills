@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
@@ -107,6 +108,11 @@ async function inspectConversationRebind(broker, existing) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSqliteBusy(error) {
+  return error?.code === "ERR_SQLITE_BUSY" ||
+    (error?.code === "ERR_SQLITE_ERROR" && /database is locked/i.test(error?.message ?? ""));
 }
 
 function isSafeOwnerId(brokerId) {
@@ -1413,19 +1419,45 @@ export class CursorAcpBroker {
   }
 
   async tryAcquireLockReclaim(reclaimPath) {
-    const mutexPath = `${reclaimPath}.mutex`;
+    const mutex = this.acquireLockReclaimMutex(reclaimPath);
+    if (!mutex) return null;
     try {
-      await mkdir(mutexPath, { mode: 0o700 });
+      return await this.tryAcquireLockReclaimWithMutex(reclaimPath);
+    } finally {
+      this.releaseLockReclaimMutex(mutex);
+    }
+  }
+
+  acquireLockReclaimMutex(reclaimPath) {
+    const mutexPath = `${reclaimPath}.mutex`;
+    let database;
+    try {
+      database = new DatabaseSync(mutexPath);
+      database.exec("PRAGMA busy_timeout = 0");
+      database.exec("CREATE TABLE IF NOT EXISTS reclaim_mutex (id INTEGER PRIMARY KEY CHECK (id = 1))");
+      database.exec("BEGIN IMMEDIATE");
+      return database;
     } catch (error) {
-      if (error?.code === "EEXIST") return null;
+      database?.close();
+      if (isSqliteBusy(error)) return null;
       throw error;
     }
+  }
+
+  releaseLockReclaimMutex(database) {
+    try {
+      database.exec("ROLLBACK");
+    } finally {
+      database.close();
+    }
+  }
+
+  async tryAcquireLockReclaimWithMutex(reclaimPath) {
     const token = randomUUID();
     const uniqueReclaim = `${reclaimPath}.${token}`;
     let keepGeneration = false;
     try {
-      try {
-        await mkdir(uniqueReclaim);
+      await mkdir(uniqueReclaim);
         await writeCompleteFile(
           path.join(uniqueReclaim, "owner.json"),
           `${JSON.stringify({ ...this.ownerIdentity(), reclaimToken: token })}\n`,
@@ -1468,27 +1500,19 @@ export class CursorAcpBroker {
           await removeDetachedReclaim(detachedPath);
         }
         return null;
-      } finally {
-        if (!keepGeneration) await rm(uniqueReclaim, { recursive: true, force: true });
-      }
     } finally {
-      await rm(mutexPath, { recursive: true, force: true });
+      if (!keepGeneration) await rm(uniqueReclaim, { recursive: true, force: true });
     }
   }
 
   async releaseLockReclaim(reclaimPath, fence) {
     if (!fence || typeof fence !== "object" || !fence.uniquePath) return;
-    const mutexPath = `${reclaimPath}.mutex`;
-    try {
-      await mkdir(mutexPath, { mode: 0o700 });
-    } catch (error) {
-      if (error?.code === "EEXIST") return;
-      throw error;
-    }
+    const mutex = this.acquireLockReclaimMutex(reclaimPath);
+    if (!mutex) return;
     try {
       await rm(fence.uniquePath, { recursive: true, force: true });
     } finally {
-      await rm(mutexPath, { recursive: true, force: true });
+      this.releaseLockReclaimMutex(mutex);
     }
   }
 
