@@ -1379,33 +1379,54 @@ export class CursorAcpBroker {
         await rm(lockPath, { force: true });
       }
     } finally {
-      await rm(reclaimPath, { recursive: true, force: true });
+      await this.releaseLockReclaim(reclaimPath, acquired.token);
     }
   }
 
   async tryAcquireLockReclaim(reclaimPath) {
-    const uniqueReclaim = `${reclaimPath}.${randomUUID()}`;
+    const token = randomUUID();
+    const uniqueReclaim = `${reclaimPath}.${token}`;
     await mkdir(uniqueReclaim);
     await writeCompleteFile(
       path.join(uniqueReclaim, "owner.json"),
-      `${JSON.stringify(this.ownerIdentity())}\n`,
+      `${JSON.stringify({ ...this.ownerIdentity(), reclaimToken: token })}\n`,
     );
     try {
       await rename(uniqueReclaim, reclaimPath);
-      return true;
+      return { token };
     } catch {
       await rm(uniqueReclaim, { recursive: true, force: true });
     }
+    let holder;
+    let state;
     try {
-      const holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
-      const state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
-      if (state === "dead" || state === "reused") {
-        await rm(reclaimPath, { recursive: true, force: true });
-      }
+      holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
+      state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
     } catch {
       // Unreadable reclaim fence: do not delete indiscriminately.
+      return null;
     }
-    return false;
+    if (state === "dead" || state === "reused") {
+      const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
+      try {
+        await rename(reclaimPath, detachedPath);
+      } catch (error) {
+        if (error?.code === "ENOENT") return null;
+        throw error;
+      }
+      await rm(detachedPath, { recursive: true, force: true });
+    }
+    return null;
+  }
+
+  async releaseLockReclaim(reclaimPath, token) {
+    try {
+      const holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
+      if (holder.reclaimToken !== token) return;
+      await rm(reclaimPath, { recursive: true, force: true });
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
 
   async hasOtherLiveLockHolder(lockPath, token) {

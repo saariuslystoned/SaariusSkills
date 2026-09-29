@@ -130,6 +130,46 @@ test("two stale-lock reclaimers keep mutual exclusion across takeover and releas
   await cRun;
 });
 
+test("an older stale reclaimer cannot erase a newer reclaim generation", { timeout: 10_000 }, async () => {
+  const { stateRoot } = await makeState();
+  const lockPath = path.join(stateRoot, "jobs", `${STALE_JOB}.json.lock`);
+  const reclaimPath = `${lockPath}.reclaim`;
+  const stale = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old" };
+  await writeFile(lockPath, JSON.stringify(stale));
+  const newer = new GrokAcpBroker({
+    stateRoot,
+    runtime: {},
+    brokerId: "broker-b",
+    startTime: "newer",
+    inspectProcess: async () => ({ status: "missing" }),
+  });
+  let replaced = false;
+  let newerFence;
+  const older = new GrokAcpBroker({
+    stateRoot,
+    runtime: {},
+    brokerId: "broker-a",
+    startTime: "older",
+    inspectProcess: async (pid) => {
+      if (pid === DEAD_PID && !replaced) {
+        replaced = true;
+        assert.equal(await newer.tryAcquireLockReclaim(reclaimPath), null);
+        newerFence = await newer.tryAcquireLockReclaim(reclaimPath);
+        assert.ok(newerFence?.token);
+      }
+      return { status: "missing" };
+    },
+  });
+
+  await older.reclaimJobLock(lockPath, reclaimPath, { observed: stale, unreadable: false });
+  assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"))).brokerId, "broker-b");
+  await newer.releaseLockReclaim(reclaimPath, newerFence.token);
+  await assert.rejects(
+    () => readFile(path.join(reclaimPath, "owner.json")),
+    (error) => error?.code === "ENOENT",
+  );
+});
+
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {
   const { root, stateRoot } = await makeState();
   const jobId = STALE_JOB;
