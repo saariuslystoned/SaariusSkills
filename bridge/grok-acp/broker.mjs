@@ -1,7 +1,8 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { access, appendFile, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
@@ -116,6 +117,11 @@ async function inspectConversationRebind(broker, existing) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSqliteBusy(error) {
+  return error?.code === "ERR_SQLITE_BUSY" ||
+    (error?.code === "ERR_SQLITE_ERROR" && /database is locked/i.test(error?.message ?? ""));
 }
 
 function isSafeOwnerId(brokerId) {
@@ -350,6 +356,56 @@ async function writeCompleteFile(filePath, contents) {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+async function removeDetachedReclaim(detachedPath) {
+  await rm(detachedPath, { recursive: true, force: true });
+}
+
+async function removeDetachedReclaimGeneration(reclaimPath, detachedPath) {
+  let targetPath;
+  try {
+    targetPath = await readlink(detachedPath);
+  } catch {
+    // A legacy directory fence has no generation target to validate.
+    await removeDetachedReclaim(detachedPath);
+    return;
+  }
+  const resolvedTarget = path.resolve(path.dirname(detachedPath), targetPath);
+  const reclaimPrefix = `${path.resolve(reclaimPath)}.`;
+  const token = resolvedTarget.startsWith(reclaimPrefix) ? resolvedTarget.slice(reclaimPrefix.length) : null;
+  let permitted = false;
+  if (token && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
+    try {
+      const stats = await lstat(resolvedTarget);
+      if (stats.isDirectory() && !stats.isSymbolicLink()) {
+        const owner = JSON.parse(await readFile(path.join(resolvedTarget, "owner.json"), "utf8"));
+        permitted = owner?.reclaimToken === token;
+      }
+    } catch {
+      // Preserve unrecognized, malformed, or missing generation targets.
+    }
+  }
+  await removeDetachedReclaim(detachedPath);
+  if (permitted) await rm(resolvedTarget, { recursive: true, force: true });
+}
+
+async function inspectReclaimTarget(reclaimPath) {
+  let targetPath;
+  try {
+    targetPath = await readlink(reclaimPath);
+  } catch (error) {
+    if (error?.code === "EINVAL" || error?.code === "ENOENT") return null;
+    throw error;
+  }
+  const resolvedTarget = path.resolve(path.dirname(reclaimPath), targetPath);
+  try {
+    await lstat(resolvedTarget);
+    return { exists: true, path: resolvedTarget };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { exists: false, path: resolvedTarget };
+    throw error;
   }
 }
 
@@ -1467,33 +1523,113 @@ export class GrokAcpBroker {
         await rm(lockPath, { force: true });
       }
     } finally {
-      await rm(reclaimPath, { recursive: true, force: true });
+      await this.releaseLockReclaim(reclaimPath, acquired);
     }
   }
 
   async tryAcquireLockReclaim(reclaimPath) {
-    const uniqueReclaim = `${reclaimPath}.${randomUUID()}`;
-    await mkdir(uniqueReclaim);
-    await writeCompleteFile(
-      path.join(uniqueReclaim, "owner.json"),
-      `${JSON.stringify(this.ownerIdentity())}\n`,
-    );
+    const mutex = this.acquireLockReclaimMutex(reclaimPath);
+    if (!mutex) return null;
     try {
-      await rename(uniqueReclaim, reclaimPath);
-      return true;
-    } catch {
-      await rm(uniqueReclaim, { recursive: true, force: true });
+      return await this.tryAcquireLockReclaimWithMutex(reclaimPath);
+    } finally {
+      this.releaseLockReclaimMutex(mutex);
     }
+  }
+
+  acquireLockReclaimMutex(reclaimPath) {
+    const mutexPath = `${reclaimPath}.mutex.sqlite`;
+    let database;
     try {
-      const holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
-      const state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
-      if (state === "dead" || state === "reused") {
-        await rm(reclaimPath, { recursive: true, force: true });
-      }
-    } catch {
-      // Unreadable reclaim fence: do not delete indiscriminately.
+      database = new DatabaseSync(mutexPath);
+      database.exec("PRAGMA busy_timeout = 0");
+      database.exec("CREATE TABLE IF NOT EXISTS reclaim_mutex (id INTEGER PRIMARY KEY CHECK (id = 1))");
+      database.exec("BEGIN IMMEDIATE");
+      return database;
+    } catch (error) {
+      database?.close();
+      if (isSqliteBusy(error)) return null;
+      throw error;
     }
-    return false;
+  }
+
+  async waitForLockReclaimMutex(reclaimPath) {
+    while (true) {
+      const mutex = this.acquireLockReclaimMutex(reclaimPath);
+      if (mutex) return mutex;
+      await sleep(JOB_LOCK_RETRY_MS);
+    }
+  }
+
+  releaseLockReclaimMutex(database) {
+    try {
+      database.exec("ROLLBACK");
+    } finally {
+      database.close();
+    }
+  }
+
+  async tryAcquireLockReclaimWithMutex(reclaimPath) {
+    const token = randomUUID();
+    const uniqueReclaim = `${reclaimPath}.${token}`;
+    let keepGeneration = false;
+    try {
+      await mkdir(uniqueReclaim);
+        await writeCompleteFile(
+          path.join(uniqueReclaim, "owner.json"),
+          `${JSON.stringify({ ...this.ownerIdentity(), reclaimToken: token })}\n`,
+        );
+        try {
+          await symlink(uniqueReclaim, reclaimPath, "dir");
+          keepGeneration = true;
+          return { token, uniquePath: uniqueReclaim };
+        } catch {
+          await rm(uniqueReclaim, { recursive: true, force: true });
+        }
+        let holder;
+        let state;
+        try {
+          holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
+          state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
+        } catch {
+          // Unreadable reclaim fences are fail-closed. Only a symlink whose
+          // generation target is genuinely absent may be cleaned up here.
+          try {
+            const target = await inspectReclaimTarget(reclaimPath);
+            if (target?.exists === false) {
+              const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
+              await rename(reclaimPath, detachedPath);
+              await rm(detachedPath, { recursive: true, force: true });
+            }
+          } catch (error) {
+            if (error?.code !== "ENOENT") throw error;
+          }
+          return null;
+        }
+        if (state === "dead" || state === "reused") {
+          const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
+          try {
+            await rename(reclaimPath, detachedPath);
+          } catch (error) {
+            if (error?.code === "ENOENT") return null;
+            throw error;
+          }
+          await removeDetachedReclaimGeneration(reclaimPath, detachedPath);
+        }
+        return null;
+    } finally {
+      if (!keepGeneration) await rm(uniqueReclaim, { recursive: true, force: true });
+    }
+  }
+
+  async releaseLockReclaim(reclaimPath, fence) {
+    if (!fence || typeof fence !== "object" || !fence.uniquePath) return;
+    const mutex = await this.waitForLockReclaimMutex(reclaimPath);
+    try {
+      await rm(fence.uniquePath, { recursive: true, force: true });
+    } finally {
+      this.releaseLockReclaimMutex(mutex);
+    }
   }
 
   async hasOtherLiveLockHolder(lockPath, token) {
