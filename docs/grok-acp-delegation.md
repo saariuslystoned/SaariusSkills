@@ -79,6 +79,21 @@ Set `SAARIUS_GROK_ACP_REASONING_EFFORT` to `low`, `medium`, `high` or `xhigh`
 to choose another level, or to `inherit` to keep the CLI default. An
 unadvertised, unavailable or unconfirmed effort fails closed.
 
+## Delegation timeout
+
+`timeoutMs` on `grok_acp_delegate` is the wall-clock budget for that one
+ACpx prompt turn. Omit it for the 60-minute default. Request up to 4 hours
+explicitly when the slice needs it. Values above 4 hours are rejected at MCP
+admission and again in the broker. The requested value is what the runtime
+turn receives; it is also stored on the public and persisted job.
+
+That budget is not the parent conversation lifetime, the MCP session
+duration, or `grok_acp_result` `waitMs`. Result wait stays a short poll
+(max 5 minutes). Keep polling status/result while the turn runs. Setup, npm
+install, lock reclaim, and cleanup timers are separate and stay at their
+existing bounds. The historical 900 s reasoning-budget note is not this job
+turn wall.
+
 ## MCP connection
 
 Codex `.mcp.json`, Cursor `.cursor-plugin/mcp.json`, and the Claude Code
