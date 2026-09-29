@@ -43,8 +43,9 @@ test("copied plugin without dependencies reports its own exact repair path", () 
     assert.equal(report.code, "DEPENDENCIES_MISSING");
     assert.deepEqual(report.repair, [process.execPath, realpathSync(target), "--install"]);
     assert.equal(report.pin.version, "1.1.1");
-    assert.equal(report.pin.acpxRelease, "0.19.1");
-    assert.equal(report.pin.acpxSourceCommit, null);
+    assert.equal(report.pin.acpxRelease, "0.19.3");
+    assert.equal(report.pin.acpxSourceCommit, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+    assert.equal(report.pin.acpxNpmGitHead, null);
     assert.equal(
       report.pin.lastInspectedSourceCommit,
       "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
@@ -52,7 +53,7 @@ test("copied plugin without dependencies reports its own exact repair path", () 
     assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
     assert.equal(
       report.pin.acpxNpmIntegrity,
-      "sha512-zKVZVM6tHGXmdXU+sC30jdFLzz0ZpNLMorYKH+it3XcuEcvFl20sLbHPqfdjfsLfV+PmhRDEm1b9Np5KxgFHow==",
+      "sha512-5YvCb+NG3XzDapxzrQRDS6zGN13mWZeugaeoq03kh9NCTFgJGzt7lrdC4jT2YXp9UV6Ieg8H+AYxs2y2+g1Z/g==",
     );
     assert.ok(Array.isArray(report.runtimeRepair));
   } finally {
@@ -70,7 +71,8 @@ test("installed setup initializes real MCP and lists six tools without Antigravi
   assert.equal(report.runtime.silentlyInstalled, false);
   assert.deepEqual(report.tools, [...TOOL_NAMES].sort());
   assert.equal(report.pin.registryRevision, "81bf71b55e15f630c4fb8a86d20d3088071d2071");
-  assert.equal(report.pin.acpxSourceCommit, null);
+  assert.equal(report.pin.acpxSourceCommit, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+  assert.equal(report.pin.acpxNpmGitHead, null);
   assert.equal(report.pin.lastInspectedSourceRelease, "0.17.1");
   assert.ok(Array.isArray(report.runtime.repair));
   assert.equal(report.auth.ultraAttribution, "unclaimed");

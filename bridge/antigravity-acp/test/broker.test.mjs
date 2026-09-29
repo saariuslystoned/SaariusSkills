@@ -296,8 +296,9 @@ test("readiness proves advertised models without a turn", async () => {
   const report = await broker.discover({ workspace });
   assert.equal(report.ready, true);
   assert.equal(report.pin.version, "1.1.1");
-  assert.equal(report.pin.acpxRelease, "0.19.1");
-  assert.equal(report.pin.acpxSourceCommit, null);
+    assert.equal(report.pin.acpxRelease, "0.19.3");
+    assert.equal(report.pin.acpxSourceCommit, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+    assert.equal(report.pin.acpxNpmGitHead, null);
   assert.equal(
     report.pin.lastInspectedSourceCommit,
     "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
