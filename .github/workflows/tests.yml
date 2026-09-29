@@ -46,3 +46,45 @@ jobs:
         run: |
           python skills/grilltrack/scripts/grilltrack_ledger.py --help
           python skills/grilltrack/scripts/validate_picker.py fixtures/frontend-picker/manifest.json
+
+  node-bridges:
+    name: Node 22.13 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: |
+            bridge/antigravity-acp/package-lock.json
+            bridge/cursor-acp/package-lock.json
+            bridge/grok-acp/package-lock.json
+
+      - name: Install all bridge dependencies from lockfiles
+        run: |
+          for bridge in antigravity-acp cursor-acp grok-acp; do
+            npm ci --ignore-scripts --no-audit --no-fund --prefix "bridge/$bridge"
+          done
+
+      - name: Run provider-free bridge tests
+        run: |
+          for bridge in antigravity-acp cursor-acp grok-acp; do
+            npm test --prefix "bridge/$bridge"
+          done
+
+      - name: Run shared runtime tests
+        run: node --test bridge/acp-runtime/test/*.test.mjs

@@ -55,19 +55,19 @@ const EXPECTED_EXPORTS = {
   "./agent-registry": "./dist/agent-registry.js",
 };
 const EXPECTED_DECLARED_DEPENDENCIES = {
-  "@agentclientprotocol/sdk": "^1.4.0",
-  "@openclaw/fs-safe": "^0.12.0",
+  "@agentclientprotocol/sdk": "^1.5.0",
+  "@openclaw/fs-safe": "^0.18.1",
   commander: "^15.0.0",
   skillflag: "^0.2.1",
-  tsx: "^4.23.13",
-  zod: "^4.6.2",
+  tsx: "^4.23.15",
+  zod: "^4.6.5",
 };
 const EXPECTED_DEPENDENCY_VERSIONS = {
-  "@agentclientprotocol/sdk": "1.4.0",
-  "@openclaw/fs-safe": "0.12.0",
+  "@agentclientprotocol/sdk": "1.5.1",
+  "@openclaw/fs-safe": "0.18.2",
   commander: "15.0.0",
   skillflag: "0.2.1",
-  tsx: "4.23.13",
+  tsx: "4.23.15",
   zod: "4.6.5",
 };
 
@@ -246,7 +246,7 @@ test("installed acpx 0.19.3 Antigravity runtime completes a local synthetic-peer
       (error) => error && error.code === "ESRCH",
     );
   }
-  assert.equal(ACPX_SOURCE_COMMIT, null);
+  assert.equal(ACPX_SOURCE_COMMIT, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
   assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
 });
 

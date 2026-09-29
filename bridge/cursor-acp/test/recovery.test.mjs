@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -143,24 +143,24 @@ process.exit(0);
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(chunk));
-  await waitUntil(async () => {
-    try {
-      await access(readyPath);
-      return true;
-    } catch {
-      return child.exitCode !== null && mode === "exit" ? true : false;
-    }
-  }, 8_000);
-  if (child.exitCode && child.exitCode !== 0) {
-    assert.fail(`owner child failed: ${Buffer.concat(stderr).toString("utf8")}`);
-  }
   try {
-    await access(readyPath);
-  } catch {
-    assert.fail(`owner child produced no ready file: ${Buffer.concat(stderr).toString("utf8")}`);
+    await waitUntil(async () => {
+      try {
+        const ready = JSON.parse(await readFile(readyPath, "utf8"));
+        return Boolean(ready?.owner && Number.isInteger(ready?.pid));
+      } catch {
+        return child.exitCode !== null;
+      }
+    }, 8_000);
+    if (child.exitCode && child.exitCode !== 0) {
+      assert.fail(`owner child failed: ${Buffer.concat(stderr).toString("utf8")}`);
+    }
+    const ready = JSON.parse(await readFile(readyPath, "utf8"));
+    return { child, jobId, ready, stderr };
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    throw error;
   }
-  const ready = JSON.parse(await readFile(readyPath, "utf8"));
-  return { child, jobId, ready, stderr };
 }
 
 test("unknown ownership is left unchanged during initialization", async () => {
