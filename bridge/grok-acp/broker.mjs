@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -351,6 +351,17 @@ async function writeCompleteFile(filePath, contents) {
   } finally {
     await handle.close();
   }
+}
+
+async function removeDetachedReclaim(detachedPath) {
+  let targetPath;
+  try {
+    targetPath = await readlink(detachedPath);
+  } catch {
+    // A legacy directory fence has no generation target to follow.
+  }
+  await rm(detachedPath, { recursive: true, force: true });
+  if (targetPath) await rm(targetPath, { recursive: true, force: true });
 }
 
 async function inspectLockFile(lockPath) {
@@ -1508,7 +1519,7 @@ export class GrokAcpBroker {
             if ((await lstat(reclaimPath)).isSymbolicLink()) {
               const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
               await rename(reclaimPath, detachedPath);
-              await rm(detachedPath, { recursive: true, force: true });
+              await removeDetachedReclaim(detachedPath);
             }
           } catch (error) {
             if (error?.code !== "ENOENT") throw error;
@@ -1523,7 +1534,7 @@ export class GrokAcpBroker {
             if (error?.code === "ENOENT") return null;
             throw error;
           }
-          await rm(detachedPath, { recursive: true, force: true });
+          await removeDetachedReclaim(detachedPath);
         }
         return null;
       } finally {
