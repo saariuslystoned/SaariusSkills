@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, appendFile, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -1379,53 +1379,86 @@ export class CursorAcpBroker {
         await rm(lockPath, { force: true });
       }
     } finally {
-      await this.releaseLockReclaim(reclaimPath, acquired.token);
+      await this.releaseLockReclaim(reclaimPath, acquired);
     }
   }
 
   async tryAcquireLockReclaim(reclaimPath) {
+    const mutexPath = `${reclaimPath}.mutex`;
+    try {
+      await mkdir(mutexPath, { mode: 0o700 });
+    } catch (error) {
+      if (error?.code === "EEXIST") return null;
+      throw error;
+    }
     const token = randomUUID();
     const uniqueReclaim = `${reclaimPath}.${token}`;
-    await mkdir(uniqueReclaim);
-    await writeCompleteFile(
-      path.join(uniqueReclaim, "owner.json"),
-      `${JSON.stringify({ ...this.ownerIdentity(), reclaimToken: token })}\n`,
-    );
+    let keepGeneration = false;
     try {
-      await rename(uniqueReclaim, reclaimPath);
-      return { token };
-    } catch {
-      await rm(uniqueReclaim, { recursive: true, force: true });
-    }
-    let holder;
-    let state;
-    try {
-      holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
-      state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
-    } catch {
-      // Unreadable reclaim fence: do not delete indiscriminately.
-      return null;
-    }
-    if (state === "dead" || state === "reused") {
-      const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
       try {
-        await rename(reclaimPath, detachedPath);
-      } catch (error) {
-        if (error?.code === "ENOENT") return null;
-        throw error;
+        await mkdir(uniqueReclaim);
+        await writeCompleteFile(
+          path.join(uniqueReclaim, "owner.json"),
+          `${JSON.stringify({ ...this.ownerIdentity(), reclaimToken: token })}\n`,
+        );
+        try {
+          await symlink(uniqueReclaim, reclaimPath, "dir");
+          keepGeneration = true;
+          return { token, uniquePath: uniqueReclaim };
+        } catch {
+          await rm(uniqueReclaim, { recursive: true, force: true });
+        }
+        let holder;
+        let state;
+        try {
+          holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
+          state = classifyOwnerIdentity(holder, await this.probeOwner(holder));
+        } catch {
+          // Unreadable reclaim fences are fail-closed. A dangling generation is
+          // reclaimed only after it is isolated under the operation mutex.
+          try {
+            if ((await lstat(reclaimPath)).isSymbolicLink()) {
+              const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
+              await rename(reclaimPath, detachedPath);
+              await rm(detachedPath, { recursive: true, force: true });
+            }
+          } catch (error) {
+            if (error?.code !== "ENOENT") throw error;
+          }
+          return null;
+        }
+        if (state === "dead" || state === "reused") {
+          const detachedPath = `${reclaimPath}.stale.${randomUUID()}`;
+          try {
+            await rename(reclaimPath, detachedPath);
+          } catch (error) {
+            if (error?.code === "ENOENT") return null;
+            throw error;
+          }
+          await rm(detachedPath, { recursive: true, force: true });
+        }
+        return null;
+      } finally {
+        if (!keepGeneration) await rm(uniqueReclaim, { recursive: true, force: true });
       }
-      await rm(detachedPath, { recursive: true, force: true });
+    } finally {
+      await rm(mutexPath, { recursive: true, force: true });
     }
-    return null;
   }
 
-  async releaseLockReclaim(reclaimPath, token) {
+  async releaseLockReclaim(reclaimPath, fence) {
+    if (!fence || typeof fence !== "object" || !fence.uniquePath) return;
+    const mutexPath = `${reclaimPath}.mutex`;
     try {
-      const holder = JSON.parse(await readFile(path.join(reclaimPath, "owner.json"), "utf8"));
-      if (holder.reclaimToken !== token) return;
-      await rm(reclaimPath, { recursive: true, force: true });
+      await mkdir(mutexPath, { mode: 0o700 });
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (error?.code === "EEXIST") return;
+      throw error;
+    }
+    try {
+      await rm(fence.uniquePath, { recursive: true, force: true });
+    } finally {
+      await rm(mutexPath, { recursive: true, force: true });
     }
   }
 

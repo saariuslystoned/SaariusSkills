@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -163,11 +163,67 @@ test("an older stale reclaimer cannot erase a newer reclaim generation", { timeo
 
   await older.reclaimJobLock(lockPath, reclaimPath, { observed: stale, unreadable: false });
   assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"))).brokerId, "broker-b");
-  await newer.releaseLockReclaim(reclaimPath, newerFence.token);
+  await newer.releaseLockReclaim(reclaimPath, newerFence);
   await assert.rejects(
     () => readFile(path.join(reclaimPath, "owner.json")),
     (error) => error?.code === "ENOENT",
   );
+});
+
+test("a stale holder observation cannot detach a newer reclaim generation", { timeout: 10_000 }, async () => {
+  const { stateRoot } = await makeState();
+  const reclaimPath = path.join(stateRoot, "jobs", `${STALE_JOB}.json.lock.reclaim`);
+  const stale = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old", reclaimToken: "old-token" };
+  await mkdir(reclaimPath, { recursive: true });
+  await writeFile(path.join(reclaimPath, "owner.json"), `${JSON.stringify(stale)}\n`);
+  const newer = new CursorAcpBroker({
+    stateRoot,
+    runtime: {},
+    brokerId: "broker-b",
+    startTime: "newer",
+    inspectProcess: async () => ({ status: "missing" }),
+  });
+  let newerFence;
+  const older = new CursorAcpBroker({
+    stateRoot,
+    runtime: {},
+    brokerId: "broker-a",
+    startTime: "older",
+    inspectProcess: async (pid) => {
+      if (pid === DEAD_PID && !newerFence) {
+        assert.equal(await newer.tryAcquireLockReclaim(reclaimPath), null);
+        newerFence = await newer.tryAcquireLockReclaim(reclaimPath);
+      }
+      return { status: "missing" };
+    },
+  });
+
+  await older.tryAcquireLockReclaim(reclaimPath);
+  if (!newerFence) newerFence = await newer.tryAcquireLockReclaim(reclaimPath);
+  assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"))).brokerId, "broker-b");
+  await newer.releaseLockReclaim(reclaimPath, newerFence);
+});
+
+test("release removes only its generation after canonical replacement", { timeout: 10_000 }, async () => {
+  const { stateRoot } = await makeState();
+  const reclaimPath = path.join(stateRoot, "jobs", `${STALE_JOB}.json.lock.reclaim`);
+  const broker = new CursorAcpBroker({
+    stateRoot,
+    runtime: {},
+    brokerId: "broker-a",
+    startTime: "older",
+    inspectProcess: async () => ({ status: "missing" }),
+  });
+  const olderFence = await broker.tryAcquireLockReclaim(reclaimPath);
+  assert.ok(olderFence?.uniquePath);
+  const detachedPath = `${reclaimPath}.stale.test`;
+  await rename(reclaimPath, detachedPath);
+  await rm(detachedPath, { recursive: true, force: true });
+  const newerFence = await broker.tryAcquireLockReclaim(reclaimPath);
+  assert.ok(newerFence?.uniquePath);
+  await broker.releaseLockReclaim(reclaimPath, olderFence);
+  assert.equal(JSON.parse(await readFile(path.join(reclaimPath, "owner.json"))).brokerId, "broker-a");
+  await broker.releaseLockReclaim(reclaimPath, newerFence);
 });
 
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {
