@@ -65,7 +65,10 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   submit anyway.
 - Use `cursor_acp_delegate` with one absolute workspace path, one parent
   conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
-  one bounded prompt, and a bounded timeout. One parent conversation owns one
+  one bounded prompt, and a bounded timeout (`timeoutMs` is the wall-clock
+  budget for that one ACP turn: 60 minutes when omitted, up to 4 hours when
+  explicitly requested; it is not session duration or `cursor_acp_result`
+  `waitMs`). One parent conversation owns one
   worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
   not exclusive. Prefer an isolated worktree for source mutations. Do not fan
   out by default. Live MCP permissions default to `approve-reads` plus fail on

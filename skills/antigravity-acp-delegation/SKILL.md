@@ -82,7 +82,10 @@ the user explicitly authorizes that alternative.
   a red readiness report as advice and submit anyway.
 - Use `antigravity_acp_delegate` with one absolute workspace path, one parent
   conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
-  one bounded prompt, and a bounded timeout. One parent conversation owns one
+  one bounded prompt, and a bounded timeout (`timeoutMs` is the wall-clock
+  budget for that one ACP turn: 60 minutes when omitted, up to 4 hours when
+  explicitly requested; it is not session duration or `antigravity_acp_result`
+  `waitMs`). One parent conversation owns one
   worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
   not exclusive. Omit `model` to use the plugin default exact
   id `gemini-3.8-flash-high` when that id is advertised. That default ships in

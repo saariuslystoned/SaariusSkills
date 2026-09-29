@@ -65,12 +65,18 @@ changes, secret access, or external sends. Retain repo and user gates.
 
 Use the selected native `*_acp_delegate` with the lane's accepted arguments:
 one isolated workspace for source changes, one parent conversation identity,
-one bounded prompt and timeout. Compare the returned `permission` and selected
-route/model to the verified readiness. If they differ, report the mismatch and
-use the lane's cancellation contract rather than accepting the job as verified.
-Save the job ID and follow `*_acp_status` / `*_acp_result` to its canonical
-terminal outcome. A submission receipt is not success. Independently verify
-the changed files and relevant checks before accepting the result.
+one bounded prompt and timeout. `timeoutMs` is the wall-clock budget for that
+one delegated ACP turn: omit it for the 60-minute default, or request up to 4
+hours explicitly. It is not the parent conversation lifetime, the MCP session
+duration, or `*_acp_result` `waitMs`. Result wait stays a short poll (max 5
+minutes); keep polling status/result while the turn runs. Setup, npm, lock,
+and cleanup timers are separate and stay unchanged. Compare the returned
+`permission` and selected route/model to the verified readiness. If they
+differ, report the mismatch and use the lane's cancellation contract rather
+than accepting the job as verified. Save the job ID and follow
+`*_acp_status` / `*_acp_result` to its canonical terminal outcome. A
+submission receipt is not success. Independently verify the changed files and
+relevant checks before accepting the result.
 
 A cross-session handoff must retain: selected harness and reason; discovered
 alternatives and their known readiness (unprobed is unknown); exact readiness

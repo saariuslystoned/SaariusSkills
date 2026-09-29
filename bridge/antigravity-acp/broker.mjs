@@ -39,10 +39,18 @@ import {
   resolveLivePermissionMode,
 } from "./host-policy.mjs";
 
-export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-export const MAX_TIMEOUT_MS = 30 * 60 * 1000;
+export const MIN_TIMEOUT_MS = 1_000;
+export const DEFAULT_TIMEOUT_MS = 3_600_000;
+export const MAX_TIMEOUT_MS = 14_400_000;
+// ACpx constructor timeout covers session connect/close, not the job turn.
+// Keep it at the previous 10-minute control-plane budget.
+export const RUNTIME_CONTROL_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_PROMPT_CHARS = 20_000;
 export const MAX_STEER_CHARS = 8_000;
+
+export function timeoutMsZod(z) {
+  return z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS).optional();
+}
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "needs-input"]);
 const JOB_ID_PATTERN = /^[0-9a-f-]{36}$/i;
@@ -488,10 +496,10 @@ function assertBoundedText(value, field, maxChars) {
 
 function parseTimeout(value) {
   if (value === undefined) return DEFAULT_TIMEOUT_MS;
-  if (!Number.isInteger(value) || value < 1_000 || value > MAX_TIMEOUT_MS) {
+  if (!Number.isInteger(value) || value < MIN_TIMEOUT_MS || value > MAX_TIMEOUT_MS) {
     throw new BridgeError(
       "INVALID_INPUT",
-      `timeoutMs must be an integer between 1000 and ${MAX_TIMEOUT_MS}`,
+      `timeoutMs must be an integer between ${MIN_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`,
     );
   }
   return value;
@@ -700,7 +708,7 @@ export function createDefaultRuntime({
   stateRoot,
   launch,
   geminiHome,
-  timeoutMs,
+  timeoutMs = RUNTIME_CONTROL_TIMEOUT_MS,
   processEnv = process.env,
   processLifecycle,
 }) {
@@ -769,6 +777,7 @@ export class AntigravityAcpBroker {
     this.helperPath = options.helperPath ?? this.processEnv.ANTIGRAVITY_HARNESS_PATH?.trim();
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.runtimeControlTimeoutMs = options.runtimeControlTimeoutMs ?? RUNTIME_CONTROL_TIMEOUT_MS;
     this.idFactory = options.idFactory ?? randomUUID;
     this.now = options.now ?? (() => new Date().toISOString());
     this.which = options.which ?? ((command) => whichOnPath(command, this.processEnv.PATH));
@@ -1229,7 +1238,7 @@ export class AntigravityAcpBroker {
       stateRoot: this.stateRoot,
       launch,
       geminiHome: this.geminiHome,
-      timeoutMs: this.timeoutMs,
+      timeoutMs: this.runtimeControlTimeoutMs,
       processEnv: this.processEnv,
       processLifecycle: this.processLifecycleTracker.processLifecycle,
     };

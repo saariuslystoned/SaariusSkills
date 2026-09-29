@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { AntigravityAcpBroker, BridgeError } from "./broker.mjs";
+import { AntigravityAcpBroker, BridgeError, timeoutMsZod } from "./broker.mjs";
 
 const broker = await new AntigravityAcpBroker().init();
 const server = new McpServer({
@@ -59,7 +59,7 @@ server.registerTool(
       workspace: z.string(),
       prompt: z.string(),
       model: z.string().optional(),
-      timeoutMs: z.number().int().min(1_000).max(1_800_000).optional(),
+      timeoutMs: timeoutMsZod(z),
       effort: z.any().optional(),
       hostConversationId: z.string().optional(),
       binderId: z.string().optional(),

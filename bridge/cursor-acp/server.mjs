@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { BridgeError, CursorAcpBroker } from "./broker.mjs";
+import { BridgeError, CursorAcpBroker, timeoutMsZod } from "./broker.mjs";
 
 const broker = await new CursorAcpBroker().init();
 const server = new McpServer({
@@ -54,7 +54,7 @@ server.registerTool(
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),
-      timeoutMs: z.number().int().min(1_000).max(1_800_000).optional(),
+      timeoutMs: timeoutMsZod(z),
       hostConversationId: z.string().optional(),
       binderId: z.string().optional(),
     },
