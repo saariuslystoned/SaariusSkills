@@ -14,7 +14,7 @@ on the worker). A separate host that owns phone or browser chat (for
 example Swarm Intercom) may start the bridge as its parent; that host is not
 part of this plugin and is not proven here. Former aliases: Local was L;
 Always-on was A1; Hop was B. This lane talks to Google's official
-Antigravity ACP runtime through pinned `acpx@0.19.1`. It is not the Cursor
+Antigravity ACP runtime through pinned `acpx@0.19.3`. It is not the Cursor
 ACP lane, not native `agy --print`, and not a Puppet transport. Published
 install is the plugin, not `~/.cursor/mcp.json`. A cloud Cursor Project
 chat cannot call `antigravity_acp_*`.
@@ -40,12 +40,13 @@ and all six tools. It does not download, install, or update the official
 `antigravity-acp` 1.1.1 runtime/helper, open a login, or send a model turn.
 
 The pinned runtime is `antigravity-acp` 1.1.1 at registry revision
-`81bf71b55e15f630c4fb8a86d20d3088071d2071`, launched through `acpx` 0.19.1
+`81bf71b55e15f630c4fb8a86d20d3088071d2071`, launched through `acpx` 0.19.3
 (published npm integrity, tarball hash, `runtime.js` hash, and
-`agent-registry.js` hash; `acpxSourceCommit` is null because that release has
-no gitHead; `50a47ad` is only `lastInspectedSourceCommit` for the 0.17.1 watch
-identity; OpenClaw main `482a4b2` depending on this package is not a live
-qualification). Setup reports the exact platform
+`agent-registry.js` hash; the release tag resolves to source commit
+`6b4714c7`, while the published npm manifest has no `gitHead`; `50a47ad` is
+only `lastInspectedSourceCommit` for the 0.17.1 watch identity; the last
+inspected OpenClaw main at `482a4b2` depends on the historical 0.19.1 package
+and is not a live qualification). Setup reports the exact platform
 archive, helper name, and `GEMINI_HOME` personal-OAuth repair actions. Do not
 silently install those binaries.
 
