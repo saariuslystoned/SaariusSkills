@@ -80,6 +80,15 @@ export const DEFAULT_PERMISSION_SOURCE = "default";
 
 export function describeLivePermissionMode(env = process.env) {
   const source = firstNonEmpty(env?.[PERMISSION_MODE_ENV]) ? PERMISSION_MODE_ENV : DEFAULT_PERMISSION_SOURCE;
+  const capabilities = {
+    supportedModes: [LIVE_PERMISSION_MODE, BREAK_GLASS_PERMISSION_MODE],
+    configuration: {
+      environmentVariable: PERMISSION_MODE_ENV,
+      scope: "server-process",
+      perJobOverride: false,
+      restartRequired: true,
+    },
+  };
   try {
     const resolved = resolveLivePermissionMode(env);
     const description = {
@@ -87,6 +96,8 @@ export function describeLivePermissionMode(env = process.env) {
       nonInteractivePermissions: resolved.nonInteractivePermissions,
       breakGlass: resolved.breakGlass,
       source,
+      ...capabilities,
+      toolApproval: { read: true, write: resolved.breakGlass, exec: resolved.breakGlass },
     };
     if (!resolved.breakGlass) {
       description.warning =
@@ -100,6 +111,8 @@ export function describeLivePermissionMode(env = process.env) {
       nonInteractivePermissions: LIVE_NON_INTERACTIVE_PERMISSIONS,
       breakGlass: false,
       source,
+      ...capabilities,
+      toolApproval: { read: false, write: false, exec: false },
       error: {
         code: error?.code ?? "INVALID_PERMISSION_MODE",
         message: error?.message ?? String(error),

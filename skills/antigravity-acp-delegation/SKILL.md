@@ -1,6 +1,6 @@
 ---
 name: antigravity-acp-delegation
-description: Use the separately named antigravity-acp MCP lane to diagnose official Google Antigravity ACP setup or delegate one bounded implementation slice. Plugin default is exact advertised id gemini-3.8-flash-high. Distinct from cursor-acp and from native agy-print or Puppet qualification.
+description: Use the separately named antigravity-acp MCP lane to diagnose official Google Antigravity ACP setup or delegate one bounded implementation slice. Verify the exact advertised model in the live catalog before dispatch. Distinct from cursor-acp and from native agy-print or Puppet qualification.
 ---
 
 # Antigravity ACP delegation
@@ -18,6 +18,16 @@ Antigravity ACP runtime through pinned `acpx@0.19.3`. It is not the Cursor
 ACP lane, not native `agy --print`, and not a Puppet transport. Published
 install is the plugin, not `~/.cursor/mcp.json`. A cloud Cursor Project
 chat cannot call `antigravity_acp_*`.
+
+For generic “use the SaariusSkills ACP plugin” requests, start with the
+[ACP entry skill](../acp-delegation/SKILL.md). This lane's preferences and
+selectors do not prohibit the other harnesses. For mode changes, follow the
+[shared permission setup](../acp-delegation/references/permissions.md) and verify
+the effective mode before dispatch; retain prior user authorization.
+A generic entry-skill request permits another discovered native ACP lane after
+this lane fails, unless the user constrained substitution. The restrictions on
+alternative transports below still apply to explicit lane requests and to
+non-native substitutes.
 
 ## Discovery and setup
 

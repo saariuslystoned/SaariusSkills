@@ -1,15 +1,25 @@
 ---
 name: cursor-acp-delegation
-description: Use Cursor ACP MCP to delegate bounded implementation or verification to local Cursor Grok 4.6, or diagnose missing Cursor ACP tools. Applies with any Codex or Claude Code orchestrator model, including Luna. Developing Puppet does not make Puppet the worker transport.
+description: Use Cursor ACP MCP to delegate bounded implementation or verification to an advertised local Cursor model, or diagnose missing Cursor ACP tools. Applies with any Codex or Claude Code orchestrator model, including Luna. Developing Puppet does not make Puppet the worker transport.
 ---
 
 # Cursor ACP delegation
 
 Use the `cursor-acp` MCP server as an optional local worker route for
-substantial, bounded implementation or verification work. Cursor/Grok 4.6 is
+substantial, bounded implementation or verification work. Cursor is
 Bobby's preferred route for that kind of slice when the local route is ready;
 the parent agent still owns decisions, scope, review, and any separately gated
 external action.
+
+For generic “use the SaariusSkills ACP plugin” requests, start with the
+[ACP entry skill](../acp-delegation/SKILL.md). This lane's preferences and
+selectors do not prohibit the other harnesses. For mode changes, follow the
+[shared permission setup](../acp-delegation/references/permissions.md) and verify
+the effective mode before dispatch; retain prior user authorization.
+A generic entry-skill request permits another discovered native ACP lane after
+this lane fails, unless the user constrained substitution. The restrictions on
+alternative transports below still apply to explicit lane requests and to
+non-native substitutes.
 
 ## Discovery and setup
 

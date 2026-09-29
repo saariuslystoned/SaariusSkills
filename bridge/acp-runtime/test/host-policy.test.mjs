@@ -455,3 +455,25 @@ test("confirmed unstarted or released admissions can rebind without guessing", (
     { ok: true, reason: "previous_job_terminal_cleanup_complete" },
   );
 });
+
+test("permission capability reports distinguish supported, effective, and invalid modes", async () => {
+  for (const lane of ["cursor", "grok", "antigravity"]) {
+    const { describeLivePermissionMode: describe } = await import(`../../${lane}-acp/host-policy.mjs`);
+    for (const [mode, expected] of [
+      [undefined, { read: true, write: false, exec: false }],
+      ["approve-reads", { read: true, write: false, exec: false }],
+      ["approve-all", { read: true, write: true, exec: true }],
+      ["invented", { read: false, write: false, exec: false }],
+    ]) {
+      const report = describe(mode ? { SAARIUS_ACP_PERMISSION_MODE: mode } : {});
+      assert.deepEqual(report.supportedModes, ["approve-reads", "approve-all"]);
+      assert.deepEqual(report.toolApproval, expected);
+      assert.deepEqual(report.configuration, {
+        environmentVariable: "SAARIUS_ACP_PERMISSION_MODE",
+        scope: "server-process",
+        perJobOverride: false,
+        restartRequired: true,
+      });
+    }
+  }
+});

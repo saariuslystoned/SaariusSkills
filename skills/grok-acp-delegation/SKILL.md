@@ -12,6 +12,16 @@ stdio agent, ACpx built-in `grok-build` (`grok agent stdio`). This is not
 the Cursor ACP lane, not Puppet's grok tmux harness, and not a Grok Bot
 computer.
 
+For generic “use the SaariusSkills ACP plugin” requests, start with the
+[ACP entry skill](../acp-delegation/SKILL.md). This lane's preferences and
+selectors do not prohibit the other harnesses. For mode changes, follow the
+[shared permission setup](../acp-delegation/references/permissions.md) and verify
+the effective mode before dispatch; retain prior user authorization.
+A generic entry-skill request permits another discovered native ACP lane after
+this lane fails, unless the user constrained substitution. The restrictions on
+alternative transports below still apply to explicit lane requests and to
+non-native substitutes.
+
 ## Discovery and setup
 
 Tool names may have a plugin/server prefix. Search the available/deferred tool
