@@ -1,0 +1,6 @@
+{"event":"run_started","status":"active","worktree":"/Users/bobbybones/.codex/worktrees/acpx-0193-offline/SaariusSkills","branch":"codex/acpx-0193-offline","base":"960e3a343244eb96758591f884b1c64d9615a832","author":"luna-offline-authorized","source":"acpx-0.19.3","source_commit":"6b4714c7aaac8c38b1fe38354848d2546f65d87d"}
+{"event":"fenced_history_preserved","cursor_job":"e2ce20af-34ee-4f4b-99fc-56512217c0f1","status":"timed_out","action":"no_retry_no_reuse"}
+{"event":"artifact_verified","version":"0.19.3","integrity":"sha512-5YvCb+NG3XzDapxzrQRDS6zGN13mWZeugaeoq03kh9NCTFgJGzt7lrdC4jT2YXp9UV6Ieg8H+AYxs2y2+g1Z/g==","tarball_sha256":"670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60"}
+{"event":"implementation_checkpoint","status":"complete","next":"private_offline_regressions"}
+{"event":"offline_regressions","cursor":{"passed":76,"skipped":11,"failed":0},"antigravity":{"passed":66,"failed":0},"grok":{"passed":66,"failed":0}}
+{"event":"check_wrapper_limited","status":"stopped","reason":"OpenClaw Node test-isolation worker hung in recovery.test.mjs after bridge tests; exact task-owned PIDs only","source_failure":false}

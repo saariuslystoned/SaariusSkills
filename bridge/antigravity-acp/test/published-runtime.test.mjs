@@ -75,11 +75,11 @@ function requirePublishedInstall() {
   assert.equal(
     existsSync(installedPackage),
     true,
-    "published acpx@0.19.1 must be installed by local npm ci in this bridge",
+    "published acpx@0.19.3 must be installed by local npm ci in this bridge",
   );
 }
 
-test("native pin exercises published acpx 0.19.1 public runtime and agent-registry exports", async () => {
+test("native pin exercises published acpx 0.19.3 public runtime and agent-registry exports", async () => {
   requirePublishedInstall();
   const manifest = JSON.parse(readFileSync(installedPackage, "utf8"));
   const lock = JSON.parse(readFileSync(lockfile, "utf8"));
@@ -87,37 +87,38 @@ test("native pin exercises published acpx 0.19.1 public runtime and agent-regist
   const runtimeDigest = createHash("sha256").update(readFileSync(installedRuntime)).digest("hex");
   const registryDigest = createHash("sha256").update(readFileSync(installedRegistry)).digest("hex");
 
-  assert.equal(manifest.version, "0.19.1");
+  assert.equal(manifest.version, "0.19.3");
   assert.equal(manifest.version, ACPX_RELEASE);
   assert.equal(manifest.gitHead, undefined);
   assert.equal(manifest.engines.node, ">=22.13.0");
   assert.deepEqual(manifest.exports, EXPECTED_EXPORTS);
-  assert.equal(ACPX_SOURCE_COMMIT, null);
-  assert.equal(RUNTIME_PIN.acpxSourceCommit, null);
+  assert.equal(ACPX_SOURCE_COMMIT, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+  assert.equal(RUNTIME_PIN.acpxSourceCommit, ACPX_SOURCE_COMMIT);
+  assert.equal(RUNTIME_PIN.acpxNpmGitHead, null);
   assert.equal(RUNTIME_PIN.lastInspectedSourceCommit, ACPX_LAST_INSPECTED_SOURCE_COMMIT);
   assert.equal(RUNTIME_PIN.lastInspectedSourceRelease, ACPX_LAST_INSPECTED_SOURCE_RELEASE);
   assert.equal(ACPX_LAST_INSPECTED_SOURCE_RELEASE, "0.17.1");
-  assert.equal(validateRuntimePin(RUNTIME_PIN).acpxSourceCommit, null);
+  assert.equal(validateRuntimePin(RUNTIME_PIN).acpxSourceCommit, ACPX_SOURCE_COMMIT);
   assert.throws(
     () => validateRuntimePin({
       ...RUNTIME_PIN,
       acpxSourceCommit: ACPX_LAST_INSPECTED_SOURCE_COMMIT,
     }),
-    /source commit is unknown/,
+    /release source commit drifted/,
   );
   assert.throws(
     () => validateRuntimePin({
       ...RUNTIME_PIN,
       lastInspectedSourceRelease: ACPX_RELEASE,
     }),
-    /not the published 0\.19\.1 release/,
+    /not the published 0\.19\.3 release/,
   );
-  assert.equal(pinned.version, "0.19.1");
+  assert.equal(pinned.version, "0.19.3");
   assert.equal(pinned.resolved, ACPX_TARBALL_URL);
   assert.equal(pinned.integrity, ACPX_NPM_INTEGRITY);
   assert.equal(runtimeDigest, ACPX_RUNTIME_JS_SHA256);
   assert.equal(registryDigest, ACPX_AGENT_REGISTRY_JS_SHA256);
-  assert.equal(ACPX_TARBALL_SHA256, "f99d74e81085121563c917f4509758fb78bf1fa30424e469193c09837592bbf0");
+  assert.equal(ACPX_TARBALL_SHA256, "670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60");
   assert.notEqual(ACPX_RELEASE, HISTORICAL_PUBLISHED_NPM_VERSION);
   assert.notEqual(pinned.integrity, HISTORICAL_PUBLISHED_NPM_INTEGRITY);
   assert.notEqual(ACPX_TARBALL_SHA256, HISTORICAL_PUBLISHED_TARBALL_SHA256);
@@ -168,15 +169,15 @@ test("native pin exercises published acpx 0.19.1 public runtime and agent-regist
   await runtime.shutdown();
 });
 
-test("installed acpx 0.19.1 Antigravity runtime completes a local synthetic-peer turn and retires the owned child", {
+test("installed acpx 0.19.3 Antigravity runtime completes a local synthetic-peer turn and retires the owned child", {
   timeout: 60_000,
 }, async () => {
   requirePublishedInstall();
   const peer = fileURLToPath(new URL("../../cursor-acp/test/candidate-peer.mjs", import.meta.url));
-  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0191-agy-lifecycle-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "acpx-0193-agy-lifecycle-"));
   const tracker = createProcessLifecycleTracker();
   const sessions = new Map();
-  const sessionKey = "agy-acp-published-0191";
+  const sessionKey = "agy-acp-published-0193";
   const registry = createAgentRegistry({
     overrides: { antigravity: [process.execPath, peer] },
   });
@@ -208,7 +209,7 @@ test("installed acpx 0.19.1 Antigravity runtime completes a local synthetic-peer
       handle,
       text: "published runtime proof ping",
       mode: "prompt",
-      requestId: "published-0191-agy-turn",
+      requestId: "published-0193-agy-turn",
     });
     const discarded = await discardCandidateTurnEvents(turn);
     assert.equal(discarded.body_retained, false);
@@ -216,7 +217,7 @@ test("installed acpx 0.19.1 Antigravity runtime completes a local synthetic-peer
     assert.equal(result.status, "completed");
     await runtime.close({
       handle,
-      reason: "published-0191-agy-lifecycle-complete",
+      reason: "published-0193-agy-lifecycle-complete",
       discardPersistentState: true,
     });
     const proof = await tracker.waitForOwnedExit(sessionKey, { timeoutMs: 10_000 });
