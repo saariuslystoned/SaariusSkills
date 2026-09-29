@@ -268,6 +268,8 @@ test("readiness reports the resolved permission mode and warns on approve-reads 
   const report = await everyday.broker.discover({ workspace: everyday.workspace });
   assert.equal(report.ready, true);
   assert.equal(report.permission.permissionMode, "approve-reads");
+  assert.deepEqual(report.permission.supportedModes, ["approve-reads", "approve-all"]);
+  assert.deepEqual(report.permission.toolApproval, { read: true, write: false, exec: false });
   assert.equal(report.permission.breakGlass, false);
   assert.equal(report.permission.source, "default");
   assert.match(report.permission.warning, /PERMISSION_PROMPT_UNAVAILABLE/);
@@ -282,6 +284,7 @@ test("readiness reports the resolved permission mode and warns on approve-reads 
   assert.equal(glassReport.permission.warning, undefined);
   const glassJob = await glass.broker.delegate({ workspace: glass.workspace, model: FIXTURE_MODEL, prompt: "Write one bounded file and report." });
   assert.equal(glassJob.permission.permissionMode, "approve-all");
+  assert.deepEqual(glassJob.permission, glassReport.permission);
   assert.equal(glassJob.permission.breakGlass, true);
   assert.equal(glassJob.permission.source, "SAARIUS_ACP_PERMISSION_MODE");
   assert.equal(glassJob.permission.warning, undefined);

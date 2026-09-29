@@ -14,6 +14,20 @@ GROK_SKILL = ROOT / "skills" / "grok-acp-delegation"
 
 
 class PackagingTests(unittest.TestCase):
+    def test_acp_entry_is_discoverable_on_packaged_hosts(self) -> None:
+        entry = ROOT / "skills" / "acp-delegation"
+        self.assertTrue((entry / "SKILL.md").is_file())
+        for name in ("permissions.md", "evaluations.md"):
+            self.assertTrue((entry / "references" / name).is_file())
+        metadata = (entry / "agents" / "openai.yaml").read_text()
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("$acp-delegation", metadata)
+        cursor = json.loads((ROOT / ".cursor-plugin" / "plugin.json").read_text())
+        self.assertIn("./skills/acp-delegation/", cursor["skills"])
+        # Codex/Claude/path installs discover the existing skills directory.
+        for lane in ("cursor", "grok", "antigravity"):
+            self.assertTrue((ROOT / "skills" / f"{lane}-acp-delegation" / "SKILL.md").is_file())
+
     def test_plugin_and_marketplace_identity(self) -> None:
         plugin = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")

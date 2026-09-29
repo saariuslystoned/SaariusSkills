@@ -1,0 +1,6 @@
+interface:
+  display_name: "ACP Delegation"
+  short_description: "Discover and route bounded work across three ACP harnesses"
+  default_prompt: "Use $acp-delegation to select a ready SaariusSkills ACP route, verify permissions, and delegate one bounded task."
+policy:
+  allow_implicit_invocation: true

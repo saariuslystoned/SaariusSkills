@@ -1,0 +1,2 @@
+{"event":"started","task":"issue-102","branch":"codex/issue-102-acp-routing"}
+{"event":"offline-verification-passed","python":60,"node_passed":264,"node_skipped":23,"receipt_checks":61,"packaging_recheck":14}

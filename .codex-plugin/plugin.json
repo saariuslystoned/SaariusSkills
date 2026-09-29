@@ -34,9 +34,10 @@
     "websiteURL": "https://github.com/saariuslystoned/SaariusSkills",
     "defaultPrompt": [
       "Help me decide and build the next product slice with GrillTrack.",
-      "Use Cursor ACP to delegate one bounded implementation slice to local Grok 4.6.",
-      "Use Antigravity ACP to diagnose official Google Antigravity setup or delegate one bounded slice. Plugin default is exact advertised gemini-3.8-flash-high.",
-      "Use Grok ACP to delegate one bounded implementation slice to local grok agent stdio. Plugin default is exact advertised grok-4.7."
+      "Use the SaariusSkills ACP plugin for one bounded implementation task.",
+      "Use Cursor ACP to delegate one bounded implementation slice after verifying the advertised model and effective permissions.",
+      "Use Antigravity ACP to diagnose setup or delegate one bounded slice using a verified advertised model.",
+      "Use Grok ACP to delegate one bounded implementation slice to local grok agent stdio after readiness verification."
     ]
   }
 }

@@ -22,6 +22,15 @@ proof and run records remain in `plans/`, `proof/`, and `runs/`.
 
 ## ACP delegation
 
+Start with the [ACP entry skill](skills/acp-delegation/SKILL.md) for requests
+such as “use the SaariusSkills ACP plugin for this implementation.” It discovers
+all native harnesses, honors explicit route choices, and loads only the selected
+lane contract. Preferences do not exclude alternatives. See the
+[permission setup guide](skills/acp-delegation/references/permissions.md) for
+supported versus active modes, host configuration and reload steps, and receipt
+verification. Permission modes are server-scoped; per-job overrides are not
+currently supported.
+
 SaariusSkills is the host policy for one local ACP contract. ACpx is the
 local client. ACP is the wire. Host the plugin in **Codex** or **Cursor**,
 then delegate one bounded slice to a **Cursor**, **Antigravity**, or **Grok**
