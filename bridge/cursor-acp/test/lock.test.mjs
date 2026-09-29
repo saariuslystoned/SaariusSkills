@@ -300,6 +300,7 @@ const broker = new CursorAcpBroker({ stateRoot: process.env.STATE_ROOT, runtime:
 const mutex = broker.acquireLockReclaimMutex(process.env.RECLAIM_PATH);
 if (!mutex) process.exit(2);
 await writeFile(process.env.READY_PATH, "locked\\n");
+setInterval(() => {}, 1000);
 await new Promise(() => {});
 `;
   const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
@@ -381,6 +382,16 @@ await broker.withJobLock(process.env.JOB_ID, async () => {
   const overlapFiles = (await readdir(resultDir)).filter((name) => name.startsWith("overlap-"));
   assert.equal(overlapFiles.length, 2, stderrText);
   for (const name of overlapFiles) assert.equal(await readFile(path.join(resultDir, name), "utf8"), "1", stderrText);
+});
+
+test("a legacy mkdir mutex marker does not block SQLite recovery", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  await mkdir(`${reclaimPath}.mutex`);
+  const broker = new CursorAcpBroker({ stateRoot: root, runtime: {}, brokerId: "upgraded", startTime: "upgraded", inspectProcess: async () => ({ status: "missing" }) });
+  const fence = await broker.tryAcquireLockReclaim(reclaimPath);
+  assert.ok(fence?.uniquePath);
+  await broker.releaseLockReclaim(reclaimPath, fence);
 });
 
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {

@@ -1517,7 +1517,7 @@ export class GrokAcpBroker {
   }
 
   acquireLockReclaimMutex(reclaimPath) {
-    const mutexPath = `${reclaimPath}.mutex`;
+    const mutexPath = `${reclaimPath}.mutex.sqlite`;
     let database;
     try {
       database = new DatabaseSync(mutexPath);
