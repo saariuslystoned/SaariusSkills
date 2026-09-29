@@ -394,6 +394,56 @@ test("a legacy mkdir mutex marker does not block SQLite recovery", { timeout: 10
   await broker.releaseLockReclaim(reclaimPath, fence);
 });
 
+test("release waits for a busy mutex and then permits stale-job recovery", { timeout: 15_000 }, async () => {
+  const { stateRoot } = await makeState();
+  const reclaimPath = path.join(stateRoot, "job.lock.reclaim");
+  const broker = new GrokAcpBroker({ stateRoot, runtime: {}, brokerId: "owner", startTime: "owner", inspectProcess: async () => ({ status: "missing" }) });
+  const fence = await broker.tryAcquireLockReclaim(reclaimPath);
+  assert.ok(fence?.uniquePath);
+  const heldMutex = broker.acquireLockReclaimMutex(reclaimPath);
+  assert.ok(heldMutex);
+  const releasePromise = broker.releaseLockReclaim(reclaimPath, fence);
+  await sleep(50);
+  assert.equal((await readFile(path.join(reclaimPath, "owner.json"), "utf8")).length > 0, true);
+  broker.releaseLockReclaimMutex(heldMutex);
+  await releasePromise;
+  await assert.rejects(() => readFile(path.join(reclaimPath, "owner.json")), (error) => error?.code === "ENOENT");
+
+  const lockPath = path.join(stateRoot, `${STALE_JOB}.json.lock`);
+  await writeFile(lockPath, JSON.stringify({ brokerId: "dead-owner", pid: DEAD_PID, startTime: "old" }));
+  let entered = false;
+  await broker.withJobLock(STALE_JOB, async () => { entered = true; }, { timeoutMs: 8_000 });
+  assert.equal(entered, true);
+});
+
+test("an unrelated absolute reclaim target is preserved", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  const unrelatedPath = path.join(root, "unrelated");
+  await mkdir(unrelatedPath);
+  await writeFile(path.join(unrelatedPath, "owner.json"), `${JSON.stringify({ brokerId: "dead", pid: DEAD_PID, startTime: "old", reclaimToken: "unrelated" })}\n`);
+  await writeFile(path.join(unrelatedPath, "keep.txt"), "preserve me\n");
+  await symlink(unrelatedPath, reclaimPath, "dir");
+  const broker = new GrokAcpBroker({ stateRoot: root, runtime: {}, brokerId: "contender", startTime: "contender", inspectProcess: async () => ({ status: "missing" }) });
+
+  assert.equal(await broker.tryAcquireLockReclaim(reclaimPath), null);
+  assert.equal(await readFile(path.join(unrelatedPath, "keep.txt"), "utf8"), "preserve me\n");
+});
+
+test("a relative legitimate generation target is resolved and cleaned", { timeout: 10_000 }, async () => {
+  const { root } = await makeState();
+  const reclaimPath = path.join(root, "job.lock.reclaim");
+  const token = "12345678-1234-4123-8123-123456789abc";
+  const generationPath = `${reclaimPath}.${token}`;
+  await mkdir(generationPath);
+  await writeFile(path.join(generationPath, "owner.json"), `${JSON.stringify({ brokerId: "dead", pid: DEAD_PID, startTime: "old", reclaimToken: token })}\n`);
+  await symlink(path.basename(generationPath), reclaimPath, "dir");
+  const broker = new GrokAcpBroker({ stateRoot: root, runtime: {}, brokerId: "contender", startTime: "contender", inspectProcess: async () => ({ status: "missing" }) });
+
+  assert.equal(await broker.tryAcquireLockReclaim(reclaimPath), null);
+  await assert.rejects(() => lstat(generationPath), (error) => error?.code === "ENOENT");
+});
+
 test("separate OS processes serialize stale-lock reclamation", { timeout: 20_000 }, async () => {
   const { root, stateRoot } = await makeState();
   const jobId = STALE_JOB;

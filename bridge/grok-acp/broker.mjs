@@ -360,14 +360,35 @@ async function writeCompleteFile(filePath, contents) {
 }
 
 async function removeDetachedReclaim(detachedPath) {
+  await rm(detachedPath, { recursive: true, force: true });
+}
+
+async function removeDetachedReclaimGeneration(reclaimPath, detachedPath) {
   let targetPath;
   try {
     targetPath = await readlink(detachedPath);
   } catch {
-    // A legacy directory fence has no generation target to follow.
+    // A legacy directory fence has no generation target to validate.
+    await removeDetachedReclaim(detachedPath);
+    return;
   }
-  await rm(detachedPath, { recursive: true, force: true });
-  if (targetPath) await rm(targetPath, { recursive: true, force: true });
+  const resolvedTarget = path.resolve(path.dirname(detachedPath), targetPath);
+  const reclaimPrefix = `${path.resolve(reclaimPath)}.`;
+  const token = resolvedTarget.startsWith(reclaimPrefix) ? resolvedTarget.slice(reclaimPrefix.length) : null;
+  let permitted = false;
+  if (token && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
+    try {
+      const stats = await lstat(resolvedTarget);
+      if (stats.isDirectory() && !stats.isSymbolicLink()) {
+        const owner = JSON.parse(await readFile(path.join(resolvedTarget, "owner.json"), "utf8"));
+        permitted = owner?.reclaimToken === token;
+      }
+    } catch {
+      // Preserve unrecognized, malformed, or missing generation targets.
+    }
+  }
+  await removeDetachedReclaim(detachedPath);
+  if (permitted) await rm(resolvedTarget, { recursive: true, force: true });
 }
 
 async function inspectReclaimTarget(reclaimPath) {
@@ -1532,6 +1553,14 @@ export class GrokAcpBroker {
     }
   }
 
+  async waitForLockReclaimMutex(reclaimPath) {
+    while (true) {
+      const mutex = this.acquireLockReclaimMutex(reclaimPath);
+      if (mutex) return mutex;
+      await sleep(JOB_LOCK_RETRY_MS);
+    }
+  }
+
   releaseLockReclaimMutex(database) {
     try {
       database.exec("ROLLBACK");
@@ -1585,7 +1614,7 @@ export class GrokAcpBroker {
             if (error?.code === "ENOENT") return null;
             throw error;
           }
-          await removeDetachedReclaim(detachedPath);
+          await removeDetachedReclaimGeneration(reclaimPath, detachedPath);
         }
         return null;
     } finally {
@@ -1595,8 +1624,7 @@ export class GrokAcpBroker {
 
   async releaseLockReclaim(reclaimPath, fence) {
     if (!fence || typeof fence !== "object" || !fence.uniquePath) return;
-    const mutex = this.acquireLockReclaimMutex(reclaimPath);
-    if (!mutex) return;
+    const mutex = await this.waitForLockReclaimMutex(reclaimPath);
     try {
       await rm(fence.uniquePath, { recursive: true, force: true });
     } finally {
