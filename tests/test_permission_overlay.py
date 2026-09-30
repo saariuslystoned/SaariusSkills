@@ -694,7 +694,11 @@ class PermissionOverlayTests(unittest.TestCase):
 
         # Assert correct non-blank absolute script path
         script_arg = captured_argv[0]
-        expected_script = str(VERIFIER_PATH)
+        expected_worktree = "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930"
+        expected_script = os.path.join(
+            expected_worktree,
+            "proof/cursor-model-selection/20260930/compare-installed-source.py",
+        )
         self.assertTrue(os.path.isabs(script_arg), f"Script path is not absolute: {script_arg}")
         self.assertEqual(script_arg, expected_script)
         self.assertNotIn("//", script_arg)
@@ -705,7 +709,7 @@ class PermissionOverlayTests(unittest.TestCase):
 
         # Assert expected argument flags and values
         expected_pairs = {
-            "--worktree": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+            "--worktree": expected_worktree,
             "--commit": "<40-character-hex-commit-hash>",
             "--installed": "/Users/bobbybones/Developer/worktrees/saariusskills-plugin-107-merged",
             "--approved-policy": "/Users/bobbybones/Developer/_machine-runs/acpx-0193-followup-20260929/personal-acp-permission-policy.json",
