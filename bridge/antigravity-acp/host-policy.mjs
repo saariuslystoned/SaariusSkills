@@ -310,7 +310,7 @@ async function reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspect
 export async function claimConversationBind(
   bindingsRoot,
   record,
-  { now, atomicWrite, inspectExisting, owner, inspectOwner } = {},
+  { now, atomicWrite, inspectExisting, owner, inspectOwner, recoverExisting } = {},
 ) {
   const target = conversationBindPath(bindingsRoot, record.hostConversationId);
   const lockPath = `${target}.lock`;
@@ -359,6 +359,15 @@ export async function claimConversationBind(
   }
   try {
     const existing = await loadConversationBind(bindingsRoot, record.hostConversationId);
+    if (recoverExisting) {
+      const next = await recoverExisting(existing);
+      if (next) {
+        const serialized = `${JSON.stringify(next, null, 2)}\n`;
+        if (atomicWrite) await atomicWrite(target, serialized);
+        else await writeFile(target, serialized, { encoding: "utf8", mode: 0o600 });
+      }
+      return next ?? existing;
+    }
     assertRebindAllowed(existing, record.binderId);
     if (existing && typeof inspectExisting === "function") {
       const decision = await inspectExisting(existing);
@@ -383,6 +392,7 @@ export async function claimConversationBind(
       workspace: record.workspace,
       boundAt: typeof now === "function" ? now() : new Date().toISOString(),
       replacedJobId: existing?.jobId,
+      ...(existing?.recoveries ? { recoveries: existing.recoveries } : {}),
     };
     const serialized = `${JSON.stringify(next, null, 2)}\n`;
     if (atomicWrite) await atomicWrite(target, serialized);

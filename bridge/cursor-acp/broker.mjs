@@ -1,3 +1,6 @@
+import { defaultBinderIdForStateRoot, createProcessLifecycleTracker, isUnsupportedBackendSessionClose,
+  publicWorkerIdentity, captureJobWorkers, lifecycleReceipt, brokerProcessLifecycle } from "../acp-runtime/lifecycle.mjs";
+import { recoverConversation } from "../acp-runtime/recovery.mjs";
 import { constants } from "node:fs";
 import { access, appendFile, link, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -85,12 +88,12 @@ export function isTerminalStatus(status) {
 }
 
 function isCleanupReady(job) {
-  return job?.cleanup?.status === "completed";
+  return ["completed", "recovered"].includes(job?.cleanup?.status);
 }
 
 function isCanonicalComplete(job) {
   return isTerminalStatus(job?.status) && (
-    isCleanupReady(job) || job?.error?.code === "BRIDGE_RESTARTED"
+    isCleanupReady(job)
   );
 }
 
@@ -525,7 +528,7 @@ function classifyFailure(error, interaction) {
   return { status: "failed", error: safe };
 }
 
-export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs = RUNTIME_CONTROL_TIMEOUT_MS, processEnv = process.env }) {
+export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs = RUNTIME_CONTROL_TIMEOUT_MS, processEnv = process.env, processLifecycle }) {
   const registry = createAgentRegistry({
     overrides: { cursor: [cursorExecutable, "acp"] },
   });
@@ -557,6 +560,7 @@ export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs = 
     permissionMode: permission.permissionMode,
     nonInteractivePermissions: permission.nonInteractivePermissions,
     timeoutMs,
+    processLifecycle,
   });
   const shutdown = runtime.shutdown.bind(runtime);
   runtime.shutdown = async () => {
@@ -575,8 +579,10 @@ export class CursorAcpBroker {
     this.bindingsRoot = path.join(this.stateRoot, "bindings");
     this.processEnv = options.processEnv ?? process.env;
     this.brokerId = options.brokerId ?? randomUUID();
+    this.processLifecycleTracker = options.processLifecycleTracker ?? createProcessLifecycleTracker();
+    this.workerExitWaitMs = options.workerExitWaitMs ?? 10_000;
     this.defaultHostConversationId = options.defaultHostConversationId ?? null;
-    this.defaultBinderId = options.defaultBinderId ?? this.brokerId;
+    this.defaultBinderId = options.defaultBinderId ?? defaultBinderIdForStateRoot(this.stateRoot);
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
       ? options.startTime.trim()
@@ -605,12 +611,14 @@ export class CursorAcpBroker {
             model: this.model,
             timeoutMs: this.runtimeControlTimeoutMs,
             processEnv: this.processEnv,
+            processLifecycle: brokerProcessLifecycle(this),
           })
         : createDefaultRuntime({
             stateRoot: this.stateRoot,
             cursorExecutable: this.cursorExecutable,
             timeoutMs: this.runtimeControlTimeoutMs,
             processEnv: options.processEnv ?? process.env,
+            processLifecycle: brokerProcessLifecycle(this),
           }));
     this.active = new Map();
     this.changeWaiters = new Map();
@@ -820,7 +828,7 @@ export class CursorAcpBroker {
       job.updatedAt = this.now();
       job.error = {
         code: "BRIDGE_RESTARTED",
-        message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
+        message: "The owning broker is gone; task interrupted. Worker cleanup is unproven. Inspect exact ownership before explicit recovery and retry.",
       };
       await this.writeJobRecord(job);
       if (job.proof?.events) await this.recordEvent(job, "bridge_restarted", { previousStatus });
@@ -1075,6 +1083,7 @@ export class CursorAcpBroker {
       job.route = routeSummary(this.cursorExecutable, models.selectedModelId ?? this.model);
       job.model = models;
       job.handle = publicHandle(handle);
+      await captureJobWorkers(this, job, handle);
       job.status = "submitted";
       await this.persistAdmission(job, ADMISSION_STATE_STARTED);
       await this.recordEvent(job, "submitted", {
@@ -1118,6 +1127,7 @@ export class CursorAcpBroker {
           },
         });
         job.handle = publicHandle(handle);
+        await captureJobWorkers(this, job, handle);
         job.model = await this.verifyModel(handle, job.workspace);
       }
       await this.saveJob(job);
@@ -1210,6 +1220,10 @@ export class CursorAcpBroker {
     return this.publicJob(job);
   }
 
+  async recoverConversation(input) {
+    return recoverConversation(this, input, claimConversationBind, atomicWrite);
+  }
+
   async closeRuntimeSession(job, handle) {
     job.cleanup = {
       status: "pending",
@@ -1218,7 +1232,7 @@ export class CursorAcpBroker {
     };
     await this.saveJob(job);
     if (!this.runtime?.close) {
-      job.cleanup = { ...job.cleanup, status: "completed", observed: "no_runtime_close", at: this.now() };
+      job.cleanup = { ...job.cleanup, status: "uncertain", observed: "runtime_close_unavailable", at: this.now() };
       await this.saveJob(job);
       return;
     }
@@ -1230,6 +1244,19 @@ export class CursorAcpBroker {
       });
       job.cleanup = { ...job.cleanup, status: "completed", observed: "runtime_close_returned", at: this.now() };
     } catch (error) {
+      const proof = isUnsupportedBackendSessionClose(error)
+        ? await this.processLifecycleTracker.waitForOwnedExit(handle?.sessionKey, { timeoutMs: this.workerExitWaitMs })
+        : null;
+      if (proof?.status === "exited") {
+        job.cleanup = {
+          ...job.cleanup, status: "completed",
+          observed: "local_worker_terminated_backend_session_discard_unsupported",
+          backendSessionDiscard: "unsupported",
+          workers: proof.exits.map(publicWorkerIdentity), at: this.now(),
+        };
+        await this.saveJob(job);
+        return;
+      }
       job.cleanup = {
         ...job.cleanup,
         status: "uncertain",
@@ -1273,7 +1300,7 @@ export class CursorAcpBroker {
   async result({ jobId, waitMs } = {}) {
     const boundedWait = parseWait(waitMs, 300_000);
     let job = await this.observeJob(jobId);
-    if (boundedWait > 0 && !isTerminalStatus(job.status)) {
+    if (boundedWait > 0 && !isCanonicalComplete(job)) {
       await this.waitForTerminal(jobId, boundedWait);
       job = await this.observeJob(jobId);
     }
@@ -1281,8 +1308,8 @@ export class CursorAcpBroker {
       ...this.publicJob(job),
       taskComplete: isTerminalStatus(job.status),
       cleanupReady: isCleanupReady(job),
-      complete: isTerminalStatus(job.status),
-      waitExpired: !isTerminalStatus(job.status) && boundedWait > 0,
+      complete: isCanonicalComplete(job),
+      waitExpired: !isCanonicalComplete(job) && boundedWait > 0,
     };
   }
 
@@ -1339,6 +1366,7 @@ export class CursorAcpBroker {
   }
 
   async saveJob(job) {
+    if (job.owner?.brokerId === this.brokerId) await captureJobWorkers(this, job, job.handle);
     await this.withJobLock(job.jobId, async () => {
       await this.writeJobRecord(job);
     });
@@ -1639,6 +1667,7 @@ export class CursorAcpBroker {
 
   publicJob(job) {
     const result = {
+      ...lifecycleReceipt(job, { terminal: isTerminalStatus(job.status), cleanupReady: isCleanupReady(job), active: this.active.has(job.jobId) }),
       jobId: job.jobId,
       status: job.status,
       route: job.route,
@@ -1682,7 +1711,8 @@ export class CursorAcpBroker {
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       const job = await this.observeJob(jobId);
-      if (isTerminalStatus(job.status)) return;
+      if (isCanonicalComplete(job)) return;
+      if (isTerminalStatus(job.status) && (!this.active.has(jobId) || job.cleanup?.status === "uncertain")) return;
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       const slice = this.active.has(jobId)

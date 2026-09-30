@@ -1,3 +1,7 @@
+import { defaultBinderIdForStateRoot, createProcessLifecycleTracker, isUnsupportedBackendSessionClose,
+  WORKER_EXIT_WAIT_MS, publicWorkerIdentity, captureJobWorkers, lifecycleReceipt, brokerProcessLifecycle } from "../acp-runtime/lifecycle.mjs";
+import { recoverConversation } from "../acp-runtime/recovery.mjs";
+export { createProcessLifecycleTracker, isUnsupportedBackendSessionClose, processIdentitiesMatch } from "../acp-runtime/lifecycle.mjs";
 import { accessSync, constants } from "node:fs";
 import { access, appendFile, link, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -173,122 +177,6 @@ export function needsCleanupFence(job) {
   if (!job?.workspace || !isTerminalStatus(job.status)) return false;
   if (isCleanupObservedComplete(job.cleanup)) return false;
   return Boolean(job.handle || job.cleanup);
-}
-
-export const WORKER_EXIT_WAIT_MS = 10_000;
-
-export function isUnsupportedBackendSessionClose(error) {
-  if (!error || typeof error !== "object") return false;
-  if (error.code !== "ACP_BACKEND_UNSUPPORTED_CONTROL") return false;
-  return /session\/close/i.test(String(error.message ?? ""));
-}
-
-export function launchScopesMatch(left, right) {
-  if (!left || !right || left.kind !== right.kind) return false;
-  if (left.kind === "runtime-session") return left.sessionKey === right.sessionKey;
-  if (left.kind === "runtime-probe") return left.agent === right.agent;
-  return left.kind === "client";
-}
-
-export function processIdentitiesMatch(left, right) {
-  if (!left || !right) return false;
-  if (!Number.isInteger(left.pid) || left.pid <= 0 || left.pid !== right.pid) return false;
-  if (typeof left.startedAt !== "string" || !left.startedAt || left.startedAt !== right.startedAt) {
-    return false;
-  }
-  if (typeof left.launchId !== "string" || !left.launchId || left.launchId !== right.launchId) {
-    return false;
-  }
-  return launchScopesMatch(left.scope, right.scope);
-}
-
-export function isOwnedSessionProcess(process, sessionKey) {
-  return Boolean(
-    process &&
-      typeof sessionKey === "string" &&
-      sessionKey &&
-      process.scope?.kind === "runtime-session" &&
-      process.scope.sessionKey === sessionKey,
-  );
-}
-
-function publicWorkerIdentity(process) {
-  if (!process) return undefined;
-  return {
-    pid: process.pid,
-    startedAt: process.startedAt,
-    launchId: process.launchId,
-    scope: process.scope,
-    ...(process.signal !== undefined ? { signal: process.signal } : {}),
-    ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
-  };
-}
-
-export function createProcessLifecycleTracker() {
-  const spawned = [];
-  const exits = [];
-  const waiters = new Set();
-
-  function notify() {
-    for (const wake of waiters) wake();
-  }
-
-  function ownedSpawned(sessionKey) {
-    return spawned.filter((process) => isOwnedSessionProcess(process, sessionKey));
-  }
-
-  function matchingExit(started) {
-    return exits.find((exit) => processIdentitiesMatch(started, exit));
-  }
-
-  function snapshotOwned(sessionKey) {
-    const started = ownedSpawned(sessionKey);
-    const observed = started.map(matchingExit).filter(Boolean);
-    return { started, exits: observed };
-  }
-
-  return {
-    processLifecycle: {
-      onSpawned(process) {
-        spawned.push(process);
-        notify();
-      },
-      onExit(exit) {
-        exits.push(exit);
-        notify();
-      },
-    },
-    spawned,
-    exits,
-    ownedSpawned,
-    matchingExit,
-    snapshotOwned,
-    async waitForOwnedExit(sessionKey, { timeoutMs = WORKER_EXIT_WAIT_MS } = {}) {
-      const deadline = Date.now() + timeoutMs;
-      while (true) {
-        const snapshot = snapshotOwned(sessionKey);
-        if (snapshot.started.length > 0 && snapshot.exits.length === snapshot.started.length) {
-          return { status: "exited", ...snapshot };
-        }
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) {
-          return { status: snapshot.started.length > 0 ? "pending" : "none", ...snapshot };
-        }
-        await new Promise((resolve) => {
-          let settled = false;
-          const done = () => {
-            if (settled) return;
-            settled = true;
-            waiters.delete(done);
-            clearTimeout(timer);
-            resolve();
-          };
-          const timer = setTimeout(done, Math.min(50, remaining));
-          waiters.add(done);
-        });
-      }
-    },
-  };
 }
 
 export function shouldRecoverCleanupFence(job, lease, probe) {
@@ -762,7 +650,7 @@ export class AntigravityAcpBroker {
     this.bindingsRoot = path.join(this.stateRoot, "bindings");
     this.brokerId = options.brokerId ?? randomUUID();
     this.defaultHostConversationId = options.defaultHostConversationId ?? null;
-    this.defaultBinderId = options.defaultBinderId ?? this.brokerId;
+    this.defaultBinderId = options.defaultBinderId ?? defaultBinderIdForStateRoot(this.stateRoot);
     this.pid = Number.isInteger(options.pid) && options.pid > 0 ? options.pid : process.pid;
     this.startTime = typeof options.startTime === "string" && options.startTime.trim()
       ? options.startTime.trim()
@@ -993,7 +881,7 @@ export class AntigravityAcpBroker {
     job.updatedAt = this.now();
     job.error = {
       code: "BRIDGE_RESTARTED",
-      message: "The owning broker is gone before this job reached a terminal result; resubmit explicitly.",
+      message: "The owning broker is gone; task interrupted. Worker cleanup is unproven. Inspect exact ownership before explicit recovery and retry.",
     };
     // Owner PID death can interrupt the job. It is not proof that the owned
     // ACP worker/session stopped, so unresolved cleanup stays pending/uncertain.
@@ -1097,12 +985,16 @@ export class AntigravityAcpBroker {
     this.notifyChange(job.jobId);
   }
 
+  async recoverConversation(input) {
+    return recoverConversation(this, input, claimConversationBind, atomicWrite);
+  }
+
   async closeRuntimeSession(job, handle) {
     if (isCleanupObservedComplete(job.cleanup)) return;
     if (!handle || !this.ensureRuntime()?.close) {
       await this.recordCleanup(job, {
-        status: "completed",
-        observed: "no_runtime_close",
+        status: handle ? "uncertain" : "completed",
+        observed: handle ? "runtime_close_unavailable" : "admission_unstarted",
         handle,
       });
       return;
@@ -1240,7 +1132,7 @@ export class AntigravityAcpBroker {
       geminiHome: this.geminiHome,
       timeoutMs: this.runtimeControlTimeoutMs,
       processEnv: this.processEnv,
-      processLifecycle: this.processLifecycleTracker.processLifecycle,
+      processLifecycle: brokerProcessLifecycle(this),
     };
     this.runtime = this.runtimeFactory
       ? this.runtimeFactory(runtimeOptions)
@@ -1565,6 +1457,7 @@ export class AntigravityAcpBroker {
       job.route = routeSummary(launch, models.selectedModelId);
       job.model = models;
       job.handle = publicHandle(handle);
+      await captureJobWorkers(this, job, handle);
       job.status = "submitted";
       await this.persistAdmission(job, ADMISSION_STATE_STARTED);
       await this.recordEvent(job, "submitted", {
@@ -1610,6 +1503,7 @@ export class AntigravityAcpBroker {
           },
         });
         job.handle = publicHandle(handle);
+        await captureJobWorkers(this, job, handle);
         const model = await this.verifyModel(handle, job.workspace, requestedModel, {
           requireSelection: true,
         });
@@ -1820,6 +1714,7 @@ export class AntigravityAcpBroker {
   }
 
   async saveJob(job) {
+    if (job.owner?.brokerId === this.brokerId) await captureJobWorkers(this, job, job.handle);
     if (containsBodyKeys(job)) {
       throw new BridgeError("BODY_PERSISTENCE_FORBIDDEN", "Job state must not retain raw prompt, output, or question bodies");
     }
@@ -1890,6 +1785,7 @@ export class AntigravityAcpBroker {
 
   publicJob(job) {
     const result = {
+      ...lifecycleReceipt(job, { terminal: isTerminalStatus(job.status), cleanupReady: isCleanupReady(job), active: this.active.has(job.jobId) }),
       jobId: job.jobId,
       status: job.status,
       route: job.route,

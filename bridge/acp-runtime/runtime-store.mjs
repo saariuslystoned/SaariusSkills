@@ -120,7 +120,7 @@ async function readPackageJson(sourceRoot) {
 export async function describeSource({ pluginRoot, bridge }) {
   const spec = bridgeSpec(bridge);
   const sourceRoot = sourceRootFor(pluginRoot, bridge);
-  const files = ["package.json", "package-lock.json", ...spec.files];
+  const files = ["package.json", "package-lock.json", ...spec.files, "../acp-runtime/lifecycle.mjs", "../acp-runtime/recovery.mjs"];
   const entries = [];
   for (const relativePath of files) {
     const absolutePath = path.join(sourceRoot, relativePath);

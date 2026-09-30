@@ -439,7 +439,9 @@ test("same observer recovers owner death after init without a third broker", { t
     assert.equal(status.error.code, "BRIDGE_RESTARTED");
     const result = await observer.result({ jobId: owner.jobId });
     assert.equal(result.status, "failed");
-    assert.equal(result.complete, true);
+    assert.equal(result.complete, false);
+    assert.equal(result.taskComplete, true);
+    assert.equal(result.cleanupReady, false);
     assert.equal(result.error.code, "BRIDGE_RESTARTED");
   } finally {
     await observer.close();
@@ -467,8 +469,10 @@ test("owner death during a bounded result wait is observed by the same observer"
     });
     const after = await pending;
     assert.equal(after.status, "failed");
-    assert.equal(after.complete, true);
-    assert.equal(after.waitExpired, false);
+    assert.equal(after.complete, false);
+    assert.equal(after.taskComplete, true);
+    assert.equal(after.cleanupReady, false);
+    assert.equal(after.waitExpired, true);
     assert.equal(after.error.code, "BRIDGE_RESTARTED");
   } finally {
     await observer.close();
