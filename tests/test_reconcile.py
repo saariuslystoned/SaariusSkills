@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -230,6 +231,86 @@ class ReconcileTests(unittest.TestCase):
         receipt.write_bytes(saved)
         (lineage / "snapshots/base/events.jsonl").unlink()
         self.assertNotEqual(self.reconcile("--apply", plan["plan_id"]).returncode, 0)
+
+    def test_immutable_publication_interruption_recovers_exactly(self):
+        for kind in ("snapshot", "receipt"):
+            for boundary in ("before", "after"):
+                with self.subTest(kind=kind, boundary=boundary):
+                    case = ReconcileTests()
+                    case.setUp()
+                    try:
+                        plan = case.plan()
+                        before = case.state_bytes()
+                        script = '''
+import os, runpy, sys
+from pathlib import Path
+kind, boundary, cli = sys.argv[1:4]
+def selected(path):
+    return Path(path).name == 'applied.json' if kind == 'receipt' else '/snapshots/' in str(path)
+original_open, original_link = Path.open, os.link
+def interrupted_open(self, mode='r', *args, **kwargs):
+    stream = original_open(self, mode, *args, **kwargs)
+    if mode == 'xb' and selected(self):
+        os._exit(86)  # Original bug: incomplete final path already visible.
+    return stream
+def interrupted_link(source, target, *args, **kwargs):
+    if selected(target) and boundary == 'before':
+        os._exit(86)
+    result = original_link(source, target, *args, **kwargs)
+    if selected(target) and boundary == 'after':
+        os._exit(86)
+    return result
+Path.open, os.link = interrupted_open, interrupted_link
+sys.argv = [cli] + sys.argv[4:]
+sys.path.insert(0, str(Path(cli).parent))
+runpy.run_path(cli, run_name='__main__')
+'''
+                        args = ["--project", str(case.project), "reconcile", "--base-ref", case.base,
+                                "--current-ref", case.current, "--incoming-ref", case.incoming,
+                                "--title", "Composed fixture", "--apply", plan["plan_id"]]
+                        crash = subprocess.run([sys.executable, "-c", script, kind, boundary, str(CLI), *args], capture_output=True, text=True)
+                        self.assertEqual(crash.returncode, 86, crash.stderr)
+                        state = case.project / ".grilltrack"
+                        lineage = state / "lineage" / plan["plan_id"]
+                        # Only complete final artifacts can become visible.
+                        for role, files in plan["snapshots"].items():
+                            for name, expected in files.items():
+                                path = lineage / "snapshots" / role / name
+                                if path.exists():
+                                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                        if kind == "receipt":
+                            self.assertTrue((state / "work/reconcile-transaction.json").exists())
+                            self.assertNotEqual(case.cli("show").returncode, 0)
+                            self.assertNotEqual(case.cli("pause", "--reason", "mixed", "--next-safe-action", "retry").returncode, 0)
+                        else:
+                            for name in ("ledger.json", "events.jsonl"):
+                                self.assertEqual((state / name).read_bytes(), before[name])
+                        retried = case.reconcile("--apply", plan["plan_id"])
+                        self.assertEqual(retried.returncode, 0, retried.stderr)
+                        self.assertEqual(case.cli("validate").returncode, 0)
+                        self.assertFalse((state / "work/reconcile-transaction.json").exists())
+                        for role, files in plan["snapshots"].items():
+                            for name, expected in files.items():
+                                path = lineage / "snapshots" / role / name
+                                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                        completed = case.state_bytes()
+                        self.assertEqual(case.reconcile("--apply", plan["plan_id"]).returncode, 0)
+                        self.assertEqual(case.state_bytes(), completed)
+                    finally:
+                        case.tearDown()
+
+    def test_foreign_immutable_artifact_is_never_replaced(self):
+        plan = self.plan()
+        before = self.state_bytes()
+        foreign = self.project / ".grilltrack/lineage" / plan["plan_id"] / "snapshots/base/ledger.json"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_bytes(b"foreign retained history")
+        result = self.reconcile("--apply", plan["plan_id"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable reconciliation artifact differs", result.stderr)
+        self.assertEqual(foreign.read_bytes(), b"foreign retained history")
+        for name in ("ledger.json", "events.jsonl"):
+            self.assertEqual((self.project / ".grilltrack" / name).read_bytes(), before[name])
 
 
 if __name__ == "__main__":

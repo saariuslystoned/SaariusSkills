@@ -70,3 +70,7 @@ Retry the exact approved command to recover; recovery refuses a target altered
 outside the known old/new projections. Do not delete the journal to bypass this
 guard. This is process interruption recovery, not a guarantee against storage
 loss or concurrent writers.
+
+Interruption can leave temporary staging files inside lineage directories;
+exact retry does not require deleting them. Final immutable paths expose only
+complete bytes and never replace different retained history.

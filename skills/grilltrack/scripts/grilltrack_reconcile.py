@@ -125,12 +125,24 @@ def immutable(path, data):
     if path.exists():
         if path.read_bytes() != data:
             raise ValueError("immutable reconciliation artifact differs")
-    else:
-        # An existing different artifact can never be replaced.
-        with path.open("xb") as stream:
+        return
+    # Publish only complete bytes. Linking a flushed sibling is atomic and
+    # cannot replace an existing artifact, unlike renaming over the final path.
+    fd, temporary = tempfile.mkstemp(prefix=".reconcile-immutable-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            ordinary_path(path)
+            if path.read_bytes() != data:
+                raise ValueError("immutable reconciliation artifact differs")
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def build_plan(store, args, api):
