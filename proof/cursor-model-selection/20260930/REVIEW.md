@@ -1,5 +1,7 @@
 # Review: Cursor ACP model selection repair
 
+> **Current Superseding Status (Model Switching Scope)**: The earlier Luna High blocker is historical and superseded by user-selected Luna Medium default (`gpt-5.6-luna-medium`) and optional effort/model-only switching among `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna`. See current acceptance proof in [model-switching/PROOF.md](model-switching/PROOF.md). The current scope is not blocked by the absence of Luna High. The current pending gate is maintainer-approved installation and native host reload, followed by the previously authorized tiny Luna Medium smoke turn; zero real Cursor prompts have been sent so far (`modelPromptsSent: 0`, `hostNativeReloaded: false`). All earlier historical evidence below remains intact.
+
 - Repo: SaariusSkills
 - Worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930`
 - Branch: `codex/cursor-luna-model-selection-20260930`
@@ -37,11 +39,11 @@
    - Independent parent config probe exit receipt: `proof/cursor-model-selection/20260930/receipts/config-catalog-cleanup.json` (pid 24120, exitCode 143, prompts 0, config options `mode` and `model` only).
    - Candidate MCP readiness receipt: `proof/cursor-model-selection/20260930/receipts/candidate-native-readiness.json` (`ready: false`, `catalogReady: true`, `selectionReady: false`, `EFFORT_UNSUPPORTED`, 43 IDs, `hostNativeReloaded: false`, promptsSent: 0).
    - Candidate listTools receipt: `proof/cursor-model-selection/20260930/receipts/candidate-listtools.json` (6 tools; `cursor_acp_readiness` and `cursor_acp_delegate` expose optional `model` and `effort`, promptsSent: 0, `hostNativeReloaded: false`).
-   - Initial Antigravity job `852e991f-3503-4b8b-8cce-12e16ec92339` terminal receipt: `proof/cursor-model-selection/20260930/receipts/antigravity-terminal.json` (`status: "cancelled"`, `complete: true`, `cleanupReady: true`).
-   - Grok repair job `c5c1f1e9-6f62-4a09-9e7b-4bb2c6d3fe08` terminal receipt: `proof/cursor-model-selection/20260930/receipts/grok-terminal.json` (`status: "completed"`, `complete: true`, `cleanupReady: true`).
-   - Final Antigravity job `d657d1ef-872d-4516-a443-e0929a11f181` terminal receipt: `proof/cursor-model-selection/20260930/receipts/final-antigravity-terminal.json` (`status: "completed"`, `complete: true`, `cleanupReady: true`, cleanup observed `local_worker_terminated_backend_session_discard_unsupported`).
-   - Grok docs job `0dabe14d-0ae7-4080-a62c-eaa5279bbffc` timeout receipt: `proof/cursor-model-selection/20260930/receipts/proof-grok-timeout.json` (timed out; left partial verifier; no source/test changes observed, canonical `status: "failed"`, `complete: true`, `cleanupReady: true`).
-   - Previous Antigravity docs job `0fead6ea-f962-4487-af33-870ee2173f4f` cancellation receipt: `proof/cursor-model-selection/20260930/receipts/proof-antigravity-cancelled.json` (`status: "cancelled"`, `complete: true`, `cleanupReady: true`, cleanup observed `local_worker_terminated_backend_session_discard_unsupported`).
+   - Initial Antigravity job `852e991f-3503-4b8b-8cce-12e16ec92339` terminal receipt: `proof/cursor-model-selection/20260930/receipts/antigravity-terminal.json` (`status: \"cancelled\"`, `complete: true`, `cleanupReady: true`).
+   - Grok repair job `c5c1f1e9-6f62-4a09-9e7b-4bb2c6d3fe08` terminal receipt: `proof/cursor-model-selection/20260930/receipts/grok-terminal.json` (`status: \"completed\"`, `complete: true`, `cleanupReady: true`).
+   - Final Antigravity job `d657d1ef-872d-4516-a443-e0929a11f181` terminal receipt: `proof/cursor-model-selection/20260930/receipts/final-antigravity-terminal.json` (`status: \"completed\"`, `complete: true`, `cleanupReady: true`, cleanup observed `local_worker_terminated_backend_session_discard_unsupported`).
+   - Grok docs job `0dabe14d-0ae7-4080-a62c-eaa5279bbffc` timeout receipt: `proof/cursor-model-selection/20260930/receipts/proof-grok-timeout.json` (timed out; left partial verifier; no source/test changes observed, canonical `status: \"failed\"`, `complete: true`, `cleanupReady: true`).
+   - Previous Antigravity docs job `0fead6ea-f962-4487-af33-870ee2173f4f` cancellation receipt: `proof/cursor-model-selection/20260930/receipts/proof-antigravity-cancelled.json` (`status: \"cancelled\"`, `complete: true`, `cleanupReady: true`, cleanup observed `local_worker_terminated_backend_session_discard_unsupported`).
    - Proof closeout review receipt: `proof/cursor-model-selection/20260930/receipts/proof-closeout-review.json` (corrected parent finding: timed-out Grok docs job left partial verifier at `2026-09-30T19:51:35Z`; no source/test changes observed).
    - Final persisted catalog review reproducer receipt: `proof/cursor-model-selection/20260930/receipts/persisted-catalog-review-final.json` (exitCode 0, promptsSent: 0, expected and actual `MODEL_SELECTION_UNCONFIRMED`).
 
@@ -52,18 +54,18 @@
 ## Rejected
 
 - Treating any unadvertised slug (such as `gpt-5.6-luna-fast`) as live High.
-- Downgrading the durable default to Medium.
+- Downgrading the durable default to Medium without user direction (now explicitly directed for model-switching scope).
 - Accepting duplicate exact IDs or missing catalog entries when `currentModelId` matches.
 - Calling `setModel` or adopting drifted current models during pre-prompt prepared execution.
 - Labeling base commit `cc4070e` as the patch head.
 - Inventing evidence timestamps (e.g. guessed future timestamp 20:10Z).
-- Sending any Cursor prompt today (Luna High absent; status: `WAITING_FOR_HUMAN`).
+- Sending any Cursor prompt today prior to maintainer approval and native reload (`status: WAITING_FOR_HUMAN`).
 
 ## Verification & Checks
 
 All code changes were executed through native workers without sending a Cursor prompt.
 Candidate `hostNativeReloaded: false`; no live High prompt was sent because only Medium is advertised.
-A tiny synthetic prompt is already user-authorized, but remains strictly gated behind live High catalog advertisement and approved plugin installation/native-load verification.
+A tiny synthetic prompt is already user-authorized, but remains strictly gated behind approved plugin installation/native-load verification and maintainer review.
 
 - Cursor Bridge Suite:
   - Command: `cd bridge/cursor-acp && npm run check`

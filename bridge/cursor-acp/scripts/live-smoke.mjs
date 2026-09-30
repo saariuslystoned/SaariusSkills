@@ -54,7 +54,7 @@ async function main() {
       "",
       "Status: running",
       "Route: /Users/bobbybones/.local/bin/cursor-agent acp",
-      "Model policy: plugin alias gpt-5.6-luna-high (base gpt-5.6-luna, effort high; not a live id)",
+      "Model policy: plugin alias gpt-5.6-luna-medium (base gpt-5.6-luna, effort medium; not a live id)",
       `Proof root: ${proofRoot}`,
       "",
     ].join("\n"),

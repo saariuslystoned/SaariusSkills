@@ -14,8 +14,8 @@ to open an ACP session with the explicit local Cursor executable:
 /Users/bobbybones/.local/bin/cursor-agent acp
 ```
 
-The durable worker default is the plugin alias `gpt-5.6-luna-high`: base model
-`gpt-5.6-luna` plus effort `high`. That alias is not a live ACP model id. The
+The durable worker default is the plugin alias `gpt-5.6-luna-medium`: base model
+`gpt-5.6-luna` plus effort `medium`. That alias is not a live ACP model id. The
 parent orchestrator model, including a Codex GPT-5.6 Luna session, is a different
 selection from this Cursor worker. Pass `model` and `effort` on readiness or
 delegation for one job. Supported selectors are an exact advertised id, a base
@@ -31,13 +31,18 @@ effort fields fail closed. The resolved id and effort are stored on the job
 and checked again immediately before the prompt, including when a handle is
 reused. Drift fails with no prompt and no fallback.
 
-On 2026-09-30, Cursor agent `2026.08.11-e8db854` advertised Luna only as
+On 2026-09-30, Cursor agent `2026.08.11-e8db854` advertised Luna as
 `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`. No Luna High id was
 advertised. Session config options were `mode` and `model`; there was no
 separate effort setting. Product docs name the base model GPT-5.6 Luna and a
-Fast pricing slug `gpt-5.6-luna-fast`; neither slug is the live High id. Do
-not downgrade the default to Medium. Cursor Grok 4.6 and 4.7 prompt turns
-stay on hold. This does not claim subscription or pricing savings.
+Fast pricing slug `gpt-5.6-luna-fast`; neither slug is a live model id.
+Luna Medium is the user-chosen default. Explicit per-job High requests fail
+closed with `EFFORT_UNSUPPORTED` on the Medium-only live catalog; Medium is
+never substituted for explicit High. The integration supports switching between
+`grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as needed (effort is optional advanced;
+unique advertised bases resolve without choosing effort). Finish `cleanupReady`
+before switching models because one conversation owns one active worker.
+This does not claim subscription or pricing savings.
 The bridge fails closed when the executable is missing, the existing Cursor login cannot
 open a session, there is no unique matching advertised model ID, or the selected model
 is not confirmed by session status. Live `cursor_acp_delegate` refuses when selection readiness is red,
@@ -70,6 +75,33 @@ reclaimed only when that exact owner is proven missing or its PID is proven reus
 live or uncertain locks remain busy. An existing reclaim fence is preserved and
 returns a recovery-required error; it is never auto-deleted after an interrupted
 recovery attempt.
+
+## Delegation examples
+
+Pass `model` alone for any of the three supported models. One conversation owns one active worker; always await canonical completion (`taskComplete: true`) and `cleanupReady: true` before delegating the next task or switching models:
+
+```json
+// Example 1: Grok 4.6 (model base name only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.6",
+  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+}
+
+// Example 2: Grok 4.7 (model base name only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.7",
+  "prompt": "Inspect packaging tests and verify zero failures."
+}
+
+// Example 3: GPT-5.6 Luna (model base name only, effort omitted; resolves to live Medium shape)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "gpt-5.6-luna",
+  "prompt": "Verify model resolution contracts and proof artifacts."
+}
+```
 
 ## Local development
 
@@ -164,7 +196,7 @@ are emitted on stderr so MCP stdout remains protocol-only.
 
 Reload Codex or start a fresh task after repair. Verify the native
 `cursor_acp_readiness` call before delegating. The Codex orchestrator model
-(including GPT-5.6 Luna High) is independent of the Cursor worker model. If
+(including GPT-5.6 Luna Medium) is independent of the Cursor worker model. If
 native tools remain absent, diagnose registration/loading; changing models or
 switching to Puppet does not repair the MCP installation.
 

@@ -81,7 +81,7 @@ class FixtureRuntime {
       })(),
       cancel: async () => undefined,
     };
-    this.turns.push({ input });
+    this.turns.push({ input, model: this.model });
     return turn;
   }
 
@@ -119,10 +119,10 @@ async function makeBroker(options = {}) {
   return { broker, runtime, workspace, stateRoot, root };
 }
 
-test("DEFAULT_CURSOR_MODEL is gpt-5.6-luna-high", () => {
-  assert.equal(DEFAULT_CURSOR_MODEL, "gpt-5.6-luna-high");
+test("DEFAULT_CURSOR_MODEL is gpt-5.6-luna-medium", () => {
+  assert.equal(DEFAULT_CURSOR_MODEL, "gpt-5.6-luna-medium");
   assert.equal(PREFERRED_DEFAULT_MODEL_BASE, "gpt-5.6-luna");
-  assert.equal(PREFERRED_DEFAULT_EFFORT, "high");
+  assert.equal(PREFERRED_DEFAULT_EFFORT, "medium");
 });
 
 test("model id and effort parsing extracts effort and base correctly", () => {
@@ -138,9 +138,9 @@ test("model id and effort parsing extracts effort and base correctly", () => {
   assert.equal(parsedGemini.baseModelId, "gemini-3.8-flash");
   assert.equal(extractEffortFromModelId("gemini-3.8-flash[reasoning_effort=medium]"), "medium");
 
-  const slugLuna = parseModelSlug("gpt-5.6-luna-high");
+  const slugLuna = parseModelSlug("gpt-5.6-luna-medium");
   assert.equal(slugLuna.base, "gpt-5.6-luna");
-  assert.equal(slugLuna.effort, "high");
+  assert.equal(slugLuna.effort, "medium");
   assert.equal(slugLuna.kind, "plugin-default");
 
   const slugGrok = parseModelSlug("cursor-grok-4.6-medium");
@@ -148,7 +148,7 @@ test("model id and effort parsing extracts effort and base correctly", () => {
   assert.equal(slugGrok.effort, "medium");
   assert.equal(slugGrok.kind, "legacy-grok-selector");
 
-  assert.equal(parseModelSlug("gpt-5.6-luna-medium"), null);
+  assert.equal(parseModelSlug("gpt-5.6-luna-high"), null);
   assert.equal(parseModelSlug("custom-model-id"), null);
   assert.equal(fixtureCatalog.synthetic, true);
   assert.equal(fixtureCatalog.liveLunaModelId, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
@@ -160,12 +160,12 @@ test("preferredDefaultAdvertised detects unique advertised default", () => {
   assert.equal(preferredDefaultAdvertised([]), false);
 });
 
-test("resolveRequestedCursorModel resolves advertised non-Grok / high effort default", () => {
-  const resolved = resolveRequestedCursorModel("gpt-5.6-luna-high", fixtureCatalog.availableModelIds);
-  assert.equal(resolved, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+test("resolveRequestedCursorModel resolves advertised non-Grok / medium effort default", () => {
+  const resolved = resolveRequestedCursorModel("gpt-5.6-luna-medium", fixtureCatalog.availableModelIds);
+  assert.equal(resolved, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
 
-  const resolvedWithEffort = resolveRequestedCursorModel("gpt-5.6-luna", fixtureCatalog.availableModelIds, "high");
-  assert.equal(resolvedWithEffort, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+  const resolvedWithEffort = resolveRequestedCursorModel("gpt-5.6-luna", fixtureCatalog.availableModelIds, "medium");
+  assert.equal(resolvedWithEffort, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
 });
 
 test("resolveRequestedCursorModel resolves exact advertised ID", () => {
@@ -188,7 +188,7 @@ test("resolveRequestedCursorModel rejects conflicting effort on exact ID", () =>
 
 test("resolveRequestedCursorModel rejects conflicting slug and effort", () => {
   assert.throws(
-    () => resolveRequestedCursorModel("gpt-5.6-luna-high", fixtureCatalog.availableModelIds, "low"),
+    () => resolveRequestedCursorModel("gpt-5.6-luna-medium", fixtureCatalog.availableModelIds, "low"),
     (err) => err instanceof BridgeError && err.code === "EFFORT_UNSUPPORTED",
   );
 });
@@ -214,18 +214,18 @@ test("resolveRequestedCursorModel rejects missing model with MODEL_UNAVAILABLE",
 
 test("resolveRequestedCursorModel rejects ambiguous model match with MODEL_AMBIGUOUS", () => {
   const ambiguousCatalog = [
-    "gpt-5.6-luna[context=272k,reasoning=high,fast=false]",
-    "gpt-5.6-luna[context=128k,reasoning=high,fast=true]",
+    "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "gpt-5.6-luna[context=128k,reasoning=medium,fast=true]",
   ];
   assert.throws(
-    () => resolveRequestedCursorModel("gpt-5.6-luna-high", ambiguousCatalog),
+    () => resolveRequestedCursorModel("gpt-5.6-luna-medium", ambiguousCatalog),
     (err) => err instanceof BridgeError && err.code === "MODEL_AMBIGUOUS",
   );
 });
 
 test("resolveRequestedCursorModel rejects wrapping whitespace and NUL characters", () => {
   assert.throws(
-    () => resolveRequestedCursorModel(" gpt-5.6-luna-high ", fixtureCatalog.availableModelIds),
+    () => resolveRequestedCursorModel(" gpt-5.6-luna-medium ", fixtureCatalog.availableModelIds),
     (err) => err instanceof BridgeError && err.code === "MODEL_UNAVAILABLE",
   );
   assert.throws(
@@ -233,21 +233,38 @@ test("resolveRequestedCursorModel rejects wrapping whitespace and NUL characters
     (err) => err instanceof BridgeError && err.code === "MODEL_UNAVAILABLE",
   );
   assert.throws(
-    () => resolveRequestedCursorModel("gpt-5.6-luna", fixtureCatalog.availableModelIds, " high "),
+    () => resolveRequestedCursorModel("gpt-5.6-luna", fixtureCatalog.availableModelIds, " medium "),
     (err) => err instanceof BridgeError && err.code === "EFFORT_UNSUPPORTED",
   );
 });
 
-test("readiness probe discovers default Luna High without a turn", async () => {
+test("explicit High request on live-like Medium-only catalog rejects EFFORT_UNSUPPORTED without fallback", () => {
+  const liveLikeCatalog = [
+    "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "grok-4.6[effort=high,fast=true]",
+  ];
+  assert.throws(
+    () => resolveRequestedCursorModel("gpt-5.6-luna", liveLikeCatalog, "high"),
+    (err) => {
+      assert(err instanceof BridgeError);
+      assert.equal(err.code, "EFFORT_UNSUPPORTED");
+      assert(err.message.includes("gpt-5.6-luna"));
+      assert(err.message.includes("high"));
+      return true;
+    },
+  );
+});
+
+test("readiness probe discovers default Luna Medium without a turn", async () => {
   const { broker, runtime, workspace } = await makeBroker();
   const discovery = await broker.discover({ workspace });
   assert.equal(discovery.ready, true);
-  assert.equal(discovery.route.model, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
-  assert.equal(discovery.route.effort, "high");
-  assert.equal(discovery.model.selectedModelId, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
-  assert.equal(discovery.model.selectedEffort, "high");
-  assert.equal(discovery.model.preferredDefaultAlias, "gpt-5.6-luna-high");
-  assert.equal(discovery.model.preferredDefaultModelId, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+  assert.equal(discovery.route.model, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
+  assert.equal(discovery.route.effort, "medium");
+  assert.equal(discovery.model.selectedModelId, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
+  assert.equal(discovery.model.selectedEffort, "medium");
+  assert.equal(discovery.model.preferredDefaultAlias, "gpt-5.6-luna-medium");
+  assert.equal(discovery.model.preferredDefaultModelId, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
   assert.equal(discovery.model.preferredDefaultPolicy.liveModelId, null);
   assert.equal(discovery.model.preferredDefaultAvailable, true);
   assert.deepEqual(discovery.model.availableModelIds, fixtureCatalog.availableModelIds);
@@ -264,25 +281,25 @@ test("readiness probe discovers custom model override without a turn", async () 
   const discovery = await broker.discover({
     workspace,
     model: "gpt-5.6-luna",
-    effort: "medium",
+    effort: "high",
   });
   assert.equal(discovery.ready, true);
-  assert.equal(discovery.route.model, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
-  assert.equal(discovery.route.effort, "medium");
-  assert.equal(discovery.model.selectedModelId, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
-  assert.equal(discovery.model.selectedEffort, "medium");
+  assert.equal(discovery.route.model, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+  assert.equal(discovery.route.effort, "high");
+  assert.equal(discovery.model.selectedModelId, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+  assert.equal(discovery.model.selectedEffort, "high");
   assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
 
-test("readiness/delegate consistency: High absent is not selection-ready and returns the catalog", async () => {
-  const liveLikeCatalog = fixtureCatalog.availableModelIds.filter(
-    (id) => !id.includes("reasoning=high"),
+test("readiness/delegate consistency: Medium absent is not selection-ready and returns the catalog", async () => {
+  const noMediumCatalog = fixtureCatalog.availableModelIds.filter(
+    (id) => !id.includes("reasoning=medium"),
   );
-  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
   const runtime = new FixtureRuntime({
-    model: medium,
-    available: liveLikeCatalog,
+    model: high,
+    available: noMediumCatalog,
   });
   const { broker, workspace } = await makeBroker({ runtime });
 
@@ -292,11 +309,11 @@ test("readiness/delegate consistency: High absent is not selection-ready and ret
   assert.equal(discovery.selectionReady, false);
   assert.equal(discovery.model.selectedModelId, null);
   assert.equal(discovery.model.selectedEffort, null);
-  assert.equal(discovery.model.currentModelId, medium);
-  assert.equal(discovery.model.preferredDefaultAlias, "gpt-5.6-luna-high");
+  assert.equal(discovery.model.currentModelId, high);
+  assert.equal(discovery.model.preferredDefaultAlias, "gpt-5.6-luna-medium");
   assert.equal(discovery.model.preferredDefaultModelId, null);
   assert.equal(discovery.model.preferredDefaultAvailable, false);
-  assert.deepEqual(discovery.model.availableModelIds, liveLikeCatalog);
+  assert.deepEqual(discovery.model.availableModelIds, noMediumCatalog);
   assert.equal(discovery.error.code, "EFFORT_UNSUPPORTED");
   assert.equal(runtime.turns.length, 0);
 
@@ -305,8 +322,8 @@ test("readiness/delegate consistency: High absent is not selection-ready and ret
     (err) => {
       assert(err instanceof BridgeError);
       assert.equal(err.code, "EFFORT_UNSUPPORTED");
-      assert(err.message.includes("effort high"));
-      assert.deepEqual(err.details.availableModelIds, liveLikeCatalog);
+      assert(err.message.includes("effort medium"));
+      assert.deepEqual(err.details.availableModelIds, noMediumCatalog);
       return true;
     },
   );
@@ -317,16 +334,45 @@ test("readiness/delegate consistency: High absent is not selection-ready and ret
     workspace,
     prompt: "Run with explicit override",
     model: "gpt-5.6-luna",
-    effort: "medium",
+    effort: "high",
   });
   assert.equal(submitted.status, "submitted");
-  assert.equal(submitted.route.model, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]");
-  assert.equal(submitted.route.effort, "medium");
+  assert.equal(submitted.route.model, "gpt-5.6-luna[context=272k,reasoning=high,fast=false]");
+  assert.equal(submitted.route.effort, "high");
 
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(completed.status, "completed");
   assert.equal(runtime.turns.length, 1);
 
+  await broker.close();
+});
+
+test("explicit High request fails closed on live-like catalog without fallback", async () => {
+  const liveLikeCatalog = [
+    "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "grok-4.6[effort=high,fast=true]",
+  ];
+  const runtime = new FixtureRuntime({
+    model: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    available: liveLikeCatalog,
+  });
+  const { broker, workspace } = await makeBroker({ runtime });
+
+  await assert.rejects(
+    () => broker.delegate({
+      workspace,
+      prompt: "Explicit high must reject on live-like catalog",
+      model: "gpt-5.6-luna",
+      effort: "high",
+    }),
+    (err) => {
+      assert(err instanceof BridgeError);
+      assert.equal(err.code, "EFFORT_UNSUPPORTED");
+      assert(err.message.includes("does not advertise effort 'high'"));
+      return true;
+    },
+  );
+  assert.equal(runtime.turns.length, 0);
   await broker.close();
 });
 
@@ -452,7 +498,7 @@ test("duplicate exact ids and conflicting effort fields are rejected", () => {
     (err) => err instanceof BridgeError && err.code === "EFFORT_UNSUPPORTED",
   );
   assert.throws(
-    () => resolveRequestedCursorModel("gpt-5.6-luna-medium", fixtureCatalog.availableModelIds),
+    () => resolveRequestedCursorModel("gpt-5.6-luna-high", fixtureCatalog.availableModelIds),
     (err) => err instanceof BridgeError && err.code === "MODEL_UNAVAILABLE",
   );
   const repeated = "gpt-5.6-luna[reasoning=high,reasoning=medium]";
@@ -482,13 +528,13 @@ test("invalid readiness still returns the advertised catalog and is not delegate
 });
 
 test("prepared-handle drift fails with zero prompts and keeps the persisted selection", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
-  const drifted = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
-  const runtime = new FixtureRuntime({ model: high });
+  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const drifted = "gpt-5.6-luna[context=272k,reasoning=low,fast=false]";
+  const runtime = new FixtureRuntime({ model: medium });
   let reads = 0;
   runtime.getStatus = async () => {
     reads += 1;
-    const current = reads < 3 ? high : drifted;
+    const current = reads < 3 ? medium : drifted;
     return {
       models: {
         currentModelId: current,
@@ -505,20 +551,20 @@ test("prepared-handle drift fails with zero prompts and keeps the persisted sele
   assert.equal(completed.error.code, "MODEL_SELECTION_UNCONFIRMED");
   assert.equal(runtime.turns.length, 0);
   const job = await broker.getJob(submitted.jobId);
-  assert.equal(job.model.selectedModelId, high);
-  assert.equal(job.model.selectedEffort, "high");
+  assert.equal(job.model.selectedModelId, medium);
+  assert.equal(job.model.selectedEffort, "medium");
   assert.equal(job.request.model, null);
   assert.equal(job.request.selectionPolicy.kind, "plugin-default");
-  assert.equal(job.request.selectionPolicy.alias, "gpt-5.6-luna-high");
+  assert.equal(job.request.selectionPolicy.alias, "gpt-5.6-luna-medium");
   assert.equal(job.request.selectionPolicy.liveModelId, null);
   await broker.close();
 });
 
 test("new handle rechecks the persisted id after broker and catalog changes", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
   const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const low = "gpt-5.6-luna[context=272k,reasoning=low,fast=false]";
   const { broker, runtime, workspace } = await makeBroker();
-  const submitted = await broker.delegate({ workspace, prompt: "Resolve the synthetic high default once" });
+  const submitted = await broker.delegate({ workspace, prompt: "Resolve the default medium once" });
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(completed.status, "completed");
   const turnsBefore = runtime.turns.length;
@@ -529,9 +575,9 @@ test("new handle rechecks the persisted id after broker and catalog changes", as
   delete replay.handoff;
   delete replay.error;
   broker.model = "gpt-5.6-luna";
-  broker.effort = "medium";
-  runtime.model = medium;
-  runtime.available = [medium, high];
+  broker.effort = "low";
+  runtime.model = low;
+  runtime.available = [low, medium];
   const sets = [];
   const originalSet = runtime.setModel.bind(runtime);
   runtime.setModel = async (input) => {
@@ -540,43 +586,43 @@ test("new handle rechecks the persisted id after broker and catalog changes", as
   };
   const outcome = await broker.runJob(replay, "Replay the persisted selection");
   assert.equal(outcome.status, "completed");
-  assert.equal(replay.model.selectedModelId, high);
-  assert.equal(replay.model.selectedEffort, "high");
+  assert.equal(replay.model.selectedModelId, medium);
+  assert.equal(replay.model.selectedEffort, "medium");
   assert.equal(replay.request.model, null);
-  assert.equal(replay.request.selectionPolicy.alias, "gpt-5.6-luna-high");
-  assert.equal(runtime.model, high);
-  assert.deepEqual(sets, [high]);
+  assert.equal(replay.request.selectionPolicy.alias, "gpt-5.6-luna-medium");
+  assert.equal(runtime.model, medium);
+  assert.deepEqual(sets, [medium]);
   assert.equal(runtime.turns.length, turnsBefore + 1);
-  assert.equal(outcome.modelSelection.currentModelId, high);
+  assert.equal(outcome.modelSelection.currentModelId, medium);
   assert.equal(outcome.modelSelection.requestedEffort, null);
   await broker.close();
 });
 
 test("new handle drift does not adopt a newly advertised model", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
   const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const low = "gpt-5.6-luna[context=272k,reasoning=low,fast=false]";
   const { broker, runtime, workspace } = await makeBroker();
-  const submitted = await broker.delegate({ workspace, prompt: "Persist high then drift" });
+  const submitted = await broker.delegate({ workspace, prompt: "Persist medium then drift" });
   await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   const turnsBefore = runtime.turns.length;
   const replay = structuredClone(await broker.getJob(submitted.jobId));
   replay.status = "submitted";
   delete replay.cleanup;
-  broker.model = medium;
-  runtime.model = medium;
-  runtime.available = [medium];
+  broker.model = low;
+  runtime.model = low;
+  runtime.available = [low];
   runtime.setModel = async () => {};
   const outcome = await broker.runJob(replay, "Must not prompt");
   assert.equal(outcome.status, "failed");
   assert.equal(outcome.error.code, "MODEL_SELECTION_UNCONFIRMED");
   assert.equal(runtime.turns.length, turnsBefore);
-  assert.equal(replay.model.selectedModelId, high);
+  assert.equal(replay.model.selectedModelId, medium);
   assert.equal(replay.request.selectionPolicy.kind, "plugin-default");
   await broker.close();
 });
 
 test("owner-death recovery preserves the resolved selection and sends no prompt", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
+  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
   const { broker, runtime, stateRoot } = await makeBroker();
   const jobId = "44444444-4444-4444-8444-444444444444";
   const owner = {
@@ -588,9 +634,9 @@ test("owner-death recovery preserves the resolved selection and sends no prompt"
   await mkdir(runDir, { recursive: true });
   const selectionPolicy = {
     kind: "plugin-default",
-    alias: "gpt-5.6-luna-high",
+    alias: "gpt-5.6-luna-medium",
     baseModel: "gpt-5.6-luna",
-    effort: "high",
+    effort: "medium",
     liveModelId: null,
   };
   const job = {
@@ -601,7 +647,7 @@ test("owner-death recovery preserves the resolved selection and sends no prompt"
     runDir,
     createdAt: "2026-09-30T20:00:00.000Z",
     updatedAt: "2026-09-30T20:00:00.000Z",
-    route: { executable: "synthetic", argv: ["acp"], model: high, effort: "high" },
+    route: { executable: "synthetic", argv: ["acp"], model: medium, effort: "medium" },
     request: {
       promptSha256: "abc",
       promptChars: 4,
@@ -610,9 +656,9 @@ test("owner-death recovery preserves the resolved selection and sends no prompt"
       selectionPolicy,
     },
     model: {
-      selectedModelId: high,
-      selectedEffort: "high",
-      currentModelId: high,
+      selectedModelId: medium,
+      selectedEffort: "medium",
+      currentModelId: medium,
     },
     owner,
     proof: {
@@ -632,36 +678,36 @@ test("owner-death recovery preserves the resolved selection and sends no prompt"
   const recovered = await broker.result({ jobId });
   assert.equal(recovered.status, "failed");
   assert.equal(recovered.error.code, "BRIDGE_RESTARTED");
-  assert.equal(recovered.model, high);
-  assert.equal(recovered.modelSelection.selectedModelId, high);
-  assert.equal(recovered.modelSelection.selectedEffort, "high");
+  assert.equal(recovered.model, medium);
+  assert.equal(recovered.modelSelection.selectedModelId, medium);
+  assert.equal(recovered.modelSelection.selectedEffort, "medium");
   assert.equal(recovered.modelSelection.requestedModel, null);
   assert.equal(recovered.modelSelection.requestedEffort, null);
-  assert.equal(recovered.modelSelection.currentModelId, high);
+  assert.equal(recovered.modelSelection.currentModelId, medium);
   assert.deepEqual(recovered.modelSelection.selectionPolicy, selectionPolicy);
   assert.equal(runtime.turns.length, 0);
   assert.equal(runtime.ensureCalls.length, 0);
 
   const persisted = JSON.parse(await readFile(path.join(broker.jobsRoot, `${jobId}.json`), "utf8"));
-  assert.equal(persisted.model.selectedModelId, high);
-  assert.equal(persisted.model.selectedEffort, "high");
+  assert.equal(persisted.model.selectedModelId, medium);
+  assert.equal(persisted.model.selectedEffort, "medium");
   assert.equal(persisted.request.model, null);
   assert.deepEqual(persisted.request.selectionPolicy, selectionPolicy);
   assert.equal(persisted.error.code, "BRIDGE_RESTARTED");
   await broker.close();
 });
 
-test("current matches persisted High but catalog missing High fails closed with zero prompts", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
+test("current matches persisted Medium but catalog missing Medium fails closed with zero prompts", async () => {
   const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
-  const runtime = new FixtureRuntime({ model: high });
+  const low = "gpt-5.6-luna[context=272k,reasoning=low,fast=false]";
+  const runtime = new FixtureRuntime({ model: medium });
   let reads = 0;
   runtime.getStatus = async () => {
     reads += 1;
-    const available = reads < 3 ? fixtureCatalog.availableModelIds : [medium];
+    const available = reads < 3 ? fixtureCatalog.availableModelIds : [low];
     return {
       models: {
-        currentModelId: high,
+        currentModelId: medium,
         availableModelIds: available,
         availableModels: available.map((modelId) => ({ modelId, name: modelId })),
       },
@@ -673,26 +719,26 @@ test("current matches persisted High but catalog missing High fails closed with 
   assert.equal(completed.status, "failed");
   assert.equal(completed.error.code, "MODEL_SELECTION_UNCONFIRMED");
   assert(completed.error.message.includes("does not advertise selected model"));
-  assert.deepEqual(completed.error.details.availableModelIds, [medium]);
+  assert.deepEqual(completed.error.details.availableModelIds, [low]);
   assert.equal(runtime.turns.length, 0);
   const job = await broker.getJob(submitted.jobId);
-  assert.equal(job.model.selectedModelId, high);
-  assert.equal(job.model.currentModelId, high);
+  assert.equal(job.model.selectedModelId, medium);
+  assert.equal(job.model.currentModelId, medium);
   await broker.close();
 });
 
-test("exact High duplicated after admission fails closed with zero prompts", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
-  const runtime = new FixtureRuntime({ model: high });
+test("exact Medium duplicated after admission fails closed with zero prompts", async () => {
+  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const runtime = new FixtureRuntime({ model: medium });
   let reads = 0;
   runtime.getStatus = async () => {
     reads += 1;
     const available = reads < 3
       ? fixtureCatalog.availableModelIds
-      : [high, high, "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"];
+      : [medium, medium, "gpt-5.6-luna[context=272k,reasoning=low,fast=false]"];
     return {
       models: {
-        currentModelId: high,
+        currentModelId: medium,
         availableModelIds: available,
         availableModels: available.map((modelId) => ({ modelId, name: modelId })),
       },
@@ -707,19 +753,19 @@ test("exact High duplicated after admission fails closed with zero prompts", asy
   assert.equal(completed.error.details.matchCount, 2);
   assert.equal(runtime.turns.length, 0);
   const job = await broker.getJob(submitted.jobId);
-  assert.equal(job.model.selectedModelId, high);
+  assert.equal(job.model.selectedModelId, medium);
   await broker.close();
 });
 
 test("prepared current drift with working setter fails closed with zero prompts and no setter call", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
-  const drifted = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
-  const runtime = new FixtureRuntime({ model: high });
+  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const drifted = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
+  const runtime = new FixtureRuntime({ model: medium });
   let reads = 0;
   let setterCalls = 0;
   runtime.getStatus = async () => {
     reads += 1;
-    const current = reads < 3 ? high : drifted;
+    const current = reads < 3 ? medium : drifted;
     return {
       models: {
         currentModelId: current,
@@ -743,13 +789,13 @@ test("prepared current drift with working setter fails closed with zero prompts 
 });
 
 test("failed confirmation exposes latest current while selected immutable fields are preserved", async () => {
-  const high = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
-  const drifted = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
-  const runtime = new FixtureRuntime({ model: high });
+  const medium = "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]";
+  const drifted = "gpt-5.6-luna[context=272k,reasoning=high,fast=false]";
+  const runtime = new FixtureRuntime({ model: medium });
   let reads = 0;
   runtime.getStatus = async () => {
     reads += 1;
-    const current = reads < 3 ? high : drifted;
+    const current = reads < 3 ? medium : drifted;
     return {
       models: {
         currentModelId: current,
@@ -763,25 +809,104 @@ test("failed confirmation exposes latest current while selected immutable fields
   const completed = await broker.result({ jobId: submitted.jobId, waitMs: 1_000 });
   assert.equal(completed.status, "failed");
   assert.equal(completed.error.code, "MODEL_SELECTION_UNCONFIRMED");
-  assert.equal(completed.modelSelection.selectedModelId, high);
-  assert.equal(completed.modelSelection.selectedEffort, "high");
+  assert.equal(completed.modelSelection.selectedModelId, medium);
+  assert.equal(completed.modelSelection.selectedEffort, "medium");
   assert.equal(completed.modelSelection.currentModelId, drifted);
-  assert.equal(completed.modelSelection.currentEffort, "medium");
+  assert.equal(completed.modelSelection.currentEffort, "high");
 
   const job = await broker.getJob(submitted.jobId);
-  assert.equal(job.model.selectedModelId, high);
-  assert.equal(job.model.selectedEffort, "high");
+  assert.equal(job.model.selectedModelId, medium);
+  assert.equal(job.model.selectedEffort, "medium");
   assert.equal(job.model.currentModelId, drifted);
   assert.equal(job.request.model, null);
   assert.equal(job.request.effort, null);
   assert.equal(job.request.selectionPolicy.kind, "plugin-default");
 
   const stateContent = await readFile(job.proof.state, "utf8");
-  assert(stateContent.includes(`Selected model: ${high}`));
+  assert(stateContent.includes(`Selected model: ${medium}`));
   assert(stateContent.includes(`Current model: ${drifted}`));
 
   const proofContent = await readFile(job.proof.proof, "utf8");
-  assert(proofContent.includes(`Selected model: ${high}`));
+  assert(proofContent.includes(`Selected model: ${medium}`));
   assert(proofContent.includes(`Current model: ${drifted}`));
+  await broker.close();
+});
+
+test("sequential delegation loops across Grok 4.6 -> Grok 4.7 -> Luna -> Grok 4.6 with base names and preserves model state", async () => {
+  const catalog = [
+    "grok-4.6[effort=high,fast=true]",
+    "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+    "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+  ];
+  const runtime = new FixtureRuntime({
+    model: catalog[0],
+    available: catalog,
+  });
+  const { broker, workspace } = await makeBroker({ runtime });
+
+  const sequence = [
+    { base: "grok-4.6", expectedId: "grok-4.6[effort=high,fast=true]", expectedEffort: "high" },
+    { base: "grok-4.7", expectedId: "grok-4.7[context=256k,reasoning_effort=high,fast=true]", expectedEffort: "high" },
+    { base: "gpt-5.6-luna", expectedId: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]", expectedEffort: "medium" },
+    { base: "grok-4.6", expectedId: "grok-4.6[effort=high,fast=true]", expectedEffort: "high" },
+  ];
+
+  const jobs = [];
+
+  for (let i = 0; i < sequence.length; i++) {
+    const { base, expectedId, expectedEffort } = sequence[i];
+    const prompt = `Sequential delegation step ${i + 1} with model ${base}`;
+
+    const submitted = await broker.delegate({
+      workspace,
+      prompt,
+      model: base,
+      // effort omitted: caller does not choose effort for unique advertised base
+    });
+    assert.equal(submitted.status, "submitted");
+    assert.equal(submitted.route.model, expectedId);
+    assert.equal(submitted.route.effort, expectedEffort);
+
+    const completed = await broker.result({ jobId: submitted.jobId, waitMs: 5_000 });
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.taskComplete, true);
+    assert.equal(completed.cleanupReady, true);
+    assert.equal(completed.complete, true);
+    assert.equal(completed.modelSelection.requestedModel, base);
+    assert.equal(completed.modelSelection.requestedEffort, null);
+    assert.equal(completed.modelSelection.selectedModelId, expectedId);
+    assert.equal(completed.modelSelection.currentModelId, expectedId);
+    assert.equal(completed.modelSelection.selectedEffort, expectedEffort);
+
+    const job = await broker.getJob(submitted.jobId);
+    assert.equal(job.request.model, base);
+    assert.equal(job.request.effort, null);
+    assert.equal(job.model.selectedModelId, expectedId);
+    assert.equal(job.model.currentModelId, expectedId);
+    assert.equal(job.model.selectedEffort, expectedEffort);
+    assert.equal(job.request.selectionPolicy.kind, "explicit");
+    assert.equal(job.request.selectionPolicy.requestedModel, base);
+    assert.equal(job.request.selectionPolicy.requestedEffort, null);
+
+    jobs.push({ jobId: submitted.jobId, ...sequence[i] });
+
+    // Assert that all prior jobs retain their own recorded model after each switch
+    for (const prior of jobs) {
+      const priorJob = await broker.getJob(prior.jobId);
+      assert.equal(priorJob.request.model, prior.base);
+      assert.equal(priorJob.request.effort, null);
+      assert.equal(priorJob.model.selectedModelId, prior.expectedId);
+      assert.equal(priorJob.model.currentModelId, prior.expectedId);
+      assert.equal(priorJob.model.selectedEffort, prior.expectedEffort);
+    }
+  }
+
+  // Verify runtime prompt turns: 4 total turns, text matches prompt and active model matches expected model
+  assert.equal(runtime.turns.length, sequence.length);
+  for (let i = 0; i < sequence.length; i++) {
+    assert.equal(runtime.turns[i].input.text, `Sequential delegation step ${i + 1} with model ${sequence[i].base}`);
+    assert.equal(runtime.turns[i].model, sequence[i].expectedId);
+  }
+
   await broker.close();
 });

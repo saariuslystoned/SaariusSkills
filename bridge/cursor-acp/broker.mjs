@@ -34,10 +34,10 @@ import {
 const execFile = promisify(execFileCallback);
 
 export const DEFAULT_CURSOR_EXECUTABLE = "/Users/bobbybones/.local/bin/cursor-agent";
-// Plugin alias for base gpt-5.6-luna plus effort high. Not a live ACP model id.
-export const DEFAULT_CURSOR_MODEL = "gpt-5.6-luna-high";
+// Plugin alias for base gpt-5.6-luna plus effort medium. Not a live ACP model id.
+export const DEFAULT_CURSOR_MODEL = "gpt-5.6-luna-medium";
 export const PREFERRED_DEFAULT_MODEL_BASE = "gpt-5.6-luna";
-export const PREFERRED_DEFAULT_EFFORT = "high";
+export const PREFERRED_DEFAULT_EFFORT = "medium";
 const EFFORT_KEYS = ["effort", "reasoning_effort", "reasoning"];
 const EFFORT_TOKEN = /^[a-z][a-z0-9]{0,15}$/;
 const LEGACY_GROK_SELECTOR = /^cursor-grok-4\.6-(low|medium|high|xhigh)$/;

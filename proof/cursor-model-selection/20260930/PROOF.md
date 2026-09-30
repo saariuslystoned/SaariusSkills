@@ -1,5 +1,7 @@
 # Cursor ACP Safe Model Selection Proof
 
+> **Current Superseding Status (Model Switching Scope)**: The earlier Luna High blocker is historical and superseded by user-selected Luna Medium default (`gpt-5.6-luna-medium`) and optional effort/model-only switching among `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna`. See current acceptance proof in [model-switching/PROOF.md](model-switching/PROOF.md). The current scope is not blocked by the absence of Luna High. The current pending gate is maintainer-approved installation and native host reload, followed by the previously authorized tiny Luna Medium smoke turn; zero real Cursor prompts have been sent so far (`modelPromptsSent: 0`, `hostNativeReloaded: false`). All earlier historical evidence below remains intact.
+
 - Worktree: `/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930`
 - Branch: `codex/cursor-luna-model-selection-20260930`
 - Base commit: `cc4070ebd7861f07ca3e24f7744d779fb13a472f`
@@ -50,8 +52,9 @@ Four specific regression tests in `bridge/cursor-acp/test/model-selection.test.m
 - Comprehensive Review: [REVIEW.md](REVIEW.md)
 - Install & Reload Plan: [install-reload-plan.md](install-reload-plan.md)
 - Read-only Source Verifier: [compare-installed-source.py](compare-installed-source.py)
+- Model Switching Proof: [model-switching/PROOF.md](model-switching/PROOF.md)
 
-## Blocker
+## Blocker (Historical - Superseded by model-switching/PROOF.md)
 
 Native Luna High prompt stays `WAITING_FOR_HUMAN`.
 1. Luna High is absent from the live Cursor ACP catalog today (only Medium is advertised: `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`). No fallback or downgrade to Medium is permitted.

@@ -11,13 +11,10 @@ Use `/tmp/acp-evaluation-repo` as the synthetic worker workspace and `test-paren
 as the synthetic conversation identity. Visible catalog includes readiness,
 delegate, status, result, steer, cancel for each named available family. A green
 fixture means runtime/auth/workspace are ready, selected model is present in its
-advertised catalog, and permission is as specified. Models: Cursor's synthetic
-green fixture resolves plugin alias `gpt-5.6-luna-high` to one advertised High
-id; that alias is not itself a live id. A live-shaped Cursor catalog that only
-advertises `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]` is not green
-for the default and must fail closed with `EFFORT_UNSUPPORTED`. The documented
-`cursor-grok-4.6-high` selector remains explicit only; Cursor Grok prompts are
-on hold. Grok `grok-4.7`, Antigravity `gemini-3.8-flash-high`. These are
+advertised catalog, and permission is as specified. Models: Cursor's
+green fixture resolves plugin alias `gpt-5.6-luna-medium` to the advertised Medium
+id `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`; that alias is not itself a live id. A catalog missing Medium is not green
+for the default and must fail closed with `EFFORT_UNSUPPORTED`. Explicit High requests on a live-shaped catalog without High also fail closed with `EFFORT_UNSUPPORTED`. Model switching supports `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as per-job options with effort optional for unique advertised bases. Grok `grok-4.7`, Antigravity `gemini-3.8-flash-high`. These are
 fixtures, not future live model assumptions.
 Canonical result is completed with cleanup observed. No prior mode authorization
 unless the case states it.

@@ -1,0 +1,43 @@
+{
+  "schema": "saarius.cursor-model-switching.upstream-review.v1",
+  "reviewedAt": "2026-09-30T20:34:00.535Z",
+  "upstream": {
+    "repository": "openclaw/openclaw",
+    "commit": "3bc0356e6a6af17ba6a993435629900f50f21f36"
+  },
+  "findings": [
+    {
+      "accepted": true,
+      "advice": "Resolve against advertised catalog; exact IDs take priority and a base selector must match exactly one variant. Reject unknown or ambiguous selection before prompt and after reconnect.",
+      "source": "https://github.com/openclaw/openclaw/blob/3bc0356e6a6af17ba6a993435629900f50f21f36/docs/tools/acp-agents/controls.md",
+      "implementation": "broker.mjs resolves once, stores the exact selected ID, and rechecks fresh status before each prompt. Sequential model-only integration test covers the user's three choices."
+    },
+    {
+      "accepted": true,
+      "advice": "Native harness model selection can call acpx/runtime setModel directly; the OpenClaw gateway exposes model via config controls.",
+      "source": "https://github.com/openclaw/openclaw/blob/3bc0356e6a6af17ba6a993435629900f50f21f36/extensions/acpx/src/runtime.ts#L1134",
+      "implementation": "Cursor broker uses the public acpx runtime. The pinned 0.19.3 client prefers session/set_config_option for an advertised model option and supports the legacy session/set_model path."
+    },
+    {
+      "accepted": true,
+      "advice": "Use backend-accepted controls; changing model may clamp or remove thinking support.",
+      "source": "https://github.com/openclaw/openclaw/blob/3bc0356e6a6af17ba6a993435629900f50f21f36/src/acp/control-plane/manager.runtime-controls.ts",
+      "implementation": "Effort input is optional; model-only requests choose the unique advertised variant and report parsed selected/current effort. No generic thinking control is invented."
+    },
+    {
+      "accepted": false,
+      "advice": "Drop an unsupported inherited model default, or retry OpenClaw provider-qualified model references.",
+      "source": "https://github.com/openclaw/openclaw/blob/3bc0356e6a6af17ba6a993435629900f50f21f36/extensions/acpx/src/model-ref.ts",
+      "reason": "These are OpenClaw gateway policies outside this native lane's contract. Explicit requested selection and the plugin default stay fail-closed; the task requires the three advertised Cursor base names, not provider routing."
+    }
+  ],
+  "verification": {
+    "readOnlyUpstreamInspection": true,
+    "implementationChangeRequired": false,
+    "realCursorPrompts": 0,
+    "installedParentPluginChanged": false
+  },
+  "limitations": [
+    "Candidate readiness and synthetic broker tests are not installed-host execution proof. Native reload and real Cursor smoke remain gated."
+  ]
+}

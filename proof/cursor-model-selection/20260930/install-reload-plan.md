@@ -190,22 +190,27 @@ No commands are executed globally by the assistant. The sequence below is approv
    - Controlled host app reload is only performed if necessary after owner-approved quiescence across all open sessions.
 
 8. **Verify Fresh Native Schema & Zero-Prompt Readiness**:
-   - Inspect native MCP schema: verify optional `model` and `effort` parameters are present on `cursor_acp_readiness` and `cursor_acp_delegate`.
+   - Inspect native MCP schema: verify optional `model` and `effort` parameters are present on `cursor_acp_readiness` and `cursor_acp_delegate`, and tool descriptions reflect `gpt-5.6-luna-medium`.
    - Call native `cursor_acp_readiness` with no prompt.
-   - Expected response today (Luna High absent from Cursor live catalog):
-     - `ready: false`
+   - Expected response once reloaded with user-corrected Medium default:
+     - `ready: true`
      - `catalogReady: true`
-     - `selectionReady: false`
-     - error: `EFFORT_UNSUPPORTED` across all 43 advertised IDs
-     - `preferredDefaultModelId: null`
+     - `selectionReady: true`
+     - `route.model`: `"gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"`
+     - `route.effort`: `"medium"`
+     - `model.selectedModelId`: `"gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"`
+     - `model.selectedEffort`: `"medium"`
+     - `model.preferredDefaultAlias`: `"gpt-5.6-luna-medium"`
+     - `model.preferredDefaultModelId`: `"gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"`
+     - `model.preferredDefaultAvailable`: `true`
      - `promptsSent: 0`
 
-9. **Gates for Tiny Synthetic Native Luna High Prompt**:
-   - A tiny synthetic native Luna High prompt is ALREADY user-authorized within this task (no additional per-prompt modal approval needed).
+9. **Gates for Tiny Synthetic Native Luna Medium Prompt**:
+   - A tiny synthetic native prompt is ALREADY user-authorized within this task (no additional per-prompt modal approval needed).
    - Strict gating criteria (all must be satisfied before prompt):
-     1. High is actually uniquely advertised in the live Cursor ACP catalog (`models.availableModelIds`).
-     2. Approved plugin installation and load verified against reviewed commit.
-     3. New native schema active with matching `selectedModelId` and `currentModelId`.
+     1. Live Luna Medium exact ID is confirmed uniquely advertised in the live Cursor ACP catalog (`models.availableModelIds`).
+     2. Approved plugin installation and reload verified against reviewed commit (source integrity matching worktree).
+     3. New native schema active with matching `selectedModelId` and `currentModelId` equal to `"gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"`.
      4. Effective `approve-all` permission policy.
      5. Execute exactly one tiny synthetic prompt followed immediately by canonical terminal cleanup.
-   - **Current status**: Because Luna High is absent from the live Cursor catalog (only Medium is advertised), NO Cursor prompt is sent today. Do NOT downgrade to Medium.
+   - **Current status**: Because the host environment has not yet been reloaded (`hostNativeReloaded: false`), the maintainer installation gate persists and NO Cursor prompt is sent during candidate development. The tiny smoke remains gated behind parent maintainer review, git commit/push, approved marketplace reload, and fresh native load verification.
