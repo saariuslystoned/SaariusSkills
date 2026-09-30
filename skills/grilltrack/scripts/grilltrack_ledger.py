@@ -120,8 +120,14 @@ class Store:
         (self.state_dir / "work").mkdir()
         (self.state_dir / ".gitignore").write_text("work/\n", encoding="utf-8")
 
+    def guard_reconciliation(self) -> None:
+        journal = self.state_dir / "work" / "reconcile-transaction.json"
+        if journal.exists() or journal.is_symlink():
+            raise LedgerError("reconciliation interrupted; rerun the exact reconcile --apply command")
+
     def load(self) -> dict[str, Any]:
         self.guard_state_dir()
+        self.guard_reconciliation()
         if not self.ledger_path.is_file():
             raise LedgerError(
                 f"no ledger found at {self.ledger_path}; initialize a track first"
@@ -1309,6 +1315,17 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--proof-ref", action="append", default=[])
     close.set_defaults(handler=command_close)
 
+    reconcile = subparsers.add_parser("reconcile", help="plan or explicitly apply a same-repository fork join")
+    reconcile.add_argument("--base-ref", required=True)
+    reconcile.add_argument("--current-ref", required=True)
+    reconcile.add_argument("--incoming-ref", required=True)
+    reconcile.add_argument("--title", required=True)
+    reconcile.add_argument("--apply", metavar="PLAN_SHA256")
+    def reconcile_handler(store, args):
+        from grilltrack_reconcile import reconcile_command
+        reconcile_command(store, args, sys.modules[__name__])
+    reconcile.set_defaults(handler=reconcile_handler)
+
     return parser
 
 
@@ -1317,6 +1334,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         store = Store(args.project)
+        if args.command != "reconcile":
+            store.guard_reconciliation()
         if args.command != "new":
             rollover = store.read_rollover_state()
             if rollover is not None:

@@ -100,6 +100,10 @@ Use `new` after a closed track. It preserves the prior ledger and event log
 under `.grilltrack/archive/<track-id>/`, links the successor, and starts clean
 active state. Never overwrite or delete a closed track to continue.
 
+For divergent tracks in the same Git repository, use the explicit plan/apply
+workflow in [references/reconciliation.md](references/reconciliation.md).
+It retains each fork's original history and requires fresh composition proof.
+
 Use the narrow subcommand that matches the real transition. Let the tool reject
 invalid lifecycle changes; do not hand-edit around validation. The ledger is the
 single current projection and `events.jsonl` is its append-only history.
