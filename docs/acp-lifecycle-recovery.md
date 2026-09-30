@@ -21,7 +21,11 @@ from canonical state. First observe a nonterminal interrupted job through
 `status`/`result`: only a demonstrably gone owner with matching persisted lease
 may be marked `BRIDGE_RESTARTED`. Do not turn that receipt into cleanup proof.
 
-From a checkout with prepared local bridge dependencies, request a plan:
+From the installed plugin or a checkout matching its prepared runtime, request a plan.
+The utility resolves the integrity-checked persistent runtime, just like the MCP
+launcher; it does not require dependencies inside the plugin cache. If that
+runtime is missing or invalid, prepare the selected bridge using the reported
+setup command before retrying:
 
 ```sh
 node bridge/acp-runtime/recover.mjs --lane cursor \
