@@ -310,7 +310,7 @@ test("model mismatch fails closed instead of silently falling back", async () =>
   });
   await assert.rejects(
     () => broker.delegate({ workspace, prompt: "This must not run." }),
-    (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
+    (error) => error instanceof BridgeError && (error.code === "MODEL_UNAVAILABLE" || error.code === "MODEL_REQUIRED"),
   );
   await broker.close();
 });

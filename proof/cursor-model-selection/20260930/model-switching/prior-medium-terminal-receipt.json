@@ -1,0 +1,219 @@
+{
+  "schema": "saarius.antigravity-acp.job.v1",
+  "jobId": "c696ef1a-eb05-416b-9de9-0e394b0bf726",
+  "status": "cancelled",
+  "createdAt": "2026-09-30T20:13:58.829Z",
+  "updatedAt": "2026-09-30T20:26:17.176Z",
+  "route": {
+    "agent": "antigravity",
+    "transport": "antigravity-acp",
+    "runtime": {
+      "id": "antigravity-acp",
+      "version": "1.1.1",
+      "registryRevision": "81bf71b55e15f630c4fb8a86d20d3088071d2071",
+      "acpxSourceCommit": "6b4714c7aaac8c38b1fe38354848d2546f65d87d",
+      "acpxNpmGitHead": null,
+      "lastInspectedSourceCommit": "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+      "lastInspectedSourceRelease": "0.17.1",
+      "acpxRelease": "0.19.3",
+      "acpxNpmIntegrity": "sha512-5YvCb+NG3XzDapxzrQRDS6zGN13mWZeugaeoq03kh9NCTFgJGzt7lrdC4jT2YXp9UV6Ieg8H+AYxs2y2+g1Z/g==",
+      "acpxTarballSha256": "670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60",
+      "acpxRuntimeJsSha256": "e12930a2d060551f6c72a1b4122fd2e1cb8b8d105106cef706aef88ed177d40f"
+    },
+    "executable": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par",
+    "argv": [
+      "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par"
+    ],
+    "helper": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/localharness_external",
+    "platformId": "darwin-aarch64",
+    "model": "gemini-3.8-flash-high"
+  },
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "timeoutMs": 1200000,
+  "owner": {
+    "brokerId": "43701a05-1dd5-4a0f-b04b-95e139be91d6",
+    "pid": 97142,
+    "startTime": "Wed Sep 30 14:43:55 2026"
+  },
+  "admission": {
+    "state": "started",
+    "hostConversationId": "01a0f3a1-4a3f-7a53-9eb0-505390955b74",
+    "binderId": "state-749aa0d8beefdb1e6ac687553c9c1584"
+  },
+  "request": {
+    "promptSha256": "ce24a6c84d575df5f99f515785e7709d74de654b5ca09399c6093f1057b38523",
+    "promptChars": 4213
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  },
+  "auth": {
+    "mode": "oauth-personal",
+    "profileEnv": "GEMINI_HOME",
+    "credentialSource": "runtime_owned",
+    "accountState": "unproven",
+    "settingsAuthType": "oauth-personal",
+    "overageState": "never",
+    "apiKeyPresent": false,
+    "cloudCredentialsPresent": false,
+    "alternateAccount": false,
+    "interactiveLogin": false,
+    "ultraAttribution": "unclaimed"
+  },
+  "sessionKey": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726",
+  "runDir": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/c696ef1a-eb05-416b-9de9-0e394b0bf726",
+  "proof": {
+    "state": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/c696ef1a-eb05-416b-9de9-0e394b0bf726/STATE.md",
+    "events": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/c696ef1a-eb05-416b-9de9-0e394b0bf726/events.jsonl",
+    "proof": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/c696ef1a-eb05-416b-9de9-0e394b0bf726/PROOF.md"
+  },
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f3a1-4a3f-7a53-9eb0-505390955b74",
+    "binderId": "state-749aa0d8beefdb1e6ac687553c9c1584",
+    "jobId": "c696ef1a-eb05-416b-9de9-0e394b0bf726",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "boundAt": "2026-09-30T20:13:58.834Z",
+    "replacedJobId": "aa22b5ac-7ffd-4d02-9f13-e2bc7a5d2316"
+  },
+  "model": {
+    "currentModelId": "gemini-3.8-flash-high",
+    "availableModelIds": [
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "gemini-3.7-flash-high",
+      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high",
+      "gemini-3.6-flash-medium",
+      "gemini-3.6-flash-low",
+      "gemini-pro-agent",
+      "gemini-3.1-pro-low"
+    ],
+    "availableModels": [
+      {
+        "modelId": "gemini-3.8-flash-high",
+        "name": "Gemini 3.8 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.8-flash-medium",
+        "name": "Gemini 3.8 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.8-flash-low",
+        "name": "Gemini 3.8 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-high",
+        "name": "Gemini 3.7 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-medium",
+        "name": "Gemini 3.7 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.7-flash-low",
+        "name": "Gemini 3.7 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-high",
+        "name": "Gemini 3.6 Flash (High)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-medium",
+        "name": "Gemini 3.6 Flash (Medium)"
+      },
+      {
+        "modelId": "gemini-3.6-flash-low",
+        "name": "Gemini 3.6 Flash (Low)"
+      },
+      {
+        "modelId": "gemini-pro-agent",
+        "name": "Gemini 3.1 Pro (High)"
+      },
+      {
+        "modelId": "gemini-3.1-pro-low",
+        "name": "Gemini 3.1 Pro (Low)"
+      }
+    ],
+    "requestedModel": "gemini-3.8-flash-high",
+    "selectedModelId": "gemini-3.8-flash-high",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930"
+  },
+  "handle": {
+    "sessionKey": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726",
+    "backend": "acpx",
+    "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOmM2OTZlZjFhLWViMDUtNDE2Yi05ZGU5LTBlMzk0YjBiZjcyNiIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtY3Vyc29yLWx1bmEtbW9kZWwtc2VsZWN0aW9uLTIwMjYwOTMwIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJhbnRpZ3Jhdml0eS1hY3A6YzY5NmVmMWEtZWIwNS00MTZiLTlkZTktMGUzOTRiMGJmNzI2IiwiYmFja2VuZFNlc3Npb25JZCI6IjgwNWZhNDk1LTMwNjYtNGJmMS05ZjEzLTJjZDc0MTI3OTVkOCJ9",
+    "cwd": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "acpxRecordId": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726",
+    "backendSessionId": "805fa495-3066-4bf1-9f13-2cd7412795d8"
+  },
+  "workers": [
+    {
+      "pid": 65276,
+      "startedAt": "2026-09-30T20:13:58.837Z",
+      "launchId": "9a583248-e41f-4147-81bd-850433eae54c",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726"
+      },
+      "processStartTime": "Wed Sep 30 16:13:58 2026"
+    }
+  ],
+  "startedAt": "2026-09-30T20:14:02.259Z",
+  "eventCount": 533,
+  "toolCallCount": 330,
+  "handoff": "Antigravity ACP cancelled the active turn.",
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-09-30T20:26:17.176Z",
+    "jobId": "c696ef1a-eb05-416b-9de9-0e394b0bf726",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "owner": {
+      "brokerId": "43701a05-1dd5-4a0f-b04b-95e139be91d6",
+      "pid": 97142,
+      "startTime": "Wed Sep 30 14:43:55 2026"
+    },
+    "handle": {
+      "sessionKey": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726",
+      "backend": "acpx",
+      "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOmM2OTZlZjFhLWViMDUtNDE2Yi05ZGU5LTBlMzk0YjBiZjcyNiIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtY3Vyc29yLWx1bmEtbW9kZWwtc2VsZWN0aW9uLTIwMjYwOTMwIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJhbnRpZ3Jhdml0eS1hY3A6YzY5NmVmMWEtZWIwNS00MTZiLTlkZTktMGUzOTRiMGJmNzI2IiwiYmFja2VuZFNlc3Npb25JZCI6IjgwNWZhNDk1LTMwNjYtNGJmMS05ZjEzLTJjZDc0MTI3OTVkOCJ9",
+      "cwd": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+      "acpxRecordId": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726",
+      "backendSessionId": "805fa495-3066-4bf1-9f13-2cd7412795d8"
+    },
+    "message": "local worker termination observed; backend session discard unsupported",
+    "backendSessionDiscard": "unsupported",
+    "worker": {
+      "pid": 65276,
+      "startedAt": "2026-09-30T20:13:58.837Z",
+      "launchId": "9a583248-e41f-4147-81bd-850433eae54c",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:c696ef1a-eb05-416b-9de9-0e394b0bf726"
+      },
+      "signal": "SIGTERM",
+      "exitCode": null
+    }
+  }
+}

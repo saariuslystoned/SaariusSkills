@@ -1,0 +1,31 @@
+{
+  "at": "2026-09-30 21:46:04 UTC",
+  "reviewedBaseHead": "27db282eca9e36ee1303596bab3035129071a258",
+  "change": "Test-only Step 3 preflight path expectation uses the documented WORKTREE instead of the CI runner checkout.",
+  "nativeJobId": "b819df44-cbe0-4bbc-876a-4cf8a88eeb48",
+  "nativeTaskComplete": true,
+  "nativeCleanupReady": true,
+  "focusedRealCheckout": {
+    "passed": 21,
+    "failed": 0
+  },
+  "focusedRelocatedFixture": {
+    "passed": 21,
+    "failed": 0
+  },
+  "parentFullPython": {
+    "passed": 90,
+    "failed": 0,
+    "exitCode": 0,
+    "log": "runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-portability-parent-python.log"
+  },
+  "previousCI": {
+    "run": 36780089997,
+    "nodeJobs": "passed",
+    "pythonJobs": "failed solely on test path expectation"
+  },
+  "productionVerifierChanged": false,
+  "installPlanChanged": false,
+  "globalInstallChanges": false,
+  "realCursorPrompts": 0
+}

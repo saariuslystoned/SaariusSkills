@@ -56,19 +56,44 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
 
 - Start with `cursor_acp_readiness` for the exact workspace when the route has
   not been checked in the current task. Require the explicit
-  `/Users/bobbybones/.local/bin/cursor-agent acp` route and the exact
-  `cursor-grok-4.6-high` selector resolved to one advertised ACP model ID
-  (currently the live install reports `grok-4.6[effort=high,fast=true]`). Never
-  silently fall back to another executable, provider, model, or workspace.
-  `cursor_acp_delegate` hard-refuses when that readiness is red (runtime /
-  auth / model / workspace). Do not treat a red readiness report as advice and
-  submit anyway.
+  `/Users/bobbybones/.local/bin/cursor-agent acp` route. The worker default is the
+  plugin alias `gpt-5.6-luna-medium`, meaning base `gpt-5.6-luna` plus effort `medium`.
+  That alias is not a live model id. `preferredDefaultModelId` is the unique
+  advertised id only when one exists; otherwise it is null. The parent orchestrator
+  (Codex, Claude, or Luna) does not choose this worker model. The same default and
+  the explicit per-job `model` / `effort` arguments apply on every orchestrator.
+  Do not infer savings, quota, or subscription effects.
+- `ready` is selection readiness and matches delegate. `catalogReady` may be true
+  while `ready` and `selectionReady` are false. Read `availableModelIds` and
+  `availableModels` in that result. A missing Luna Medium effort returns
+  `EFFORT_UNSUPPORTED`; a missing base returns `MODEL_REQUIRED`. Do not dispatch
+  either result, and do not substitute the session's current model. On 2026-09-30
+  the live catalog advertised Luna as
+  `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`. Config options were
+  `mode` and `model`, with no separate effort setting. Luna Medium is the user-chosen
+  default. Do not substitute Medium for an explicit High request, and do not treat
+  a docs slug such as `gpt-5.6-luna-fast` as a live High id.
+- Model switching supports `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as per-job
+  options. Passing base `model` alone resolves the unique advertised ID
+  (`grok-4.6[effort=high,fast=true]`, `grok-4.7[context=256k,reasoning_effort=high,fast=true]`,
+  or `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`) without requiring
+  the caller to specify effort. `effort` is an optional advanced parameter; when
+  supplied, it must match the advertised model or fail closed. Because one conversation
+  owns one active worker, wait for canonical completion (`taskComplete: true`) and
+  `cleanupReady: true` before switching models between jobs. Never fall back
+  to another executable, provider, model, or the current runtime selection.
+  Duplicate, ambiguous, and conflicting effort selections fail closed. The resolved
+  id is rechecked immediately before the prompt for both a prepared session and a
+  fresh handle. Drift fails with no prompt. `cursor_acp_delegate` hard-refuses when
+  selection readiness is red. Do not treat a red readiness report as advice and submit anyway.
 - Use `cursor_acp_delegate` with one absolute workspace path, one parent
   conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
-  one bounded prompt, and a bounded timeout (`timeoutMs` is the wall-clock
-  budget for that one ACP turn: 60 minutes when omitted, up to 4 hours when
-  explicitly requested; it is not session duration or `cursor_acp_result`
-  `waitMs`). One parent conversation owns one
+  optional `model` and `effort` overrides, one bounded prompt, and a bounded timeout
+  (`timeoutMs` is the wall-clock budget for that one ACP turn: 60 minutes when omitted,
+  up to 4 hours when explicitly requested; it is not session duration or
+  `cursor_acp_result` `waitMs`). The requested and resolved model and effort are
+  immutably bound to the job upon submission and preserved across follow-up,
+  recovery, receipts, route, state, and proof. One parent conversation owns one
   worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
   not exclusive. Prefer an isolated worktree for source mutations. Do not fan
   out by default. Live MCP permissions default to `approve-reads` plus fail on
@@ -117,6 +142,33 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   worker handoff. Keep the worker's final handoff compact and do not request or
   expose thought streams, raw ACP transcripts, credential stores, auth logs,
   `.env` files, or tokens.
+
+## Delegation examples
+
+Pass `model` alone for any of the three supported models. One conversation owns one active worker; always await canonical completion (`taskComplete: true`) and `cleanupReady: true` before delegating the next task or switching models:
+
+```json
+// Example 1: Grok 4.6 (model base name only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.6",
+  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+}
+
+// Example 2: Grok 4.7 (model base name only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.7",
+  "prompt": "Inspect packaging tests and verify zero failures."
+}
+
+// Example 3: GPT-5.6 Luna (model base name only, effort omitted; resolves to live Medium shape)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "gpt-5.6-luna",
+  "prompt": "Verify model resolution contracts and proof artifacts."
+}
+```
 
 ## Scope boundary
 

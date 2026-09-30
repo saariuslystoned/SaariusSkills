@@ -73,9 +73,43 @@ proven hop identity.
 The [Cursor ACP delegation skill](skills/cursor-acp-delegation/SKILL.md)
 and stdio MCP bridge route one bounded slice through pinned `acpx@0.19.3`
 to Bobby's explicit local `/Users/bobbybones/.local/bin/cursor-agent acp`
-executable, resolve the requested Cursor Grok 4.6 selector against the
-live ACP model catalog, and expose the six tools. Job state and compact
-proof live outside the mutating workspace.
+executable. The worker default is the plugin alias `gpt-5.6-luna-medium`
+(base `gpt-5.6-luna` plus effort `medium`), which is not a live model id.
+Live ACP on 2026-09-30 advertised Luna as
+`gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`, matching the Medium
+default. Explicit per-job `model` and `effort` override it (an explicit High
+request fails closed on the live-like Medium-only catalog). The integration
+supports switching between `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as needed
+(effort is optional advanced; unique advertised bases resolve without choosing effort).
+Because one conversation owns one active worker, wait for canonical completion
+(`taskComplete: true`) and `cleanupReady: true` before delegating the next task or
+switching models. The bridge exposes the six tools. Job state and compact proof
+live outside the mutating workspace.
+
+Concise native `cursor_acp_delegate` examples with model base only:
+
+```json
+// Grok 4.6 (model only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.6",
+  "prompt": "Run npm run check in bridge/cursor-acp and verify test output."
+}
+
+// Grok 4.7 (model only, effort omitted)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "grok-4.7",
+  "prompt": "Inspect packaging tests and verify zero failures."
+}
+
+// GPT-5.6 Luna (model only, effort omitted; resolves to live Medium shape)
+{
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "model": "gpt-5.6-luna",
+  "prompt": "Verify model resolution contracts and proof artifacts."
+}
+```
 
 This lane does not claim Puppet's transport-neutral controller, an
 OpenClaw gateway, or issues #35/#37 complete. Shared hop is documented

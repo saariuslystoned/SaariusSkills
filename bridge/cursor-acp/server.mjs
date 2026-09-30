@@ -40,8 +40,12 @@ server.registerTool(
   "cursor_acp_readiness",
   {
     description:
-      "Check the explicit local Cursor ACP executable, login/session readiness, and exact advertised Grok model without sending a model turn.",
-    inputSchema: { workspace: z.string().optional() },
+      "Check the explicit local Cursor ACP executable, login/session readiness, and full advertised model catalog without sending a model turn. ready matches delegate selection readiness. The durable default is the plugin alias gpt-5.6-luna-medium (base gpt-5.6-luna plus effort medium), not a live model id. When that effort is absent, ready and selectionReady are false, catalogReady can still be true, and the error is MODEL_REQUIRED or EFFORT_UNSUPPORTED with the advertised ids. Optional model and effort inspect a selection. Supports switching between grok-4.6, grok-4.7, and gpt-5.6-luna as needed (effort optional for unique advertised bases). No fallback to the current runtime model.",
+    inputSchema: {
+      workspace: z.string().optional(),
+      model: z.string().optional(),
+      effort: z.string().optional(),
+    },
   },
   (args) => call((input) => broker.discover(input), args),
 );
@@ -50,10 +54,12 @@ server.registerTool(
   "cursor_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task to Cursor Grok 4.6 in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
+      "Submit one bounded implementation task via Cursor ACP in exactly one absolute workspace. Omitting model and effort uses the durable plugin alias gpt-5.6-luna-medium (base gpt-5.6-luna plus effort medium), resolved once to an advertised id and rechecked before the prompt. Explicit model and effort are per-job, supporting grok-4.6, grok-4.7, and gpt-5.6-luna (effort is optional advanced; unique advertised bases resolve without choosing effort). Finish cleanupReady before switching models because one conversation owns one active worker. Missing, duplicate, ambiguous, or unconfirmed selections fail closed with no prompt and no fallback. Refuses when selection readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),
+      model: z.string().optional(),
+      effort: z.string().optional(),
       timeoutMs: timeoutMsZod(z),
       hostConversationId: z.string().optional(),
       binderId: z.string().optional(),

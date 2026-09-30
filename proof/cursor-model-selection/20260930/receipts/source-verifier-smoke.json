@@ -1,0 +1,20 @@
+{
+  "kind": "parent-control-verification",
+  "sourceCommit": "a79392df3d1acf29fe2cdb459fccc16978ce236c",
+  "fixtureRoot": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/source-verifier-fixture-ygclxd4z",
+  "globalInstallPerformed": false,
+  "cursorPrompts": 0,
+  "standaloneMatch": {
+    "exitCode": 0,
+    "summary": "OK 150 paths commit=a79392df3d1acf29fe2cdb459fccc16978ce236c installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/source-verifier-fixture-ygclxd4z"
+  },
+  "standaloneMismatch": {
+    "exitCode": 1,
+    "diagnostic": "FAIL mismatch bridge/cursor-acp/broker.mjs commit=8839a5ab2032aaf7c2235d888625206642f4e4824662f1b2e7b892730b4c0cfc installed=13390ac09a3b5cee54f01c42bc2e3c37d9f42d660c994b840e32b51e89f677dd"
+  },
+  "inlineMatch": {
+    "exitCode": 0,
+    "summary": "OK: Verified 150 tracked plugin source paths match a79392df3d1acf29fe2cdb459fccc16978ce236c exactly in /Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/source-verifier-fixture-ygclxd4z"
+  },
+  "sourceUnchanged": true
+}

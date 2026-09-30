@@ -143,7 +143,7 @@ test("delegate refuses when readiness is red", async () => {
       hostConversationId: "conv-red",
       binderId: "owner-a",
     }),
-    (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
+    (error) => error instanceof BridgeError && (error.code === "MODEL_UNAVAILABLE" || error.code === "MODEL_REQUIRED"),
   );
   assert.equal(model.runtime.turns.length, 0);
   await model.broker.close();

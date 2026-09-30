@@ -1,0 +1,38 @@
+✔ DEFAULT_CURSOR_MODEL is gpt-5.6-luna-medium (0.546459ms)
+✔ model id and effort parsing extracts effort and base correctly (0.314292ms)
+✔ preferredDefaultAdvertised detects unique advertised default (0.3225ms)
+✔ resolveRequestedCursorModel resolves advertised non-Grok / medium effort default (0.098542ms)
+✔ resolveRequestedCursorModel resolves exact advertised ID (0.07625ms)
+✔ resolveRequestedCursorModel rejects conflicting effort on exact ID (0.199542ms)
+✔ resolveRequestedCursorModel rejects conflicting slug and effort (0.0665ms)
+✔ resolveRequestedCursorModel rejects unsupported effort and reports available efforts (0.121208ms)
+✔ resolveRequestedCursorModel rejects missing model with MODEL_UNAVAILABLE (0.1545ms)
+✔ resolveRequestedCursorModel rejects ambiguous model match with MODEL_AMBIGUOUS (0.183833ms)
+✔ resolveRequestedCursorModel rejects wrapping whitespace and NUL characters (0.122625ms)
+✔ explicit High request on live-like Medium-only catalog rejects EFFORT_UNSUPPORTED without fallback (0.098125ms)
+✔ readiness probe discovers default Luna Medium without a turn (13.150375ms)
+✔ readiness probe discovers custom model override without a turn (6.319042ms)
+✔ readiness/delegate consistency: Medium absent is not selection-ready and returns the catalog (142.879875ms)
+✔ explicit High request fails closed on live-like catalog without fallback (31.985542ms)
+✔ model mismatch fails closed with zero prompts (MODEL_SELECTION_UNCONFIRMED) (31.513334ms)
+✔ delegation never falls back to Grok or another model when requested model is unavailable (32.658917ms)
+✔ immutable per-job model selection is preserved across getJob, state, proof, events (68.327542ms)
+✔ duplicate exact ids and conflicting effort fields are rejected (0.423ms)
+✔ invalid readiness still returns the advertised catalog and is not delegate-ready (9.214875ms)
+✔ prepared-handle drift fails with zero prompts and keeps the persisted selection (55.470334ms)
+✔ new handle rechecks the persisted id after broker and catalog changes (106.536875ms)
+✔ new handle drift does not adopt a newly advertised model (97.054667ms)
+✔ owner-death recovery preserves the resolved selection and sends no prompt (13.909959ms)
+✔ current matches persisted Medium but catalog missing Medium fails closed with zero prompts (56.218375ms)
+✔ exact Medium duplicated after admission fails closed with zero prompts (54.046791ms)
+✔ prepared current drift with working setter fails closed with zero prompts and no setter call (58.765583ms)
+✔ failed confirmation exposes latest current while selected immutable fields are preserved (56.187833ms)
+✔ sequential delegation loops across Grok 4.6 -> Grok 4.7 -> Luna -> Grok 4.6 with base names and preserves model state (263.237625ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1257.35675

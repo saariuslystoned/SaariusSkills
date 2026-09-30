@@ -1,0 +1,41 @@
+{
+  "schema": "saarius.cursor-model-switching.parent-verification.v1",
+  "at": "2026-09-30T20:44:34.748129+00:00",
+  "provenance": "Parent read-only review and checks; all source/test/product-doc changes were authored by native ACP workers.",
+  "cursor": {
+    "total": 138,
+    "pass": 127,
+    "skipped": 11,
+    "fail": 0
+  },
+  "sharedRuntime": {
+    "total": 114,
+    "pass": 112,
+    "fail": 2,
+    "failures": [
+      {
+        "test": "separate dependency-free plugin snapshots launch each manifest path from an external cwd",
+        "file": "bridge/acp-runtime/test/runtime-store.test.mjs",
+        "line": 422
+      },
+      {
+        "test": "parent hop argv lists the same six tools through a worker launcher",
+        "file": "bridge/acp-runtime/test/runtime-store.test.mjs",
+        "line": 483
+      }
+    ],
+    "diagnostic": "spawnSync setup returned status null at the 30-second fixture preparation timeout; a two-test-only retry repeated both failures. No assertion on model selection failed."
+  },
+  "packaging": {
+    "pass": 14,
+    "fail": 0
+  },
+  "logs": [
+    "coordinator/model-switching-parent-check.log",
+    "coordinator/model-switching-parent-runtime-retry.log",
+    "coordinator/model-switching-parent-packaging.log"
+  ],
+  "cursorPrompts": 0,
+  "hostNativeReloaded": false,
+  "followup": "Use exact-head CI results; do not claim this local full check passed."
+}

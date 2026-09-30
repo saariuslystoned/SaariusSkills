@@ -56,6 +56,8 @@ environment and restart it. Do not claim the plugin lacks approve-all.
 Call the selected native readiness tool for the exact worker-absolute workspace.
 Require runtime `ready: true`, the correct advertised model and workspace, and
 `permission.permissionMode: "approve-all"` with write/exec tool approval true.
+For Cursor, `ready` is selection readiness. `catalogReady: true` with
+`ready: false` is not a dispatchable model selection.
 The readiness probe sends no model turn. A setup script's `MCP_READY` only proves
 startup, not that a running host has reloaded. If tools are absent, run the
 selected lane's documented setup check and use its exact repair command; then

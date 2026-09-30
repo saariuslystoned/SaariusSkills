@@ -1,12 +1,30 @@
 {
-  "currentModelId": "cursor-grok-4.6-high",
+  "synthetic": true,
+  "syntheticReason": "This fixture advertises synthetic GPT-5.6 Luna Low and High parameterized ids alongside the real live Medium shape so multi-effort and explicit-effort selection tests can run. Live Cursor ACP on 2026-09-30 advertised Luna only as gpt-5.6-luna[context=272k,reasoning=medium,fast=false].",
+  "liveLunaModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+  "currentModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
   "availableModelIds": [
-    "cursor-grok-4.6-low",
-    "cursor-grok-4.6-medium",
-    "cursor-grok-4.6-high",
-    "cursor-grok-4.6-fast"
+    "gpt-5.6-luna[context=272k,reasoning=low,fast=false]",
+    "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "gpt-5.6-luna[context=272k,reasoning=high,fast=false]",
+    "grok-4.6[effort=high,fast=true]"
   ],
   "availableModels": [
-    { "modelId": "cursor-grok-4.6-high", "name": "Cursor Grok 4.6" }
+    {
+      "modelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+      "name": "gpt-5.6-luna"
+    },
+    {
+      "modelId": "gpt-5.6-luna[context=272k,reasoning=high,fast=false]",
+      "name": "GPT-5.6 Luna High (synthetic)"
+    },
+    {
+      "modelId": "gpt-5.6-luna[context=272k,reasoning=low,fast=false]",
+      "name": "GPT-5.6 Luna Low (synthetic)"
+    },
+    {
+      "modelId": "grok-4.6[effort=high,fast=true]",
+      "name": "grok-4.6"
+    }
   ]
 }

@@ -1,0 +1,78 @@
+{
+  "jobId": "d657d1ef-872d-4516-a443-e0929a11f181",
+  "status": "completed",
+  "complete": true,
+  "cleanupReady": true,
+  "createdAt": "2026-09-30T19:34:20.668Z",
+  "updatedAt": "2026-09-30T19:41:31.018Z",
+  "model": "gemini-3.8-flash-high",
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f3a1-4a3f-7a53-9eb0-505390955b74",
+    "binderId": "state-749aa0d8beefdb1e6ac687553c9c1584",
+    "jobId": "d657d1ef-872d-4516-a443-e0929a11f181",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "boundAt": "2026-09-30T19:34:20.674Z",
+    "replacedJobId": "852e991f-3503-4b8b-8cce-12e16ec92339"
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  },
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-09-30T19:41:31.018Z",
+    "jobId": "d657d1ef-872d-4516-a443-e0929a11f181",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "owner": {
+      "brokerId": "43701a05-1dd5-4a0f-b04b-95e139be91d6",
+      "pid": 97142,
+      "startTime": "Wed Sep 30 14:43:55 2026"
+    },
+    "handle": {
+      "sessionKey": "antigravity-acp:d657d1ef-872d-4516-a443-e0929a11f181",
+      "backend": "acpx",
+      "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOmQ2NTdkMWVmLTg3MmQtNDUxNi1hNDQzLWUwOTI5YTExZjE4MSIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtY3Vyc29yLWx1bmEtbW9kZWwtc2VsZWN0aW9uLTIwMjYwOTMwIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJhbnRpZ3Jhdml0eS1hY3A6ZDY1N2QxZWYtODcyZC00NTE2LWE0NDMtZTA5MjlhMTFmMTgxIiwiYmFja2VuZFNlc3Npb25JZCI6IjA2ODU0ZDdhLTZlNzAtNGNhMS04Nzc2LWNmOTg0NzI3ODk0NyJ9",
+      "cwd": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+      "acpxRecordId": "antigravity-acp:d657d1ef-872d-4516-a443-e0929a11f181",
+      "backendSessionId": "06854d7a-6e70-4ca1-8776-cf9847278947"
+    },
+    "message": "local worker termination observed; backend session discard unsupported",
+    "backendSessionDiscard": "unsupported",
+    "worker": {
+      "pid": 93920,
+      "startedAt": "2026-09-30T19:34:20.679Z",
+      "launchId": "d9ed7458-c8d9-43bb-9a03-b5c8c3b7adba",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:d657d1ef-872d-4516-a443-e0929a11f181"
+      },
+      "signal": "SIGTERM",
+      "exitCode": null
+    }
+  },
+  "proof": {
+    "state": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/d657d1ef-872d-4516-a443-e0929a11f181/STATE.md",
+    "events": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/d657d1ef-872d-4516-a443-e0929a11f181/events.jsonl",
+    "proof": "/Users/bobbybones/.local/state/saarius-skills/antigravity-acp-delegation/runs/d657d1ef-872d-4516-a443-e0929a11f181/PROOF.md"
+  }
+}
