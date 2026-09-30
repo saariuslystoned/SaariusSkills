@@ -12,6 +12,7 @@ project-local, human-readable JSON, and machine-validatable.
   ledger.json       # canonical current projection
   events.jsonl      # append-only transition records
   archive/           # immutable closed ledger and event-log snapshots
+  lineage/           # immutable fork inputs, plans, projections, apply receipts
   proof/             # curated evidence suitable for retention
   work/              # ignored candidates and renderer artifacts
     gates/           # human-guided checklists when needed
@@ -20,6 +21,10 @@ project-local, human-readable JSON, and machine-validatable.
 Do not auto-delete `work/`. If a referenced working artifact is unavailable,
 mark that limitation and regenerate it from durable input or begin a new round.
 Never claim to reproduce missing pixels exactly.
+
+See [reconciliation.md](reconciliation.md) for the same-repository fork join.
+An interrupted join leaves `work/reconcile-transaction.json`; ordinary commands
+refuse that mixed state until the exact approved apply is retried.
 
 ## Core fields
 
