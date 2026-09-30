@@ -161,13 +161,19 @@ test("recovery CLI loads the prepared runtime from a dependency-free plugin snap
   const args = ["--lane", "cursor", "--state-root", stateRoot, "--job", "11111111-1111-4111-8111-111111111111", "--conversation", "fixture-conversation", "--expected-binder", "fixture-binder"];
   const env = { ...process.env, ...(await isolatedRuntimeEnv(fixtureRoot)) };
   const run = () => spawnSync(process.execPath, [path.join(pluginRoot, "bridge/acp-runtime/recover.mjs"), ...args], { env, encoding: "utf8", timeout: 30_000 });
+  // Node 22 may emit module-loader warnings before the structured CLI error.
+  const errorRecord = (result) => {
+    const line = result.stderr.split("\n").find((line) => line.startsWith("{"));
+    assert.ok(line, result.stderr);
+    return JSON.parse(line);
+  };
   try {
     const missing = run();
-    assert.equal(JSON.parse(missing.stderr).code, "RUNTIME_SETUP_REQUIRED");
+    assert.equal(errorRecord(missing).code, "RUNTIME_SETUP_REQUIRED");
     await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count") });
     const ready = run();
     assert.equal(ready.status, 1);
-    const error = JSON.parse(ready.stderr);
+    const error = errorRecord(ready);
     assert.equal(error.code, "ACP_RECOVERY_REFUSED", ready.stderr);
     assert.equal(error.details.reason, "binding_changed_or_missing");
     await assert.rejects(access(path.join(pluginRoot, "bridge/cursor-acp/node_modules")), { code: "ENOENT" });
