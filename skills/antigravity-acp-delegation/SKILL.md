@@ -158,3 +158,25 @@ deployment, publication, external sends, spending, account/security
 changes, or destructive cleanup. It does not claim Google AI Ultra, a
 proven chat-host parent, Parallels, `acpx --agent ssh`, or that a cloud
 Project chat can call `antigravity_acp_*`.
+
+## Lifecycle receipts and recovery
+
+Read `taskComplete`, `cleanupReady`, `complete`, `admissionEligible`, and
+`remediation` separately. A terminal task or `BRIDGE_RESTARTED` error never
+proves child cleanup. `complete` requires both task termination and observed
+cleanup. `admissionEligible` describes this job's cleanup gate; normal binder
+and current-binding checks still apply. Unsupported `session/close` can count
+as local cleanup only when every exact owned child launch has a matching exit;
+backend history discard remains explicitly unsupported.
+
+The default binder is stable for the same host-controlled state root across
+broker restarts. Explicit `SAARIUS_ACP_BINDER_ID` still wins. Keep the genuine
+conversation ID. Never provide a previous binder as an impersonation override,
+rewrite job records, or delete a binding to bypass admission.
+
+For stranded old process-default binders or interrupted cleanup, use the
+plan-first utility documented in [ACP lifecycle recovery](../../docs/acp-lifecycle-recovery.md).
+A human must approve the exact plan before applying to live state. It retains
+job outcome/history, observes only recorded owned workers, and refuses live,
+foreign, ambiguous, missing, or unobservable evidence. No broad PID killing,
+plugin reload, permission reset, or timeout increase is a recovery operation.
