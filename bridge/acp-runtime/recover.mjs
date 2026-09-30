@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Explicit operator utility. Planning does not initialize/reconcile all jobs.
 import { pathToFileURL } from "node:url";
+import path from "node:path";
+import { realpathSync } from "node:fs";
+import { inspectRuntime, pluginRootFromModule, setupCommand, RuntimeStoreError } from "./runtime-store.mjs";
 
 export async function main(argv = process.argv.slice(2)) {
   if (argv.includes("--help")) {
@@ -16,7 +19,12 @@ export async function main(argv = process.argv.slice(2)) {
     } else throw new Error(`Unknown argument ${argv[i]}`);
   }
   if (!["antigravity", "cursor", "grok"].includes(options.lane) || !options["state-root"]?.startsWith("/")) throw new Error("Explicit lane and absolute state root required");
-  const module = await import(`../${options.lane}-acp/broker.mjs`);
+  const bridge = `${options.lane}-acp`;
+  const ready = await inspectRuntime({ pluginRoot: pluginRootFromModule(), bridge });
+  if (ready.state !== "ready") throw new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "Recovery requires the prepared, integrity-checked bridge runtime", {
+    state: ready.state, setup: setupCommand(bridge), ...(ready.failure ?? {}),
+  });
+  const module = await import(pathToFileURL(path.join(ready.root, "bridge", bridge, "broker.mjs")).href);
   const Broker = module[{ antigravity: "AntigravityAcpBroker", cursor: "CursorAcpBroker", grok: "GrokAcpBroker" }[options.lane]];
   const broker = new Broker({ stateRoot: options["state-root"], runtime: {} });
   const probe = await broker.inspectProcess(process.pid);
@@ -27,6 +35,6 @@ export async function main(argv = process.argv.slice(2)) {
     expectedBinderId: options["expected-binder"], apply: options.apply ?? false,
   }), null, 2));
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().catch((error) => { console.error(JSON.stringify({ code: error.code ?? "RECOVERY_ERROR", message: error.message, details: error.details })); process.exitCode = 1; });
 }
