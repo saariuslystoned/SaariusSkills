@@ -170,7 +170,8 @@ test("recovery CLI loads the prepared runtime from a dependency-free plugin snap
   try {
     const missing = run();
     assert.equal(errorRecord(missing).code, "RUNTIME_SETUP_REQUIRED");
-    await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count") });
+    assert.ok(!errorRecord(missing).details.setup.includes("--replace-invalid"));
+    const prepared = await prepareSnapshot({ bridge: "cursor-acp", pluginRoot, runtimeRoot: fixtureRoot, command: fake.command, counterPath: path.join(fixtureRoot, "npm.count") });
     const ready = run();
     assert.equal(ready.status, 1);
     const error = errorRecord(ready);
@@ -178,6 +179,24 @@ test("recovery CLI loads the prepared runtime from a dependency-free plugin snap
     assert.equal(error.details.reason, "binding_changed_or_missing");
     await assert.rejects(access(path.join(pluginRoot, "bridge/cursor-acp/node_modules")), { code: "ENOENT" });
     await assert.rejects(access(path.join(stateRoot, "jobs")), { code: "ENOENT" });
+
+    await appendInsideFixture(fixtureRoot, path.join(prepared.root, "bridge/cursor-acp/broker.mjs"), "\n// fixture integrity drift\n");
+    const invalid = errorRecord(run());
+    assert.equal(invalid.code, "RUNTIME_SETUP_REQUIRED");
+    assert.equal(invalid.details.state, "invalid");
+    const prepareScript = await realpath(path.join(pluginRoot, "bridge/acp-runtime/prepare.mjs"));
+    assert.equal(invalid.details.setup, `${process.execPath} ${prepareScript} --bridge cursor-acp --replace-invalid`);
+    // Execute the exact advertised repair in the isolated fixture, including its flag.
+    const repaired = spawnSync(process.execPath, [prepareScript, "--bridge", "cursor-acp", "--replace-invalid"], {
+      env: { ...env, PATH: `${fake.fixtureRoot}:${env.PATH ?? ""}`, ...npmEnv("cursor-acp", path.join(fixtureRoot, "npm.count")) },
+      encoding: "utf8", timeout: 30_000,
+    });
+    assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+    const repairReceipt = JSON.parse(repaired.stdout);
+    assert.equal(repairReceipt.code, "RUNTIME_READY");
+    assert.match(await readFile(path.join(repairReceipt.quarantined.destination, "bridge/cursor-acp/broker.mjs"), "utf8"), /fixture integrity drift/);
+    await access(repairReceipt.quarantined.record);
+    assert.equal(errorRecord(run()).code, "ACP_RECOVERY_REFUSED");
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
     await rm(fake.fixtureRoot, { recursive: true, force: true });

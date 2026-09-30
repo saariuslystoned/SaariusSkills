@@ -22,7 +22,7 @@ export async function main(argv = process.argv.slice(2)) {
   const bridge = `${options.lane}-acp`;
   const ready = await inspectRuntime({ pluginRoot: pluginRootFromModule(), bridge });
   if (ready.state !== "ready") throw new RuntimeStoreError("RUNTIME_SETUP_REQUIRED", "Recovery requires the prepared, integrity-checked bridge runtime", {
-    state: ready.state, setup: setupCommand(bridge), ...(ready.failure ?? {}),
+    state: ready.state, setup: setupCommand(bridge, { replaceInvalid: ready.state === "invalid" }), ...(ready.failure ?? {}),
   });
   const module = await import(pathToFileURL(path.join(ready.root, "bridge", bridge, "broker.mjs")).href);
   const Broker = module[{ antigravity: "AntigravityAcpBroker", cursor: "CursorAcpBroker", grok: "GrokAcpBroker" }[options.lane]];
