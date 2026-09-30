@@ -1,0 +1,73 @@
+{
+  "schema": "puppet.cursor-live-capable-controller-proof/v3-live-outcome",
+  "outcome": "blocked_before_first_turn",
+  "ok": false,
+  "live": true,
+  "live_claimed": true,
+  "provider_turns_completed": 0,
+  "backend_incarnation_observed": false,
+  "owner_finish_verified": false,
+  "source": {
+    "head": "d5e33f67f6b42384f6feec1d15be3b69b4525eb8",
+    "tree": "938ef948a6a1218ad055a17d5d297c633b936167",
+    "worktree": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-live-20260921",
+    "branch": "codex/puppet-cursor-controller-live-20260921"
+  },
+  "route": {
+    "official_executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "argv_tail": "acp",
+    "selector": "cursor-grok-4.6-high",
+    "expected_current_model": "grok-4.6[effort=high,fast=true]",
+    "driver_sha256": "2292f0f39220b214fa561ff413d162e812b668a8ccdc86013ed1b645c0cb682f",
+    "implementation_job_id": "91a1240f-de3d-4546-a809-3a68c54d13d0"
+  },
+  "session": {
+    "name": "cursor-proof-v3-live-20260921-oneshot",
+    "workspace": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-live-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-20260921-oneshot",
+    "state": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-live-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-20260921-oneshot",
+    "fence": null,
+    "workspace_retained": true,
+    "state_retained": true,
+    "retry": false,
+    "replacement_session": false
+  },
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-live-20260921/runs/puppet-controller-proof-runs/20260921/v3/driver/cursor_live_capable_proof_driver.py",
+    "--live",
+    "--parent-release",
+    "parent-pr62-v3-20260921",
+    "--session",
+    "cursor-proof-v3-live-20260921-oneshot"
+  ],
+  "release": {
+    "token": "parent-pr62-v3-20260921",
+    "sessions_allowed": 1,
+    "sessions_consumed": 1,
+    "max_prompts": 2,
+    "prompts_attempted": 0,
+    "max_prompt_timeout_ms": 300000,
+    "actual_runtime_timeout_ms": 30000
+  },
+  "runtime": {
+    "upstream_commit": "2e05de525dd1ab62e9e74bf02d91e3638920fcf3",
+    "artifact_sha256": "5df327172d83644b5f44925386095c8facce28eb78d1ea81f243d7b100d6e614",
+    "runtime_js_sha256": "ffdb6949b2239d991f63970514ad99677b19db1839313127a55ad9fcd30a4683",
+    "reused": true,
+    "rebuilt": false
+  },
+  "fixture": {
+    "branch": "cursor-proof-fixture-v3",
+    "head": "05e63051f44adda5b96136f27b9b442f5bc3f239",
+    "tree": "22f4224a3400d1e8597666c3bfd90233309f02b1",
+    "implementation_sha256": "7b0e90143afb9f04537e1992861bbc8b7cef87b5e4e626e3fd22de702ae1365b",
+    "protected_test_sha256": "bf063a0bdbf43dbe3fcda4e4d297af1aebcc2d7d1766efb6582f38e84710742e",
+    "changed_paths": []
+  },
+  "failure": {
+    "phase": "_cursor_acp_structured_launch.require_observation / ensureSession",
+    "type": "ValidationError",
+    "message": "Failed to spawn agent command: candidate. The agent process could not start because a required executable, interpreter, working directory, or other launch path was not found.",
+    "interpretation": "The official route launch reached the task-owned runtime but no candidate backend process or first task turn was established. This is a route/runtime launch-environment blocker; it is not provider output and not a qualification pass."
+  }
+}

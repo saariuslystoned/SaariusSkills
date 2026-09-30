@@ -1,0 +1,34 @@
+{
+  "argv_tail": "acp",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/driver/cursor_live_capable_proof_driver.py",
+    "--live",
+    "--parent-release",
+    "PARENT_ISSUED_RELEASE",
+    "--session",
+    "cursor-proof-v3-live-20260921-oneshot"
+  ],
+  "cwd": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921",
+  "executed": false,
+  "expected_current_model": "grok-4.6[effort=high,fast=true]",
+  "note": "staged only; implementation job did not execute this invocation",
+  "official_executable": "/Users/bobbybones/.local/bin/cursor-agent",
+  "official_route_identity": "cursor-agent-acp",
+  "parent_live_allocation": "one session, at most 2 prompts <=300000ms each, no retry",
+  "preflight": {
+    "exclusive": true,
+    "fence": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/fences/cursor-proof-v3-live-20260921-oneshot/cursor-proof-v3-live-20260921-oneshot-cleanup-uncertain.json",
+    "fence_exists": false,
+    "retry": false,
+    "rmtree_on_live": false,
+    "session": "cursor-proof-v3-live-20260921-oneshot",
+    "state": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/state/cursor-proof-v3-live-20260921-oneshot",
+    "state_exists": false,
+    "workspace": "/Users/bobbybones/Developer/worktrees/puppet-cursor-controller-proof-20260921/runs/puppet-controller-proof-runs/20260921/v3/workspaces/cursor-proof-v3-live-20260921-oneshot",
+    "workspace_exists": false
+  },
+  "route_resolver": "resolve_cursor_acp_route_binding",
+  "selector": "cursor-grok-4.6-high",
+  "session": "cursor-proof-v3-live-20260921-oneshot"
+}
