@@ -3,7 +3,8 @@
 Repository: `saariuslystoned/SaariusSkills`
 Branch: `codex/acp-lifecycle-recovery`
 Base: `ec8995eae9a326c4ed26157d81f4b36db19a064d`
-Source: the commit containing this proof (identify with `git rev-parse HEAD`).
+Reviewed source head: `38fcf2d189eedcbf070e5e02c9fb9cd8ce82e65d`.
+The subsequent proof-only commit leaves reviewed code unchanged.
 
 ## Scope and provenance
 
@@ -23,10 +24,11 @@ guide. Adaptations and limits are in `docs/acp-lifecycle-recovery.md`.
 Use Node >=22.13 and each bridge's locked `npm ci --ignore-scripts --no-audit --no-fund`.
 No provider or credential setup is needed.
 
-- `node --test bridge/acp-runtime/test/lifecycle.test.mjs`: 45 passed.
+- `node --test bridge/acp-runtime/test/lifecycle.test.mjs`: 48 passed.
 - `node --test bridge/acp-runtime/test/local-lifecycle-smoke.test.mjs`: 1 passed.
-- `node --test bridge/acp-runtime/test/*.test.mjs`: 107 passed before adding
-  three additional retry regressions; those three passed in the 45-case run.
+- `node --test bridge/acp-runtime/test/*.test.mjs`: 107 passed in the worker run; independently 110 passed at the
+  initial review head. Final exact-head lifecycle + native smoke: 49 passed,
+  including the three newly added successor recovery regressions.
 - `npm test --prefix bridge/grok-acp`: 85 passed, no skips.
 - `npm test --prefix bridge/cursor-acp`: 97 passed, 11 explicit historical candidate/native opt-in skips.
 - `npm test --prefix bridge/antigravity-acp`: 66 passed, 12 explicit historical candidate/native opt-in skips.
@@ -54,9 +56,12 @@ Those policies remain independent and their regressions pass.
 
 Required independent review: Bobby explicitly assigned a Codex subagent as a
 bounded alternate route because current Conductor enrollment/capability evidence
-is unavailable to this worker. Independent exact-commit review is pending. No
-Conductor/legacy clean rail is claimed. PR delivery follows review. No self-merge
-is authorized.
+is unavailable to this worker. Final source head `38fcf2d189eedcbf070e5e02c9fb9cd8ce82e65d`
+has no remaining actionable findings. One independently reproduced P2 successor
+provenance bug was accepted, repaired after a failing regression in all three
+lanes, and independently re-verified. Accepted/rejected findings and test
+receipts are preserved in `REVIEW-initial.md` and `REVIEW.md`. No Conductor/legacy
+clean rail is claimed. No self-merge is authorized.
 
 ## Limits
 
