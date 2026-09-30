@@ -1,0 +1,35 @@
+{
+  "receiptType": "cursor_acp_live_catalog_discovery",
+  "recordedAt": "2026-09-30T18:53:45.389Z",
+  "sessionKey": "cursor-acp-discovery:7ab50b36-2086-47ba-b489-ac8f9951ae53",
+  "handle": {
+    "sessionKey": "cursor-acp-discovery:7ab50b36-2086-47ba-b489-ac8f9951ae53",
+    "backend": "acpx",
+    "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLWFjcC1kaXNjb3Zlcnk6N2FiNTBiMzYtMjA4Ni00N2JhLWI0ODktYWM4Zjk5NTFhZTUzIiwiYWdlbnQiOiJjdXJzb3IiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtY3Vyc29yLWx1bmEtbW9kZWwtc2VsZWN0aW9uLTIwMjYwOTMwIiwibW9kZSI6Im9uZXNob3QiLCJhY3B4UmVjb3JkSWQiOiJjdXJzb3ItYWNwLWRpc2NvdmVyeTo3YWI1MGIzNi0yMDg2LTQ3YmEtYjQ4OS1hYzhmOTk1MWFlNTM6b25lc2hvdDo4ODNiYmMwNy1jYTZkLTQ0ZjAtOGUzNy0zMGIxMzIyYjEwMmQiLCJiYWNrZW5kU2Vzc2lvbklkIjoiN2NhNWQ0M2ItMWE5MS00M2IzLThkMzAtNzI2ZDcxZmM5OWZkIn0",
+    "acpxRecordId": "cursor-acp-discovery:7ab50b36-2086-47ba-b489-ac8f9951ae53:oneshot:883bbc07-ca6d-44f0-8e37-30b1322b102d",
+    "backendSessionId": "7ca5d43b-1a91-43b3-8d30-726d71fc99fd"
+  },
+  "turnsSent": 0,
+  "modelPromptsSent": 0,
+  "initialStatus": {
+    "currentModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "availableModelCount": 43
+  },
+  "setModelAttempt": {
+    "requested": "gpt-5.6-luna",
+    "success": true,
+    "resolvedModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"
+  },
+  "statusAfterSet": {
+    "currentModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"
+  },
+  "cleanupReceipt": {
+    "closed": false,
+    "error": "Agent does not support session/close for cursor-acp-discovery:7ab50b36-2086-47ba-b489-ac8f9951ae53:oneshot:883bbc07-ca6d-44f0-8e37-30b1322b102d.",
+    "method": "runtime.close",
+    "sessionKey": "cursor-acp-discovery:7ab50b36-2086-47ba-b489-ac8f9951ae53"
+  },
+  "discoveredExactLunaModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+  "discoveredLunaEffortParameter": "reasoning=medium",
+  "lunaHighAdvertisedInLiveAcp": false
+}

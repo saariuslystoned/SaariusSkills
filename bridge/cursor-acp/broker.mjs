@@ -34,7 +34,13 @@ import {
 const execFile = promisify(execFileCallback);
 
 export const DEFAULT_CURSOR_EXECUTABLE = "/Users/bobbybones/.local/bin/cursor-agent";
-export const DEFAULT_CURSOR_MODEL = "cursor-grok-4.6-high";
+// Plugin alias for base gpt-5.6-luna plus effort high. Not a live ACP model id.
+export const DEFAULT_CURSOR_MODEL = "gpt-5.6-luna-high";
+export const PREFERRED_DEFAULT_MODEL_BASE = "gpt-5.6-luna";
+export const PREFERRED_DEFAULT_EFFORT = "high";
+const EFFORT_KEYS = ["effort", "reasoning_effort", "reasoning"];
+const EFFORT_TOKEN = /^[a-z][a-z0-9]{0,15}$/;
+const LEGACY_GROK_SELECTOR = /^cursor-grok-4\.6-(low|medium|high|xhigh)$/;
 export const MIN_TIMEOUT_MS = 1_000;
 export const DEFAULT_TIMEOUT_MS = 3_600_000;
 export const MAX_TIMEOUT_MS = 14_400_000;
@@ -202,43 +208,334 @@ export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-export function resolveRequestedCursorModel(requestedModel, availableModelIds) {
-  if (availableModelIds.includes(requestedModel)) return requestedModel;
-  const match = /^cursor-grok-4\.6-(low|medium|high|xhigh)$/.exec(requestedModel);
-  if (!match) {
+export function isOmittedCursorModel(requestedModel) {
+  return requestedModel === undefined || requestedModel === null;
+}
+
+export function isOmittedCursorEffort(requestedEffort) {
+  return requestedEffort === undefined || requestedEffort === null;
+}
+
+export function parseCursorModelId(modelId) {
+  if (typeof modelId !== "string") {
+    return { baseModelId: "", parameters: new Map(), rawParameters: "", duplicateKeys: [] };
+  }
+  const bracketIndex = modelId.indexOf("[");
+  if (bracketIndex === -1 || !modelId.endsWith("]")) {
+    return { baseModelId: modelId, parameters: new Map(), rawParameters: "", duplicateKeys: [] };
+  }
+  const baseModelId = modelId.slice(0, bracketIndex);
+  const rawParameters = modelId.slice(bracketIndex + 1, -1);
+  const parameters = new Map();
+  const duplicateKeys = [];
+  if (rawParameters.trim().length > 0) {
+    for (const part of rawParameters.split(",")) {
+      if (part.trim().length === 0) continue;
+      const eq = part.indexOf("=");
+      const key = (eq === -1 ? part : part.slice(0, eq)).trim();
+      const value = eq === -1 ? "" : part.slice(eq + 1).trim();
+      if (!key) continue;
+      if (parameters.has(key)) duplicateKeys.push(key);
+      parameters.set(key, value);
+    }
+  }
+  return { baseModelId, parameters, rawParameters, duplicateKeys };
+}
+
+export function effortFieldsFromModelId(modelId) {
+  const parsed = parseCursorModelId(modelId);
+  return EFFORT_KEYS.filter((key) => parsed.parameters.has(key)).map((key) => ({
+    key,
+    value: parsed.parameters.get(key),
+  }));
+}
+
+export function extractEffortFromModelId(modelId) {
+  const fields = effortFieldsFromModelId(modelId);
+  if (fields.length === 0) return null;
+  const values = new Set(fields.map((field) => field.value));
+  if (values.size !== 1) return null;
+  const parsed = parseCursorModelId(modelId);
+  if (parsed.duplicateKeys.some((key) => EFFORT_KEYS.includes(key))) return null;
+  return fields[0].value;
+}
+
+export function assertCoherentAdvertisedEffort(modelId) {
+  const parsed = parseCursorModelId(modelId);
+  const fields = effortFieldsFromModelId(modelId);
+  const duplicateEffortKeys = parsed.duplicateKeys.filter((key) => EFFORT_KEYS.includes(key));
+  if (duplicateEffortKeys.length > 0) {
     throw new BridgeError(
-      "MODEL_UNAVAILABLE",
-      `Cursor ACP did not advertise the required model ${requestedModel}`,
-      { availableModelCount: availableModelIds.length, availableModelIds: availableModelIds.slice(0, 20) },
+      "EFFORT_UNSUPPORTED",
+      `Advertised model ${modelId} repeats effort fields`,
+      { modelId, duplicateEffortKeys },
     );
   }
-  const effort = match[1];
-  const candidates = availableModelIds.filter((modelId) => {
-    if (!/^(?:cursor-)?grok-4\.6\[/.test(modelId)) return false;
-    const parameters = modelId.slice(modelId.indexOf("[") + 1, -1).split(",");
-    const values = new Map(
-      parameters.map((parameter) => {
-        const [key, value] = parameter.split("=", 2);
-        return [key?.trim(), value?.trim()];
-      }),
-    );
-    return values.get("effort") === effort && values.get("fast") === "true";
-  });
-  if (candidates.length !== 1) {
+  if (fields.length === 0) return null;
+  const values = [...new Set(fields.map((field) => field.value))];
+  if (values.length !== 1 || !EFFORT_TOKEN.test(values[0])) {
     throw new BridgeError(
-      candidates.length === 0 ? "MODEL_UNAVAILABLE" : "MODEL_AMBIGUOUS",
-      candidates.length === 0
-        ? `Cursor ACP did not advertise a unique ${requestedModel} model`
-        : `Cursor ACP advertised multiple candidates for ${requestedModel}`,
+      "EFFORT_UNSUPPORTED",
+      `Advertised model ${modelId} has conflicting or malformed effort fields`,
+      { modelId, effortFields: fields },
+    );
+  }
+  return values[0];
+}
+
+export function parseDocumentedCursorSelector(requestedModel) {
+  if (requestedModel === DEFAULT_CURSOR_MODEL) {
+    return {
+      kind: "plugin-default",
+      alias: DEFAULT_CURSOR_MODEL,
+      base: PREFERRED_DEFAULT_MODEL_BASE,
+      effort: PREFERRED_DEFAULT_EFFORT,
+    };
+  }
+  const legacy = LEGACY_GROK_SELECTOR.exec(requestedModel);
+  if (!legacy) return null;
+  return {
+    kind: "legacy-grok-selector",
+    alias: requestedModel,
+    base: "grok-4.6",
+    effort: legacy[1],
+    fast: "true",
+  };
+}
+
+export function parseModelSlug(requestedModel) {
+  const documented = parseDocumentedCursorSelector(requestedModel);
+  if (!documented) return null;
+  return { base: documented.base, effort: documented.effort, kind: documented.kind };
+}
+
+function advertisedModelIds(availableModelIds) {
+  return Array.isArray(availableModelIds) ? availableModelIds.filter((modelId) => typeof modelId === "string") : [];
+}
+
+function assertCleanRequestedModel(requestedModel) {
+  if (typeof requestedModel !== "string" || requestedModel.trim().length === 0) {
+    throw new BridgeError(
+      "MODEL_REQUIRED",
+      "model must be an exact advertised Cursor ACP model id, a base model plus effort, or a documented plugin alias",
+    );
+  }
+  if (requestedModel.includes("\u0000") || requestedModel !== requestedModel.trim() || requestedModel.length > 300) {
+    throw new BridgeError(
+      "MODEL_UNAVAILABLE",
+      "model must be an exact advertised id or documented selector with no wrapping whitespace",
+    );
+  }
+}
+
+function assertCleanRequestedEffort(requestedEffort) {
+  if (isOmittedCursorEffort(requestedEffort)) return;
+  if (typeof requestedEffort !== "string" || !EFFORT_TOKEN.test(requestedEffort)) {
+    throw new BridgeError(
+      "EFFORT_UNSUPPORTED",
+      "effort must be one lowercase token with no wrapping whitespace or extra fields",
+    );
+  }
+}
+
+function legacyGrokBase(modelId) {
+  const base = parseCursorModelId(modelId).baseModelId;
+  return base === "grok-4.6" || base === "cursor-grok-4.6" ? "grok-4.6" : null;
+}
+
+export function preferredDefaultAdvertised(availableModelIds) {
+  try {
+    resolveRequestedCursorModel(DEFAULT_CURSOR_MODEL, advertisedModelIds(availableModelIds));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolvePreferredDefaultCursorModel(availableModelIds) {
+  const advertised = advertisedModelIds(availableModelIds);
+  try {
+    return resolveRequestedCursorModel(DEFAULT_CURSOR_MODEL, advertised);
+  } catch (error) {
+    if (error instanceof BridgeError && error.code === "EFFORT_UNSUPPORTED") {
+      throw new BridgeError(
+        "EFFORT_UNSUPPORTED",
+        `plugin default alias ${DEFAULT_CURSOR_MODEL} requires effort ${PREFERRED_DEFAULT_EFFORT} on ${PREFERRED_DEFAULT_MODEL_BASE}, which is not advertised`,
+        {
+          ...(error.details ?? {}),
+          preferredDefaultAlias: DEFAULT_CURSOR_MODEL,
+          preferredDefaultModelId: null,
+          preferredDefaultBase: PREFERRED_DEFAULT_MODEL_BASE,
+          preferredDefaultEffort: PREFERRED_DEFAULT_EFFORT,
+        },
+      );
+    }
+    if (error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE") {
+      throw new BridgeError(
+        "MODEL_REQUIRED",
+        `plugin default alias ${DEFAULT_CURSOR_MODEL} (base ${PREFERRED_DEFAULT_MODEL_BASE}, effort ${PREFERRED_DEFAULT_EFFORT}) is not advertised; pass an exact advertised model id`,
+        {
+          preferredDefaultAlias: DEFAULT_CURSOR_MODEL,
+          preferredDefaultModelId: null,
+          preferredDefaultBase: PREFERRED_DEFAULT_MODEL_BASE,
+          preferredDefaultEffort: PREFERRED_DEFAULT_EFFORT,
+          availableModelCount: advertised.length,
+          availableModelIds: advertised,
+        },
+      );
+    }
+    throw error;
+  }
+}
+
+export function pluginDefaultSelectionPolicy() {
+  return {
+    kind: "plugin-default",
+    alias: DEFAULT_CURSOR_MODEL,
+    baseModel: PREFERRED_DEFAULT_MODEL_BASE,
+    effort: PREFERRED_DEFAULT_EFFORT,
+    liveModelId: null,
+  };
+}
+
+export function resolveCursorModelChoice(requestedModel, availableModelIds, requestedEffort) {
+  const omittedModel = isOmittedCursorModel(requestedModel);
+  const omittedEffort = isOmittedCursorEffort(requestedEffort);
+
+  if (omittedModel && omittedEffort) {
+    const selectedModelId = resolvePreferredDefaultCursorModel(availableModelIds);
+    const selectedEffort = extractEffortFromModelId(selectedModelId) ?? PREFERRED_DEFAULT_EFFORT;
+    return {
+      selectedModelId,
+      selectedEffort,
+      selectionPolicy: pluginDefaultSelectionPolicy(),
+    };
+  }
+
+  const modelToResolve = omittedModel ? PREFERRED_DEFAULT_MODEL_BASE : requestedModel;
+  const selectedModelId = resolveRequestedCursorModel(modelToResolve, availableModelIds, requestedEffort);
+  const selectedEffort = extractEffortFromModelId(selectedModelId) ?? requestedEffort ?? null;
+  return {
+    selectedModelId,
+    selectedEffort,
+    selectionPolicy: {
+      kind: "explicit",
+      requestedModel: omittedModel ? null : requestedModel,
+      requestedEffort: omittedEffort ? null : requestedEffort,
+      baseModel: omittedModel ? PREFERRED_DEFAULT_MODEL_BASE : null,
+      effort: omittedEffort ? null : requestedEffort,
+    },
+  };
+}
+
+export function resolveRequestedCursorModel(requestedModel, availableModelIds, requestedEffort) {
+  const advertised = advertisedModelIds(availableModelIds);
+  assertCleanRequestedModel(requestedModel);
+  assertCleanRequestedEffort(requestedEffort);
+
+  const exact = advertised.filter((modelId) => modelId === requestedModel);
+  if (exact.length > 1) {
+    throw new BridgeError(
+      "MODEL_AMBIGUOUS",
+      `Cursor ACP advertised duplicate exact ids for ${requestedModel}`,
+      { requestedModel, matches: exact.length },
+    );
+  }
+  if (exact.length === 1) {
+    const actualEffort = assertCoherentAdvertisedEffort(requestedModel);
+    if (!isOmittedCursorEffort(requestedEffort) && actualEffort !== requestedEffort) {
+      throw new BridgeError(
+        "EFFORT_UNSUPPORTED",
+        `Advertised model ${requestedModel} has effort '${actualEffort}', which does not match requested effort '${requestedEffort}'`,
+        { requestedModel, requestedEffort, actualEffort },
+      );
+    }
+    return requestedModel;
+  }
+
+  const documented = parseDocumentedCursorSelector(requestedModel);
+  let targetBase = requestedModel;
+  let targetEffort = isOmittedCursorEffort(requestedEffort) ? null : requestedEffort;
+  let requireFast = null;
+  if (documented) {
+    if (!isOmittedCursorEffort(requestedEffort) && requestedEffort !== documented.effort) {
+      throw new BridgeError(
+        "EFFORT_UNSUPPORTED",
+        `Model selector '${requestedModel}' specifies effort '${documented.effort}', which conflicts with requested effort '${requestedEffort}'`,
+        { requestedModel, selectorEffort: documented.effort, requestedEffort },
+      );
+    }
+    targetBase = documented.base;
+    targetEffort = documented.effort;
+    requireFast = documented.fast ?? null;
+  }
+
+  const malformed = [];
+  const candidates = [];
+  for (const modelId of advertised) {
+    const parsed = parseCursorModelId(modelId);
+    const base = documented?.kind === "legacy-grok-selector" ? legacyGrokBase(modelId) : parsed.baseModelId;
+    if (base !== targetBase) continue;
+    let effort;
+    try {
+      effort = assertCoherentAdvertisedEffort(modelId);
+    } catch {
+      malformed.push(modelId);
+      continue;
+    }
+    if (targetEffort !== null && effort !== targetEffort) continue;
+    if (requireFast !== null && parsed.parameters.get("fast") !== requireFast) continue;
+    candidates.push(modelId);
+  }
+
+  if (candidates.length > 1) {
+    throw new BridgeError(
+      "MODEL_AMBIGUOUS",
+      `Cursor ACP advertised multiple candidates for ${requestedModel}`,
+      { requestedModel, targetBase, targetEffort, candidates },
+    );
+  }
+  if (candidates.length === 1) return candidates[0];
+
+  const baseCandidates = advertised.filter((modelId) => {
+    const parsed = parseCursorModelId(modelId);
+    const base = documented?.kind === "legacy-grok-selector" ? legacyGrokBase(modelId) : parsed.baseModelId;
+    return base === targetBase;
+  });
+  if (targetEffort !== null && (baseCandidates.length > 0 || malformed.length > 0)) {
+    const availableEfforts = [];
+    for (const modelId of baseCandidates) {
+      try {
+        const effort = assertCoherentAdvertisedEffort(modelId);
+        if (effort) availableEfforts.push(effort);
+      } catch {
+        // Already recorded as malformed when it was a candidate base.
+      }
+    }
+    throw new BridgeError(
+      "EFFORT_UNSUPPORTED",
+      `Cursor ACP does not advertise effort '${targetEffort}' for model '${targetBase}'. Advertised: ${availableEfforts.join(", ") || "none"}`,
       {
         requestedModel,
-        availableModelCount: availableModelIds.length,
-        availableModelIds: availableModelIds.slice(0, 20),
-        candidates,
+        targetBase,
+        targetEffort,
+        availableEfforts,
+        malformedModelIds: malformed,
+        availableModelIds: advertised,
       },
     );
   }
-  return candidates[0];
+
+  throw new BridgeError(
+    "MODEL_UNAVAILABLE",
+    `Cursor ACP did not advertise the required model ${requestedModel}`,
+    {
+      requestedModel,
+      targetEffort,
+      availableModelCount: advertised.length,
+      availableModelIds: advertised,
+    },
+  );
 }
 
 export function redactSensitive(value) {
@@ -435,13 +732,14 @@ async function releaseOwnedLockFile(lockPath, token) {
   }
 }
 
-function routeSummary(executable, model) {
+function routeSummary(executable, model, effort = null) {
   return {
     agent: "cursor",
     transport: "acp",
     executable,
     argv: [executable, "acp"],
     model,
+    ...(effort ? { effort } : {}),
   };
 }
 
@@ -466,13 +764,213 @@ function modelSnapshot(status) {
   };
 }
 
+function safeAdvertisedModels(model) {
+  const availableModelIds = Array.isArray(model?.availableModelIds)
+    ? model.availableModelIds.filter((modelId) => typeof modelId === "string")
+    : [];
+  const availableModels = (Array.isArray(model?.availableModels) ? model.availableModels : [])
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || typeof entry.modelId !== "string") return null;
+      return typeof entry.name === "string" ? { modelId: entry.modelId, name: entry.name } : { modelId: entry.modelId };
+    })
+    .filter(Boolean);
+  return { availableModelIds, availableModels };
+}
+
+export function assertAdvertisedSelectedModel(models, selectedModelId, selectedEffort) {
+  const availableModelIds = Array.isArray(models?.availableModelIds) ? models.availableModelIds : [];
+  const matches = availableModelIds.filter((id) => id === selectedModelId);
+  if (matches.length === 0) {
+    throw new BridgeError(
+      "MODEL_SELECTION_UNCONFIRMED",
+      `Cursor ACP does not advertise selected model ${selectedModelId}`,
+      {
+        selectedModelId,
+        selectedEffort,
+        currentModelId: models?.currentModelId ?? null,
+      },
+    );
+  }
+  if (matches.length > 1) {
+    throw new BridgeError(
+      "MODEL_SELECTION_UNCONFIRMED",
+      `Cursor ACP advertises ambiguous entries for selected model ${selectedModelId}`,
+      {
+        selectedModelId,
+        selectedEffort,
+        currentModelId: models?.currentModelId ?? null,
+        matchCount: matches.length,
+      },
+    );
+  }
+  let advertisedEffort = null;
+  try {
+    advertisedEffort = assertCoherentAdvertisedEffort(selectedModelId);
+  } catch (error) {
+    throw new BridgeError(
+      "MODEL_SELECTION_UNCONFIRMED",
+      `Cursor ACP selected model ${selectedModelId} has conflicting or malformed effort fields`,
+      {
+        selectedModelId,
+        selectedEffort,
+        currentModelId: models?.currentModelId ?? null,
+        cause: safeMessage(error?.message),
+      },
+    );
+  }
+  if (selectedEffort !== null && advertisedEffort !== selectedEffort) {
+    throw new BridgeError(
+      "MODEL_SELECTION_UNCONFIRMED",
+      `Cursor ACP selected model ${selectedModelId} effort '${advertisedEffort}' does not match stored effort '${selectedEffort}'`,
+      {
+        selectedModelId,
+        selectedEffort,
+        currentModelId: models?.currentModelId ?? null,
+        advertisedEffort,
+      },
+    );
+  }
+}
+
+export async function confirmExactCursorModel(
+  runtime,
+  handle,
+  selectedModelId,
+  selectedEffort,
+  { allowSelection = false } = {},
+) {
+  if (typeof runtime?.getStatus !== "function") {
+    throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
+  }
+  let models;
+  try {
+    models = modelSnapshot(await runtime.getStatus({ handle }));
+  } catch (error) {
+    if (error instanceof BridgeError) throw error;
+    throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not return model status", {
+      cause: safeMessage(error?.message),
+    });
+  }
+  try {
+    assertAdvertisedSelectedModel(models, selectedModelId, selectedEffort);
+    if (models.currentModelId !== selectedModelId) {
+      if (!allowSelection) {
+        throw new BridgeError(
+          "MODEL_SELECTION_UNCONFIRMED",
+          `Cursor ACP current model ${models.currentModelId ?? "unknown"} does not match selected model ${selectedModelId}`,
+          {
+            selectedModelId,
+            selectedEffort,
+            currentModelId: models.currentModelId ?? null,
+          },
+        );
+      }
+      if (typeof runtime.setModel === "function") {
+        await runtime.setModel({ handle, model: selectedModelId });
+        models = modelSnapshot(await runtime.getStatus({ handle }));
+        assertAdvertisedSelectedModel(models, selectedModelId, selectedEffort);
+      }
+    }
+    let currentEffort = null;
+    if (typeof models.currentModelId === "string") {
+      try {
+        currentEffort = assertCoherentAdvertisedEffort(models.currentModelId);
+      } catch (error) {
+        throw new BridgeError(
+          "MODEL_SELECTION_UNCONFIRMED",
+          `Cursor ACP current model ${models.currentModelId} has conflicting or malformed effort fields`,
+          {
+            selectedModelId,
+            selectedEffort,
+            currentModelId: models.currentModelId,
+            cause: safeMessage(error?.message),
+          },
+        );
+      }
+    }
+    if (models.currentModelId !== selectedModelId || (selectedEffort !== null && currentEffort !== selectedEffort)) {
+      throw new BridgeError(
+        "MODEL_SELECTION_UNCONFIRMED",
+        `Cursor ACP did not confirm persisted model ${selectedModelId}`,
+        {
+          selectedModelId,
+          selectedEffort,
+          currentModelId: models.currentModelId ?? null,
+          currentEffort,
+        },
+      );
+    }
+    return models;
+  } catch (error) {
+    throw attachCatalog(error, models);
+  }
+}
+
+function attachCatalog(error, models) {
+  const safe = safeAdvertisedModels(models);
+  const bridgeError = error instanceof BridgeError
+    ? error
+    : new BridgeError("MODEL_SELECTION_UNCONFIRMED", safeMessage(error?.message ?? error));
+  bridgeError.details = {
+    ...(bridgeError.details ?? {}),
+    currentModelId: models?.currentModelId ?? null,
+    availableModelIds: safe.availableModelIds,
+    availableModels: safe.availableModels,
+  };
+  return bridgeError;
+}
+
+function resolvedDefaultModelId(availableModelIds) {
+  if (!preferredDefaultAdvertised(availableModelIds)) return null;
+  try {
+    return resolvePreferredDefaultCursorModel(availableModelIds);
+  } catch {
+    return null;
+  }
+}
+
+function currentEffortOrNull(modelId) {
+  if (typeof modelId !== "string" || modelId.length === 0) return null;
+  try {
+    return assertCoherentAdvertisedEffort(modelId);
+  } catch {
+    return null;
+  }
+}
+
 function publicModel(model) {
+  const safe = safeAdvertisedModels(model);
+  const preferredDefaultModelId = resolvedDefaultModelId(safe.availableModelIds);
   return {
-    requestedModel: model.requestedModel,
-    selectedModelId: model.selectedModelId,
-    currentModelId: model.currentModelId,
-    availableModelCount: model.availableModelIds.length,
+    requestedModel: model.requestedModel ?? null,
+    requestedEffort: model.requestedEffort ?? null,
+    selectionPolicy: model.selectionPolicy ?? null,
+    selectedModelId: model.selectedModelId ?? null,
+    selectedEffort: model.selectedEffort ?? null,
+    currentModelId: model.currentModelId ?? null,
+    currentEffort: currentEffortOrNull(model.currentModelId),
+    preferredDefaultAlias: DEFAULT_CURSOR_MODEL,
+    preferredDefaultPolicy: pluginDefaultSelectionPolicy(),
+    preferredDefaultModelId,
+    preferredDefaultAvailable: preferredDefaultModelId !== null,
+    availableModelIds: safe.availableModelIds,
+    availableModels: safe.availableModels,
+    availableModelCount: safe.availableModelIds.length,
     matchingModelIds: model.selectedModelId ? [model.selectedModelId] : [],
+    effort: model.selectedEffort ?? null,
+    effortPolicy: "unambiguous_advertised_selection",
+  };
+}
+
+function publicSelection(job) {
+  return {
+    requestedModel: job.request?.model ?? null,
+    requestedEffort: job.request?.effort ?? null,
+    selectionPolicy: job.request?.selectionPolicy ?? null,
+    selectedModelId: job.model?.selectedModelId ?? null,
+    selectedEffort: job.model?.selectedEffort ?? null,
+    currentModelId: job.model?.currentModelId ?? null,
+    currentEffort: currentEffortOrNull(job.model?.currentModelId),
   };
 }
 
@@ -596,6 +1094,7 @@ export class CursorAcpBroker {
         DEFAULT_CURSOR_EXECUTABLE,
     );
     this.model = options.model ?? DEFAULT_CURSOR_MODEL;
+    this.effort = options.effort ?? null;
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.runtimeControlTimeoutMs = options.runtimeControlTimeoutMs ?? RUNTIME_CONTROL_TIMEOUT_MS;
@@ -933,13 +1432,35 @@ export class CursorAcpBroker {
     }
   }
 
-  async discover({ workspace } = {}) {
+  selectionInput(model, effort) {
+    const requestedModel = model ?? (this.model !== DEFAULT_CURSOR_MODEL ? this.model : null);
+    const requestedEffort = effort ?? this.effort ?? null;
+    const omittedModel = isOmittedCursorModel(requestedModel);
+    const omittedEffort = isOmittedCursorEffort(requestedEffort);
+    const selectionPolicy = omittedModel && omittedEffort
+      ? pluginDefaultSelectionPolicy()
+      : {
+          kind: "explicit",
+          requestedModel: omittedModel ? null : requestedModel,
+          requestedEffort: omittedEffort ? null : requestedEffort,
+          baseModel: omittedModel ? PREFERRED_DEFAULT_MODEL_BASE : null,
+          effort: omittedEffort ? null : requestedEffort,
+        };
+    return {
+      requestedModel: omittedModel ? null : requestedModel,
+      requestedEffort: omittedEffort ? null : requestedEffort,
+      selectionPolicy,
+    };
+  }
+
+  async discover({ workspace, model, effort } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace", {
       defaultValue: this.defaultWorkspace,
     });
     const executable = await this.checkExecutable();
     const permission = describeLivePermissionMode(this.processEnv);
+    const selection = this.selectionInput(model, effort);
     const sessionKey = `cursor-acp-probe:${this.idFactory()}`;
     let handle;
     try {
@@ -949,10 +1470,12 @@ export class CursorAcpBroker {
         mode: "oneshot",
         cwd: targetWorkspace,
       });
-      const models = await this.verifyModel(handle, targetWorkspace);
+      const models = await this.verifyModel(handle, targetWorkspace, selection);
       return {
         ready: true,
-        route: routeSummary(this.cursorExecutable, this.model),
+        catalogReady: true,
+        selectionReady: true,
+        route: routeSummary(this.cursorExecutable, models.selectedModelId, models.selectedEffort),
         executable,
         workspace: targetWorkspace,
         permission,
@@ -962,13 +1485,30 @@ export class CursorAcpBroker {
       };
     } catch (error) {
       const failure = safeError(error, "READINESS_FAILED");
+      const catalogIds = Array.isArray(error?.details?.availableModelIds) ? error.details.availableModelIds : null;
+      const modelReport = catalogIds
+        ? publicModel({
+            availableModelIds: catalogIds,
+            availableModels: error.details.availableModels,
+            currentModelId: error.details.currentModelId ?? null,
+            requestedModel: selection.requestedModel,
+            requestedEffort: selection.requestedEffort,
+            selectionPolicy: selection.selectionPolicy,
+            selectedModelId: null,
+            selectedEffort: null,
+          })
+        : undefined;
       return {
         ready: false,
-        route: routeSummary(this.cursorExecutable, this.model),
+        catalogReady: Boolean(catalogIds),
+        selectionReady: false,
+        route: routeSummary(this.cursorExecutable, null, selection.requestedEffort),
         executable,
         workspace: targetWorkspace,
         permission,
+        ...(modelReport ? { model: modelReport } : {}),
         error: failure,
+        note: "Readiness did not send a model turn.",
       };
     } finally {
       if (handle) {
@@ -985,33 +1525,103 @@ export class CursorAcpBroker {
     }
   }
 
-  async verifyModel(handle, workspace) {
+  async verifyModel(handle, workspace, selection) {
     if (typeof this.runtime.getStatus !== "function") {
       throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
     }
-    let status = await this.runtime.getStatus({ handle });
-    let models = modelSnapshot(status);
-    const selectedModelId = resolveRequestedCursorModel(this.model, models.availableModelIds);
-    if (models.currentModelId !== selectedModelId && typeof this.runtime.setModel === "function") {
-      await this.runtime.setModel({ handle, model: selectedModelId });
-      status = await this.runtime.getStatus({ handle });
-      models = modelSnapshot(status);
+    let models;
+    try {
+      models = modelSnapshot(await this.runtime.getStatus({ handle }));
+    } catch (error) {
+      if (error instanceof BridgeError) throw error;
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not return model status", {
+        cause: safeMessage(error?.message),
+      });
     }
-    if (models.currentModelId !== selectedModelId) {
+    let resolved;
+    try {
+      resolved = resolveCursorModelChoice(
+        selection.requestedModel,
+        models.availableModelIds,
+        selection.requestedEffort,
+      );
+    } catch (error) {
+      throw attachCatalog(error, models);
+    }
+    models = await confirmExactCursorModel(
+      this.runtime,
+      handle,
+      resolved.selectedModelId,
+      resolved.selectedEffort,
+      { allowSelection: true },
+    );
+    return {
+      ...models,
+      requestedModel: selection.requestedModel,
+      requestedEffort: selection.requestedEffort,
+      selectionPolicy: selection.selectionPolicy,
+      selectedModelId: resolved.selectedModelId,
+      selectedEffort: resolved.selectedEffort,
+      workspace,
+    };
+  }
+
+  async confirmPersistedSelection(handle, job, { allowSelection = false } = {}) {
+    const selectedModelId = job.model?.selectedModelId;
+    const selectedEffort = job.model?.selectedEffort ?? null;
+    if (typeof selectedModelId !== "string" || selectedModelId.length === 0) {
       throw new BridgeError(
         "MODEL_SELECTION_UNCONFIRMED",
-        `Cursor ACP did not confirm selected model ${selectedModelId}`,
+        "Cursor ACP job is missing its persisted resolved model",
         {
-          requestedModel: this.model,
-          currentModelId: models.currentModelId,
-          availableModelIds: models.availableModelIds,
+          requestedModel: job.request?.model ?? null,
+          requestedEffort: job.request?.effort ?? null,
         },
       );
     }
-    return { ...models, requestedModel: this.model, selectedModelId, workspace };
+    try {
+      const models = await confirmExactCursorModel(
+        this.runtime,
+        handle,
+        selectedModelId,
+        selectedEffort,
+        { allowSelection },
+      );
+      job.model = {
+        ...job.model,
+        selectedModelId,
+        selectedEffort,
+        currentModelId: models.currentModelId,
+        availableModelIds: models.availableModelIds,
+        availableModels: models.availableModels,
+      };
+      return job.model;
+    } catch (error) {
+      if (job.model && error?.details?.currentModelId !== undefined) {
+        job.model = {
+          ...job.model,
+          currentModelId: error.details.currentModelId,
+          ...(Array.isArray(error.details.availableModelIds)
+            ? { availableModelIds: error.details.availableModelIds }
+            : {}),
+          ...(Array.isArray(error.details.availableModels)
+            ? { availableModels: error.details.availableModels }
+            : {}),
+        };
+      }
+      throw error;
+    }
   }
 
-  async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId } = {}) {
+  async delegate({
+    workspace,
+    prompt,
+    model,
+    effort,
+    timeoutMs,
+    hostConversationId,
+    binderId,
+  } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace");
     const conversation = this.conversationIdentity({ hostConversationId, binderId });
@@ -1023,6 +1633,7 @@ export class CursorAcpBroker {
       throw toBridgeError(error);
     }
 
+    const selection = this.selectionInput(model, effort);
     const jobId = this.idFactory();
     const sessionKey = `cursor-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
@@ -1032,10 +1643,16 @@ export class CursorAcpBroker {
       status: "admitted",
       createdAt: this.now(),
       updatedAt: this.now(),
-      route: routeSummary(this.cursorExecutable, this.model),
+      route: routeSummary(this.cursorExecutable, null, selection.requestedEffort),
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
-      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      request: {
+        promptSha256: hashText(taskPrompt),
+        promptChars: taskPrompt.length,
+        model: selection.requestedModel,
+        effort: selection.requestedEffort,
+        selectionPolicy: selection.selectionPolicy,
+      },
       // Issue #92: the submission receipt carries the resolved permission
       // policy so a cockpit sees approve-reads before the first write fails.
       permission: describeLivePermissionMode(this.processEnv),
@@ -1079,8 +1696,8 @@ export class CursorAcpBroker {
           systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
         },
       });
-      const models = await this.verifyModel(handle, targetWorkspace);
-      job.route = routeSummary(this.cursorExecutable, models.selectedModelId ?? this.model);
+      const models = await this.verifyModel(handle, targetWorkspace, selection);
+      job.route = routeSummary(this.cursorExecutable, models.selectedModelId, models.selectedEffort);
       job.model = models;
       job.handle = publicHandle(handle);
       await captureJobWorkers(this, job, handle);
@@ -1092,6 +1709,8 @@ export class CursorAcpBroker {
         workspace: targetWorkspace,
         hostConversationId: binding.hostConversationId,
         binderId: binding.binderId,
+        selectedModelId: models.selectedModelId,
+        selectedEffort: models.selectedEffort,
       });
       const promise = Promise.resolve()
         .then(() => this.runJob(job, taskPrompt, { handle }))
@@ -1105,6 +1724,7 @@ export class CursorAcpBroker {
   }
 
   async runJob(job, taskPrompt, prepared = {}) {
+    const hasPreparedHandle = Boolean(prepared && prepared.handle);
     let handle = prepared.handle;
     let turn;
     const interaction = { permission: false, elicitation: false, permissionDenied: false };
@@ -1128,12 +1748,16 @@ export class CursorAcpBroker {
         });
         job.handle = publicHandle(handle);
         await captureJobWorkers(this, job, handle);
-        job.model = await this.verifyModel(handle, job.workspace);
       }
+      await this.confirmPersistedSelection(handle, job, { allowSelection: !hasPreparedHandle });
       await this.saveJob(job);
       await this.recordEvent(job, "model_confirmed", {
+        selectedModelId: job.model.selectedModelId,
+        selectedEffort: job.model.selectedEffort,
         currentModelId: job.model.currentModelId,
-        availableModelIds: job.model.availableModelIds,
+        requestedModel: job.request?.model ?? null,
+        requestedEffort: job.request?.effort ?? null,
+        selectionPolicy: job.request?.selectionPolicy ?? null,
       });
 
       turn = this.runtime.startTurn({
@@ -1204,6 +1828,18 @@ export class CursorAcpBroker {
         await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
       }
     } catch (error) {
+      if (job.model && error?.details?.currentModelId !== undefined) {
+        job.model = {
+          ...job.model,
+          currentModelId: error.details.currentModelId,
+          ...(Array.isArray(error.details.availableModelIds)
+            ? { availableModelIds: error.details.availableModelIds }
+            : {}),
+          ...(Array.isArray(error.details.availableModels)
+            ? { availableModels: error.details.availableModels }
+            : {}),
+        };
+      }
       const failure = classifyFailure(error, interaction);
       job.status = failure.status;
       job.error = failure.error;
@@ -1361,7 +1997,8 @@ export class CursorAcpBroker {
       jobId,
       status: "cancellation-requested",
       route: job.route,
-      model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      model: job.model?.selectedModelId ?? null,
+      modelSelection: publicSelection(job),
     };
   }
 
@@ -1637,7 +2274,12 @@ export class CursorAcpBroker {
       `Status: ${job.status}`,
       `Workspace: ${job.workspace}`,
       `Route: ${job.route.executable} acp`,
-      `Requested model: ${job.route.model}`,
+      `Requested model: ${job.request?.model ?? "omitted"}`,
+      `Requested effort: ${job.request?.effort ?? "omitted"}`,
+      `Selection policy: ${job.request?.selectionPolicy?.kind ?? "unknown"}${job.request?.selectionPolicy?.alias ? ` ${job.request.selectionPolicy.alias}` : ""}`,
+      `Selected model: ${job.model?.selectedModelId ?? "unresolved"}`,
+      `Selected effort: ${job.model?.selectedEffort ?? "none"}`,
+      `Current model: ${job.model?.currentModelId ?? "unconfirmed"}`,
       `Owner: ${job.owner?.brokerId ?? "unknown"}`,
       `Updated: ${job.updatedAt}`,
       "",
@@ -1653,7 +2295,12 @@ export class CursorAcpBroker {
       `Outcome: ${job.status}`,
       `Workspace: ${job.workspace}`,
       `Executable: ${job.route.executable}`,
-      `Model: ${job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model}`,
+      `Selected model: ${job.model?.selectedModelId ?? "unresolved"}`,
+      `Selected effort: ${job.model?.selectedEffort ?? "none"}`,
+      `Requested model: ${job.request?.model ?? "omitted"}`,
+      `Requested effort: ${job.request?.effort ?? "omitted"}`,
+      `Selection policy: ${job.request?.selectionPolicy?.kind ?? "unknown"}${job.request?.selectionPolicy?.alias ? ` ${job.request.selectionPolicy.alias}` : ""}`,
+      `Current model: ${job.model?.currentModelId ?? "unconfirmed"}`,
       `Prompt SHA-256: ${job.request.promptSha256}`,
       `Events observed: ${job.eventCount ?? 0}`,
       `Tool calls observed: ${job.toolCallCount ?? 0}`,
@@ -1676,7 +2323,8 @@ export class CursorAcpBroker {
       updatedAt: job.updatedAt,
       startedAt: job.startedAt,
       timeoutMs: job.timeoutMs,
-      model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      model: job.model?.selectedModelId ?? null,
+      modelSelection: publicSelection(job),
       binding: job.binding,
       proof: job.proof,
     };

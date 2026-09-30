@@ -1,0 +1,11 @@
+{
+  "recordedAt": "2026-09-30 19:46:06 UTC",
+  "kind": "parent-source-reproducer",
+  "modelPromptsSent": 0,
+  "expected": "MODEL_SELECTION_UNCONFIRMED",
+  "actual": "MODEL_SELECTION_UNCONFIRMED",
+  "selectedModelId": "gpt-5.6-luna[context=272k,reasoning=high,fast=false]",
+  "currentModelId": "gpt-5.6-luna[context=272k,reasoning=high,fast=false]",
+  "availableModelIds": ["gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"],
+  "exitCode": 0
+}

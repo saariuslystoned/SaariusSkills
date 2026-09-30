@@ -73,9 +73,13 @@ proven hop identity.
 The [Cursor ACP delegation skill](skills/cursor-acp-delegation/SKILL.md)
 and stdio MCP bridge route one bounded slice through pinned `acpx@0.19.3`
 to Bobby's explicit local `/Users/bobbybones/.local/bin/cursor-agent acp`
-executable, resolve the requested Cursor Grok 4.6 selector against the
-live ACP model catalog, and expose the six tools. Job state and compact
-proof live outside the mutating workspace.
+executable. The worker default is the plugin alias `gpt-5.6-luna-high`
+(base `gpt-5.6-luna` plus effort `high`), which is not a live model id.
+Explicit per-job `model` and `effort` override it. Cursor Grok prompt turns
+are on hold. Live ACP on 2026-09-30 advertised Luna only as
+`gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`, so the High default
+fails closed instead of downgrading. The bridge exposes the six tools. Job
+state and compact proof live outside the mutating workspace.
 
 This lane does not claim Puppet's transport-neutral controller, an
 OpenClaw gateway, or issues #35/#37 complete. Shared hop is documented

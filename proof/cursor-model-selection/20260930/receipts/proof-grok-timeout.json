@@ -1,0 +1,19 @@
+{
+  "jobId": "0dabe14d-0ae7-4080-a62c-eaa5279bbffc",
+  "status": "failed",
+  "complete": true,
+  "cleanupReady": true,
+  "error": {
+    "code": "TIMEOUT",
+    "message": "Grok ACP exceeded the bounded job timeout."
+  },
+  "cleanup": {
+    "status": "completed",
+    "observed": "runtime_close_returned",
+    "at": "2026-09-30T19:52:38.686Z"
+  },
+  "model": "grok-4.7",
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "createdAt": "2026-09-30T19:42:35.801Z",
+  "updatedAt": "2026-09-30T19:52:38.132Z"
+}

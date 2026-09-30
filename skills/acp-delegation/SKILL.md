@@ -35,10 +35,17 @@ generic request without a substitution constraint, select another discovered
 candidate and load its contract before probing it. Stop after one readiness
 attempt per available lane unless a concrete repair changed the state.
 
-A harness is not a model. Use readiness's advertised model catalog and selected
-model ID, applying the selected lane's supported selectors/default policy.
-Never infer a model from the harness name or copy a historical advertised ID.
-Do not claim cost or subscription savings without evidence.
+A harness is not a model. Distinguish the parent Codex or Claude Code orchestrator
+model from the worker harness and its delegated worker model. Use readiness's
+advertised model catalog and selected model ID. Cursor's durable worker default
+is the plugin alias `gpt-5.6-luna-high` (base `gpt-5.6-luna` plus effort `high`),
+not a live id; pass that lane's explicit `model` and `effort` for one job. For
+Cursor, `ready` matches delegate selection readiness. A `catalogReady` result
+with `ready: false` and `MODEL_REQUIRED` or `EFFORT_UNSUPPORTED` is not
+dispatchable, including when live Luna High is absent. Never infer a model from
+the harness name, rely on speculative billing or subscription assumptions, or
+copy a historical advertised ID. Cursor Grok 4.6 and 4.7 prompt turns are on
+hold: never prompt Grok in Cursor ACP.
 
 ## Establish task readiness
 

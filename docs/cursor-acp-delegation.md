@@ -14,13 +14,33 @@ to open an ACP session with the explicit local Cursor executable:
 /Users/bobbybones/.local/bin/cursor-agent acp
 ```
 
-The requested route selector is `cursor-grok-4.6-high`. Cursor ACP may expose
-an opaque parameterized ID instead of that CLI-facing selector; on this live
-install the unique matching ACP ID is
-`grok-4.6[effort=high,fast=true]`. The bridge fails closed when the executable
-is missing, the existing Cursor login cannot open a session, there is no unique
-matching advertised model ID, or the selected model is not confirmed by
-session status. Live `cursor_acp_delegate` refuses when readiness is red,
+The durable worker default is the plugin alias `gpt-5.6-luna-high`: base model
+`gpt-5.6-luna` plus effort `high`. That alias is not a live ACP model id. The
+parent orchestrator model, including a Codex GPT-5.6 Luna session, is a different
+selection from this Cursor worker. Pass `model` and `effort` on readiness or
+delegation for one job. Supported selectors are an exact advertised id, a base
+name plus effort, the plugin alias, and the older documented
+`cursor-grok-4.6-low|medium|high|xhigh` selector. Other suffixes are not guessed.
+
+`ready` matches whether that same selection can be delegated. `catalogReady`
+can be true while `ready` and `selectionReady` are false. The report then
+includes `MODEL_REQUIRED` or `EFFORT_UNSUPPORTED` and the full advertised
+`availableModelIds` / `availableModels`. It does not treat the session's
+current model as the default. Duplicate or ambiguous ids and conflicting
+effort fields fail closed. The resolved id and effort are stored on the job
+and checked again immediately before the prompt, including when a handle is
+reused. Drift fails with no prompt and no fallback.
+
+On 2026-09-30, Cursor agent `2026.08.11-e8db854` advertised Luna only as
+`gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`. No Luna High id was
+advertised. Session config options were `mode` and `model`; there was no
+separate effort setting. Product docs name the base model GPT-5.6 Luna and a
+Fast pricing slug `gpt-5.6-luna-fast`; neither slug is the live High id. Do
+not downgrade the default to Medium. Cursor Grok 4.6 and 4.7 prompt turns
+stay on hold. This does not claim subscription or pricing savings.
+The bridge fails closed when the executable is missing, the existing Cursor login cannot
+open a session, there is no unique matching advertised model ID, or the selected model
+is not confirmed by session status. Live `cursor_acp_delegate` refuses when selection readiness is red,
 defaults to `approve-reads` plus fail on write/exec that would prompt
 (`approve-all` is an explicit `SAARIUS_ACP_PERMISSION_MODE` break-glass), and
 binds one parent conversation to one worker with owner-gated rebind. It does

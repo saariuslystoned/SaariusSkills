@@ -56,19 +56,37 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
 
 - Start with `cursor_acp_readiness` for the exact workspace when the route has
   not been checked in the current task. Require the explicit
-  `/Users/bobbybones/.local/bin/cursor-agent acp` route and the exact
-  `cursor-grok-4.6-high` selector resolved to one advertised ACP model ID
-  (currently the live install reports `grok-4.6[effort=high,fast=true]`). Never
-  silently fall back to another executable, provider, model, or workspace.
-  `cursor_acp_delegate` hard-refuses when that readiness is red (runtime /
-  auth / model / workspace). Do not treat a red readiness report as advice and
-  submit anyway.
+  `/Users/bobbybones/.local/bin/cursor-agent acp` route. The worker default is the
+  plugin alias `gpt-5.6-luna-high`, meaning base `gpt-5.6-luna` plus effort `high`.
+  That alias is not a live model id. `preferredDefaultModelId` is the unique
+  advertised id only when one exists; otherwise it is null. The parent orchestrator
+  (Codex, Claude, or Luna) does not choose this worker model. The same default and
+  the explicit per-job `model` / `effort` arguments apply on every orchestrator.
+  Do not infer savings, quota, or subscription effects.
+- `ready` is selection readiness and matches delegate. `catalogReady` may be true
+  while `ready` and `selectionReady` are false. Read `availableModelIds` and
+  `availableModels` in that result. A missing Luna High effort returns
+  `EFFORT_UNSUPPORTED`; a missing base returns `MODEL_REQUIRED`. Do not dispatch
+  either result, and do not substitute the session's current model. On 2026-09-30
+  the live catalog advertised Luna only as
+  `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`. Config options were
+  `mode` and `model`, with no separate effort setting. Do not downgrade to Medium
+  and do not treat a docs slug such as `gpt-5.6-luna-fast` as a live High id.
+- Cursor Grok 4.6 and 4.7 prompt turns are on hold. Never send a Cursor Grok
+  prompt, and never fall back to another executable, provider, model, or the
+  current runtime selection. Duplicate, ambiguous, and conflicting effort
+  selections fail closed. The resolved id is rechecked immediately before the
+  prompt for both a prepared session and a fresh handle. Drift fails with no
+  prompt. `cursor_acp_delegate` hard-refuses when selection readiness is red.
+  Do not treat a red readiness report as advice and submit anyway.
 - Use `cursor_acp_delegate` with one absolute workspace path, one parent
   conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
-  one bounded prompt, and a bounded timeout (`timeoutMs` is the wall-clock
-  budget for that one ACP turn: 60 minutes when omitted, up to 4 hours when
-  explicitly requested; it is not session duration or `cursor_acp_result`
-  `waitMs`). One parent conversation owns one
+  optional `model` and `effort` overrides, one bounded prompt, and a bounded timeout
+  (`timeoutMs` is the wall-clock budget for that one ACP turn: 60 minutes when omitted,
+  up to 4 hours when explicitly requested; it is not session duration or
+  `cursor_acp_result` `waitMs`). The requested and resolved model and effort are
+  immutably bound to the job upon submission and preserved across follow-up,
+  recovery, receipts, route, state, and proof. One parent conversation owns one
   worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
   not exclusive. Prefer an isolated worktree for source mutations. Do not fan
   out by default. Live MCP permissions default to `approve-reads` plus fail on

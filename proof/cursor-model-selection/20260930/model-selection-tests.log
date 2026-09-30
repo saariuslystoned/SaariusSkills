@@ -1,0 +1,35 @@
+✔ DEFAULT_CURSOR_MODEL is gpt-5.6-luna-high (0.532459ms)
+✔ model id and effort parsing extracts effort and base correctly (0.309625ms)
+✔ preferredDefaultAdvertised detects unique advertised default (0.310375ms)
+✔ resolveRequestedCursorModel resolves advertised non-Grok / high effort default (0.100083ms)
+✔ resolveRequestedCursorModel resolves exact advertised ID (0.0735ms)
+✔ resolveRequestedCursorModel rejects conflicting effort on exact ID (0.200625ms)
+✔ resolveRequestedCursorModel rejects conflicting slug and effort (0.066583ms)
+✔ resolveRequestedCursorModel rejects unsupported effort and reports available efforts (0.111916ms)
+✔ resolveRequestedCursorModel rejects missing model with MODEL_UNAVAILABLE (0.087625ms)
+✔ resolveRequestedCursorModel rejects ambiguous model match with MODEL_AMBIGUOUS (0.119834ms)
+✔ resolveRequestedCursorModel rejects wrapping whitespace and NUL characters (0.114417ms)
+✔ readiness probe discovers default Luna High without a turn (12.209209ms)
+✔ readiness probe discovers custom model override without a turn (5.570125ms)
+✔ readiness/delegate consistency: High absent is not selection-ready and returns the catalog (99.208792ms)
+✔ model mismatch fails closed with zero prompts (MODEL_SELECTION_UNCONFIRMED) (30.102291ms)
+✔ delegation never falls back to Grok or another model when requested model is unavailable (29.911084ms)
+✔ immutable per-job model selection is preserved across getJob, state, proof, events (68.901917ms)
+✔ duplicate exact ids and conflicting effort fields are rejected (0.38475ms)
+✔ invalid readiness still returns the advertised catalog and is not delegate-ready (5.566125ms)
+✔ prepared-handle drift fails with zero prompts and keeps the persisted selection (51.74425ms)
+✔ new handle rechecks the persisted id after broker and catalog changes (105.112708ms)
+✔ new handle drift does not adopt a newly advertised model (101.232417ms)
+✔ owner-death recovery preserves the resolved selection and sends no prompt (16.489291ms)
+✔ current matches persisted High but catalog missing High fails closed with zero prompts (57.115292ms)
+✔ exact High duplicated after admission fails closed with zero prompts (59.805334ms)
+✔ prepared current drift with working setter fails closed with zero prompts and no setter call (51.727792ms)
+✔ failed confirmation exposes latest current while selected immutable fields are preserved (56.534333ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 909.332

@@ -1,0 +1,43 @@
+{
+  "jobId": "0fead6ea-f962-4487-af33-870ee2173f4f",
+  "status": "cancelled",
+  "complete": true,
+  "cleanupReady": true,
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-09-30T19:57:37.552Z",
+    "jobId": "0fead6ea-f962-4487-af33-870ee2173f4f",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "owner": {
+      "brokerId": "43701a05-1dd5-4a0f-b04b-95e139be91d6",
+      "pid": 97142,
+      "startTime": "Wed Sep 30 14:43:55 2026"
+    },
+    "handle": {
+      "sessionKey": "antigravity-acp:0fead6ea-f962-4487-af33-870ee2173f4f",
+      "backend": "acpx",
+      "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOjBmZWFkNmVhLWY5NjItNDQ4Ny1hZjMzLTg3MGVlMjE3M2Y0ZiIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtY3Vyc29yLWx1bmEtbW9kZWwtc2VsZWN0aW9uLTIwMjYwOTMwIiwibW9kZSI6InBlcnNpc3RlbnQiLCJhY3B4UmVjb3JkSWQiOiJhbnRpZ3Jhdml0eS1hY3A6MGZlYWQ2ZWEtZjk2Mi00NDg3LWFmMzMtODcwZWUyMTczZjRmIiwiYmFja2VuZFNlc3Npb25JZCI6IjE1YjBiMTY1LTIxMGMtNGI3YS1iMjkzLWFhMDgxYmE2OWMxMiJ9",
+      "cwd": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+      "acpxRecordId": "antigravity-acp:0fead6ea-f962-4487-af33-870ee2173f4f",
+      "backendSessionId": "15b0b165-210c-4b7a-b293-aa081ba69c12"
+    },
+    "message": "local worker termination observed; backend session discard unsupported",
+    "backendSessionDiscard": "unsupported",
+    "worker": {
+      "pid": 36932,
+      "startedAt": "2026-09-30T19:53:11.542Z",
+      "launchId": "811e1ce4-19c2-44d6-977d-39299aa8fefe",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:0fead6ea-f962-4487-af33-870ee2173f4f"
+      },
+      "signal": "SIGTERM",
+      "exitCode": null
+    }
+  },
+  "model": "gemini-3.8-flash-high",
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+  "createdAt": "2026-09-30T19:53:11.533Z",
+  "updatedAt": "2026-09-30T19:57:37.552Z"
+}
