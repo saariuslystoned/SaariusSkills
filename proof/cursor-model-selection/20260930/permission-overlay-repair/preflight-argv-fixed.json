@@ -1,0 +1,22 @@
+{
+  "commandIntercepted": true,
+  "noGlobalCommandsRun": true,
+  "actualArgv": [
+    "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/proof/cursor-model-selection/20260930/compare-installed-source.py",
+    "--worktree",
+    "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930",
+    "--commit",
+    "<40-character-hex-commit-hash>",
+    "--installed",
+    "/Users/bobbybones/Developer/worktrees/saariusskills-plugin-107-merged",
+    "--approved-policy",
+    "/Users/bobbybones/Developer/_machine-runs/acpx-0193-followup-20260929/personal-acp-permission-policy.json",
+    "--approved-policy-sha256",
+    "6df86276b4ecb212e0230266bebcc352b8ba5f63759a279ff1bdf8c40bfa7139"
+  ],
+  "expectedScript": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/proof/cursor-model-selection/20260930/compare-installed-source.py",
+  "scriptPathCorrect": true,
+  "nonblankArguments": true,
+  "stderr": "",
+  "exit": 0
+}

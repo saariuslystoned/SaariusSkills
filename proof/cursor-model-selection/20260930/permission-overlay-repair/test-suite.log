@@ -1,0 +1,56 @@
+test_approved_three_lane_overlay_passes_with_policy (tests.test_permission_overlay.PermissionOverlayTests.test_approved_three_lane_overlay_passes_with_policy) ... ok
+test_changed_bridge_bytes_fails (tests.test_permission_overlay.PermissionOverlayTests.test_changed_bridge_bytes_fails) ... FAIL mismatch bridge/acp-runtime/launcher.mjs commit=d0547f10435a20a98622d1e21a4ef9c3ffda9b791caf71e3731098bfe72ae532 installed=c848a6db2c8b43eaeb1155343c93bcfad256d074327e8c6255328273293cddaa
+ok
+test_clean_fixture_passes_without_policy (tests.test_permission_overlay.PermissionOverlayTests.test_clean_fixture_passes_without_policy) ... ok
+test_command_or_args_tamper_fails (tests.test_permission_overlay.PermissionOverlayTests.test_command_or_args_tamper_fails) ... FAIL installed .mcp.json server cursor-acp control mismatch: command
+FAIL installed .mcp.json server cursor-acp control mismatch: args
+ok
+test_duplicate_key_rejection (tests.test_permission_overlay.PermissionOverlayTests.test_duplicate_key_rejection) ... FAIL duplicate key in installed .mcp.json JSON
+ok
+test_inline_standalone_parity_incomplete_policy_clean_fixture (tests.test_permission_overlay.PermissionOverlayTests.test_inline_standalone_parity_incomplete_policy_clean_fixture)
+Both standalone and extracted inline runner must fail on incomplete policy pairs on clean fixture. ... ok
+test_overlay_with_missing_policy_file_fails (tests.test_permission_overlay.PermissionOverlayTests.test_overlay_with_missing_policy_file_fails) ... FAIL approved policy file missing or not a regular file: /private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp7d85e00i/nonexistent-policy.json
+ok
+test_overlay_with_wrong_policy_digest_fails (tests.test_permission_overlay.PermissionOverlayTests.test_overlay_with_wrong_policy_digest_fails) ... FAIL approved policy digest mismatch expected=0000000000000000000000000000000000000000000000000000000000000000 actual=1c19c85584166f1713756e7592ae59b6af5bef0e5b44d9dd1af15da5726981d4
+ok
+test_overlay_without_policy_fails (tests.test_permission_overlay.PermissionOverlayTests.test_overlay_without_policy_fails) ... FAIL mismatch .mcp.json commit=46825cede17b98731bcb1ef745c9e968711b635add65b0b15dd6bf44c5730b16 installed=466a1731eb366d928e08a548ab84376f63719a32fe75e88b1e024f2dd3e166a4
+ok
+test_partial_overlay_fails (tests.test_permission_overlay.PermissionOverlayTests.test_partial_overlay_fails) ... FAIL installed .mcp.json server grok-acp unexpected keys
+ok
+test_permission_value_tamper_fails (tests.test_permission_overlay.PermissionOverlayTests.test_permission_value_tamper_fails) ... FAIL installed .mcp.json server cursor-acp env value mismatch for SAARIUS_ACP_PERMISSION_MODE
+ok
+test_policy_lanes_mismatch_fails (tests.test_permission_overlay.PermissionOverlayTests.test_policy_lanes_mismatch_fails) ... FAIL approved policy lanes mismatch
+ok
+test_policy_missing_or_empty_authorization_fails (tests.test_permission_overlay.PermissionOverlayTests.test_policy_missing_or_empty_authorization_fails) ... FAIL approved policy missing or empty authorization
+ok
+test_policy_mode_mismatch_fails (tests.test_permission_overlay.PermissionOverlayTests.test_policy_mode_mismatch_fails) ... FAIL approved policy mode mismatch
+ok
+test_policy_without_digest_or_digest_without_policy_fails (tests.test_permission_overlay.PermissionOverlayTests.test_policy_without_digest_or_digest_without_policy_fails) ... FAIL both --approved-policy and --approved-policy-sha256 must be provided together
+FAIL both --approved-policy and --approved-policy-sha256 must be provided together
+ok
+test_production_source_base_literal_unaffected_by_env (tests.test_permission_overlay.PermissionOverlayTests.test_production_source_base_literal_unaffected_by_env)
+Production BASE literal must remain cc4070e and cannot be overridden by environment variables. ... ok
+test_step3_bash_block_preflight_argv (tests.test_permission_overlay.PermissionOverlayTests.test_step3_bash_block_preflight_argv)
+Step 3 bash block must assign variables before invoking python3 with correct, non-blank argv. ... ok
+test_strict_types_boolean_number_distinction (tests.test_permission_overlay.PermissionOverlayTests.test_strict_types_boolean_number_distinction)
+JSON numbers and booleans must not be treated as equal (e.g. 1 != True). ... FAIL installed .mcp.json server cursor-acp env value mismatch for SAARIUS_ACP_PERMISSION_MODE
+ok
+test_unrelated_env_tamper_fails (tests.test_permission_overlay.PermissionOverlayTests.test_unrelated_env_tamper_fails) ... FAIL installed .mcp.json server cursor-acp env keys mismatch
+ok
+test_wrapper_standalone_equivalence_approved_overlay (tests.test_permission_overlay.PermissionOverlayTests.test_wrapper_standalone_equivalence_approved_overlay)
+Standalone verifier and extracted inline runner match on approved overlay fixture. ... ok
+test_wrapper_standalone_equivalence_clean (tests.test_permission_overlay.PermissionOverlayTests.test_wrapper_standalone_equivalence_clean)
+Standalone verifier and extracted inline runner match on clean fixture. ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 1.614s
+
+OK
+MATCH_APPROVED_OVERLAY .mcp.json commit_manifest=46825cede17b98731bcb1ef745c9e968711b635add65b0b15dd6bf44c5730b16 installed_manifest=466a1731eb366d928e08a548ab84376f63719a32fe75e88b1e024f2dd3e166a4 policy_sha256=1c19c85584166f1713756e7592ae59b6af5bef0e5b44d9dd1af15da5726981d4 mode=approve-all lanes=cursor-acp,antigravity-acp,grok-acp
+MATCH d0547f10435a20a98622d1e21a4ef9c3ffda9b791caf71e3731098bfe72ae532 bridge/acp-runtime/launcher.mjs
+OK 2 paths commit=73ea989e68fa41b2a812f8f83991cbe797f4f8ad installed=/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp7d85e00i/installed-test_approved_three_lane_overlay_passes_with_policy approved_policy=1c19c85584166f1713756e7592ae59b6af5bef0e5b44d9dd1af15da5726981d4
+MATCH_APPROVED_OVERLAY .mcp.json commit_manifest=46825cede17b98731bcb1ef745c9e968711b635add65b0b15dd6bf44c5730b16 installed_manifest=466a1731eb366d928e08a548ab84376f63719a32fe75e88b1e024f2dd3e166a4 policy_sha256=1c19c85584166f1713756e7592ae59b6af5bef0e5b44d9dd1af15da5726981d4 mode=approve-all lanes=cursor-acp,antigravity-acp,grok-acp
+MATCH 46825cede17b98731bcb1ef745c9e968711b635add65b0b15dd6bf44c5730b16 .mcp.json
+MATCH d0547f10435a20a98622d1e21a4ef9c3ffda9b791caf71e3731098bfe72ae532 bridge/acp-runtime/launcher.mjs
+OK 2 paths commit=73ea989e68fa41b2a812f8f83991cbe797f4f8ad installed=/private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/tmp7d85e00i/installed-test_clean_fixture_passes_without_policy
+MATCH d0547f10435a20a98622d1e21a4ef9c3ffda9b791caf71e3731098bfe72ae532 bridge/acp-runtime/launcher.mjs

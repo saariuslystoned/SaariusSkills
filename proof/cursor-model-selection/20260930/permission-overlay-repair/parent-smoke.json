@@ -1,0 +1,198 @@
+{
+  "schema": "saarius.permission-overlay.parent-smoke.v1",
+  "reviewedPluginHead": "531a5c28f41e62b095a547bac62f478d9285cc92",
+  "verifierSha256": "73d695c8f391c968ec34034b49a48e4657b66e35350e03d5e30834cb5df6d9e3",
+  "pluginPaths": 150,
+  "fixture": "/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy",
+  "policySha256": "6df86276b4ecb212e0230266bebcc352b8ba5f63759a279ff1bdf8c40bfa7139",
+  "approvedManifestSha256": "b279b63e05a60f56aecb3b90db2e0c9280b2487bf3352d9902ef0101736c94ea",
+  "inlineExtractedFromPlan": true,
+  "cases": [
+    {
+      "name": "clean",
+      "expectedPass": true,
+      "exit": 0,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why",
+        "OK 150 paths commit=531a5c28f41e62b095a547bac62f478d9285cc92 installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy/installed"
+      ],
+      "stderr": ""
+    },
+    {
+      "name": "clean-inline",
+      "expectedPass": true,
+      "exit": 0,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why",
+        "OK 150 paths commit=531a5c28f41e62b095a547bac62f478d9285cc92 installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy/installed"
+      ],
+      "stderr": ""
+    },
+    {
+      "name": "production-base-env-ignored",
+      "expectedPass": true,
+      "exit": 0,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why",
+        "OK 150 paths commit=531a5c28f41e62b095a547bac62f478d9285cc92 installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy/installed"
+      ],
+      "stderr": ""
+    },
+    {
+      "name": "overlay-no-approval",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH d0741d0da4e41646bbad74ce2885b5b3a84188612933caf8e7d027654062a6ea skills/unslop",
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why"
+      ],
+      "stderr": "FAIL mismatch .mcp.json commit=469d29fe90fa45c530b1883f34d1180ea46778974504b504cf2c961ad1e9ff44 installed=b279b63e05a60f56aecb3b90db2e0c9280b2487bf3352d9902ef0101736c94ea\n"
+    },
+    {
+      "name": "approved-overlay",
+      "expectedPass": true,
+      "exit": 0,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why",
+        "OK 150 paths commit=531a5c28f41e62b095a547bac62f478d9285cc92 installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy/installed approved_policy=6df86276b4ecb212e0230266bebcc352b8ba5f63759a279ff1bdf8c40bfa7139"
+      ],
+      "stderr": ""
+    },
+    {
+      "name": "approved-overlay-inline",
+      "expectedPass": true,
+      "exit": 0,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why",
+        "OK 150 paths commit=531a5c28f41e62b095a547bac62f478d9285cc92 installed=/Users/bobbybones/Developer/worktrees/saariusskills-cursor-luna-model-selection-20260930/runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-fixture-8_fdrxqy/installed approved_policy=6df86276b4ecb212e0230266bebcc352b8ba5f63759a279ff1bdf8c40bfa7139"
+      ],
+      "stderr": ""
+    },
+    {
+      "name": "wrong-approved-digest",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [],
+      "stderr": "FAIL approved policy digest mismatch expected=0000000000000000000000000000000000000000000000000000000000000000 actual=6df86276b4ecb212e0230266bebcc352b8ba5f63759a279ff1bdf8c40bfa7139\n"
+    },
+    {
+      "name": "command",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL installed .mcp.json server cursor-acp control mismatch: command\n"
+    },
+    {
+      "name": "args",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL installed .mcp.json server cursor-acp control mismatch: args\n"
+    },
+    {
+      "name": "unrelated-env",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL installed .mcp.json server cursor-acp env keys mismatch\n"
+    },
+    {
+      "name": "permission-value",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL installed .mcp.json server cursor-acp env value mismatch for SAARIUS_ACP_PERMISSION_MODE\n"
+    },
+    {
+      "name": "partial-overlay",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL installed .mcp.json server grok-acp env keys mismatch\n"
+    },
+    {
+      "name": "bridge-bytes",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH d0741d0da4e41646bbad74ce2885b5b3a84188612933caf8e7d027654062a6ea skills/unslop",
+        "MATCH 798d256aa24d1e7bbe273a567889e17999f770d9e67e7ae42b8fa0edc036a13e skills/why"
+      ],
+      "stderr": "FAIL mismatch bridge/cursor-acp/broker.mjs commit=e13c7f4219a564e271a353fa93c93b6797efeedc99fee16a6d6917327918bb4d installed=dc6d770479d8734e4cbcefc52c8fb53b4c6c30b2844d742321e73ca07e3b4744\n"
+    },
+    {
+      "name": "duplicate-json-key",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [
+        "MATCH c072b77931345f5dbf874910255c5481f7e92a6726b2fe46f67a3be0004e78ae .cursor-plugin/mcp.json",
+        "MATCH 83de72fa1095613bb9efd057ff3c463704f15594c3c8a308a2f993c505df258a .cursor-plugin/plugin.json"
+      ],
+      "stderr": "FAIL duplicate key in installed .mcp.json JSON\n"
+    },
+    {
+      "name": "missing-digest",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [],
+      "stderr": "FAIL both --approved-policy and --approved-policy-sha256 must be provided together\n"
+    },
+    {
+      "name": "missing-digest-inline",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [],
+      "stderr": "FAIL both --approved-policy and --approved-policy-sha256 must be provided together\n"
+    },
+    {
+      "name": "missing-policy",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [],
+      "stderr": "FAIL both --approved-policy and --approved-policy-sha256 must be provided together\n"
+    },
+    {
+      "name": "missing-policy-inline",
+      "expectedPass": false,
+      "exit": 1,
+      "accepted": true,
+      "stdoutTail": [],
+      "stderr": "FAIL both --approved-policy and --approved-policy-sha256 must be provided together\n"
+    }
+  ],
+  "allPassed": true,
+  "globalChanges": false,
+  "realCursorPrompts": 0
+}

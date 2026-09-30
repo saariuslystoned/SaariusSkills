@@ -2,7 +2,9 @@
 """Compare installed plugin source bytes to one reviewed git commit. Read-only."""
 
 import argparse
+import copy
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -26,6 +28,10 @@ MANIFEST_PATHS = [
 SECRET_NAMES = {".env", "credentials.json", "secrets.json", "id_rsa", "id_ed25519"}
 SECRET_SUFFIXES = (".pem", ".p12", ".key")
 GENERATED_PARTS = {"node_modules", "__pycache__"}
+
+APPROVED_LANES = ("cursor-acp", "antigravity-acp", "grok-acp")
+APPROVED_ENV_KEY = "SAARIUS_ACP_PERMISSION_MODE"
+APPROVED_ENV_VAL = "approve-all"
 
 
 def fail(message: str) -> None:
@@ -89,16 +95,189 @@ def contained(root: Path, relative: str) -> Path:
     return leaf
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--worktree", required=True, help="Path to reviewed git worktree")
-    parser.add_argument("--commit", required=True, help="Approved 40-hex commit hash")
-    parser.add_argument("--installed", required=True, help="Path to installed plugin root")
-    args = parser.parse_args()
+def parse_json_no_duplicates(raw_bytes: bytes, label: str) -> dict:
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        fail(f"malformed {label} utf-8 encoding")
 
-    worktree = Path(args.worktree).resolve()
-    installed = Path(args.installed).resolve()
-    reviewed_commit = args.commit.strip().lower()
+    def dict_raise_on_duplicates(ordered_pairs):
+        seen = set()
+        out = {}
+        for key, value in ordered_pairs:
+            if key in seen:
+                fail(f"duplicate key in {label} JSON")
+            seen.add(key)
+            out[key] = value
+        return out
+
+    try:
+        parsed = json.loads(text, object_pairs_hook=dict_raise_on_duplicates)
+    except SystemExit:
+        raise
+    except Exception:
+        fail(f"malformed {label} JSON")
+
+    if not isinstance(parsed, dict):
+        fail(f"{label} JSON root must be an object")
+    return parsed
+
+
+def strict_typed_equal(a, b) -> bool:
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        if set(a.keys()) != set(b.keys()):
+            return False
+        return all(strict_typed_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list):
+        if len(a) != len(b):
+            return False
+        return all(strict_typed_equal(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def validate_and_load_policy(policy_path_str: str, expected_sha256: str) -> tuple[dict, str]:
+    policy_path = Path(policy_path_str).resolve()
+    if not policy_path.is_file():
+        fail(f"approved policy file missing or not a regular file: {policy_path}")
+
+    expected_digest = expected_sha256.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        fail("approved policy sha256 must be a 64-character lowercase hex digest")
+
+    policy_bytes = policy_path.read_bytes()
+    actual_digest = sha256_bytes(policy_bytes)
+    if actual_digest != expected_digest:
+        fail(f"approved policy digest mismatch expected={expected_digest} actual={actual_digest}")
+
+    policy = parse_json_no_duplicates(policy_bytes, "approved policy")
+
+    auth = policy.get("authorization")
+    if not auth or not isinstance(auth, str) or not auth.strip():
+        fail("approved policy missing or empty authorization")
+
+    mode = policy.get("mode")
+    if mode != APPROVED_ENV_VAL or type(mode) is not str:
+        fail("approved policy mode mismatch")
+
+    lanes = policy.get("lanes")
+    if not isinstance(lanes, list) or len(lanes) != len(APPROVED_LANES) or tuple(lanes) != APPROVED_LANES:
+        fail("approved policy lanes mismatch")
+
+    return policy, actual_digest
+
+
+def verify_mcp_json_overlay(
+    commit_blob: bytes,
+    installed_target: Path,
+    policy_data: dict,
+    policy_hash: str,
+) -> tuple[str, str, str]:
+    if installed_target.is_symlink() or not installed_target.is_file():
+        fail("installed .mcp.json must be a regular file")
+
+    commit_hash = sha256_bytes(commit_blob)
+    installed_bytes = installed_target.read_bytes()
+    installed_hash = sha256_bytes(installed_bytes)
+
+    commit_manifest = parse_json_no_duplicates(commit_blob, "commit .mcp.json")
+    installed_manifest = parse_json_no_duplicates(installed_bytes, "installed .mcp.json")
+
+    expected_manifest = copy.deepcopy(commit_manifest)
+    if "mcpServers" not in expected_manifest or not isinstance(expected_manifest["mcpServers"], dict):
+        fail("commit .mcp.json missing mcpServers object")
+
+    for lane in APPROVED_LANES:
+        if lane not in expected_manifest["mcpServers"]:
+            fail(f"commit .mcp.json missing server {lane}")
+        server_entry = expected_manifest["mcpServers"][lane]
+        if not isinstance(server_entry, dict):
+            fail(f"commit .mcp.json server {lane} is not an object")
+        if "env" not in server_entry:
+            server_entry["env"] = {}
+        elif not isinstance(server_entry["env"], dict):
+            fail(f"commit .mcp.json server {lane} env is not an object")
+        server_entry["env"][APPROVED_ENV_KEY] = APPROVED_ENV_VAL
+
+    if set(installed_manifest.keys()) != set(expected_manifest.keys()):
+        fail("installed .mcp.json unexpected top-level structure")
+
+    for k, v in expected_manifest.items():
+        if k != "mcpServers" and not strict_typed_equal(installed_manifest.get(k), v):
+            fail(f"installed .mcp.json top-level mismatch on {k}")
+
+    inst_servers = installed_manifest.get("mcpServers")
+    if not isinstance(inst_servers, dict):
+        fail("installed .mcp.json mcpServers must be an object")
+
+    if set(inst_servers.keys()) != set(expected_manifest["mcpServers"].keys()):
+        fail("installed .mcp.json mcpServers keys mismatch")
+
+    for lane, exp_server in expected_manifest["mcpServers"].items():
+        inst_server = inst_servers.get(lane)
+        if not isinstance(inst_server, dict):
+            fail(f"installed .mcp.json server {lane} must be an object")
+
+        if set(inst_server.keys()) != set(exp_server.keys()):
+            fail(f"installed .mcp.json server {lane} unexpected keys")
+
+        for prop in ("command", "args", "cwd"):
+            if prop in exp_server and not strict_typed_equal(inst_server.get(prop), exp_server[prop]):
+                fail(f"installed .mcp.json server {lane} control mismatch: {prop}")
+
+        exp_env = exp_server.get("env")
+        inst_env = inst_server.get("env")
+        if exp_env is None:
+            if inst_env is not None:
+                fail(f"installed .mcp.json server {lane} unexpected env")
+        else:
+            if not isinstance(inst_env, dict):
+                fail(f"installed .mcp.json server {lane} env must be an object")
+            if set(inst_env.keys()) != set(exp_env.keys()):
+                fail(f"installed .mcp.json server {lane} env keys mismatch")
+            for env_k, env_v in exp_env.items():
+                if not strict_typed_equal(inst_env.get(env_k), env_v):
+                    fail(f"installed .mcp.json server {lane} env value mismatch for {env_k}")
+
+        for k, v in exp_server.items():
+            if not strict_typed_equal(inst_server.get(k), v):
+                fail(f"installed .mcp.json server {lane} property mismatch on {k}")
+
+    canonical_expected = json.dumps(expected_manifest, sort_keys=True, separators=(",", ":"))
+    canonical_installed = json.dumps(installed_manifest, sort_keys=True, separators=(",", ":"))
+    if canonical_expected != canonical_installed or not strict_typed_equal(installed_manifest, expected_manifest):
+        fail("installed .mcp.json does not match expected manifest")
+
+    attestation = (
+        f"MATCH_APPROVED_OVERLAY .mcp.json "
+        f"commit_manifest={commit_hash} "
+        f"installed_manifest={installed_hash} "
+        f"policy_sha256={policy_hash} "
+        f"mode={policy_data['mode']} "
+        f"lanes={','.join(APPROVED_LANES)}"
+    )
+    return attestation, commit_hash, installed_hash
+
+
+def verify(
+    worktree: Path | str,
+    commit: str,
+    installed: Path | str,
+    approved_policy: Path | str | None = None,
+    approved_policy_sha256: str | None = None,
+) -> int:
+    worktree = Path(worktree).resolve()
+    installed = Path(installed).resolve()
+    reviewed_commit = str(commit).strip().lower()
+
+    if bool(approved_policy) != bool(approved_policy_sha256):
+        fail("both --approved-policy and --approved-policy-sha256 must be provided together")
+
+    policy_data = None
+    policy_hash = None
+    if approved_policy and approved_policy_sha256:
+        policy_data, policy_hash = validate_and_load_policy(str(approved_policy), str(approved_policy_sha256))
 
     if not worktree.is_dir():
         fail("reviewed worktree directory missing")
@@ -157,6 +336,12 @@ def main():
             failures.append(f"missing {rel_path}")
             continue
 
+        if rel_path == ".mcp.json" and policy_data is not None:
+            attestation, _, _ = verify_mcp_json_overlay(git_blob, target, policy_data, policy_hash)
+            print(attestation)
+            compared += 1
+            continue
+
         if target.is_symlink():
             installed_bytes = os.fsencode(os.readlink(target))
             installed_hash = sha256_bytes(installed_bytes)
@@ -180,7 +365,33 @@ def main():
     if compared == 0:
         fail("no plugin source paths compared")
 
-    print(f"OK {compared} paths commit={reviewed_commit} installed={installed}")
+    if policy_hash:
+        print(f"OK {compared} paths commit={reviewed_commit} installed={installed} approved_policy={policy_hash}")
+    else:
+        print(f"OK {compared} paths commit={reviewed_commit} installed={installed}")
+
+    return compared
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--worktree", required=True, help="Path to reviewed git worktree")
+    parser.add_argument("--commit", required=True, help="Approved 40-hex commit hash")
+    parser.add_argument("--installed", required=True, help="Path to installed plugin root")
+    parser.add_argument("--approved-policy", help="Path to approved host permission policy file")
+    parser.add_argument("--approved-policy-sha256", help="Approved policy SHA256 hex digest")
+    args = parser.parse_args(argv)
+
+    if bool(args.approved_policy) != bool(args.approved_policy_sha256):
+        fail("both --approved-policy and --approved-policy-sha256 must be provided together")
+
+    return verify(
+        worktree=args.worktree,
+        commit=args.commit,
+        installed=args.installed,
+        approved_policy=args.approved_policy,
+        approved_policy_sha256=args.approved_policy_sha256,
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,57 @@
+{
+  "schema": "saarius.permission-overlay.parent-review.v1",
+  "at": "2026-09-30T21:31:03.292286+00:00",
+  "reviewedPluginPredecessor": "531a5c28f41e62b095a547bac62f478d9285cc92",
+  "sourceVerifierSha256": "73d695c8f391c968ec34034b49a48e4657b66e35350e03d5e30834cb5df6d9e3",
+  "accepted": [
+    "Explicit policy-file and SHA256 opt-in; only approved permission-mode on exactly three lanes",
+    "Typed complete manifest comparison; all other manifests and plugin source bytes exact",
+    "Literal production base/branch and existing secret/generated/symlink/source guards preserved",
+    "Canonical inline runner parity including incomplete policy pairs",
+    "Supported maintained-path plugin add with validation before and after refresh",
+    "Preflight shell argv populated; unique backup contains only non-secret policy record"
+  ],
+  "rejected": [
+    "Blanket .mcp exclusion",
+    "Arbitrary environment allowance",
+    "Production ancestry environment override",
+    "Unsupported marketplace update/plugin install commands",
+    "Dropping incomplete policy/hash arguments",
+    "Shell environment-prefix assignment with premature argument expansion"
+  ],
+  "validation": {
+    "nativeFocused": {
+      "pass": 21,
+      "fail": 0
+    },
+    "nativeFullPython": {
+      "pass": 90,
+      "fail": 0
+    },
+    "parentFullPython": {
+      "pass": 90,
+      "fail": 0,
+      "exit": 0,
+      "log": "runs/cursor-model-selection-runs/20260930/coordinator/permission-overlay-parent-python.log"
+    },
+    "parentFixture": {
+      "pluginPaths": 150,
+      "cases": 18,
+      "allPassed": true,
+      "receipt": "parent-smoke.json"
+    },
+    "parentPreflight": {
+      "allArgumentsPopulated": true,
+      "receipt": "preflight-argv-fixed.json"
+    },
+    "pluginRuntimeAndPublicManifestsUnchanged": true
+  },
+  "provenance": "Source/test/product-doc repair authored by native ACP workers; parent performed read-only review, offline verification and control-proof/git/PR work. Proof phrase prompts sent=0 denotes real Cursor target prompts; native writer requests were sent as authorized.",
+  "realCursorPrompts": 0,
+  "globalInstallChanges": false,
+  "maintainedPathWrites": 0,
+  "policyRecordWrites": 0,
+  "originalOfficialReviewRequest": "req-20260930T205603Z-35523992527",
+  "duplicateOfficialDispatch": false,
+  "changedHeadRequiresIndependentReReview": true
+}
