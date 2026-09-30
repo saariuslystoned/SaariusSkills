@@ -41,7 +41,9 @@ export async function recoverConversation(broker, input = {}, claimBind, atomicW
       if (broker.active.has(jobId)) deny("job_active");
       const job = await broker.getJob(jobId);
       if (!terminal(job)) deny("job_nonterminal_observe_status_first");
-      if (job.binding?.jobId !== jobId || job.binding?.binderId !== (existing.recoveries?.at(-1)?.fromBinderId ?? existing.binderId) ||
+      const previousRecovery = existing.recoveries?.at(-1);
+      const originalBinder = previousRecovery?.jobId === jobId ? previousRecovery.fromBinderId : existing.binderId;
+      if (job.binding?.jobId !== jobId || job.binding?.binderId !== originalBinder ||
           job.binding?.hostConversationId !== existing.hostConversationId ||
           job.workspace !== existing.workspace) deny("binding_job_mismatch");
       // Only the obsolete process-default binder can migrate. A configured foreign

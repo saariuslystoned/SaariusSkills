@@ -91,6 +91,26 @@ for (const lane of Object.keys(lanes)) {
     assert.equal(await readFile(bindPath, "utf8"), successorBytes);
   });
 
+  test(`${lane}: carried recovery history cannot prevent recovery of an interrupted successor`, async () => {
+    const { broker, job, input } = await fixture(lane);
+    await broker.recoverConversation({ ...input, apply: true });
+    const successor = await broker.bindConversation({ hostConversationId: input.hostConversationId,
+      binderId: broker.defaultBinderId, jobId: randomUUID(), workspace: job.workspace });
+    const runDir = path.join(broker.runsRoot, successor.jobId);
+    await mkdir(runDir, { recursive: true });
+    const sessionKey = `${lane}-acp:${successor.jobId}`;
+    const nextJob = { ...job, jobId: successor.jobId, binding: successor, sessionKey, handle: { sessionKey },
+      runDir, workers: job.workers.map(worker => ({ ...worker, launchId: randomUUID(), scope: { kind: "runtime-session", sessionKey } })),
+      proof: { state: path.join(runDir, "STATE.md"), events: path.join(runDir, "events.jsonl"), proof: path.join(runDir, "PROOF.md") } };
+    await writeFile(nextJob.proof.events, '{"event":"successor_interrupted"}\n');
+    await broker.saveJob(nextJob);
+    const result = await broker.recoverConversation({ jobId: successor.jobId, hostConversationId: input.hostConversationId,
+      expectedBinderId: broker.defaultBinderId, apply: true });
+    assert.equal(result.applied, true);
+    assert.equal((await broker.result({ jobId: successor.jobId })).complete, true);
+    assert.equal((await broker.getJob(job.jobId)).cleanup.status, "recovered");
+  });
+
   test(`${lane}: proven terminal legacy cleanup migrates without invented worker metadata`, async () => {
     const { broker, job, input } = await fixture(lane);
     job.cleanup = { status: "completed", observed: "runtime_close_returned" };
