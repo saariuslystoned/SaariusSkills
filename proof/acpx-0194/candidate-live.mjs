@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "../../bridge/cursor-acp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { StdioClientTransport } from "../../bridge/cursor-acp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js";
+import { inspectProcessIdentity } from "../../bridge/cursor-acp/broker.mjs";
+import { processIdentitiesMatch } from "../../bridge/acp-runtime/lifecycle.mjs";
 import { prepareRuntime, inspectRuntime } from "../../bridge/acp-runtime/runtime-store.mjs";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
@@ -14,6 +16,7 @@ const root = path.join(repo, "runs/acpx-0194-upgrade-runs/20261001/candidate-liv
 const hostConversationId = "01a0f779-3c25-7a30-aafc-9e63f3f3d766";
 const lanes = ["cursor-acp", "antigravity-acp", "grok-acp"];
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+assert.ok(!process.env.SAARIUS_ACP_HOP_ARGV?.trim() && !process.env.SAARIUS_ACP_HOP_ROLE?.trim(), "Candidate proof requires a local launcher envelope");
 const env = { ...process.env, SAARIUS_ACP_RUNTIME_ROOT: path.join(root, "runtime"),
   SAARIUS_ACP_PERMISSION_MODE: "approve-all", SAARIUS_ACP_HOST_CONVERSATION_ID: hostConversationId };
 const fixtureSource = 'export function normalizeLines(text) { return text; }\n';
@@ -88,11 +91,26 @@ if (process.argv[2] === "prepare") {
     assert.equal(ready.ready, true, JSON.stringify(ready.error));
     assert.equal(ready.permission.permissionMode, "approve-all");
     assert.equal(ready.model.selectedModelId, ready.model.currentModelId);
+    const expectedModel = lane === "cursor-acp" ? "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"
+      : lane === "antigravity-acp" ? "gemini-3.8-flash-high" : "grok-4.7";
+    assert.equal(ready.model.selectedModelId, expectedModel);
+    if (lane === "cursor-acp") assert.equal(ready.route.executable, "/Users/bobbybones/.local/bin/cursor-agent");
+    if (lane === "grok-acp") assert.equal(ready.route.executable, "/Users/bobbybones/.grok/bin/grok");
+    if (lane === "antigravity-acp") {
+      assert.equal(ready.route.runtime.id, "antigravity-acp");
+      assert.equal(ready.route.runtime.version, "1.1.1");
+      assert.equal(ready.route.runtime.acpxRelease, "0.19.4");
+      assert.equal(ready.route.runtime.registryRevision, "81bf71b55e15f630c4fb8a86d20d3088071d2071");
+    }
     assert.equal(digest(await readFile(path.join(admitted.workspace, "protected-test.mjs"))), admitted.protectedTestSha256);
     // An exclusive launch fence prevents retries, including after an uncertain result.
     await writeFile(path.join(root, lane, "LAUNCHED"), new Date().toISOString() + "\n", { flag: "wx" });
     submitted = await call("delegate", { workspace: admitted.workspace, hostConversationId, timeoutMs: 300000, prompt, ...selected });
     await save(lane, "submission.json", submitted);
+    assert.equal(submitted.workspace, admitted.workspace);
+    assert.equal(submitted.permission.permissionMode, "approve-all");
+    assert.equal(submitted.route.executable, ready.route.executable);
+    assert.equal(submitted.route.model, ready.route.model);
     const deadline = Date.now() + 315000;
     let result;
     do {
@@ -101,6 +119,21 @@ if (process.argv[2] === "prepare") {
     } while (!result.complete && result.cleanup?.status !== "uncertain" && Date.now() < deadline);
     assert.equal(result.taskComplete, true); assert.equal(result.cleanupReady, true); assert.equal(result.complete, true);
     assert.equal(result.status, "completed");
+    assert.match(submitted.jobId, /^[0-9a-f-]{36}$/);
+    const job = JSON.parse(await readFile(path.join(root, lane, "state/jobs", submitted.jobId + ".json"), "utf8"));
+    assert.equal(job.workspace, admitted.workspace); assert.equal(job.jobId, submitted.jobId);
+    assert.ok(Array.isArray(job.workers) && job.workers.length > 0, "Exact owned worker records required");
+    const reportedExits = job.cleanup.workers ?? (job.cleanup.worker ? [job.cleanup.worker] : []);
+    for (const exit of reportedExits) assert.ok(job.workers.some(worker => processIdentitiesMatch(worker, exit)), "Foreign cleanup exit");
+    const termination = [];
+    for (const worker of job.workers) {
+      assert.equal(worker.scope?.kind, "runtime-session"); assert.equal(worker.scope.sessionKey, job.sessionKey);
+      assert.ok(worker.processStartTime && worker.startedAt && worker.launchId, "Complete physical worker identity required");
+      const observed = await inspectProcessIdentity(worker.pid);
+      assert.equal(observed.status, "missing", "Owned worker termination is not proven");
+      termination.push({ ...worker, observed, matchingExit: reportedExits.find(exit => processIdentitiesMatch(worker, exit)) ?? null });
+    }
+    await save(lane, "owned-worker-termination.json", { jobId: job.jobId, sessionKey: job.sessionKey, termination });
     assert.equal(digest(await readFile(path.join(admitted.workspace, "protected-test.mjs"))), admitted.protectedTestSha256);
     assert.equal((await stat(path.join(admitted.workspace, "protected-test.mjs"))).mode & 0o777, 0o444);
     const { execFile } = await import("node:child_process"), { promisify } = await import("node:util");
@@ -108,6 +141,10 @@ if (process.argv[2] === "prepare") {
     await save(lane, "verification.json", { tests: tested.stdout.trim(), protectedTestSha256: admitted.protectedTestSha256,
       cleanup: result.cleanup, acpx: "0.19.4", runtimeIdentity: admitted.identity });
     console.log(JSON.stringify({ lane, status: "passed", jobId: submitted.jobId, proof: path.join(root, lane) }));
+  } catch (error) {
+    await save(lane, "failure.json", { status: "blocked", code: error.code ?? "CANDIDATE_VERIFICATION_FAILED",
+      jobId: submitted?.jobId ?? null, remediation: "Inspect retained result and exact ownership; no automatic retry, fence reset, or fallback" });
+    throw error;
   } finally {
     // Close only this task's own MCP client. Persist unknown cleanup; never clear fences.
     await client.close();
