@@ -97,6 +97,10 @@ if (process.argv[2] === "prepare") {
     if (lane === "cursor-acp") assert.equal(ready.route.executable, "/Users/bobbybones/.local/bin/cursor-agent");
     if (lane === "grok-acp") assert.equal(ready.route.executable, "/Users/bobbybones/.grok/bin/grok");
     if (lane === "antigravity-acp") {
+      const nativeRoot = "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64";
+      assert.equal(ready.route.executable, path.join(nativeRoot, "agy_acp_server.par"));
+      assert.equal(ready.route.helper, path.join(nativeRoot, "localharness_external"));
+      assert.deepEqual(ready.route.argv, [path.join(nativeRoot, "agy_acp_server.par")]);
       assert.equal(ready.route.runtime.id, "antigravity-acp");
       assert.equal(ready.route.runtime.version, "1.1.1");
       assert.equal(ready.route.runtime.acpxRelease, "0.19.4");
