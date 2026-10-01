@@ -1,0 +1,24 @@
+autoreview-run: repo=/home/smoky/Developer/_machine-runs/spark-openclaw-review-worktrees/saariusskills-acpx-0194-spark-review-codex-acpx-0194-spark-review-4ff23ac args=--mode branch --engine codex --base e6aaaded1b05f871bbbde65008b17abcf61fe111 --max-priority P3
+autoreview-run: watchdog interval=60s strikes=8 max_wall=2700s
+preparation: target selection
+autoreview target: branch
+branch: detached
+engine: codex
+model: gpt-5.6-terra
+thinking: high
+tools: on
+web_search: on
+ref: e6aaaded1b05f871bbbde65008b17abcf61fe111
+preparation: evidence selection
+preparation: initial source snapshot
+preparation: bundle/evidence preparation
+bundle: 103185 bytes; review passes: 1
+review plan: 1 passes; 107404 total prompt bytes
+preparation: pre-review verification
+preparation: evidence verification
+review usage: {"attempts": 1, "complete": true, "partial_attempts": 0, "reported_attempts": 1, "tokens": {"cached_input_tokens": 148736, "input_tokens": 210183, "output_tokens": 2559, "reasoning_output_tokens": 2101}, "unknown_attempts": 0}
+preparation: final source verification
+autoreview scoped-clean: no accepted/actionable findings in the selected Git scope and priority
+overall: patch is correct (0.91)
+No actionable defects were identified in the supplied change. The production manifests and locks consistently pin acpx 0.19.4, and the supplied package identity values align with the published upstream v0.19.4 release, including the release commit and the session/control fixes exercised by the added provider-free regressions. The added candidate-live utility is explicitly gated and isolated; its live-provider limitations are documented rather than represented as completed qualification.
+autoreview-run: exit=0 (0=clean,1=findings,2=error,10/11=recovered clean/findings,75/76=watchdog gave up)

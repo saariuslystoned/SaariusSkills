@@ -111,6 +111,7 @@ for (const lane of ["cursor-acp", "antigravity-acp", "grok-acp"]) {
       const prompts = wire.filter(event => event.method === "session/prompt");
       if (scenario === "removed") {
         assert.equal(outcome.code, 1); assert.match(outcome.stderr, /model|support/i); assert.equal(prompts.length, 0);
+        assert.equal(wire.filter(event => ["session/set_config_option", "session/set_model"].includes(event.method)).length, 0);
       } else {
         assert.equal(outcome.code, undefined, outcome.stderr); assert.equal(prompts.length, 1);
         assert.equal(wire.find(event => event.method === "session/set_config_option").value, exact);

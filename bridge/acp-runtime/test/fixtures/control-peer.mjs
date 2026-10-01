@@ -23,9 +23,11 @@ createInterface({ input: process.stdin }).on("line", line => {
     const result = { ...(method === "session/new" ? { sessionId: "reused-backend" } : {}), ...catalog() };
     if (scenario === "startup" || scenario === "removed") {
       const latest = scenario === "removed" ? [] : [option()];
-      // Announce a new catalog before returning a stale startup snapshot.
+      // Smoke delivery after the response; this does not prove the owned
+      // creation window. Independent review retains that qualification blocker.
       setTimeout(() => update(latest), 0);
-      result.configOptions = [{ ...option(), options: [{ value: "old-model", name: "Old" }] }];
+      result.configOptions = scenario === "removed" ? [option()]
+        : [{ ...option(), options: [{ value: "old-model", name: "Old" }] }];
       delete result.models;
     }
     return reply(id, result);

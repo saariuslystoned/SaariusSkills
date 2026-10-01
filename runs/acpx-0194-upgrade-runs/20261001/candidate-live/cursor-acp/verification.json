@@ -1,0 +1,25 @@
+{
+  "tests": "4 normalization cases passed",
+  "protectedTestSha256": "9cfc57a98865dabcefbe79efe031be86917dd4e64700f60bc225d52402e07772",
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-10-01T13:21:39.063Z",
+    "backendSessionDiscard": "unsupported",
+    "workers": [
+      {
+        "pid": 30346,
+        "startedAt": "2026-10-01T13:21:15.813Z",
+        "launchId": "f567dda9-cc8a-4417-b6d4-56d6df551fd7",
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c"
+        },
+        "signal": null,
+        "exitCode": 143
+      }
+    ]
+  },
+  "acpx": "0.19.4",
+  "runtimeIdentity": "37f7b79e2db080692c754104f84c6b1d40b6ae41280facb47543290c04330a04"
+}

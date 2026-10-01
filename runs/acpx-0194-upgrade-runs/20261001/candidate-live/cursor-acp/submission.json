@@ -1,0 +1,74 @@
+{
+  "taskComplete": false,
+  "cleanupReady": false,
+  "complete": false,
+  "admissionEligible": false,
+  "remediation": "wait_for_task_and_cleanup",
+  "jobId": "1eb49a04-41ae-457e-ab5c-2e7b401bfb4c",
+  "status": "submitted",
+  "route": {
+    "agent": "cursor",
+    "transport": "acp",
+    "executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "argv": [
+      "/Users/bobbybones/.local/bin/cursor-agent",
+      "acp"
+    ],
+    "model": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "effort": "medium"
+  },
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/fixture",
+  "createdAt": "2026-10-01T13:21:15.776Z",
+  "updatedAt": "2026-10-01T13:21:15.776Z",
+  "timeoutMs": 300000,
+  "model": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+  "modelSelection": {
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "medium",
+    "selectionPolicy": {
+      "kind": "explicit",
+      "requestedModel": "gpt-5.6-luna",
+      "requestedEffort": "medium",
+      "baseModel": null,
+      "effort": "medium"
+    },
+    "selectedModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "selectedEffort": "medium",
+    "currentModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "currentEffort": "medium"
+  },
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f779-3c25-7a30-aafc-9e63f3f3d766",
+    "binderId": "state-1356021ea9f8aed05ad8b493a4c63eed",
+    "jobId": "1eb49a04-41ae-457e-ab5c-2e7b401bfb4c",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/fixture",
+    "boundAt": "2026-10-01T13:21:15.792Z"
+  },
+  "proof": {
+    "state": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/state/runs/1eb49a04-41ae-457e-ab5c-2e7b401bfb4c/STATE.md",
+    "events": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/state/runs/1eb49a04-41ae-457e-ab5c-2e7b401bfb4c/events.jsonl",
+    "proof": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/state/runs/1eb49a04-41ae-457e-ab5c-2e7b401bfb4c/PROOF.md"
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  }
+}

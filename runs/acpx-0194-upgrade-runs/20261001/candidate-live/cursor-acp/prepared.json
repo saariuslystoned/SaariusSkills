@@ -1,0 +1,15 @@
+{
+  "lane": "cursor-acp",
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/cursor-acp/fixture",
+  "runtimeRoot": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/runtime/cursor-acp/37f7b79e2db080692c754104f84c6b1d40b6ae41280facb47543290c04330a04",
+  "identity": "37f7b79e2db080692c754104f84c6b1d40b6ae41280facb47543290c04330a04",
+  "acpx": "0.19.4",
+  "protectedTestSha256": "9cfc57a98865dabcefbe79efe031be86917dd4e64700f60bc225d52402e07772",
+  "promptSha256": "7ca62e7619cb8efe30d29e7ce79d2af4196dcf9a72c852432bf3b1d877a34068",
+  "timeoutMs": 300000,
+  "maxPrompts": 1,
+  "permissionMode": "approve-all",
+  "transport": "candidate-supported-stdio-MCP-launcher",
+  "installedNativeRuntime": "0.19.3",
+  "launchGate": "independent source/driver review plus explicit candidate-client authorization"
+}
