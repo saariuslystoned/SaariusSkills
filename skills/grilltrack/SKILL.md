@@ -101,8 +101,10 @@ under `.grilltrack/archive/<track-id>/`, links the successor, and starts clean
 active state. Never overwrite or delete a closed track to continue.
 
 For divergent tracks in the same Git repository, use the explicit plan/apply
-workflow in [references/reconciliation.md](references/reconciliation.md).
-It retains each fork's original history and requires fresh composition proof.
+workflow in [references/reconciliation.md](references/reconciliation.md). It
+supports both shared-ledger continuations and independent histories created
+from a Git base with no canonical ledger/event pair. It retains each fork's
+original history and requires fresh composition proof.
 
 Use the narrow subcommand that matches the real transition. Let the tool reject
 invalid lifecycle changes; do not hand-edit around validation. The ledger is the
