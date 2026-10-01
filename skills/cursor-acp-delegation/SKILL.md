@@ -80,8 +80,15 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   the caller to specify effort. `effort` is an optional advanced parameter; when
   supplied, it must match the advertised model or fail closed. Because one conversation
   owns one active worker, wait for canonical completion (`taskComplete: true`) and
-  `cleanupReady: true` before switching models between jobs. Never fall back
-  to another executable, provider, model, or the current runtime selection.
+  `cleanupReady: true` before switching models between jobs. Keep explicit model and effort pins strict. Do not substitute another executable,
+  auth profile, direct provider, or current runtime selection. An omitted default
+  model may configure at most two `fallbackModels`; use the parent-reviewed
+  continuation contract in [Cursor failure and fallback](../../docs/cursor-acp-failure-fallback.md).
+  The bridge never replays a prompt automatically. Only a recognized transport
+  failure, proven cleanup, current ownership, reviewed partial work, and remaining
+  original deadline permit `retryOf` with a new bounded continuation prompt.
+  Models served through Cursor can belong to different vendors; that choice must
+  be in the configured list, not inferred from the error.
   Duplicate, ambiguous, and conflicting effort selections fail closed. The resolved
   id is rechecked immediately before the prompt for both a prepared session and a
   fresh handle. Drift fails with no prompt. `cursor_acp_delegate` hard-refuses when
@@ -114,7 +121,13 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   ownership.
 - Save the returned job ID. Use `cursor_acp_status` for progress and
   `cursor_acp_result` with a bounded wait for the canonical outcome. A
-  submitted job, process exit, or progress event is not task success.
+  submitted job, process exit, progress event, `end_turn`, or `taskComplete` is not
+  task success. A recognized terminal PING-error suffix becomes `failed` with
+  `CURSOR_TRANSPORT_UNAVAILABLE`; the observed resource-exhausted signature becomes
+  `CURSOR_RESOURCE_EXHAUSTED` and stays fallback-ineligible because its scope is
+  unknown. Partial handoff text is retained for review.
+  Ordinary `completed` still needs parent acceptance, including when its handoff
+  explicitly says verification is incomplete.
 - `cursor_acp_steer` fails closed with `STEERING_UNSUPPORTED`: the pinned
   runtime queues a second turn rather than steering the active turn. Wait for
   the canonical terminal result, then explicitly delegate a bounded follow-up. Use

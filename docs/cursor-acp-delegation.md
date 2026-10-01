@@ -333,3 +333,9 @@ mode does not interrupt the current turn. The bridge refuses steering with
 cancellation cannot lose ownership of queued work. After the canonical job
 result, the parent can explicitly delegate a bounded follow-up. Historical
 steering smoke evidence does not establish active-turn steering support.
+
+## Transport failures and configured fallback
+
+See [Cursor failure and fallback](cursor-acp-failure-fallback.md) for the narrow
+PING-error classification repair, opt-in parent-reviewed model continuation,
+explicit selection and cleanup boundaries, and pinned OpenClaw comparison.

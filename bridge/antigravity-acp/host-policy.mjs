@@ -359,6 +359,9 @@ export async function claimConversationBind(
   }
   try {
     const existing = await loadConversationBind(bindingsRoot, record.hostConversationId);
+    if (record.expectedJobId && existing?.jobId !== record.expectedJobId) {
+      throw new HostPolicyError("CONVERSATION_BIND_CHANGED", "The expected predecessor is no longer the current conversation job.");
+    }
     if (recoverExisting) {
       const next = await recoverExisting(existing);
       if (next) {
