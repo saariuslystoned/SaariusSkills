@@ -26,10 +26,45 @@ python3 scripts/grilltrack_ledger.py --project "$PROJECT_ROOT" reconcile \
 Planning writes no project state. Inspect `plan.json`: exact refs, file hashes,
 source provenance for every decision, decision union, and decisions requiring
 new verification. A shared decision ID with any different body, including
-history or proof fields, is a conflict requiring explicit adjudication. The
-tool never chooses a winning fork. Invalid archives, event identities, missing
+history or proof fields, is a conflict requiring explicit adjudication. Supply
+a strict JSON adjudication file when the human has selected one retained role:
+
+```json
+{
+  "schema": "grilltrack/adjudication/v1",
+  "refs": {
+    "base": "<full-base-commit>",
+    "current": "<full-current-commit>",
+    "incoming": "<full-incoming-commit>"
+  },
+  "decisions": {
+    "decision-id": {
+      "role": "incoming",
+      "reason": "The incoming record is completed and has the newer lifecycle."
+    }
+  }
+}
+```
+
+The refs must exactly match the command, every conflicting decision must be
+selected, and the role must name an unambiguous body present in the live or
+base-track archive source. Unknown fields, duplicate JSON keys, malformed
+values, unnecessary selections, and blank reasons fail closed. The selection
+and reason are part of the plan digest. The tool never chooses a winning fork.
+Invalid archives, event identities, missing
 streams, unrelated commits, and a target differing from the current snapshot
 also block the plan.
+
+For an adjudicated plan, use the file with the exact refs and title used for
+the plan:
+
+```bash
+ADJUDICATION_FILE="$PROJECT_ROOT/adjudication.json"
+python3 scripts/grilltrack_ledger.py --project "$PROJECT_ROOT" reconcile \
+  --base-ref "$BASE_COMMIT" --current-ref "$CURRENT_COMMIT" \
+  --incoming-ref "$INCOMING_COMMIT" --title "Composed integration" \
+  --adjudication-file "$ADJUDICATION_FILE" > adjudicated-plan.json
+```
 
 After the operator approves that concrete plan, set `APPROVED_PLAN_SHA256` to
 its `plan_id` and repeat the same inputs and title:
@@ -41,6 +76,21 @@ python3 scripts/grilltrack_ledger.py --project "$PROJECT_ROOT" reconcile \
   --apply "$APPROVED_PLAN_SHA256"
 python3 scripts/grilltrack_ledger.py --project "$PROJECT_ROOT" validate
 ```
+
+For the adjudicated plan, set `APPROVED_PLAN_SHA256` to its `plan_id` and
+repeat the same adjudication file, refs, title, and plan digest exactly:
+
+```bash
+python3 scripts/grilltrack_ledger.py --project "$PROJECT_ROOT" reconcile \
+  --base-ref "$BASE_COMMIT" --current-ref "$CURRENT_COMMIT" \
+  --incoming-ref "$INCOMING_COMMIT" --title "Composed integration" \
+  --adjudication-file "$ADJUDICATION_FILE" \
+  --apply "$APPROVED_PLAN_SHA256"
+```
+
+The adjudication file path is not bound; its validated contents are bound.
+Changed selections, reasons, or refs therefore reject the old approval, even
+when the file is supplied at the same path.
 
 Apply preserves all three source ledgers, full event streams, and archives under
 `.grilltrack/lineage/<plan-id>/snapshots/{base,current,incoming}/`. Competing

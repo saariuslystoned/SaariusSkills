@@ -19,6 +19,135 @@ def encoded(data):
     return (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()
 
 
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load_adjudication(path, refs, api):
+    try:
+        value = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read adjudication file: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("adjudication file must be a JSON object")
+    if set(value) != {"schema", "refs", "decisions"}:
+        raise ValueError("adjudication file has unknown or missing fields")
+    if value["schema"] != "grilltrack/adjudication/v1":
+        raise ValueError("unsupported adjudication schema")
+    supplied_refs = value["refs"]
+    if not isinstance(supplied_refs, dict) or set(supplied_refs) != set(refs):
+        raise ValueError("adjudication refs must contain exactly base, current, incoming")
+    if any(not isinstance(supplied_refs[role], str) for role in refs):
+        raise ValueError("adjudication refs must be strings")
+    if supplied_refs != refs:
+        raise ValueError("adjudication refs do not match the exact reconcile inputs")
+    selections = value["decisions"]
+    if not isinstance(selections, dict):
+        raise ValueError("adjudication decisions must be an object")
+    parsed = {}
+    for decision_id, selection in selections.items():
+        api.validate_id(decision_id, "adjudication decision id")
+        if not isinstance(selection, dict) or set(selection) != {"role", "reason"}:
+            raise ValueError(
+                f"adjudication for {decision_id} has unknown or missing fields"
+            )
+        role = selection["role"]
+        if not isinstance(role, str) or role not in {"base", "current", "incoming"}:
+            raise ValueError(f"adjudication for {decision_id} has invalid role")
+        parsed[decision_id] = {
+            "role": role,
+            "reason": api.require_text(
+                selection["reason"], f"adjudication reason for {decision_id}"
+            ),
+        }
+    return {
+        "schema": value["schema"],
+        "refs": dict(supplied_refs),
+        "decisions": parsed,
+    }
+
+
+def decision_candidates(snapshots, parsed, base_id):
+    occurrences = {}
+    for role in ("base", "current", "incoming"):
+        live = json.loads(snapshots[role]["ledger.json"])
+        sources = [("live", live)]
+        if live["track_id"] != base_id:
+            sources.append(("archive/base-track", parsed[role][0][base_id][0]))
+        for source, ledger in sources:
+            for decision in ledger["decisions"]:
+                occurrences.setdefault(decision["id"], []).append(
+                    {"role": role, "source": source, "body": decision}
+                )
+    return occurrences
+
+
+def choose_decisions(occurrences, adjudication):
+    conflicts = {
+        decision_id: items
+        for decision_id, items in occurrences.items()
+        if any(item["body"] != items[0]["body"] for item in items[1:])
+    }
+    if adjudication is None:
+        if conflicts:
+            decision_id = sorted(conflicts)[0]
+            raise ValueError(
+                f"conflicting decision {decision_id}; adjudicate before reconciliation"
+            )
+    else:
+        selected_ids = set(adjudication["decisions"])
+        conflict_ids = set(conflicts)
+        if not conflict_ids:
+            raise ValueError("adjudication supplied but no decision requires selection")
+        unknown = selected_ids - set(occurrences)
+        if unknown:
+            raise ValueError(
+                "adjudication selects unknown decision(s): "
+                + ", ".join(sorted(unknown))
+            )
+        unnecessary = selected_ids - conflict_ids
+        if unnecessary:
+            raise ValueError(
+                "adjudication selects non-conflicting decision(s): "
+                + ", ".join(sorted(unnecessary))
+            )
+        missing = conflict_ids - selected_ids
+        if missing:
+            raise ValueError(
+                "adjudication is missing conflicting decision(s): "
+                + ", ".join(sorted(missing))
+            )
+
+    chosen = {}
+    for decision_id, items in occurrences.items():
+        if decision_id not in conflicts:
+            chosen[decision_id] = copy.deepcopy(items[0]["body"])
+            continue
+        selection = adjudication["decisions"][decision_id]
+        role_items = [item for item in items if item["role"] == selection["role"]]
+        if not role_items:
+            raise ValueError(
+                f"adjudication for {decision_id} selects an absent role: "
+                f"{selection['role']}"
+            )
+        bodies = {encoded(item["body"]) for item in role_items}
+        if len(bodies) != 1:
+            raise ValueError(
+                f"adjudication for {decision_id} selects an ambiguous role: "
+                f"{selection['role']}"
+            )
+        chosen[decision_id] = copy.deepcopy(role_items[0]["body"])
+    return chosen, conflicts
+
+
 def git(project, *args):
     result = subprocess.run(["git", "-C", str(project), *args], capture_output=True)
     if result.returncode:
@@ -177,9 +306,15 @@ def build_plan(store, args, api):
             if event_id in all_events and all_events[event_id] != event:
                 raise ValueError("conflicting event identity across forks")
             all_events[event_id] = event
+    adjudication = (
+        load_adjudication(args.adjudication_file, refs, api)
+        if args.adjudication_file
+        else None
+    )
     # Base-track decisions plus each fork's current decisions. Other historical
     # archives remain history, never reactivated as composition decisions.
-    by_id = {}
+    occurrences = decision_candidates(snapshots, parsed, base_id)
+    by_id, conflicts = choose_decisions(occurrences, adjudication)
     provenance = {}
     for role in ("base", "current", "incoming"):
         live = json.loads(snapshots[role]["ledger.json"])
@@ -189,14 +324,11 @@ def build_plan(store, args, api):
         for ledger in candidates:
             for decision in ledger["decisions"]:
                 key = decision["id"]
-                if key in by_id and by_id[key] != decision:
-                    # A lifecycle/history divergence for one decision also
-                    # needs explicit adjudication. Do not pick a winner.
-                    raise ValueError(f"conflicting decision {key}; adjudicate before reconciliation")
-                by_id[key] = copy.deepcopy(decision)
                 provenance.setdefault(key, []).append({"role": role, "track_id": ledger["track_id"], "source_identity": "git:" + refs[role]})
     manifest = {"schema": "grilltrack/reconcile/v1", "refs": refs, "title": api.require_text(args.title, "title"),
                 "snapshots": {role: {name: digest(content) for name, content in sorted(files.items())} for role, files in snapshots.items()}}
+    if adjudication is not None:
+        manifest["adjudication"] = adjudication
     plan_id = digest(encoded(manifest))
     joined_id = "gt-join-" + plan_id[:32]
     plan = {**manifest, "plan_id": plan_id, "joined_track_id": joined_id,
@@ -204,6 +336,12 @@ def build_plan(store, args, api):
             "needs_reverification": sorted(key for key, d in by_id.items() if d["status"] not in {"superseded", "deferred", "proposed", "reopened"}),
             "composed_verification": False, "composed_review": False,
             "snapshot_ref": f".grilltrack/lineage/{plan_id}"}
+    if adjudication is not None:
+        plan["adjudication"] = adjudication
+        plan["adjudicated_decisions"] = {
+            decision_id: adjudication["decisions"][decision_id]
+            for decision_id in sorted(conflicts)
+        }
     return plan, snapshots, by_id
 
 
