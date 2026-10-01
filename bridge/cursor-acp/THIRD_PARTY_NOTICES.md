@@ -2,7 +2,7 @@
 
 The local Cursor ACP bridge uses these pinned MIT-licensed packages:
 
-- `acpx@0.19.3`: <https://github.com/openclaw/acpx/releases/tag/v0.19.3> (source tag `6b4714c7aaac8c38b1fe38354848d2546f65d87d`)
+- `acpx@0.19.4`: <https://github.com/openclaw/acpx/releases/tag/v0.19.4> (source tag `8e396609238086dee6a407fdb3b3ac46dbdedd70`)
 - `@modelcontextprotocol/sdk@1.30.0`:
   <https://github.com/modelcontextprotocol/typescript-sdk/tree/v1.30.0>
 - `zod@4.6.5`: <https://github.com/colinhacks/zod/tree/v4.6.5>

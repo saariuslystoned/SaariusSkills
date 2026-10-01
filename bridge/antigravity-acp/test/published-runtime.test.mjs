@@ -56,7 +56,7 @@ const EXPECTED_EXPORTS = {
 };
 const EXPECTED_DECLARED_DEPENDENCIES = {
   "@agentclientprotocol/sdk": "^1.5.0",
-  "@openclaw/fs-safe": "^0.18.1",
+  "@openclaw/fs-safe": "^0.21.1",
   commander: "^15.0.0",
   skillflag: "^0.2.1",
   tsx: "^4.23.15",
@@ -64,7 +64,7 @@ const EXPECTED_DECLARED_DEPENDENCIES = {
 };
 const EXPECTED_DEPENDENCY_VERSIONS = {
   "@agentclientprotocol/sdk": "1.5.1",
-  "@openclaw/fs-safe": "0.18.2",
+  "@openclaw/fs-safe": "0.21.3",
   commander: "15.0.0",
   skillflag: "0.2.1",
   tsx: "4.23.15",
@@ -75,11 +75,11 @@ function requirePublishedInstall() {
   assert.equal(
     existsSync(installedPackage),
     true,
-    "published acpx@0.19.3 must be installed by local npm ci in this bridge",
+    "published acpx@0.19.4 must be installed by local npm ci in this bridge",
   );
 }
 
-test("native pin exercises published acpx 0.19.3 public runtime and agent-registry exports", async () => {
+test("native pin exercises published acpx 0.19.4 public runtime and agent-registry exports", async () => {
   requirePublishedInstall();
   const manifest = JSON.parse(readFileSync(installedPackage, "utf8"));
   const lock = JSON.parse(readFileSync(lockfile, "utf8"));
@@ -87,12 +87,12 @@ test("native pin exercises published acpx 0.19.3 public runtime and agent-regist
   const runtimeDigest = createHash("sha256").update(readFileSync(installedRuntime)).digest("hex");
   const registryDigest = createHash("sha256").update(readFileSync(installedRegistry)).digest("hex");
 
-  assert.equal(manifest.version, "0.19.3");
+  assert.equal(manifest.version, "0.19.4");
   assert.equal(manifest.version, ACPX_RELEASE);
   assert.equal(manifest.gitHead, undefined);
   assert.equal(manifest.engines.node, ">=22.13.0");
   assert.deepEqual(manifest.exports, EXPECTED_EXPORTS);
-  assert.equal(ACPX_SOURCE_COMMIT, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+  assert.equal(ACPX_SOURCE_COMMIT, "8e396609238086dee6a407fdb3b3ac46dbdedd70");
   assert.equal(RUNTIME_PIN.acpxSourceCommit, ACPX_SOURCE_COMMIT);
   assert.equal(RUNTIME_PIN.acpxNpmGitHead, null);
   assert.equal(RUNTIME_PIN.lastInspectedSourceCommit, ACPX_LAST_INSPECTED_SOURCE_COMMIT);
@@ -111,14 +111,14 @@ test("native pin exercises published acpx 0.19.3 public runtime and agent-regist
       ...RUNTIME_PIN,
       lastInspectedSourceRelease: ACPX_RELEASE,
     }),
-    /not the published 0\.19\.3 release/,
+    /not the published 0\.19\.4 release/,
   );
-  assert.equal(pinned.version, "0.19.3");
+  assert.equal(pinned.version, "0.19.4");
   assert.equal(pinned.resolved, ACPX_TARBALL_URL);
   assert.equal(pinned.integrity, ACPX_NPM_INTEGRITY);
   assert.equal(runtimeDigest, ACPX_RUNTIME_JS_SHA256);
   assert.equal(registryDigest, ACPX_AGENT_REGISTRY_JS_SHA256);
-  assert.equal(ACPX_TARBALL_SHA256, "670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60");
+  assert.equal(ACPX_TARBALL_SHA256, "ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311");
   assert.notEqual(ACPX_RELEASE, HISTORICAL_PUBLISHED_NPM_VERSION);
   assert.notEqual(pinned.integrity, HISTORICAL_PUBLISHED_NPM_INTEGRITY);
   assert.notEqual(ACPX_TARBALL_SHA256, HISTORICAL_PUBLISHED_TARBALL_SHA256);
@@ -169,7 +169,7 @@ test("native pin exercises published acpx 0.19.3 public runtime and agent-regist
   await runtime.shutdown();
 });
 
-test("installed acpx 0.19.3 Antigravity runtime completes a local synthetic-peer turn and retires the owned child", {
+test("installed acpx 0.19.4 Antigravity runtime completes a local synthetic-peer turn and retires the owned child", {
   timeout: 60_000,
 }, async () => {
   requirePublishedInstall();
@@ -246,7 +246,7 @@ test("installed acpx 0.19.3 Antigravity runtime completes a local synthetic-peer
       (error) => error && error.code === "ESRCH",
     );
   }
-  assert.equal(ACPX_SOURCE_COMMIT, "6b4714c7aaac8c38b1fe38354848d2546f65d87d");
+  assert.equal(ACPX_SOURCE_COMMIT, "8e396609238086dee6a407fdb3b3ac46dbdedd70");
   assert.equal(ACPX_CANDIDATE_PACKAGE_VERSION, "0.18.0");
 });
 

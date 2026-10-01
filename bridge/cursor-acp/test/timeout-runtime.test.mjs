@@ -36,7 +36,7 @@ for (const scenario of [
   { name: "explicit turn budget outlives the shorter control timeout", delayMs: 1_500, turnMs: 4_000, status: "completed" },
   { name: "explicit short turn budget expires and owned peer cleanup completes", delayMs: 5_000, turnMs: 1_000, status: "failed" },
 ]) {
-  test(`published acpx 0.19.3: ${scenario.name}`, { timeout: 20_000 }, async () => {
+  test(`published acpx 0.19.4: ${scenario.name}`, { timeout: 20_000 }, async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "acpx-turn-timeout-"));
     const peer = path.join(cwd, "peer.mjs");
     await writeFile(peer, peerSource);

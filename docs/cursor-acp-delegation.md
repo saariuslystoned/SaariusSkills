@@ -7,7 +7,7 @@ Former aliases: Local was L; Always-on was A1; Hop was B. See
 [docs/antigravity-acp-delegation.md](antigravity-acp-delegation.md).
 Published install is the plugin, not a hand-written `~/.cursor/mcp.json`.
 
-The bridge exposes a small stdio MCP server and uses pinned `acpx@0.19.3`
+The bridge exposes a small stdio MCP server and uses pinned `acpx@0.19.4`
 to open an ACP session with the explicit local Cursor executable:
 
 ```text
@@ -327,7 +327,7 @@ the proven MacBook → CP-1 hello.mjs job. See the hop section in
 
 ## Active-turn steering
 
-The pinned acpx 0.19.3 runtime serializes turns within a session. Its `steer`
+The pinned acpx 0.19.4 runtime serializes turns within a session. Its `steer`
 mode does not interrupt the current turn. The bridge refuses steering with
 `STEERING_UNSUPPORTED` before starting another turn, so completion and
 cancellation cannot lose ownership of queued work. After the canonical job

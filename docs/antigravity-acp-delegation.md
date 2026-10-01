@@ -7,22 +7,22 @@ the host policy. Published install is the plugin, not a hand-written
 `~/.cursor/mcp.json`.
 
 This lane is separate from the Cursor worker (`cursor-acp`) and from native
-`agy --print` / Puppet qualification. It uses pinned `acpx@0.19.3`:
+`agy --print` / Puppet qualification. It uses pinned `acpx@0.19.4`:
 
 ```text
 antigravity-acp 1.1.1
 registry revision 81bf71b55e15f630c4fb8a86d20d3088071d2071
-acpx 0.19.3
-acpxSourceCommit 6b4714c7aaac8c38b1fe38354848d2546f65d87d (release tag v0.19.3)
+acpx 0.19.4
+acpxSourceCommit 8e396609238086dee6a407fdb3b3ac46dbdedd70 (release tag v0.19.4)
 acpxNpmGitHead null (published package has no gitHead)
 lastInspectedSourceCommit 50a47ad10a75431cbc276ec9b555d11fe1f69c84
 lastInspectedSourceRelease 0.17.1
-OpenClaw main 482a4b2c499a053b173c5d36d78cf67b9137e013 still depends on acpx 0.19.1; this upgrade is explicitly qualified against the published 0.19.3 release
+OpenClaw main 482a4b2c499a053b173c5d36d78cf67b9137e013 still depends on acpx 0.19.1; this upgrade is explicitly qualified against the published 0.19.4 release
 @openclaw/acpx 2026.9.7
-npm integrity sha512-5YvCb+NG3XzDapxzrQRDS6zGN13mWZeugaeoq03kh9NCTFgJGzt7lrdC4jT2YXp9UV6Ieg8H+AYxs2y2+g1Z/g==
-tarball sha256 670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60
-runtime.js sha256 e12930a2d060551f6c72a1b4122fd2e1cb8b8d105106cef706aef88ed177d40f
-agent-registry.js sha256 4473862f86362f2d10e1a41fc9df439230a0caf5d0f326ea774d3dc75973724d
+npm integrity sha512-fN1c3Ype4LrwZoeJwcZEnyO+1ArThgymwswmJyd52dHKaz+3hjkR6lYdlyBPOZYIIcCVARezcfvkFUNxsylSBA==
+tarball sha256 ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311
+runtime.js sha256 6156cbbe022471b15141821d4f2fb359f014bef7cf32b724c5bd85e864ae7b49
+agent-registry.js sha256 02b704052de20f905c9732fb85c4ac18f66609126468b34d12b9a9e0feb7e9e5
 ```
 
 The runtime binary and matching `localharness_external` helper are a separate

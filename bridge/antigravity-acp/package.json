@@ -2,7 +2,7 @@
   "name": "@saarius-skills/antigravity-acp-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Experimental local stdio MCP bridge from Codex to official Google Antigravity ACP through acpx 0.19.3.",
+  "description": "Experimental local stdio MCP bridge from Codex to official Google Antigravity ACP through acpx 0.19.4.",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "acpx": "0.19.3",
+    "acpx": "0.19.4",
     "zod": "4.6.5"
   }
 }

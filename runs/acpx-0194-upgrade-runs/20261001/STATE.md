@@ -1,10 +1,12 @@
 # ACPx 0.19.4 upgrade
 
-Status: PREPARING
-Owner: Codex implementation session, native Cursor delegated implementation.
-Repository: saariuslystoned/SaariusSkills
+Status: SOURCE_REVIEW_AND_OFFLINE_CHECKS
+Repo: saariuslystoned/SaariusSkills
 Worktree: /Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194
 Branch: codex/acpx-0194-upgrade
 Base: e6aaaded1b05f871bbbde65008b17abcf61fe111
+PR: https://github.com/saariuslystoned/SaariusSkills/pull/111 (draft)
 
-No merge or installed-plugin change authorized. Live validation requires independent source/driver review and cleanup admission before one prompt per route, max 5 minutes.
+Native Cursor implementation timed out with exact-owned cleanup proven; no retry. Parent completed provider-free regressions. Installed native bridges remain 0.19.3. Candidate live fixtures prepared in isolated task runtime root, zero qualification prompts. Candidate client needs explicit authorization after independent source/driver review. Grok required grok-4.7 unavailable (native advertises 4.6/4.5).
+
+No merge, installed-plugin change, shared runtime preparation, restart, or unrelated process action.

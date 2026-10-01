@@ -1,1 +1,2 @@
 {"time": "2026-10-01T12:40:01.347756+00:00", "event": "worktree_prepared", "base": "e6aaaded1b05f871bbbde65008b17abcf61fe111"}
+{"time": "2026-10-01T13:01:46.704641+00:00", "event": "source_checkpoint", "implementation": "timeout_cleanup_proven", "candidatePrompts": 0}

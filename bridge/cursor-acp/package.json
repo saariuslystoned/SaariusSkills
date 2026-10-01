@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "acpx": "0.19.3",
+    "acpx": "0.19.4",
     "zod": "4.6.5"
   }
 }

@@ -1,0 +1,25 @@
+{
+  "version": "0.19.4",
+  "gitHead": null,
+  "sourceTagCommit": "8e396609238086dee6a407fdb3b3ac46dbdedd70",
+  "integrity": "sha512-fN1c3Ype4LrwZoeJwcZEnyO+1ArThgymwswmJyd52dHKaz+3hjkR6lYdlyBPOZYIIcCVARezcfvkFUNxsylSBA==",
+  "tarballSha256": "ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.5.0",
+    "@openclaw/fs-safe": "^0.21.1",
+    "commander": "^15.0.0",
+    "skillflag": "^0.2.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
+  },
+  "exports": {
+    ".": "./dist/cli.js",
+    "./runtime": "./dist/runtime.js",
+    "./flows": "./dist/flows.js",
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json",
+    "./agent-registry": "./dist/agent-registry.js"
+  },
+  "runtime.jsSha256": "6156cbbe022471b15141821d4f2fb359f014bef7cf32b724c5bd85e864ae7b49",
+  "agent-registry.jsSha256": "02b704052de20f905c9732fb85c4ac18f66609126468b34d12b9a9e0feb7e9e5"
+}
