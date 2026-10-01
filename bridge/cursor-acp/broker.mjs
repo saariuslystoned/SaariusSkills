@@ -991,6 +991,9 @@ function safeError(error, fallbackCode = "BRIDGE_ERROR") {
 function classifyFailure(error, interaction) {
   const safe = safeError(error);
   const lower = `${safe.code} ${safe.message}`.toLowerCase();
+  if (safe.code === "CURSOR_TRANSPORT_UNAVAILABLE") {
+    return { status: "failed", error: { ...safe, source: error.source ?? "runtime-error" } };
+  }
   if (interaction?.permissionDenied || isPermissionPromptUnavailable(error) || safe.code === "PERMISSION_PROMPT_UNAVAILABLE") {
     return {
       status: "failed",
@@ -1024,6 +1027,57 @@ function classifyFailure(error, interaction) {
     };
   }
   return { status: "failed", error: safe };
+}
+
+// Cursor 2026.08.11 catches this HTTP/2 error in processPrompt, emits an
+// agent-message chunk, then returns end_turn. This is a narrow compatibility
+// signature, not a general prose classifier or an authenticated provider signal.
+function cursorOutputFailure(text, inFence) {
+  if (inFence) return null;
+  const value = String(text ?? "");
+  const suffix = /(?:^|\n\n)Error: RetriableError: \[unavailable\] PING timed out\s*$/;
+  if (!suffix.test(value)) return null;
+  const error = new BridgeError("CURSOR_TRANSPORT_UNAVAILABLE", "Cursor's HTTP/2 transport reported PING timed out; partial work requires parent review.");
+  error.source = "cursor-output-signature";
+  return error;
+}
+
+function trackOutputFence(state, text) {
+  const lines = `${state.line}${text}`.split("\n");
+  state.line = lines.pop().slice(0, 256);
+  for (const line of lines) {
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!match) continue;
+    const token = match[1];
+    if (!state.fence) state.fence = token;
+    else if (token[0] === state.fence[0] && token.length >= state.fence.length && !match[2].trim()) state.fence = null;
+  }
+}
+
+function validateFallbackModels(models, selection) {
+  if (models === undefined) return [];
+  if (!Array.isArray(models) || models.length > 2 || models.some(model => typeof model !== "string")) {
+    throw new BridgeError("INVALID_FALLBACK_MODELS", "fallbackModels must contain at most two advertised Cursor model selectors.");
+  }
+  if (models.length && selection.selectionPolicy.kind !== "plugin-default") {
+    throw new BridgeError("FALLBACK_PINNED", "Explicit model or effort selections remain strict; omit both to configure default-model fallbacks.");
+  }
+  for (const model of models) assertCleanRequestedModel(model);
+  return models;
+}
+
+function fallbackDecision(job, now) {
+  const policy = job.fallbackPolicy;
+  if (!policy) return null;
+  const remainingMs = Math.max(0, Math.min(job.timeoutMs, Date.parse(policy.deadlineAt) - Date.parse(now)));
+  const nextModel = policy.models[policy.index + 1] ?? null;
+  let reason = "parent_review_required";
+  if (!isTerminalStatus(job.status)) reason = "turn_active";
+  else if (!isCleanupReady(job)) reason = "cleanup_unproven";
+  else if (job.status !== "failed" || job.error?.code !== "CURSOR_TRANSPORT_UNAVAILABLE") reason = "failure_ineligible";
+  else if (remainingMs < MIN_TIMEOUT_MS) reason = "deadline_exhausted";
+  else if (!nextModel) reason = "exhausted";
+  return { ...policy, nextModel, remainingMs, eligible: reason === "parent_review_required", reason };
 }
 
 export function createDefaultRuntime({ stateRoot, cursorExecutable, timeoutMs = RUNTIME_CONTROL_TIMEOUT_MS, processEnv = process.env, processLifecycle }) {
@@ -1144,11 +1198,11 @@ export class CursorAcpBroker {
     }
   }
 
-  async bindConversation({ hostConversationId, binderId, jobId, workspace }) {
+  async bindConversation({ hostConversationId, binderId, jobId, workspace, retryOf }) {
     try {
       return await claimConversationBind(
         this.bindingsRoot,
-        { hostConversationId, binderId, jobId, workspace },
+        { hostConversationId, binderId, jobId, workspace, ...(retryOf ? { expectedJobId: retryOf } : {}) },
         {
           now: this.now,
           atomicWrite,
@@ -1158,6 +1212,9 @@ export class CursorAcpBroker {
         },
       );
     } catch (error) {
+      if (retryOf && error?.code === "CONVERSATION_BIND_CHANGED") {
+        throw new BridgeError("FALLBACK_SOURCE_CHANGED", "The fallback source is no longer the current conversation job.");
+      }
       if (
         error?.code === "CONVERSATION_REBIND_UNSAFE" &&
         error.details?.reason === "previous_job_cleanup_unproven" &&
@@ -1621,19 +1678,52 @@ export class CursorAcpBroker {
     timeoutMs,
     hostConversationId,
     binderId,
+    fallbackModels,
+    retryOf,
+    partialWorkReviewed,
   } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace");
     const conversation = this.conversationIdentity({ hostConversationId, binderId });
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
-    const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
+    let boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
+    let selection = this.selectionInput(model, effort);
+    let fallbackPolicy;
+    let configuredFallbackModels = [];
+    if (retryOf !== undefined) {
+      if ([model, effort, timeoutMs, fallbackModels].some(value => value !== undefined)) {
+        throw new BridgeError("FALLBACK_OVERRIDE_FORBIDDEN", "A fallback continuation inherits its resolved chain and original deadline; model, effort, timeoutMs and fallbackModels cannot override it.");
+      }
+      if (selection.selectionPolicy.kind !== "plugin-default") {
+        throw new BridgeError("FALLBACK_PINNED", "A current server model/effort pin cannot enter configured fallback.");
+      }
+      if (partialWorkReviewed !== true) {
+        throw new BridgeError("FALLBACK_REVIEW_REQUIRED", "Inspect partial source, process and proof state; submit a bounded continuation with partialWorkReviewed: true.");
+      }
+      const source = await this.observeJob(retryOf);
+      if (source.workspace !== targetWorkspace || source.binding?.hostConversationId !== conversation.hostConversationId ||
+          source.binding?.binderId !== conversation.binderId || source.route.executable !== this.cursorExecutable ||
+          source.permission?.permissionMode !== describeLivePermissionMode(this.processEnv).permissionMode) {
+        throw new BridgeError("FALLBACK_SCOPE_CHANGED", "Fallback must retain the exact workspace, conversation, binder, executable and permission policy.");
+      }
+      const decision = fallbackDecision(source, this.now());
+      if (!decision?.eligible) {
+        throw new BridgeError(decision?.reason === "exhausted" ? "FALLBACK_EXHAUSTED" : "FALLBACK_INELIGIBLE", "The source job does not admit a fallback continuation.", { reason: decision?.reason ?? "not_configured" });
+      }
+      boundedTimeout = decision.remainingMs;
+      selection = this.selectionInput(decision.nextModel, null);
+      selection.selectionPolicy = { kind: "configured-fallback", rootJobId: decision.rootJobId, retryOf };
+      fallbackPolicy = { ...source.fallbackPolicy, index: source.fallbackPolicy.index + 1, retryOf, partialWorkReviewed: true };
+    } else {
+      if (partialWorkReviewed !== undefined) throw new BridgeError("INVALID_INPUT", "partialWorkReviewed requires retryOf.");
+      configuredFallbackModels = validateFallbackModels(fallbackModels, selection);
+    }
     try {
       await this.checkExecutable();
     } catch (error) {
       throw toBridgeError(error);
     }
 
-    const selection = this.selectionInput(model, effort);
     const jobId = this.idFactory();
     const sessionKey = `cursor-acp:${jobId}`;
     const runDir = path.join(this.runsRoot, jobId);
@@ -1646,6 +1736,7 @@ export class CursorAcpBroker {
       route: routeSummary(this.cursorExecutable, null, selection.requestedEffort),
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
+      ...(fallbackPolicy ? { fallbackPolicy } : {}),
       request: {
         promptSha256: hashText(taskPrompt),
         promptChars: taskPrompt.length,
@@ -1678,11 +1769,13 @@ export class CursorAcpBroker {
         hostConversationId: conversation.hostConversationId,
         binderId: conversation.binderId,
         workspace: targetWorkspace,
+        retryOf,
       });
       const binding = await this.bindConversation({
         ...conversation,
         jobId,
         workspace: targetWorkspace,
+        retryOf,
       });
       job.binding = binding;
       await this.persistAdmission(job, ADMISSION_STATE_BOUND);
@@ -1697,6 +1790,11 @@ export class CursorAcpBroker {
         },
       });
       const models = await this.verifyModel(handle, targetWorkspace, selection);
+      if (configuredFallbackModels.length) {
+        const chain = [models.selectedModelId, ...configuredFallbackModels.map(model => resolveRequestedCursorModel(model, models.availableModelIds))];
+        if (new Set(chain).size !== chain.length) throw new BridgeError("FALLBACK_DUPLICATE", "Fallback candidates must resolve to distinct advertised model IDs, including the primary.");
+        job.fallbackPolicy = { mode: "parent-reviewed", rootJobId: jobId, retryOf: null, models: chain, index: 0, deadlineAt: new Date(Date.parse(job.createdAt) + boundedTimeout).toISOString() };
+      }
       job.route = routeSummary(this.cursorExecutable, models.selectedModelId, models.selectedEffort);
       job.model = models;
       job.handle = publicHandle(handle);
@@ -1729,6 +1827,8 @@ export class CursorAcpBroker {
     let turn;
     const interaction = { permission: false, elicitation: false, permissionDenied: false };
     let finalText = "";
+    let streamFailure;
+    const outputFence = { fence: null, line: "" };
     let eventCount = 0;
     let toolCallCount = 0;
     try {
@@ -1760,6 +1860,13 @@ export class CursorAcpBroker {
         selectionPolicy: job.request?.selectionPolicy ?? null,
       });
 
+      if (job.fallbackPolicy) {
+        const remainingMs = Math.min(job.timeoutMs, Date.parse(job.fallbackPolicy.deadlineAt) - Date.parse(this.now()));
+        if (remainingMs < MIN_TIMEOUT_MS) throw new BridgeError("FALLBACK_DEADLINE_EXHAUSTED", "The original fallback-chain deadline expired before prompt submission.");
+        job.timeoutMs = remainingMs;
+        await this.saveJob(job);
+      }
+
       turn = this.runtime.startTurn({
         handle,
         text: taskPrompt,
@@ -1789,8 +1896,12 @@ export class CursorAcpBroker {
 
       const eventsPromise = this.consumeEvents(turn.events, async (event) => {
         eventCount += 1;
+        if (event?.type === "error") {
+          streamFailure = new BridgeError(event.code ?? "ACP_TURN_FAILED", event.message ?? "Cursor ACP stream reported an error.");
+        }
         if (event?.type === "tool_call") toolCallCount += 1;
         if (event?.type === "text_delta" && event.stream !== "thought") {
+          trackOutputFence(outputFence, String(event.text ?? ""));
           finalText = `${finalText}${String(event.text ?? "")}`.slice(-12_000);
         }
         if (event?.type === "status") {
@@ -1802,7 +1913,8 @@ export class CursorAcpBroker {
       job.eventCount = eventCount;
       job.toolCallCount = toolCallCount;
       job.updatedAt = this.now();
-      if (result?.status === "completed") {
+      const outputFailure = result?.status === "completed" ? cursorOutputFailure(finalText, outputFence.fence) : null;
+      if (result?.status === "completed" && !streamFailure && !outputFailure) {
         job.status = "completed";
         job.handoff = compactHandoff(finalText);
         job.stopReason = safeMessage(result.stopReason ?? "completed", 120);
@@ -1817,7 +1929,7 @@ export class CursorAcpBroker {
         await this.saveAndRecord(job, "cancelled", { eventCount, toolCallCount });
       } else {
         const failure = classifyFailure(
-          new BridgeError(
+          streamFailure ?? outputFailure ?? new BridgeError(
             result?.error?.code ?? "ACP_TURN_FAILED",
             result?.error?.message ?? "Cursor ACP turn failed",
           ),
@@ -1825,6 +1937,8 @@ export class CursorAcpBroker {
         );
         job.status = failure.status;
         job.error = failure.error;
+        if (finalText) job.handoff = compactHandoff(finalText);
+        if (result?.stopReason) job.stopReason = safeMessage(result.stopReason, 120);
         await this.saveAndRecord(job, failure.status, { eventCount, toolCallCount });
       }
     } catch (error) {
@@ -1843,6 +1957,7 @@ export class CursorAcpBroker {
       const failure = classifyFailure(error, interaction);
       job.status = failure.status;
       job.error = failure.error;
+      if (finalText) job.handoff = compactHandoff(finalText);
       job.updatedAt = this.now();
       await this.saveAndRecord(job, failure.status, {
         eventCount,
@@ -2293,6 +2408,7 @@ export class CursorAcpBroker {
       `# Cursor ACP job ${job.jobId}`,
       "",
       `Outcome: ${job.status}`,
+      `Error code: ${job.error?.code ?? "none"}`,
       `Workspace: ${job.workspace}`,
       `Executable: ${job.route.executable}`,
       `Selected model: ${job.model?.selectedModelId ?? "unresolved"}`,
@@ -2328,7 +2444,8 @@ export class CursorAcpBroker {
       binding: job.binding,
       proof: job.proof,
     };
-    if (job.status === "completed" || job.status === "cancelled") result.handoff = job.handoff;
+    if (job.handoff) result.handoff = job.handoff;
+    if (job.fallbackPolicy) result.fallback = fallbackDecision(job, this.now());
     if (job.permission) result.permission = job.permission;
     if (job.error) result.error = job.error;
     if (job.stopReason) result.stopReason = job.stopReason;

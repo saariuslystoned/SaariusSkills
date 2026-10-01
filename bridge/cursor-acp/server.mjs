@@ -54,7 +54,7 @@ server.registerTool(
   "cursor_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task via Cursor ACP in exactly one absolute workspace. Omitting model and effort uses the durable plugin alias gpt-5.6-luna-medium (base gpt-5.6-luna plus effort medium), resolved once to an advertised id and rechecked before the prompt. Explicit model and effort are per-job, supporting grok-4.6, grok-4.7, and gpt-5.6-luna (effort is optional advanced; unique advertised bases resolve without choosing effort). Finish cleanupReady before switching models because one conversation owns one active worker. Missing, duplicate, ambiguous, or unconfirmed selections fail closed with no prompt and no fallback. Refuses when selection readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
+      "Submit one bounded implementation task via Cursor ACP in exactly one absolute workspace. Omitting model and effort uses the durable plugin alias gpt-5.6-luna-medium (base gpt-5.6-luna plus effort medium), resolved once to an advertised id and rechecked before the prompt. Explicit model and effort are per-job, supporting grok-4.6, grok-4.7, and gpt-5.6-luna (effort is optional advanced; unique advertised bases resolve without choosing effort). Finish cleanupReady before switching models because one conversation owns one active worker. Missing, duplicate, ambiguous, or unconfirmed selections fail closed with no prompt. Optional fallbackModels (at most two selectors) configures parent-reviewed fallback only when model and effort are omitted. A recognized terminal Cursor PING failure admits retryOf plus partialWorkReviewed=true only after cleanup; supply a fresh continuation prompt, omit model/effort/timeoutMs/fallbackModels, and retain the original deadline. Each attempt is a separate exact-model job; no automatic prompt replay. Refuses when selection readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),
@@ -63,6 +63,9 @@ server.registerTool(
       timeoutMs: timeoutMsZod(z),
       hostConversationId: z.string().optional(),
       binderId: z.string().optional(),
+      fallbackModels: z.array(z.string()).max(2).optional(),
+      retryOf: z.string().optional(),
+      partialWorkReviewed: z.boolean().optional(),
     },
   },
   (args) => call((input) => broker.delegate(input), args),
@@ -83,7 +86,7 @@ server.registerTool(
 server.registerTool(
   "cursor_acp_result",
   {
-    description: "Read the bounded final handoff or explicit failure/input/cancellation outcome for a job.",
+    description: "Read the bounded final handoff or explicit failure/input/cancellation outcome for a job. taskComplete means the turn is terminal, not accepted work; cleanupReady independently proves cleanup. Optional fallback metadata is advice and never dispatches a retry.",
     inputSchema: {
       jobId: z.string(),
       waitMs: z.number().int().min(0).max(300_000).optional(),
