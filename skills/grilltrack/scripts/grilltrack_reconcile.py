@@ -45,6 +45,11 @@ def paths(ref, project):
     return found
 
 
+def validate_complete_event_stream(content):
+    if not content or not content.endswith(b"\n"):
+        raise ValueError("event stream must be nonempty and newline terminated")
+
+
 def validate_snapshot(files, api):
     ledgers = {}
     event_ids = {}
@@ -155,36 +160,61 @@ def build_plan(store, args, api):
     for role in ("current", "incoming"):
         git(store.project, "merge-base", "--is-ancestor", refs["base"], refs[role])
     snapshots = {role: paths(ref, store.project) for role, ref in refs.items()}
-    parsed = {role: validate_snapshot(files, api) for role, files in snapshots.items()}
-    base = json.loads(snapshots["base"]["ledger.json"])
-    base_id = base["track_id"]
-    base_events = snapshots["base"]["events.jsonl"]
-    if not base_events or not base_events.endswith(b"\n"):
-        raise ValueError("common event stream must be nonempty and newline terminated")
+    base_files = snapshots["base"]
+    base_canonical = {name for name in base_files if name in {"ledger.json", "events.jsonl"}}
+    if base_canonical and base_canonical != {"ledger.json", "events.jsonl"}:
+        raise ValueError("base canonical state must contain ledger and events together")
+    if not base_files:
+        base_provenance = "no-ledger-base"
+        for role in ("current", "incoming"):
+            for name, content in snapshots[role].items():
+                if name.endswith("events.jsonl"):
+                    validate_complete_event_stream(content)
+        parsed = {
+            role: validate_snapshot(files, api)
+            for role, files in snapshots.items()
+            if role != "base"
+        }
+        base = None
+        base_id = None
+        base_events = None
+    else:
+        if base_canonical != {"ledger.json", "events.jsonl"}:
+            raise ValueError("base without canonical state may not contain other state")
+        parsed = {role: validate_snapshot(files, api) for role, files in snapshots.items()}
+        base = json.loads(snapshots["base"]["ledger.json"])
+        base_provenance = "shared-ledger-base"
+        base_id = base["track_id"]
+        base_events = snapshots["base"]["events.jsonl"]
+        if not base_events or not base_events.endswith(b"\n"):
+            raise ValueError("common event stream must be nonempty and newline terminated")
     for role in ("current", "incoming"):
         tracks = parsed[role][0]
-        if base_id not in tracks or not tracks[base_id][1].startswith(base_events):
-            raise ValueError("fork does not preserve the exact common event prefix")
         live = json.loads(snapshots[role]["ledger.json"])
-        if live["track_id"] != base_id and live.get("predecessor_track_id") != base_id:
-            raise ValueError("only the base continuation or its direct successor is supported")
-        for name, content in snapshots["base"].items():
-            if name.startswith("archive/") and snapshots[role].get(name) != content:
-                raise ValueError("common historical archive changed or disappeared")
+        if base_id is not None:
+            if base_id not in tracks or not tracks[base_id][1].startswith(base_events):
+                raise ValueError("fork does not preserve the exact common event prefix")
+            if live["track_id"] != base_id and live.get("predecessor_track_id") != base_id:
+                raise ValueError("only the base continuation or its direct successor is supported")
+            for name, content in snapshots["base"].items():
+                if name.startswith("archive/") and snapshots[role].get(name) != content:
+                    raise ValueError("common historical archive changed or disappeared")
     all_events = {}
     for _, events in parsed.values():
         for event_id, event in events.items():
             if event_id in all_events and all_events[event_id] != event:
                 raise ValueError("conflicting event identity across forks")
             all_events[event_id] = event
-    # Base-track decisions plus each fork's current decisions. Other historical
-    # archives remain history, never reactivated as composition decisions.
+    # A shared base contributes its live track plus each fork's current
+    # decisions. With no ledger at the Git base, each fork is authoritative for
+    # its own complete history; no synthetic base ledger is fabricated.
     by_id = {}
     provenance = {}
-    for role in ("base", "current", "incoming"):
+    roles = ("current", "incoming") if base_id is None else ("base", "current", "incoming")
+    for role in roles:
         live = json.loads(snapshots[role]["ledger.json"])
         candidates = [live]
-        if live["track_id"] != base_id:
+        if base_id is not None and live["track_id"] != base_id:
             candidates.append(parsed[role][0][base_id][0])
         for ledger in candidates:
             for decision in ledger["decisions"]:
@@ -197,6 +227,8 @@ def build_plan(store, args, api):
                 provenance.setdefault(key, []).append({"role": role, "track_id": ledger["track_id"], "source_identity": "git:" + refs[role]})
     manifest = {"schema": "grilltrack/reconcile/v1", "refs": refs, "title": api.require_text(args.title, "title"),
                 "snapshots": {role: {name: digest(content) for name, content in sorted(files.items())} for role, files in snapshots.items()}}
+    if base_id is None:
+        manifest["base_provenance"] = base_provenance
     plan_id = digest(encoded(manifest))
     joined_id = "gt-join-" + plan_id[:32]
     plan = {**manifest, "plan_id": plan_id, "joined_track_id": joined_id,
@@ -256,7 +288,11 @@ def reconcile_command(store, args, api):
             return
         # Timestamp is fixed by immutable inputs so staged publication/retry is
         # byte-identical. Original histories remain in the source snapshots.
-        now = max(json.loads(files["ledger.json"])["updated_at"] for files in snapshots.values())
+        now = max(
+            json.loads(files["ledger.json"])["updated_at"]
+            for files in snapshots.values()
+            if "ledger.json" in files
+        )
         joined = {"schema_version": api.SCHEMA_VERSION, "track_id": plan["joined_track_id"], "title": plan["title"],
                   "status": "active", "created_at": now, "updated_at": now, "current_focus": None,
                   "decisions": [], "recommendation": None, "closeout": None, "pause": None, "last_pause": None,

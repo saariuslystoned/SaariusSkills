@@ -107,6 +107,17 @@ class ReconcileTests(unittest.TestCase):
     def test_exact_fork_preservation_and_honest_projection(self):
         before = self.state_bytes()
         plan = self.plan()
+        self.assertNotIn("base_provenance", plan)
+        self.assertEqual(
+            plan["plan_id"],
+            hashlib.sha256(
+                (json.dumps(
+                    {key: plan[key] for key in ("schema", "refs", "title", "snapshots")},
+                    indent=2,
+                    sort_keys=True,
+                ) + "\n").encode()
+            ).hexdigest(),
+        )
         self.assertEqual(plan, self.plan())
         self.assertEqual(before, self.state_bytes(), "planning must not write")
         self.assertEqual(len(plan["decision_ids"]), 16)
@@ -311,6 +322,301 @@ runpy.run_path(cli, run_name='__main__')
         self.assertEqual(foreign.read_bytes(), b"foreign retained history")
         for name in ("ledger.json", "events.jsonl"):
             self.assertEqual((self.project / ".grilltrack" / name).read_bytes(), before[name])
+
+
+class IndependentHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.project = Path(self.temp.name).resolve() / "repo"
+        self.project.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        (self.project / "README").write_text("shared Git root\n")
+        self.base = self.commit("shared root without GrillTrack state")
+
+        self.git("checkout", "-qb", "current", self.base)
+        state = self.project / ".grilltrack"
+        state.mkdir()
+        self.write_state(state, ledger("current-track", [decision("current-only")]), events(0, 2))
+        self.write_state(
+            state / "archive" / "current-history",
+            ledger("current-history", [], "closed"),
+            events(100, 1),
+        )
+        self.current = self.commit("independent current history")
+
+        self.git("checkout", "-qb", "incoming", self.base)
+        state = self.project / ".grilltrack"
+        state.mkdir()
+        self.write_state(state, ledger("incoming-track", [decision("incoming-only")]), events(10, 2))
+        self.write_state(
+            state / "archive" / "incoming-history",
+            ledger("incoming-history", [], "closed"),
+            events(110, 1),
+        )
+        self.incoming = self.commit("independent incoming history")
+        self.git("checkout", "--detach", self.current)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(
+            ["git", "-C", str(self.project), *args], stderr=subprocess.PIPE
+        ).decode().strip()
+
+    def commit(self, message):
+        self.git("add", ".")
+        self.git("commit", "-qm", message)
+        return self.git("rev-parse", "HEAD")
+
+    def write_state(self, directory, data, log):
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "ledger.json").write_text(json.dumps(data, indent=2) + "\n")
+        (directory / "events.jsonl").write_bytes(log)
+
+    def cli(self, *args):
+        return subprocess.run(
+            [sys.executable, str(CLI), "--project", str(self.project), *args],
+            capture_output=True,
+            text=True,
+        )
+
+    def reconcile(self, *extra, failpoint=None, base=None, current=None, incoming=None, title="Independent histories"):
+        env = os.environ.copy()
+        env.pop("GRILLTRACK_TEST_FAILPOINT", None)
+        if failpoint:
+            env["GRILLTRACK_TEST_FAILPOINT"] = failpoint
+        return subprocess.run(
+            [sys.executable, str(CLI), "--project", str(self.project), "reconcile",
+            "--base-ref",
+            base or self.base,
+            "--current-ref",
+            current or self.current,
+            "--incoming-ref",
+            incoming or self.incoming,
+            "--title",
+            title,
+            *extra],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_no_ledger_base_unions_and_retains_independent_histories(self):
+        before = {
+            str(path.relative_to(self.project)): path.read_bytes()
+            for path in self.project.rglob("*")
+            if path.is_file() and ".git" not in path.parts
+        }
+        plan_result = self.reconcile()
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan = json.loads(plan_result.stdout)
+        self.assertEqual(
+            before,
+            {
+                str(path.relative_to(self.project)): path.read_bytes()
+                for path in self.project.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            },
+        )
+        self.assertEqual(plan["base_provenance"], "no-ledger-base")
+        self.assertEqual(plan["decision_ids"], ["current-only", "incoming-only"])
+        self.assertEqual(
+            plan["plan_id"],
+            hashlib.sha256(
+                (json.dumps(
+                    {key: plan[key] for key in ("schema", "refs", "title", "base_provenance", "snapshots")},
+                    indent=2,
+                    sort_keys=True,
+                ) + "\n").encode()
+            ).hexdigest(),
+        )
+        self.assertEqual(
+            {item["role"] for values in plan["decision_provenance"].values() for item in values},
+            {"current", "incoming"},
+        )
+
+        applied = self.reconcile("--apply", plan["plan_id"])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        lineage = self.project / ".grilltrack" / "lineage" / plan["plan_id"]
+        for role, ref in (("current", self.current), ("incoming", self.incoming)):
+            for name in ("ledger.json", "events.jsonl"):
+                expected = subprocess.check_output(
+                    ["git", "-C", str(self.project), "show", f"{ref}:.grilltrack/{name}"]
+                )
+                self.assertEqual(
+                    (lineage / "snapshots" / role / name).read_bytes(), expected
+                )
+        for role, archive_name in (
+            ("current", "current-history"),
+            ("incoming", "incoming-history"),
+        ):
+            for name in ("ledger.json", "events.jsonl"):
+                expected = subprocess.check_output(
+                    [
+                        "git",
+                        "-C",
+                        str(self.project),
+                        "show",
+                        f"{getattr(self, role)}:.grilltrack/archive/{archive_name}/{name}",
+                    ]
+                )
+                self.assertEqual(
+                    (lineage / "snapshots" / role / f"archive/{archive_name}/{name}").read_bytes(),
+                    expected,
+                )
+        joined = json.loads((self.project / ".grilltrack" / "ledger.json").read_text())
+        self.assertEqual(
+            {item["id"] for item in joined["decisions"]},
+            {"current-only", "incoming-only"},
+        )
+        self.assertTrue(all(d["status"] == "needs_reverification" for d in joined["decisions"]))
+        self.assertTrue(all(d["review_ref"] is None for d in joined["decisions"]))
+        self.assertEqual(self.cli("validate").returncode, 0)
+
+    def test_independent_title_binding_and_no_dry_run_mutation(self):
+        first = json.loads(self.reconcile().stdout)
+        second = json.loads(self.reconcile().stdout)
+        self.assertEqual(first, second)
+        renamed = self.reconcile(title="Different independent title")
+        self.assertEqual(renamed.returncode, 0, renamed.stderr)
+        self.assertNotEqual(json.loads(renamed.stdout)["plan_id"], first["plan_id"])
+
+    def test_independent_interruption_recovery_and_idempotent_progress(self):
+        plan = json.loads(self.reconcile().stdout)
+        crashed = self.reconcile("--apply", plan["plan_id"], failpoint="reconcile_crash_after_ledger")
+        self.assertEqual(crashed.returncode, 86)
+        self.assertNotEqual(self.cli("show").returncode, 0)
+        repaired = self.reconcile("--apply", plan["plan_id"])
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertEqual(self.cli("focus", "--domain", "post-compose", "--cadence", "sequential").returncode, 0)
+        progressed = {
+            str(path.relative_to(self.project / ".grilltrack")): path.read_bytes()
+            for path in (self.project / ".grilltrack").rglob("*")
+            if path.is_file()
+        }
+        repeated = self.reconcile("--apply", plan["plan_id"])
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertTrue(json.loads(repeated.stdout)["already_applied"])
+        self.assertEqual(
+            progressed,
+            {
+                str(path.relative_to(self.project / ".grilltrack")): path.read_bytes()
+                for path in (self.project / ".grilltrack").rglob("*")
+                if path.is_file()
+            },
+        )
+
+    def test_independent_conflicting_decision_id_requires_adjudication(self):
+        self.git("checkout", "--detach", self.base)
+        state = self.project / ".grilltrack"
+        state.mkdir()
+        conflicting = decision("current-only")
+        conflicting["choice"] = "different-independent-choice"
+        self.write_state(
+            state, ledger("incoming-track", [conflicting]), events(20, 2)
+        )
+        self.incoming = self.commit("conflicting independent history")
+        self.git("checkout", "--detach", self.current)
+
+        result = self.reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicting decision current-only", result.stderr)
+
+    def test_independent_one_sided_canonical_pair_fails_closed(self):
+        self.git("checkout", "--detach", self.current)
+        (self.project / ".grilltrack" / "events.jsonl").unlink()
+        self.current = self.commit("one-sided current history")
+        result = self.reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("snapshot requires ledger and events", result.stderr)
+
+    def test_independent_incomplete_current_and_archive_streams_fail_closed(self):
+        cases = []
+        for role in ("current", "incoming"):
+            cases.extend(
+                [
+                    (role, "events.jsonl", b""),
+                    (role, "events.jsonl", events(0, 1)[:-1]),
+                    (role, f"archive/{role}-history/events.jsonl", b""),
+                    (role, f"archive/{role}-history/events.jsonl", events(0, 1)[:-1]),
+                ]
+            )
+        for role, relative, content in cases:
+            with self.subTest(role=role, relative=relative, content=content):
+                try:
+                    source = getattr(self, role)
+                    self.git("checkout", "--detach", source)
+                    path = self.project / ".grilltrack" / relative
+                    path.write_bytes(content)
+                    malformed = self.commit(f"incomplete {role} {relative}")
+                    refs = {role: malformed}
+                    result = self.reconcile(**refs)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("event stream must be nonempty and newline terminated", result.stderr)
+                finally:
+                    self.git("checkout", "--detach", self.current)
+
+    def test_independent_malformed_incoming_and_unrelated_history_fail_closed(self):
+        self.git("checkout", "--detach", self.base)
+        state = self.project / ".grilltrack"
+        state.mkdir()
+        (state / "ledger.json").write_text("{malformed\n")
+        (state / "events.jsonl").write_bytes(events(20, 1))
+        malformed = self.commit("malformed incoming history")
+        self.git("checkout", "--detach", self.current)
+        result = self.reconcile(incoming=malformed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Expecting", result.stderr)
+
+        self.git("checkout", "--detach", self.incoming)
+        (self.project / ".grilltrack" / "ledger.json").unlink()
+        one_sided_incoming = self.commit("one-sided incoming history")
+        self.git("checkout", "--detach", self.current)
+        result = self.reconcile(incoming=one_sided_incoming)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("snapshot requires ledger and events", result.stderr)
+
+        self.git("checkout", "--detach", self.base)
+        state = self.project / ".grilltrack"
+        state.mkdir()
+        (state / "ledger.json").write_text(
+            json.dumps(ledger("bad-base", []), indent=2) + "\n"
+        )
+        one_sided_base = self.commit("one-sided base history")
+        self.git("checkout", "--detach", one_sided_base)
+        self.write_state(
+            state,
+            ledger("base-current", [decision("base-current-only")]),
+            events(30, 1),
+        )
+        current_from_one_sided_base = self.commit("current from one-sided base")
+        self.git("checkout", "--detach", one_sided_base)
+        self.write_state(
+            state,
+            ledger("base-incoming", [decision("base-incoming-only")]),
+            events(40, 1),
+        )
+        incoming_from_one_sided_base = self.commit("incoming from one-sided base")
+        self.git("checkout", "--detach", self.current)
+        result = self.reconcile(
+            base=one_sided_base,
+            current=current_from_one_sided_base,
+            incoming=incoming_from_one_sided_base,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("base canonical state must contain ledger and events together", result.stderr)
+
+        self.git("checkout", "--orphan", "unrelated")
+        self.git("rm", "-rf", ".")
+        (self.project / "README").write_text("unrelated root\n")
+        unrelated = self.commit("unrelated root")
+        self.git("checkout", "--detach", self.current)
+        result = self.reconcile(base=unrelated)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incompatible", result.stderr)
 
 
 if __name__ == "__main__":
