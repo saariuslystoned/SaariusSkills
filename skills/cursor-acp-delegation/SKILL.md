@@ -123,7 +123,9 @@ explicitly authorizes that alternative. Setup diagnosis is not worker execution.
   `cursor_acp_result` with a bounded wait for the canonical outcome. A
   submitted job, process exit, progress event, `end_turn`, or `taskComplete` is not
   task success. A recognized terminal PING-error suffix becomes `failed` with
-  `CURSOR_TRANSPORT_UNAVAILABLE`; partial handoff text is retained for review.
+  `CURSOR_TRANSPORT_UNAVAILABLE`; the observed resource-exhausted signature becomes
+  `CURSOR_RESOURCE_EXHAUSTED` and stays fallback-ineligible because its scope is
+  unknown. Partial handoff text is retained for review.
   Ordinary `completed` still needs parent acceptance, including when its handoff
   explicitly says verification is incomplete.
 - `cursor_acp_steer` fails closed with `STEERING_UNSUPPORTED`: the pinned

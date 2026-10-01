@@ -17,3 +17,7 @@ Accepted scope: repair the observed Cursor ACP error-as-text completion gap and 
 Hermetic regressions must prove the observed error is failed with partial handoff and independent cleanup; quoted/errors in thought or tools do not count; explicit pins stay strict; parent review, current binding, ownership, workspace, policy and deadline gates hold; candidate IDs are resolved once and rechecked; no original prompt body is retained or auto-replayed. Run existing Cursor/shared runtime and packaging suites. Open a focused draft PR, preserve independent review findings and official review receipts; no merge or global install.
 
 This is a focused adaptation of OpenClaw selection/replay boundaries, not a claim that OpenClaw automatically changes an external ACP harness model. Upstream ACP native-default tests explicitly separate native model fallbacks from the external harness primary.
+
+## Evidence-driven repair 1
+
+A bounded independent native Luna review on the candidate terminated with `Error: RetriableError: [resource_exhausted] Error` while canonical status again said completed. No review verdict was produced. Recognize this second exact native suffix as `CURSOR_RESOURCE_EXHAUSTED`, preserve the partial handoff, and keep model fallback ineligible because model/account/backend scope and reset details are unavailable. No reviewer retry, permission change or model substitution is inferred. Initial exact-head CI remains historical after this source repair; rerun the changed suites and obtain review for the repaired head.

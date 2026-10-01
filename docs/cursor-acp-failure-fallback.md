@@ -4,8 +4,11 @@ Cursor can report an HTTP/2 PING timeout as assistant output and then return
 `end_turn`. The bridge recognizes the evidenced terminal signature
 `Error: RetriableError: [unavailable] PING timed out` and returns `failed` with
 `CURSOR_TRANSPORT_UNAVAILABLE` and `error.source: cursor-output-signature`.
-Structured runtime error events also prevent a completed result from hiding a
-failure. The bounded partial handoff remains available for parent review.
+The separately observed terminal signature
+`Error: RetriableError: [resource_exhausted] Error` becomes
+`CURSOR_RESOURCE_EXHAUSTED`. It has no trusted scope or reset details and remains
+ineligible for configured model fallback. Structured runtime error events also
+prevent a completed result from hiding a failure. The bounded partial handoff remains available for parent review.
 
 The text signature is a compatibility heuristic, not authenticated provider
 metadata. Quoted/fenced examples, thought and tool output, and an error followed

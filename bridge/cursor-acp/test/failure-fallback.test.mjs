@@ -292,3 +292,17 @@ test('rolling handoff truncation and fragmented deltas retain full-stream fence 
   assert.equal(done.status, 'failed');
   assert.equal(done.error.code, 'CURSOR_TRANSPORT_UNAVAILABLE');
 });
+
+test('observed Cursor resource-exhausted error fails visibly without inferring a model-scoped fallback', async t => {
+  const { broker, workspace, runtime } = await setup(t);
+  runtime.output = 'Review did not finish.\n\nError: RetriableError: [resource_exhausted] Error';
+  const done = await run(broker, workspace, { fallbackModels: ['grok-4.6'] });
+  assert.equal(done.status, 'failed');
+  assert.equal(done.error.code, 'CURSOR_RESOURCE_EXHAUSTED');
+  assert.equal(done.error.source, 'cursor-output-signature');
+  assert.equal(done.cleanupReady, true);
+  assert.match(done.handoff, /Review did not finish/);
+  assert.equal(done.fallback.reason, 'failure_ineligible');
+  await assert.rejects(() => run(broker, workspace, { retryOf: done.jobId, partialWorkReviewed: true }), refuses('FALLBACK_INELIGIBLE'));
+  assert.equal(runtime.turns.length, 1);
+});

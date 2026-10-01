@@ -991,7 +991,7 @@ function safeError(error, fallbackCode = "BRIDGE_ERROR") {
 function classifyFailure(error, interaction) {
   const safe = safeError(error);
   const lower = `${safe.code} ${safe.message}`.toLowerCase();
-  if (safe.code === "CURSOR_TRANSPORT_UNAVAILABLE") {
+  if (["CURSOR_TRANSPORT_UNAVAILABLE", "CURSOR_RESOURCE_EXHAUSTED"].includes(safe.code)) {
     return { status: "failed", error: { ...safe, source: error.source ?? "runtime-error" } };
   }
   if (interaction?.permissionDenied || isPermissionPromptUnavailable(error) || safe.code === "PERMISSION_PROMPT_UNAVAILABLE") {
@@ -1029,15 +1029,18 @@ function classifyFailure(error, interaction) {
   return { status: "failed", error: safe };
 }
 
-// Cursor 2026.08.11 catches this HTTP/2 error in processPrompt, emits an
+// Cursor 2026.08.11 catches runtime errors in processPrompt, emits an
 // agent-message chunk, then returns end_turn. This is a narrow compatibility
 // signature, not a general prose classifier or an authenticated provider signal.
 function cursorOutputFailure(text, inFence) {
   if (inFence) return null;
   const value = String(text ?? "");
-  const suffix = /(?:^|\n\n)Error: RetriableError: \[unavailable\] PING timed out\s*$/;
-  if (!suffix.test(value)) return null;
-  const error = new BridgeError("CURSOR_TRANSPORT_UNAVAILABLE", "Cursor's HTTP/2 transport reported PING timed out; partial work requires parent review.");
+  let error;
+  if (/(?:^|\n\n)Error: RetriableError: \[unavailable\] PING timed out\s*$/.test(value)) {
+    error = new BridgeError("CURSOR_TRANSPORT_UNAVAILABLE", "Cursor's HTTP/2 transport reported PING timed out; partial work requires parent review.");
+  } else if (/(?:^|\n\n)Error: RetriableError: \[resource_exhausted\] Error\s*$/.test(value)) {
+    error = new BridgeError("CURSOR_RESOURCE_EXHAUSTED", "Cursor reported resource exhaustion without scope or reset details; partial work requires parent review.");
+  } else return null;
   error.source = "cursor-output-signature";
   return error;
 }
