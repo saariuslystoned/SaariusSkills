@@ -1,0 +1,75 @@
+{
+  "at": "2026-10-01T23:35:18.755233+00:00",
+  "dependencySource": "/Users/bobbybones/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules",
+  "noInstall": true,
+  "checks": [
+    {
+      "name": "parent-grok",
+      "argv": [
+        "node",
+        "--test",
+        "bridge/grok-acp/test/host-policy.test.mjs",
+        "bridge/grok-acp/test/lock.test.mjs",
+        "bridge/grok-acp/test/recovery.test.mjs",
+        "bridge/grok-acp/test/live-smoke.test.mjs",
+        "bridge/grok-acp/test/timeout-policy.test.mjs",
+        "bridge/grok-acp/test/broker.test.mjs",
+        "bridge/grok-acp/test/model-selection.test.mjs",
+        "bridge/grok-acp/test/setup.test.mjs",
+        "bridge/grok-acp/test/admission-recovery.test.mjs",
+        "bridge/grok-acp/test/server-errors.test.mjs",
+        "bridge/grok-acp/test/reasoning-effort.test.mjs"
+      ],
+      "exitCode": 0,
+      "stdoutPath": "runs/grok-model-selection-runs/20261001/parent-grok.stdout.log",
+      "stderrPath": "runs/grok-model-selection-runs/20261001/parent-grok.stderr.log",
+      "stdoutPathSha256": "a97fae47a9b06893d99a7a2080a8e9d54d01c0ac380de9791422b218e385c85e",
+      "stderrPathSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "parent-python-all",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-q"
+      ],
+      "outcome": "timeout",
+      "timeoutSeconds": 90,
+      "exitCode": null,
+      "note": "Unchanged broader Python suite exceeded parent diagnostic budget; no Python production files changed. Impacted packaging checks run directly."
+    },
+    {
+      "name": "parent-packaging",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_packaging",
+        "-q"
+      ],
+      "exitCode": 0,
+      "stdoutPath": "runs/grok-model-selection-runs/20261001/parent-packaging.stdout.log",
+      "stderrPath": "runs/grok-model-selection-runs/20261001/parent-packaging.stderr.log",
+      "stdoutPathSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrPathSha256": "535ac70bc9fd667a6bc37a43ff992b0f2f2fcc6eaf6b847b6cf9f7519f96590d"
+    },
+    {
+      "name": "parent-shared",
+      "argv": [
+        "node",
+        "--test",
+        "bridge/acp-runtime/test/host-policy.test.mjs",
+        "bridge/acp-runtime/test/plugin-manifest-parity.test.mjs"
+      ],
+      "exitCode": 0,
+      "stdoutPath": "runs/grok-model-selection-runs/20261001/parent-shared.stdout.log",
+      "stderrPath": "runs/grok-model-selection-runs/20261001/parent-shared.stderr.log",
+      "stdoutPathSha256": "fcfdf8fe13e379b681d7266162e0b362bf5c5fcd3ca0f949c529a96c27206f5d",
+      "stderrPathSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

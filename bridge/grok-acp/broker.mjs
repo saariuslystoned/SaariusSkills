@@ -36,6 +36,10 @@ const execFile = promisify(execFileCallback);
 export const DEFAULT_GROK_COMMAND = "grok";
 export const DEFAULT_GROK_ARGV = Object.freeze(["agent", "stdio"]);
 export const DEFAULT_GROK_MODEL = "grok-4.7";
+// Omitted model prefers the advertised default, then these alternatives in order.
+// A caller-supplied fallbackModels list replaces this pair; an empty list disables alternatives.
+export const DEFAULT_GROK_FALLBACK_MODELS = Object.freeze(["grok-4.6", "grok-4.5"]);
+export const MAX_GROK_FALLBACK_MODELS = 2;
 // Pin reasoning effort for delegated jobs so a user's interactive CLI default
 // (for example `xhigh` in ~/.grok/config.toml) does not leak into bounded work.
 export const DEFAULT_GROK_REASONING_EFFORT = "high";
@@ -55,6 +59,14 @@ export const MAX_STEER_CHARS = 8_000;
 
 export function timeoutMsZod(z) {
   return z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS).optional();
+}
+
+export function grokModelZod(z) {
+  return z.string().min(1).optional();
+}
+
+export function grokFallbackModelsZod(z) {
+  return z.array(z.string().min(1)).max(MAX_GROK_FALLBACK_MODELS).optional();
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "needs-input"]);
@@ -252,13 +264,141 @@ export function resolveGrokExecutable({ grokExecutable, env = process.env } = {}
   return DEFAULT_GROK_COMMAND;
 }
 
+function advertisedGrokModelIds(availableModelIds) {
+  if (!Array.isArray(availableModelIds)) return [];
+  return availableModelIds.filter((modelId) => typeof modelId === "string");
+}
+
+function freezeSelectionPolicy(policy) {
+  if (policy.kind === "explicit") {
+    return Object.freeze({ kind: "explicit", model: policy.model });
+  }
+  return Object.freeze({
+    kind: "default",
+    preferred: policy.preferred,
+    alternatives: Object.freeze([...policy.alternatives]),
+  });
+}
+
+export function assertExactGrokModelId(value, label = "model") {
+  if (typeof value !== "string" || value.length === 0 || value.length > 200 || value !== value.trim() || value.includes("\0")) {
+    throw new BridgeError("INVALID_MODEL", `${label} must be a nonempty exact Grok model id`);
+  }
+  return value;
+}
+
 export function resolveRequestedGrokModel(requestedModel, availableModelIds) {
-  if (availableModelIds.includes(requestedModel)) return requestedModel;
+  const advertised = advertisedGrokModelIds(availableModelIds);
+  if (advertised.includes(requestedModel)) return requestedModel;
   throw new BridgeError(
     "MODEL_UNAVAILABLE",
     `Grok ACP did not advertise the required model ${requestedModel}`,
-    { availableModelCount: availableModelIds.length, availableModelIds: availableModelIds.slice(0, 20) },
+    { availableModelCount: advertised.length, availableModelIds: advertised },
   );
+}
+
+export function validateGrokFallbackModels(fallbackModels) {
+  if (!Array.isArray(fallbackModels) || fallbackModels.length > MAX_GROK_FALLBACK_MODELS) {
+    throw new BridgeError(
+      "INVALID_FALLBACK_MODELS",
+      "fallbackModels must be an array of at most two exact Grok model ids",
+    );
+  }
+  const ids = [];
+  for (const [index, value] of fallbackModels.entries()) {
+    try {
+      ids.push(assertExactGrokModelId(value, `fallbackModels[${index}]`));
+    } catch (error) {
+      if (error instanceof BridgeError && error.code === "INVALID_MODEL") {
+        throw new BridgeError("INVALID_FALLBACK_MODELS", error.message);
+      }
+      throw error;
+    }
+  }
+  if (new Set(ids).size !== ids.length || ids.includes(DEFAULT_GROK_MODEL)) {
+    throw new BridgeError(
+      "INVALID_FALLBACK_MODELS",
+      "fallbackModels must be unique exact ids and must not repeat the default grok-4.7",
+    );
+  }
+  return ids;
+}
+
+// Explicit model is strict. Omitted model uses grok-4.7, then the active alternatives.
+// An explicit constructor pin stays strict until a per-job model or fallbackModels is supplied.
+export function resolveGrokSelectionPolicy({
+  requestedModel,
+  fallbackModels,
+  constructorModel,
+  constructorPinned = false,
+} = {}) {
+  if (requestedModel === null || fallbackModels === null) {
+    throw new BridgeError("INVALID_MODEL", "model and fallbackModels must be omitted or valid; null is not a selection");
+  }
+  const explicit = requestedModel !== undefined;
+  const hasFallbacks = fallbackModels !== undefined;
+  if (explicit && hasFallbacks) {
+    throw new BridgeError(
+      "FALLBACK_PINNED",
+      "Explicit model stays exact; omit model to configure fallbackModels",
+    );
+  }
+  if (explicit) {
+    return freezeSelectionPolicy({ kind: "explicit", model: assertExactGrokModelId(requestedModel) });
+  }
+  if (hasFallbacks) {
+    return freezeSelectionPolicy({
+      kind: "default",
+      preferred: DEFAULT_GROK_MODEL,
+      alternatives: validateGrokFallbackModels(fallbackModels),
+    });
+  }
+  if (constructorPinned) {
+    return freezeSelectionPolicy({
+      kind: "explicit",
+      model: assertExactGrokModelId(constructorModel, "constructor model"),
+    });
+  }
+  return freezeSelectionPolicy({
+    kind: "default",
+    preferred: DEFAULT_GROK_MODEL,
+    alternatives: [...DEFAULT_GROK_FALLBACK_MODELS],
+  });
+}
+
+export function resolveGrokModelChoice(policy, availableModelIds) {
+  const advertised = advertisedGrokModelIds(availableModelIds);
+  if (policy?.kind === "explicit") {
+    const selectedModelId = resolveRequestedGrokModel(policy.model, advertised);
+    return {
+      selectedModelId,
+      requestedModel: policy.model,
+      selectionPolicy: policy,
+      usedDefaultAlternative: false,
+    };
+  }
+  const preferred = policy?.preferred ?? DEFAULT_GROK_MODEL;
+  const alternatives = Array.isArray(policy?.alternatives) ? policy.alternatives : [...DEFAULT_GROK_FALLBACK_MODELS];
+  const chain = [preferred, ...alternatives];
+  const selectedModelId = chain.find((modelId) => advertised.includes(modelId));
+  if (!selectedModelId) {
+    throw new BridgeError(
+      "MODEL_UNAVAILABLE",
+      `Grok ACP did not advertise any allowed model (${chain.join(", ")})`,
+      {
+        availableModelCount: advertised.length,
+        availableModelIds: advertised,
+        requestedModel: null,
+        selectionPolicy: policy ?? null,
+      },
+    );
+  }
+  return {
+    selectedModelId,
+    requestedModel: null,
+    selectionPolicy: policy,
+    usedDefaultAlternative: selectedModelId !== preferred,
+  };
 }
 
 export function redactSensitive(value) {
@@ -470,7 +610,7 @@ export function resolveReasoningEffort(env = process.env) {
   return value;
 }
 
-function routeSummary(executable, model, reasoningEffort) {
+function routeSummary(executable, model, reasoningEffort, selection = null) {
   return {
     agent: "grok-build",
     transport: "acp",
@@ -478,6 +618,9 @@ function routeSummary(executable, model, reasoningEffort) {
     argv: [executable, "agent", "stdio"],
     model,
     reasoningEffort: reasoningEffort ?? "inherited",
+    requestedModel: selection?.requestedModel ?? null,
+    selectionPolicy: selection?.selectionPolicy ?? null,
+    usedDefaultAlternative: Boolean(selection?.usedDefaultAlternative),
   };
 }
 
@@ -509,13 +652,46 @@ function reasoningOption(status) {
 }
 
 function publicModel(model) {
+  const availableModelIds = advertisedGrokModelIds(model?.availableModelIds);
+  const availableModels = Array.isArray(model?.availableModels) ? model.availableModels : [];
   return {
-    reasoningEffort: model.reasoningEffort,
-    requestedModel: model.requestedModel,
-    selectedModelId: model.selectedModelId,
-    currentModelId: model.currentModelId,
-    availableModelCount: model.availableModelIds.length,
-    matchingModelIds: model.selectedModelId ? [model.selectedModelId] : [],
+    reasoningEffort: model?.reasoningEffort,
+    requestedModel: model?.requestedModel ?? null,
+    selectionPolicy: model?.selectionPolicy ?? null,
+    selectedModelId: model?.selectedModelId ?? null,
+    usedDefaultAlternative: Boolean(model?.usedDefaultAlternative),
+    currentModelId: model?.currentModelId ?? null,
+    availableModelIds,
+    availableModels,
+    availableModelCount: availableModelIds.length,
+    matchingModelIds: model?.selectedModelId ? [model.selectedModelId] : [],
+  };
+}
+
+function selectionRouteModel(policy) {
+  return policy?.kind === "explicit" ? policy.model : policy?.preferred ?? DEFAULT_GROK_MODEL;
+}
+
+function selectionText(job) {
+  const policy = job.modelBinding?.selectionPolicy ?? job.request?.selectionPolicy;
+  if (policy?.kind === "explicit") return `explicit ${policy.model}`;
+  if (policy?.kind === "default") {
+    const alternatives = policy.alternatives?.length ? policy.alternatives.join(", ") : "(none)";
+    return `default ${policy.preferred}, then ${alternatives}`;
+  }
+  return "unspecified";
+}
+
+function alternativeText(job) {
+  if (!job.modelBinding) return "unselected";
+  return job.modelBinding.usedDefaultAlternative ? "selected" : "not used";
+}
+
+function selectionReceipt(policy, choice = null) {
+  return {
+    requestedModel: choice?.requestedModel ?? (policy?.kind === "explicit" ? policy.model : null),
+    selectionPolicy: choice?.selectionPolicy ?? policy ?? null,
+    usedDefaultAlternative: Boolean(choice?.usedDefaultAlternative),
   };
 }
 
@@ -645,7 +821,11 @@ export class GrokAcpBroker {
       grokExecutable: options.grokExecutable,
       env: this.processEnv,
     });
-    this.model = options.model ?? DEFAULT_GROK_MODEL;
+    // An explicit constructor model is a strict pin. Omitting it keeps the
+    // advertised grok-4.7, then grok-4.6, then grok-4.5 policy. Per-job model
+    // or fallbackModels can override the pin; jobs never write this.model.
+    this.modelPinned = options.model !== undefined && options.model !== null;
+    this.model = this.modelPinned ? options.model : DEFAULT_GROK_MODEL;
     this.reasoningEffort = options.reasoningEffort !== undefined
       ? options.reasoningEffort
       : resolveReasoningEffort(this.processEnv);
@@ -987,13 +1167,62 @@ export class GrokAcpBroker {
     }
   }
 
-  async discover({ workspace } = {}) {
+  selectionPolicy({ model, fallbackModels } = {}) {
+    return resolveGrokSelectionPolicy({
+      requestedModel: model,
+      fallbackModels,
+      constructorModel: this.model,
+      constructorPinned: this.modelPinned,
+    });
+  }
+
+  readinessFailure(error, policy, executable, workspace, permission) {
+    const failure = safeError(error, "READINESS_FAILED");
+    const details = failure.details ?? {};
+    const catalogIds = Array.isArray(details.availableModelIds) ? details.availableModelIds : null;
+    const modelReport = catalogIds
+      ? publicModel({
+          availableModelIds: catalogIds,
+          availableModels: details.availableModels,
+          currentModelId: details.currentModelId ?? null,
+          requestedModel: policy?.kind === "explicit" ? policy.model : null,
+          selectionPolicy: policy ?? details.selectionPolicy ?? null,
+          selectedModelId: null,
+          usedDefaultAlternative: false,
+        })
+      : undefined;
+    return {
+      ready: false,
+      catalogReady: Boolean(catalogIds),
+      selectionReady: false,
+      route: routeSummary(
+        this.grokExecutable,
+        selectionRouteModel(policy),
+        this.reasoningEffort,
+        selectionReceipt(policy),
+      ),
+      executable,
+      workspace,
+      permission,
+      ...(modelReport ? { model: modelReport } : {}),
+      error: failure,
+      note: "Readiness did not send a model turn.",
+    };
+  }
+
+  async discover({ workspace, model, fallbackModels } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace", {
       defaultValue: this.defaultWorkspace,
     });
-    const executable = await this.checkExecutable();
     const permission = describeLivePermissionMode(this.processEnv);
+    let policy;
+    try {
+      policy = this.selectionPolicy({ model, fallbackModels });
+    } catch (error) {
+      return this.readinessFailure(error, null, undefined, targetWorkspace, permission);
+    }
+    const executable = await this.checkExecutable();
     const sessionKey = `grok-acp-probe:${this.idFactory()}`;
     let handle;
     try {
@@ -1003,10 +1232,12 @@ export class GrokAcpBroker {
         mode: "oneshot",
         cwd: targetWorkspace,
       });
-      const models = await this.verifyModel(handle, targetWorkspace);
+      const models = await this.verifyModel(handle, targetWorkspace, policy);
       return {
         ready: true,
-        route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
+        catalogReady: true,
+        selectionReady: true,
+        route: routeSummary(this.grokExecutable, models.selectedModelId, this.reasoningEffort, models),
         executable,
         workspace: targetWorkspace,
         permission,
@@ -1015,15 +1246,7 @@ export class GrokAcpBroker {
         note: "Readiness opened and closed an ACP session without sending a model turn.",
       };
     } catch (error) {
-      const failure = safeError(error, "READINESS_FAILED");
-      return {
-        ready: false,
-        route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
-        executable,
-        workspace: targetWorkspace,
-        permission,
-        error: failure,
-      };
+      return this.readinessFailure(error, policy, executable, targetWorkspace, permission);
     } finally {
       if (handle) {
         try {
@@ -1039,31 +1262,126 @@ export class GrokAcpBroker {
     }
   }
 
-  async verifyModel(handle, workspace) {
-    if (typeof this.runtime.getStatus !== "function") {
-      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
-    }
-    let status = await this.runtime.getStatus({ handle });
-    let models = modelSnapshot(status);
-    const selectedModelId = resolveRequestedGrokModel(this.model, models.availableModelIds);
-    if (models.currentModelId !== selectedModelId && typeof this.runtime.setModel === "function") {
-      await this.runtime.setModel({ handle, model: selectedModelId });
-      status = await this.runtime.getStatus({ handle });
-      models = modelSnapshot(status);
+  async confirmExactModel(handle, selectedModelId, snapshot) {
+    let models = snapshot ?? modelSnapshot(await this.runtime.getStatus({ handle }));
+    const advertised = advertisedGrokModelIds(models.availableModelIds);
+    const catalog = {
+      requestedModel: selectedModelId,
+      selectedModelId,
+      currentModelId: models.currentModelId ?? null,
+      availableModelIds: advertised,
+      availableModels: Array.isArray(models.availableModels) ? models.availableModels : [],
+      renegotiated: false,
+    };
+    if (!advertised.includes(selectedModelId)) {
+      throw new BridgeError(
+        "MODEL_UNAVAILABLE",
+        `Grok ACP did not advertise the required model ${selectedModelId}`,
+        catalog,
+      );
     }
     if (models.currentModelId !== selectedModelId) {
+      if (typeof this.runtime.setModel !== "function") {
+        throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime cannot set the selected Grok model", catalog);
+      }
+      await this.runtime.setModel({ handle, model: selectedModelId });
+      models = modelSnapshot(await this.runtime.getStatus({ handle }));
+      catalog.currentModelId = models.currentModelId ?? null;
+      catalog.availableModelIds = advertisedGrokModelIds(models.availableModelIds);
+      catalog.availableModels = Array.isArray(models.availableModels) ? models.availableModels : [];
+    }
+    if (models.currentModelId !== selectedModelId || !catalog.availableModelIds.includes(selectedModelId)) {
       throw new BridgeError(
         "MODEL_SELECTION_UNCONFIRMED",
         `Grok ACP did not confirm selected model ${selectedModelId}`,
-        {
-          requestedModel: this.model,
-          currentModelId: models.currentModelId,
-          availableModelIds: models.availableModelIds,
-        },
+        catalog,
       );
     }
-    const reasoningEffort = await this.applyReasoningEffort(handle);
-    return { ...models, requestedModel: this.model, selectedModelId, workspace, reasoningEffort };
+    return models;
+  }
+
+  async verifyModel(handle, workspace, policy = this.selectionPolicy()) {
+    if (typeof this.runtime.getStatus !== "function") {
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
+    }
+    let models;
+    try {
+      models = modelSnapshot(await this.runtime.getStatus({ handle }));
+    } catch (error) {
+      if (error instanceof BridgeError) throw error;
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not return model status", {
+        cause: safeMessage(error?.message),
+      });
+    }
+    let choice;
+    try {
+      choice = resolveGrokModelChoice(policy, models.availableModelIds);
+    } catch (error) {
+      if (error instanceof BridgeError) {
+        error.details = {
+          ...error.details,
+          currentModelId: models.currentModelId ?? null,
+          availableModelIds: advertisedGrokModelIds(models.availableModelIds),
+          availableModels: Array.isArray(models.availableModels) ? models.availableModels : [],
+        };
+      }
+      throw error;
+    }
+    const confirmed = await this.confirmExactModel(handle, choice.selectedModelId, models);
+    let reasoningEffort;
+    try {
+      reasoningEffort = await this.applyReasoningEffort(handle);
+    } catch (error) {
+      if (error instanceof BridgeError && !Array.isArray(error.details?.availableModelIds)) {
+        error.details = {
+          ...(error.details ?? {}),
+          availableModelIds: advertisedGrokModelIds(confirmed.availableModelIds),
+          availableModels: Array.isArray(confirmed.availableModels) ? confirmed.availableModels : [],
+          currentModelId: confirmed.currentModelId ?? null,
+        };
+      }
+      throw error;
+    }
+    return {
+      ...confirmed,
+      requestedModel: choice.requestedModel,
+      selectedModelId: choice.selectedModelId,
+      selectionPolicy: choice.selectionPolicy,
+      usedDefaultAlternative: choice.usedDefaultAlternative,
+      workspace,
+      reasoningEffort,
+    };
+  }
+
+  bindModelChoice(job, models) {
+    job.modelBinding = Object.freeze({
+      requestedModel: models.requestedModel ?? null,
+      selectedModelId: models.selectedModelId,
+      selectionPolicy: models.selectionPolicy,
+      usedDefaultAlternative: Boolean(models.usedDefaultAlternative),
+    });
+    job.model = models;
+    job.request.selectedModelId = models.selectedModelId;
+    job.request.usedDefaultAlternative = job.modelBinding.usedDefaultAlternative;
+  }
+
+  async recheckBoundModel(handle, job) {
+    const bound = job.modelBinding;
+    if (typeof bound?.selectedModelId !== "string" || bound.selectedModelId.length === 0) {
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Job has no bound Grok model", { renegotiated: false });
+    }
+    const models = await this.confirmExactModel(handle, bound.selectedModelId);
+    job.model = {
+      ...job.model,
+      currentModelId: models.currentModelId,
+      availableModelIds: models.availableModelIds,
+      availableModels: models.availableModels,
+      requestedModel: bound.requestedModel,
+      selectedModelId: bound.selectedModelId,
+      selectionPolicy: bound.selectionPolicy,
+      usedDefaultAlternative: bound.usedDefaultAlternative,
+    };
+    return models;
   }
 
   async applyReasoningEffort(handle) {
@@ -1100,12 +1418,14 @@ export class GrokAcpBroker {
     return { requested: this.reasoningEffort, current: option.currentValue, available };
   }
 
-  async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId } = {}) {
+  async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId, model, fallbackModels } = {}) {
     await this.init();
     const targetWorkspace = await requireDirectory(workspace, "workspace");
+    const policy = this.selectionPolicy({ model, fallbackModels });
     const conversation = this.conversationIdentity({ hostConversationId, binderId });
     const taskPrompt = assertBoundedText(prompt, "prompt", MAX_PROMPT_CHARS);
     const boundedTimeout = timeoutMs === undefined ? this.timeoutMs : parseTimeout(timeoutMs);
+    const requestedSelection = selectionReceipt(policy);
     try {
       await this.checkExecutable();
     } catch (error) {
@@ -1121,10 +1441,16 @@ export class GrokAcpBroker {
       status: "admitted",
       createdAt: this.now(),
       updatedAt: this.now(),
-      route: routeSummary(this.grokExecutable, this.model, this.reasoningEffort),
+      route: routeSummary(this.grokExecutable, selectionRouteModel(policy), this.reasoningEffort, requestedSelection),
       workspace: targetWorkspace,
       timeoutMs: boundedTimeout,
-      request: { promptSha256: hashText(taskPrompt), promptChars: taskPrompt.length },
+      request: {
+        promptSha256: hashText(taskPrompt),
+        promptChars: taskPrompt.length,
+        requestedModel: requestedSelection.requestedModel,
+        fallbackModels: policy.kind === "default" ? [...policy.alternatives] : null,
+        selectionPolicy: policy,
+      },
       // Issue #92: the submission receipt carries the resolved permission
       // policy so a cockpit sees approve-reads before the first write fails.
       permission: describeLivePermissionMode(this.processEnv),
@@ -1168,9 +1494,9 @@ export class GrokAcpBroker {
           systemPrompt: { append: BRIDGE_SYSTEM_PROMPT },
         },
       });
-      const models = await this.verifyModel(handle, targetWorkspace);
-      job.route = routeSummary(this.grokExecutable, models.selectedModelId ?? this.model, this.reasoningEffort);
-      job.model = models;
+      const models = await this.verifyModel(handle, targetWorkspace, policy);
+      this.bindModelChoice(job, models);
+      job.route = routeSummary(this.grokExecutable, models.selectedModelId, this.reasoningEffort, models);
       job.handle = publicHandle(handle);
       await captureJobWorkers(this, job, handle);
       job.status = "submitted";
@@ -1181,6 +1507,8 @@ export class GrokAcpBroker {
         workspace: targetWorkspace,
         hostConversationId: binding.hostConversationId,
         binderId: binding.binderId,
+        selectedModelId: job.modelBinding.selectedModelId,
+        usedDefaultAlternative: job.modelBinding.usedDefaultAlternative,
       });
       const promise = Promise.resolve()
         .then(() => this.runJob(job, taskPrompt, { handle }))
@@ -1217,11 +1545,13 @@ export class GrokAcpBroker {
         });
         job.handle = publicHandle(handle);
         await captureJobWorkers(this, job, handle);
-        job.model = await this.verifyModel(handle, job.workspace);
       }
+      await this.recheckBoundModel(handle, job);
       await this.saveJob(job);
       await this.recordEvent(job, "model_confirmed", {
+        selectedModelId: job.modelBinding.selectedModelId,
         currentModelId: job.model.currentModelId,
+        usedDefaultAlternative: job.modelBinding.usedDefaultAlternative,
         availableModelIds: job.model.availableModelIds,
       });
 
@@ -1726,7 +2056,10 @@ export class GrokAcpBroker {
       `Status: ${job.status}`,
       `Workspace: ${job.workspace}`,
       `Route: ${(job.route.argv ?? [job.route.executable, "agent", "stdio"]).join(" ")}`,
-      `Requested model: ${job.route.model}`,
+      `Requested model: ${job.modelBinding?.requestedModel ?? job.request?.requestedModel ?? "omitted"}`,
+      `Selection: ${selectionText(job)}`,
+      `Selected model: ${job.modelBinding?.selectedModelId ?? job.model?.selectedModelId ?? "unselected"}`,
+      `Default alternative: ${alternativeText(job)}`,
       `Owner: ${job.owner?.brokerId ?? "unknown"}`,
       `Updated: ${job.updatedAt}`,
       "",
@@ -1742,7 +2075,9 @@ export class GrokAcpBroker {
       `Outcome: ${job.status}`,
       `Workspace: ${job.workspace}`,
       `Executable: ${job.route.executable}`,
-      `Model: ${job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model}`,
+      `Model: ${job.modelBinding?.selectedModelId ?? job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model}`,
+      `Selection: ${selectionText(job)}`,
+      `Default alternative: ${alternativeText(job)}`,
       `Prompt SHA-256: ${job.request.promptSha256}`,
       `Events observed: ${job.eventCount ?? 0}`,
       `Tool calls observed: ${job.toolCallCount ?? 0}`,
@@ -1765,7 +2100,16 @@ export class GrokAcpBroker {
       updatedAt: job.updatedAt,
       startedAt: job.startedAt,
       timeoutMs: job.timeoutMs,
-      model: job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      model: job.modelBinding?.selectedModelId ?? job.model?.selectedModelId ?? job.model?.currentModelId ?? job.route.model,
+      ...(job.modelBinding ? {
+        modelSelection: {
+          requestedModel: job.modelBinding.requestedModel,
+          selectionPolicy: job.modelBinding.selectionPolicy,
+          selectedModelId: job.modelBinding.selectedModelId,
+          usedDefaultAlternative: job.modelBinding.usedDefaultAlternative,
+          currentModelId: job.model?.currentModelId ?? null,
+        },
+      } : {}),
       binding: job.binding,
       proof: job.proof,
     };

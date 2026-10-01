@@ -14,7 +14,7 @@ fixture means runtime/auth/workspace are ready, selected model is present in its
 advertised catalog, and permission is as specified. Models: Cursor's
 green fixture resolves plugin alias `gpt-5.6-luna-medium` to the advertised Medium
 id `gpt-5.6-luna[context=272k,reasoning=medium,fast=false]`; that alias is not itself a live id. A catalog missing Medium is not green
-for the default and must fail closed with `EFFORT_UNSUPPORTED`. Explicit High requests on a live-shaped catalog without High also fail closed with `EFFORT_UNSUPPORTED`. Model switching supports `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as per-job options with effort optional for unique advertised bases. Grok `grok-4.7`, Antigravity `gemini-3.8-flash-high`. These are
+for the default and must fail closed with `EFFORT_UNSUPPORTED`. Explicit High requests on a live-shaped catalog without High also fail closed with `EFFORT_UNSUPPORTED`. Model switching supports `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as per-job options with effort optional for unique advertised bases. Omitting a native Grok model prefers advertised `grok-4.7`, then `grok-4.6`, then `grok-4.5`; an explicit Grok model stays exact. These green Grok fixtures advertise `grok-4.7`. Native Grok does not run Luna. Antigravity `gemini-3.8-flash-high`. These are
 fixtures, not future live model assumptions.
 Canonical result is completed with cleanup observed. No prior mode authorization
 unless the case states it.

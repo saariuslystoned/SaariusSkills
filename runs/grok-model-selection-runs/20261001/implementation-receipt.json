@@ -1,0 +1,74 @@
+{
+  "taskComplete": false,
+  "cleanupReady": false,
+  "complete": false,
+  "admissionEligible": false,
+  "remediation": "wait_for_task_and_cleanup",
+  "jobId": "ef0ec142-9f2f-471c-8136-6c7fd569d384",
+  "status": "submitted",
+  "route": {
+    "agent": "cursor",
+    "transport": "acp",
+    "executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "argv": [
+      "/Users/bobbybones/.local/bin/cursor-agent",
+      "acp"
+    ],
+    "model": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+    "effort": "high"
+  },
+  "workspace": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
+  "createdAt": "2026-10-01T23:20:30.696Z",
+  "updatedAt": "2026-10-01T23:20:30.696Z",
+  "timeoutMs": 1200000,
+  "model": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+  "modelSelection": {
+    "requestedModel": "grok-4.7",
+    "requestedEffort": null,
+    "selectionPolicy": {
+      "kind": "explicit",
+      "requestedModel": "grok-4.7",
+      "requestedEffort": null,
+      "baseModel": null,
+      "effort": null
+    },
+    "selectedModelId": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+    "selectedEffort": "high",
+    "currentModelId": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+    "currentEffort": "high"
+  },
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f7b2-e9f3-78a2-aa82-9b50fd38e1c1",
+    "binderId": "state-cd27e27808aa11bdee89da2758135b30",
+    "jobId": "ef0ec142-9f2f-471c-8136-6c7fd569d384",
+    "workspace": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
+    "boundAt": "2026-10-01T23:20:30.716Z"
+  },
+  "proof": {
+    "state": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/STATE.md",
+    "events": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/events.jsonl",
+    "proof": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/PROOF.md"
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  }
+}

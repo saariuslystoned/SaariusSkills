@@ -1,0 +1,28 @@
+✔ all live bridges ship the same host-policy module (3.643166ms)
+✔ live permission default is approve-reads + fail; approve-all is break-glass only (0.757875ms)
+✔ readiness permission description reports the resolved mode and warns on approve-reads (0.249958ms)
+✔ live permission decision never grants one-path allow_once (0.241375ms)
+✔ readiness red refuses instead of advising (0.106125ms)
+✔ conversation bind is owner-gated and does not lock cwd (4.694083ms)
+✔ configured host conversation identity cannot be overridden by a request label (0.20425ms)
+✔ binder labels cannot override host authority and unsafe rebinds fail closed (1.434542ms)
+✔ conversation claims serialize across concurrent callers (42.285625ms)
+✔ conversation claim recovers only a lock owned by a provably dead process (4.447ms)
+✔ overlapping stale-lock reclaimers serialize before deleting the canonical lock (12.696542ms)
+✔ an existing reclaim fence is preserved and requires owner recovery (0.93475ms)
+✔ conversation admission classification keeps unstarted, released, and started distinct (0.154083ms)
+✔ rebind stays fail-closed for live, unobservable, or started workers (0.087583ms)
+✔ confirmed unstarted or released admissions can rebind without guessing (0.038209ms)
+✔ permission capability reports distinguish supported, effective, and invalid modes (1.379583ms)
+✔ plugin.json and .mcp.json declare the same launcher routes (3.193709ms)
+✔ every Claude Code route carries the policy env and mirrors portable .mcp.json env keys (1.093708ms)
+✔ plugin.json never ships machine-specific paths or a break-glass default (0.471042ms)
+✔ no shipped manifest carries the break-glass; only the Claude Code manifest names the policy variable (1.334625ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 121.313167

@@ -1,0 +1,8 @@
+command: python3 -m unittest tests.test_packaging -q
+cwd: /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001
+when: 2026-10-01T23:31:35Z
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.045s
+
+OK

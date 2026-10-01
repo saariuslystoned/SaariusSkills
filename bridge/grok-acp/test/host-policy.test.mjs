@@ -152,6 +152,7 @@ test("delegate refuses when readiness is red", async () => {
     () => model.broker.delegate({
       workspace: model.workspace,
       prompt: "no",
+      model: "grok-4.7",
       hostConversationId: "conv-red",
       binderId: "owner-a",
     }),

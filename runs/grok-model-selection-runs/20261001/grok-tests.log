@@ -1,0 +1,22 @@
+command: node --test bridge/grok-acp/test/*.test.mjs
+cwd: /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001
+when: 2026-10-01T23:31:35Z
+dependency: worktree has no bridge/grok-acp/node_modules. Tests imported acpx@0.19.4, zod@4.6.5, and @modelcontextprotocol/sdk@1.30.0 through a temporary symlink to the preexisting runtime store /Users/bobbybones/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules. The symlink was removed after the run. No install.
+
+result: 96 pass, 0 fail, 0 skipped, duration_ms 7686.9285
+
+New model-selection tests all passed:
+- omitted Grok policy prefers advertised 4.7, then 4.6, then 4.5
+- explicit Grok ids stay exact and fallback lists are validated
+- readiness reports the full catalog and default 4.7 without a prompt
+- omitted model selects advertised 4.6 before the session's current 4.5
+- ordered fallbackModels replace the defaults and an empty list is strict 4.7
+- explicit models never substitute, and a missing explicit 4.7 sends no prompt
+- missing allowed models, invalid input, and auth failure send no prompt
+- per-job selections stay local to each job
+- catalog drift before the prompt does not renegotiate or send a prompt
+- constructor pin stays strict unless the job supplies its own policy
+- MCP model schemas accept an optional exact model and at most two fallbacks
+
+Existing broker, host-policy, reasoning, admission, lock, recovery, timeout, setup, and server-error tests passed, including the strict grok-4.7 pin refusal.
+node --check bridge/grok-acp/broker.mjs server.mjs and test/model-selection.test.mjs: CHECK_OK

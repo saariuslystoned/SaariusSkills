@@ -9,12 +9,23 @@ open an ACP session with ACpx's built-in `grok-build` agent:
 grok agent stdio
 ```
 
-The plugin default model is the exact advertised id `grok-4.7`. The child
+Omitting `model` on `grok_acp_readiness` and `grok_acp_delegate` selects the
+first advertised id among `grok-4.7`, then `grok-4.6`, then `grok-4.5`.
+Optional `fallbackModels` accepts at most two ordered exact Grok model ids
+and replaces `grok-4.6` and `grok-4.5`; an empty list requires `grok-4.7`.
+An explicit `model`, such as `grok-4.6`, `grok-4.7`, or `grok-4.7-build-fast`,
+stays exact and never substitutes, including no silent use of the session's
+current model. Do not pass `model` and `fallbackModels` together. The child
 executable is `GROK_EXECUTABLE` when set, otherwise `grok` resolved from
 `PATH`. Plugin manifests do not ship a machine-specific path. The bridge
 fails closed when the executable is missing, the existing Grok login cannot
-open a session, the selected model is not advertised, or the selected model
-is not confirmed by session status. Live `grok_acp_delegate` refuses when
+open a session, none of the allowed models is advertised, the input is
+invalid, or the selected model is not confirmed by session status. Readiness
+returns the full advertised catalog, `catalogReady`, `selectionReady`, the
+requested policy, and the selected model. A missing `grok-4.7` is still
+selection-ready when an allowed alternative is advertised. The resolved id is
+bound to the job and checked again immediately before the prompt; catalog
+drift fails with no prompt and no other model. Live `grok_acp_delegate` refuses when
 readiness is red, defaults to `approve-reads` plus fail on write/exec that
 would prompt (`approve-all` is an explicit `SAARIUS_ACP_PERMISSION_MODE`
 break-glass), and binds one parent conversation to one worker with
@@ -59,8 +70,8 @@ The explicit `SAARIUS_ACP_PERMISSION_MODE=approve-all` is required as a
 break-glass precondition because this smoke intentionally exercises local
 `pwd`/`sleep` exec. Unset or default `approve-reads` refuses before runtime or
 provider startup; the command does not automatically escalate permissions.
-It uses the installed Grok login, `grok agent stdio`, plugin default
-`grok-4.7`, a disposable workspace, and a run directory outside that
+It uses the installed Grok login, `grok agent stdio`, the plugin default
+model policy (`grok-4.7`, then advertised `grok-4.6`, then `grok-4.5`), a disposable workspace, and a run directory outside that
 workspace. It proves readiness/model selection, workspace binding, completion,
 steering refusal, and cancellation. It does not push, deploy, send messages,
 change accounts, or use an API-key fallback.

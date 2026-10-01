@@ -403,13 +403,16 @@ test("cancellation returns an explicit cancelled outcome", async () => {
 });
 
 test("model mismatch fails closed instead of silently falling back", async () => {
-  const { broker, workspace } = await makeBroker({
+  const { broker, runtime, workspace } = await makeBroker({
+    model: DEFAULT_GROK_MODEL,
     runtimeOptions: { available: ["grok-4.6"], model: "grok-4.6" },
   });
   await assert.rejects(
     () => broker.delegate({ workspace, prompt: "This must not run." }),
     (error) => error instanceof BridgeError && error.code === "MODEL_UNAVAILABLE",
   );
+  assert.equal(runtime.turns.length, 0);
+  assert.equal(broker.model, DEFAULT_GROK_MODEL);
   await broker.close();
 });
 

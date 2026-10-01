@@ -132,8 +132,11 @@ profile; fixed-choice questions fail closed. See the
 The `grok-acp` bridge routes one bounded slice through pinned `acpx@0.19.4`
 to ACpx's built-in `grok-build` agent (`grok agent stdio`). It exposes the
 same six tools, stays separate from Cursor ACP (`cursor-agent acp`), from
-Puppet's grok tmux harness, and from any Grok Bot computer. Plugin default
-is the exact advertised id `grok-4.7`. The child is `GROK_EXECUTABLE` or
+Puppet's grok tmux harness, and from any Grok Bot computer. Omitting `model`
+prefers the advertised id `grok-4.7`, then `grok-4.6`, then `grok-4.5`.
+An explicit model stays exact. Optional `fallbackModels` (at most two exact
+ids) replaces those alternatives; an empty list is strict `grok-4.7`. Native
+Grok does not run Luna. The child is `GROK_EXECUTABLE` or
 `grok` on `PATH`; manifests do not ship a machine path. See the
 [Grok setup and reload guide](docs/grok-acp-delegation.md).
 
