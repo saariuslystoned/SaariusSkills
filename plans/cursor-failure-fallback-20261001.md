@@ -21,3 +21,5 @@ This is a focused adaptation of OpenClaw selection/replay boundaries, not a clai
 ## Evidence-driven repair 1
 
 A bounded independent native Luna review on the candidate terminated with `Error: RetriableError: [resource_exhausted] Error` while canonical status again said completed. No review verdict was produced. Recognize this second exact native suffix as `CURSOR_RESOURCE_EXHAUSTED`, preserve the partial handoff, and keep model fallback ineligible because model/account/backend scope and reset details are unavailable. No reviewer retry, permission change or model substitution is inferred. Initial exact-head CI remains historical after this source repair; rerun the changed suites and obtain review for the repaired head.
+
+Final pin audit: retain whether the host supplied its model explicitly, including the same alias as the plugin default. String equality with the default must not erase a host pin. The explicit-pin regression includes that case.

@@ -1151,6 +1151,7 @@ export class CursorAcpBroker {
         DEFAULT_CURSOR_EXECUTABLE,
     );
     this.model = options.model ?? DEFAULT_CURSOR_MODEL;
+    this.modelPinned = !isOmittedCursorModel(options.model);
     this.effort = options.effort ?? null;
     this.defaultWorkspace = options.defaultWorkspace ?? process.cwd();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -1493,7 +1494,7 @@ export class CursorAcpBroker {
   }
 
   selectionInput(model, effort) {
-    const requestedModel = model ?? (this.model !== DEFAULT_CURSOR_MODEL ? this.model : null);
+    const requestedModel = model ?? (this.modelPinned || this.model !== DEFAULT_CURSOR_MODEL ? this.model : null);
     const requestedEffort = effort ?? this.effort ?? null;
     const omittedModel = isOmittedCursorModel(requestedModel);
     const omittedEffort = isOmittedCursorEffort(requestedEffort);

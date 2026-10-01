@@ -121,7 +121,7 @@ test('opt-in fallback is parent reviewed, creates a new exact-model job, and ret
 });
 
 test('explicit per-job and server model/effort pins reject a nonempty fallback chain before launching', async t => {
-  for (const options of [{}, { model: 'grok-4.6' }, { effort: 'medium' }]) {
+  for (const options of [{}, { model: 'grok-4.6' }, { model: 'gpt-5.6-luna-medium' }, { effort: 'medium' }]) {
     const { broker, workspace, runtime } = await setup(t, options);
     const pins = options.model || options.effort ? [{}] : [{ model: 'gpt-5.6-luna' }, { effort: 'medium' }];
     for (const pin of pins) await assert.rejects(() => run(broker, workspace, { ...pin, fallbackModels: ['grok-4.6'] }), refuses('FALLBACK_PINNED'));
