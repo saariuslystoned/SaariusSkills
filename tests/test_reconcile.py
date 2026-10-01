@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 import os
@@ -10,6 +11,7 @@ import unittest
 from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[1] / "skills/grilltrack/scripts/grilltrack_ledger.py"
+ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-09-01T00:00:00+00:00"
 
 
@@ -104,6 +106,25 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
+    def plan_with_adjudication(self, path):
+        result = self.reconcile("--adjudication-file", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def write_adjudication(self, decisions, **refs):
+        data = {
+            "schema": "grilltrack/adjudication/v1",
+            "refs": {
+                "base": refs.get("base", self.base),
+                "current": refs.get("current", self.current),
+                "incoming": refs.get("incoming", self.incoming),
+            },
+            "decisions": decisions,
+        }
+        path = self.root / "adjudication.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
     def test_exact_fork_preservation_and_honest_projection(self):
         before = self.state_bytes()
         plan = self.plan()
@@ -153,6 +174,56 @@ class ReconcileTests(unittest.TestCase):
         self.assertNotEqual(self.reconcile("--apply", "0" * 64).returncode, 0)
         self.assertEqual(progressed, self.state_bytes())
 
+    def test_no_adjudication_plan_matches_legacy_cli(self):
+        first = self.plan()
+        second = self.plan()
+        self.assertEqual(first, second)
+        self.assertEqual(
+            set(first),
+            {
+                "schema", "refs", "title", "snapshots", "plan_id",
+                "joined_track_id", "decision_ids", "decision_provenance",
+                "needs_reverification", "composed_verification",
+                "composed_review", "snapshot_ref", "already_applied",
+                "applied",
+            },
+        )
+        self.assertEqual(first["schema"], "grilltrack/reconcile/v1")
+        self.assertEqual(first["refs"], {
+            "base": self.base, "current": self.current, "incoming": self.incoming,
+        })
+        self.assertEqual(first["title"], "Composed fixture")
+        self.assertEqual(len(first["decision_ids"]), 16)
+        self.assertEqual(first["decision_ids"], sorted(first["decision_ids"]))
+        self.assertEqual(first["needs_reverification"], first["decision_ids"])
+        self.assertFalse(first["composed_verification"])
+        self.assertFalse(first["composed_review"])
+        self.assertFalse(first["already_applied"])
+        self.assertFalse(first["applied"])
+        self.assertNotIn("adjudication", first)
+        self.assertEqual(len(first["snapshots"]), 3)
+        before = self.state_bytes()
+        applied = self.reconcile("--apply", first["plan_id"])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        output = json.loads(applied.stdout)
+        self.assertTrue(output["applied"])
+        joined = json.loads(
+            (self.project / ".grilltrack/ledger.json").read_text()
+        )
+        self.assertEqual(joined["track_id"], first["joined_track_id"])
+        self.assertEqual(
+            {item["id"] for item in joined["decisions"]},
+            set(first["decision_ids"]),
+        )
+        self.assertTrue(
+            all(item["status"] == "needs_reverification"
+                for item in joined["decisions"])
+        )
+        self.assertEqual(
+            joined["reconciliation"]["plan_id"], first["plan_id"]
+        )
+        self.assertNotEqual(before, self.state_bytes())
+
     def test_invalid_digest_and_changed_target_refused(self):
         plan = self.plan()
         before = self.state_bytes()
@@ -200,6 +271,392 @@ class ReconcileTests(unittest.TestCase):
         before = self.state_bytes()
         self.assertNotEqual(self.reconcile().returncode, 0)
         self.assertEqual(before, self.state_bytes())
+
+    def test_explicit_adjudication_selects_incoming_and_preserves_lineage(self):
+        state = self.project / ".grilltrack"
+        before_events = (state / "events.jsonl").read_bytes()
+        before_archives = {
+            path.relative_to(state): path.read_bytes()
+            for path in (state / "archive").rglob("*")
+            if path.is_file()
+        }
+        data = json.loads((state / "ledger.json").read_text())
+        older = copy.deepcopy(self.shared[0])
+        older["status"] = "locked"
+        older["history"] = [{
+            "at": NOW, "from": "proposed", "to": "locked",
+            "note": "older lifecycle", "choice": older["choice"],
+        }]
+        older["implementation_ref"] = "fixture:older-implementation"
+        older["verification_ref"] = None
+        older["review_ref"] = None
+        older["review_source_identity"] = None
+        older["review_result"] = None
+        older["review_classifications"] = []
+        data["decisions"].append(older)
+        (state / "ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("same choice, older current lifecycle")
+        decision_id = self.shared[0]["id"]
+        adjudication = self.write_adjudication({
+            decision_id: {
+                "role": "incoming",
+                "reason": "Incoming is the completed record with the newer lifecycle.",
+            }
+        })
+        result = self.reconcile("--adjudication-file", str(adjudication))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["adjudication"]["decisions"][decision_id]["role"], "incoming")
+        self.assertEqual(
+            plan["adjudicated_decisions"][decision_id]["reason"],
+            "Incoming is the completed record with the newer lifecycle.",
+        )
+        self.assertEqual(self.plan_with_adjudication(adjudication), plan)
+        self.assertEqual(before_events, (state / "events.jsonl").read_bytes())
+        self.assertEqual(self.reconcile("--apply", plan["plan_id"], "--adjudication-file", str(adjudication)).returncode, 0)
+        joined = json.loads((state / "ledger.json").read_text())
+        decisions = {item["id"]: item for item in joined["decisions"]}
+        self.assertEqual(decisions[decision_id]["choice"], self.shared[0]["choice"])
+        self.assertEqual(decisions[decision_id]["status"], "needs_reverification")
+        incoming = json.loads(
+            subprocess.check_output(
+                ["git", "-C", str(self.project), "show",
+                 f"{self.incoming}:.grilltrack/ledger.json"]
+            )
+        )["decisions"][0]
+        self.assertEqual(
+            decisions[decision_id]["history"],
+            incoming["history"] + [{
+                "at": NOW, "from": "verified", "to": "needs_reverification",
+                "note": "fork composition invalidates prior current proof",
+                "source_snapshot_ref": plan["snapshot_ref"],
+            }],
+        )
+        self.assertEqual(
+            decisions[decision_id]["implementation_ref"],
+            incoming["implementation_ref"],
+        )
+        self.assertIsNone(decisions[decision_id]["verification_ref"])
+        self.assertIsNone(decisions[decision_id]["review_ref"])
+        self.assertIsNone(decisions[decision_id]["review_source_identity"])
+        self.assertIsNone(decisions[decision_id]["review_result"])
+        self.assertEqual(decisions[decision_id]["review_classifications"], [])
+        self.assertTrue(
+            all(item["status"] == "needs_reverification" for item in decisions.values())
+        )
+        self.assertEqual(
+            set(plan["decision_ids"]),
+            {item["id"] for item in decisions.values()},
+        )
+        self.assertTrue(
+            (state / "lineage" / plan["plan_id"] / "snapshots" / "current" / "archive/base-track/ledger.json").is_file()
+        )
+        lineage = state / "lineage" / plan["plan_id"] / "snapshots"
+        self.assertEqual(
+            (lineage / "current/events.jsonl").read_bytes(),
+            before_events,
+        )
+        self.assertEqual(
+            (lineage / "current/ledger.json").read_bytes(),
+            subprocess.check_output(
+                ["git", "-C", str(self.project), "show",
+                 f"{self.current}:.grilltrack/ledger.json"]
+            ),
+        )
+        for path, content in before_archives.items():
+            retained = state / path
+            if not str(path).startswith("archive/base-track/"):
+                self.assertEqual(retained.read_bytes(), content)
+        self.assertEqual(self.cli("validate").returncode, 0)
+
+    def test_adjudication_validation_is_fail_closed(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("conflicting current")
+        decision_id = self.shared[0]["id"]
+        cases = [
+            ({}, "missing"),
+            ({decision_id: {"role": "base", "reason": " "}}, "blank"),
+            ({"unknown": {"role": "incoming", "reason": "not bound"}}, "unknown"),
+            ({decision_id: {"role": "archive", "reason": "bad role"}}, "role"),
+        ]
+        for decisions, _label in cases:
+            with self.subTest(_label):
+                path = self.write_adjudication(decisions)
+                self.assertNotEqual(
+                    self.reconcile("--adjudication-file", str(path)).returncode,
+                    0,
+                )
+        path = self.root / "duplicate.json"
+        path.write_text(
+            json.dumps({
+                "schema": "grilltrack/adjudication/v1",
+                "refs": {"base": self.base, "current": self.current, "incoming": self.incoming},
+                "decisions": {decision_id: {"role": "incoming", "reason": "one"}},
+            }).replace('"reason": "one"', '"reason": "one", "role": "incoming"'),
+            encoding="utf-8",
+        )
+        self.assertNotEqual(self.reconcile("--adjudication-file", str(path)).returncode, 0)
+
+    def test_adjudication_rejects_schema_types_and_ref_binding(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("adjudication contract failures")
+        decision_id = self.shared[0]["id"]
+        valid = {
+            "schema": "grilltrack/adjudication/v1",
+            "refs": {"base": self.base, "current": self.current, "incoming": self.incoming},
+            "decisions": {decision_id: {"role": "incoming", "reason": "select"}},
+        }
+        cases = [
+            ({**valid, "schema": "wrong"}, "schema"),
+            ({**valid, "unexpected": True}, "unknown top-level"),
+            ({**valid, "refs": {**valid["refs"], "extra": self.base}}, "extra ref"),
+            ({**valid, "decisions": {decision_id: {"role": 1, "reason": "select"}}}, "role type"),
+            ({**valid, "decisions": {decision_id: {"role": "incoming", "reason": 1}}}, "reason type"),
+            ({**valid, "refs": {**valid["refs"], "incoming": self.base}}, "ref binding"),
+        ]
+        for payload, label in cases:
+            with self.subTest(label):
+                path = self.root / f"invalid-{label.replace(' ', '-')}.json"
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertNotEqual(
+                    self.reconcile("--adjudication-file", str(path)).returncode,
+                    0,
+                )
+
+    def test_adjudication_rejects_extra_missing_and_role_ambiguity(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("adjudication selector failures")
+        decision_id = self.shared[0]["id"]
+        other_id = self.shared[1]["id"]
+        fork_only = decision("fork-only")
+        fork_only["choice"] = "incoming-fork-choice"
+        self.git("checkout", "--detach", self.incoming)
+        incoming_live = json.loads((state / "ledger.json").read_text())
+        incoming_live["decisions"].append(copy.deepcopy(fork_only))
+        (state / "ledger.json").write_text(json.dumps(incoming_live))
+        self.incoming = self.commit("incoming-only conflict")
+        self.git("checkout", "--detach", self.current)
+        current_live = json.loads((state / "ledger.json").read_text())
+        current_live["decisions"].append(copy.deepcopy(self.shared[0]))
+        current_fork = copy.deepcopy(fork_only)
+        current_fork["choice"] = "current-fork-choice"
+        current_live["decisions"].append(current_fork)
+        (state / "ledger.json").write_text(json.dumps(current_live))
+        self.current = self.commit("current-only conflict")
+        cases = [
+            ({other_id: {"role": "incoming", "reason": "nonconflict"}}, "nonconflict"),
+            ({}, "missing"),
+            ({"bad": {"role": "incoming", "reason": "unknown"}}, "unknown"),
+            ({
+                decision_id: {"role": "incoming", "reason": "shared"},
+                "fork-only": {"role": "base", "reason": "absent"},
+            }, "absent"),
+        ]
+        for selections, label in cases:
+            with self.subTest(label):
+                path = self.write_adjudication(selections)
+                self.assertNotEqual(
+                    self.reconcile("--adjudication-file", str(path)).returncode,
+                    0,
+                )
+        path = self.write_adjudication({
+            decision_id: {"role": "current", "reason": "ambiguous"},
+            "fork-only": {"role": "incoming", "reason": "fork"},
+        })
+        self.assertNotEqual(
+            self.reconcile("--adjudication-file", str(path)).returncode,
+            0,
+        )
+
+    def test_adjudication_selection_reason_and_refs_bind_plan_digest(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("conflicting current")
+        decision_id = self.shared[0]["id"]
+        path = self.write_adjudication({
+            decision_id: {"role": "incoming", "reason": "newer completed lifecycle"}
+        })
+        first = json.loads(self.reconcile("--adjudication-file", str(path)).stdout)
+        changed = json.loads(path.read_text())
+        changed["decisions"][decision_id]["reason"] = "different human reason"
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        second = json.loads(self.reconcile("--adjudication-file", str(path)).stdout)
+        self.assertNotEqual(first["plan_id"], second["plan_id"])
+        changed["refs"]["incoming"] = self.base
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        self.assertNotEqual(self.reconcile("--adjudication-file", str(path)).returncode, 0)
+
+    def test_adjudication_changed_role_or_reason_rejects_prior_apply_digest(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("adjudication digest binding")
+        decision_id = self.shared[0]["id"]
+        path = self.write_adjudication({
+            decision_id: {"role": "incoming", "reason": "approved selection"}
+        })
+        plan = self.plan_with_adjudication(path)
+        self.assertEqual(
+            self.reconcile("--apply", plan["plan_id"],
+                           "--adjudication-file", str(path)).returncode,
+            0,
+        )
+        changed = json.loads(path.read_text())
+        changed["decisions"][decision_id]["role"] = "base"
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        self.assertNotEqual(
+            self.reconcile("--apply", plan["plan_id"],
+                           "--adjudication-file", str(path)).returncode,
+            0,
+        )
+        changed["decisions"][decision_id]["role"] = "incoming"
+        changed["decisions"][decision_id]["reason"] = "different reason"
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        self.assertNotEqual(
+            self.reconcile("--apply", plan["plan_id"],
+                           "--adjudication-file", str(path)).returncode,
+            0,
+        )
+
+    def test_adjudication_interruption_retries_after_progress(self):
+        state = self.project / ".grilltrack"
+        data = json.loads((state / "archive/base-track/ledger.json").read_text())
+        data["decisions"][0]["choice"] = "conflicting-choice"
+        (state / "archive/base-track/ledger.json").write_text(json.dumps(data))
+        self.current = self.commit("adjudication interruption")
+        decision_id = self.shared[0]["id"]
+        path = self.write_adjudication({
+            decision_id: {"role": "incoming", "reason": "retry approved"}
+        })
+        plan = self.plan_with_adjudication(path)
+        crashed = self.reconcile(
+            "--apply", plan["plan_id"], "--adjudication-file", str(path),
+            failpoint="reconcile_crash_after_ledger",
+        )
+        self.assertEqual(crashed.returncode, 86)
+        self.assertNotEqual(self.cli("show").returncode, 0)
+        retry = self.reconcile(
+            "--apply", plan["plan_id"], "--adjudication-file", str(path)
+        )
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(self.cli("focus", "--domain", "retry-progress",
+                                  "--cadence", "sequential").returncode, 0)
+        repeated = self.reconcile(
+            "--apply", plan["plan_id"], "--adjudication-file", str(path)
+        )
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertTrue(json.loads(repeated.stdout)["already_applied"])
+        self.assertEqual(self.cli("validate").returncode, 0)
+
+    def test_adjudication_rejects_composed_dependency_cycle_during_planning(self):
+        state = self.project / ".grilltrack"
+        self.git("checkout", "--detach", self.incoming)
+        incoming_ledger = json.loads((state / "ledger.json").read_text())
+        incoming_ledger["decisions"][0]["dependencies"] = ["shared-1"]
+        (state / "ledger.json").write_text(json.dumps(incoming_ledger, indent=2) + "\n")
+        self.incoming = self.commit("incoming dependency choice")
+        self.assertEqual(self.cli("validate").returncode, 0)
+
+        self.git("checkout", "--detach", self.current)
+        current_ledger = json.loads(
+            (state / "archive/base-track/ledger.json").read_text()
+        )
+        current_ledger["decisions"][1]["dependencies"] = ["shared-0"]
+        (state / "archive/base-track/ledger.json").write_text(
+            json.dumps(current_ledger, indent=2) + "\n"
+        )
+        self.current = self.commit("current dependency choice")
+        self.assertEqual(self.cli("validate").returncode, 0)
+
+        adjudication = self.write_adjudication(
+            {
+                "shared-0": {
+                    "role": "incoming",
+                    "reason": "retain incoming dependency",
+                },
+                "shared-1": {
+                    "role": "current",
+                    "reason": "retain current dependency",
+                },
+            }
+        )
+        before = self.state_bytes()
+        result = self.reconcile("--adjudication-file", str(adjudication))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dependency cycle includes", result.stderr)
+        self.assertEqual(before, self.state_bytes())
+
+    def test_adjudication_accepts_valid_mixed_role_projection(self):
+        state = self.project / ".grilltrack"
+        self.git("checkout", "--detach", self.incoming)
+        incoming_ledger = json.loads((state / "ledger.json").read_text())
+        incoming_ledger["decisions"][0]["choice"] = "incoming-choice"
+        (state / "ledger.json").write_text(json.dumps(incoming_ledger, indent=2) + "\n")
+        self.incoming = self.commit("incoming mixed-role choice")
+
+        self.git("checkout", "--detach", self.current)
+        current_ledger = json.loads(
+            (state / "archive/base-track/ledger.json").read_text()
+        )
+        current_ledger["decisions"][1]["choice"] = "current-choice"
+        (state / "archive/base-track/ledger.json").write_text(
+            json.dumps(current_ledger, indent=2) + "\n"
+        )
+        self.current = self.commit("current mixed-role choice")
+
+        adjudication = self.write_adjudication(
+            {
+                "shared-0": {
+                    "role": "incoming",
+                    "reason": "retain incoming choice",
+                },
+                "shared-1": {
+                    "role": "current",
+                    "reason": "retain current choice",
+                },
+            }
+        )
+        plan = self.plan_with_adjudication(adjudication)
+        applied = self.reconcile(
+            "--adjudication-file",
+            str(adjudication),
+            "--apply",
+            plan["plan_id"],
+        )
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        joined = json.loads((state / "ledger.json").read_text())
+        choices = {item["id"]: item["choice"] for item in joined["decisions"]}
+        self.assertEqual(choices["shared-0"], "incoming-choice")
+        self.assertEqual(choices["shared-1"], "current-choice")
+        self.assertTrue(
+            (
+                state
+                / "lineage"
+                / plan["plan_id"]
+                / "snapshots/incoming/ledger.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                state
+                / "lineage"
+                / plan["plan_id"]
+                / "snapshots/current/archive/base-track/ledger.json"
+            ).is_file()
+        )
+        self.assertEqual(self.cli("validate").returncode, 0)
 
     def test_common_prefix_and_archive_incompatibility_refused(self):
         state = self.project / ".grilltrack"

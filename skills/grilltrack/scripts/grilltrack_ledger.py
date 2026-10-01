@@ -1320,6 +1320,7 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--current-ref", required=True)
     reconcile.add_argument("--incoming-ref", required=True)
     reconcile.add_argument("--title", required=True)
+    reconcile.add_argument("--adjudication-file")
     reconcile.add_argument("--apply", metavar="PLAN_SHA256")
     def reconcile_handler(store, args):
         from grilltrack_reconcile import reconcile_command
