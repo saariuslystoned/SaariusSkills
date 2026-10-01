@@ -71,7 +71,7 @@ proven hop identity.
 ### Cursor worker (`cursor-acp`)
 
 The [Cursor ACP delegation skill](skills/cursor-acp-delegation/SKILL.md)
-and stdio MCP bridge route one bounded slice through pinned `acpx@0.19.3`
+and stdio MCP bridge route one bounded slice through pinned `acpx@0.19.4`
 to Bobby's explicit local `/Users/bobbybones/.local/bin/cursor-agent acp`
 executable. The worker default is the plugin alias `gpt-5.6-luna-medium`
 (base `gpt-5.6-luna` plus effort `medium`), which is not a live model id.
@@ -119,7 +119,7 @@ with the Antigravity lane. See the
 ### Antigravity worker (`antigravity-acp`)
 
 The `antigravity-acp` bridge routes one bounded slice through pinned
-`acpx@0.19.3` to Google's official `antigravity-acp` 1.1.1 runtime. It
+`acpx@0.19.4` to Google's official `antigravity-acp` 1.1.1 runtime. It
 stays separate from the Cursor worker lane and from native `agy --print`
 / Puppet qualification. Omitting `model` uses the plugin default exact id
 `gemini-3.8-flash-high` when advertised; otherwise an exact advertised
@@ -129,7 +129,7 @@ profile; fixed-choice questions fail closed. See the
 
 ### Grok worker (`grok-acp`)
 
-The `grok-acp` bridge routes one bounded slice through pinned `acpx@0.19.3`
+The `grok-acp` bridge routes one bounded slice through pinned `acpx@0.19.4`
 to ACpx's built-in `grok-build` agent (`grok agent stdio`). It exposes the
 same six tools, stays separate from Cursor ACP (`cursor-agent acp`), from
 Puppet's grok tmux harness, and from any Grok Bot computer. Plugin default

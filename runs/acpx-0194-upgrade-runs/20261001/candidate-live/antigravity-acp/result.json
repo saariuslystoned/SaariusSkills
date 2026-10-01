@@ -1,0 +1,109 @@
+{
+  "taskComplete": true,
+  "cleanupReady": true,
+  "complete": true,
+  "admissionEligible": true,
+  "remediation": "none",
+  "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+  "status": "completed",
+  "route": {
+    "agent": "antigravity",
+    "transport": "antigravity-acp",
+    "runtime": {
+      "id": "antigravity-acp",
+      "version": "1.1.1",
+      "registryRevision": "81bf71b55e15f630c4fb8a86d20d3088071d2071",
+      "acpxSourceCommit": "8e396609238086dee6a407fdb3b3ac46dbdedd70",
+      "acpxNpmGitHead": null,
+      "lastInspectedSourceCommit": "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+      "lastInspectedSourceRelease": "0.17.1",
+      "acpxRelease": "0.19.4",
+      "acpxNpmIntegrity": "sha512-fN1c3Ype4LrwZoeJwcZEnyO+1ArThgymwswmJyd52dHKaz+3hjkR6lYdlyBPOZYIIcCVARezcfvkFUNxsylSBA==",
+      "acpxTarballSha256": "ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311",
+      "acpxRuntimeJsSha256": "6156cbbe022471b15141821d4f2fb359f014bef7cf32b724c5bd85e864ae7b49"
+    },
+    "executable": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par",
+    "argv": [
+      "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par"
+    ],
+    "helper": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/localharness_external",
+    "platformId": "darwin-aarch64",
+    "model": "gemini-3.8-flash-high"
+  },
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+  "createdAt": "2026-10-01T13:22:38.848Z",
+  "updatedAt": "2026-10-01T13:23:22.591Z",
+  "startedAt": "2026-10-01T13:22:44.673Z",
+  "timeoutMs": 300000,
+  "model": "gemini-3.8-flash-high",
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f779-3c25-7a30-aafc-9e63f3f3d766",
+    "binderId": "state-b720492141be8a1ab39b8505417971f7",
+    "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+    "boundAt": "2026-10-01T13:22:38.850Z"
+  },
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-10-01T13:23:22.591Z",
+    "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+    "owner": {
+      "brokerId": "6e478251-4418-44f9-bb07-c4eea5511608",
+      "pid": 33416,
+      "startTime": "Thu Oct  1 09:22:28 2026"
+    },
+    "handle": {
+      "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6",
+      "backend": "acpx",
+      "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiYW50aWdyYXZpdHktYWNwOmU1OGFlNmQxLTRkMjYtNDgwOS1iMzc4LTc3ZTc4ZjYzMDZmNiIsImFnZW50IjoiYW50aWdyYXZpdHkiLCJjd2QiOiIvVXNlcnMvYm9iYnlib25lcy9EZXZlbG9wZXIvd29ya3RyZWVzL3NhYXJpdXNza2lsbHMtYWNweC0wMTk0L3J1bnMvYWNweC0wMTk0LXVwZ3JhZGUtcnVucy8yMDI2MTAwMS9jYW5kaWRhdGUtbGl2ZS9hbnRpZ3Jhdml0eS1hY3AvZml4dHVyZSIsIm1vZGUiOiJwZXJzaXN0ZW50IiwiYWNweFJlY29yZElkIjoiYW50aWdyYXZpdHktYWNwOmU1OGFlNmQxLTRkMjYtNDgwOS1iMzc4LTc3ZTc4ZjYzMDZmNiIsImJhY2tlbmRTZXNzaW9uSWQiOiIyMGRkNzMxOC1jMWMzLTRmNTAtYjhlZS1kYjQ5NzM3NGE5OTMifQ",
+      "cwd": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+      "acpxRecordId": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6",
+      "backendSessionId": "20dd7318-c1c3-4f50-b8ee-db497374a993"
+    },
+    "message": "local worker termination observed; backend session discard unsupported",
+    "backendSessionDiscard": "unsupported",
+    "worker": {
+      "pid": 33958,
+      "startedAt": "2026-10-01T13:22:38.854Z",
+      "launchId": "0c61fb35-0e01-40d4-bb7f-e34129eb1714",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6"
+      },
+      "signal": "SIGTERM",
+      "exitCode": null
+    }
+  },
+  "proof": {
+    "state": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/STATE.md",
+    "events": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/events.jsonl",
+    "proof": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/PROOF.md"
+  },
+  "handoff": "### Changed File\n* [normalize.mjs](file:///Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture/normalize.mjs) – Updated [`normalizeLines`](file:///Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture/normalize.mjs#L1-L7) to split lines by LF/CRLF (`/\\r?\\n/`), strip trailing whitespace with `.trimEnd()`, filter out empty/whitespace-only lines, and rejoin remaining lines with `\\n` without a trailing newline while preserving leading whitespace.\n\n### Test Result\n* Command: `node protected-test.mjs`\n* Exit code: `0`\n* Output: `4 normalization cases passed`\n\n### Limitation\n* Only LF (`\\n`) and CRLF (`\\r\\n`) line endings are split; standalone carriage returns (`\\r` without `\\n`) are not treated as newline separators. Scope was strictly bounded to this fixture without modifying protected or external files.",
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  },
+  "stopReason": "end_turn",
+  "waitExpired": false
+}

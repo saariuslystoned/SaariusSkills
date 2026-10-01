@@ -1,0 +1,36 @@
+{
+  "status": "BLOCKED_STARTUP_CATALOG_QUALIFICATION",
+  "type": "test fixture ownership-ordering barrier unavailable through published public API",
+  "headTested": "4ff23ac2de4f80bc072c8f7802bd74ead51b583f",
+  "ciRun": 36867016925,
+  "ci": "3 passed; macOS shared runtime failed synthetic startup selection with old-model catalog",
+  "ownedCreationWindow": "after loadedSessionId assignment, before createSession returns through descendant capture",
+  "rejectedAttempts": {
+    "preResponse": "ignored before ownership; 18pass3fail full focused suite",
+    "responseFirstSingleWrite": "update still unowned when handled; 3fail startup cases"
+  },
+  "removalCorrection": "initial requested model advertised; reject with zero setters and prompts; six cases passed locally",
+  "remainingIssue": "timer-based startup cases are smoke only; passing reruns cannot prove ownership ordering",
+  "acceptanceRelaxed": false,
+  "privatePatchUsed": false,
+  "productionChangeForFixture": false,
+  "followup": "Obtain supported upstream creation lifecycle/test barrier or public conformance fixture, then qualify exact published artifact.",
+  "logs": {
+    "ci-macos-failure.log": {
+      "sha256": "6da9df13f66b2e2cf69ea031268723b16d3a7b847376d3efcdcbc92ad749a641",
+      "path": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/ci-macos-failure.log"
+    },
+    "published-controls-order-fix.log": {
+      "sha256": "a7c0d1a8d389a99b71fdc989625dcabec602bb779c77724f5fa7c883309dcf11",
+      "path": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/published-controls-order-fix.log"
+    },
+    "startup-response-first.log": {
+      "sha256": "b52ac4a470ddb1a62e9e1e75c44e258fc929136c53aa2bc84f7a1f92ea3b95eb",
+      "path": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/startup-response-first.log"
+    },
+    "startup-removal-strengthened.log": {
+      "sha256": "a69811d2e447b0595c3e9dc4c785feaacbd71c60b6e7a0068d1a0db6d39e2562",
+      "path": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/startup-removal-strengthened.log"
+    }
+  }
+}

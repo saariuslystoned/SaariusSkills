@@ -1,0 +1,39 @@
+{
+  "nativeRuntime": "0.19.3",
+  "permissionMode": "approve-all",
+  "modelTurns": 0,
+  "cursor": {
+    "ready": true,
+    "selectedModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+    "currentModelId": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"
+  },
+  "antigravity": {
+    "ready": true,
+    "selectedModelId": "gemini-3.8-flash-high",
+    "currentModelId": "gemini-3.8-flash-high",
+    "auth": "oauth-personal",
+    "overage": "never"
+  },
+  "grok": {
+    "ready": false,
+    "code": "MODEL_UNAVAILABLE",
+    "required": "grok-4.7",
+    "advertised": [
+      "grok-4.6",
+      "grok-4.5"
+    ],
+    "version": "1.0.46 (2765805b9442)"
+  },
+  "spark": {
+    "origin": "Bobby Mac",
+    "alias": "spark-2",
+    "resolvedHost": "192.168.1.41",
+    "user": "smoky",
+    "port": 22,
+    "identitiesOnly": false,
+    "identityFileCount": 1,
+    "hostname": "spark-2",
+    "probe": "hostname; id -un",
+    "status": "passed"
+  }
+}

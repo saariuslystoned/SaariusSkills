@@ -6,16 +6,16 @@ export const RUNTIME_VERSION = "1.1.1";
 export const REGISTRY_REVISION = "81bf71b55e15f630c4fb8a86d20d3088071d2071";
 // The npm manifest has no gitHead; the published release tag independently
 // resolves to this source commit.
-export const ACPX_SOURCE_COMMIT = "6b4714c7aaac8c38b1fe38354848d2546f65d87d";
+export const ACPX_SOURCE_COMMIT = "8e396609238086dee6a407fdb3b3ac46dbdedd70";
 export const ACPX_NPM_GIT_HEAD = null;
 export const ACPX_LAST_INSPECTED_SOURCE_COMMIT = "50a47ad10a75431cbc276ec9b555d11fe1f69c84";
 export const ACPX_LAST_INSPECTED_SOURCE_RELEASE = "0.17.1";
-export const ACPX_RELEASE = "0.19.3";
-export const ACPX_NPM_INTEGRITY = "sha512-5YvCb+NG3XzDapxzrQRDS6zGN13mWZeugaeoq03kh9NCTFgJGzt7lrdC4jT2YXp9UV6Ieg8H+AYxs2y2+g1Z/g==";
-export const ACPX_TARBALL_URL = "https://registry.npmjs.org/acpx/-/acpx-0.19.3.tgz";
-export const ACPX_TARBALL_SHA256 = "670c6c707fc5c38f4fd71de4ab85d59d6571d09c090ecf39a2e52bc07306af60";
-export const ACPX_RUNTIME_JS_SHA256 = "e12930a2d060551f6c72a1b4122fd2e1cb8b8d105106cef706aef88ed177d40f";
-export const ACPX_AGENT_REGISTRY_JS_SHA256 = "4473862f86362f2d10e1a41fc9df439230a0caf5d0f326ea774d3dc75973724d";
+export const ACPX_RELEASE = "0.19.4";
+export const ACPX_NPM_INTEGRITY = "sha512-fN1c3Ype4LrwZoeJwcZEnyO+1ArThgymwswmJyd52dHKaz+3hjkR6lYdlyBPOZYIIcCVARezcfvkFUNxsylSBA==";
+export const ACPX_TARBALL_URL = "https://registry.npmjs.org/acpx/-/acpx-0.19.4.tgz";
+export const ACPX_TARBALL_SHA256 = "ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311";
+export const ACPX_RUNTIME_JS_SHA256 = "6156cbbe022471b15141821d4f2fb359f014bef7cf32b724c5bd85e864ae7b49";
+export const ACPX_AGENT_REGISTRY_JS_SHA256 = "02b704052de20f905c9732fb85c4ac18f66609126468b34d12b9a9e0feb7e9e5";
 // Verified OpenClaw main still depends on published acpx@0.19.1.
 // Not a published-package gitHead, not the 0.18.0 Puppet candidate,
 // and not a live qualification or VM/provider migration.
@@ -48,13 +48,13 @@ export function validateRuntimePin(value = RUNTIME_PIN) {
     throw new Error("Antigravity ACP runtime pin is invalid");
   }
   if (value.acpxSourceCommit !== ACPX_SOURCE_COMMIT) {
-    throw new Error("published acpx@0.19.3 release source commit drifted");
+    throw new Error("published acpx@0.19.4 release source commit drifted");
   }
   if (value.acpxNpmGitHead !== ACPX_NPM_GIT_HEAD) {
-    throw new Error("published acpx@0.19.3 npm gitHead drifted");
+    throw new Error("published acpx@0.19.4 npm gitHead drifted");
   }
   if (value.lastInspectedSourceRelease === ACPX_RELEASE) {
-    throw new Error("last inspected 0.17.1 source is not the published 0.19.3 release");
+    throw new Error("last inspected 0.17.1 source is not the published 0.19.4 release");
   }
   if (value.lastInspectedSourceCommit !== ACPX_LAST_INSPECTED_SOURCE_COMMIT) {
     throw new Error("last inspected Antigravity source commit drifted");

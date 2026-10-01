@@ -1,0 +1,30 @@
+{
+  "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+  "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6",
+  "termination": [
+    {
+      "pid": 33958,
+      "startedAt": "2026-10-01T13:22:38.854Z",
+      "launchId": "0c61fb35-0e01-40d4-bb7f-e34129eb1714",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6"
+      },
+      "processStartTime": "Thu Oct  1 09:22:38 2026",
+      "observed": {
+        "status": "missing"
+      },
+      "matchingExit": {
+        "pid": 33958,
+        "startedAt": "2026-10-01T13:22:38.854Z",
+        "launchId": "0c61fb35-0e01-40d4-bb7f-e34129eb1714",
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6"
+        },
+        "signal": "SIGTERM",
+        "exitCode": null
+      }
+    }
+  ]
+}

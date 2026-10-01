@@ -1,0 +1,27 @@
+{
+  "repo": "saariuslystoned/SaariusSkills",
+  "pr": 111,
+  "authorHead": "4ff23ac2de4f80bc072c8f7802bd74ead51b583f",
+  "uncommittedFileSha256": {
+    "bridge/acp-runtime/test/fixtures/control-peer.mjs": "5ac1bfd68d40f890d6c8fa5017205107db97ea69970ae3dbdae02c73faa3b1f9",
+    "bridge/acp-runtime/test/published-controls.test.mjs": "41e57b26dc03772078deec5e62233b3476c36e252b6e5c0786f8a664dff5ba76"
+  },
+  "reviewedAt": "2026-10-01T13:30:29.793085+00:00",
+  "status": "STARTUP_QUALIFICATION_BLOCKER_REMAINS",
+  "findings": [
+    {
+      "id": "R3",
+      "disposition": "unresolved_qualification_blocker",
+      "reason": "Original timer notification remains nondeterministic with no supported owned-creation barrier. Fixture now expressly documents smoke-only scope.6/6 passing sample does not clear deterministic startup qualification or CI reliability. Public barrier findings and narrow upstream follow-up retained in startup-public-barrier-blocker.json."
+    },
+    {
+      "id": "R4",
+      "disposition": "resolved",
+      "reason": "Removed scenario creation snapshot now advertises exact requested fixture-model through option(). Empty update must actually withdraw support to produce the expected rejection, and tests assert zero set_config_option/set_model and zero prompt requests. This removes the vacuous stale-snapshot rejection."
+    }
+  ],
+  "evidence": "Read current author diff only; observed parent startup-removal-strengthened.log6/6pass/0fail. No reviewer tests or prompts. Production/driver unchanged.",
+  "accepted": "Truthful smoke comment and strengthened removal negative assertions are reviewable test improvements.",
+  "notAccepted": "No green acceptance or merge-ready claim for deterministic startup criterion; R3 remains explicit blocker.",
+  "followUp": "Upstream supported ownership/capture creation lifecycle barrier or public conformance fixture, followed by exact published-artifact qualification; no further search or implementation in this lane."
+}

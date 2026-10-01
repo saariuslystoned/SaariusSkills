@@ -1,0 +1,30 @@
+{
+  "jobId": "1eb49a04-41ae-457e-ab5c-2e7b401bfb4c",
+  "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c",
+  "termination": [
+    {
+      "pid": 30346,
+      "startedAt": "2026-10-01T13:21:15.813Z",
+      "launchId": "f567dda9-cc8a-4417-b6d4-56d6df551fd7",
+      "scope": {
+        "kind": "runtime-session",
+        "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c"
+      },
+      "processStartTime": "Thu Oct  1 09:21:15 2026",
+      "observed": {
+        "status": "missing"
+      },
+      "matchingExit": {
+        "pid": 30346,
+        "startedAt": "2026-10-01T13:21:15.813Z",
+        "launchId": "f567dda9-cc8a-4417-b6d4-56d6df551fd7",
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c"
+        },
+        "signal": null,
+        "exitCode": 143
+      }
+    }
+  ]
+}

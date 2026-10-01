@@ -2088,7 +2088,7 @@ export class CursorAcpBroker {
         "The bridge has no active ACP turn for this job; resubmit explicitly instead of replacing the session",
       );
     }
-    // acpx 0.19.3 serializes startTurn calls for a session. Its mode: "steer"
+    // acpx 0.19.4 serializes startTurn calls for a session. Its mode: "steer"
     // therefore queues a new model turn rather than steering the active one.
     // Launching it here would outlive the original job's result/cancel owner.
     throw new BridgeError(

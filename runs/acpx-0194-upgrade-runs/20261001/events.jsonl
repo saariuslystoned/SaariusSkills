@@ -1,0 +1,6 @@
+{"time": "2026-10-01T12:40:01.347756+00:00", "event": "worktree_prepared", "base": "e6aaaded1b05f871bbbde65008b17abcf61fe111"}
+{"time": "2026-10-01T13:01:46.704641+00:00", "event": "source_checkpoint", "implementation": "timeout_cleanup_proven", "candidatePrompts": 0}
+{"time": "2026-10-01T13:10:58.728204+00:00", "event": "offline_tests_passed", "sharedSerial": 135, "cursorPass": 128, "cursorSkip": 11, "pythonPass": 101, "candidateFixtureBaselines": "expected-fail", "qualificationPrompts": 0}
+{"time": "2026-10-01T13:16:53.218689+00:00", "event": "official_review_submission_attempt", "head": "4ff23ac2de4f80bc072c8f7802bd74ead51b583f", "candidateLaunchAuthorization": "pending"}
+{"at": "2026-10-01T13:22:57.125131+00:00", "event": "candidate_authorization_and_ci_disposition", "authorization": "Authorize the two candidate tasks", "cursor": "completed exact-owned termination and 4 protected cases passed", "spark": "4ff23ac exact tuple comprehensive P3 clean", "ci": "macOS startup fixture race, correcting wire ordering without timeout/CI changes"}
+{"at": "2026-10-01T13:30:07.457241+00:00", "event": "bounded_qualification_closeout", "candidateLive": "two passed with exact owned physical termination", "grok": "MODEL_UNAVAILABLE zero prompts", "startup": "blocked unsupported deterministic public creation barrier; removal test corrected"}

@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "command": "npm test --prefix bridge/cursor-acp",
+      "tests": 139,
+      "pass": 128,
+      "fail": 0,
+      "skipped": 11,
+      "rawLog": "runs/acpx-0194-upgrade-runs/20261001/cursor-final.log",
+      "sha256": "0ca9725596270919fc662b54db908efaa463282621e8bff7aa2f28b28e993fc8"
+    },
+    {
+      "command": "npm test --prefix bridge/antigravity-acp",
+      "tests": 78,
+      "pass": 66,
+      "fail": 0,
+      "skipped": 12,
+      "rawLog": "runs/acpx-0194-upgrade-runs/20261001/antigravity-final.log",
+      "sha256": "d28202a35a47acda8943fffd28ed7d9f1c970bf742c393f4cf54fa2555f2ce51"
+    },
+    {
+      "command": "npm test --prefix bridge/grok-acp",
+      "tests": 85,
+      "pass": 85,
+      "fail": 0,
+      "skipped": 0,
+      "rawLog": "runs/acpx-0194-upgrade-runs/20261001/grok-final.log",
+      "sha256": "8623b8daee9ce7f867b04619eca2e34c5d923402cf73d36b594a64f7038f5e5f"
+    },
+    {
+      "command": "node --test --test-concurrency=1 bridge/acp-runtime/test/*.test.mjs",
+      "tests": 135,
+      "pass": 135,
+      "fail": 0,
+      "skipped": 0,
+      "rawLog": "runs/acpx-0194-upgrade-runs/20261001/shared-serial.log",
+      "sha256": "e697618dda4f851013ce1ddf8f1e6e7a97bff800c7409bb389530b3c4f389c6d"
+    },
+    {
+      "command": "python3 -m unittest discover -s tests -q",
+      "tests": 101,
+      "pass": 101,
+      "rawLog": "runs/acpx-0194-upgrade-runs/20261001/python-tests.log",
+      "sha256": "a2afb981c74aa5847694e127fe3feb21bf17c1130149af0315400159d3844350"
+    }
+  ],
+  "parallelSharedFailure": "One existing five-second executable preflight timed out under parallel load; unchanged acceptance passed serially. CI baseline b7b88b7 four checks passed, current proof-head checks pending."
+}

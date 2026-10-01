@@ -2,7 +2,7 @@
 
 This repository carries an experimental local-only bridge, separate from the
 Cursor ACP lane and from Puppet's grok tmux harness. The bridge exposes a
-small stdio MCP server named `grok-acp` and uses pinned `acpx@0.19.3` to
+small stdio MCP server named `grok-acp` and uses pinned `acpx@0.19.4` to
 open an ACP session with ACpx's built-in `grok-build` agent:
 
 ```text
@@ -155,7 +155,7 @@ keeps today's local L/A1 path. See the hop section in
 
 ## Active-turn steering
 
-The pinned acpx 0.19.3 runtime serializes turns within a session. The bridge
+The pinned acpx 0.19.4 runtime serializes turns within a session. The bridge
 refuses steering with `STEERING_UNSUPPORTED` before starting another turn.
 After the canonical job result, the parent can explicitly delegate a bounded
 follow-up.

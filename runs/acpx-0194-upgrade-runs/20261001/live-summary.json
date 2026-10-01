@@ -1,0 +1,107 @@
+{
+  "authorization": {
+    "answer": "Authorize the two candidate tasks",
+    "scope": "one Cursor Luna Medium and one Antigravity gemini-3.8-flash-high task, exact ACPx0.19.4, <=300000ms each, reviewed task-local client"
+  },
+  "installedRuntime": "unchanged 0.19.3",
+  "noRetry": true,
+  "lanes": {
+    "cursor-acp": {
+      "jobId": "1eb49a04-41ae-457e-ab5c-2e7b401bfb4c",
+      "status": "completed",
+      "model": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+      "timeoutMs": 300000,
+      "taskComplete": true,
+      "cleanupReady": true,
+      "admissionEligible": true,
+      "startedAt": "2026-10-01T13:21:18.677Z",
+      "updatedAt": "2026-10-01T13:21:38.838Z",
+      "tests": "4 normalization cases passed",
+      "protectedTestSha256": "9cfc57a98865dabcefbe79efe031be86917dd4e64700f60bc225d52402e07772",
+      "runtimeIdentity": "37f7b79e2db080692c754104f84c6b1d40b6ae41280facb47543290c04330a04",
+      "acpx": "0.19.4",
+      "workerTermination": [
+        {
+          "pid": 30346,
+          "startedAt": "2026-10-01T13:21:15.813Z",
+          "launchId": "f567dda9-cc8a-4417-b6d4-56d6df551fd7",
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c"
+          },
+          "processStartTime": "Thu Oct  1 09:21:15 2026",
+          "observed": {
+            "status": "missing"
+          },
+          "matchingExit": {
+            "pid": 30346,
+            "startedAt": "2026-10-01T13:21:15.813Z",
+            "launchId": "f567dda9-cc8a-4417-b6d4-56d6df551fd7",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "cursor-acp:1eb49a04-41ae-457e-ab5c-2e7b401bfb4c"
+            },
+            "signal": null,
+            "exitCode": 143
+          }
+        }
+      ],
+      "backendSessionDiscard": "unsupported",
+      "qualification": "candidate task and local owned termination passed; not installed-native proof"
+    },
+    "antigravity-acp": {
+      "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+      "status": "completed",
+      "model": "gemini-3.8-flash-high",
+      "timeoutMs": 300000,
+      "taskComplete": true,
+      "cleanupReady": true,
+      "admissionEligible": true,
+      "startedAt": "2026-10-01T13:22:44.673Z",
+      "updatedAt": "2026-10-01T13:23:22.591Z",
+      "tests": "4 normalization cases passed",
+      "protectedTestSha256": "9cfc57a98865dabcefbe79efe031be86917dd4e64700f60bc225d52402e07772",
+      "runtimeIdentity": "1287a1a43b58025d97f72162bb17f021c986994cfda6de870809572601f49b74",
+      "acpx": "0.19.4",
+      "workerTermination": [
+        {
+          "pid": 33958,
+          "startedAt": "2026-10-01T13:22:38.854Z",
+          "launchId": "0c61fb35-0e01-40d4-bb7f-e34129eb1714",
+          "scope": {
+            "kind": "runtime-session",
+            "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6"
+          },
+          "processStartTime": "Thu Oct  1 09:22:38 2026",
+          "observed": {
+            "status": "missing"
+          },
+          "matchingExit": {
+            "pid": 33958,
+            "startedAt": "2026-10-01T13:22:38.854Z",
+            "launchId": "0c61fb35-0e01-40d4-bb7f-e34129eb1714",
+            "scope": {
+              "kind": "runtime-session",
+              "sessionKey": "antigravity-acp:e58ae6d1-4d26-4809-b378-77e78f6306f6"
+            },
+            "signal": "SIGTERM",
+            "exitCode": null
+          }
+        }
+      ],
+      "backendSessionDiscard": "unsupported",
+      "qualification": "candidate task and local owned termination passed; not installed-native proof"
+    },
+    "grok-acp": {
+      "status": "BLOCKED",
+      "code": "MODEL_UNAVAILABLE",
+      "requiredModel": "grok-4.7",
+      "advertised": [
+        "grok-4.6",
+        "grok-4.5"
+      ],
+      "prompts": 0,
+      "fallback": false
+    }
+  }
+}

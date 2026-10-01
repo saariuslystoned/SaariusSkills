@@ -1,0 +1,61 @@
+{
+  "repo": "saariuslystoned/SaariusSkills",
+  "pr": 111,
+  "base": "e6aaaded1b05f871bbbde65008b17abcf61fe111",
+  "authorHead": "4ff23ac2de4f80bc072c8f7802bd74ead51b583f",
+  "reviewedAt": "2026-10-01T13:25:31.423646+00:00",
+  "reviewScope": "Only uncommitted provider-free startup fixture/test diff and exact published CLI creation semantics; author worktree read-only.",
+  "status": "CHANGES_REQUIRED",
+  "fileSha256": {
+    "bridge/acp-runtime/test/fixtures/control-peer.mjs": "ede7580fa9b3256f1d6a6091be40d20797bcb3adee0839c400fe0afb46c69cd2",
+    "bridge/acp-runtime/test/published-controls.test.mjs": "bc74cab4c0c0a3ba91f058d30e460d8a4c50f15782058b242e528e551ed7f42e"
+  },
+  "diffSha256": "70cd5e3b7c74bec478cf1bc5f2cf842facdc4ecbcdaee725dfae10b95fdac17e",
+  "findings": [
+    {
+      "id": "R3",
+      "priority": "P2",
+      "disposition": "required_fix",
+      "file": "bridge/acp-runtime/test/fixtures/control-peer.mjs",
+      "lines": [
+        26,
+        32
+      ],
+      "title": "Deliver update after session ownership is established and before creation returns",
+      "evidence": "Published acpx 0.19.4 queue-owner-runtime-C0wIYowh.js runOnce accepts config updates only when client.hasReusableSession(notification.sessionId). AcpClient.createSession sets loadedSessionId after awaiting session/new result, then awaits captureAgentDescendants. The updated fixture sends notification before response, so it is pre-ownership and intentionally ignored. Trace proves send order, not accepted owned callback order. Parent published-controls-order-fix.log confirms 18 passed / 3 failed: every startup case rejects fixture-model with only old-model advertised.",
+      "fix": "Use a deterministic creation-time descendant-capture seam or another justified provider-free barrier: reply first, establish matching loaded session, deliver owned notification while createSession completion is held, then release. Assert accepted notification/control outcome order; preserve no-provider execution, cleanup assertions and existing timeouts."
+    },
+    {
+      "id": "R4",
+      "priority": "P2",
+      "disposition": "required_fix",
+      "file": "bridge/acp-runtime/test/fixtures/control-peer.mjs",
+      "lines": [
+        24,
+        30
+      ],
+      "title": "Removal scenario must initially advertise the requested model",
+      "evidence": "Both startup and removed initial snapshots contain only old-model while CLI requests fixture-model. The removed case expects model failure and zero prompts, which succeeds from the stale snapshot alone without processing the empty update. It cannot detect resurrection of withdrawn support.",
+      "fix": "For the removed scenario, advertise fixture-model exact target in the initial snapshot, then deliver an owned empty catalog during creation. Assert rejection with zero setter and prompt calls. Keep the startup initial snapshot old-only so the added-support case still detects stale overwrite."
+    }
+  ],
+  "rejected": [
+    {
+      "claim": "Synchronous update-before-response retains upstream794 regression strength",
+      "disposition": "reject_false_positive",
+      "reason": "#794 controls notification after response during descendant capture; pre-response updates are intentionally unowned."
+    },
+    {
+      "claim": "Removed-case pass proves an empty catalog removed model support",
+      "disposition": "reject_false_positive",
+      "reason": "The requested model was already absent from the creation catalog."
+    }
+  ],
+  "primarySource": "https://github.com/openclaw/acpx/pull/794",
+  "artifactEvidence": "Inspected the independently verified published 0.19.4 tarball with Python tarfile. No binary patch or runtime install. Observed parent provider-free order-fix log; no reviewer test or live prompt launched.",
+  "scopeLimits": [
+    "Candidate live driver and production source unchanged in this diff; earlier driver review remains applicable by hash.",
+    "User-authorized live runs are parent-owned; reviewer did not prompt, retry, cancel, close clients, or inspect transcripts.",
+    "Corrected tests require fresh review and current-head CI/official review. Do not weaken negative or cleanup assertions to pass."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "jobId": "89b90bdf-c548-406f-8a74-bed0cef687fe",
+  "status": "failed",
+  "error": "TIMEOUT",
+  "taskComplete": true,
+  "cleanupReady": true,
+  "complete": true,
+  "timeoutMs": 300000,
+  "model": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+  "permissionMode": "approve-all",
+  "cleanupObserved": "local_worker_terminated_backend_session_discard_unsupported",
+  "workers": [
+    {
+      "pid": 95547,
+      "launchId": "076d0274-d14c-429a-b3b9-d1ba6debc7f8",
+      "exitCode": 143
+    },
+    {
+      "pid": 40877,
+      "launchId": "6971d31b-a4a5-4312-a9e9-80b8dfb3e455",
+      "exitCode": 143
+    }
+  ],
+  "automaticRetry": false,
+  "proof": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/89b90bdf-c548-406f-8a74-bed0cef687fe/PROOF.md"
+}

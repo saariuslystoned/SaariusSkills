@@ -1,0 +1,72 @@
+{
+  "taskComplete": false,
+  "cleanupReady": false,
+  "complete": false,
+  "admissionEligible": false,
+  "remediation": "wait_for_task_and_cleanup",
+  "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+  "status": "submitted",
+  "route": {
+    "agent": "antigravity",
+    "transport": "antigravity-acp",
+    "runtime": {
+      "id": "antigravity-acp",
+      "version": "1.1.1",
+      "registryRevision": "81bf71b55e15f630c4fb8a86d20d3088071d2071",
+      "acpxSourceCommit": "8e396609238086dee6a407fdb3b3ac46dbdedd70",
+      "acpxNpmGitHead": null,
+      "lastInspectedSourceCommit": "50a47ad10a75431cbc276ec9b555d11fe1f69c84",
+      "lastInspectedSourceRelease": "0.17.1",
+      "acpxRelease": "0.19.4",
+      "acpxNpmIntegrity": "sha512-fN1c3Ype4LrwZoeJwcZEnyO+1ArThgymwswmJyd52dHKaz+3hjkR6lYdlyBPOZYIIcCVARezcfvkFUNxsylSBA==",
+      "acpxTarballSha256": "ccb1e4ad1cb1468493769af3a2ba0df6aeffb4e1e176541f1f231f3ec5782311",
+      "acpxRuntimeJsSha256": "6156cbbe022471b15141821d4f2fb359f014bef7cf32b724c5bd85e864ae7b49"
+    },
+    "executable": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par",
+    "argv": [
+      "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/agy_acp_server.par"
+    ],
+    "helper": "/Users/bobbybones/.local/share/saarius-skills/antigravity-acp/1.1.1-darwin-arm64/localharness_external",
+    "platformId": "darwin-aarch64",
+    "model": "gemini-3.8-flash-high"
+  },
+  "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+  "createdAt": "2026-10-01T13:22:38.848Z",
+  "updatedAt": "2026-10-01T13:22:38.848Z",
+  "timeoutMs": 300000,
+  "model": "gemini-3.8-flash-high",
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f779-3c25-7a30-aafc-9e63f3f3d766",
+    "binderId": "state-b720492141be8a1ab39b8505417971f7",
+    "jobId": "e58ae6d1-4d26-4809-b378-77e78f6306f6",
+    "workspace": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/fixture",
+    "boundAt": "2026-10-01T13:22:38.850Z"
+  },
+  "proof": {
+    "state": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/STATE.md",
+    "events": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/events.jsonl",
+    "proof": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live/antigravity-acp/state/runs/e58ae6d1-4d26-4809-b378-77e78f6306f6/PROOF.md"
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  }
+}
