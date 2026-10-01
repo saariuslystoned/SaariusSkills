@@ -7,13 +7,18 @@ valid independent histories after a shared Git ancestor without canonical state.
 The supported plan now records `base_provenance: "no-ledger-base"`, binds exact
 immutable inputs and title, and retains both complete source ledgers, event
 streams, and archives. The absent base is recorded in the manifest; no base
-ledger or events are fabricated. Different bodies under one decision ID still
-require explicit adjudication, and unrelated Git inputs are rejected.
+ledger or events are fabricated. Live decisions compose into the projection;
+archived decisions remain retained historical bytes and are excluded from that
+projection. Different bodies under one decision ID across either fork's live
+or archived ledgers require explicit adjudication, while identical historical
+bodies are accepted. Unrelated Git inputs are rejected.
 
 Validation:
 
-- `python3 -m unittest tests.test_reconcile`: 16 tests passed.
-- `python3 -m unittest discover -s tests`: 97 tests passed.
+- `python3 -m unittest tests.test_reconcile`: 20 tests passed, including live-vs-
+  archive, archive-vs-archive, retained historical, and identical historical
+  body regressions.
+- `python3 -m unittest discover -s tests`: 101 tests passed.
 - `git diff --check`: passed.
 - Original-CLI synthetic completed apply: exit 0; updated-CLI exact retry:
   exit 0 and valid state. Original-CLI interrupted apply: exit 86; updated-CLI

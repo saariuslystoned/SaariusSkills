@@ -525,6 +525,104 @@ class IndependentHistoryTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("conflicting decision current-only", result.stderr)
 
+    def test_independent_live_vs_archived_conflict_requires_adjudication(self):
+        self.git("checkout", "--detach", self.incoming)
+        archived = decision("current-only")
+        archived["choice"] = "different-archived-choice"
+        self.write_state(
+            self.project / ".grilltrack/archive/incoming-history",
+            ledger("incoming-history", [archived], "closed"),
+            events(110, 1),
+        )
+        self.incoming = self.commit("archived conflict with current live decision")
+        self.git("checkout", "--detach", self.current)
+
+        result = self.reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicting decision current-only", result.stderr)
+
+    def test_independent_archived_vs_archived_conflict_requires_adjudication(self):
+        for role, source, other_choice in (
+            ("current", self.current, "current-archived-choice"),
+            ("incoming", self.incoming, "incoming-archived-choice"),
+        ):
+            self.git("checkout", "--detach", source)
+            archived = decision("archived-only")
+            archived["choice"] = other_choice
+            self.write_state(
+                self.project / f".grilltrack/archive/{role}-history",
+                ledger(f"{role}-history", [archived], "closed"),
+                events(120 if role == "current" else 130, 1),
+            )
+            new_ref = self.commit(f"{role} archived conflict history")
+            setattr(self, role, new_ref)
+        self.git("checkout", "--detach", self.current)
+
+        result = self.reconcile()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicting decision archived-only", result.stderr)
+
+    def test_independent_nonconflicting_archived_decisions_stay_historical(self):
+        for role, source, key in (
+            ("current", self.current, "current-archived-only"),
+            ("incoming", self.incoming, "incoming-archived-only"),
+        ):
+            self.git("checkout", "--detach", source)
+            archived = decision(key)
+            self.write_state(
+                self.project / f".grilltrack/archive/{role}-history",
+                ledger(f"{role}-history", [archived], "closed"),
+                events(140 if role == "current" else 150, 1),
+            )
+            new_ref = self.commit(f"{role} nonconflicting archive history")
+            setattr(self, role, new_ref)
+        self.git("checkout", "--detach", self.current)
+
+        plan_result = self.reconcile()
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan = json.loads(plan_result.stdout)
+        self.assertNotIn("current-archived-only", plan["decision_ids"])
+        self.assertNotIn("incoming-archived-only", plan["decision_ids"])
+        applied = self.reconcile("--apply", plan["plan_id"])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        joined = json.loads((self.project / ".grilltrack/ledger.json").read_text())
+        self.assertNotIn(
+            "current-archived-only",
+            {item["id"] for item in joined["decisions"]},
+        )
+        self.assertNotIn(
+            "incoming-archived-only",
+            {item["id"] for item in joined["decisions"]},
+        )
+        lineage = self.project / ".grilltrack/lineage" / plan["plan_id"]
+        for role, key in (
+            ("current", "current-archived-only"),
+            ("incoming", "incoming-archived-only"),
+        ):
+            archived = json.loads(
+                (
+                    lineage
+                    / f"snapshots/{role}/archive/{role}-history/ledger.json"
+                ).read_text()
+            )
+            self.assertEqual(archived["decisions"][0]["id"], key)
+
+    def test_independent_identical_archived_decision_bodies_are_accepted(self):
+        for role, source in (("current", self.current), ("incoming", self.incoming)):
+            self.git("checkout", "--detach", source)
+            archived = decision("shared-archived")
+            self.write_state(
+                self.project / f".grilltrack/archive/{role}-history",
+                ledger(f"{role}-history", [archived], "closed"),
+                events(160 if role == "current" else 170, 1),
+            )
+            new_ref = self.commit(f"{role} identical archive history")
+            setattr(self, role, new_ref)
+        self.git("checkout", "--detach", self.current)
+
+        result = self.reconcile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_independent_one_sided_canonical_pair_fails_closed(self):
         self.git("checkout", "--detach", self.current)
         (self.project / ".grilltrack" / "events.jsonl").unlink()

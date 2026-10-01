@@ -199,6 +199,23 @@ def build_plan(store, args, api):
             for name, content in snapshots["base"].items():
                 if name.startswith("archive/") and snapshots[role].get(name) != content:
                     raise ValueError("common historical archive changed or disappeared")
+    if base_id is None:
+        historical_decisions = {}
+        for role in ("current", "incoming"):
+            by_decision_id = {}
+            for ledger, _ in parsed[role][0].values():
+                for decision in ledger["decisions"]:
+                    by_decision_id.setdefault(decision["id"], []).append(decision)
+            historical_decisions[role] = by_decision_id
+        for decision_id in sorted(
+            set(historical_decisions["current"]) & set(historical_decisions["incoming"])
+        ):
+            for current_decision in historical_decisions["current"][decision_id]:
+                for incoming_decision in historical_decisions["incoming"][decision_id]:
+                    if current_decision != incoming_decision:
+                        raise ValueError(
+                            f"conflicting decision {decision_id}; adjudicate before reconciliation"
+                        )
     all_events = {}
     for _, events in parsed.values():
         for event_id, event in events.items():

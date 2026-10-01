@@ -85,9 +85,13 @@ complete bytes and never replace different retained history.
 If the immutable Git base is a shared repository ancestor but contains neither
 canonical ledger nor canonical event stream, the plan records
 `base_provenance: "no-ledger-base"`. The current and incoming snapshots are
-then independent complete histories: their decision union and event identities
-are reconciled without inventing a base ledger or event prefix. Both complete
-source snapshots are retained under the lineage record. A base containing only
-one canonical file, or any malformed/one-sided current or incoming pair,
-remains invalid. Shared-ledger-base reconciliation keeps the exact-prefix and
-archive checks above.
+then independent complete histories: their live decision composition and event
+identities are reconciled without inventing a base ledger or event prefix.
+Decision bodies are also compared across every current and archived ledger in
+the two complete fork snapshots; a differing body under the same ID requires
+explicit adjudication, while an identical body is accepted. Archived
+decisions remain historical: they are retained byte-for-byte in the lineage
+snapshots but are excluded from the composed live projection. A base containing
+only one canonical file, or any malformed/one-sided current or incoming pair,
+remains invalid. Shared-ledger-base reconciliation keeps the exact-prefix,
+archive, plan, digest, and projection semantics above.
