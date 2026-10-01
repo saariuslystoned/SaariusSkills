@@ -1,0 +1,61 @@
+{
+  "repo": "saariuslystoned/SaariusSkills",
+  "pr": 111,
+  "base": "e6aaaded1b05f871bbbde65008b17abcf61fe111",
+  "head": "ee016454349ffc4b6bbe1fe497f2a4bba50b78eb",
+  "reviewedAt": "2026-10-01T13:10:42.879712+00:00",
+  "status": "SOURCE_AND_DRIVER_REVIEW_CLEAN_LIVE_REQUIRES_HUMAN_AUTHORIZATION",
+  "reviewWorktree": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194-review",
+  "worktreeHead": "b7b88b704b3c0471fdad5929f45c2f6f0ce6e1ee",
+  "method": "Complete initial diff plus immutable git-show re-review of driver-only fixes6d0ec0a and ee01645; no source changes or provider prompts.",
+  "driverSha256": "1bef7e6f5ec124e9a2bff04afb1d4af9dbef9971f6784c4d2c78e57486c9f80a",
+  "requiredFixes": [],
+  "findings": [
+    {
+      "id": "R1",
+      "disposition": "resolved",
+      "evidence": "6d0ec0a rejects inherited HOP_ARGV/ROLE; ee01645 binds exact AGY executable/helper/argv to reviewed native1.1.1-darwin-arm64 default. Cursor/Grok exact executables and exact selected/current models required; route and permission retained in receipts.",
+      "remainingLimit": "Path binding relies on the established native binary installation; this review does not independently reauthenticate or hash provider binary bytes."
+    },
+    {
+      "id": "R2",
+      "disposition": "resolved",
+      "evidence": "Nonempty complete persisted owned worker identities plus bounded missing-PID probes prove all recorded local workers terminated. Reported cleanup exits must match an owned launch; null matchingExit explicitly preserves missing per-worker exit receipt rather than inventing it. Failure summary retains one-shot fences; no retry/kills/rebinding override."
+    }
+  ],
+  "candidateLaunchPacket": {
+    "authorization": "Explicit human authorization for task-local candidate MCP client still required; SAARIUS_0194_REVIEWED_LAUNCH flag is an execution guard, not authority.",
+    "root": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/runs/acpx-0194-upgrade-runs/20261001/candidate-live",
+    "driver": "/Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194/proof/acpx-0194/candidate-live.mjs",
+    "runtime": "Prepared per-lane supported launcher, isolated runtimeRoot, exact acpx0.19.4 identity rechecked before run. Installed native0.19.3 is not candidate qualification.",
+    "lanes": [
+      {
+        "lane": "cursor-acp",
+        "model": "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]",
+        "promptBudgetMs": 300000,
+        "maxPrompts": 1,
+        "permissionMode": "approve-all",
+        "workspace": "separate retained cursor-acp/fixture"
+      },
+      {
+        "lane": "antigravity-acp",
+        "model": "gemini-3.8-flash-high",
+        "promptBudgetMs": 300000,
+        "maxPrompts": 1,
+        "permissionMode": "approve-all",
+        "workspace": "separate retained antigravity-acp/fixture"
+      }
+    ],
+    "grok": "Blocked at required grok-4.7 vs advertised4.6/4.5; no prompt/substitution authorized.",
+    "task": "Implement LF/CRLF normalization in normalize.mjs only, preserve protected-test.mjs hash/mode, run4 cases and return bounded useful handoff.",
+    "outcomeAcceptance": "Canonical completed task/cleanup result plus exact-owned terminal proof, protected test hash/mode and independently rerun fixture tests.",
+    "noRetry": "Exclusive LAUNCHED fence persists even on uncertain outcomes; preserve result/failure records, no auto retry, alternate transport, installed pin change or restart."
+  },
+  "identityVerification": "independent-npm-verification.json verifies all3 public package pins, registry integrity and tarball hash; runtime/registry byte hashes and release tag separately matched.",
+  "verification": "Final driver syntax parsed successfully with git show ee01645:path | node --check --input-type=module. Parent reports initial b7 source CI4/4 and serial shared135/135; independent reviewer did not rerun parent suites. Current-head exact CI and official Spark comprehensive review remain separate gates.",
+  "limitations": [
+    "Zero provider prompts issued or implied.",
+    "Human merge/install gate remains.",
+    "Any source/driver changes require re-review; docs-only proof commits can retain this review when exact source/driver bytes are unchanged and recorded."
+  ]
+}

@@ -25,3 +25,11 @@ Initial new regressions passed 21/21. Legacy setter alias variation separately p
 ## Review gates
 
 Spark-2 effective SSH route passed (alias spark-2, smoky@192.168.1.41, hostname spark-2). Independent source/driver review, official comprehensive Spark autoreview, exact-head CI, and human merge gate remain pending. No ClawSweeper per assigned repo contract. No merge/install/restart/account/billing changes.
+
+## Offline closeout
+
+`test-summary.json`: Cursor128 passed/11 skipped; AGY66 passed/12 skipped; Grok85 passed; shared135 passed serially; Python101 passed. Shared initial parallel run had one existing five-second executable-preflight timeout; serial rerun passed without changing thresholds. CI b7b88b7 passed all four Linux/macOS checks. Current proof-head CI remains pending.
+
+Independent review `independent-review.json` clean at ee016454349ffc4b6bbe1fe497f2a4bba50b78eb. Accepted R1 local route/hop and AGY executable binding, and R2 exact-worker termination/failure retention; all resolved. Rejected added broker catalog fallback as unnecessary; public API already normalizes it. Driver SHA2561bef7e6f5ec124e9a2bff04afb1d4af9dbef9971f6784c4d2c78e57486c9f80a unchanged. Physical absence of every complete recorded worker identity is required; missing per-worker native exit receipt remains explicit (AGY only exposes one). No process kills.
+
+All three candidate runtimes prepared under task-only root (see candidate-fixture-baselines.json); tests protected by hash/mode and baseline fails expected. Launch authorization requested for two reviewed Cursor/AGY candidate client tasks; Grok unavailable. Zero qualification prompts. Official Spark review and exact-head CI pending. Asset shelf explicitly resolved to saari-co/swarm-pr-assets for this swarm tooling; no changed media, placement pass.

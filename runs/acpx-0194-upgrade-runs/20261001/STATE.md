@@ -1,6 +1,6 @@
 # ACPx 0.19.4 upgrade
 
-Status: SOURCE_REVIEW_AND_OFFLINE_CHECKS
+Status: WAITING_FOR_CANDIDATE_LAUNCH_AUTHORIZATION; OFFICIAL_REVIEW_IN_PROGRESS
 Repo: saariuslystoned/SaariusSkills
 Worktree: /Users/bobbybones/Developer/worktrees/saariusskills-acpx-0194
 Branch: codex/acpx-0194-upgrade
