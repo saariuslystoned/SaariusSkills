@@ -1,0 +1,21 @@
+{
+  "origin": "Bobbys-MacBook-Pro.local",
+  "target": "Spark-2",
+  "aliases": [
+    {
+      "alias": "spark-2",
+      "config": {
+        "user": "smoky",
+        "hostname": "192.168.1.41",
+        "port": "22",
+        "identitiesonly": "no",
+        "identityFileCount": 1
+      },
+      "probe": {
+        "exitCode": 0,
+        "stdout": "spark-2\nsmoky\n",
+        "stderr": ""
+      }
+    }
+  ]
+}

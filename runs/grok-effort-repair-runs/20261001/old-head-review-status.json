@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "/Users/bobbybones/.local/bin/review-tools",
+    "openclaw",
+    "--request-id",
+    "req-20261001T233924Z-279526728659",
+    "--operator-id",
+    "grok-model-selection-20261001"
+  ],
+  "exitCode": 124
+}

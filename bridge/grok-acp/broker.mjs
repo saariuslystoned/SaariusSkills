@@ -651,6 +651,33 @@ function reasoningOption(status) {
   return options.find((o) => o?.id === REASONING_OPTION_ID) ?? options.find((o) => o?.category === "thought_level");
 }
 
+function reasoningEffortFromStatus(status, requested) {
+  const option = reasoningOption(status);
+  const available = Array.isArray(option?.options) ? option.options.map((o) => o?.value).filter(Boolean) : [];
+  if (!requested) {
+    return { requested: "inherit", current: option?.currentValue ?? null, available };
+  }
+  if (!option) {
+    throw new BridgeError(
+      "REASONING_EFFORT_UNSUPPORTED",
+      "Grok ACP did not advertise a reasoning_effort option; set SAARIUS_GROK_ACP_REASONING_EFFORT=inherit to use the CLI default",
+    );
+  }
+  if (!available.includes(requested)) {
+    throw new BridgeError("REASONING_EFFORT_UNAVAILABLE", `Grok ACP does not offer reasoning effort ${requested}`, {
+      requested,
+      available,
+    });
+  }
+  if (option.currentValue !== requested) {
+    throw new BridgeError("REASONING_EFFORT_UNCONFIRMED", `Grok ACP did not confirm reasoning effort ${requested}`, {
+      requested,
+      current: option.currentValue ?? null,
+    });
+  }
+  return { requested, current: option.currentValue, available };
+}
+
 function publicModel(model) {
   const availableModelIds = advertisedGrokModelIds(model?.availableModelIds);
   const availableModels = Array.isArray(model?.availableModels) ? model.availableModels : [];
@@ -1371,25 +1398,95 @@ export class GrokAcpBroker {
       throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Job has no bound Grok model", { renegotiated: false });
     }
     const models = await this.confirmExactModel(handle, bound.selectedModelId);
+    try {
+      await this.applyReasoningEffort(handle);
+    } catch (error) {
+      if (error instanceof BridgeError && !Array.isArray(error.details?.availableModelIds)) {
+        error.details = {
+          ...(error.details ?? {}),
+          availableModelIds: advertisedGrokModelIds(models.availableModelIds),
+          availableModels: Array.isArray(models.availableModels) ? models.availableModels : [],
+          currentModelId: models.currentModelId ?? null,
+        };
+      }
+      throw error;
+    }
+    const coherent = await this.inspectPrePromptInvariant(handle, bound.selectedModelId);
     job.model = {
       ...job.model,
-      currentModelId: models.currentModelId,
-      availableModelIds: models.availableModelIds,
-      availableModels: models.availableModels,
+      currentModelId: coherent.currentModelId,
+      availableModelIds: coherent.availableModelIds,
+      availableModels: coherent.availableModels,
       requestedModel: bound.requestedModel,
       selectedModelId: bound.selectedModelId,
       selectionPolicy: bound.selectionPolicy,
       usedDefaultAlternative: bound.usedDefaultAlternative,
+      reasoningEffort: coherent.reasoningEffort,
     };
-    return models;
+    return coherent;
+  }
+
+  async inspectPrePromptInvariant(handle, selectedModelId) {
+    if (typeof this.runtime.getStatus !== "function") {
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not expose model status");
+    }
+    let status;
+    try {
+      status = await this.runtime.getStatus({ handle });
+    } catch (error) {
+      if (error instanceof BridgeError) throw error;
+      throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Runtime did not return model status", {
+        cause: safeMessage(error?.message),
+      });
+    }
+    const models = modelSnapshot(status);
+    const advertised = advertisedGrokModelIds(models.availableModelIds);
+    const catalog = {
+      requestedModel: selectedModelId,
+      selectedModelId,
+      currentModelId: models.currentModelId ?? null,
+      availableModelIds: advertised,
+      availableModels: Array.isArray(models.availableModels) ? models.availableModels : [],
+      renegotiated: false,
+    };
+    if (!advertised.includes(selectedModelId)) {
+      throw new BridgeError(
+        "MODEL_UNAVAILABLE",
+        `Grok ACP did not advertise the required model ${selectedModelId}`,
+        catalog,
+      );
+    }
+    if (models.currentModelId !== selectedModelId) {
+      throw new BridgeError(
+        "MODEL_SELECTION_UNCONFIRMED",
+        `Grok ACP did not confirm selected model ${selectedModelId}`,
+        catalog,
+      );
+    }
+    let reasoningEffort;
+    try {
+      reasoningEffort = reasoningEffortFromStatus(status, this.reasoningEffort);
+    } catch (error) {
+      if (error instanceof BridgeError && !Array.isArray(error.details?.availableModelIds)) {
+        error.details = {
+          ...(error.details ?? {}),
+          availableModelIds: advertised,
+          availableModels: catalog.availableModels,
+          currentModelId: catalog.currentModelId,
+        };
+      }
+      throw error;
+    }
+    return { ...models, availableModelIds: advertised, reasoningEffort };
   }
 
   async applyReasoningEffort(handle) {
-    let option = reasoningOption(await this.runtime.getStatus({ handle }));
-    const available = Array.isArray(option?.options) ? option.options.map((o) => o?.value).filter(Boolean) : [];
+    let status = await this.runtime.getStatus({ handle });
+    let option = reasoningOption(status);
     if (!this.reasoningEffort) {
-      return { requested: "inherit", current: option?.currentValue ?? null, available };
+      return reasoningEffortFromStatus(status, null);
     }
+    const available = Array.isArray(option?.options) ? option.options.map((o) => o?.value).filter(Boolean) : [];
     if (!option) {
       throw new BridgeError(
         "REASONING_EFFORT_UNSUPPORTED",
@@ -1407,15 +1504,9 @@ export class GrokAcpBroker {
         throw new BridgeError("REASONING_EFFORT_UNCONFIRMED", "Runtime cannot set ACP session config options");
       }
       await this.runtime.setConfigOption({ handle, key: option.id, value: this.reasoningEffort });
-      option = reasoningOption(await this.runtime.getStatus({ handle }));
+      status = await this.runtime.getStatus({ handle });
     }
-    if (option?.currentValue !== this.reasoningEffort) {
-      throw new BridgeError("REASONING_EFFORT_UNCONFIRMED", `Grok ACP did not confirm reasoning effort ${this.reasoningEffort}`, {
-        requested: this.reasoningEffort,
-        current: option?.currentValue ?? null,
-      });
-    }
-    return { requested: this.reasoningEffort, current: option.currentValue, available };
+    return reasoningEffortFromStatus(status, this.reasoningEffort);
   }
 
   async delegate({ workspace, prompt, timeoutMs, hostConversationId, binderId, model, fallbackModels } = {}) {

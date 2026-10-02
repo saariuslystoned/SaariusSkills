@@ -1,0 +1,5 @@
+## codex/grok-effort-repair-20261001
+ M bridge/grok-acp/broker.mjs
+ M bridge/grok-acp/test/reasoning-effort.test.mjs
+?? bridge/grok-acp/node_modules
+?? runs/grok-effort-repair-runs/

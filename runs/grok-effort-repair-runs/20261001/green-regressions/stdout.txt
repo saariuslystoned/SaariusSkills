@@ -1,0 +1,16 @@
+✔ delegated jobs pin high reasoning effort by default (0.446292ms)
+✔ the effort can be overridden or inherited, and bad values fail closed (0.241459ms)
+✔ the ACP reasoning_effort option is set and confirmed after model selection (3.383333ms)
+✔ inherit leaves the CLI default untouched (0.550625ms)
+✔ missing, unavailable or unconfirmed effort fails closed (1.133083ms)
+✔ pre-prompt model reselection keeps required High effort at startTurn (81.273625ms)
+✔ pre-prompt effort setting unsupported, unavailable, or refused sends no prompt (166.751042ms)
+✔ inherit leaves the actual changed current effort after pre-prompt reselection (62.842375ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 456.4745

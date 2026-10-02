@@ -1,0 +1,3 @@
+node
+--test
+test/*.test.mjs

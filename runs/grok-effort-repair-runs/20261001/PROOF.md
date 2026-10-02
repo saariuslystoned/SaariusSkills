@@ -1,0 +1,87 @@
+# PR113 reasoning effort repair proof
+
+## Follow-up (coherent pre-prompt invariant)
+
+Parent strengthened the primary public delegate test with `assert.equal(runtime.turns[0].model, completed.model)`. On the first repair that failed `grok-4.5` vs recorded `grok-4.7` (`parent-model-invariant-red.*`, retained). Cause: the success fixture drifted the model after every effort setter, so `applyReasoningEffort` confirmed High on a changed model and `recheckBoundModel` persisted the stale confirmExactModel snapshot.
+
+Repair: after bound-model reconfirmation and effort application, passively inspect the final status for the exact bound advertised/current model AND required effort. No extra model setter (it resets effort). No renegotiation or retry. Fail closed with zero prompts if either check cannot be confirmed. Persist the coherent actual model/effort from that inspect. Inherit still only reads.
+
+Success fixture now drifts once after the initial High confirmation and before the pre-prompt check, not on every setter. Separate coupled every-setter fixture fails closed. Unsupported / unavailable / refused and inherit cases remain.
+
+No repository-local `AGENTS.md` or `REPO_HYGIENE.md`. Applied `CONTRIBUTING.md`, `skills/grok-acp-delegation/SKILL.md`, and the supplied task constraints. No secrets inspected. No plugin install.
+
+## Source
+
+Uncommitted production change is `bridge/grok-acp/broker.mjs` only:
+
+- `recheckBoundModel()` still confirms the exact bound model, then applies configured effort.
+- New `inspectPrePromptInvariant()` then `getStatus` only: advertised+current must equal the bound id; required effort must still be current (inherit records current, no setter).
+- `job.model` current/available/effort come from that inspect, not the pre-effort snapshot.
+- Shared `reasoningEffortFromStatus()` reuses the existing option parse and `REASONING_EFFORT_*` / `MODEL_*` codes.
+
+Tests only in `bridge/grok-acp/test/reasoning-effort.test.mjs`. `published-controls.test.mjs` was not modified.
+
+Temporary symlink `bridge/grok-acp/node_modules` -> prepared ACPx 0.19.4 tree `.../1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules` was created for tests and removed after. No installs. Shared dependency tree untouched. Isolated f929 fixture `/tmp/grok-effort-f929-coherent.1tFpZb` overlaid only the new test file; fixture `broker.mjs` compared equal to f929. Existing base fixture `/tmp/grok-effort-base-fixture.1mFL13` remains task-owned; fixture `broker.mjs` compared equal to b2ec489; only the test file was overlaid.
+
+## Red on unchanged f929a25 (strengthened primary)
+
+cwd: `/tmp/grok-effort-f929-coherent.1tFpZb/bridge/grok-acp`
+argv: `node --test --test-name-pattern=pre-prompt model reselection keeps required High effort at startTurn test/reasoning-effort.test.mjs`
+exitCode: 1
+stderr: empty
+raw: `runs/grok-effort-repair-runs/20261001/red-f929a25-strengthened-primary/`
+
+f929 `recheckBoundModel` reseeds the bound model (resetting effort to Low) and does not restore High:
+
+```
+✖ pre-prompt model reselection keeps required High effort at startTurn (83.485667ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  'low' !== 'high'
+    actual: 'low',
+    expected: 'high',
+```
+
+## Green on original base without production edits
+
+Isolated fixture `/tmp/grok-effort-base-fixture.1mFL13` from `git archive b2ec4896d0532e6c9a149c114cf3054433be5e7e`. Fixture `broker.mjs` compared equal to base. Same node_modules symlink target. Same argv overlaying only the strengthened test.
+
+exitCode: 0
+stderr: empty
+raw: `runs/grok-effort-repair-runs/20261001/green-base-b2ec489-strengthened-primary/`
+
+```
+✔ pre-prompt model reselection keeps required High effort at startTurn (72.844959ms)
+ℹ tests 1
+ℹ pass 1
+ℹ fail 0
+```
+
+Base `runJob` skips a second model path when the delegate handle is already present. One-time drift is armed after the initial High confirmation status and is never consumed, so startTurn stays grok-4.7 + High.
+
+## Green after coherent repair
+
+`node --test test/reasoning-effort.test.mjs`:
+exitCode: 0
+pass 9 / fail 0
+raw: `runs/grok-effort-repair-runs/20261001/green-regressions-coherent/`
+
+`node --test test/*.test.mjs`:
+exitCode: 0
+pass 100 / fail 0
+duration_ms 7510.50375
+stderr: empty
+raw: `runs/grok-effort-repair-runs/20261001/green-all-grok-coherent/`
+
+Primary public delegate test: actual startTurn model `grok-4.7` == completed.model == persisted selected/current, effort High. Coupled every-setter drift: `MODEL_SELECTION_UNCONFIRMED`, zero prompts. No provider prompts. PR111 temporary-exec startup fixture was not modified or relaxed.
+
+## Earlier proof retained
+
+- First P2 effort-reset red/green: `red-f929a25/`, `green-base-b2ec489/`, `green-regressions/`, `green-all-grok/`, `regressions-tmpdir-import-fail/`
+- Parent model-invariant red on the every-setter fixture: `parent-model-invariant-red.*`
+
+## Stop
+
+Ready for parent inspect, verify, commit, and PR113 update. This worker did not commit, push, or change the PR.
