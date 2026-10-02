@@ -17,3 +17,4 @@
 {"event":"green_all_grok_coherent","argv":["node","--test","test/*.test.mjs"],"exitCode":0,"pass":100,"fail":0,"duration_ms":7510.50375,"stdout":"runs/grok-effort-repair-runs/20261001/green-all-grok-coherent/stdout.txt","stderrEmpty":true}
 {"event":"symlink_removed","path":"bridge/grok-acp/node_modules","target":"/Users/bobbybones/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules"}
 {"event":"acceptance","status":"ready_for_parent_inspect","followup":"coherent-pre-prompt-invariant","commit":false,"push":false,"prUpdate":false}
+{"at": "2026-10-02T02:43:04.140024+00:00", "event": "parent-accepted-effort-repair", "source": "5a4a184", "main": "f04b056", "grok": 100, "packaging": 14, "shared": "117/118; npm-exited timing failure retained"}

@@ -85,3 +85,9 @@ Primary public delegate test: actual startTurn model `grok-4.7` == completed.mod
 ## Stop
 
 Ready for parent inspect, verify, commit, and PR113 update. This worker did not commit, push, or change the PR.
+
+## Parent acceptance after main sync
+
+Source commit 5a4a184 repaired effort and coherent model/effort pre-prompt confirmation. Main f04b056 integrated by branch-sync merge c83b5d86. Independent Grok100/100 and packaging14/14 passed. Shared identity/lifecycle/runtime-store117/118 passed; dependency-timeout SIGTERM-exit fixture failed waiting for its npm-exited marker. First shared attempt lacked other lane dependencies; second used task-only0.19.4 symlinks, all removed. Both raw results retained, no assertion relaxed. Exact source/test commands in parent-post-main-summary.json and parent-post-main-shared-deps.json. Linux startup CI race investigation remains separate. ACP job cd420a5d-e1c7-4736-bd6e-0d41f28e63f8 completed and cleanupReady=true.
+
+Parent review: accepted P2 Low-at-start reproduction; base strengthened test passes; final test proves actual bound model and High at startTurn plus persisted proof. Accepted coupled setter drift concern repaired with one passive coherent final snapshot; zero prompts on mismatch; no reselection after effort verification. No self-merge or plugin installation.
