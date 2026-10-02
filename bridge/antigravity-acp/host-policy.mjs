@@ -1,3 +1,4 @@
+import { compareProcessStartTimes } from "../acp-runtime/process-identity.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -286,7 +287,7 @@ async function reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspect
       return false;
     }
     const provenDead = probe?.status === "missing" ||
-      (probe?.status === "alive" && probe.startTime !== observed.owner.startTime);
+      (probe?.status === "alive" && compareProcessStartTimes(observed.owner.startTime, probe.startTime) === "different");
     if (!provenDead) return false;
 
     const current = await inspectConversationLock(lockPath);
@@ -298,7 +299,7 @@ async function reclaimDeadConversationLock(lockPath, reclaimPath, owner, inspect
       return false;
     }
     const stillDead = confirmed?.status === "missing" ||
-      (confirmed?.status === "alive" && confirmed.startTime !== current.owner.startTime);
+      (confirmed?.status === "alive" && compareProcessStartTimes(current.owner.startTime, confirmed.startTime) === "different");
     if (!stillDead) return false;
     await rm(lockPath, { recursive: true, force: true });
     return true;

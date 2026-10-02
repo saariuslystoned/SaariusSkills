@@ -89,3 +89,21 @@ existing ephemeral ACpx sessions, owner leases and binding locks. It does not
 adopt OpenClaw's wrapper lease machinery, generations or history migration.
 Deterministic harnesses and a real local synthetic ACP peer prove the bounded
 contract; they do not prove production recovery of installed stranded jobs.
+
+
+## Timezone-independent process identity
+
+New broker owners and recorded workers use `ps-utc-v1:<UTC ISO timestamp>`.
+The shared probe forces `TZ=UTC` and `LC_ALL=C`, validates the timestamp, and
+compares only identities of that known format. A genuinely different comparable
+birth still proves PID reuse. Probe failures, missing birth values, malformed
+identities and incompatible formats remain unknown and keep the fence.
+
+Older `lstart` strings have no recorded timezone. A live legacy owner or worker
+cannot be automatically reinterpreted as UTC or admitted for recovery by string
+mismatch, even if a local display happens to match. Obtain genuine terminal and
+owned-exit evidence through the original owner; do not refresh a live broker,
+rewrite records or apply recovery to bypass this ambiguity. Definite process
+absence retains the existing narrow recovery path. The timestamp has the same
+one-second precision as `ps lstart`; this repair adds timezone stability, not
+subsecond PID-reuse guarantees. Installed adoption remains a separate action.

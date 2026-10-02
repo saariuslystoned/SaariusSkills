@@ -439,7 +439,7 @@ test("safe summaries redact credentials and do not persist prompt bodies", async
 });
 
 test("owner identity classification recovers proven PID reuse and fails safe on ambiguous identity", () => {
-  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "Sun Sep 20 13:00:00 2026" };
+  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "ps-utc-v1:2020-01-01T03:03:15.000Z" };
   const lease = { ...owner };
   assert.equal(classifyOwnerIdentity(undefined, { status: "missing" }), "unknown");
   assert.equal(classifyOwnerIdentity({ pid: 4242 }, { status: "missing" }), "unknown");
@@ -448,14 +448,14 @@ test("owner identity classification recovers proven PID reuse and fails safe on 
   assert.equal(classifyOwnerIdentity(owner, { status: "alive" }), "unknown");
   assert.equal(classifyOwnerIdentity({ ...owner, startTime: "" }, { status: "alive", startTime: owner.startTime }), "unknown");
   assert.equal(classifyOwnerIdentity(owner, { status: "missing" }), "dead");
-  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), "reused");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "ps-utc-v1:2020-01-01T08:28:51.000Z" }), "reused");
   assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: owner.startTime }), "live");
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "missing" }), true);
-  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive", startTime: "Mon Sep 21 01:00:00 2026" }), true);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive", startTime: "ps-utc-v1:2020-01-01T08:28:51.000Z" }), true);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "alive" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, lease, { status: "unknown" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, null, { status: "missing" }), false);
-  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner, startTime: "other" }, { status: "missing" }), false);
+  assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner, startTime: "ps-utc-v1:2020-01-01T17:19:06.000Z" }, { status: "missing" }), false);
   assert.equal(shouldRecoverOwnedJob({ status: "completed", owner }, lease, { status: "missing" }), false);
   assert.equal(
     shouldRecoverOwnedJob(
