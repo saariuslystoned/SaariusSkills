@@ -190,7 +190,7 @@ test("incomplete owner identity with a missing PID is left unchanged", async () 
 test("a demonstrably dead owner is recovered as BRIDGE_RESTARTED", async () => {
   const { stateRoot } = await makeState();
   const written = await writeSyntheticJob(stateRoot, {
-    owner: { brokerId: "dead0000-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "Sun Jan  1 00:00:00 2023" },
+    owner: { brokerId: "dead0000-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T21:32:17.000Z" },
   });
   const broker = makeSecondBroker(stateRoot);
   await broker.init();
@@ -203,7 +203,7 @@ test("a demonstrably dead owner is recovered as BRIDGE_RESTARTED", async () => {
 test("a dead PID without a matching owner lease is left unchanged", async () => {
   const { stateRoot } = await makeState();
   const written = await writeSyntheticJob(stateRoot, {
-    owner: { brokerId: "nolease0-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "Sun Jan  1 00:00:00 2023" },
+    owner: { brokerId: "nolease0-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T21:32:17.000Z" },
     writeLease: false,
   });
   const broker = makeSecondBroker(stateRoot);
@@ -216,9 +216,9 @@ test("a dead PID without a matching owner lease is left unchanged", async () => 
 
 test("a lease that does not match the job owner is left unchanged", async () => {
   const { stateRoot } = await makeState();
-  const owner = { brokerId: "mismatch-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "Sun Jan  1 00:00:00 2023" };
+  const owner = { brokerId: "mismatch-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T21:32:17.000Z" };
   const written = await writeSyntheticJob(stateRoot, { owner, writeLease: false });
-  await writeOwnerLease(stateRoot, { ...owner, startTime: "different-start" });
+  await writeOwnerLease(stateRoot, { ...owner, startTime: "ps-utc-v1:2020-01-01T14:13:25.000Z" });
   const broker = makeSecondBroker(stateRoot);
   await broker.init();
   const after = await readJob(stateRoot, written.jobId);
@@ -250,7 +250,7 @@ test("proven PID reuse without a matching owner lease is left unchanged", async 
     owner: {
       brokerId: "reusenol-0000-4000-8000-000000000001",
       pid: process.pid,
-      startTime: "Thu Jan  1 00:00:00 1970",
+      startTime: "ps-utc-v1:2020-01-01T15:03:28.000Z",
     },
     writeLease: false,
   });
@@ -265,10 +265,10 @@ test("proven PID reuse without a matching owner lease is left unchanged", async 
 test("PID reuse cannot be proved from bare PID existence and fails safe", async () => {
   const { stateRoot } = await makeState();
   const written = await writeSyntheticJob(stateRoot, {
-    owner: { brokerId: "opaque00-0000-4000-8000-000000000001", pid: process.pid, startTime: "Sun Sep 20 13:00:00 2026" },
+    owner: { brokerId: "opaque00-0000-4000-8000-000000000001", pid: process.pid, startTime: "ps-utc-v1:2020-01-01T03:03:15.000Z" },
   });
   const broker = makeSecondBroker(stateRoot, {
-    startTime: "second-broker",
+    startTime: "ps-utc-v1:2020-01-01T05:23:31.000Z",
     inspectProcess: async (pid) => {
       if (pid === process.pid) return { status: "alive" };
       return { status: "unknown" };
@@ -289,7 +289,7 @@ test("already-terminal jobs stay terminal even when their owner is dead", async 
     { jobId: "aaaaaaa3-0000-4000-8000-000000000003", status: "cancelled", handoff: "stopped" },
     { jobId: "aaaaaaa4-0000-4000-8000-000000000004", status: "needs-input", error: { code: "INPUT_REQUIRED", message: "login" } },
   ];
-  const deadOwner = { brokerId: "deadterm-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "old" };
+  const deadOwner = { brokerId: "deadterm-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T10:54:35.000Z" };
   for (const item of cases) await writeSyntheticJob(stateRoot, { ...item, owner: deadOwner });
   const broker = makeSecondBroker(stateRoot);
   await broker.init();
@@ -303,10 +303,10 @@ test("already-terminal jobs stay terminal even when their owner is dead", async 
 
 test("recovery loses a terminal-state race instead of overwriting completion", { timeout: 8_000 }, async () => {
   const { stateRoot } = await makeState();
-  const writer = makeSecondBroker(stateRoot, { brokerId: "writer00-0000-4000-8000-000000000001", startTime: "writer" });
+  const writer = makeSecondBroker(stateRoot, { brokerId: "writer00-0000-4000-8000-000000000001", startTime: "ps-utc-v1:2020-01-01T11:14:14.000Z" });
   await writer.init();
   const written = await writeSyntheticJob(stateRoot, {
-    owner: { brokerId: "racer000-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "gone" },
+    owner: { brokerId: "racer000-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T12:25:29.000Z" },
   });
   let releaseInspect;
   const inspectGate = new Promise((resolve) => {
@@ -318,14 +318,14 @@ test("recovery loses a terminal-state race instead of overwriting completion", {
   });
   const recovering = makeSecondBroker(stateRoot, {
     brokerId: "recover0-0000-4000-8000-000000000001",
-    startTime: "recoverer",
+    startTime: "ps-utc-v1:2020-01-01T15:39:14.000Z",
     inspectProcess: async (pid) => {
       if (pid === DEAD_PID) {
         sawDeadOwner();
         await inspectGate;
         return { status: "missing" };
       }
-      return { status: "alive", startTime: "recoverer" };
+      return { status: "alive", startTime: "ps-utc-v1:2020-01-01T15:39:14.000Z" };
     },
   });
   const initPromise = recovering.init();
@@ -511,10 +511,10 @@ test("a later status and result still preserve a live foreign owner", { timeout:
 
 test("observer recovery loses a terminal-state race instead of overwriting completion", { timeout: 8_000 }, async () => {
   const { stateRoot } = await makeState();
-  const writer = makeSecondBroker(stateRoot, { brokerId: "obswrite-0000-4000-8000-000000000001", startTime: "writer" });
+  const writer = makeSecondBroker(stateRoot, { brokerId: "obswrite-0000-4000-8000-000000000001", startTime: "ps-utc-v1:2020-01-01T11:14:14.000Z" });
   await writer.init();
   const written = await writeSyntheticJob(stateRoot, {
-    owner: { brokerId: "obsracer-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "gone" },
+    owner: { brokerId: "obsracer-0000-4000-8000-000000000001", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T12:25:29.000Z" },
   });
   let initDone = false;
   let releaseInspect;
@@ -527,15 +527,15 @@ test("observer recovery loses a terminal-state race instead of overwriting compl
   });
   const observer = makeSecondBroker(stateRoot, {
     brokerId: "observer-0000-4000-8000-000000000001",
-    startTime: "observer",
+    startTime: "ps-utc-v1:2020-01-01T00:49:33.000Z",
     inspectProcess: async (pid) => {
       if (pid === DEAD_PID) {
-        if (!initDone) return { status: "alive", startTime: "gone" };
+        if (!initDone) return { status: "alive", startTime: "ps-utc-v1:2020-01-01T12:25:29.000Z" };
         sawObserveProbe();
         await inspectGate;
         return { status: "missing" };
       }
-      return { status: "alive", startTime: "observer" };
+      return { status: "alive", startTime: "ps-utc-v1:2020-01-01T00:49:33.000Z" };
     },
   });
   await observer.init();
