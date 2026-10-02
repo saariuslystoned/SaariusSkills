@@ -1,3 +1,5 @@
+import { inspectProcessIdentity, compareProcessStartTimes } from "../acp-runtime/process-identity.mjs";
+export { inspectProcessIdentity } from "../acp-runtime/process-identity.mjs";
 import { createProcessLifecycleTracker, isUnsupportedBackendSessionClose,
   publicWorkerIdentity, captureJobWorkers, lifecycleReceipt, brokerProcessLifecycle } from "../acp-runtime/lifecycle.mjs";
 import { recoverConversation } from "../acp-runtime/recovery.mjs";
@@ -168,7 +170,8 @@ export function classifyOwnerIdentity(owner, probe) {
   if (typeof probe.startTime !== "string" || probe.startTime.trim().length === 0) {
     return "unknown";
   }
-  return probe.startTime === owner.startTime ? "live" : "reused";
+  const comparison = compareProcessStartTimes(owner.startTime, probe.startTime);
+  return comparison === "matching" ? "live" : comparison === "different" ? "reused" : "unknown";
 }
 
 export function shouldRecoverOwnedJob(job, lease, probe) {
@@ -178,34 +181,6 @@ export function shouldRecoverOwnedJob(job, lease, probe) {
   return state === "dead" || state === "reused";
 }
 
-export async function inspectProcessIdentity(pid, exec = execFile) {
-  if (!Number.isInteger(pid) || pid <= 0) return { status: "unknown" };
-  try {
-    process.kill(pid, 0);
-  } catch (error) {
-    if (error?.code === "ESRCH") return { status: "missing" };
-    if (error?.code !== "EPERM") return { status: "unknown" };
-  }
-  try {
-    const { stdout } = await exec("ps", ["-p", String(pid), "-o", "lstart="], {
-      encoding: "utf8",
-      timeout: 2_000,
-      maxBuffer: 4 * 1024,
-      env: { LC_ALL: "C", PATH: process.env.PATH ?? "/usr/bin:/bin" },
-    });
-    const startTime = String(stdout ?? "").trim();
-    if (!startTime) return { status: "unknown" };
-    return { status: "alive", startTime };
-  } catch {
-    try {
-      process.kill(pid, 0);
-      return { status: "unknown" };
-    } catch (error) {
-      if (error?.code === "ESRCH") return { status: "missing" };
-      return { status: "unknown" };
-    }
-  }
-}
 
 export function hashText(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");

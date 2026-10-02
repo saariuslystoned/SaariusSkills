@@ -233,7 +233,7 @@ test("proven PID reuse with a mismatched start time is recovered as BRIDGE_RESTA
     owner: {
       brokerId: "reuse000-0000-4000-8000-000000000001",
       pid: process.pid,
-      startTime: "Thu Jan  1 00:00:00 1970",
+      startTime: "ps-utc-v1:2020-01-01T15:03:28.000Z",
     },
   });
   const broker = makeSecondBroker(stateRoot);
