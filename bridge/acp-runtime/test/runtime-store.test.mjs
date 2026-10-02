@@ -61,7 +61,7 @@ async function makePluginSnapshot(bridge, { includeLauncher = false } = {}) {
   }
   const sharedRoot = path.join(pluginRoot, "bridge", "acp-runtime");
   await mkdir(sharedRoot, { recursive: true });
-  for (const file of ["lifecycle.mjs", "recovery.mjs"]) {
+  for (const file of ["lifecycle.mjs", "recovery.mjs", "process-identity.mjs"]) {
     await cp(path.join(repoRoot, "bridge", "acp-runtime", file), path.join(sharedRoot, file));
   }
   if (includeLauncher) {

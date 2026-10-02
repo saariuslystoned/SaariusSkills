@@ -1,3 +1,4 @@
+import { compareProcessStartTimes } from "./process-identity.mjs";
 import path from "node:path";
 
 export class RecoveryError extends Error {
@@ -18,8 +19,9 @@ async function proveGone(broker, identity) {
   const probe = await broker.inspectProcess(identity.pid);
   if (probe?.status === "missing") return "missing";
   if (probe?.status === "alive" && typeof probe.startTime === "string" && probe.startTime.trim()) {
-    if (probe.startTime !== identity.startTime) return "pid_reused";
-    deny("owner_or_worker_live");
+    const comparison = compareProcessStartTimes(identity.startTime, probe.startTime);
+    if (comparison === "different") return "pid_reused";
+    if (comparison === "matching") deny("owner_or_worker_live");
   }
   deny("ownership_unobservable");
 }

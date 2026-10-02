@@ -226,11 +226,11 @@ test("injected failure before bind leaves an unbound released job and a free con
 });
 
 test("crash after bind with a dead owner is recoverable; live and unobservable owners stay fenced", async () => {
-  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" };
+  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T20:07:51.000Z" };
   const { broker, workspace } = await harness({
     inspectProcess: async (pid) => {
       if (pid === DEAD_PID) return { status: "missing" };
-      return { status: "alive", startTime: "live-start" };
+      return { status: "alive", startTime: "ps-utc-v1:2020-01-01T00:33:35.000Z" };
     },
   });
   await writeCrashAdmission(broker, {
@@ -275,7 +275,7 @@ test("crash after bind with a dead owner is recoverable; live and unobservable o
     jobId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     hostConversationId: "conv-unknown",
     workspace: unknownBroker.workspace,
-    owner: { brokerId: "opaque-owner", pid: 7_777_777, startTime: "opaque-start" },
+    owner: { brokerId: "opaque-owner", pid: 7_777_777, startTime: "ps-utc-v1:2020-01-01T17:16:28.000Z" },
     admissionState: ADMISSION_STATE_UNSTARTED,
   });
   await assert.rejects(
@@ -294,11 +294,11 @@ test("crash after bind with a dead owner is recoverable; live and unobservable o
 });
 
 test("started or unreadable previous jobs stay fenced", async () => {
-  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" };
+  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T20:07:51.000Z" };
   const { broker, workspace } = await harness({
     inspectProcess: async (pid) => {
       if (pid === DEAD_PID) return { status: "missing" };
-      return { status: "alive", startTime: "live-start" };
+      return { status: "alive", startTime: "ps-utc-v1:2020-01-01T00:33:35.000Z" };
     },
   });
   await writeCrashAdmission(broker, {
@@ -385,7 +385,7 @@ test("worker startup intent is durable before ensureSession and fences unknown s
       error.details?.reason === "previous_job_nonterminal",
   );
 
-  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" };
+  const deadOwner = { brokerId: "dead-owner", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T20:07:51.000Z" };
   const restarted = await writeCrashAdmission(broker, {
     jobId: SECOND_JOB,
     hostConversationId: "conv-restarted-starting",
@@ -415,13 +415,13 @@ test("worker startup intent is durable before ensureSession and fences unknown s
 
 test("BRIDGE_RESTARTED with an unknown worker handle stays fenced until cleanup is recorded", async () => {
   const { broker, workspace } = await harness({
-    inspectProcess: async (pid) => pid === DEAD_PID ? { status: "missing" } : { status: "alive", startTime: "live-start" },
+    inspectProcess: async (pid) => pid === DEAD_PID ? { status: "missing" } : { status: "alive", startTime: "ps-utc-v1:2020-01-01T00:33:35.000Z" },
   });
   const restarted = await writeCrashAdmission(broker, {
     jobId: FIRST_JOB,
     hostConversationId: "conv-restarted-handle",
     workspace,
-    owner: { brokerId: "dead-owner", pid: DEAD_PID, startTime: "old-start" },
+    owner: { brokerId: "dead-owner", pid: DEAD_PID, startTime: "ps-utc-v1:2020-01-01T20:07:51.000Z" },
     admissionState: ADMISSION_STATE_STARTED,
     status: "failed",
     handle: { sessionKey: "cursor-acp:unknown", backend: "fixture" },

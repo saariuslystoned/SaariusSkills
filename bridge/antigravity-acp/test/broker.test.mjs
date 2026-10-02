@@ -620,11 +620,11 @@ test("safe summaries redact credentials and do not persist prompt bodies", async
 });
 
 test("owner identity recovery fails closed when identity is incomplete or ambiguous", () => {
-  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "owner-start" };
+  const owner = { brokerId: "11111111-1111-4111-8111-111111111111", pid: 4242, startTime: "ps-utc-v1:2020-01-01T15:58:44.000Z" };
   assert.equal(classifyOwnerIdentity({ pid: 4242 }, { status: "missing" }), "unknown");
   assert.equal(classifyOwnerIdentity(owner, { status: "unknown" }), "unknown");
   assert.equal(classifyOwnerIdentity(owner, { status: "missing" }), "dead");
-  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "other-start" }), "reused");
+  assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: "ps-utc-v1:2020-01-01T23:51:22.000Z" }), "reused");
   assert.equal(classifyOwnerIdentity(owner, { status: "alive", startTime: owner.startTime }), "live");
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, { ...owner }, { status: "missing" }), true);
   assert.equal(shouldRecoverOwnedJob({ status: "running", owner }, null, { status: "missing" }), false);
@@ -660,8 +660,8 @@ test("a live owner's in-flight job survives another broker and remains cancellab
 test("a genuinely dead owner is recovered as a bridge restart", async () => {
   const first = await makeBroker({
     pid: 4242,
-    startTime: "dead-owner-start",
-    inspectProcess: async () => ({ status: "alive", startTime: "dead-owner-start" }),
+    startTime: "ps-utc-v1:2020-01-01T03:26:44.000Z",
+    inspectProcess: async () => ({ status: "alive", startTime: "ps-utc-v1:2020-01-01T03:26:44.000Z" }),
     runtimeOptions: { delayMs: 5_000 },
   });
   const submitted = await first.broker.delegate({
@@ -676,10 +676,10 @@ test("a genuinely dead owner is recovered as a bridge restart", async () => {
     geminiHome: first.geminiHome,
     processEnv: { PATH: process.env.PATH ?? "" },
     pid: 5252,
-    startTime: "replacement-start",
+    startTime: "ps-utc-v1:2020-01-01T19:37:42.000Z",
     inspectProcess: async (pid) => pid === 4242
       ? { status: "missing" }
-      : { status: "alive", startTime: "replacement-start" },
+      : { status: "alive", startTime: "ps-utc-v1:2020-01-01T19:37:42.000Z" },
     runtime: new FixtureRuntime(),
   });
   await second.init();
