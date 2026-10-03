@@ -1,0 +1,33 @@
+diff --git a/bridge/grok-acp/broker.mjs b/bridge/grok-acp/broker.mjs
+index 5307b2a..d83331c 100644
+--- a/bridge/grok-acp/broker.mjs
++++ b/bridge/grok-acp/broker.mjs
+@@ -1371,6 +1371,20 @@ export class GrokAcpBroker {
+       throw new BridgeError("MODEL_SELECTION_UNCONFIRMED", "Job has no bound Grok model", { renegotiated: false });
+     }
+     const models = await this.confirmExactModel(handle, bound.selectedModelId);
++    let reasoningEffort;
++    try {
++      reasoningEffort = await this.applyReasoningEffort(handle);
++    } catch (error) {
++      if (error instanceof BridgeError && !Array.isArray(error.details?.availableModelIds)) {
++        error.details = {
++          ...(error.details ?? {}),
++          availableModelIds: advertisedGrokModelIds(models.availableModelIds),
++          availableModels: Array.isArray(models.availableModels) ? models.availableModels : [],
++          currentModelId: models.currentModelId ?? null,
++        };
++      }
++      throw error;
++    }
+     job.model = {
+       ...job.model,
+       currentModelId: models.currentModelId,
+@@ -1380,6 +1394,7 @@ export class GrokAcpBroker {
+       selectedModelId: bound.selectedModelId,
+       selectionPolicy: bound.selectionPolicy,
+       usedDefaultAlternative: bound.usedDefaultAlternative,
++      reasoningEffort,
+     };
+     return models;
+   }

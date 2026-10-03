@@ -61,19 +61,32 @@ explicitly authorizes that alternative.
 
 - Start with `grok_acp_readiness` for the exact workspace when the route has
   not been checked in the current task. Require the local `grok agent stdio`
-  child through ACpx `grok-build`, and the plugin default exact advertised id
-  `grok-4.7`, with the ACP `reasoning_effort` option pinned to `high`
-  (`SAARIUS_GROK_ACP_REASONING_EFFORT` overrides; `inherit` keeps the CLI
-  default). Never silently fall back to `cursor-agent acp`, generic `acp`,
-  another executable, or another workspace. `grok_acp_delegate` hard-refuses
+  child through ACpx `grok-build`. The plugin default, when `model` is omitted,
+  selects the first advertised id among `grok-4.7`, then `grok-4.6`, then
+  `grok-4.5`. Optional `fallbackModels` (at most two exact ids) replaces
+  `grok-4.6` and `grok-4.5`; an empty list is strict `grok-4.7`. An explicit
+  `model` such as `grok-4.6`, `grok-4.7`, or `grok-4.7-build-fast` stays exact
+  and never substitutes. Do not send `model` together with `fallbackModels`,
+  and do not treat the session's current model as a selection. Readiness
+  returns `catalogReady`, `selectionReady`, the full advertised catalog, the
+  requested policy, and the selected model. Missing every allowed id, invalid
+  input, or auth failure fails with no prompt. The ACP `reasoning_effort`
+  option stays pinned to `high` (`SAARIUS_GROK_ACP_REASONING_EFFORT` overrides;
+  `inherit` keeps the CLI default). Never silently fall back to
+  `cursor-agent acp`, generic `acp`, Luna, another executable, or another
+  workspace. Native Grok does not run Luna. `grok_acp_delegate` hard-refuses
   when that readiness is red (runtime / auth / model / workspace). Do not treat
   a red readiness report as advice and submit anyway.
 - Use `grok_acp_delegate` with one absolute workspace path, one parent
   conversation id (`hostConversationId` or `SAARIUS_ACP_HOST_CONVERSATION_ID`),
-  one bounded prompt, and a bounded timeout (`timeoutMs` is the wall-clock
+  the optional `model` or `fallbackModels` policy from readiness, one bounded
+  prompt, and a bounded timeout (`timeoutMs` is the wall-clock
   budget for that one ACP turn: 60 minutes when omitted, up to 4 hours when
   explicitly requested; it is not session duration or `grok_acp_result`
-  `waitMs`). One parent conversation owns one
+  `waitMs`). The requested policy and resolved exact model are bound to that
+  job and rechecked on the session immediately before the prompt. If the
+  catalog no longer advertises that exact id, the job fails with no prompt and
+  does not switch models. One parent conversation owns one
   worker. Rebind is owner-gated (`binderId` / `SAARIUS_ACP_BINDER_ID`); cwd is
   not exclusive. Prefer an isolated worktree for source mutations. Do not fan
   out by default. Live MCP permissions default to `approve-reads` plus fail on

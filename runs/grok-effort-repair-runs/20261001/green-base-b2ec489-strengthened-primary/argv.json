@@ -1,0 +1,6 @@
+[
+  "node",
+  "--test",
+  "--test-name-pattern=pre-prompt model reselection keeps required High effort at startTurn",
+  "test/reasoning-effort.test.mjs"
+]

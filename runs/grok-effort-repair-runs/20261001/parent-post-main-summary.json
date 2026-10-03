@@ -1,0 +1,65 @@
+{
+  "sourceHead": "c83b5d86f6ea4e18a2b3c18582dc5bbcdc59ce34",
+  "base": "f04b0568424fba1c62db436081a037f1a0c8963d",
+  "time": "2026-10-02T02:40:38.027957+00:00",
+  "tests": [
+    {
+      "name": "grok",
+      "argv": [
+        "node",
+        "--test",
+        "bridge/grok-acp/test/admission-recovery.test.mjs",
+        "bridge/grok-acp/test/broker.test.mjs",
+        "bridge/grok-acp/test/host-policy.test.mjs",
+        "bridge/grok-acp/test/live-smoke.test.mjs",
+        "bridge/grok-acp/test/lock.test.mjs",
+        "bridge/grok-acp/test/model-selection.test.mjs",
+        "bridge/grok-acp/test/reasoning-effort.test.mjs",
+        "bridge/grok-acp/test/recovery.test.mjs",
+        "bridge/grok-acp/test/server-errors.test.mjs",
+        "bridge/grok-acp/test/setup.test.mjs",
+        "bridge/grok-acp/test/timeout-policy.test.mjs"
+      ],
+      "exitCode": 0,
+      "stdoutSha256": "57623d6ed433d5330d54b6337eaced1456502c3ea858afca211b798c08d809f2",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutTail": "urs plus one millisecond is rejected at the broker before a runtime turn (62.975167ms)\n\u2714 short synthetic timeout fails closed and still completes cleanup (1339.098916ms)\n\u2714 default ACpx runtime keeps the 10-minute control-plane timeout (1.087667ms)\n\u2139 tests 100\n\u2139 suites 0\n\u2139 pass 100\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 7956.7325\n",
+      "stderrTail": ""
+    },
+    {
+      "name": "shared",
+      "argv": [
+        "node",
+        "--test",
+        "bridge/acp-runtime/test/process-identity.test.mjs",
+        "bridge/acp-runtime/test/timezone-identity.test.mjs",
+        "bridge/acp-runtime/test/lifecycle.test.mjs",
+        "bridge/acp-runtime/test/runtime-store.test.mjs"
+      ],
+      "exitCode": 1,
+      "stdoutSha256": "94ce2d05c1defb2c2bf8e76674e17bf0c0c140e6b38ef9b797892908b2f76612",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutTail": "/loader:725:38)\n      at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)\n      at #resolve (node:internal/modules/esm/loader:687:17)\n      at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)\n      at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33) {\n    code: 'ERR_MODULE_NOT_FOUND'\n  }\n",
+      "stderrTail": ""
+    },
+    {
+      "name": "packaging",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_packaging.py",
+        "-q"
+      ],
+      "exitCode": 0,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "2b71ff42e98ab739d51731fc7dd7df88c337a0ddfe25141b48531f4b775dc9e4",
+      "stdoutTail": "",
+      "stderrTail": "----------------------------------------------------------------------\nRan 14 tests in 0.128s\n\nOK\n"
+    }
+  ]
+}

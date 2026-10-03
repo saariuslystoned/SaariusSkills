@@ -1,0 +1,8 @@
+{
+  "argv": [
+    "node",
+    "--test",
+    "test/reasoning-effort.test.mjs"
+  ],
+  "cwd": "bridge/grok-acp"
+}

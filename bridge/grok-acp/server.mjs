@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { GrokAcpBroker, timeoutMsZod } from "./broker.mjs";
+import { GrokAcpBroker, grokFallbackModelsZod, grokModelZod, timeoutMsZod } from "./broker.mjs";
 import { serializeFailure } from "./server-errors.mjs";
 
 const broker = await new GrokAcpBroker().init();
@@ -39,8 +39,12 @@ server.registerTool(
   "grok_acp_readiness",
   {
     description:
-      "Check the explicit local Grok ACP executable, login/session readiness, and exact advertised Grok model without sending a model turn.",
-    inputSchema: { workspace: z.string().optional() },
+      "Check the explicit local Grok ACP executable, login/session readiness, and full advertised Grok model catalog without sending a model turn. ready matches selection readiness. Omitting model prefers advertised grok-4.7, then grok-4.6, then grok-4.5. Optional model is an exact id and never substitutes, including grok-4.6, grok-4.7, and grok-4.7-build-fast. Optional fallbackModels accepts at most two exact ids and replaces those default alternatives; an empty list requires grok-4.7. Do not pass model together with fallbackModels. catalogReady can be true when selectionReady is false. Missing allowed ids, invalid input, and auth failure do not prompt. The session's current model is not a selection. This lane is native Grok CLI, not Cursor and not Luna.",
+    inputSchema: {
+      workspace: z.string().optional(),
+      model: grokModelZod(z),
+      fallbackModels: grokFallbackModelsZod(z),
+    },
   },
   (args) => call((input) => broker.discover(input), args),
 );
@@ -49,13 +53,15 @@ server.registerTool(
   "grok_acp_delegate",
   {
     description:
-      "Submit one bounded implementation task to local Grok 4.7 in exactly one absolute workspace. Refuses when readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID.",
+      "Submit one bounded implementation task to local native Grok ACP in exactly one absolute workspace. Omitting model prefers advertised grok-4.7, then grok-4.6, then grok-4.5. That choice is bound to the job and rechecked before the prompt; catalog drift fails with no prompt and no other model. Explicit model is exact and never substitutes. Optional fallbackModels accepts at most two exact ids and replaces the default alternatives only when model is omitted; an empty list requires grok-4.7. Do not pass model together with fallbackModels. Refuses when selection readiness is red. One parent conversation owns one worker; rebind is owner-gated. binderId must match the host-controlled binder identity; it is not an authorization override. Returns a stable job ID. This lane does not run Luna.",
     inputSchema: {
       workspace: z.string(),
       prompt: z.string(),
       timeoutMs: timeoutMsZod(z),
       hostConversationId: z.string().optional(),
       binderId: z.string().optional(),
+      model: grokModelZod(z),
+      fallbackModels: grokFallbackModelsZod(z),
     },
   },
   (args) => call((input) => broker.delegate(input), args),

@@ -1,0 +1,98 @@
+{
+  "taskComplete": true,
+  "cleanupReady": true,
+  "complete": true,
+  "admissionEligible": true,
+  "remediation": "none",
+  "jobId": "32197916-486d-4e63-8d79-881f264f8f12",
+  "status": "completed",
+  "route": {
+    "agent": "cursor",
+    "transport": "acp",
+    "executable": "<USER_HOME>/.local/bin/cursor-agent",
+    "argv": [
+      "<USER_HOME>/.local/bin/cursor-agent",
+      "acp"
+    ],
+    "model": "grok-4.6[effort=high,fast=true]",
+    "effort": "high"
+  },
+  "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+  "createdAt": "2026-10-02T02:21:43.061Z",
+  "updatedAt": "2026-10-02T02:26:35.272Z",
+  "startedAt": "2026-10-02T02:21:47.761Z",
+  "timeoutMs": 600000,
+  "model": "grok-4.6[effort=high,fast=true]",
+  "modelSelection": {
+    "requestedModel": "grok-4.6",
+    "requestedEffort": null,
+    "selectionPolicy": {
+      "kind": "explicit",
+      "requestedModel": "grok-4.6",
+      "requestedEffort": null,
+      "baseModel": null,
+      "effort": null
+    },
+    "selectedModelId": "grok-4.6[effort=high,fast=true]",
+    "selectedEffort": "high",
+    "currentModelId": "grok-4.6[effort=high,fast=true]",
+    "currentEffort": "high"
+  },
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f7b2-e9f3-78a2-aa82-9b50fd38e1c1",
+    "binderId": "state-cd27e27808aa11bdee89da2758135b30",
+    "jobId": "32197916-486d-4e63-8d79-881f264f8f12",
+    "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+    "boundAt": "2026-10-02T02:21:43.078Z",
+    "replacedJobId": "ef0ec142-9f2f-471c-8136-6c7fd569d384"
+  },
+  "proof": {
+    "state": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/STATE.md",
+    "events": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/events.jsonl",
+    "proof": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/PROOF.md"
+  },
+  "handoff": "…lure.The f929a25 run failed as expected: `startTurn` saw `low` instead of `high`. Next I’ll run the same test against an isolated base fixture.Red on f929a25 and green on isolated base are captured. I’ll apply the narrow `recheckBoundModel` repair and add the fail-closed plus inherit cases.The new cases passed. The older helpers still call `tmpdir()` after I switched the import to `os`, so I’ll restore that reference.All 99 Grok tests passed. I’ll record exact argv, write the task proof files, confirm the source diff is narrow, and remove the temporary symlink.P2 is repaired and ready for parent inspect. No commit, push, or PR update from this worker.\n\n**Cause:** `recheckBoundModel()` confirmed the exact bound model (and could `setModel`) but never called `applyReasoningEffort()`. A pre-prompt model setter resets thought_level to Low, so `startTurn` ran Low while proof still said High.\n\n**Source:** only `recheckBoundModel()` in `bridge/grok-acp/broker.mjs`. After the final exact bound-model confirmation it now applies/confirms configured effort and refreshes `job.model.reasoningEffort` before prompt. Inherit still reads current without setting. No model setter after effort verification. Bound model / no renegotiation unchanged. Tests only in `bridge/grok-acp/test/reasoning-effort.test.mjs`. PR111 startup fixture untouched.\n\n**Red on unchanged f929a25** (`exitCode` 1, stderr empty):\n\n```\n✖ pre-prompt model reselection keeps required High effort at startTurn\n  'low' !== 'high'\nℹ tests 1  pass 0  fail 1\n```\n\nRaw: `runs/grok-effort-repair-runs/20261001/red-f929a25/`\n\n**Same test on isolated base b2ec489** (temp fixture `/tmp/grok-effort-base-fixture.1mFL13`, fixture `broker.mjs` cmp-equal to base, no production edits):\n\n```\n✔ pre-prompt model reselection keeps required High effort at startTurn\nℹ tests 1  pass 1  fail 0\n```\n\n`exitCode` 0. Raw: `runs/grok-effort-repair-runs/20261001/green-base-b2ec489/`\n\n**Green after repair**\n\n- `node --test test/reasoning-effort.test.mjs` — pass 8 / fail 0, `exitCode` 0\n- `node --test test/*.test.mjs` — pass 99 / fail 0, `exitCode` 0, `duration_ms` 7252.348291\n\nNew cases: unsupported / unavailable / refused pre-prompt effort → zero prompts; inherit records the actual Low left by reselection.\n\nTemporary ACPx 0.19.4 `node_modules` symlink created and removed. No installs. Task state is in `runs/grok-effort-repair-runs/20261001/`.",
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  },
+  "stopReason": "end_turn",
+  "cleanup": {
+    "status": "completed",
+    "observed": "local_worker_terminated_backend_session_discard_unsupported",
+    "at": "2026-10-02T02:26:35.576Z",
+    "backendSessionDiscard": "unsupported",
+    "workers": [
+      {
+        "pid": 260,
+        "startedAt": "2026-10-02T02:21:43.098Z",
+        "launchId": "86b72a31-e7f2-4337-8cc4-e56d31ed3016",
+        "scope": {
+          "kind": "runtime-session",
+          "sessionKey": "cursor-acp:32197916-486d-4e63-8d79-881f264f8f12"
+        },
+        "signal": null,
+        "exitCode": 143
+      }
+    ]
+  },
+  "waitExpired": false
+}

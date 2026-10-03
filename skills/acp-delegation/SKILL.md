@@ -48,6 +48,10 @@ the harness name, rely on speculative billing or subscription assumptions, or
 copy a historical advertised ID. The Cursor integration supports switching between
 `grok-4.6`, `grok-4.7`, and `gpt-5.6-luna` as needed (effort is optional advanced
 for unique advertised bases; ensure cleanupReady before switching jobs).
+Native Grok is a separate lane. Omitting its `model` prefers advertised
+`grok-4.7`, then `grok-4.6`, then `grok-4.5`. An explicit Grok model stays
+exact, and `fallbackModels` replaces only those Grok alternatives. Native Grok
+cannot run Luna; Luna remains a Cursor model.
 
 ## Establish task readiness
 

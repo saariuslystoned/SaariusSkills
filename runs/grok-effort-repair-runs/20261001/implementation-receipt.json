@@ -1,0 +1,75 @@
+{
+  "taskComplete": false,
+  "cleanupReady": false,
+  "complete": false,
+  "admissionEligible": false,
+  "remediation": "wait_for_task_and_cleanup",
+  "jobId": "32197916-486d-4e63-8d79-881f264f8f12",
+  "status": "submitted",
+  "route": {
+    "agent": "cursor",
+    "transport": "acp",
+    "executable": "<USER_HOME>/.local/bin/cursor-agent",
+    "argv": [
+      "<USER_HOME>/.local/bin/cursor-agent",
+      "acp"
+    ],
+    "model": "grok-4.6[effort=high,fast=true]",
+    "effort": "high"
+  },
+  "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+  "createdAt": "2026-10-02T02:21:43.061Z",
+  "updatedAt": "2026-10-02T02:21:43.061Z",
+  "timeoutMs": 600000,
+  "model": "grok-4.6[effort=high,fast=true]",
+  "modelSelection": {
+    "requestedModel": "grok-4.6",
+    "requestedEffort": null,
+    "selectionPolicy": {
+      "kind": "explicit",
+      "requestedModel": "grok-4.6",
+      "requestedEffort": null,
+      "baseModel": null,
+      "effort": null
+    },
+    "selectedModelId": "grok-4.6[effort=high,fast=true]",
+    "selectedEffort": "high",
+    "currentModelId": "grok-4.6[effort=high,fast=true]",
+    "currentEffort": "high"
+  },
+  "binding": {
+    "schema": "saarius.acp.conversation-bind.v1",
+    "hostConversationId": "01a0f7b2-e9f3-78a2-aa82-9b50fd38e1c1",
+    "binderId": "state-cd27e27808aa11bdee89da2758135b30",
+    "jobId": "32197916-486d-4e63-8d79-881f264f8f12",
+    "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+    "boundAt": "2026-10-02T02:21:43.078Z",
+    "replacedJobId": "ef0ec142-9f2f-471c-8136-6c7fd569d384"
+  },
+  "proof": {
+    "state": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/STATE.md",
+    "events": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/events.jsonl",
+    "proof": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/32197916-486d-4e63-8d79-881f264f8f12/PROOF.md"
+  },
+  "permission": {
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail",
+    "breakGlass": true,
+    "source": "SAARIUS_ACP_PERMISSION_MODE",
+    "supportedModes": [
+      "approve-reads",
+      "approve-all"
+    ],
+    "configuration": {
+      "environmentVariable": "SAARIUS_ACP_PERMISSION_MODE",
+      "scope": "server-process",
+      "perJobOverride": false,
+      "restartRequired": true
+    },
+    "toolApproval": {
+      "read": true,
+      "write": true,
+      "exec": true
+    }
+  }
+}

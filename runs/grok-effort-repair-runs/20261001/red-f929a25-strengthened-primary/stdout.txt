@@ -1,0 +1,28 @@
+✖ pre-prompt model reselection keeps required High effort at startTurn (83.485667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 284.410584
+
+✖ failing tests:
+
+test at test/reasoning-effort.test.mjs:226:1
+✖ pre-prompt model reselection keeps required High effort at startTurn (83.485667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'low' !== 'high'
+  
+      at TestContext.<anonymous> (file:///private/tmp/grok-effort-f929-coherent.1tFpZb/bridge/grok-acp/test/reasoning-effort.test.mjs:237:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'low',
+    expected: 'high',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

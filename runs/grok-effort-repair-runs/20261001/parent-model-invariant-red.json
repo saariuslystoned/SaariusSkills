@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "node",
+    "--test",
+    "--test-name-pattern",
+    "pre-prompt model reselection keeps required High",
+    "bridge/grok-acp/test/reasoning-effort.test.mjs"
+  ],
+  "exitCode": 1
+}

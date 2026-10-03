@@ -1,0 +1,3 @@
+node
+--test
+test/reasoning-effort.test.mjs

@@ -1,0 +1,54 @@
+✔ delegated jobs pin high reasoning effort by default (0.452ms)
+✔ the effort can be overridden or inherited, and bad values fail closed (0.231834ms)
+✖ the ACP reasoning_effort option is set and confirmed after model selection (0.16225ms)
+✖ inherit leaves the CLI default untouched (0.076125ms)
+✖ missing, unavailable or unconfirmed effort fails closed (0.108709ms)
+✔ pre-prompt model reselection keeps required High effort at startTurn (82.389125ms)
+✔ pre-prompt effort setting unsupported, unavailable, or refused sends no prompt (165.719417ms)
+✔ inherit leaves the actual changed current effort after pre-prompt reselection (61.897042ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 5
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 453.979792
+
+✖ failing tests:
+
+test at test/reasoning-effort.test.mjs:42:1
+✖ the ACP reasoning_effort option is set and confirmed after model selection (0.16225ms)
+  ReferenceError: tmpdir is not defined
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:44:32)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at test/reasoning-effort.test.mjs:52:1
+✖ inherit leaves the CLI default untouched (0.076125ms)
+  ReferenceError: tmpdir is not defined
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:54:32)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at test/reasoning-effort.test.mjs:62:1
+✖ missing, unavailable or unconfirmed effort fails closed (0.108709ms)
+  ReferenceError: tmpdir is not defined
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:68:34)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
