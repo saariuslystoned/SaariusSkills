@@ -11,8 +11,9 @@ const catalog = () => ({ models: { currentModelId: selected,
   ...(scenario === "alias" ? {} : { configOptions: [option()] }) });
 const send = message => process.stdout.write(JSON.stringify(message) + "\n");
 const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
-const update = configOptions => send({ jsonrpc: "2.0", method: "session/update", params: {
+const notice = configOptions => JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: {
   sessionId: "reused-backend", update: { sessionUpdate: "config_option_update", configOptions } } });
+const oldOnly = () => [{ ...option(), options: [{ value: "old-model", name: "Old" }] }];
 createInterface({ input: process.stdin }).on("line", line => {
   const { id, method, params } = JSON.parse(line);
   appendFileSync(trace, JSON.stringify({ pid: process.pid, method, value: params?.value ?? params?.modelId }) + "\n");
@@ -21,16 +22,19 @@ createInterface({ input: process.stdin }).on("line", line => {
     agentCapabilities: { loadSession: true, sessionCapabilities: { close: {} } }, authMethods: [] });
   if (method === "session/new" || method === "session/load") {
     const result = { ...(method === "session/new" ? { sessionId: "reused-backend" } : {}), ...catalog() };
-    if (scenario === "startup" || scenario === "removed") {
-      const latest = scenario === "removed" ? [] : [option()];
-      // Smoke delivery after the response; this does not prove the owned
-      // creation window. Independent review retains that qualification blocker.
-      setTimeout(() => update(latest), 0);
-      result.configOptions = scenario === "removed" ? [option()]
-        : [{ ...option(), options: [{ value: "old-model", name: "Old" }] }];
-      delete result.models;
-    }
+    // Exec applies the session/new snapshot. A later notification is not ordered
+    // against that snapshot, so startup/removed advertise the initial catalog only.
+    if (scenario === "startup" || scenario === "bound-remove") result.configOptions = [option()];
+    if (scenario === "removed" || scenario === "bound-add") result.configOptions = oldOnly();
+    if (scenario === "startup" || scenario === "removed" || scenario === "bound-add" || scenario === "bound-remove") delete result.models;
     return reply(id, result);
+  }
+  if (method === "session/set_mode" && (scenario === "bound-add" || scenario === "bound-remove")) {
+    const response = JSON.stringify({ jsonrpc: "2.0", id, result: {} });
+    // set_mode is sent only after ensureSession binds. One write is handled
+    // before that request continuation, so the catalog change is owned.
+    process.stdout.write(notice(scenario === "bound-remove" ? [] : [option()]) + "\n" + response + "\n");
+    return;
   }
   if (method === "session/set_config_option" || method === "session/set_model") {
     if (scenario === "timeout" && existsSync(marker)) return;

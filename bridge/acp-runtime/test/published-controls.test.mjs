@@ -94,7 +94,10 @@ for (const lane of ["cursor-acp", "antigravity-acp", "grok-acp"]) {
   });
 
   for (const scenario of ["startup", "removed"]) {
-    test(`${lane} 0.19.4: published temporary exec honors ${scenario} startup catalog update`, { timeout: 15000 }, async () => {
+    const claim = scenario === "removed"
+      ? "rejects a model absent from the initial catalog"
+      : "selects a model advertised by the initial catalog";
+    test(`${lane} 0.19.4: published temporary exec ${claim}`, { timeout: 15000 }, async () => {
       const f = await fixture(lane, scenario);
       const require = createRequire(new URL(`../../${lane}/package.json`, import.meta.url));
       const { execFile } = await import("node:child_process");
@@ -119,6 +122,41 @@ for (const lane of ["cursor-acp", "antigravity-acp", "grok-acp"]) {
       for (const pid of new Set(wire.map(event => event.pid)))
         assert.throws(() => process.kill(pid, 0), error => error.code === "ESRCH");
       await f.runtime.shutdown();
+    });
+  }
+
+  for (const scenario of ["bound-add", "bound-remove"]) {
+    const claim = scenario === "bound-remove"
+      ? "fail-closes after a bound catalog removal"
+      : "applies a bound catalog addition before setModel";
+    test(`${lane} 0.19.4: published runtime ${claim}`, { timeout: 15000 }, async () => {
+      const f = await fixture(lane, scenario), key = `${lane}-${scenario}`;
+      try {
+        const handle = await f.runtime.ensureSession({ sessionKey: key, agent: "cursor", mode: "persistent", cwd: f.cwd });
+        const before = await f.runtime.getStatus({ handle });
+        assert.equal(before.models.currentModelId, "old-model");
+        assert.deepEqual(before.models.availableModelIds, scenario === "bound-remove" ? ["old-model", exact] : ["old-model"]);
+        await f.runtime.setMode({ handle, mode: "catalog-handshake" });
+        const after = await f.runtime.getStatus({ handle });
+        const beforeSelection = await f.wire();
+        assert.equal(beforeSelection.filter(event => event.method === "session/set_mode").length, 1);
+        assert.equal(beforeSelection.filter(event => ["session/set_config_option", "session/set_model"].includes(event.method)).length, 0);
+        if (scenario === "bound-remove") {
+          assert.equal(after.models, undefined);
+          await assert.rejects(() => f.runtime.setModel({ handle, model: "fixture-model" }), /model|support/i);
+        } else {
+          assert.equal(after.models.currentModelId, "old-model");
+          assert.deepEqual(after.models.availableModelIds, ["old-model", exact]);
+          await f.runtime.setModel({ handle, model: "fixture-model" });
+          assert.equal((await f.runtime.getStatus({ handle })).models.currentModelId, exact);
+        }
+        const wire = await f.wire();
+        const setters = wire.filter(event => ["session/set_config_option", "session/set_model"].includes(event.method));
+        if (scenario === "bound-remove") assert.equal(setters.length, 0);
+        else { assert.equal(setters.length, 1); assert.equal(setters[0].value, exact); }
+      } finally { await f.runtime.shutdown(); }
+      for (const pid of new Set((await f.wire()).map(event => event.pid)))
+        assert.throws(() => process.kill(pid, 0), error => error.code === "ESRCH");
     });
   }
 
