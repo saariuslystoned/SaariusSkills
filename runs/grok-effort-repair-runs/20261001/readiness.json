@@ -5,20 +5,20 @@
   "route": {
     "agent": "cursor",
     "transport": "acp",
-    "executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "executable": "<USER_HOME>/.local/bin/cursor-agent",
     "argv": [
-      "/Users/bobbybones/.local/bin/cursor-agent",
+      "<USER_HOME>/.local/bin/cursor-agent",
       "acp"
     ],
     "model": "grok-4.6[effort=high,fast=true]",
     "effort": "high"
   },
   "executable": {
-    "executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "executable": "<USER_HOME>/.local/bin/cursor-agent",
     "version": "2026.08.11-e8db854",
     "acpHelp": true
   },
-  "workspace": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+  "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
   "permission": {
     "permissionMode": "approve-all",
     "nonInteractivePermissions": "fail",
@@ -298,8 +298,8 @@
   "session": {
     "sessionKey": "cursor-acp-probe:ddeca599-2d86-4630-90a4-69e45eafc056",
     "backend": "acpx",
-    "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLWFjcC1wcm9iZTpkZGVjYTU5OS0yZDg2LTQ2MzAtOTBhNC02OWU0NWVhZmMwNTYiLCJhZ2VudCI6ImN1cnNvciIsImN3ZCI6Ii9Vc2Vycy9ib2JieWJvbmVzL0RldmVsb3Blci93b3JrdHJlZXMvU2Fhcml1c1NraWxscy1ncm9rLWVmZm9ydC1yZXBhaXItMjAyNjEwMDEiLCJtb2RlIjoib25lc2hvdCIsImFjcHhSZWNvcmRJZCI6ImN1cnNvci1hY3AtcHJvYmU6ZGRlY2E1OTktMmQ4Ni00NjMwLTkwYTQtNjllNDVlYWZjMDU2Om9uZXNob3Q6OGJkNmFjZDItZjQ5ZS00N2FiLWEwZGYtY2ViZDg2ZDdlM2RlIiwiYmFja2VuZFNlc3Npb25JZCI6ImJjMjkwZDNmLWVlZDMtNDkzYi04YzVkLTJjZTY0NWRjNjQ4ZCJ9",
-    "cwd": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
+    "runtimeSessionName": "acpx:v2:eyJuYW1lIjoiY3Vyc29yLWFjcC1wcm9iZTpkZGVjYTU5OS0yZDg2LTQ2MzAtOTBhNC02OWU0NWVhZmMwNTYiLCJhZ2VudCI6ImN1cnNvciIsImN3ZCI6IjxVU0VSX0hPTUU-L0RldmVsb3Blci93b3JrdHJlZXMvU2Fhcml1c1NraWxscy1ncm9rLWVmZm9ydC1yZXBhaXItMjAyNjEwMDEiLCJtb2RlIjoib25lc2hvdCIsImFjcHhSZWNvcmRJZCI6ImN1cnNvci1hY3AtcHJvYmU6ZGRlY2E1OTktMmQ4Ni00NjMwLTkwYTQtNjllNDVlYWZjMDU2Om9uZXNob3Q6OGJkNmFjZDItZjQ5ZS00N2FiLWEwZGYtY2ViZDg2ZDdlM2RlIiwiYmFja2VuZFNlc3Npb25JZCI6ImJjMjkwZDNmLWVlZDMtNDkzYi04YzVkLTJjZTY0NWRjNjQ4ZCJ9",
+    "cwd": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001",
     "acpxRecordId": "cursor-acp-probe:ddeca599-2d86-4630-90a4-69e45eafc056:oneshot:8bd6acd2-f49e-47ab-a0df-cebd86d7e3de",
     "backendSessionId": "bc290d3f-eed3-493b-8c5d-2ce645dc648d"
   },

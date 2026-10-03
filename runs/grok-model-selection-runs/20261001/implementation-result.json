@@ -9,15 +9,15 @@
   "route": {
     "agent": "cursor",
     "transport": "acp",
-    "executable": "/Users/bobbybones/.local/bin/cursor-agent",
+    "executable": "<USER_HOME>/.local/bin/cursor-agent",
     "argv": [
-      "/Users/bobbybones/.local/bin/cursor-agent",
+      "<USER_HOME>/.local/bin/cursor-agent",
       "acp"
     ],
     "model": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
     "effort": "high"
   },
-  "workspace": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
+  "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
   "createdAt": "2026-10-01T23:20:30.696Z",
   "updatedAt": "2026-10-01T23:32:02.209Z",
   "startedAt": "2026-10-01T23:20:34.235Z",
@@ -43,13 +43,13 @@
     "hostConversationId": "01a0f7b2-e9f3-78a2-aa82-9b50fd38e1c1",
     "binderId": "state-cd27e27808aa11bdee89da2758135b30",
     "jobId": "ef0ec142-9f2f-471c-8136-6c7fd569d384",
-    "workspace": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
+    "workspace": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-model-selection-20261001",
     "boundAt": "2026-10-01T23:20:30.716Z"
   },
   "proof": {
-    "state": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/STATE.md",
-    "events": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/events.jsonl",
-    "proof": "/Users/bobbybones/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/PROOF.md"
+    "state": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/STATE.md",
+    "events": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/events.jsonl",
+    "proof": "<USER_HOME>/.local/state/saarius-skills/cursor-acp-delegation/runs/ef0ec142-9f2f-471c-8136-6c7fd569d384/PROOF.md"
   },
   "handoff": "I'll implement the native Grok model-selection fix in this worktree only. First I'll read the task workflow and inspect the current Grok broker, readiness, and tests before changing anything.The broker currently treats `grok-4.7` as a hard requirement and never accepts a per-job model. I'll add a small exact-id policy: default `4.7` then `4.6` then `4.5`, strict explicit pins, and a pre-prompt recheck that does not switch models.Native Grok readiness and delegate now take an optional exact `model` and up to two `fallbackModels`. Omitting `model` uses the first advertised id among `grok-4.7`, then `grok-4.6`, then `grok-4.5`. An explicit model stays exact. The choice is bound to that job and checked again immediately before the prompt.\n\nChanged files:\n- `bridge/grok-acp/broker.mjs`\n- `bridge/grok-acp/server.mjs`\n- `bridge/grok-acp/test/model-selection.test.mjs` (new)\n- `bridge/grok-acp/test/broker.test.mjs`\n- `bridge/grok-acp/test/host-policy.test.mjs`\n- `docs/grok-acp-delegation.md`\n- `README.md`\n- `skills/grok-acp-delegation/SKILL.md`\n- `skills/acp-delegation/SKILL.md`\n- `skills/acp-delegation/references/evaluations.md`\n- `runs/grok-model-selection-runs/20261001/` (`STATE.md`, `PROOF.md`, `events.jsonl`, `heartbeat`, test logs)\n\nTests: `node --test bridge/grok-acp/test/*.test.mjs` — **96 pass, 0 fail**. `python3 -m unittest tests.test_packaging -q` — **14 pass, 0 fail**. No live Grok prompt. Existing strict `grok-4.7` refusals still fail when that id is pinned and not advertised.\n\nRisks:\n- This worktree has no `bridge/grok-acp/node_modules`. The suite imported preexisting acpx 0.19.4, zod 4.6.5, and MCP SDK 1.30.0 from runtime store `1bc2f751d791…` through a temporary symlink that was removed. No install.\n- Default alternatives match the exact ids `grok-4.6` and `grok-4.5` only. A differently spelled advertised id fails closed.\n- `new GrokAcpBroker({ model })` stays a strict pin. The MCP server does not pass one, so tool calls use the default chain unless the job supplies `model` or `fallbackModels`.\n- No commit, push, or PR.",
   "permission": {

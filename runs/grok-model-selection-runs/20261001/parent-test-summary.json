@@ -1,6 +1,6 @@
 {
   "at": "2026-10-01T23:35:18.755233+00:00",
-  "dependencySource": "/Users/bobbybones/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules",
+  "dependencySource": "<USER_HOME>/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules",
   "noInstall": true,
   "checks": [
     {

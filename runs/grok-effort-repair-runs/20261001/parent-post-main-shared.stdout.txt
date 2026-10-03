@@ -130,7 +130,7 @@
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:42:3
 ✖ antigravity: restart retains logical owner, allows cleaned follow-up, denies foreign owner (6.378166ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -146,7 +146,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:42:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:60:3
 ✖ antigravity: existing-state plan and apply preserve outcome/history; retry cannot touch successor (2.2765ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -162,7 +162,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:60:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:94:3
 ✖ antigravity: carried recovery history cannot prevent recovery of an interrupted successor (1.387209ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -178,7 +178,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:94:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:114:3
 ✖ antigravity: proven terminal legacy cleanup migrates without invented worker metadata (1.220375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -194,7 +194,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:114:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:123:3
 ✖ antigravity: interrupted publication retains old binder and safely retries (1.880584ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -210,7 +210,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:123:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:136:3
 ✖ antigravity: interrupted worker remains fenced until observed exit, then retry succeeds (2.4665ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -226,7 +226,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:136:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ antigravity: TZ-shifted legacy owner refuses recovery apply=false without changing state (5.543625ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -242,7 +242,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ antigravity: TZ-shifted legacy owner refuses recovery apply=true without changing state (2.215709ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -258,7 +258,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ antigravity: TZ-shifted legacy worker refuses recovery apply=false without changing state (1.010291ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -274,7 +274,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ antigravity: TZ-shifted legacy worker refuses recovery apply=true without changing state (1.63125ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -290,7 +290,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:170:3
 ✖ antigravity: real comparable owner and worker reuse remains recoverable (1.952875ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -306,7 +306,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:170:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:180:3
 ✖ antigravity: a live canonical owner stays running across observation (0.858125ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -322,7 +322,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:180:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:194:3
 ✖ antigravity: missing runtime close cannot claim cleanup (1.129458ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -338,7 +338,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:194:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses live-worker without editing state (1.107333ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -354,7 +354,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses unknown-worker without editing state (1.016167ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -370,7 +370,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses missing-workers without editing state (0.780042ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -386,7 +386,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses foreign-binder without editing state (0.663959ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -402,7 +402,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses lease-mismatch without editing state (0.951167ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -418,7 +418,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses other-session without editing state (0.903ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -434,7 +434,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses live-owner without editing state (0.627375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -450,7 +450,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ antigravity: recovery refuses active-job without editing state (0.97125ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -466,7 +466,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:220:3
 ✖ antigravity: unsupported close succeeds only after every exact owned launch exits (2.10625ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -482,7 +482,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:220:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:42:3
 ✖ cursor: restart retains logical owner, allows cleaned follow-up, denies foreign owner (3.366459ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -498,7 +498,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:42:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:60:3
 ✖ cursor: existing-state plan and apply preserve outcome/history; retry cannot touch successor (1.018875ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -514,7 +514,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:60:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:94:3
 ✖ cursor: carried recovery history cannot prevent recovery of an interrupted successor (0.899ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -530,7 +530,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:94:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:114:3
 ✖ cursor: proven terminal legacy cleanup migrates without invented worker metadata (0.984375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -546,7 +546,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:114:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:123:3
 ✖ cursor: interrupted publication retains old binder and safely retries (1.160292ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -562,7 +562,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:123:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:136:3
 ✖ cursor: interrupted worker remains fenced until observed exit, then retry succeeds (0.823958ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -578,7 +578,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:136:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ cursor: TZ-shifted legacy owner refuses recovery apply=false without changing state (0.691916ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -594,7 +594,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ cursor: TZ-shifted legacy owner refuses recovery apply=true without changing state (0.922459ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -610,7 +610,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ cursor: TZ-shifted legacy worker refuses recovery apply=false without changing state (0.798917ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -626,7 +626,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 ✖ cursor: TZ-shifted legacy worker refuses recovery apply=true without changing state (1.615375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -642,7 +642,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:150:7
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:170:3
 ✖ cursor: real comparable owner and worker reuse remains recoverable (1.21ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -658,7 +658,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:170:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:180:3
 ✖ cursor: a live canonical owner stays running across observation (0.844791ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -674,7 +674,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:180:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:194:3
 ✖ cursor: missing runtime close cannot claim cleanup (0.700375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -690,7 +690,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:194:3
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses live-worker without editing state (0.748875ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -706,7 +706,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses unknown-worker without editing state (1.133416ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -722,7 +722,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses missing-workers without editing state (1.107ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -738,7 +738,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses foreign-binder without editing state (0.779084ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -754,7 +754,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses lease-mismatch without editing state (0.8905ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -770,7 +770,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses other-session without editing state (0.845375ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -786,7 +786,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses live-owner without editing state (1.773458ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -802,7 +802,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 ✖ cursor: recovery refuses active-job without editing state (0.9035ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -818,7 +818,7 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:201:5
 
 test at bridge/acp-runtime/test/lifecycle.test.mjs:220:3
 ✖ cursor: unsupported close succeeds only after every exact owned launch exits (0.817ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -835,71 +835,71 @@ test at bridge/acp-runtime/test/lifecycle.test.mjs:220:3
 test at bridge/acp-runtime/test/runtime-store.test.mjs:155:1
 ✖ recovery CLI loads the prepared runtime from a dependency-free plugin snapshot (836.120458ms)
   Error [RuntimeStoreError]: locked dependency setup failed
-      at ChildProcess.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
+      at ChildProcess.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
       at ChildProcess.wrapper (node:events:639:12)
       at ChildProcess.emit (node:events:514:28)
       at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
     code: 'DEPENDENCY_INSTALL_FAILED',
-    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-OtX103/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
+    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-OtX103/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:231:1
 ✖ clean plugin snapshots prepare each bridge and reuse without reinstalling (559.526625ms)
   Error [RuntimeStoreError]: locked dependency setup failed
-      at ChildProcess.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
+      at ChildProcess.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
       at ChildProcess.wrapper (node:events:639:12)
       at ChildProcess.emit (node:events:514:28)
       at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
     code: 'DEPENDENCY_INSTALL_FAILED',
-    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-izLnai/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
+    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-izLnai/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:253:1
 ✖ concurrent preparation converges on one atomic runtime (582.020583ms)
   Error [RuntimeStoreError]: locked dependency setup failed
-      at ChildProcess.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
+      at ChildProcess.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
       at ChildProcess.wrapper (node:events:639:12)
       at ChildProcess.emit (node:events:514:28)
       at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
     code: 'DEPENDENCY_INSTALL_FAILED',
-    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-kPSB8h/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
+    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-kPSB8h/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:274:1
 ✖ source identity drift creates a new runtime and failed installs redact diagnostics (395.988083ms)
   Error [RuntimeStoreError]: locked dependency setup failed
-      at ChildProcess.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
+      at ChildProcess.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
       at ChildProcess.wrapper (node:events:639:12)
       at ChildProcess.emit (node:events:514:28)
       at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
     code: 'DEPENDENCY_INSTALL_FAILED',
-    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-7w1MQL/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
+    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-7w1MQL/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:310:1
 ✖ dependency payload drift invalidates a prepared runtime even when package versions remain pinned (459.314209ms)
   Error [RuntimeStoreError]: locked dependency setup failed
-      at ChildProcess.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
+      at ChildProcess.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/runtime-store.mjs:462:19)
       at ChildProcess.wrapper (node:events:639:12)
       at ChildProcess.emit (node:events:514:28)
       at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
     code: 'DEPENDENCY_INSTALL_FAILED',
-    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-r9UNkW/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
+    details: { exitCode: 1, signal: null, stderr: "node:internal/fs/promises:1743 const result = await PromisePrototypeThen( ^ Error: ENOENT: no such file or directory, stat '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' at async stat (node:internal/fs/promises:1743:18) at async Promise.all (index 0) at async checkPaths (node:internal/fs/cp/cp:77:39) at async cpFn (node:internal/fs/cp/cp:66:17) at async file:///private/var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-fake-npm-r9UNkW/npm:24:3 { errno: -2, code: 'ENOENT', syscall: 'stat', path: '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/node_modules' } Node.js v24.21.0", cleanupSafe: true }
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:327:1
 ✖ dependency timeout waits for owned SIGTERM exit before staging cleanup (3369.950875ms)
   Error: timed out waiting for /var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-timeout-vAp1PG/npm-exited
-      at waitForFile (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
-      at async TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:351:5)
+      at waitForFile (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
+      at async TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:351:5)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:358:1
 ✖ unconfirmed dependency termination preserves the staging fence until the writer exits (3358.137042ms)
   Error: timed out waiting for /var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-timeout-uncertain-oep2rV/npm-exited
-      at waitForFile (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
-      at async TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:387:5)
+      at waitForFile (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
+      at async TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:387:5)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
 
@@ -907,7 +907,7 @@ test at bridge/acp-runtime/test/runtime-store.test.mjs:394:1
 ✖ separate dependency-free plugin snapshots launch each manifest path from an external cwd (3.053583ms)
   Error: Cannot find module '@modelcontextprotocol/sdk/client/index.js'
   Require stack:
-  - /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json
+  - <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json
       at Module._resolveFilename (node:internal/modules/cjs/loader:1564:15)
       at wrapResolveFilename (node:internal/modules/cjs/loader:1118:27)
       at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1142:10)
@@ -916,17 +916,17 @@ test at bridge/acp-runtime/test/runtime-store.test.mjs:394:1
       at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
       at Module.require (node:internal/modules/cjs/loader:1674:12)
       at require (node:internal/modules/helpers:157:16)
-      at TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:400:22)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:400:22)
       at async Test.run (node:internal/test_runner/test:1409:7) {
     code: 'MODULE_NOT_FOUND',
-    requireStack: [ '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json' ]
+    requireStack: [ '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json' ]
   }
 
 test at bridge/acp-runtime/test/runtime-store.test.mjs:462:1
 ✖ parent hop argv lists the same six tools through a worker launcher (1.854125ms)
   Error: Cannot find module '@modelcontextprotocol/sdk/client/index.js'
   Require stack:
-  - /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json
+  - <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json
       at Module._resolveFilename (node:internal/modules/cjs/loader:1564:15)
       at wrapResolveFilename (node:internal/modules/cjs/loader:1118:27)
       at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1142:10)
@@ -935,15 +935,15 @@ test at bridge/acp-runtime/test/runtime-store.test.mjs:462:1
       at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
       at Module.require (node:internal/modules/cjs/loader:1674:12)
       at require (node:internal/modules/helpers:157:16)
-      at TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:468:22)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:468:22)
       at async Test.run (node:internal/test_runner/test:1409:7) {
     code: 'MODULE_NOT_FOUND',
-    requireStack: [ '/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json' ]
+    requireStack: [ '<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/package.json' ]
   }
 
 test at bridge/acp-runtime/test/timezone-identity.test.mjs:8:3
 ✖ antigravity: a timezone-shifted legacy birth is unknown, never PID reuse (7.2675ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/antigravity-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -959,7 +959,7 @@ test at bridge/acp-runtime/test/timezone-identity.test.mjs:8:3
 
 test at bridge/acp-runtime/test/timezone-identity.test.mjs:8:3
 ✖ cursor: a timezone-shifted legacy birth is unknown, never PID reuse (3.191416ms)
-  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'acpx' imported from <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/cursor-acp/broker.mjs
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
       at packageResolve (node:internal/modules/esm/resolve:784:25)
       at moduleResolve (node:internal/modules/esm/resolve:873:18)

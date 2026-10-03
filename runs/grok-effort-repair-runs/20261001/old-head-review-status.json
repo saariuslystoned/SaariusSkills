@@ -1,6 +1,6 @@
 {
   "argv": [
-    "/Users/bobbybones/.local/bin/review-tools",
+    "<USER_HOME>/.local/bin/review-tools",
     "openclaw",
     "--request-id",
     "req-20261001T233924Z-279526728659",

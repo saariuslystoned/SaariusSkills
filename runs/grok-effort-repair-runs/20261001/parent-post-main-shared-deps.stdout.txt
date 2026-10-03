@@ -131,7 +131,7 @@
 test at bridge/acp-runtime/test/runtime-store.test.mjs:327:1
 ✖ dependency timeout waits for owned SIGTERM exit before staging cleanup (4021.230917ms)
   Error: timed out waiting for /var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/saarius-acp-timeout-gQRUTa/npm-exited
-      at waitForFile (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
-      at async TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:351:5)
+      at waitForFile (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:125:9)
+      at async TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/acp-runtime/test/runtime-store.test.mjs:351:5)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)

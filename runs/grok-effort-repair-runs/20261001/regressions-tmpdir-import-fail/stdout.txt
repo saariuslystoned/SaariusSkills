@@ -20,8 +20,8 @@
 test at test/reasoning-effort.test.mjs:42:1
 ✖ the ACP reasoning_effort option is set and confirmed after model selection (0.16225ms)
   ReferenceError: tmpdir is not defined
-      at broker (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
-      at TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:44:32)
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:44:32)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1402:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
@@ -32,8 +32,8 @@ test at test/reasoning-effort.test.mjs:42:1
 test at test/reasoning-effort.test.mjs:52:1
 ✖ inherit leaves the CLI default untouched (0.076125ms)
   ReferenceError: tmpdir is not defined
-      at broker (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
-      at TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:54:32)
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:54:32)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1402:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
@@ -44,8 +44,8 @@ test at test/reasoning-effort.test.mjs:52:1
 test at test/reasoning-effort.test.mjs:62:1
 ✖ missing, unavailable or unconfirmed effort fails closed (0.108709ms)
   ReferenceError: tmpdir is not defined
-      at broker (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
-      at TestContext.<anonymous> (file:///Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:68:34)
+      at broker (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:37:40)
+      at TestContext.<anonymous> (file://<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp/test/reasoning-effort.test.mjs:68:34)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1402:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:974:18)

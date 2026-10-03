@@ -1,10 +1,14 @@
 # PR113 effort repair
 
-Status: VALIDATING — P2 repaired and independently verified; push to PR113 and current-head CI/review pending.
+Status: WAITING_FOR_HUMAN — source repair pushed; all four current-head CI checks pass. Spark Claude review ended needs-human with one finding. Result metadata retrieved, but finding text/qualified terminal receipt retrieval blocked after bounded reads on both same-host aliases. Finding remains unadjudicated. Merge/install remain gated.
 Repo: saariuslystoned/SaariusSkills
+PR: https://github.com/saariuslystoned/SaariusSkills/pull/113
 Branch: codex/grok-effort-repair-20261001
-Worktree: /Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001
+Worktree: <USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001
+Head: 14c840c079dce5f4d32b41851071f9ddd8af0f8e
 Base: f04b0568424fba1c62db436081a037f1a0c8963d
-Source repair: 5a4a184; branch sync: c83b5d86
-Grok100/100; packaging14/14; broader shared117/118 with retained timeout-fixture failure.
-Separate ACP startup-CI investigation ed32761b-5c20-453b-8fb7-88508218421a is running in its own worktree.
+CI run36956921820: Python/Node Linux/macOS all success.
+Independent Grok100/100; packaging14/14; shared117/118 with raw npm-exited timeout fixture failure retained; CI shared suites subsequently pass.
+Linux original startup-catalog race remains upstream qualification blocker; separate ACP public-ordering repro complete, no fixture/production changes.
+Review req-20261002T024648Z-327928717642, epoch2, Claude on Spark-2, exact head/base. Result exit1, correct(0.75),1findings, applied_max_priority=P3. Detailed finding remains inaccessible; no external clean-review claim.
+No merge, installation, assertion weakening, or dependency patch.

@@ -1,5 +1,5 @@
 {
   "argv": ["node", "--test", "test/*.test.mjs"],
   "note": "Invoked via zsh glob test/*.test.mjs from bridge/grok-acp; do not treat this as a reconstructed test list.",
-  "cwd": "/Users/bobbybones/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp"
+  "cwd": "<USER_HOME>/Developer/worktrees/SaariusSkills-grok-effort-repair-20261001/bridge/grok-acp"
 }

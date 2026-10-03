@@ -8,9 +8,9 @@
     "bridge/acp-runtime/test/runtime-store.test.mjs"
   ],
   "dependencyTargets": {
-    "grok-acp": "/Users/bobbybones/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules",
-    "cursor-acp": "/Users/bobbybones/.local/state/saarius-skills/acp-runtime/cursor-acp/04ad31fcc02b9f2fb71d6556b1ba6f8a3bab1e9c016b9edcb3dc5c8496919946/bridge/cursor-acp/node_modules",
-    "antigravity-acp": "/Users/bobbybones/.local/state/saarius-skills/acp-runtime/antigravity-acp/468a274f0c66ad889ba02a9935fc374fd45cf8711a65ce74ae6043122f41a7d6/bridge/antigravity-acp/node_modules"
+    "grok-acp": "<USER_HOME>/.local/state/saarius-skills/acp-runtime/grok-acp/1bc2f751d791b81bf192419c3dac4e13df7248dad217451bea7f989329e52904/bridge/grok-acp/node_modules",
+    "cursor-acp": "<USER_HOME>/.local/state/saarius-skills/acp-runtime/cursor-acp/04ad31fcc02b9f2fb71d6556b1ba6f8a3bab1e9c016b9edcb3dc5c8496919946/bridge/cursor-acp/node_modules",
+    "antigravity-acp": "<USER_HOME>/.local/state/saarius-skills/acp-runtime/antigravity-acp/468a274f0c66ad889ba02a9935fc374fd45cf8711a65ce74ae6043122f41a7d6/bridge/antigravity-acp/node_modules"
   },
   "exitCode": 1
 }
