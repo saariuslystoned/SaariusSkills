@@ -15,6 +15,58 @@ ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-09-01T00:00:00+00:00"
 
 
+def retention_modules():
+    sys.path.insert(0, str(CLI.parent))
+    import grilltrack_retention
+    import grilltrack_reconcile
+    return grilltrack_retention, grilltrack_reconcile
+
+
+def retained(project, plan_id):
+    """Read logical bytes in assertions, independent of physical layout."""
+    root = project / '.grilltrack/lineage'
+    pointer = root / plan_id / 'retention.json'
+    if not pointer.exists():
+        if (root / plan_id / 'plan.json').is_file():
+            return {str(p.relative_to(root / plan_id)): p.read_bytes()
+                    for p in (root / plan_id).rglob('*') if p.is_file()}
+        _, reconcile = retention_modules()
+        physical = {str(p.relative_to(root)): p.read_bytes()
+                    for p in root.rglob('*') if p.is_file() and not p.name.startswith('.reconcile-')}
+        prefix = plan_id + '/'
+        return {name.removeprefix(prefix): raw for name, raw in reconcile.decode_lineage(physical).items()
+                if name.startswith(prefix)}
+    codec, _ = retention_modules()
+    objects = {p.name: p.read_bytes() for p in (root / 'objects/sha256').iterdir()
+               if not p.name.startswith('.reconcile-')}
+    return codec.unpack(json.loads(pointer.read_text())['root'], objects)
+
+
+def retained_leaf_path(project, plan_id, name):
+    root = project / '.grilltrack/lineage'
+    if (root / plan_id / 'plan.json').is_file():
+        return root / plan_id / name
+    data = retained(project, plan_id)[name]
+    return root / 'objects/sha256' / hashlib.sha256(data).hexdigest()
+
+
+def rewrite_retained(project, plan_id, name, mutate):
+    """A neutral fixture can forge valid addresses to test source provenance."""
+    codec, _ = retention_modules()
+    files = retained(project, plan_id)
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'artifact'
+        path.write_bytes(files[name])
+        mutate(path)
+        files[name] = path.read_bytes()
+    root, objects = codec.pack(files)
+    lineage = project / '.grilltrack/lineage'
+    for key, data in objects.items():
+        (lineage / 'objects/sha256' / key).write_bytes(data)
+    (lineage / plan_id / 'retention.json').write_text(json.dumps({'schema': 'grilltrack/retained/v2', 'root': root}, sort_keys=True, indent=2) + '\n')
+    (lineage / plan_id / 'applied.json').write_text(json.dumps({'schema': 'grilltrack/applied-ref/v2', 'plan_id': plan_id, 'root': root}, sort_keys=True, indent=2) + '\n')
+
+
 def decision(key):
     return {"id": key, "domain": "fixture", "question": "Choose " + key,
             "choice": "value-" + key, "status": "verified", "dependencies": [],
@@ -133,7 +185,7 @@ class ReconcileTests(unittest.TestCase):
             plan["plan_id"],
             hashlib.sha256(
                 (json.dumps(
-                    {key: plan[key] for key in ("schema", "refs", "title", "snapshots")},
+                    {key: plan[key] for key in ("schema", "refs", "title", "snapshots", "retention")},
                     indent=2,
                     sort_keys=True,
                 ) + "\n").encode()
@@ -151,8 +203,8 @@ class ReconcileTests(unittest.TestCase):
             for name in names:
                 if name.endswith("ledger.json") or name.endswith("events.jsonl"):
                     original = subprocess.check_output(["git", "-C", str(self.project), "show", ref + ":" + name])
-                    saved = state / "lineage" / plan["plan_id"] / "snapshots" / role / name.removeprefix(".grilltrack/")
-                    self.assertEqual(saved.read_bytes(), original)
+                    saved = retained(self.project, plan["plan_id"])["snapshots/" + role + "/" + name.removeprefix(".grilltrack/")]
+                    self.assertEqual(saved, original)
         for i in range(20):
             for name in ("ledger.json", "events.jsonl"):
                 path = f"archive/historical-{i}/{name}"
@@ -174,21 +226,21 @@ class ReconcileTests(unittest.TestCase):
         self.assertNotEqual(self.reconcile("--apply", "0" * 64).returncode, 0)
         self.assertEqual(progressed, self.state_bytes())
 
-    def test_no_adjudication_plan_matches_legacy_cli(self):
+    def test_no_adjudication_plan_keeps_decisions_and_binds_new_format(self):
         first = self.plan()
         second = self.plan()
         self.assertEqual(first, second)
         self.assertEqual(
             set(first),
             {
-                "schema", "refs", "title", "snapshots", "plan_id",
+                "schema", "refs", "title", "snapshots", "retention", "plan_id",
                 "joined_track_id", "decision_ids", "decision_provenance",
                 "needs_reverification", "composed_verification",
                 "composed_review", "snapshot_ref", "already_applied",
                 "applied",
             },
         )
-        self.assertEqual(first["schema"], "grilltrack/reconcile/v1")
+        self.assertEqual(first["schema"], "grilltrack/reconcile/v2")
         self.assertEqual(first["refs"], {
             "base": self.base, "current": self.current, "incoming": self.incoming,
         })
@@ -349,24 +401,24 @@ class ReconcileTests(unittest.TestCase):
             {item["id"] for item in decisions.values()},
         )
         self.assertTrue(
-            (state / "lineage" / plan["plan_id"] / "snapshots" / "current" / "archive/base-track/ledger.json").is_file()
+            "snapshots/current/archive/base-track/ledger.json" in retained(self.project, plan["plan_id"])
         )
         lineage = state / "lineage" / plan["plan_id"] / "snapshots"
         self.assertEqual(
-            (lineage / "current/events.jsonl").read_bytes(),
+            retained(self.project, plan["plan_id"])["snapshots/current/events.jsonl"],
             before_events,
         )
         self.assertEqual(
-            (lineage / "current/ledger.json").read_bytes(),
+            retained(self.project, plan["plan_id"])["snapshots/current/ledger.json"],
             subprocess.check_output(
                 ["git", "-C", str(self.project), "show",
                  f"{self.current}:.grilltrack/ledger.json"]
             ),
         )
         for path, content in before_archives.items():
-            retained = state / path
+            retained_archive = state / path
             if not str(path).startswith("archive/base-track/"):
-                self.assertEqual(retained.read_bytes(), content)
+                self.assertEqual(retained_archive.read_bytes(), content)
         self.assertEqual(self.cli("validate").returncode, 0)
 
     def test_adjudication_validation_is_fail_closed(self):
@@ -640,22 +692,9 @@ class ReconcileTests(unittest.TestCase):
         choices = {item["id"]: item["choice"] for item in joined["decisions"]}
         self.assertEqual(choices["shared-0"], "incoming-choice")
         self.assertEqual(choices["shared-1"], "current-choice")
-        self.assertTrue(
-            (
-                state
-                / "lineage"
-                / plan["plan_id"]
-                / "snapshots/incoming/ledger.json"
-            ).is_file()
-        )
-        self.assertTrue(
-            (
-                state
-                / "lineage"
-                / plan["plan_id"]
-                / "snapshots/current/archive/base-track/ledger.json"
-            ).is_file()
-        )
+        logical = retained(self.project, plan['plan_id'])
+        self.assertIn('snapshots/incoming/ledger.json', logical)
+        self.assertIn('snapshots/current/archive/base-track/ledger.json', logical)
         self.assertEqual(self.cli("validate").returncode, 0)
 
     def test_common_prefix_and_archive_incompatibility_refused(self):
@@ -697,7 +736,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(outside.read_bytes(), saved)
         receipt.unlink()
         receipt.write_bytes(saved)
-        (lineage / "snapshots/base/events.jsonl").unlink()
+        retained_leaf_path(self.project, plan["plan_id"], "snapshots/base/events.jsonl").unlink()
         self.assertNotEqual(self.reconcile("--apply", plan["plan_id"]).returncode, 0)
 
     def test_immutable_publication_interruption_recovers_exactly(self):
@@ -714,7 +753,7 @@ import os, runpy, sys
 from pathlib import Path
 kind, boundary, cli = sys.argv[1:4]
 def selected(path):
-    return Path(path).name == 'applied.json' if kind == 'receipt' else '/snapshots/' in str(path)
+    return Path(path).name == 'applied.json' if kind == 'receipt' else '/objects/sha256/' in str(path)
 original_open, original_link = Path.open, os.link
 def interrupted_open(self, mode='r', *args, **kwargs):
     stream = original_open(self, mode, *args, **kwargs)
@@ -740,12 +779,12 @@ runpy.run_path(cli, run_name='__main__')
                         self.assertEqual(crash.returncode, 86, crash.stderr)
                         state = case.project / ".grilltrack"
                         lineage = state / "lineage" / plan["plan_id"]
-                        # Only complete final artifacts can become visible.
-                        for role, files in plan["snapshots"].items():
-                            for name, expected in files.items():
-                                path = lineage / "snapshots" / role / name
-                                if path.exists():
-                                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                        # Every published object is complete and hash-addressed.
+                        objects = state / 'lineage/objects/sha256'
+                        if objects.exists():
+                            for path in objects.iterdir():
+                                if not path.name.startswith('.reconcile-'):
+                                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), path.name)
                         if kind == "receipt":
                             self.assertTrue((state / "work/reconcile-transaction.json").exists())
                             self.assertNotEqual(case.cli("show").returncode, 0)
@@ -759,8 +798,8 @@ runpy.run_path(cli, run_name='__main__')
                         self.assertFalse((state / "work/reconcile-transaction.json").exists())
                         for role, files in plan["snapshots"].items():
                             for name, expected in files.items():
-                                path = lineage / "snapshots" / role / name
-                                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                                data = retained(case.project, plan['plan_id'])['snapshots/' + role + '/' + name]
+                                self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
                         completed = case.state_bytes()
                         self.assertEqual(case.reconcile("--apply", plan["plan_id"]).returncode, 0)
                         self.assertEqual(case.state_bytes(), completed)
@@ -770,7 +809,7 @@ runpy.run_path(cli, run_name='__main__')
     def test_foreign_immutable_artifact_is_never_replaced(self):
         plan = self.plan()
         before = self.state_bytes()
-        foreign = self.project / ".grilltrack/lineage" / plan["plan_id"] / "snapshots/base/ledger.json"
+        foreign = self.project / ".grilltrack/lineage/objects/sha256" / plan["snapshots"]["base"]["ledger.json"]
         foreign.parent.mkdir(parents=True)
         foreign.write_bytes(b"foreign retained history")
         result = self.reconcile("--apply", plan["plan_id"])
@@ -884,7 +923,7 @@ class IndependentHistoryTests(unittest.TestCase):
             plan["plan_id"],
             hashlib.sha256(
                 (json.dumps(
-                    {key: plan[key] for key in ("schema", "refs", "title", "base_provenance", "snapshots")},
+                    {key: plan[key] for key in ("schema", "refs", "title", "base_provenance", "snapshots", "retention")},
                     indent=2,
                     sort_keys=True,
                 ) + "\n").encode()
@@ -904,7 +943,7 @@ class IndependentHistoryTests(unittest.TestCase):
                     ["git", "-C", str(self.project), "show", f"{ref}:.grilltrack/{name}"]
                 )
                 self.assertEqual(
-                    (lineage / "snapshots" / role / name).read_bytes(), expected
+                    retained(self.project, plan["plan_id"])["snapshots/" + role + "/" + name], expected
                 )
         for role, archive_name in (
             ("current", "current-history"),
@@ -921,7 +960,7 @@ class IndependentHistoryTests(unittest.TestCase):
                     ]
                 )
                 self.assertEqual(
-                    (lineage / "snapshots" / role / f"archive/{archive_name}/{name}").read_bytes(),
+                    retained(self.project, plan["plan_id"])[f"snapshots/{role}/archive/{archive_name}/{name}"],
                     expected,
                 )
         joined = json.loads((self.project / ".grilltrack" / "ledger.json").read_text())
@@ -1057,10 +1096,7 @@ class IndependentHistoryTests(unittest.TestCase):
             ("incoming", "incoming-archived-only"),
         ):
             archived = json.loads(
-                (
-                    lineage
-                    / f"snapshots/{role}/archive/{role}-history/ledger.json"
-                ).read_text()
+                retained(self.project, plan['plan_id'])[f"snapshots/{role}/archive/{role}-history/ledger.json"]
             )
             self.assertEqual(archived["decisions"][0]["id"], key)
 
