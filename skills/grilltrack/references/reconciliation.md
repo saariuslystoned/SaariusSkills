@@ -8,6 +8,14 @@ shared-ledger base, where both forks retain the base track's exact event prefix
 and either continue that track or have its direct successor active; and a
 no-ledger base, where the Git ancestor contains neither canonical ledger nor
 event stream and the two complete fork histories are reconciled independently.
+Shared-ledger forks may also be later canonical joins that retain the exact
+base ledger and event stream through their applied immutable lineage. The CLI
+recomputes retained plans from their Git inputs and checks plan identities,
+source bytes, projections, receipts, and the live join's event prefix. Newly
+introduced joins must name source commits ancestral to their retaining fork.
+Older joins inherited from the common base are bound to that base's exact
+artifact bytes, accommodating earlier squash or ordinary single-parent commits.
+Missing or changed inherited artifacts and unrelated retained joins fail closed.
 In both modes, shared historical archives must remain byte-identical where
 applicable. This does not implement cross-repository orchestration or
 concurrent live writers (related issues #90 and #101).
@@ -51,7 +59,9 @@ a strict JSON adjudication file when the human has selected one retained role:
 
 The refs must exactly match the command, every conflicting decision must be
 selected, and the role must name an unambiguous body present in the live or
-base-track archive source. Unknown fields, duplicate JSON keys, malformed
+base-track archive source. A nested joined fork contributes its live decision
+body; retained older base bodies are ancestry evidence, not competing bodies
+for that role. Unknown fields, duplicate JSON keys, malformed
 values, unnecessary selections, and blank reasons fail closed. The selection
 and reason are part of the plan digest. The tool never chooses a winning fork.
 Invalid archives, event identities, missing
@@ -101,8 +111,10 @@ event streams, and archives under
 versions of the base track therefore remain distinct. In no-ledger-base mode,
 apply retains only the current and incoming fork snapshots; the plan retains
 the base commit ref and an empty base snapshot hash map to prove the absence
-of canonical state, and no base files are fabricated. Existing canonical
-archives remain unchanged. Only ledger/event files are imported; source work
+of canonical state, and no base files are fabricated. For nested composition, the plan also binds each role's immutable lineage
+hashes and apply retains those artifacts under its source snapshot's `lineage/`
+directory. Existing canonical archives remain unchanged. Only ledger/event files
+and immutable join plans/receipts are imported; source work
 directories, private artifacts, and unrelated project files are excluded.
 
 The new canonical track retains original decision IDs and source provenance.

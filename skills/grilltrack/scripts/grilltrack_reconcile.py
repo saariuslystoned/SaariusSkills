@@ -9,6 +9,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def digest(data):
@@ -36,6 +37,10 @@ def load_adjudication(path, refs, api):
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"cannot read adjudication file: {exc}") from exc
+    return validate_adjudication(value, refs, api)
+
+
+def validate_adjudication(value, refs, api):
     if not isinstance(value, dict):
         raise ValueError("adjudication file must be a JSON object")
     if set(value) != {"schema", "refs", "decisions"}:
@@ -75,12 +80,12 @@ def load_adjudication(path, refs, api):
     }
 
 
-def decision_candidates(snapshots, parsed, base_id):
+def decision_candidates(snapshots, parsed, base_id, nested_roles=()):
     occurrences = {}
     for role in ("base", "current", "incoming"):
         live = json.loads(snapshots[role]["ledger.json"])
         sources = [("live", live)]
-        if live["track_id"] != base_id:
+        if live["track_id"] != base_id and role not in nested_roles:
             sources.append(("archive/base-track", parsed[role][0][base_id][0]))
         for source, ledger in sources:
             for decision in ledger["decisions"]:
@@ -172,6 +177,150 @@ def paths(ref, project):
                 raise ValueError("snapshot state must contain ordinary files")
             found[name.removeprefix(".grilltrack/")] = git(project, "show", f"{ref}:{name}")
     return found
+
+
+def lineage_paths(ref, project):
+    """Select immutable join artifacts only; no work or unrelated proof files."""
+    entries = git(project, "ls-tree", "-rz", ref, "--", ".grilltrack/lineage").split(b"\0")
+    found = {}
+    for entry in entries:
+        if not entry:
+            continue
+        meta, raw_name = entry.split(b"\t", 1)
+        name = raw_name.decode().removeprefix(".grilltrack/lineage/")
+        if Path(name).name.startswith(".reconcile-immutable-"):
+            continue
+        if (not re.match(r"[0-9a-f]{64}/", name)
+                or Path(name).name not in {"ledger.json", "events.jsonl", "plan.json", "applied.json"}
+                or meta.split()[0] not in {b"100644", b"100755"}):
+            raise ValueError("unsupported file in immutable lineage")
+        found[name] = git(project, "show", f"{ref}:.grilltrack/lineage/{name}")
+    return found
+
+
+def cached_paths(ref, project, context, *, lineage=False):
+    cache, _ = context
+    key = ("lineage" if lineage else "snapshot", str(project), ref)
+    if key not in cache:
+        cache[key] = (lineage_paths if lineage else paths)(ref, project)
+    return cache[key]
+
+
+def validate_nested_lineage(ref, evidence, store, api, context, inherited):
+    """Recompute every retained join from its exact Git inputs and check bytes."""
+    cache, visiting = context
+    if any(evidence.get(name) != content for name, content in inherited.items()):
+        raise ValueError("inherited immutable lineage changed or disappeared from the common base")
+    key = (ref, digest(encoded({name: digest(value) for name, value in evidence.items()})),
+           digest(encoded({name: digest(value) for name, value in inherited.items()})))
+    if key in cache:
+        return cache[key]
+    if key in visiting or len(visiting) >= 32:
+        raise ValueError("cyclic or excessively deep immutable lineage")
+    visiting.add(key)
+    try:
+        plans = {}
+        roots = {name.split("/", 1)[0] for name in evidence}
+        for plan_id in sorted(roots):
+            prefix = plan_id + "/"
+            raw = evidence.get(prefix + "plan.json")
+            if raw is None:
+                raise ValueError("lineage plan is missing")
+            plan = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+            if not isinstance(plan, dict) or plan.get("plan_id") != plan_id:
+                raise ValueError("lineage plan identity mismatch")
+            retained = {name.removeprefix(prefix): value for name, value in evidence.items() if name.startswith(prefix)}
+            anchored = {name.removeprefix(prefix): value for name, value in inherited.items() if name.startswith(prefix)}
+            if anchored and retained != anchored:
+                raise ValueError("inherited immutable lineage changed from the common base")
+            refs = plan.get("refs")
+            if not isinstance(refs, dict) or set(refs) != {"base", "current", "incoming"}:
+                raise ValueError("lineage refs are incomplete")
+            for source_ref in refs.values():
+                if not isinstance(source_ref, str) or not re.fullmatch(r"[0-9a-f]{40}", source_ref):
+                    raise ValueError("lineage ref is not an immutable commit")
+                if source_ref == ref:
+                    raise ValueError("lineage source cannot be its retaining commit")
+                # Existing base artifacts can predate a squash/rebase. Their
+                # exact bytes are anchored by the already-proven Git base;
+                # newly introduced joins still require source ancestry.
+                if not anchored:
+                    try:
+                        git(store.project, "merge-base", "--is-ancestor", source_ref, ref)
+                    except ValueError as exc:
+                        raise ValueError("foreign lineage source is not an ancestor of its retaining commit") from exc
+            args = SimpleNamespace(**{role + "_ref": value for role, value in refs.items()},
+                                   title=plan.get("title"), adjudication_file=None)
+            approved = plan.get("adjudication")
+            expected_plan, sources, decisions, prior_lineage = build_plan(
+                store, args, api, context=context, adjudication=approved)
+            if raw != encoded(expected_plan):
+                raise ValueError("lineage plan differs from its exact source plan")
+            projection = projected_files(expected_plan, sources, decisions, api)
+            expected = {"plan.json": encoded(expected_plan),
+                        "applied.json": encoded({"plan_id": plan_id, "track_id": expected_plan["joined_track_id"]})}
+            expected.update({"projection/" + name: content for name, content in projection.items()})
+            for role, files in sources.items():
+                expected.update({"snapshots/" + role + "/" + name: content for name, content in files.items()})
+            for role, files in prior_lineage.items():
+                expected.update({"snapshots/" + role + "/lineage/" + name: content for name, content in files.items()})
+            if retained != expected:
+                raise ValueError("lineage receipt, projection or snapshots are missing or differ from their exact sources")
+            plans[plan_id] = (expected_plan, sources, projection)
+        # Reject unrelated joins spliced into this fork's state, even if their
+        # source objects happen to exist in the same repository.
+        reachable = set()
+        pending = [cached_paths(ref, store.project, context)]
+        while pending:
+            files = pending.pop()
+            for name, content in files.items():
+                if not name.endswith("ledger.json"):
+                    continue
+                ledger = json.loads(content)
+                record = ledger.get("reconciliation")
+                if not isinstance(record, dict):
+                    continue
+                plan_id = record.get("plan_id")
+                if plan_id in reachable:
+                    continue
+                reachable.add(plan_id)
+                if plan_id in plans:
+                    _, sources, _ = plans[plan_id]
+                    pending.extend(sources.values())
+        if roots - reachable:
+            raise ValueError("lineage contains an unrelated join")
+        cache[key] = plans
+        return plans
+    finally:
+        visiting.remove(key)
+
+
+def nested_base_proof(live, events, plans, base_files):
+    record = live.get("reconciliation")
+    if not isinstance(record, dict) or record.get("plan_id") not in plans:
+        raise ValueError("nested descendant requires its applied immutable lineage")
+    plan, sources, projection = plans[record["plan_id"]]
+    if (live["track_id"] != plan["joined_track_id"]
+            or record != {"plan_id": plan["plan_id"], "snapshot_ref": plan["snapshot_ref"], "refs": plan["refs"]}
+            or not events.startswith(projection["events.jsonl"])):
+        raise ValueError("live descendant does not match its immutable lineage")
+    # Walk only source joins reachable from the live join, never an arbitrary
+    # same-track archive or an orphaned retained plan.
+    pending = [sources]
+    visited = set()
+    while pending:
+        source_group = pending.pop()
+        for files in source_group.values():
+            if (files.get("ledger.json") == base_files["ledger.json"]
+                    and files.get("events.jsonl") == base_files["events.jsonl"]):
+                return
+            if "ledger.json" in files:
+                source = json.loads(files["ledger.json"])
+                previous = source.get("reconciliation", {}).get("plan_id")
+                if previous in plans and previous not in visited:
+                    visited.add(previous)
+                    pending.append(plans[previous][1])
+    raise ValueError("nested lineage does not retain the exact common base")
 
 
 def validate_complete_event_stream(content):
@@ -279,7 +428,9 @@ def immutable(path, data):
             os.unlink(temporary)
 
 
-def build_plan(store, args, api):
+def build_plan(store, args, api, context=None, adjudication=None):
+    if context is None:
+        context = ({}, set())
     refs = {role: getattr(args, role + "_ref") for role in ("base", "current", "incoming")}
     for ref in refs.values():
         if not re.fullmatch(r"[0-9a-f]{40}", ref):
@@ -288,7 +439,8 @@ def build_plan(store, args, api):
             raise ValueError("input identity must be a commit")
     for role in ("current", "incoming"):
         git(store.project, "merge-base", "--is-ancestor", refs["base"], refs[role])
-    snapshots = {role: paths(ref, store.project) for role, ref in refs.items()}
+    snapshots = {role: cached_paths(ref, store.project, context) for role, ref in refs.items()}
+    lineage = {}
     base_files = snapshots["base"]
     base_canonical = {name for name in base_files if name in {"ledger.json", "events.jsonl"}}
     if base_canonical and base_canonical != {"ledger.json", "events.jsonl"}:
@@ -317,14 +469,26 @@ def build_plan(store, args, api):
         base_events = snapshots["base"]["events.jsonl"]
         if not base_events or not base_events.endswith(b"\n"):
             raise ValueError("common event stream must be nonempty and newline terminated")
+    nested_base_roles = set()
     for role in ("current", "incoming"):
         tracks = parsed[role][0]
         live = json.loads(snapshots[role]["ledger.json"])
         if base_id is not None:
-            if base_id not in tracks or not tracks[base_id][1].startswith(base_events):
-                raise ValueError("fork does not preserve the exact common event prefix")
-            if live["track_id"] != base_id and live.get("predecessor_track_id") != base_id:
-                raise ValueError("only the base continuation or its direct successor is supported")
+            direct = (base_id in tracks and tracks[base_id][1].startswith(base_events)
+                      and (live["track_id"] == base_id or live.get("predecessor_track_id") == base_id))
+            if not direct:
+                if not isinstance(live.get("reconciliation"), dict):
+                    if base_id not in tracks or not tracks[base_id][1].startswith(base_events):
+                        raise ValueError("fork does not preserve the exact common event prefix")
+                    raise ValueError("only the base continuation or its direct successor is supported")
+                if not lineage:
+                    lineage = {source_role: cached_paths(source_ref, store.project, context, lineage=True)
+                               for source_role, source_ref in refs.items()}
+                plans = validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"])
+                nested_base_proof(live, snapshots[role]["events.jsonl"], plans, base_files)
+                nested_base_roles.add(role)
+            # A nested role contributes its current live decisions; its retained
+            # base is ancestry evidence, never a competing current-role body.
             for name, content in snapshots["base"].items():
                 if name.startswith("archive/") and snapshots[role].get(name) != content:
                     raise ValueError("common historical archive changed or disappeared")
@@ -345,17 +509,26 @@ def build_plan(store, args, api):
                         raise ValueError(
                             f"conflicting decision {decision_id}; adjudicate before reconciliation"
                         )
+    if lineage:
+        for role in refs:
+            validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"])
     all_events = {}
-    for _, events in parsed.values():
-        for event_id, event in events.items():
+    event_groups = [events.values() for _, events in parsed.values()]
+    event_groups.extend(
+        [json.loads(line) for line in content.splitlines()]
+        for files in lineage.values() for name, content in files.items()
+        if name.endswith("events.jsonl")
+    )
+    for events in event_groups:
+        for event in events:
+            event_id = event["event_id"]
             if event_id in all_events and all_events[event_id] != event:
                 raise ValueError("conflicting event identity across forks")
             all_events[event_id] = event
-    adjudication = (
-        load_adjudication(args.adjudication_file, refs, api)
-        if args.adjudication_file
-        else None
-    )
+    if args.adjudication_file:
+        adjudication = load_adjudication(args.adjudication_file, refs, api)
+    elif adjudication is not None:
+        adjudication = validate_adjudication(adjudication, refs, api)
     if base_id is None:
         if adjudication is not None:
             raise ValueError("adjudication is unsupported for no-ledger-base reconciliation")
@@ -376,14 +549,14 @@ def build_plan(store, args, api):
         # Base-track decisions plus each fork's current decisions. Other
         # historical archives remain history, never reactivated as composition
         # decisions.
-        occurrences = decision_candidates(snapshots, parsed, base_id)
+        occurrences = decision_candidates(snapshots, parsed, base_id, nested_base_roles)
         by_id, conflicts = choose_decisions(occurrences, adjudication)
     provenance = {}
     roles = ("current", "incoming") if base_id is None else ("base", "current", "incoming")
     for role in roles:
         live = json.loads(snapshots[role]["ledger.json"])
         candidates = [live]
-        if base_id is not None and live["track_id"] != base_id:
+        if base_id is not None and live["track_id"] != base_id and role not in nested_base_roles:
             candidates.append(parsed[role][0][base_id][0])
         for ledger in candidates:
             for decision in ledger["decisions"]:
@@ -404,6 +577,12 @@ def build_plan(store, args, api):
     api.validate_ledger(projection)
     manifest = {"schema": "grilltrack/reconcile/v1", "refs": refs, "title": api.require_text(args.title, "title"),
                 "snapshots": {role: {name: digest(content) for name, content in sorted(files.items())} for role, files in snapshots.items()}}
+    if any(lineage.values()):
+        manifest["lineage"] = {
+            role: {name: digest(content) for name, content in sorted(files.items())}
+            for role, files in lineage.items()
+            if files
+        }
     if adjudication is not None:
         manifest["adjudication"] = adjudication
     if base_id is None:
@@ -421,7 +600,38 @@ def build_plan(store, args, api):
             decision_id: adjudication["decisions"][decision_id]
             for decision_id in sorted(conflicts)
         }
-    return plan, snapshots, by_id
+    return plan, snapshots, by_id, lineage
+
+
+def projected_files(plan, snapshots, decisions, api):
+    # Timestamp is fixed by immutable inputs so staged publication/retry is
+    # byte-identical. Original histories remain in the source snapshots.
+    now = max(
+        json.loads(files["ledger.json"])["updated_at"]
+        for files in snapshots.values()
+        if "ledger.json" in files
+    )
+    joined = {"schema_version": api.SCHEMA_VERSION, "track_id": plan["joined_track_id"], "title": plan["title"],
+              "status": "active", "created_at": now, "updated_at": now, "current_focus": None,
+              "decisions": [], "recommendation": None, "closeout": None, "pause": None, "last_pause": None,
+              "last_activation": {"mechanism": "implicit", "at": now},
+              "reconciliation": {"plan_id": plan["plan_id"], "snapshot_ref": plan["snapshot_ref"], "refs": plan["refs"]}}
+    for key in plan["decision_ids"]:
+        decision = copy.deepcopy(decisions[key])
+        decision["reconciliation_sources"] = plan["decision_provenance"][key]
+        if key in plan["needs_reverification"]:
+            decision["history"].append({"at": now, "from": decision["status"], "to": "needs_reverification",
+                "note": "fork composition invalidates prior current proof", "source_snapshot_ref": plan["snapshot_ref"]})
+            decision["status"] = "needs_reverification"
+            for field in ("verification_ref", "review_ref", "review_source_identity", "review_result"):
+                decision[field] = None
+            decision["review_classifications"] = []
+            decision["updated_at"] = now
+        joined["decisions"].append(decision)
+    api.validate_ledger(joined)
+    event = {"event_id": plan["plan_id"], "at": now, "action": "track_reconciled", "data": {"track_id": joined["track_id"], "snapshot_ref": plan["snapshot_ref"], "plan_id": plan["plan_id"]}}
+    new = {"ledger.json": encoded(joined), "events.jsonl": encoded(event).replace(b"\n", b" ").strip() + b"\n"}
+    return new
 
 
 def rollback(store, journal, old, new):
@@ -436,7 +646,7 @@ def rollback(store, journal, old, new):
 
 def reconcile_command(store, args, api):
     try:
-        plan, snapshots, decisions = build_plan(store, args, api)
+        plan, snapshots, decisions, lineage_sources = build_plan(store, args, api)
         state = store.state_dir
         journal = state / "work" / "reconcile-transaction.json"
         lineage = state / "lineage" / plan["plan_id"]
@@ -455,6 +665,11 @@ def reconcile_command(store, args, api):
             retained = {lineage / "plan.json": encoded(plan)}
             for role, files in snapshots.items():
                 retained.update({lineage / "snapshots" / role / name: content for name, content in files.items()})
+            for role, files in lineage_sources.items():
+                retained.update({
+                    lineage / "snapshots" / role / "lineage" / name: content
+                    for name, content in files.items()
+                })
             for path, content in retained.items():
                 ordinary_path(path)
                 if not path.is_file() or path.read_bytes() != content:
@@ -468,36 +683,15 @@ def reconcile_command(store, args, api):
             return
         if not journal.exists() and current != snapshots["current"]:
             raise ValueError("target state differs from the exact current commit snapshot")
+        for name, content in lineage_sources.get("current", {}).items():
+            original = state / "lineage" / name
+            ordinary_path(original)
+            if not original.is_file() or original.read_bytes() != content:
+                raise ValueError("target immutable lineage differs from the current commit")
         if not args.apply:
             api.output({**plan, "already_applied": False, "applied": False})
             return
-        # Timestamp is fixed by immutable inputs so staged publication/retry is
-        # byte-identical. Original histories remain in the source snapshots.
-        now = max(
-            json.loads(files["ledger.json"])["updated_at"]
-            for files in snapshots.values()
-            if "ledger.json" in files
-        )
-        joined = {"schema_version": api.SCHEMA_VERSION, "track_id": plan["joined_track_id"], "title": plan["title"],
-                  "status": "active", "created_at": now, "updated_at": now, "current_focus": None,
-                  "decisions": [], "recommendation": None, "closeout": None, "pause": None, "last_pause": None,
-                  "last_activation": {"mechanism": "implicit", "at": now},
-                  "reconciliation": {"plan_id": plan["plan_id"], "snapshot_ref": plan["snapshot_ref"], "refs": plan["refs"]}}
-        for key in plan["decision_ids"]:
-            decision = decisions[key]
-            decision["reconciliation_sources"] = plan["decision_provenance"][key]
-            if key in plan["needs_reverification"]:
-                decision["history"].append({"at": now, "from": decision["status"], "to": "needs_reverification",
-                    "note": "fork composition invalidates prior current proof", "source_snapshot_ref": plan["snapshot_ref"]})
-                decision["status"] = "needs_reverification"
-                for field in ("verification_ref", "review_ref", "review_source_identity", "review_result"):
-                    decision[field] = None
-                decision["review_classifications"] = []
-                decision["updated_at"] = now
-            joined["decisions"].append(decision)
-        api.validate_ledger(joined)
-        event = {"event_id": plan["plan_id"], "at": now, "action": "track_reconciled", "data": {"track_id": joined["track_id"], "snapshot_ref": plan["snapshot_ref"], "plan_id": plan["plan_id"]}}
-        new = {"ledger.json": encoded(joined), "events.jsonl": encoded(event).replace(b"\n", b" ").strip() + b"\n"}
+        new = projected_files(plan, snapshots, decisions, api)
         if journal.exists():
             if json.loads(journal.read_bytes()).get("plan_id") != plan["plan_id"]:
                 raise ValueError("another reconciliation is interrupted")
@@ -507,6 +701,9 @@ def reconcile_command(store, args, api):
         for role, files in snapshots.items():
             for name, content in files.items():
                 immutable(lineage / "snapshots" / role / name, content)
+        for role, files in lineage_sources.items():
+            for name, content in files.items():
+                immutable(lineage / "snapshots" / role / "lineage" / name, content)
         immutable(lineage / "plan.json", encoded(plan))
         for name, content in new.items():
             immutable(lineage / "projection" / name, content)
@@ -527,7 +724,7 @@ def reconcile_command(store, args, api):
             atomic(store.events_path, new["events.jsonl"])
             if failpoint == "reconcile_after_events":
                 raise ValueError("injected failure after events")
-            immutable(applied, encoded({"plan_id": plan["plan_id"], "track_id": joined["track_id"]}))
+            immutable(applied, encoded({"plan_id": plan["plan_id"], "track_id": plan["joined_track_id"]}))
             committed = True
             journal.unlink()
         except Exception:
