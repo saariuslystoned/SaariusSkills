@@ -8,6 +8,14 @@ from tests import test_reconcile as fixture
 class NestedReconcileTests(unittest.TestCase):
     def setUp(self):
         self.f = f = fixture.ReconcileTests()
+        # One historical archive is enough for the nested proof fixtures;
+        # the legacy suite separately exercises twenty-archive preservation.
+        write_state = f.write_state
+        def write_small_state(directory, data, log):
+            if directory.name.startswith('historical-') and directory.name != 'historical-0':
+                return
+            write_state(directory, data, log)
+        f.write_state = write_small_state
         f.setUp()
         self.first = f.plan()
         self.assertEqual(f.reconcile('--apply', self.first['plan_id']).returncode, 0)
@@ -202,4 +210,31 @@ class NestedReconcileTests(unittest.TestCase):
         r = f.reconcile('--adjudication-file', str(f.write_adjudication(self.selection)))
         self.assertEqual(r.returncode, 2)
         self.assertIn('conflicting event identity', r.stderr)
+        self.assertEqual(before, f.state_bytes())
+
+    def test_common_base_can_be_a_reachable_prior_join_projection(self):
+        f = self.f
+        original_current = f.current
+        state = f.project / '.grilltrack'
+        f.git('checkout', '--detach', self.base)
+        live = json.loads((state / 'ledger.json').read_text())
+        live['decisions'].append(fixture.decision('advanced-base'))
+        f.write_state(state, live, (state / 'events.jsonl').read_bytes() + fixture.events(600, 1))
+        advanced = f.commit('advanced common input')
+        for suffix, number in [('current', 601), ('incoming', 602)]:
+            f.git('checkout', '--detach', advanced)
+            live = json.loads((state / 'ledger.json').read_text())
+            live['decisions'].append(fixture.decision('advanced-' + suffix))
+            f.write_state(state, live, (state / 'events.jsonl').read_bytes() + fixture.events(number, 1))
+            setattr(f, suffix, f.commit('advanced fork ' + suffix))
+        f.base = advanced
+        f.git('checkout', '--detach', f.current)
+        plan = f.plan()
+        self.assertEqual(f.reconcile('--apply', plan['plan_id']).returncode, 0)
+        nested = self.join_commit([f.current, f.incoming], 'join beyond original projection')
+        f.base, f.current, f.incoming = self.base, original_current, nested
+        f.git('checkout', '--detach', f.current)
+        before = f.state_bytes()
+        composed = self.plan()
+        self.assertEqual(len(composed['decision_ids']), 20)
         self.assertEqual(before, f.state_bytes())

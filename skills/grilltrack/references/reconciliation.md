@@ -9,7 +9,9 @@ and either continue that track or have its direct successor active; and a
 no-ledger base, where the Git ancestor contains neither canonical ledger nor
 event stream and the two complete fork histories are reconciled independently.
 Shared-ledger forks may also be later canonical joins that retain the exact
-base ledger and event stream through their applied immutable lineage. The CLI
+base ledger and event stream through their applied immutable lineage. The base
+can appear in a reachable input snapshot or an earlier join's exact recomputed
+projection. The CLI
 recomputes retained plans from their Git inputs and checks plan identities,
 source bytes, projections, receipts, and the live join's event prefix. Newly
 introduced joins must name source commits ancestral to their retaining fork.

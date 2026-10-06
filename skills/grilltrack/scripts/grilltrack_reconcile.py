@@ -281,6 +281,8 @@ def validate_nested_lineage(ref, evidence, store, api, context, inherited):
                 if not isinstance(record, dict):
                     continue
                 plan_id = record.get("plan_id")
+                if not isinstance(plan_id, str):
+                    raise ValueError("lineage metadata requires an immutable plan id")
                 if plan_id in reachable:
                     continue
                 reachable.add(plan_id)
@@ -297,7 +299,8 @@ def validate_nested_lineage(ref, evidence, store, api, context, inherited):
 
 def nested_base_proof(live, events, plans, base_files):
     record = live.get("reconciliation")
-    if not isinstance(record, dict) or record.get("plan_id") not in plans:
+    if (not isinstance(record, dict) or not isinstance(record.get("plan_id"), str)
+            or record["plan_id"] not in plans):
         raise ValueError("nested descendant requires its applied immutable lineage")
     plan, sources, projection = plans[record["plan_id"]]
     if (live["track_id"] != plan["joined_track_id"]
@@ -316,10 +319,19 @@ def nested_base_proof(live, events, plans, base_files):
                 return
             if "ledger.json" in files:
                 source = json.loads(files["ledger.json"])
-                previous = source.get("reconciliation", {}).get("plan_id")
-                if previous in plans and previous not in visited:
+                record = source.get("reconciliation")
+                previous = record.get("plan_id") if isinstance(record, dict) else None
+                if isinstance(previous, str) and previous in plans and previous not in visited:
                     visited.add(previous)
-                    pending.append(plans[previous][1])
+                    prior_plan, prior_sources, prior_projection = plans[previous]
+                    if (source["track_id"] != prior_plan["joined_track_id"]
+                            or record != {"plan_id": prior_plan["plan_id"], "snapshot_ref": prior_plan["snapshot_ref"], "refs": prior_plan["refs"]}
+                            or not files["events.jsonl"].startswith(prior_projection["events.jsonl"])):
+                        raise ValueError("source descendant does not match its immutable lineage")
+                    if all(prior_projection[name] == base_files[name]
+                           for name in ("ledger.json", "events.jsonl")):
+                        return
+                    pending.append(prior_sources)
     raise ValueError("nested lineage does not retain the exact common base")
 
 
