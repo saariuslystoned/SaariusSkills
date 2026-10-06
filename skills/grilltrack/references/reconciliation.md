@@ -111,17 +111,57 @@ The adjudication file path is not bound; its validated contents are bound.
 Changed selections, reasons, or refs therefore reject the old approval, even
 when the file is supplied at the same path.
 
-In shared-ledger-base mode, apply preserves all three source ledgers, full
-event streams, and archives under
-`.grilltrack/lineage/<plan-id>/snapshots/{base,current,incoming}/`. Competing
-versions of the base track therefore remain distinct. In no-ledger-base mode,
-apply retains only the current and incoming fork snapshots; the plan retains
-the base commit ref and an empty base snapshot hash map to prove the absence
-of canonical state, and no base files are fabricated. For nested composition, the plan also binds each role's immutable lineage
-hashes and apply retains those artifacts under its source snapshot's `lineage/`
-directory. Existing canonical archives remain unchanged. Only ledger/event files
-and immutable join plans/receipts are imported; source work
-directories, private artifacts, and unrelated project files are excluded.
+New plans use `grilltrack/reconcile/v2`. Apply stores each distinct historical
+byte sequence once under `.grilltrack/lineage/objects/sha256/<digest>` and
+shares identical directory subtrees through a canonical Merkle DAG. Each
+`.grilltrack/lineage/<plan-id>/retention.json` references its logical root; its
+`applied.json` reference marker is published only after the canonical ledger
+and event transaction succeeds. Exact byte hashes, safe paths, complete object
+closure, source commits, plan identities, projections, receipts and live event
+prefixes are validated before history is accepted. A hash-valid foreign body
+still fails when it differs from the recomputed source history.
+
+The logical root preserves the original role ledgers, complete event streams,
+archives, plan, projection and receipt. Its `snapshots/<role>/lineage.json`
+references the source's immutable lineage tree instead of copying old lineage
+inside another snapshot. Source definitions are reconstructed once per root;
+new joins never create backups of earlier snapshots. The plan binds compact
+per-role lineage-tree hashes in `retention.lineage`, as well as the exact refs,
+role file hashes, provenance and explicit adjudication. Inspect source bodies
+through these references, not by expecting physical snapshot directories.
+
+In no-ledger-base mode, the plan retains the base commit ref and empty base
+snapshot map; no canonical base files are fabricated. Existing canonical
+archives remain unchanged. Only validated ledger/event data and immutable join
+artifacts enter the reference graph; source work directories, private proof
+and unrelated project files remain excluded. Unreferenced source objects are
+not imported. Referenced objects, including prior source-index edges, must exist
+and match their addresses; missing or corrupt data fails closed.
+
+### Compatibility and migration boundary
+
+The storage-aware CLI reads existing v1 raw snapshots without changing or
+removing them. A later v2 reconciliation can reference their exact contents
+while retaining the existing files unchanged. This additive transition can
+leave historical v1 copies alongside the new shared store; it does not claim
+to compact already committed history or authorize deleting those originals.
+New storage growth shares contents and subtrees instead of making further raw
+snapshot copies. Destructive compaction of existing history is a separate,
+reviewed migration, outside this command.
+
+New plans always bind the v2 format in their digest. An unapplied v1 approval
+cannot silently authorize a v2 apply: regenerate and approve a fresh plan.
+Completed v1 retries and interrupted v1 transactions with their original journal
+continue under the original v1 digest, bytes and recovery contract. Old
+pre-journal staging remains preserved; replan with the storage-aware CLI and
+obtain the new approval rather than removing its artifacts or assuming the old
+digest authorizes a different representation.
+
+Earlier reconciler versions cannot read v2 references and must not be used for
+reconciliation or recovery once a project has v2 lineage. Install and verify
+the storage-aware version through the normal owner-approved plugin workflow
+before using it in a product. Never hot-edit installed bytes, rewrite a product
+ledger, or treat a source PR as permission to migrate or resume paused work.
 
 The new canonical track retains original decision IDs and source provenance.
 Locked, implemented, verified, and already invalidated decisions become

@@ -69,11 +69,16 @@ class NestedReconcileTests(unittest.TestCase):
     def mutate_incoming(self, name, mutate):
         f = self.f
         f.git('checkout', '--detach', f.incoming)
-        p = f.project / '.grilltrack' / 'lineage' / self.second['plan_id'] / name
+        plan_id = self.second['plan_id']
+        if name.startswith('../'):
+            plan_id, name = name[3:].split('/', 1)
         if mutate is None:
-            p.unlink()
+            if name == 'applied.json':
+                (f.project / '.grilltrack/lineage' / plan_id / name).unlink()
+            else:
+                fixture.retained_leaf_path(f.project, plan_id, name).unlink()
         else:
-            mutate(p)
+            fixture.rewrite_retained(f.project, plan_id, name, mutate)
         f.incoming = f.commit('tampered retained proof')
         f.git('checkout', '--detach', f.current)
 
@@ -98,12 +103,14 @@ class NestedReconcileTests(unittest.TestCase):
             d = chosen[original['id']]
             self.assertEqual(d['choice'], original['choice'])
             self.assertEqual(d['history'][:-1], original['history'])
-        root = state / 'lineage' / plan['plan_id'] / 'snapshots'
-        for role, files in plan['lineage'].items():
-            ref = plan['refs'][role]
-            for name in files:
-                self.assertEqual((root / role / 'lineage' / name).read_bytes(),
-                                 subprocess.check_output(['git', '-C', str(f.project), 'show', ref + ':.grilltrack/lineage/' + name]))
+        codec, reconcile = fixture.retention_modules()
+        logical = fixture.retained(f.project, plan['plan_id'])
+        objects = {p.name: p.read_bytes() for p in (state / 'lineage/objects/sha256').iterdir()}
+        for role, expected_root in plan['retention']['lineage'].items():
+            index = json.loads(logical['snapshots/' + role + '/lineage.json'])
+            self.assertEqual(index['tree'], expected_root)
+            self.assertEqual(codec.unpack(index['tree'], objects),
+                             reconcile.lineage_paths(plan['refs'][role], f.project))
         self.assertEqual(f.cli('validate').returncode, 0)
         self.assertEqual(f.cli('focus', '--domain', 'later-progress', '--cadence', 'sequential').returncode, 0)
         progress = f.state_bytes()
@@ -139,7 +146,7 @@ class NestedReconcileTests(unittest.TestCase):
         self.assertEqual(f.cli('show').returncode, 2)
         retry = f.reconcile('--adjudication-file', str(manifest), '--apply', plan['plan_id'])
         self.assertEqual(retry.returncode, 0, retry.stderr)
-        retained = f.project / '.grilltrack/lineage' / plan['plan_id'] / 'snapshots/incoming/lineage' / self.second['plan_id'] / 'applied.json'
+        retained = fixture.retained_leaf_path(f.project, self.second['plan_id'], 'applied.json')
         retained.write_text('{}\n')
         r = f.reconcile('--adjudication-file', str(manifest), '--apply', plan['plan_id'])
         self.assertEqual(r.returncode, 2)
@@ -166,7 +173,7 @@ class NestedReconcileTests(unittest.TestCase):
                 before = self.f.state_bytes()
                 r = self.f.reconcile('--adjudication-file', str(self.f.write_adjudication(self.selection)))
                 self.assertEqual(r.returncode, 2)
-                self.assertIn('inherited immutable lineage', r.stderr)
+                self.assertIn('lineage', r.stderr)
                 self.assertEqual(before, self.f.state_bytes())
 
     def test_live_event_stream_requires_the_recomputed_projection_prefix(self):
@@ -253,9 +260,15 @@ class NestedReconcileTests(unittest.TestCase):
         self.join_commit([f.current, f.incoming], 'unrelated canonical join')
         preserved = f.root / 'orphan-proof'
         shutil.copytree(f.project / '.grilltrack/lineage' / orphan['plan_id'], preserved)
+        preserved_objects = f.root / 'orphan-objects'
+        shutil.copytree(f.project / '.grilltrack/lineage/objects/sha256', preserved_objects)
         f.base, f.current, f.incoming = saved
         f.git('checkout', '--detach', f.incoming)
         shutil.copytree(preserved, f.project / '.grilltrack/lineage' / orphan['plan_id'])
+        for p in preserved_objects.iterdir():
+            target = f.project / '.grilltrack/lineage/objects/sha256' / p.name
+            if not target.exists():
+                target.write_bytes(p.read_bytes())
         unrelated = fixture.ledger('unrelated-archive', [], 'closed')
         unrelated['reconciliation'] = {'plan_id': orphan['plan_id']}
         f.write_state(f.project / '.grilltrack/archive/unrelated-archive', unrelated, fixture.events(700, 1))
