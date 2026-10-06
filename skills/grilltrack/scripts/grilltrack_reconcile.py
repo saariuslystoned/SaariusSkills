@@ -206,12 +206,19 @@ def cached_paths(ref, project, context, *, lineage=False):
     return cache[key]
 
 
-def validate_nested_lineage(ref, evidence, store, api, context, inherited):
+def validate_join_descendant(ledger, events, plan, projection):
+    if (ledger["track_id"] != plan["joined_track_id"]
+            or ledger.get("reconciliation") != {"plan_id": plan["plan_id"], "snapshot_ref": plan["snapshot_ref"], "refs": plan["refs"]}
+            or not events.startswith(projection["events.jsonl"])):
+        raise ValueError("descendant does not match its immutable lineage")
+
+
+def validate_nested_lineage(ref, evidence, store, api, context, inherited, anchor_ref):
     """Recompute every retained join from its exact Git inputs and check bytes."""
     cache, visiting = context
     if any(evidence.get(name) != content for name, content in inherited.items()):
         raise ValueError("inherited immutable lineage changed or disappeared from the common base")
-    key = (ref, digest(encoded({name: digest(value) for name, value in evidence.items()})),
+    key = (ref, anchor_ref, digest(encoded({name: digest(value) for name, value in evidence.items()})),
            digest(encoded({name: digest(value) for name, value in inherited.items()})))
     if key in cache:
         return cache[key]
@@ -266,29 +273,56 @@ def validate_nested_lineage(ref, evidence, store, api, context, inherited):
                 expected.update({"snapshots/" + role + "/lineage/" + name: content for name, content in files.items()})
             if retained != expected:
                 raise ValueError("lineage receipt, projection or snapshots are missing or differ from their exact sources")
+            # Prior roots can be retained only inside a source-lineage
+            # snapshot after another join. Reuse their recursively validated
+            # definitions rather than requiring duplicate top-level artifacts.
+            for role, prior in prior_lineage.items():
+                previous_plans = validate_nested_lineage(
+                    refs[role], prior, store, api, context,
+                    cached_paths(refs["base"], store.project, context, lineage=True), refs["base"])
+                for previous_id, previous in previous_plans.items():
+                    if previous_id in plans and plans[previous_id] != previous:
+                        raise ValueError("competing immutable lineage identities")
+                    plans[previous_id] = previous
             plans[plan_id] = (expected_plan, sources, projection)
-        # Reject unrelated joins spliced into this fork's state, even if their
-        # source objects happen to exist in the same repository.
+        # New roots must belong to the live join's source chain. Historical
+        # roots can be seeded only from validated common-base ledger records,
+        # whose exact artifacts were inherited above; an arbitrary fork archive
+        # cannot introduce a new root merely by naming its plan id.
         reachable = set()
-        pending = [cached_paths(ref, store.project, context)]
+        current = cached_paths(ref, store.project, context)
+        pending = [(json.loads(current["ledger.json"]), current["events.jsonl"])]
+        anchors = {name.split("/", 1)[0] for name in inherited}
+        base_files = cached_paths(anchor_ref, store.project, context)
+        for name, content in base_files.items():
+            if not name.endswith("ledger.json"):
+                continue
+            ledger = json.loads(content)
+            record = ledger.get("reconciliation")
+            if record is None:
+                continue
+            if not isinstance(record, dict) or not isinstance(record.get("plan_id"), str):
+                raise ValueError("lineage metadata requires an immutable plan id")
+            if record["plan_id"] not in anchors:
+                raise ValueError("common base historical join requires its immutable lineage")
+            pending.append((ledger, base_files[name.removesuffix("ledger.json") + "events.jsonl"]))
         while pending:
-            files = pending.pop()
-            for name, content in files.items():
-                if not name.endswith("ledger.json"):
-                    continue
-                ledger = json.loads(content)
-                record = ledger.get("reconciliation")
-                if not isinstance(record, dict):
-                    continue
-                plan_id = record.get("plan_id")
-                if not isinstance(plan_id, str):
-                    raise ValueError("lineage metadata requires an immutable plan id")
-                if plan_id in reachable:
-                    continue
-                reachable.add(plan_id)
-                if plan_id in plans:
-                    _, sources, _ = plans[plan_id]
-                    pending.extend(sources.values())
+            ledger, events = pending.pop()
+            record = ledger.get("reconciliation")
+            if record is None:
+                continue
+            if not isinstance(record, dict) or not isinstance(record.get("plan_id"), str):
+                raise ValueError("lineage metadata requires an immutable plan id")
+            plan_id = record["plan_id"]
+            if plan_id not in plans:
+                raise ValueError("source join requires its applied immutable lineage")
+            plan, sources, projection = plans[plan_id]
+            validate_join_descendant(ledger, events, plan, projection)
+            if plan_id in reachable:
+                continue
+            reachable.add(plan_id)
+            pending.extend((json.loads(files["ledger.json"]), files["events.jsonl"])
+                           for files in sources.values() if "ledger.json" in files)
         if roots - reachable:
             raise ValueError("lineage contains an unrelated join")
         cache[key] = plans
@@ -303,10 +337,7 @@ def nested_base_proof(live, events, plans, base_files):
             or record["plan_id"] not in plans):
         raise ValueError("nested descendant requires its applied immutable lineage")
     plan, sources, projection = plans[record["plan_id"]]
-    if (live["track_id"] != plan["joined_track_id"]
-            or record != {"plan_id": plan["plan_id"], "snapshot_ref": plan["snapshot_ref"], "refs": plan["refs"]}
-            or not events.startswith(projection["events.jsonl"])):
-        raise ValueError("live descendant does not match its immutable lineage")
+    validate_join_descendant(live, events, plan, projection)
     # Walk only source joins reachable from the live join, never an arbitrary
     # same-track archive or an orphaned retained plan.
     pending = [sources]
@@ -324,10 +355,7 @@ def nested_base_proof(live, events, plans, base_files):
                 if isinstance(previous, str) and previous in plans and previous not in visited:
                     visited.add(previous)
                     prior_plan, prior_sources, prior_projection = plans[previous]
-                    if (source["track_id"] != prior_plan["joined_track_id"]
-                            or record != {"plan_id": prior_plan["plan_id"], "snapshot_ref": prior_plan["snapshot_ref"], "refs": prior_plan["refs"]}
-                            or not files["events.jsonl"].startswith(prior_projection["events.jsonl"])):
-                        raise ValueError("source descendant does not match its immutable lineage")
+                    validate_join_descendant(source, files["events.jsonl"], prior_plan, prior_projection)
                     if all(prior_projection[name] == base_files[name]
                            for name in ("ledger.json", "events.jsonl")):
                         return
@@ -496,7 +524,7 @@ def build_plan(store, args, api, context=None, adjudication=None):
                 if not lineage:
                     lineage = {source_role: cached_paths(source_ref, store.project, context, lineage=True)
                                for source_role, source_ref in refs.items()}
-                plans = validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"])
+                plans = validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"], refs["base"])
                 nested_base_proof(live, snapshots[role]["events.jsonl"], plans, base_files)
                 nested_base_roles.add(role)
             # A nested role contributes its current live decisions; its retained
@@ -523,7 +551,7 @@ def build_plan(store, args, api, context=None, adjudication=None):
                         )
     if lineage:
         for role in refs:
-            validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"])
+            validate_nested_lineage(refs[role], lineage[role], store, api, context, lineage["base"], refs["base"])
     all_events = {}
     event_groups = [events.values() for _, events in parsed.values()]
     event_groups.extend(

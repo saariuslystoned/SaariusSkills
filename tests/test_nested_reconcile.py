@@ -2,6 +2,7 @@
 import json
 import unittest
 import subprocess
+import shutil
 from tests import test_reconcile as fixture
 
 
@@ -180,7 +181,7 @@ class NestedReconcileTests(unittest.TestCase):
         before = f.state_bytes()
         r = f.reconcile('--adjudication-file', str(f.write_adjudication(self.selection)))
         self.assertEqual(r.returncode, 2)
-        self.assertIn('live descendant', r.stderr)
+        self.assertIn('descendant', r.stderr)
         self.assertEqual(before, f.state_bytes())
 
     def test_retained_closure_accepts_another_subsequent_join(self):
@@ -237,4 +238,31 @@ class NestedReconcileTests(unittest.TestCase):
         before = f.state_bytes()
         composed = self.plan()
         self.assertEqual(len(composed['decision_ids']), 20)
+        self.assertEqual(before, f.state_bytes())
+
+    def test_unrelated_archive_cannot_launder_a_source_ancestral_join(self):
+        f = self.f
+        saved = f.base, f.current, f.incoming
+        f.current, f.incoming = self.second['refs']['current'], self.second['refs']['incoming']
+        f.git('checkout', '--detach', f.current)
+        extra = f.reconcile('--title', 'Unrelated duplicate join')
+        self.assertEqual(extra.returncode, 0, extra.stderr)
+        orphan = json.loads(extra.stdout)
+        applied = f.reconcile('--title', 'Unrelated duplicate join', '--apply', orphan['plan_id'])
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.join_commit([f.current, f.incoming], 'unrelated canonical join')
+        preserved = f.root / 'orphan-proof'
+        shutil.copytree(f.project / '.grilltrack/lineage' / orphan['plan_id'], preserved)
+        f.base, f.current, f.incoming = saved
+        f.git('checkout', '--detach', f.incoming)
+        shutil.copytree(preserved, f.project / '.grilltrack/lineage' / orphan['plan_id'])
+        unrelated = fixture.ledger('unrelated-archive', [], 'closed')
+        unrelated['reconciliation'] = {'plan_id': orphan['plan_id']}
+        f.write_state(f.project / '.grilltrack/archive/unrelated-archive', unrelated, fixture.events(700, 1))
+        f.incoming = f.commit('splice unrelated join via archive metadata')
+        f.git('checkout', '--detach', f.current)
+        before = f.state_bytes()
+        r = f.reconcile('--adjudication-file', str(f.write_adjudication(self.selection)))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn('unrelated join', r.stderr)
         self.assertEqual(before, f.state_bytes())

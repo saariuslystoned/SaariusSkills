@@ -17,6 +17,10 @@ source bytes, projections, receipts, and the live join's event prefix. Newly
 introduced joins must name source commits ancestral to their retaining fork.
 Older joins inherited from the common base are bound to that base's exact
 artifact bytes, accommodating earlier squash or ordinary single-parent commits.
+New roots must be reachable through validated live source joins. Historical
+roots can be seeded only through matching common-base records and exact inherited
+artifacts; an unrelated fork archive cannot establish reachability by naming a
+plan ID. Embedded prior lineage remains usable without duplicate top-level roots.
 Missing or changed inherited artifacts and unrelated retained joins fail closed.
 In both modes, shared historical archives must remain byte-identical where
 applicable. This does not implement cross-repository orchestration or
