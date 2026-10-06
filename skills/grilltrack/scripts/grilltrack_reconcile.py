@@ -172,7 +172,7 @@ def read_blobs(project, selected):
     if not selected:
         return {}
     identities = list(dict.fromkeys(selected.values()))
-    if any(not re.fullmatch(r"[0-9a-f]{40}", key) for key in identities):
+    if any(not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", key) for key in identities):
         raise ValueError("invalid source blob identity")
     result = subprocess.run(["git", "-C", str(project), "cat-file", "--batch"],
                             input=("\n".join(identities) + "\n").encode(), capture_output=True)

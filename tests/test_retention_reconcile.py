@@ -2,6 +2,7 @@
 import json
 import hashlib
 import unittest
+import subprocess
 from types import SimpleNamespace
 from tests import test_reconcile as fixture
 
@@ -13,6 +14,15 @@ class RetentionReconcileTests(unittest.TestCase):
 
     def tearDown(self):
         self.f.tearDown()
+
+    def test_git_batch_reader_accepts_sha256_blob_identities(self):
+        _, reconcile = fixture.retention_modules()
+        project = self.f.root / 'sha256-object-fixture'; project.mkdir()
+        subprocess.run(['git', 'init', '--object-format=sha256', '-q', str(project)], check=True)
+        raw = b'neutral SHA-256 blob\n'
+        oid = subprocess.check_output(['git', '-C', str(project), 'hash-object', '-w', '--stdin'], input=raw).decode().strip()
+        self.assertEqual(len(oid), 64)
+        self.assertEqual(reconcile.read_blobs(project, {'ledger.json': oid}), {'ledger.json': raw})
 
     def test_default_plan_binds_single_storage_format(self):
         before = self.f.state_bytes()

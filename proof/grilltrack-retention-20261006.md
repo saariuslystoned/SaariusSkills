@@ -21,6 +21,13 @@ remain reconstructible and subject to exact-source recomputation.
 ## Acceptance evidence
 
 Public tests construct fresh neutral histories inside temporary repositories.
+The first comprehensive Spark review identified two P2 defects, both confirmed
+with failing tests and repaired: aliased DAG expansion and SHA-256 Git blob
+identities in the new batch reader. Logical expansion is counted before path
+materialization and limited to 100,000 files /256 MiB of file plus path bytes;
+pack/unpack fail explicitly at the same boundary, without truncation. This
+does not change the existing top-level immutable commit format contract.
+
 They cover binary/text/empty roundtrips, deterministic hashes, shared subtrees,
 missing/corrupt objects, unsafe paths, duplicate JSON keys and traversal depth;
 validly rehashed foreign artifacts still fail source/provenance checks.

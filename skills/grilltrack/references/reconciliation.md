@@ -137,6 +137,11 @@ artifacts enter the reference graph; source work directories, private proof
 and unrelated project files remain excluded. Unreferenced source objects are
 not imported. Referenced objects, including prior source-index edges, must exist
 and match their addresses; missing or corrupt data fails closed.
+The codec validates a DAG's logical expansion before materializing shared
+aliases: at most 100,000 files and 256 MiB of file bytes plus ASCII path bytes,
+with directory depth at most 256. Packing uses the same limits. Oversized
+history fails explicitly; no records are truncated or discarded. Existing
+reconciliation provenance recursion remains separately bounded to 32.
 
 ### Compatibility and migration boundary
 

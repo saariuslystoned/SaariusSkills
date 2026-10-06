@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -145,6 +146,33 @@ class RetentionCodecTests(unittest.TestCase):
         root = hashlib.sha256(raw).hexdigest(); objects[root] = raw
         with self.assertRaisesRegex(ValueError, 'depth'):
             codec.unpack(root, objects)
+
+    def test_shared_dag_expansion_is_rejected_before_materialization(self):
+        leaf = b'x'
+        leaf_hash = hashlib.sha256(leaf).hexdigest()
+        objects = {leaf_hash: leaf}
+        child = {'kind': 'file', 'sha256': leaf_hash}
+        for _ in range(12):
+            raw = json.dumps({'schema': codec.SCHEMA, 'entries': {
+                'a': child, 'b': child}}, sort_keys=True, separators=(',', ':')).encode()
+            root = hashlib.sha256(raw).hexdigest(); objects[root] = raw
+            child = {'kind': 'tree', 'sha256': root}
+        with mock.patch.object(codec, 'MAX_EXPANDED_FILES', 1024, create=True):
+            with self.assertRaisesRegex(ValueError, 'expansion'):
+                codec.unpack(root, objects)
+
+    def test_expansion_budget_counts_repeated_bytes_and_full_paths(self):
+        files = {'left/leaf': b'payload', 'right/leaf': b'payload'}
+        root, objects = codec.pack(files)
+        exact = sum(len(path.encode()) + len(raw) for path, raw in files.items())
+        with mock.patch.object(codec, 'MAX_EXPANDED_BYTES', exact, create=True):
+            self.assertEqual(codec.unpack(root, objects), files)
+            self.assertEqual(codec.pack(files), (root, objects))
+        with mock.patch.object(codec, 'MAX_EXPANDED_BYTES', exact - 1, create=True):
+            with self.assertRaisesRegex(ValueError, 'expansion'):
+                codec.unpack(root, objects)
+            with self.assertRaisesRegex(ValueError, 'expansion'):
+                codec.pack(files)
 
     def test_non_string_reference_kind_fails_with_value_error(self):
         raw = json.dumps({'schema': codec.SCHEMA, 'entries': {

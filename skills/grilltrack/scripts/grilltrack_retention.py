@@ -3,7 +3,9 @@
 The codec stores file bytes and canonical JSON directory descriptors in one
 hash-addressed object map.  Directory traversal is bounded to 256 levels when
 packing and unpacking; this is intentionally separate from the existing reconciliation
-recursion bound of 32.
+recursion bound of 32. Logical expansion is limited to 100,000 files and
+256 MiB of file bytes plus ASCII path bytes; oversized inputs fail before
+materializing aliases, without truncating historical content.
 """
 from __future__ import annotations
 
@@ -15,6 +17,8 @@ from typing import Dict, Mapping, Tuple
 
 SCHEMA = "grilltrack/retention-tree/v1"
 MAX_DIRECTORY_DEPTH = 256
+MAX_EXPANDED_FILES = 100_000
+MAX_EXPANDED_BYTES = 256 * 1024 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _NAME = re.compile(r"[A-Za-z0-9._-]+\Z")
 
@@ -44,18 +48,27 @@ def _tree_bytes(entries: Mapping[str, Mapping[str, str]]) -> bytes:
     ).encode("ascii")
 
 
+def _check_expansion(count: int, byte_count: int) -> None:
+    if count > MAX_EXPANDED_FILES or byte_count > MAX_EXPANDED_BYTES:
+        raise ValueError("retention expansion exceeds file or byte budget")
+
+
 def pack(files: Mapping[str, bytes]) -> Tuple[str, Dict[str, bytes]]:
     """Pack a path-to-bytes mapping into a root hash and immutable objects."""
     if not isinstance(files, Mapping):
         raise ValueError("files must be a mapping")
 
     root: dict = {}
+    byte_count = 0
+    _check_expansion(len(files), 0)
     for path, data in files.items():
         parts = _safe_path(path)
         if len(parts) - 1 > MAX_DIRECTORY_DEPTH:
             raise ValueError("directory depth exceeds 256")
         if not isinstance(data, bytes):
             raise ValueError(f"file {path!r} must contain bytes")
+        byte_count += len(data) + len(path.encode("ascii"))
+        _check_expansion(len(files), byte_count)
         directory = root
         for component in parts[:-1]:
             child = directory.get(component)
@@ -154,51 +167,68 @@ def unpack(root_sha256: str, objects: Mapping[str, bytes]) -> Dict[str, bytes]:
     if root_sha256 not in objects:
         raise ValueError(f"missing object {root_sha256}")
 
-    result: Dict[str, bytes] = {}
-    active = set()
-    memo = {}
+    # Count aliases arithmetically over the DAG before constructing expanded
+    # paths. A tiny shared DAG can otherwise request exponentially many files.
+    sizes = {}
+    nodes = {}
+    sizing = set()
+    verified_files = set()
 
-    def walk_tree(tree_hash: str, prefix: str, depth: int) -> None:
+    def measure(tree_hash: str, depth: int):
         if depth > MAX_DIRECTORY_DEPTH:
             raise ValueError("directory depth exceeds 256")
-        if tree_hash in active:
+        if tree_hash in sizing:
             raise ValueError("cyclic tree reference")
-        if tree_hash in memo:
-            files, height = memo[tree_hash]
+        if tree_hash in sizes:
+            count, payload, path_bytes, height = sizes[tree_hash]
             if depth + height > MAX_DIRECTORY_DEPTH:
                 raise ValueError("directory depth exceeds 256")
-            for path, data in files:
-                result[f"{prefix}/{path}" if prefix else path] = data
-            return
-        active.add(tree_hash)
+            return sizes[tree_hash]
+        sizing.add(tree_hash)
         try:
             descriptor = _parse_tree(objects.get(tree_hash), tree_hash)
-            local = []
-            height = 0
-            for name in sorted(descriptor["entries"]):
-                reference = descriptor["entries"][name]
+            nodes[tree_hash] = descriptor["entries"]
+            count = payload = path_bytes = height = 0
+            for name, reference in descriptor["entries"].items():
                 child_hash = reference["sha256"]
-                path = f"{prefix}{name}" if not prefix else f"{prefix}/{name}"
                 if reference["kind"] == "file":
                     raw = objects.get(child_hash)
                     if raw is None:
                         raise ValueError(f"missing object {child_hash}")
-                    if _sha256(raw) != child_hash:
-                        raise ValueError(f"object hash mismatch for {child_hash}")
-                    result[path] = raw
-                    local.append((name, raw))
+                    if child_hash not in verified_files:
+                        if _sha256(raw) != child_hash:
+                            raise ValueError(f"object hash mismatch for {child_hash}")
+                        verified_files.add(child_hash)
+                    count += 1
+                    payload += len(raw)
+                    path_bytes += len(name)
                 else:
-                    walk_tree(child_hash, path, depth + 1)
-                    child_files, child_height = memo[child_hash]
+                    child_count, child_payload, child_paths, child_height = measure(child_hash, depth + 1)
+                    count += child_count
+                    payload += child_payload
+                    path_bytes += child_paths + (len(name) + 1) * child_count
                     height = max(height, child_height + 1)
-                    for suffix, data in child_files:
-                        local.append((f"{name}/{suffix}", data))
-            memo[tree_hash] = (tuple(local), height)
+                _check_expansion(count, payload + path_bytes)
+            sizes[tree_hash] = (count, payload, path_bytes, height)
+            return sizes[tree_hash]
         finally:
-            active.remove(tree_hash)
+            sizing.remove(tree_hash)
 
-    root = _parse_tree(objects[root_sha256], root_sha256)
-    # The root must be walked through the same closure checks as every child.
-    del root
-    walk_tree(root_sha256, "", 0)
+    measure(root_sha256, 0)
+    result: Dict[str, bytes] = {}
+
+    def expand(tree_hash: str, prefix: str) -> None:
+        # Closure, depth and total expanded size are already proven. Retain
+        # only final paths, rather than every ancestor's expanded path list.
+        # Empty aliased subtrees require no path materialization at all.
+        if not sizes[tree_hash][0]:
+            return
+        for name, reference in sorted(nodes[tree_hash].items()):
+            path = f"{prefix}/{name}" if prefix else name
+            if reference["kind"] == "file":
+                result[path] = objects[reference["sha256"]]
+            else:
+                expand(reference["sha256"], path)
+
+    expand(root_sha256, "")
     return result
