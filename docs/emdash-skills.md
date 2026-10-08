@@ -1,10 +1,11 @@
 # EmDash skills
 
-The package includes six discoverable skills:
+The package includes seven discoverable skills:
 
 | Skill | Responsibility |
 | --- | --- |
 | `emdash-sites` | Implementation decisions, draft safety, plugin surfaces and observable verification |
+| `emdash-ci-deploy` | CI target isolation, deployment ordering and commit-aware release verification |
 | `emdash-commerce` | Official-source platform comparisons before major Commerce/companion-plugin GrillTrack proposals or locks |
 | `building-emdash-site` | Upstream schema, seed, queries and rendering mechanics |
 | `creating-plugins` | Upstream native/sandboxed plugin mechanics |
@@ -14,10 +15,10 @@ The package includes six discoverable skills:
 ## Installation and ownership
 
 Codex discovers `skills/` through `.codex-plugin/plugin.json`; Cursor lists the
-six directories in `.cursor-plugin/plugin.json`; Claude Code discovers the
+seven directories in `.cursor-plugin/plugin.json`; Claude Code discovers the
 standard `skills/` directory. AGY/path installations use the same directories
 under the root plugin. Use the [repository install guide](../README.md#install).
-For manual skill-only installations, copy all six complete directories into
+For manual skill-only installations, copy all seven complete directories into
 the harness's supported skill location. EmDash skills do not require the ACP
 bridges. No installer or account configuration is changed by adding these files.
 
@@ -38,7 +39,7 @@ a changed upstream excerpt stops packaging for review instead of silently
 applying an outdated patch. These corrections are present in the primary skill,
 so loading `creating-plugins` alone receives the safe examples.
 
-`emdash-sites` and `emdash-commerce` are maintained separately from the upstream
+`emdash-ci-deploy`, `emdash-sites` and `emdash-commerce` are maintained separately from the upstream
 mirror. Sites adds implementation judgment and CLI draft/revision guidance;
 Commerce prepares source-linked comparisons of 3–5 relevant platforms before
 material product, API or data-model proposals. Commerce consumes current locks,
@@ -62,3 +63,6 @@ not its working files. Update this document's pin after reviewing a new release.
 Run `python3 -m unittest discover -s tests -p 'test*emdash*.py'` and the packaging
 suite before submitting changes. Updating the bundle does not update any site's
 EmDash dependency, change production content or authorize a deployment.
+
+CI Deploy provides portable pipeline and verification guidance. It does not bundle
+a deploy script or a proven live pipeline, and preserves project approval gates.
